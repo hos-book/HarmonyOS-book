@@ -1,0 +1,22 @@
+{
+  "data": {
+    "hasBook": false,
+    "hasCover": false,
+    "bookId": "",
+    "bookTitle": "",
+    "author": "",
+    "chapterTitle": "",
+    "coverUri": "",
+    "cardLabel": "",
+    "progressLabel": "",
+    "actionLabel": "",
+    "target": "home"
+  },
+  "actions": {
+    "continueReading": {
+      "action": "router",
+      "abilityName": "EntryAbility",
+      "params": { "from": "widget", "target": "{{target}}", "bookId": "{{bookId}}" }
+    }
+  }
+}

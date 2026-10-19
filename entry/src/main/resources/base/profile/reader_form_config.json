@@ -1,0 +1,19 @@
+{
+  "forms": [
+    {
+      "name": "ReaderCard",
+      "displayName": "$string:reader_card_label",
+      "description": "$string:reader_card_desc",
+      "src": "./js/ReaderCard/pages/paper/paper",
+      "uiSyntax": "hml",
+      "window": { "designWidth": 320, "autoDesignWidth": true },
+      "colorMode": "auto",
+      "isDefault": true,
+      "updateEnabled": true,
+      "scheduledUpdateTime": "10:30",
+      "updateDuration": 0,
+      "defaultDimension": "2*2",
+      "supportDimensions": ["2*2"]
+    }
+  ]
+}

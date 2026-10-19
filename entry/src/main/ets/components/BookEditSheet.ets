@@ -164,7 +164,8 @@ export struct BookEditSheet {
         .maxLength(200).onChange((value: string): void => { this.title = value; })
       Row({ space: 12 }) {
         ForEach([this.cover], (coverUrl: string) => {
-          CoverImage({ url: coverUrl, title: this.title, imgWidth: 66, imgHeight: 88, useFixedHeight: true })
+          CoverImage({ url: coverUrl, title: this.title, author: this.book.author,
+            localPlaceholder: this.book.id.startsWith('import_'), imgWidth: 66, imgHeight: 88, useFixedHeight: true })
         }, (coverUrl: string): string => coverUrl)
         Column({ space: 8 }) {
           Button($r('app.string.shelf_edit_local_cover')).backgroundColor(AppColor.Brand).fontColor(Color.White)

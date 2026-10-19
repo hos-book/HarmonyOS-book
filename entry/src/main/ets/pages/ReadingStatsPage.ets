@@ -1,3 +1,4 @@
+import { LocalBookCover } from '../components/LocalBookCover';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { HdsCompat } from '../utils/HdsCompat';
@@ -1180,6 +1181,9 @@ export struct ReadingStatsPage {
         .borderRadius(AppRadius.Sm)
         .objectFit(ImageFit.Cover)
         .alt($r('app.media.app_icon_legacy'))
+    } else if (item.bookId.startsWith('import_')) {
+      LocalBookCover({ title: item.title, author: item.author, imgWidth: 72,
+        imgHeight: 72, useFixedHeight: true, radius: AppRadius.Sm })
     } else {
       Stack() {
         Text(item.title ? item.title.substring(0, 1) : '?')

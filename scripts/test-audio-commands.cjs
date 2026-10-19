@@ -583,7 +583,7 @@ async function check(name, test) {
     await f.service.playChapterAndSeek(book, chapter, 42000);
     assert.equal(reused, true);
   });
-  await check('HLS, indexed containers and opaque proxies bypass offline cache; known audio keeps caching', async () => {
+  await check('online audio, HLS, indexed containers and opaque proxies bypass player offline cache', async () => {
     const f = await fixture();
     const loaded = [];
     f.player.setMediaSource = async source => { loaded.push(source); };
@@ -606,7 +606,7 @@ async function check(name, test) {
       assert.equal(loaded.at(-1).headers, headers);
     }
     await f.service.applySource(f.player, { type: 'url', value: 'https://radio.test/chapter.mp3' });
-    assert.equal(loaded.at(-1).offlineCache, true);
+    assert.equal(loaded.at(-1).offlineCache, false, 'MP3 must stream without waiting for offline cache shards');
     f.platformCompat.supports = () => false;
     await f.service.applySource(f.player, { type: 'url', value: 'https://radio.test/chapter.mp3' });
     assert.equal(loaded.at(-1).offlineCache, false);

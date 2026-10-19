@@ -1215,13 +1215,19 @@ export class PreferenceService {
     return s.get('search_audio_only', false).then((value): boolean => value === true);
   }
 
+  static async getSearchComicOnly(): Promise<boolean> {
+    const s = await PreferenceService.ensureStore();
+    return s.get('search_comic_only', false).then((value): boolean => value === true);
+  }
+
   static async setSearchOptions(exact: boolean, byAuthor: boolean,
-    textOnly: boolean = false, audioOnly: boolean = false): Promise<void> {
+    textOnly: boolean = false, audioOnly: boolean = false, comicOnly: boolean = false): Promise<void> {
     const s = await PreferenceService.ensureStore();
     await s.put('search_exact', exact);
     await s.put('search_by_author', byAuthor);
     await s.put('search_text_only', textOnly);
     await s.put('search_audio_only', audioOnly);
+    await s.put('search_comic_only', comicOnly);
     await s.flush();
   }
 

@@ -181,6 +181,15 @@ struct Index {
         });
       }
       // 无 bookId 时停在主页,避免黑屏
+    } else if (target === 'reader' || target === 'comicReader') {
+      if (!bookId) return;
+      const paths = this.navStack.getAllPathName();
+      const last = paths.length - 1;
+      if (last >= 0 && paths[last] === target) {
+        this.navStack.replacePath({ name: target, param: TextReaderRouteParams.of(bookId) }, false);
+        return;
+      }
+      this.navStack.pushPathByName(target, TextReaderRouteParams.of(bookId), false);
     } else if (target === 'detail') {
       if (bookId) this.navStack.pushPathByName('detail', bookId, false);
     } else if (target === 'downloads') {

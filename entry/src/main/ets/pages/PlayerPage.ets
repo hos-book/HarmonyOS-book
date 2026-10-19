@@ -1,4 +1,5 @@
 import { ChapterSheetActions } from '../components/ChapterSheetActions';
+import { PlaybackWaveIcon } from '../components/PlaybackWaveIcon';
 import { ChapterSegmentGrid } from '../components/ChapterSegmentGrid';
 import { PlaybackLoadingIndicator } from '../components/PlaybackLoadingIndicator';
 import { LocalTextImage } from '../service/text/LocalTextImage';
@@ -656,7 +657,8 @@ export struct PlayerPage {
       Row({ space: AppSpace.Md }) {
         Text(label).fontSize(16)
           .fontColor(this.selectedPlaybackVoiceId() === id ? AppColor.Brand : $r('sys.color.font_primary'))
-          .layoutWeight(1).textAlign(TextAlign.Start).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .layoutWeight(1).textAlign(TextAlign.Start).maxLines(1).textOverflow({ overflow: TextOverflow.MARQUEE })
+          .marqueeOptions({ start: this.showSourceVoice, step: 0.5, loop: -1 }).clip(true)
         if (this.selectedPlaybackVoiceId() === id) {
           if (this.savingSourceVoice) {
             LoadingProgress().width(22).height(22).color(AppColor.Brand)
@@ -1580,7 +1582,7 @@ export struct PlayerPage {
         .enabled(!this.reloadingChapter && !this.playbackLoading() && this.book !== null)
       if (this.isSpeechBook() || (this.sourceVoiceAvailable && !this.isLiveBook())) {
         Button({ type: ButtonType.Circle }) {
-          SymbolGlyph($r('sys.symbol.waveform_circle')).fontSize(24).fontColor(['#FFFFFF'])
+          PlaybackWaveIcon({ playing: this.playbackPlaying() && !this.playbackLoading() })
         }
           .width(40).height(40).backgroundColor(Color.Transparent)
           .accessibilityText($r('app.string.player_source_voice_label'))
@@ -1620,6 +1622,7 @@ export struct PlayerPage {
   buildSpeechBookHeader() {
     Row({ space: AppSpace.Lg }) {
       PlayerCoverImage({ title: this.book!.title, url: this.book!.cover,
+        author: this.book!.author, localPlaceholder: this.book!.id.startsWith('import_'),
         fallback: this.book!.coverFallback ?? '', highQuality: this.highQualityCover })
         .width(this.isCompactPlayer() ? 88 : 104).aspectRatio(1).borderRadius(12).clip(true)
         .id('player-page-cover').opacity(this.dragState.active ? 0 : 1)
@@ -1640,6 +1643,7 @@ export struct PlayerPage {
     Column() {
       Stack({ alignContent: Alignment.TopStart }) {
         PlayerCoverImage({
+          author: this.book!.author, localPlaceholder: this.book!.id.startsWith('import_'),
           title: this.book!.title, url: this.book!.cover, fallback: this.book!.coverFallback ?? '',
           highQuality: this.highQualityCover
         })

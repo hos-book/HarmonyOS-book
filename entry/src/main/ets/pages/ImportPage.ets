@@ -1,4 +1,5 @@
 import { LocalBookImportService, LocalImportFile, LocalBookPreview } from '../service/LocalBookImportService';
+import { LocalBookCover } from '../components/LocalBookCover';
 import { common } from '@kit.AbilityKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { picker } from '@kit.CoreFileKit';
@@ -595,27 +596,14 @@ export struct ImportPage {
               .borderRadius(AppRadius.Md)
               .objectFit(ImageFit.Cover)
           } else {
-            Stack() {
-              Column()
-                .width('100%')
-                .height('100%')
-                .backgroundColor(AppColor.Brand)
-                .borderRadius(AppRadius.Md)
-              Text(this.bookTitle ? this.bookTitle.substring(0, 1) : '?')
-                .fontSize(36)
-                .fontColor(Color.White)
-                .fontWeight(FontWeight.Bold)
-            }
-            .width(80)
-            .height(112)
-            .borderRadius(AppRadius.Md)
-            .clip(true)
+            LocalBookCover({ title: this.bookTitle, author: this.bookAuthor,
+              imgWidth: 80, imgHeight: 112, useFixedHeight: true })
           }
         }
         .onClick(() => this.pickCover())
 
         Column({ space: AppSpace.Xs }) {
-          Text(this.coverPath ? '点击图片可更换' : '未选封面，将用书名首字占位')
+          Text(this.coverPath ? $r('app.string.import_cover_replace_hint') : $r('app.string.import_cover_default_hint'))
             .fontSize(AppFont.Caption)
             .fontColor($r('sys.color.font_tertiary'))
             .maxLines(2)

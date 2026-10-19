@@ -1,3 +1,4 @@
+import { ReaderWidgetService } from '../service/ReaderWidgetService';
 import { curves } from '@kit.ArkUI';
 import { ChapterSheetActions } from '../components/ChapterSheetActions';
 import { ChapterSegmentGrid } from '../components/ChapterSegmentGrid';
@@ -271,7 +272,9 @@ export struct ComicReaderPage {
     const position = TextReadingPosition.of(this.book.id, this.chapterIndex, mode,
       this.pageIndex, this.book.chapters[this.chapterIndex].title);
     ReadingSessionService.checkpoint('reading', SessionLocation.text(this.book, position), this.foreground);
+    const book = this.book;
     this.saveChain = this.saveChain.then((): Promise<void> => TextReadingProgressService.save(context, position))
+      .then((): void => { ReaderWidgetService.update(context, book, position); })
       .then((): void => { if (this.alive) this.saveFailed = false; })
       .catch((): void => { if (this.alive) this.saveFailed = true; });
   }

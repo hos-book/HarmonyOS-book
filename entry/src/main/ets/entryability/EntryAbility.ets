@@ -399,6 +399,7 @@ export default class EntryAbility extends UIAbility {
     const from = params['from'] as string | undefined;
     if (from !== 'widget' && from !== 'download_notification') return;
     const target = (params['target'] as string | undefined) ?? 'home';
+    if (target === 'reader' || target === 'comicReader') this.startupPlaybackPending = false;
     const bookId = params['bookId'] as string | undefined;
     const route: WidgetRoute = { target, bookId, ts: Date.now() };
     AppStorage.setOrCreate<WidgetRoute>(KEY_WIDGET_ROUTE, route);

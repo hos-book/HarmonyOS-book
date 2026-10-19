@@ -147,6 +147,8 @@ export struct BookCard {
         } else {
           CoverImage({
             title: this.book.title,
+            author: this.book.author,
+            localPlaceholder: this.book.id.startsWith('import_') && !this.book.cover,
             imgWidth: '100%',
             aspectRatioValue: this.displayCoverRatio(),
             radius: this.coverRadius,

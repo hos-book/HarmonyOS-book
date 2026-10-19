@@ -60,7 +60,8 @@ export struct ReaderTtsTabs {
           Row({ space: 8 }) {
             Row({ space: 10 }) {
               Text(config.id.length > 0 ? config.name : $r('app.string.tts_system_voice'))
-                .fontSize(15).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                .fontSize(15).maxLines(1).textOverflow({ overflow: TextOverflow.MARQUEE })
+                .marqueeOptions({ start: this.expanded, step: 0.5, loop: -1 }).clip(true)
                 .layoutWeight(1)
                 .fontWeight(config.id === this.selectedId ? FontWeight.Medium : FontWeight.Regular)
                 .fontColor(config.id === this.selectedId ? AppColor.Brand : $r('sys.color.font_primary'))

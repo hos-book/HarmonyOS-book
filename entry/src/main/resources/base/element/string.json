@@ -1,6 +1,18 @@
 {
   "string": [
     {
+      "name": "reader_tts_manage",
+      "value": "导入与管理"
+    },
+    {
+      "name": "import_cover_replace_hint",
+      "value": "点击图片可更换"
+    },
+    {
+      "name": "import_cover_default_hint",
+      "value": "未选封面，将在默认底图上显示书名和作者"
+    },
+    {
       "name": "reader_chapter_jump_title",
       "value": "确认跳转章节"
     },
@@ -3294,7 +3306,7 @@
     },
     {
       "name": "tts_entry_hint",
-      "value": "点击开始听书，长按打开朗读设置"
+      "value": "点击开始听书，TTS 语音导入请前往阅读设置"
     },
     {
       "name": "tts_chapter_progress",
@@ -4954,7 +4966,7 @@
     },
     {
       "name": "search_comic_only",
-      "value": "只搜漫画"
+      "value": "仅搜索漫画"
     },
     {
       "name": "comic_dissolve",
@@ -5247,6 +5259,14 @@
     {
       "name": "tts_builtin_voice",
       "value": "默认自带音色"
-    }
+    },
+    {"name": "reader_card_label", "value": "继续阅读"},
+    {"name": "reader_card_desc", "value": "显示最近阅读的书籍和进度，轻点继续上次阅读。"},
+    {"name": "reader_card_empty", "value": "从一本好书开始"},
+    {"name": "reader_card_empty_hint", "value": "打开书籍，留下你的阅读足迹"},
+    {"name": "reader_card_open", "value": "打开简听"},
+    {"name": "reader_card_continue", "value": "继续阅读"},
+    {"name": "reader_card_chapters", "value": "第 %d / %d 章"},
+    {"name": "reader_card_progress", "value": "继续阅读 %d%%"}
   ]
 }

@@ -1,3 +1,4 @@
+import { ReaderWidgetService } from '../service/ReaderWidgetService';
 import { ChapterSheetActions } from '../components/ChapterSheetActions';
 import { ReaderVolumeKeyService } from '../service/text/ReaderVolumeKeyService';
 import { ReadingSessionService, SessionLocation } from '../service/ReadingSessionService';
@@ -913,7 +914,12 @@ export struct ReaderPage {
       ReadingSessionService.checkpoint('reading', location,
         this.readerVisible && this.readingForeground && !this.leaving);
     }
-    TextReadingProgressService.save(this.context, this.currentPosition).catch((_e: Error): void => {});
+    const context = this.context;
+    const position = this.currentPosition;
+    const book = this.book;
+    TextReadingProgressService.save(context, position).then((): void => {
+      if (book) ReaderWidgetService.update(context, book, position);
+    }).catch((_e: Error): void => {});
   }
 
   private async restoreReadingSettings(): Promise<void> {
@@ -1891,8 +1897,7 @@ export struct ReaderPage {
         }.layoutWeight(1).height(READER_BAR_HEIGHT).attributeModifier(new ReaderControlClip())
         if (this.isOnlineTextBook()) {
           ReaderSpeechFloating({ playing: this.speechState.playing && this.speechState.bookId === this.bookId,
-            onOpen: (): void => { this.openSpeechPlayer(); },
-            onSettings: (): void => { this.openSpeechSheet(); } })
+            onOpen: (): void => { this.openSpeechPlayer(); } })
         }
       }.width(this.readerControlWidthVp()).height(READER_BAR_HEIGHT)
         .alignItems(VerticalAlign.Center)
@@ -2555,6 +2560,8 @@ export struct ReaderPage {
   @Builder
   buildSettingsSheet(): void {
     ReaderSettingsSheet({
+      supportsSpeech: this.isOnlineTextBook(),
+      onSpeechSettings: (): void => { this.openSpeechSheet(); },
       fontPanel: this.fontPanel, fontWeight: this.previewFontWeight || this.fontWeight,
       fonts: this.importedFonts, fontPath: this.fontPath,
       onSelectFont: (font: ReaderImportedFont): void => this.selectReaderFont(font),

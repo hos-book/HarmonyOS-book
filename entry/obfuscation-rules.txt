@@ -35,3 +35,17 @@ checkedCount
 updatedCount
 failedCount
 entries
+# ReaderCard HML bindings and persisted reader_widget_state snapshot.
+bookTitle
+author
+chapterTitle
+chapterIndex
+chapterCount
+target
+hasBook
+hasCover
+coverUri
+cardLabel
+progressLabel
+actionLabel
+formImages

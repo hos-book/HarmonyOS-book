@@ -1962,17 +1962,17 @@ export struct FavoritePage {
           }
           .width('100%')
           .aspectRatio(BOOKSHELF_COVER_RATIO)
-          .borderRadius(AppRadius.Md)
+          .borderRadius(0)
           .clip(true)
         } else if (book.cover && book.cover.startsWith('http')) {
           CoverImage({ url: book.cover, imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO,
-            radius: AppRadius.Md, decodeW: 300, decodeH: 400 })
+            radius: 0, decodeW: 300, decodeH: 400 })
             .hitTestBehavior(HitTestMode.Transparent)
         } else if (book.cover && (book.cover.startsWith('/data/') || book.cover.startsWith('file://'))) {
           Image('file://' + book.cover.replace(/^file:\/\//, ''))
             .width('100%')
             .aspectRatio(BOOKSHELF_COVER_RATIO)
-            .borderRadius(AppRadius.Md)
+            .borderRadius(0)
             .objectFit(ImageFit.Cover)
             .sourceSize({ width: 300, height: 400 })
             .draggable(false)
@@ -1981,12 +1981,13 @@ export struct FavoritePage {
           Image($rawfile(book.cover))
             .width('100%')
             .aspectRatio(BOOKSHELF_COVER_RATIO)
-            .borderRadius(AppRadius.Md)
+            .borderRadius(0)
             .objectFit(ImageFit.Cover)
             .draggable(false)
             .hitTestBehavior(HitTestMode.Transparent)
         } else {
-          CoverImage({ title: book.title, imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO })
+          CoverImage({ title: book.title, author: book.author, localPlaceholder: book.id.startsWith('import_'),
+            imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO, radius: 0 })
         }
         this.buildTypeBadge(false, book.contentType ?? 'audio')
         this.buildSourceBadge(book)
@@ -2000,10 +2001,10 @@ export struct FavoritePage {
       }
       .width('100%')
       .aspectRatio(BOOKSHELF_COVER_RATIO)
-      .borderRadius(AppRadius.Md)
+      .borderRadius(0)
       .clip(true)
       .border({ width: this.isManaging && this.selectedBookIds.has(book.id) ? 2 : 0,
-        color: AppColor.Brand, radius: AppRadius.Md })
+        color: AppColor.Brand, radius: 0 })
       .shadow({ radius: 4, color: '#1A000000', offsetY: 1 })
       // 展示子树不参与触摸命中，封面/占位图的原生长按不能抢走书卡菜单。
       .hitTestBehavior(HitTestMode.None)
@@ -2098,26 +2099,27 @@ export struct FavoritePage {
       Stack({ alignContent: Alignment.TopStart }) {
         if (book.cover && book.cover.startsWith('http')) {
           CoverImage({ url: book.cover, imgWidth: 72, imgHeight: 100, useFixedHeight: true,
-            radius: AppRadius.Sm, decodeW: 300, decodeH: 400 })
+            radius: 0, decodeW: 300, decodeH: 400 })
             .hitTestBehavior(HitTestMode.Transparent)
         } else if (book.cover && (book.cover.startsWith('/data/') || book.cover.startsWith('file://'))) {
           Image('file://' + book.cover.replace(/^file:\/\//, ''))
             .width(72)
             .height(100)
-            .borderRadius(AppRadius.Sm)
+            .borderRadius(0)
             .objectFit(ImageFit.Cover)
             .sourceSize({ width: 300, height: 400 })
             .draggable(false)
             .hitTestBehavior(HitTestMode.Transparent)
         } else {
-          CoverImage({ title: book.title, imgWidth: 72, imgHeight: 100, useFixedHeight: true, radius: AppRadius.Sm })
+          CoverImage({ title: book.title, author: book.author, localPlaceholder: book.id.startsWith('import_'),
+            imgWidth: 72, imgHeight: 100, useFixedHeight: true, radius: 0 })
         }
         this.buildTypeBadge(true, book.contentType ?? 'audio')
         this.buildSourceBadge(book)
       }
       .width(72)
       .height(100)
-      .borderRadius(AppRadius.Sm)
+      .borderRadius(0)
       .clip(true)
       .hitTestBehavior(HitTestMode.None)
 

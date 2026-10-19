@@ -110,7 +110,9 @@ export struct ReaderSpeechSheet {
         ForEach(this.voiceOnly ? this.state.voices.filter((voice: SpeechVoice): boolean => voice.installed) : this.state.voices, (voice: SpeechVoice) => {
           Row({ space: 8 }) {
             Column({ space: 3 }) {
-              Text(voice.label).fontColor($r('sys.color.font_primary')).fontSize(15).maxLines(2)
+              Text(voice.label).fontColor($r('sys.color.font_primary')).fontSize(15).maxLines(1)
+                .width('100%').textOverflow({ overflow: TextOverflow.MARQUEE })
+                .marqueeOptions({ start: true, step: 0.5, loop: -1 }).clip(true)
               Text(voice.language).fontSize(12).fontColor($r('sys.color.font_secondary'))
             }.layoutWeight(1).alignItems(HorizontalAlign.Start)
             if (this.state.downloadingVoice === voice.id) {

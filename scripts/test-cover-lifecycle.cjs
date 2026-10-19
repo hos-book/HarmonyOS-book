@@ -46,6 +46,7 @@ function prefetchFixture(api = 26) {
     setFileCacheSize() {}, setMemoryCacheSize() {}, setDownloadInfoListSize() {}
   };
   const service = load('CoverPrefetcher', {
+    './SourceCoverService': { SourceCoverService: { isEncoded: () => false } },
     '@kit.PerformanceAnalysisKit': { hilog }, '@kit.BasicServicesKit': { cacheDownload },
     './http/HttpClient': { HttpClient: { preconnect() {} } },
     '../utils/PlatformCompat': { PlatformCompat: { supports: version => api >= version } }
@@ -151,6 +152,12 @@ function sessionFixture() {
     }
   };
   const Service = load('AVSessionService', {
+    './LocalBookCoverService': { LocalBookCoverService: {
+      async resolve(_context, id, cover, title, author) {
+        return cover || (id.startsWith('import_') ? `/cache/${title}-${author}.jpg` : '');
+      }
+    } },
+    './SourceCoverService': { SourceCoverService: { isEncoded: () => false } },
     '@kit.PerformanceAnalysisKit': { hilog }, '@kit.ImageKit': { image },
     '@kit.AVSessionKit': { avSession: { LoopMode: { LOOP_MODE_SEQUENCE: 0, LOOP_MODE_LIST: 1, LOOP_MODE_SINGLE: 2 } } },
     '@kit.NetworkKit': { http: {
@@ -207,4 +214,36 @@ test('cover eviction stays bounded and preserves the currently published media i
   assert.ok(f.pixels.filter(pixel => pixel.released === 0).length <= 8);
   await f.service.destroy();
   assert.ok(f.pixels.every(pixel => pixel.released === 1));
+});
+
+test('local placeholder reaches system metadata and a late image cannot replace the next book', async () => {
+  const f = sessionFixture();
+  const metadata = [];
+  const loads = [];
+  f.service.context = {};
+  f.service.ensureReady = async () => true;
+  f.service.session = { async setAVMetadata(value) { metadata.push({ ...value }); } };
+  f.service.loadCover = path => new Promise(resolve => loads.push({ path, resolve }));
+  const chapter = { id: 'chapter', title: 'chapter', duration: 0 };
+  const book = { id: 'import_a', title: 'local title', author: 'local author', cover: '' };
+  const first = f.service.updateMetadata(book, chapter);
+  await flush();
+  assert.equal(loads[0].path, '/cache/local title-local author.jpg');
+  const second = f.service.updateMetadata({ ...book, id: 'import_b', cover: '/custom.jpg' }, chapter);
+  await flush();
+  const newest = { name: 'custom' };
+  loads[1].resolve(newest);
+  await second;
+  const count = metadata.length;
+  loads[0].resolve({ name: 'stale placeholder' });
+  await first;
+  assert.equal(metadata.length, count);
+  assert.equal(metadata.at(-1).mediaImage, newest);
+  const third = f.service.updateMetadata(book, chapter);
+  await flush();
+  const placeholder = { name: 'generated' };
+  loads[2].resolve(placeholder);
+  await third;
+  assert.equal(metadata.at(-1).mediaImage, placeholder);
+  assert.equal(book.cover, '');
 });

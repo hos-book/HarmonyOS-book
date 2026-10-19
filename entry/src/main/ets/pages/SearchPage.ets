@@ -87,6 +87,7 @@ export struct SearchPage {
   @Local searchByAuthor: boolean = false;
   @Local searchTextOnly: boolean = false;
   @Local searchAudioOnly: boolean = false;
+  @Local searchComicOnly: boolean = false;
   @Local searchOptionsVisible: boolean = false;
   @Local historyWidth: number = 0;
   private historyWrite: Promise<void> = Promise.resolve();
@@ -232,6 +233,7 @@ export struct SearchPage {
         this.searchByAuthor = await PreferenceService.getSearchByAuthor();
         this.searchTextOnly = await PreferenceService.getSearchTextOnly();
         this.searchAudioOnly = await PreferenceService.getSearchAudioOnly();
+        this.searchComicOnly = await PreferenceService.getSearchComicOnly();
       }
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'load search history failed: %{public}s', String(e));
@@ -314,7 +316,7 @@ export struct SearchPage {
 
   private updateSearchOptions(): void {
     PreferenceService.setSearchOptions(this.exactSearch, this.searchByAuthor,
-      this.searchTextOnly, this.searchAudioOnly).catch((error: Error): void => {
+      this.searchTextOnly, this.searchAudioOnly, this.searchComicOnly).catch((error: Error): void => {
       hilog.warn(DOMAIN, TAG, 'save search options: %{public}s', error.message);
     });
     if (this.hasSearched) this.doSearch();
@@ -498,7 +500,7 @@ export struct SearchPage {
       const sources = await SourceDataService.getEnabledSources();
       if (gen !== this.searchGen) return;
       const selectedSources = sources.filter((source: BookSource): boolean =>
-        SearchOptions.matchesSourceType(source.bookSourceType, this.searchTextOnly, this.searchAudioOnly) &&
+        SearchOptions.matchesSourceType(source.bookSourceType, this.searchTextOnly, this.searchAudioOnly, this.searchComicOnly) &&
         (!this.sourceFilterEnabled || this.selectedSourceUrls.includes(source.bookSourceUrl)));
       this.searchSourceTotal = selectedSources.length;
       const concurrency = await PreferenceService.getSearchConcurrency();
@@ -556,7 +558,7 @@ export struct SearchPage {
       for (const item of results) {
         if (!SearchOptions.matches(item.name, item.author || '', keyword, this.exactSearch, this.searchByAuthor)) continue;
         const contentType: 'audio' | 'text' | 'comic' = item.contentType ?? fallbackContentType;
-        if (!SearchOptions.matchesContentType(contentType, this.searchTextOnly, this.searchAudioOnly)) continue;
+        if (!SearchOptions.matchesContentType(contentType, this.searchTextOnly, this.searchAudioOnly, this.searchComicOnly)) continue;
         const dedupeKey = `${item.sourceUrl}\u001f${item.bookUrl}`;
         if (seen.has(dedupeKey)) continue;
         seen.add(dedupeKey);
@@ -1268,7 +1270,7 @@ export struct SearchPage {
       Button({ type: ButtonType.Circle }) {
         SymbolGlyph($r('sys.symbol.funnel'))
           .fontSize(22)
-          .fontColor([this.exactSearch || this.searchByAuthor || this.searchTextOnly || this.searchAudioOnly
+          .fontColor([this.exactSearch || this.searchByAuthor || this.searchTextOnly || this.searchAudioOnly || this.searchComicOnly
             ? AppColor.Brand : $r('sys.color.icon_primary')])
       }
         .width(SEARCH_TITLE_CONTROL_HEIGHT)
@@ -1340,6 +1342,13 @@ export struct SearchPage {
         label: $r('app.string.search_audio_only'), selected: this.searchAudioOnly,
         onToggle: (): void => {
           this.searchAudioOnly = !this.searchAudioOnly;
+          this.updateSearchOptions();
+        }
+      })
+      SearchOptionItem({
+        label: $r('app.string.search_comic_only'), selected: this.searchComicOnly,
+        onToggle: (): void => {
+          this.searchComicOnly = !this.searchComicOnly;
           this.updateSearchOptions();
         }
       })

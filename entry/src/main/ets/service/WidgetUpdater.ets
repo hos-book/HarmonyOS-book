@@ -1,4 +1,5 @@
 import { PlatformCompat } from '../utils/PlatformCompat';
+import { LocalBookCoverService } from './LocalBookCoverService';
 import lazy { formBindingData, formProvider } from '@kit.FormKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { BusinessError } from '@kit.BasicServicesKit';
@@ -24,7 +25,7 @@ const MAX_IMG_BYTES = 1.5 * 1024 * 1024;
 /** 卡片只展示 2x2 封面，预先缩图可避免原图解码后占用过大的共享内存。 */
 const WIDGET_COVER_SIZE = 384;
 const WIDGET_COVER_QUALITY = 88;
-const WIDGET_COVER_CACHE_VERSION = 'v2';
+const WIDGET_COVER_CACHE_VERSION = 'v3';
 
 interface BuildBindingResult {
   binding: formBindingData.FormBindingData;
@@ -68,10 +69,21 @@ export class PlayerFormData {
  *   - 失败时卡片自动回退到默认占位
  */
 export class WidgetUpdater {
+  /** 阅读卡片复用现有缩图缓存和本地占位图，不改变听书卡片状态。 */
+  static async resolveFormCover(context: common.Context, bookId: string, cover: string,
+    title: string, author: string, allowNetwork: boolean): Promise<string | null> {
+    WidgetUpdater.setContext(context);
+    const resolved = await LocalBookCoverService.resolve(context, bookId, cover, title, author);
+    if (resolved.startsWith('/') || resolved.startsWith('file://')) return resolved.replace(/^file:\/\//, '');
+    if (resolved.startsWith('http')) return WidgetUpdater.downloadCover(resolved, allowNetwork);
+    return null;
+  }
+
   static async updateBookPresentation(book: Book): Promise<void> {
     const snapshot = await PreferenceService.getWidgetPlayerSnapshot();
     if (!snapshot || snapshot.bookId !== book.id) return;
     snapshot.bookTitle = book.title;
+    snapshot.author = book.author;
     snapshot.cover = book.cover;
     snapshot.updatedAt = Date.now();
     await PreferenceService.setWidgetPlayerSnapshot(snapshot);
@@ -208,8 +220,13 @@ export class WidgetUpdater {
     let packer: image.ImagePacker | null = null;
     try {
       source = image.createImageSource(buf);
+      const info = await source.getImageInfo();
+      const scale = Math.min(1, WIDGET_COVER_SIZE / Math.max(info.size.width, info.size.height));
       const decodingOptions: image.DecodingOptions = {
-        desiredSize: { width: WIDGET_COVER_SIZE, height: WIDGET_COVER_SIZE }
+        desiredSize: {
+          width: Math.max(1, Math.round(info.size.width * scale)),
+          height: Math.max(1, Math.round(info.size.height * scale))
+        }
       };
       pixelMap = await source.createPixelMap(decodingOptions);
       packer = image.createImagePacker();
@@ -254,28 +271,30 @@ export class WidgetUpdater {
    */
   private static async buildPlayerBinding(snap: WidgetPlayerSnapshot, allowNetwork: boolean = true)
     : Promise<BuildBindingResult> {
+    const cover = WidgetUpdater.appContext ? await LocalBookCoverService.resolve(WidgetUpdater.appContext,
+      snap.bookId, snap.cover, snap.bookTitle, snap.author) : snap.cover;
     const data: Record<string, Object> = {
       'wearableLayout': PlatformCompat.wearable,
       'hasBook': snap.bookId.length > 0,
       'bookId': snap.bookId,
       'bookTitle': snap.bookTitle || '没有正在播放的书',
       'author': snap.author,
-      'cover': snap.cover,
+      'cover': cover,
       'imgName': '',
       'chapterTitle': snap.chapterTitle || '点击挑一本',
       'isPlaying': snap.isPlaying
     };
     let imgFile: fileIo.File | null = null;
     let imgName = '';
-    if (snap.cover && (snap.cover.startsWith('http') || snap.cover.startsWith('/') || snap.cover.startsWith('file://'))) {
+    if (cover && (cover.startsWith('http') || cover.startsWith('/') || cover.startsWith('file://'))) {
       try {
         let localPath: string | null = null;
-        if (snap.cover.startsWith('http')) {
-          localPath = await WidgetUpdater.downloadCover(snap.cover, allowNetwork);
-        } else if (snap.cover.startsWith('file://')) {
-          localPath = snap.cover.substring('file://'.length);
-        } else if (snap.cover.startsWith('/')) {
-          localPath = snap.cover;
+        if (cover.startsWith('http')) {
+          localPath = await WidgetUpdater.downloadCover(cover, allowNetwork);
+        } else if (cover.startsWith('file://')) {
+          localPath = cover.substring('file://'.length);
+        } else if (cover.startsWith('/')) {
+          localPath = cover;
         }
         if (localPath) {
           imgFile = await fileIo.open(localPath, fileIo.OpenMode.READ_ONLY);
@@ -287,7 +306,7 @@ export class WidgetUpdater {
           const stat = await fileIo.stat(localPath);
           hilog.info(DOMAIN, TAG, 'cover binding ready key=%{public}s bytes=%{public}d fd=%{public}d',
             imgName, stat.size, imgFile.fd);
-        } else if (snap.cover.length > 0) {
+        } else if (cover.length > 0) {
           hilog.warn(DOMAIN, TAG, 'cover binding fallback to url, network=%{public}s',
             allowNetwork ? 'true' : 'false');
         }

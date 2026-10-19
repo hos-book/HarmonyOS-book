@@ -1055,6 +1055,13 @@ export struct HomePage {
     return this.homeSourceMenuViewportHeight * 0.76;
   }
 
+  @Computed
+  get homeSourceMenuListMaxHeight(): number {
+    const rows = Math.ceil(this.homeSourceMatchCount / this.homeSourceMenuColumns);
+    const contentHeight = rows * 48 + Math.max(0, rows - 1) * AppSpace.Xxs;
+    return Math.min(contentHeight, Math.max(48, this.homeSourceMenuHeight - 88 - AppSpace.Xs * 4));
+  }
+
   private async changeHomeSourceMenuColumns(columns: number): Promise<void> {
     if (this.homeSourceMenuColumns === columns || this.savingHomeSourceMenuColumns) return;
     const previous: number = this.homeSourceMenuColumns;
@@ -1232,11 +1239,11 @@ export struct HomePage {
       if (this.loadingHomeSources) {
         Row() {
           LoadingProgress().width(24).height(24).color(AppColor.Brand)
-        }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+        }.width('100%').height(64).justifyContent(FlexAlign.Center)
       } else if (this.homeSourceMatchCount === 0) {
         Text($r('app.string.rule_source_no_match'))
           .fontSize(14).fontColor($r('sys.color.font_secondary'))
-          .width('100%').layoutWeight(1).textAlign(TextAlign.Center)
+          .width('100%').height(64).textAlign(TextAlign.Center)
       } else {
         List({ space: AppSpace.Xxs, scroller: this.homeSourceMenuScroller,
           initialIndex: this.rankingMode || this.homeSourceKeyword.length > 0 || this.homeSourceKind !== 0 ? 0 : Math.max(0, this.homeSourceIndex) }) {
@@ -1271,10 +1278,11 @@ export struct HomePage {
                   AppColor.BrandSoft : HomeTheme.ProgressTrack)
             }
           }, (source: LocalRuleSource): string => source.bookSourceUrl)
-        }.width('100%').layoutWeight(1).padding({ right: 10 })
+        }.width('100%').constraintSize({ maxHeight: this.homeSourceMenuListMaxHeight })
+          .padding({ right: 10 })
           .lanes(this.homeSourceMenuColumns, AppSpace.Xs).scrollBar(BarState.Auto)
       }
-    }.width(this.homeSourceMenuWidth).height(this.homeSourceMenuHeight).padding(AppSpace.Xs)
+    }.width(this.homeSourceMenuWidth).constraintSize({ maxHeight: this.homeSourceMenuHeight }).padding(AppSpace.Xs)
       .id('home-source-menu')
   }
 

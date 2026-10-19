@@ -19,6 +19,8 @@ class PlayerCoverRequest {
 export struct PlayerCoverImage {
   @Param url: string = '';
   @Param title: string = '';
+  @Param author: string = '';
+  @Param localPlaceholder: boolean = false;
   @Param fallback: string = '';
   @Param highQuality: boolean = false;
   @Local decodeSize: number = 300;
@@ -86,7 +88,8 @@ export struct PlayerCoverImage {
   build() {
     Stack() {
       if (!this.resolvedUrl && !this.resolvedFallback) {
-        CoverImage({ title: this.title, useFixedHeight: true, imgHeight: '100%', imageFit: ImageFit.Contain })
+        CoverImage({ title: this.title, author: this.author, localPlaceholder: this.localPlaceholder,
+          useFixedHeight: true, imgHeight: '100%', imageFit: ImageFit.Contain })
       } else {
       Image(this.source(this.previewFailed ? this.resolvedUrl : (this.resolvedFallback || this.resolvedUrl)))
         .width('100%').height('100%').objectFit(ImageFit.Cover)

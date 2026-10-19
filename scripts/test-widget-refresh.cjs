@@ -13,7 +13,7 @@ const code = ts.transpileModule(fs.readFileSync(path.join(__dirname,
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 function fixture() {
-  const pushes = [], requests = [], files = new Set(), descriptors = new Set();
+  const pushes = [], requests = [], files = new Set(), descriptors = new Set(), decodedSizes = [];
   let snapshot = null, nextFd = 1;
   const coordinator = { speechActive: false };
   const fileIo = {
@@ -27,6 +27,14 @@ function fixture() {
     closeSync(file) { descriptors.delete(file.fd); }
   };
   const modules = {
+    './LocalBookCoverService': { LocalBookCoverService: {
+      async resolve(_context, id, cover, title, author) {
+        if (cover || !id.startsWith('import_')) return cover;
+        const file = `/cache/placeholder-${title}-${author}.jpg`;
+        files.add(file);
+        return file;
+      }
+    } },
     './PlaybackCoordinator': { PlaybackCoordinator: coordinator },
     '../utils/PlatformCompat': { PlatformCompat: { wearable: false } },
     '@kit.FormKit': {
@@ -37,7 +45,14 @@ function fixture() {
     '@kit.NetworkKit': { http: { RequestMethod: { GET: 0 }, HttpDataType: { ARRAY_BUFFER: 0 },
       createHttp: () => ({ request: url => new Promise(resolve => requests.push({ url, resolve })), destroy() {} }) } },
     '@kit.CoreFileKit': { fileIo },
-    '@kit.ImageKit': { image: { createImageSource() { throw new Error('use small original'); } } },
+    '@kit.ImageKit': { image: {
+      createImageSource() { return {
+        async getImageInfo() { return { size: { width: 600, height: 900 } }; },
+        async createPixelMap(options) { decodedSizes.push(options.desiredSize); return { release() {} }; },
+        release() {}
+      }; },
+      createImagePacker() { return { async packToData() { return new ArrayBuffer(8); }, async release() {} }; }
+    } },
     './StorageMigrationService': { StorageMigrationService: {
       async migrateFilesWithPrefix() {}, async migrateFile() { return false; }
     } },
@@ -53,7 +68,7 @@ function fixture() {
     require(name) { if (modules[name]) return modules[name]; throw new Error(name); } });
   const updater = module.exports.WidgetUpdater;
   updater.setContext({ filesDir: '/files', cacheDir: '/cache' });
-  return { updater, pushes, requests, descriptors, coordinator, snapshot: () => snapshot };
+  return { updater, pushes, requests, descriptors, coordinator, decodedSizes, snapshot: () => snapshot };
 }
 function state(id, playing = false) {
   return { currentBook: { id, title: id, author: 'author', cover: `https://cover/${id}` },
@@ -82,6 +97,8 @@ async function main() {
   assert.equal(f.pushes.at(-1).isPlaying, true);
   assert.ok(f.pushes.at(-1).imgName, 'same-state synchronization must not lose pending cover');
   assert.equal(f.descriptors.size, 0, 'all cover descriptors are released');
+  assert.equal(f.decodedSizes.at(-1).width, 256, 'portrait cover preserves its original aspect ratio');
+  assert.equal(f.decodedSizes.at(-1).height, 384);
   await f.updater.updatePlayerCard(null, true);
   assert.equal(f.pushes.at(-1).hasBook, false);
   f.coordinator.speechActive = true;
@@ -101,6 +118,17 @@ async function main() {
   f.coordinator.speechActive = false;
   await f.updater.updatePlayerCard(state('old-audio'), true);
   assert.equal(f.pushes.at(-1).bookId, 'ebook', 'audio release cannot restore an older audio book');
+  f.coordinator.speechActive = true;
+  speechBook.id = 'import_local';
+  await f.updater.updateSpeechCard(speechBook, speech);
+  assert.ok(f.pushes.at(-1).imgName, 'local TTS placeholder is sent through formImages');
+  assert.match(f.pushes.at(-1).cover, /placeholder-ebook title-author/);
+  assert.equal(f.snapshot().cover, '', 'generated art does not overwrite the original cover field');
+  await f.updater.updateBookPresentation({ ...speechBook, title: 'new title', author: 'new author' });
+  assert.match(f.pushes.at(-1).cover, /placeholder-new title-new author/);
+  await f.updater.optimisticSetPlaying(true);
+  assert.ok(f.pushes.at(-1).imgName, 'play/pause keeps the placeholder image binding');
+  assert.equal(f.descriptors.size, 0);
   console.log('PASS immediate multi-card refresh, slow cover, rapid book/state changes, deduplication and FD cleanup');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

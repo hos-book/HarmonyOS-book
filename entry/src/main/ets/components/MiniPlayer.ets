@@ -48,7 +48,9 @@ export struct MiniPlayer {
           .objectFit(ImageFit.Cover)
           .id('mini-player-cover-image')
       } else {
-        CoverImage({ title: this.book.title, useFixedHeight: true, imgHeight: '100%' })
+        CoverImage({ title: this.book.title, author: this.book.author,
+          localPlaceholder: this.book.id.startsWith('import_'), radius: 0,
+          useFixedHeight: true, imgHeight: '100%' })
           .width('100%')
           .height('100%')
           .id('mini-player-cover-image')

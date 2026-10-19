@@ -1,4 +1,5 @@
 import { AppRadius } from '../theme/Theme';
+import { LocalBookCover } from './LocalBookCover';
 import { CoverPrefetcher } from '../service/CoverPrefetcher';
 import { CoverAspectRatio } from '../utils/CoverAspectRatio';
 import { PlatformCompat } from '../utils/PlatformCompat';
@@ -31,6 +32,8 @@ class CoverCompositeClip implements AttributeModifier<CommonAttribute> {
 export struct CoverImage {
   @Param url: string = '';
   @Param title: string = '';
+  @Param author: string = '';
+  @Param localPlaceholder: boolean = false;
   @Param imgWidth: Length = '100%';
   @Param imgHeight: Length = 0;
   @Param useFixedHeight: boolean = false;
@@ -228,8 +231,14 @@ export struct CoverImage {
 
   build() {
     Stack() {
-      this.placeholderImage()
-      if (this.title && !this.imageReady) {
+      if (this.localPlaceholder && !this.url) {
+        LocalBookCover({ title: this.title, author: this.author, imgWidth: this.displayWidth(),
+          imgHeight: this.imgHeight, useFixedHeight: this.useFixedHeight,
+          aspectRatioValue: this.displayRatio(), radius: this.radius })
+      } else {
+        this.placeholderImage()
+      }
+      if (this.title && !this.imageReady && !(this.localPlaceholder && !this.url)) {
         Text(this.title).fontSize(18).fontWeight(FontWeight.Medium).fontColor('#FFF4E6')
           .copyOption(CopyOptions.None).draggable(false)
           .maxLines(5).textOverflow({ overflow: TextOverflow.Ellipsis }).textAlign(TextAlign.Center)

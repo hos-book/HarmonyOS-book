@@ -1,12 +1,12 @@
 export class SearchOptions {
-  static matchesSourceType(type: number | undefined, textOnly: boolean, audioOnly: boolean): boolean {
-    if (textOnly === audioOnly) return true;
-    return textOnly ? type === 0 || type === 3 : type === 1;
+  static matchesSourceType(type: number | undefined, textOnly: boolean, audioOnly: boolean, comicOnly: boolean = false): boolean {
+    if (!textOnly && !audioOnly && !comicOnly) return true;
+    return (textOnly && (type === 0 || type === 3)) || (audioOnly && type === 1) || (comicOnly && type === 2);
   }
 
-  static matchesContentType(type: 'audio' | 'text' | 'comic', textOnly: boolean, audioOnly: boolean): boolean {
-    if (textOnly === audioOnly) return true;
-    return textOnly ? type === 'text' : type === 'audio';
+  static matchesContentType(type: 'audio' | 'text' | 'comic', textOnly: boolean, audioOnly: boolean, comicOnly: boolean = false): boolean {
+    if (!textOnly && !audioOnly && !comicOnly) return true;
+    return (textOnly && type === 'text') || (audioOnly && type === 'audio') || (comicOnly && type === 'comic');
   }
 
   static matches(name: string, author: string, keyword: string, exact: boolean, byAuthor: boolean): boolean {

@@ -1,4 +1,5 @@
 import { SourceCoverService } from './SourceCoverService';
+import { LocalBookCoverService } from './LocalBookCoverService';
 import { PlaybackCoordinator } from './PlaybackCoordinator';
 import { avSession } from '@kit.AVSessionKit';
 import { PlatformCompat } from '../utils/PlatformCompat';
@@ -312,8 +313,11 @@ export class AVSessionService {
           e2?.message ?? JSON.stringify(err2));
       }
     }
-    if (!book.cover || serial !== this.metadataSerial) return;
-    const pixelMap = await this.loadCover(book.cover);
+    if (serial !== this.metadataSerial) return;
+    const cover = this.context ? await LocalBookCoverService.resolve(this.context, book.id,
+      book.cover, book.title, book.author) : book.cover;
+    if (!cover || serial !== this.metadataSerial || speech !== PlaybackCoordinator.speechActive) return;
+    const pixelMap = await this.loadCover(cover);
     if (pixelMap === null || serial !== this.metadataSerial || speech !== PlaybackCoordinator.speechActive || !this.session) return;
     this.currentMediaImage = pixelMap;
     metadata.mediaImage = pixelMap;

@@ -115,6 +115,16 @@
         ],
       },
       {
+        "name": "ReaderFormAbility",
+        "srcEntry": "./ets/widget/ReaderFormAbility.ets",
+        "label": "$string:reader_card_label",
+        "description": "$string:reader_card_desc",
+        "type": "form",
+        "metadata": [
+          { "name": "ohos.extension.form", "resource": "$profile:reader_form_config" }
+        ]
+      },
+      {
         "name": "PlayerFormAbility",
         "srcEntry": "./ets/widget/PlayerFormAbility.ets",
         "label": "$string:PlayerFormAbility_label",

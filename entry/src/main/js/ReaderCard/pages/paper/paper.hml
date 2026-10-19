@@ -1,0 +1,7 @@
+<div class="card" onclick="continueReading">
+  <image class="book" src="{{coverUri}}"></image>
+  <div class="info">
+    <text class="title">{{bookTitle}}</text>
+    <text class="progress">{{progressLabel}}</text>
+  </div>
+</div>

@@ -2,7 +2,6 @@ import { PlaybackCoordinator } from './PlaybackCoordinator';
 import { ChapterRuleContext } from './rulesource/ChapterRuleContext';
 import { LightSourceRequest } from './rulesource/light/LightSourceRequestPolicy';
 import { media } from '@kit.MediaKit';
-import { PlatformCompat } from '../utils/PlatformCompat';
 import { audio } from '@kit.AudioKit';
 import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
@@ -1563,13 +1562,8 @@ export class AudioService {
           return false;
         }
         const mediaSource = media.createMediaSourceWithUrl(src.value, headers);
-        // 仅明确的顺序音频启用播放器离线缓存。代理/无后缀地址的最终容器未知，
-        // 与 HLS、尾部索引容器一样保留默认网络 Range 寻址；章节预缓存独立运行。
-        const mediaPath = src.value.split('?')[0].split('#')[0];
-        const sequentialAudio = new RegExp('\\.(mp3|aac|flac|wav|ogg|opus)$', 'i').test(mediaPath);
-        if (PlatformCompat.supports(23) && !this.liveSource && sequentialAudio) {
-          mediaSource.enableOfflineCache(true);
-        }
+        // 使用默认流式读取：系统离线缓存会将首个小读取扩为 4 MiB 分块，
+        // 等整块下载后才交付数据，拖慢首播。离线能力由 ChapterCacheService 和下载服务提供。
         const mediaStartedAt = Date.now();
         const mediaGeneration = generation;
         this.playerSourceGeneration = generation;

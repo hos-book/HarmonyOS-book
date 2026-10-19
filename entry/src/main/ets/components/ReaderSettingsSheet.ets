@@ -47,6 +47,24 @@ const LINE_HEIGHT_PRESETS: LineHeightPreset[] = [
   LineHeightPreset.of('宽松', 2.2)
 ];
 
+/** 按钮边界状态随参数刷新，避免多参数 Builder 保留首次 enabled 值。 */
+@ComponentV2
+struct ReaderSpacingStepButton {
+  @Param decrease: boolean = false;
+  @Param canStep: boolean = false;
+  @Event onStep: () => void = () => {};
+
+  build() {
+    Button({ type: ButtonType.Circle }) {
+      SymbolGlyph(this.decrease ? $r('sys.symbol.minus') : $r('sys.symbol.plus'))
+        .fontSize(16).fontColor([$r('sys.color.font_primary')])
+    }.width(34).height(34).backgroundColor(AppColor.GlassSheetControlTint)
+      .enabled(this.canStep).opacity(this.canStep ? 1 : 0.4)
+      .onClick((): void => this.onStep())
+      .id(this.decrease ? 'reader-paragraph-spacing-minus' : 'reader-paragraph-spacing-plus')
+  }
+}
+
 /** 分档按钮使用 @Param 观察选中态，避免 @Builder 按值参数停留在首次渲染。 */
 @ComponentV2
 struct ReaderSettingChip {
@@ -227,6 +245,8 @@ struct ReaderTapSizeSlider {
 @ComponentV2
 export struct ReaderSettingsSheet {
   @Param fontPanel: boolean = false;
+  @Param supportsSpeech: boolean = false;
+  @Event onSpeechSettings: () => void = () => {};
   @Param fontWeight: number = 400;
   @Param textAlignment: string = 'justify';
   @Event onTextAlignmentChange: (value: string) => void = () => {};
@@ -497,9 +517,10 @@ export struct ReaderSettingsSheet {
   buildParagraphSpacingSection() {
     ReaderSettingCard({ title: $r('app.string.reader_paragraph_spacing'), compact: true }) {
       Row({ space: AppSpace.Sm }) {
-        this.stepper($r('sys.symbol.minus'), this.paragraphSpacing > TextReadingSettings.PARAGRAPH_SPACING_MIN, () => {
+        ReaderSpacingStepButton({ decrease: true,
+          canStep: this.paragraphSpacing > TextReadingSettings.PARAGRAPH_SPACING_MIN, onStep: (): void => {
           this.onParagraphSpacingChange(TextReadingSettings.normalizeParagraphSpacing(this.paragraphSpacing - 0.1), true);
-        })
+        } })
         Slider({
           value: this.paragraphSpacing,
           min: TextReadingSettings.PARAGRAPH_SPACING_MIN,
@@ -517,9 +538,10 @@ export struct ReaderSettingsSheet {
           .onChange((value: number, mode: SliderChangeMode): void => {
             this.onParagraphSpacingChange(value, mode === SliderChangeMode.End || mode === SliderChangeMode.Click);
           })
-        this.stepper($r('sys.symbol.plus'), this.paragraphSpacing < TextReadingSettings.PARAGRAPH_SPACING_MAX, () => {
+        ReaderSpacingStepButton({ canStep: this.paragraphSpacing < TextReadingSettings.PARAGRAPH_SPACING_MAX,
+          onStep: (): void => {
           this.onParagraphSpacingChange(TextReadingSettings.normalizeParagraphSpacing(this.paragraphSpacing + 0.1), true);
-        })
+        } })
         Text(`${this.paragraphSpacing.toFixed(1)}`)
           .fontSize(AppFont.Body)
           .fontColor($r('sys.color.font_primary'))
@@ -1045,6 +1067,13 @@ export struct ReaderSettingsSheet {
             this.buildFontAppearance()
           } else {
             this.buildPageTurnModeSection()
+            if (this.supportsSpeech) {
+              ReaderSettingCard({ title: $r('app.string.tts_custom_import'), inline: true }) {
+                Button($r('app.string.reader_tts_manage')).fontColor(AppColor.Brand)
+                  .backgroundColor(AppColor.GlassSheetControlTint)
+                  .onClick((): void => this.onSpeechSettings()).id('reader-tts-settings')
+              }
+            }
             ReaderSettingCard({ title: $r('app.string.reader_volume_key_turn'), inline: true }) {
               Toggle({ type: ToggleType.Switch, isOn: this.volumeKeyPageTurn })
                 .selectedColor(AppColor.Brand)
