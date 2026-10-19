@@ -268,3 +268,11 @@ scripts/                HAR 构建与图标工具
 仅覆盖 API 20+ 的标准 `wearable`，不是所有 WATCH/GT 型号的兼容承诺。`liteWearable` 缺少当前 ArkUI V2/AVPlayer/关系数据库运行链，尚无该平台实现。设备型号、固件 API、ABI、应用安装权限及真实播放/账号恢复必须在手表验证。主机定向回归：`DEVECO_HOME=<Release IDE> node scripts/test-wearable.cjs`。
 
 - 搜索并发默认 3，所有用户可自定义 1–12；持久化和恢复备份保留有效设置。
+
+### 2026-10-19 需求实现补充
+
+新导入 EPUB 的章节内嵌图片保存到 `filesDir/ebooks/import_*/image_*.img`，通过有界 `LocalTextImage` 标记参与字符坐标；分页为图片预留独立固定高度页面，朗读用等长空白跳过标记。单张图片上限 20 MiB/32MP，全书图片上限 128 MiB；不加载远程正文图片，不还原原始复杂排版。旧转换章节需重新导入原 EPUB 才有正文图片；MOBI/HTML 正文仍按现有文本转换处理。
+
+用户书名/封面覆盖及单本单组保存在 Preferences 的 `book_presentation_v1` / `shelf_groups_v1`。`BookPresentation` 在缓存读取/规则元数据后应用；书架保存时同步当前播放、TTS 与桌面卡片。历史总开关停写历史与时长并隐藏记录 Tab，续播/续读位置独立保存，文本历史使用 `history_position_*` 快照。
+
+`SourceTestTaskService` 持有批量书源检测，页面只订阅快照；复用后台 dataTransfer 和通知，离页不取消。系统中断会取消后续任务并保留部分结果，不支持进程被杀后续跑。本轮设备验证边界见 `docs/REQUIREMENTS.md`，不沿用旧轮次实测结论。

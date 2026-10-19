@@ -193,9 +193,14 @@ export struct ReadingStatsPage {
       // 顶部统计独立于书籍明细；离线或某本书读取失败时仍显示持久化累计值。
       this.applyStatsBundle(StatsService.getCachedStatsBundle(1) ?? bundle);
       await PreferenceService.ensureReady(ctx);
-      const history = await PreferenceService.getHistory();
-      const favoriteIds = new Set<string>(await PreferenceService.getFavorites());
-      const reading = await TextReadingProgressService.getAll(ctx);
+      let history: PlayHistoryItem[] = [];
+      let favoriteIds: Set<string> = new Set();
+      let reading: TextReadingPosition[] = [];
+      await Promise.all([
+        Promise.resolve().then(() => PreferenceService.getHistory()).then((items: PlayHistoryItem[]): void => { history = items; }),
+        Promise.resolve().then(() => PreferenceService.getFavorites()).then((items: string[]): void => { favoriteIds = new Set(items); }),
+        Promise.resolve().then(() => TextReadingProgressService.getAll(ctx, true)).then((items: TextReadingPosition[]): void => { reading = items; })
+      ]);
       const allRecords = await this.buildRecordViews(ctx, bundle.records, history, reading);
       this.records = allRecords.filter((item: ListenRecordView): boolean =>
         this.shouldShowRecord(item, favoriteIds));
@@ -323,6 +328,8 @@ export struct ReadingStatsPage {
 
     const candidates: ListeningRecordCandidate[] = [];
     const books = new Map<string, Book>();
+    const metadata = new Map<string, Book>();
+    for (const book of await DataService.getBooks(context)) metadata.set(book.id, book);
     let missingBooks: number = 0;
     for (const bookId of bookIds) {
       const candidate = new ListeningRecordCandidate(bookId);
@@ -339,11 +346,11 @@ export struct ReadingStatsPage {
           historyItem.durationMs ?? 0, historyItem.updatedAt, historyItem.sourceUrl, historyItem.bookUrl);
       }
       const progress = await PreferenceService.getProgress(bookId);
-      if (progress) {
+      if (progress && progress.updatedAt <= Math.max(candidate.historyUpdatedAt, candidate.statsUpdatedAt)) {
         candidate.setProgress(progress.chapterId, progress.chapterTitle, progress.positionMs, progress.durationMs,
           progress.chapterIndex, progress.updatedAt, progress.sourceUrl, progress.bookUrl);
       }
-      const book = await DataService.getBookById(context, bookId) ?? SearchCache.get(bookId);
+      const book = metadata.get(bookId) ?? SearchCache.get(bookId);
       if (book) {
         books.set(bookId, book);
         candidate.setBook(book.sourceUrl, book.bookUrl, book.title, book.author || book.narrator, book.cover);

@@ -8,6 +8,8 @@ export struct ComicPageImage {
   @Param pageWidth: number = 360;
   @Param pageHeight: number = 600;
   @Param paged: boolean = false;
+  @Param zoomRegionLeft: number = 33;
+  @Param zoomRegionRight: number = 33;
   @Param superResolution: boolean = false;
   @Event onToggle: (event: ClickEvent) => void = () => {};
   @Local ratio: number = 0;
@@ -31,7 +33,7 @@ export struct ComicPageImage {
   }
 
   private enhance(): void {
-    if (!this.visible || !this.superResolution || this.enhancedUrl) return;
+    if (!this.visible || !this.superResolution || this.enhancedUrl || this.enhancementFailed) return;
     const context = this.getUIContext().getHostContext();
     if (!context) return;
     const ticket = ++this.enhancementSerial;
@@ -47,6 +49,12 @@ export struct ComicPageImage {
     const ratio = this.ratio > 0 ? this.ratio : this.page.width > 0 && this.page.height > 0 ?
       this.page.height / this.page.width : 1.45;
     return Math.max(1, this.pageWidth * ratio);
+  }
+
+  private decodeWidth(): number {
+    const ratio = this.imageHeight() / Math.max(1, this.pageWidth);
+    return Math.max(1, Math.floor(Math.min(this.pageWidth * this.zoom, 1536, 4096 / ratio,
+      Math.sqrt(4 * 1024 * 1024 / ratio))));
   }
 
   build() {
@@ -68,10 +76,14 @@ export struct ComicPageImage {
           .objectFit(ImageFit.Contain)
           .syncLoad(false)
           .autoResize(true)
+          .sourceSize({ width: this.decodeWidth(), height: Math.max(1, Math.floor(this.decodeWidth() * this.imageHeight() / Math.max(1, this.pageWidth))) })
           .scale({ x: this.zoom, y: this.zoom })
           .onComplete((event) => {
             if (event && event.width > 0 && event.height > 0) {
               this.ratio = event.height / event.width;
+              // 懒加载节点回收后仍保留已知比例，避免回滚时先按占位高度再跳一次。
+              this.page.width = event.width;
+              this.page.height = event.height;
               this.loaded = true;
             }
           })
@@ -79,17 +91,20 @@ export struct ComicPageImage {
             if (this.enhancedUrl) { this.enhancedUrl = ''; this.enhancementFailed = true; }
             else this.failed = true;
           })
-          .onClick((event: ClickEvent) => { this.onToggle(event); })
-          .gesture(TapGesture({ count: 2 }).onAction(() => { this.zoom = this.zoom === 1 ? 2 : 1; }))
+          .gesture(TapGesture({ count: 2 }).onAction((event: GestureEvent): void => {
+            const finger = event.fingerList[0];
+            if (finger === undefined) return;
+            const percent = finger.localX / Math.max(1, this.pageWidth) * 100;
+            if (percent >= this.zoomRegionLeft && percent < 100 - this.zoomRegionRight) {
+              this.zoom = this.zoom === 1 ? 2 : 1;
+            }
+          }))
           .accessibilityText($r('app.string.comic_page_number', this.page.index + 1))
         }.width(this.pageWidth).height(this.paged ? this.pageHeight : this.imageHeight())
           .scrollable(this.paged ? ScrollDirection.Vertical : ScrollDirection.None)
           .scrollBar(BarState.Off)
       }
-      if (this.superResolution && this.enhancementFailed) {
-        Text($r('app.string.comic_ai_original')).fontSize(11).fontColor('#CCCCCC')
-          .padding(6).backgroundColor('#AA121212').hitTestBehavior(HitTestMode.None)
-      }
+
     }
     .width(this.pageWidth).height(this.paged ? this.pageHeight : this.imageHeight()).clip(true)
     .backgroundColor('#121212')

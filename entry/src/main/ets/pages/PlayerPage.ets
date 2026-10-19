@@ -1,6 +1,7 @@
 import { ChapterSheetActions } from '../components/ChapterSheetActions';
 import { ChapterSegmentGrid } from '../components/ChapterSegmentGrid';
 import { PlaybackLoadingIndicator } from '../components/PlaybackLoadingIndicator';
+import { LocalTextImage } from '../service/text/LocalTextImage';
 import { PlayerCoverImage } from '../components/PlayerCoverImage';
 import { CoverImage } from '../components/CoverImage';
 import { BookSourceSwitchSheet } from '../components/BookSourceSwitchSheet';
@@ -30,8 +31,8 @@ import { ChapterDataSource } from '../utils/ChapterDataSource';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
-import { TextToSpeechState } from '../model/TextToSpeechState';
-import { ReaderSpeechSheet } from '../components/ReaderSpeechSheet';
+import { TextToSpeechState, SpeechVoice } from '../model/TextToSpeechState';
+import { CustomTtsConfig } from '../model/CustomTtsConfig';
 import { LightSourceBridge } from '../service/rulesource/light/LightSourceBridge';
 import { LocalRuleVoice } from '../service/rulesource/LocalRuleRuntimeTypes';
 import { SourceVoiceDataSource } from '../utils/SourceVoiceDataSource';
@@ -46,7 +47,7 @@ class PlayerSourceSwitchRoute {
   progressMs: number = 0;
 }
 
-class PlayerVoiceLayoutReadyFrame extends FrameCallback {
+class PlayerLayoutReadyFrame extends FrameCallback {
   private callback: () => void;
 
   constructor(callback: () => void) {
@@ -133,7 +134,6 @@ export struct PlayerPage {
   @Local sourceName: ResourceStr = '';
   @Local sourceVoiceAvailable: boolean = false;
   @Local showSourceVoice: boolean = false;
-  @Local showSpeechVoice: boolean = false;
   @Local sourceVoiceDraft: string = '';
   @Local savingSourceVoice: boolean = false;
   private sourceVoices: SourceVoiceDataSource = new SourceVoiceDataSource();
@@ -154,6 +154,15 @@ export struct PlayerPage {
   /** 倍速滑块当前值(拖动时实时显示,松手才真正下发到 AudioService) */
   @Local speedValue: number = 1.0;
   @Local playerState: PlayerState = AppStorageV2.connect(PlayerState, PLAYER_STATE_KEY, () => new PlayerState())!;;
+  private speechScroller: Scroller = new Scroller();
+  @Local speechParagraphs: string[] = [];
+  @Local speechParagraphIndex: number = 0;
+  private speechParagraphOffsets: number[] = [];
+  private speechChapterKey: string = '';
+  private speechListReady: boolean = false;
+  private speechPositionQueued: boolean = false;
+  private speechPositionGeneration: number = 0;
+  private speechPositionedChapter: string = '';
   @Local speechState: TextToSpeechState = TextToSpeechService.getInstance().state;
   @Local seeking: boolean = false;
   @Local seekValueMs: number = 0;
@@ -264,6 +273,7 @@ export struct PlayerPage {
     }
     if (!b) return;
     this.book = b;
+    this.syncSpeechParagraphs();
   }
 
   private finishEntering(): void {
@@ -373,9 +383,8 @@ export struct PlayerPage {
    * 实际同时只会有一个抽屉打开,逐个判断即可。
    */
   private handleBack(): boolean {
-    if (this.showSourceVoice || this.showSpeechVoice) {
+    if (this.showSourceVoice) {
       this.showSourceVoice = false;
-      this.showSpeechVoice = false;
       return true;
     }
     if (this.showSourceSwitch) {
@@ -550,19 +559,36 @@ export struct PlayerPage {
   }
 
   private openVoiceOptions(): void {
-    if (this.isSpeechBook()) {
-      TextToSpeechService.getInstance().refreshVoices();
-      this.showSpeechVoice = true;
-    } else {
+    if (!this.isSpeechBook()) {
       this.sourceVoiceDraft = this.book?.variables?.['__audioSourceVoice'] ?? this.book?.variables?.['custom'] ?? '';
-      this.showSourceVoice = !this.showSourceVoice;
+    } else if (!this.showSourceVoice && this.speechState.voices.length === 0) {
+      TextToSpeechService.getInstance().refreshVoices();
     }
+    this.showSourceVoice = !this.showSourceVoice;
   }
 
-  @Builder
-  private buildPlaybackVoiceSheet(): void {
-    ReaderSpeechSheet({ state: this.speechState, voiceOnly: true,
-      onClose: (): void => { this.showSpeechVoice = false; } })
+  private selectedPlaybackVoiceId(): string {
+    if (!this.isSpeechBook()) return this.sourceVoiceDraft;
+    if (this.speechState.customTtsId) return this.speechState.customTtsId;
+    const voice = this.playbackSpeechVoices().find((item: SpeechVoice): boolean => this.speechState.isVoiceSelected(item));
+    return voice === undefined ? '' : `system:${voice.id}`;
+  }
+
+  private playbackSpeechVoices(): SpeechVoice[] {
+    return this.speechState.voices.filter((voice: SpeechVoice): boolean => voice.installed);
+  }
+
+  private async saveSpeechVoice(id: string): Promise<void> {
+    if (this.savingSourceVoice || id === this.selectedPlaybackVoiceId()) return;
+    this.savingSourceVoice = true;
+    try {
+      const service = TextToSpeechService.getInstance();
+      const voice = this.playbackSpeechVoices().find((item: SpeechVoice): boolean => `system:${item.id}` === id);
+      if (voice !== undefined) await service.selectVoice(voice);
+      else await service.selectCustomTts(id);
+    }
+    catch (_error) { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.tts_save_error') }); }
+    finally { this.savingSourceVoice = false; }
   }
 
   private async loadSourceName(book: Book): Promise<void> {
@@ -629,9 +655,9 @@ export struct PlayerPage {
     Button({ type: ButtonType.Normal }) {
       Row({ space: AppSpace.Md }) {
         Text(label).fontSize(16)
-          .fontColor(this.sourceVoiceDraft === id ? AppColor.Brand : $r('sys.color.font_primary'))
+          .fontColor(this.selectedPlaybackVoiceId() === id ? AppColor.Brand : $r('sys.color.font_primary'))
           .layoutWeight(1).textAlign(TextAlign.Start).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-        if (this.sourceVoiceDraft === id) {
+        if (this.selectedPlaybackVoiceId() === id) {
           if (this.savingSourceVoice) {
             LoadingProgress().width(22).height(22).color(AppColor.Brand)
           } else {
@@ -642,15 +668,25 @@ export struct PlayerPage {
       }.width('100%').padding({ left: AppSpace.Sm, right: AppSpace.Sm })
     }
     .width('100%').height(48).borderRadius(AppRadius.Xl - AppSpace.Xs)
-    .backgroundColor(this.sourceVoiceDraft === id ? AppColor.BrandSoft : Color.Transparent)
-    .enabled(!this.savingSourceVoice && !this.reloadingChapter && !this.playerState.isLoading)
+    .backgroundColor(this.selectedPlaybackVoiceId() === id ? AppColor.BrandSoft : Color.Transparent)
+    .enabled(!this.savingSourceVoice && !this.reloadingChapter && (this.isSpeechBook() || !this.playerState.isLoading))
     .onClick((): void => {
       this.showSourceVoice = false;
-      this.saveSourceVoice(id);
+      if (this.isSpeechBook()) this.saveSpeechVoice(id);
+      else this.saveSourceVoice(id);
     }).id(`source-voice-${id || 'default'}`)
   }
 
   private selectedSourceVoiceIndex(): number {
+    if (this.isSpeechBook()) {
+      const voices = this.playbackSpeechVoices();
+      if (!this.speechState.customTtsId) {
+        return Math.max(0, voices.findIndex((voice: SpeechVoice): boolean => this.speechState.isVoiceSelected(voice)));
+      }
+      const index = this.speechState.customTtsConfigs.findIndex((config: CustomTtsConfig): boolean =>
+        config.id === this.speechState.customTtsId);
+      return index < 0 ? 0 : voices.length + index;
+    }
     for (let index = 0; index < this.sourceVoices.totalCount(); index++) {
       if (this.sourceVoices.getData(index).id === this.sourceVoiceDraft) return index + 1;
     }
@@ -658,7 +694,7 @@ export struct PlayerPage {
   }
 
   private scrollToSelectedSourceVoice(): void {
-    this.getUIContext().postFrameCallback(new PlayerVoiceLayoutReadyFrame((): void => {
+    this.getUIContext().postFrameCallback(new PlayerLayoutReadyFrame((): void => {
       if (!this.showSourceVoice || this.isLeaving) return;
       const index = this.selectedSourceVoiceIndex();
       this.sourceVoiceScroller.scrollToIndex(index, false, index === 0 ? ScrollAlign.START : ScrollAlign.CENTER);
@@ -687,13 +723,23 @@ export struct PlayerPage {
   buildSourceVoiceMenu() {
     Column() {
       List({ scroller: this.sourceVoiceScroller, initialIndex: this.selectedSourceVoiceIndex() }) {
+        if (this.isSpeechBook()) {
+          Repeat<SpeechVoice>(this.playbackSpeechVoices()).each((item: RepeatItem<SpeechVoice>) => {
+            ListItem() { this.buildSourceVoiceOption(`system:${item.item.id}`, item.item.label) }
+          }).key((voice: SpeechVoice): string => `system:${voice.id}`).virtualScroll()
+          Repeat<CustomTtsConfig>(this.speechState.customTtsConfigs).each((item: RepeatItem<CustomTtsConfig>) => {
+            ListItem() { this.buildSourceVoiceOption(item.item.id, item.item.name) }
+          }).key((config: CustomTtsConfig): string => config.id).virtualScroll()
+        } else {
         ListItem() {
           this.buildSourceVoiceOption('', $r('app.string.player_source_voice_default'))
         }
         LazyForEach(this.sourceVoices, (voice: LocalRuleVoice): void => {
           ListItem() { this.buildSourceVoiceOption(voice.id, voice.name) }
         }, (voice: LocalRuleVoice): string => voice.id)
-      }.width('100%').height(Math.min(288, (this.sourceVoices.totalCount() + 1) * 48))
+        }
+      }.width('100%').height(Math.min(288, Math.max(1, this.isSpeechBook() ?
+        this.speechState.customTtsConfigs.length + this.playbackSpeechVoices().length : this.sourceVoices.totalCount() + 1) * 48))
         .scrollBar(BarState.Off)
     }
     .width(Math.min(180, Math.max(120, this.viewportWidth - 32))).padding(AppSpace.Xs)
@@ -1345,6 +1391,13 @@ export struct PlayerPage {
 
   @Builder
   buildLandscapePlayerContent() {
+    if (this.isSpeechBook()) {
+      Scroll() {
+        Column() {
+          this.buildPlayerContent(true)
+        }.width('100%')
+      }.width('100%').layoutWeight(1).scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+    } else {
     this.buildTopBar()
     Row({ space: AppSpace.Xl }) {
       Column() {
@@ -1357,6 +1410,7 @@ export struct PlayerPage {
       Scroll() {
         Column() {
           this.buildMeta()
+          if (this.isSpeechBook()) { this.buildSpeechParagraphs() }
           Blank().height(AppSpace.Md)
           this.buildProgress()
           this.buildControls()
@@ -1374,15 +1428,23 @@ export struct PlayerPage {
     .width('100%')
     .layoutWeight(1)
     .margin({ top: AppSpace.Sm })
+    }
   }
 
   @Builder
   buildPlayerContent(scrollable: boolean) {
     this.buildTopBar()
-    this.buildCover()
+    if (this.isSpeechBook()) {
+      this.buildSpeechBookHeader()
+    } else {
+      this.buildCover()
+    }
     this.buildMeta()
+    if (this.isSpeechBook()) { this.buildSpeechParagraphs(!scrollable) }
     // 仅滚动容器使用固定间距；可同屏显示时由 Blank 吸收余高，让播控贴合底部安全区。
-    if (scrollable) {
+    if (this.isSpeechBook()) {
+      Blank().height(AppSpace.Sm)
+    } else if (scrollable) {
       Blank().height(AppSpace.Md)
     } else {
       Blank()
@@ -1526,12 +1588,7 @@ export struct PlayerPage {
           .enabled(this.isSpeechBook() || (!this.reloadingChapter && !this.playerState.isLoading && !this.savingSourceVoice))
           .onClick((): void => this.openVoiceOptions()).id('player-voice')
           .bindPopup(this.showSourceVoice, this.sourceVoiceMenuOptions())
-          .bindSheet($$this.showSpeechVoice, this.buildPlaybackVoiceSheet(), {
-            height: '82%',
-            preferType: SheetType.BOTTOM, showClose: false,
-            backgroundColor: AppMaterial.SheetBackground,
-            blurStyle: AppMaterial.PlayerSheetBlur, systemMaterial: AppMaterial.PlayerSheet
-          })
+
       }
       if (this.book?.sourceUrl && !this.isSpeechBook()) {
         Button({ type: ButtonType.Circle }) {
@@ -1560,11 +1617,30 @@ export struct PlayerPage {
   }
 
   @Builder
+  buildSpeechBookHeader() {
+    Row({ space: AppSpace.Lg }) {
+      PlayerCoverImage({ title: this.book!.title, url: this.book!.cover,
+        fallback: this.book!.coverFallback ?? '', highQuality: this.highQualityCover })
+        .width(this.isCompactPlayer() ? 88 : 104).aspectRatio(1).borderRadius(12).clip(true)
+        .id('player-page-cover').opacity(this.dragState.active ? 0 : 1)
+      Column({ space: AppSpace.Sm }) {
+        Text(this.sourceName).fontSize(AppFont.Caption).fontColor('#CCFFFFFF')
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(this.book!.title).fontSize(22).fontWeight(FontWeight.Bold).fontColor('#FFFFFF')
+          .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(this.book!.author).fontSize(AppFont.Body).fontColor('#CCFFFFFF')
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+    }.width('100%').alignItems(VerticalAlign.Center)
+      .margin({ top: this.isCompactPlayer() ? AppSpace.Xs : AppSpace.Lg })
+  }
+
+  @Builder
   buildCover() {
     Column() {
       Stack({ alignContent: Alignment.TopStart }) {
         PlayerCoverImage({
-          url: this.book!.cover, fallback: this.book!.coverFallback ?? '',
+          title: this.book!.title, url: this.book!.cover, fallback: this.book!.coverFallback ?? '',
           highQuality: this.highQualityCover
         })
         if (this.sourceName !== '') {
@@ -1581,7 +1657,7 @@ export struct PlayerPage {
             .hitTestBehavior(HitTestMode.None)
         }
       }
-      .width(this.isLandscapePlayer() ? this.landscapeCoverSize()
+      .width(this.isSpeechBook() ? 112 : this.isLandscapePlayer() ? this.landscapeCoverSize()
         : this.isCompactPlayer() ? this.compactCoverSize() : '100%')
       .aspectRatio(1)
       .borderRadius(16)
@@ -1595,6 +1671,84 @@ export struct PlayerPage {
     .margin({ top: this.isLandscapePlayer() ? 0 : this.isCompactPlayer() ? AppSpace.Xs : AppSpace.Lg })
   }
 
+  @Monitor('speechState.chapterIndex', 'speechState.charOffset', 'speechState.contentLength')
+  private syncSpeechParagraphs(): void {
+    if (!this.speechMatchesBook()) return;
+    const key = `${this.speechState.bookId}:${this.speechState.chapterIndex}:${this.speechState.contentLength}`;
+    const chapterChanged = key !== this.speechChapterKey;
+    if (chapterChanged) {
+      const content = LocalTextImage.speechContent(TextToSpeechService.getInstance().currentChapterContent());
+      const paragraphs: string[] = [];
+      const offsets: number[] = [];
+      let offset = 0;
+      for (const line of content.split('\n')) {
+        if (line.trim().length > 0) { paragraphs.push(line); offsets.push(offset); }
+        offset += line.length + 1;
+      }
+      this.speechChapterKey = key;
+      this.speechParagraphOffsets = offsets;
+      this.speechParagraphs = paragraphs;
+    }
+    let index = 0;
+    for (let next = 0; next < this.speechParagraphOffsets.length; next++) {
+      if (this.speechParagraphOffsets[next] > this.speechState.charOffset) break;
+      index = next;
+    }
+    if (chapterChanged || this.speechParagraphIndex !== index) {
+      this.speechParagraphIndex = index;
+      this.positionSpeechParagraph(!chapterChanged);
+    }
+  }
+
+  private positionSpeechParagraph(animated: boolean): void {
+    if (!this.speechListReady || this.speechPositionQueued || this.speechParagraphs.length === 0) return;
+    this.speechPositionQueued = true;
+    const generation = this.speechPositionGeneration;
+    this.getUIContext().postFrameCallback(new PlayerLayoutReadyFrame((): void => {
+      if (generation !== this.speechPositionGeneration) return;
+      this.speechPositionQueued = false;
+      if (this.isLeaving || !this.speechListReady || !this.speechMatchesBook()) return;
+      try {
+        this.speechScroller.scrollToIndex(this.speechParagraphIndex,
+          animated && this.speechPositionedChapter === this.speechChapterKey, ScrollAlign.CENTER);
+        this.speechPositionedChapter = this.speechChapterKey;
+      } catch (_error) { /* 列表卸载时不继续定位。 */ }
+    }));
+  }
+
+  @Builder
+  buildSpeechParagraphs(fillAvailable: boolean = false) {
+    Stack() {
+    List({ scroller: this.speechScroller, initialIndex: this.speechParagraphIndex }) {
+      Repeat<string>(this.speechParagraphs).each((item: RepeatItem<string>) => {
+        ListItem() {
+          Text(item.item).fontSize(16).lineHeight(26).width('100%').padding({ top: 8, bottom: 8 })
+            .fontColor(item.index === this.speechParagraphIndex ? '#FFFFFF' : '#99FFFFFF')
+            .fontWeight(item.index === this.speechParagraphIndex ? FontWeight.Medium : FontWeight.Normal)
+        }
+      }).key((_paragraph: string, index: number): string => `${this.speechChapterKey}:${this.speechParagraphOffsets[index]}`).virtualScroll()
+    }.width('100%').height('100%').scrollBar(BarState.Off).cachedCount(2)
+      .onAppear((): void => {
+        this.speechListReady = true;
+        this.syncSpeechParagraphs();
+        this.positionSpeechParagraph(false);
+      })
+      .onDisAppear((): void => {
+        this.speechListReady = false;
+        this.speechPositionQueued = false;
+        this.speechPositionGeneration++;
+        this.speechPositionedChapter = '';
+      })
+      // 透明蒙版只作用于正文离屏层，露出原来的封面背景，不遮挡触摸。
+      Column().width('100%').height('100%')
+        .linearGradient({ direction: GradientDirection.Bottom,
+          colors: [['#00FFFFFF', 0], ['#FFFFFFFF', 0.08], ['#FFFFFFFF', 0.92], ['#00FFFFFF', 1]] })
+        .blendMode(BlendMode.DST_IN)
+        .hitTestBehavior(HitTestMode.None)
+    }.width('100%').height(220).layoutWeight(fillAvailable ? 1 : 0)
+      .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
+  }
+
   @Builder
   buildMeta() {
     Column({ space: 4 }) {
@@ -1606,10 +1760,12 @@ export struct PlayerPage {
             .fontWeight(FontWeight.Bold)
             .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text(this.isSpeechBook() ? this.book!.title : this.book!.author)
+          if (!this.isSpeechBook()) {
+          Text(this.book!.author)
             .fontSize(AppFont.Body)
             .fontColor('#FFFFFF')
             .maxLines(1)
+          }
         }
         .layoutWeight(1)
         .alignItems(HorizontalAlign.Start)

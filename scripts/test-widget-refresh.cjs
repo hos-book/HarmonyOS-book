@@ -15,6 +15,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 function fixture() {
   const pushes = [], requests = [], files = new Set(), descriptors = new Set();
   let snapshot = null, nextFd = 1;
+  const coordinator = { speechActive: false };
   const fileIo = {
     OpenMode: { READ_ONLY: 0, READ_WRITE: 1, CREATE: 2, TRUNC: 4 },
     async stat(file) { if (!files.has(file)) throw new Error('missing'); return { size: 100 }; },
@@ -26,6 +27,7 @@ function fixture() {
     closeSync(file) { descriptors.delete(file.fd); }
   };
   const modules = {
+    './PlaybackCoordinator': { PlaybackCoordinator: coordinator },
     '../utils/PlatformCompat': { PlatformCompat: { wearable: false } },
     '@kit.FormKit': {
       formBindingData: { createFormBindingData: data => data },
@@ -51,7 +53,7 @@ function fixture() {
     require(name) { if (modules[name]) return modules[name]; throw new Error(name); } });
   const updater = module.exports.WidgetUpdater;
   updater.setContext({ filesDir: '/files', cacheDir: '/cache' });
-  return { updater, pushes, requests, descriptors };
+  return { updater, pushes, requests, descriptors, coordinator, snapshot: () => snapshot };
 }
 function state(id, playing = false) {
   return { currentBook: { id, title: id, author: 'author', cover: `https://cover/${id}` },
@@ -82,6 +84,23 @@ async function main() {
   assert.equal(f.descriptors.size, 0, 'all cover descriptors are released');
   await f.updater.updatePlayerCard(null, true);
   assert.equal(f.pushes.at(-1).hasBook, false);
+  f.coordinator.speechActive = true;
+  const speechBook = { id: 'ebook', title: 'ebook title', author: 'author', cover: '',
+    chapters: [{ id: 'c1', title: 'chapter one' }, { id: 'c2', title: 'chapter two' }] };
+  const speech = { chapterIndex: 0, charOffset: 20, playing: true, loading: false };
+  await f.updater.updateSpeechCard(speechBook, speech);
+  assert.equal(f.pushes.at(-1).bookId, 'ebook');
+  assert.equal(f.pushes.at(-1).isPlaying, true);
+  assert.equal(f.snapshot().charOffset, 20);
+  await f.updater.updatePlayerCard(state('old-audio'), true);
+  assert.equal(f.pushes.at(-1).bookId, 'ebook', 'old audio callbacks cannot overwrite active TTS');
+  speech.playing = false; speech.chapterIndex = 1;
+  await f.updater.updateSpeechCard(speechBook, speech);
+  assert.equal(f.pushes.at(-1).chapterTitle, 'chapter two');
+  assert.equal(f.pushes.at(-1).isPlaying, false);
+  f.coordinator.speechActive = false;
+  await f.updater.updatePlayerCard(state('old-audio'), true);
+  assert.equal(f.pushes.at(-1).bookId, 'ebook', 'audio release cannot restore an older audio book');
   console.log('PASS immediate multi-card refresh, slow cover, rapid book/state changes, deduplication and FD cleanup');
 }
 main().catch(error => { console.error(error); process.exitCode = 1; });

@@ -137,11 +137,11 @@ const MAX_LIST = 100000;
 const AST_CACHE_LIMIT = 800;
 
 function isIdStart(ch: string): boolean {
-  return /[A-Za-z_\u0080-￿]/.test(ch);
+  return /[A-Za-z_\u0080-\uFFFF]/.test(ch);
 }
 
 function isIdPart(ch: string): boolean {
-  return /[A-Za-z0-9_\u0080-￿]/.test(ch);
+  return /[A-Za-z0-9_\u0080-\uFFFF]/.test(ch);
 }
 
 function tokenize(source: string): Token[] {
@@ -625,7 +625,7 @@ function base64Encode(bytes: number[]): string {
     const b1 = i + 1 < bytes.length ? bytes[i + 1] : 0;
     const b2 = i + 2 < bytes.length ? bytes[i + 2] : 0;
     out += BASE64[b0 >> 2] + BASE64[((b0 & 3) << 4) | (b1 >> 4)];
-    out += i + 1 < bytes.length ? BASE64[((b1 & 15) << 2) | (b2 >> 6)] : '=';
+    out += bytes.length > i + 1 ? BASE64[((b1 & 15) << 2) | (b2 >> 6)] : '=';
     out += i + 2 < bytes.length ? BASE64[b2 & 63] : '=';
   }
   return out;
@@ -901,21 +901,27 @@ export class NativeExpr {
     while (cursor < template.length) {
       const open = template.indexOf('{{', cursor);
       if (open < 0) break;
+      // 按花括号层数找结束的 }}：表达式里的对象字面量 {{ {a: 1}}} 取到最后一组，
+      // 模板外的 JSON {"p":{{page}}} 则在 page 后结束，多出的 } 原样输出。
       let close = -1;
       let quote = '';
-      for (let i = open + 2; i < template.length - 1; i++) {
+      let depth = 0;
+      for (let i = open + 2; i < template.length; i++) {
         const ch = template[i];
         if (quote) {
           if (ch === '\\') i++;
           else if (ch === quote) quote = '';
         } else if (ch === '"' || ch === "'") {
           quote = ch;
-        } else if (ch === '}' && template[i + 1] === '}') {
-          // 表达式以对象字面量结尾时会出现 }}}，取最后一组。
-          let end = i;
-          while (end + 2 < template.length && template[end + 2] === '}') end++;
-          close = end;
-          break;
+        } else if (ch === '{') {
+          depth++;
+        } else if (ch === '}') {
+          if (depth > 0) {
+            depth--;
+          } else if (template[i + 1] === '}') {
+            close = i;
+            break;
+          }
         }
       }
       if (close < 0) throw new NativeExprError('模板里的 {{ 没有对应的 }}');
@@ -1349,7 +1355,7 @@ export class NativeExpr {
         return Math.pow(num(0), num(1));
       case 'toHex': {
         const value = Math.floor(num(0));
-        return (value < 0 ? value >>> 0 : value).toString(16).padStart(Math.min(num(1), 64), '0');
+        return (value >= 0 ? value : value >>> 0).toString(16).padStart(Math.min(num(1), 64), '0');
       }
       case 'parseHex': {
         const parsed = parseInt(text(0), 16);

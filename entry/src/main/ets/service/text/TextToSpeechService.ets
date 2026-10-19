@@ -1,3 +1,5 @@
+import { TextReadingPosition } from '../../model/TextReading';
+import { TextReadingProgressService } from './TextReadingProgressService';
 import { CustomTtsConfig } from '../../model/CustomTtsConfig';
 import { CustomTtsConfigParser } from './CustomTtsConfigParser';
 import { HttpTtsAudioOutput, HttpTtsPlayer } from './HttpTtsPlayer';
@@ -20,12 +22,23 @@ import { PlaybackCoordinator } from '../PlaybackCoordinator';
 import { PreferenceService } from '../PreferenceService';
 import { DataService } from '../DataService';
 import { BookSourceService } from '../BookSourceService';
+import { WidgetUpdater } from '../WidgetUpdater';
 import { OnlineTextContentCache } from './OnlineTextContentCache';
 import { OnlineTextPaginator } from './OnlineTextPaginator';
 import { SpeechSegment, SpeechTextSegmenter } from './SpeechTextSegmenter';
 
 /** 独立于页面生命周期的系统/HTTP 朗读。停止/换书后旧请求由代次和 requestId 隔离。 */
 export class TextToSpeechService {
+  updateBookPresentation(book: Book): void {
+    if (this.book?.id !== book.id) return;
+    this.book.title = book.title;
+    this.book.cover = book.cover;
+    this.state.bookTitle = book.title;
+    this.state.cover = book.cover;
+    const chapter = this.book.chapters[this.state.chapterIndex];
+    if (chapter) AVSessionService.getInstance().updateMetadata(this.book, chapter, true);
+    this.syncPlayerCard();
+  }
   private static instance: TextToSpeechService | null = null;
   readonly state: TextToSpeechState = new TextToSpeechState();
   private context: common.UIAbilityContext | null = null;
@@ -57,6 +70,8 @@ export class TextToSpeechService {
   private sleepDeadline: number = 0;
   private flushChain: Promise<void> = Promise.resolve();
   private lastSaveAt: number = 0;
+  private lastWidgetState: string = '';
+  private lastWidgetAt: number = 0;
   private spokenSince: number = -1;
   private pendingListenMs: number = 0;
   private listeners: Set<() => void> = new Set();
@@ -132,8 +147,22 @@ export class TextToSpeechService {
   }
 
   private notify(): void {
+    this.syncPlayerCard();
     if (!this.foreground) return;
     this.listeners.forEach((listener: () => void): void => listener());
+  }
+
+  private syncPlayerCard(): void {
+    const book = this.book;
+    if (book === null || !PlaybackCoordinator.speechActive) return;
+    const chapter = book.chapters[this.state.chapterIndex];
+    const visibleState = JSON.stringify([book.id, book.title, book.author, book.cover, chapter?.id ?? '',
+      chapter?.title ?? '', this.state.playing && !this.state.loading]);
+    const now = Date.now();
+    if (visibleState === this.lastWidgetState && now - this.lastWidgetAt < 5000) return;
+    this.lastWidgetState = visibleState;
+    this.lastWidgetAt = now;
+    WidgetUpdater.updateSpeechCard(book, this.state).catch((error: Error): void => this.report(error));
   }
 
   private message(resource: Resource): string {
@@ -791,6 +820,8 @@ export class TextToSpeechService {
     } catch (_error) { return null; }
   }
 
+  currentChapterContent(): string { return this.chapterContent; }
+
   hasSavedPosition(book: Book): boolean { return this.savedPosition(book) !== null; }
 
   private savePosition(force: boolean): void {
@@ -810,6 +841,11 @@ export class TextToSpeechService {
     value.charOffset = this.state.charOffset;
     try {
       store.putSync(`position_${book.id}`, JSON.stringify(value));
+      if (this.context !== null) {
+        const position = TextReadingPosition.atChar(book.id, this.state.chapterIndex, '',
+          this.state.charOffset, 0, chapter.title);
+        TextReadingProgressService.save(this.context, position).catch((): void => {});
+      }
       this.lastSaveAt = Date.now();
       this.flush();
     } catch (_error) { this.state.error = this.message($r('app.string.tts_save_error')); }

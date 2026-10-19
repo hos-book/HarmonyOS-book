@@ -6,45 +6,62 @@ import { buffer, util } from '@kit.ArkTS';
 import lazy { imageSuperResolution, visionBase } from '@kit.CoreVisionKit';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { PreferenceService } from './PreferenceService';
+import { CoverPrefetcher } from './CoverPrefetcher';
 
 /** 当前可见漫画图片的本地超分；串行处理，原图不覆盖，派生缓存有界。 */
 export class ComicSuperResolutionService {
   private static queue: Promise<void> = Promise.resolve();
+  private static stalled: boolean = false;
 
   static supported(): boolean {
     return PlatformCompat.supports(26) && canIUse('SystemCapability.AI.Vision.VisionBase');
   }
 
   static async enhance(context: common.Context, url: string, active: () => boolean): Promise<string> {
-    if (!ComicSuperResolutionService.supported() || !active() ||
-      !url.startsWith('file://')) return '';
+    if (!ComicSuperResolutionService.supported() || !active() || ComicSuperResolutionService.stalled ||
+      (!url.startsWith('file://') && !/^https?:\/\//.test(url))) return '';
+    let expired = false;
+    let processing = false;
     const job = ComicSuperResolutionService.queue.then(async (): Promise<string> => {
       try {
-        if (!active() || !await PreferenceService.getComicSuperResolution()) return '';
+        if (expired || ComicSuperResolutionService.stalled || !active() || !await PreferenceService.getComicSuperResolution()) return '';
+        processing = true;
         return await ComicSuperResolutionService.process(context, url, active);
       } catch (_error) {
         console.warn('[ComicSuperResolution] Enhancement unavailable; using original comic image');
         return '';
+      } finally {
+        processing = false;
       }
     });
     ComicSuperResolutionService.queue = job.then((): void => {});
-    return job;
+    let timer = -1;
+    const timeout = new Promise<string>((resolve): void => {
+      timer = setTimeout((): void => {
+        expired = true;
+        if (processing) ComicSuperResolutionService.stalled = true;
+        resolve('');
+      }, 30000);
+    });
+    try { return await Promise.race([job, timeout]); }
+    finally { if (timer >= 0) clearTimeout(timer); }
   }
 
   private static async process(context: common.Context, url: string, active: () => boolean): Promise<string> {
-    const localPath = new fileUri.FileUri(url).path;
-    if (!localPath.startsWith(`${context.cacheDir}/comic_images/`)) return '';
-    const stat = await fileIo.stat(localPath);
-    if (stat.size <= 0 || stat.size > 20 * 1024 * 1024) return '';
+    const remote = /^https?:\/\//.test(url);
+    const localPath = remote ? '' : new fileUri.FileUri(url).path;
+    if (!remote && !localPath.startsWith(`${context.cacheDir}/comic_images/`)) return '';
+    const stat = remote ? null : await fileIo.stat(localPath);
+    if (stat !== null && (stat.size <= 0 || stat.size > 20 * 1024 * 1024)) return '';
     const digest = cryptoFramework.createMd('SHA256');
-    await digest.update({ data: new util.TextEncoder().encodeInto(`${url}:${stat.mtime}:${stat.size}`) });
+    await digest.update({ data: new util.TextEncoder().encodeInto(`${url}:${stat?.mtime ?? 0}:${stat?.size ?? 0}`) });
     const key = buffer.from((await digest.digest()).data).toString('hex');
     const dir = `${context.cacheDir}/comic_super_resolution_v1`;
     if (!await fileIo.access(dir)) await fileIo.mkdir(dir);
     const path = `${dir}/${key}.jpg`;
     if (await fileIo.access(path)) return fileUri.getUriFromPath(path);
     if (!active()) return '';
-    const source = image.createImageSource(localPath);
+    const source = remote ? image.createImageSource(await CoverPrefetcher.loadOriginal(url)) : image.createImageSource(localPath);
     let input: image.PixelMap | null = null;
     try {
       const info = await source.getImageInfo();
@@ -62,7 +79,7 @@ export class ComicSuperResolutionService {
         try {
           if (!active() || !await PreferenceService.getComicSuperResolution()) return '';
           const size = (await output.getImageInfo()).size;
-          if (size.width <= info.size.width || size.height <= info.size.height ||
+          if (size.width < info.size.width || size.height < info.size.height ||
             size.width * size.height > 16 * 1024 * 1024) return '';
           const packer = image.createImagePacker();
           try {

@@ -36,7 +36,7 @@ const RANKING_SEARCH_HEIGHT: number = 56;
 // 榜单区块：每列上下两本，列横向排列，最多六本；一屏一列，右侧露出下一列提示可滑动。
 const RANKING_SECTION_COLUMN_SIZE: number = 2;
 const RANKING_SECTION_ITEMS: number = 6;
-const RANKING_SECTION_ROW_HEIGHT: number = 102;
+const RANKING_SECTION_ROW_HEIGHT: number = 94;
 const RANKING_SECTION_ROW_GAP: number = 4;
 const RANKING_SECTION_COLUMN_GAP: number = 12;
 const RANKING_SECTION_HEIGHT: number = RANKING_SECTION_COLUMN_SIZE * RANKING_SECTION_ROW_HEIGHT +
@@ -56,7 +56,8 @@ struct RankingBookRow {
         .fontSize(26).fontWeight(FontWeight.Medium).fontStyle(FontStyle.Italic)
         .fontColor(this.book.rank <= 3 ? AppColor.Brand : $r('sys.color.font_tertiary')).width(34)
       CoverImage({ url: this.book.coverUrl, imgWidth: 58,
-        imgHeight: this.book.platformId === 'qidian' ? 58 / 0.75 : 78, useFixedHeight: true,
+        aspectRatioValue: this.book.contentType === 'text' ? 0.75 : 1,
+        useOriginalRatio: true, maxOriginalHeight: 78,
         radius: AppRadius.Sm, imageFit: ImageFit.Contain, decodeW: 174, decodeH: 234 })
       Column({ space: 7 }) {
         Text(this.book.title).fontSize(16).fontWeight(FontWeight.Medium)
@@ -64,7 +65,8 @@ struct RankingBookRow {
         Text(this.book.author || this.book.narrator).fontSize(12)
           .fontColor($r('sys.color.font_secondary')).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-    }.width('100%').padding({ top: 12, bottom: 12 }).constraintSize({ minHeight: 102 })
+    }.width('100%').padding({ top: 8, bottom: 8 })
+    .constraintSize({ minHeight: RANKING_SECTION_ROW_HEIGHT })
     .onClick(() => this.onChoose(this.book))
     .accessibilityGroup(true).accessibilityText(this.book.title)
   }
@@ -644,7 +646,8 @@ export struct RankingHomePage {
     Column({ space: 16 }) {
         Row({ space: 14 }) {
           CoverImage({ url: this.selectedBook.coverUrl, imgWidth: 54,
-            imgHeight: this.selectedBook.platformId === 'qidian' ? 72 : 70, useFixedHeight: true,
+            aspectRatioValue: this.selectedBook.contentType === 'text' ? 0.75 : 1,
+            useOriginalRatio: true, maxOriginalHeight: 72,
             radius: AppRadius.Sm, imageFit: ImageFit.Contain })
           Column({ space: 7 }) {
             Text(this.selectedBook.title).fontSize(18).fontWeight(FontWeight.Bold).maxLines(2)
@@ -841,8 +844,8 @@ export struct RankingHomePage {
     })
     .titleMode(HdsNavigationTitleMode.MINI).hideBackButton(true).mode(NavigationMode.Stack)
     .bindToScrollable([this.scroller])
-    .systemBarStyle({ statusBarContentColor: WindowUtils.getSystemBarContentColor() },
-      { statusBarContentColor: WindowUtils.getSystemBarContentColor() })
+    .systemBarStyle({ statusBarContentColor: '#FFFFFFFF' },
+      { statusBarContentColor: '#FF000000' })
     .width('100%').height(this.contentHeight + this.headerRange).flexShrink(0)
     .backgroundColor(Color.Transparent)
   }
@@ -940,8 +943,8 @@ export struct RankingHomePage {
     })
     .titleMode(HdsNavigationTitleMode.MINI).hideBackButton(false).mode(NavigationMode.Stack)
     .bindToScrollable([this.boardScroller])
-    .systemBarStyle({ statusBarContentColor: WindowUtils.getSystemBarContentColor() },
-      { statusBarContentColor: WindowUtils.getSystemBarContentColor() })
+    .systemBarStyle({ statusBarContentColor: '#FFFFFFFF' },
+      { statusBarContentColor: '#FF000000' })
     .width('100%').height('100%').backgroundColor(HomeTheme.BgNeutral)
     .padding({ left: this.leftSafe, right: this.rightSafe })
     .transition(TransitionEffect.move(TransitionEdge.END))
@@ -1003,8 +1006,8 @@ export struct RankingHomePage {
       .padding({ left: this.leftSafe, right: this.rightSafe })
       .enabled(this.activeBoard === undefined)
       .accessibilityLevel(this.activeBoard === undefined ? 'auto' : 'no-hide-descendants')
-      .systemBarStyle({ statusBarContentColor: WindowUtils.getSystemBarContentColor() },
-        { statusBarContentColor: WindowUtils.getSystemBarContentColor() })
+      .systemBarStyle({ statusBarContentColor: '#FFFFFFFF' },
+        { statusBarContentColor: '#FF000000' })
       if (this.activeBoard !== undefined) {
         this.boardPage(this.activeBoard)
       }

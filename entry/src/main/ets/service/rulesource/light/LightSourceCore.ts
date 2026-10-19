@@ -33,6 +33,33 @@ import { LightSourceTiming } from './LightSourceTiming';
 import { LightSourceRequest, LightSourceRequestPolicy } from './LightSourceRequestPolicy';
 
 export class LightSourceCore {
+  /** App prefetch reuses the upstream bounded image transport and source cookie scope. */
+  static async cacheComicImages(localJson: string, urlsJson: string, request?: LightSourceRequest): Promise<string> {
+    const local = JSON.parse(localJson) as LocalRuleSource;
+    const source = this.source(local);
+    LightSourceRequestPolicy.bind(source, request);
+    const urls = JSON.parse(urlsJson) as string[];
+    return LightSourceRuntime.run(source, local, async () => {
+      const paths: string[] = [];
+      for (let start = 0; start < urls.length; start += 4) {
+        if (request?.isCancelled()) throw new Error('Comic image prefetch cancelled');
+        const batch = urls.slice(start, start + 4);
+        const result = await Promise.all(batch.map(async url => {
+          if (!/^https?:\/\//i.test(url)) return url;
+          // An explicit image request also materializes ordinary URLs; protected
+          // URLs keep their own options. No upstream-managed file is modified.
+          const spec = ComicImagePipeline.parse(url);
+          const raw = spec.hasOptions ? url : `${url},{"headers":{}}`;
+          try { return await ComicImagePipeline.materialize(new HttpClient(), source, raw); }
+          catch (_) { return url; }
+        }));
+        paths.push(...result);
+      }
+      if (request?.isCancelled()) throw new Error('Comic image prefetch cancelled');
+      return JSON.stringify(paths);
+    });
+  }
+
   static async cover(localJson: string, raw: string, revision: number): Promise<string> {
     const local = JSON.parse(localJson) as LocalRuleSource;
     const source = this.source(local);

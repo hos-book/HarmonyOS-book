@@ -8,7 +8,7 @@
 
 | 来源 | 仓库 | 固定提交 | 本地工作区 |
 | --- | --- | --- | --- |
-| 解析内核 | `wip3l/harmony-book-source-engine` | `1eb86df3e38189fee400ca5982f07e3dc4501d51` | `D:\harmony-book-source-engine` |
+| 解析内核 | `wip3l/harmony-book-source-engine` 的 `main` | `e02c5b2b97806f68a5cf299784ccfbdb4e4ab069` | `D:\harmony-book-source-engine` |
 | 应用辅助代码 | `wip3l/legado-harmony` 的共同维护分支 `codex/sourceengine-host` | `67e5f2dc99b4fb62fe714b45d7d6acc56e7afad2` | `D:\legado-harmony-sourceengine-host` |
 
 应用辅助代码沿用迁移前的固定提交，其中末次网页等待修复仍是本地提交，不假定上游公开仓库已有该提交。精确版本、逐文件来源、原始路径和 SHA256 见 `third_party/light-source/upstream.json`（schemaVersion 2）。摘要统一按 LF 换行计算；生成文件的 upstreamSha256 对应抽取的方法或原始模板，generated 标记与 upstreamPath 共同记录出处。
@@ -20,7 +20,7 @@
 
 独立仓库提供 `sourceengine` HAR，但简听继续按固定提交迁入源码：内核优先读取独立仓库的 `sourceengine/src/main/ets`，应用辅助代码只读取轻页仓库的 `entry/src/main/ets`，绝不回退到轻页旧 `sourceengine` 副本。从独立仓库 `sourceengine/Index.ts` 解析公开符号并转换包导入。搜索/发现/阅读调度、兼容源导入及音频后处理仍来自应用辅助代码。沿用既有有界 QuickJS、加密 Cookie、独占隐私 Web 和调度端口，不引入第二套运行时或修改模块签名配置。
 
-独立内核首版尚未包含 `67e5f2d` 的网页等待修复。`scripts/light-source-web-wait.cjs` 保留最多 120 次等待及条件不满足时报错的行为，并保留请求总超时；补丁版本及摘要写入清单，上游代码形态不匹配时停止同步。上游合入等效修复后应重新验证并移除补丁。
+当前独立内核已包含网页等待修复，已移除本地 `bounded-web-wait` 补丁，清单中的 `patches` 为空。等待最多 120 次并保留请求总超时；等待条件未满足时仍返回失败，但保留已加载页面与非零状态码，以便上层判断登录/验证页，不能把该结果当成成功正文。
 
 ## 更新流程
 
@@ -41,6 +41,14 @@ node scripts/test-rule-source-export.cjs
 测试需设置 `DEVECO_HOME` 为 Release DevEco Studio。同步前本地迁入文件必须与旧清单一致，两个输入仓库相关源码必须干净；检查失败不会覆盖本地引擎。`--check` 不写入文件，核对两个版本、生成结果、兼容补丁及 LICENSE/NOTICE。上游方法或依赖变化需先调整脚本，再同步。随后执行相关静态检查、Release SDK 增量构建，以及设备导入→测试→搜索→详情→阅读/播放验证。对比通过后提交升级；Git 提交可用于回退。此流程是维护工具，没有启用自动拉取、自动发布或后台更新。
 
 ## 能力与验证边界
+
+### 公共包 main 更新（2026-10-19）
+
+从独立仓库 `main` 拉取至 `e02c5b2`，替代此前封面扩展分支的 `2f8c4bf`，用既有同步脚本迁入 76 个文件；应用辅助代码仍固定在 `67e5f2d`。新增兼容规则选择器/属性规则缓存、原生目录字段处理让出主线程、详情附加请求、目录复用详情响应、目录与正文分页批量配置、分类请求方法与请求体，以及更严格的封面密钥和图片识别校验。公共规则文档已并入 main，规则入口改为 main。
+
+同步 `--check` 通过；简听引擎、漫画网页等待与书源导入导出回归通过；上游原生源 235 项、兼容规则 462 项和封面解密回归通过。Release SDK 26.0.0.105 增量 debug HAP 构建成功。设备列表为空，本轮未安装或完成真实书源导入、搜索、登录、阅读/播放及下载导出验证。
+
+本轮在线目录已刷新并读取 [ArkTS 语法规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md) 和 [ArkUI 检索指引](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)，执行结果以本机回归与 Release SDK 编译为准。
 
 ### 独立内核双来源同步（2026-10-16）
 
@@ -213,4 +221,4 @@ Release IDE 增量 debug 构建成功（53.920 秒），HAP 元数据 apiRelease
 ### 漫画网页等待修复（2026-10-15）
 
 上游提交 `67e5f2dc99b4fb62fe714b45d7d6acc56e7afad2` 修正 WebBookFetchRuntime 将网页等待次数截断为 20 次的问题；现在尊重请求的等待次数（上限 120），同时保留请求总超时。等待条件未满足时显式失败，不再将初始 HTML 冒充成功正文。通过 sync-light-source.cjs 同步；test-comic-web-wait.cjs 覆盖延迟出现、条件不满足和硬超时。
-公共封面解密扩展使用独立仓库 `feat/source-cover-decode` 分支，精确提交见 `third_party/light-source/upstream.json`。同步种子包含 `SourceCoverLoader.ts`；宿主只负责加载调度、缓存和 ArkUI 显示。不得直接修改同步生成的解密文件，网站密钥只保存在用户导入定义中。
+公共封面解密扩展已合入独立仓库 `main`，精确提交见 `third_party/light-source/upstream.json`。同步种子包含 `SourceCoverLoader.ts`；宿主只负责加载调度、缓存和 ArkUI 显示。不得直接修改同步生成的解密文件，网站密钥只保存在用户导入定义中。

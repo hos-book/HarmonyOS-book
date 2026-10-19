@@ -68,18 +68,6 @@ export struct ReaderSpeechSheet {
         if (this.state.error) {
           Text(this.state.error).fontColor($r('sys.color.font_secondary')).fontSize(14).width('100%')
         }
-        if (!this.voiceOnly) {
-        Row() {
-          Text($r('app.string.tts_speed')).fontColor($r('sys.color.font_primary')).layoutWeight(1)
-          Text(`${this.state.speed.toFixed(2)}×`).fontColor(AppColor.Brand)
-        }.width('100%')
-        Slider({ value: this.state.speed, min: 0.5, max: 2, step: 0.25 })
-          .selectedColor(AppColor.Brand).width('100%')
-          .onChange((value: number, mode: SliderChangeMode): void => {
-            if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) this.service.setSpeed(value);
-          })
-        }
-
         Row({ space: 12 }) {
           Text($r('app.string.tts_custom_title')).fontColor($r('sys.color.font_primary'))
             .fontWeight(FontWeight.Medium).layoutWeight(1)
@@ -89,6 +77,7 @@ export struct ReaderSpeechSheet {
             .constraintSize({ maxWidth: '72%' })
             .enabled(!this.importing && !this.state.downloadingVoice).id('tts-custom-select')
         }.width('100%')
+        if (!this.voiceOnly) {
         Row({ space: 8 }) {
           Button($r('app.string.tts_custom_import')).fontSize(13).fontColor(AppColor.Brand)
             .backgroundColor($r('sys.color.comp_background_tertiary')).enabled(!this.importing)
@@ -110,13 +99,15 @@ export struct ReaderSpeechSheet {
           Text(this.importMessage).fontSize(13).fontColor(AppColor.Brand).width('100%')
         }
 
+        }
+
         if (!this.state.customTtsId) {
         Row() {
           Text($r('app.string.tts_voice')).fontColor($r('sys.color.font_primary')).layoutWeight(1)
           Button($r('app.string.tts_refresh')).fontSize(13).fontColor(AppColor.Brand)
             .backgroundColor(Color.Transparent).onClick((): void => { this.service.refreshVoices(); })
         }.width('100%')
-        ForEach(this.state.voices, (voice: SpeechVoice) => {
+        ForEach(this.voiceOnly ? this.state.voices.filter((voice: SpeechVoice): boolean => voice.installed) : this.state.voices, (voice: SpeechVoice) => {
           Row({ space: 8 }) {
             Column({ space: 3 }) {
               Text(voice.label).fontColor($r('sys.color.font_primary')).fontSize(15).maxLines(2)

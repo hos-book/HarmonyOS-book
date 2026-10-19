@@ -23,6 +23,10 @@ export class BackgroundTaskService {
   private static taskId: number = -1;
   private static endedTaskId: number = -1;
   private static taskGeneration: number = 0;
+  private static interruptionListeners: Set<() => void> = new Set();
+
+  static subscribeInterruption(listener: () => void): void { BackgroundTaskService.interruptionListeners.add(listener); }
+  static unsubscribeInterruption(listener: () => void): void { BackgroundTaskService.interruptionListeners.delete(listener); }
 
   private static readonly onCancel = (info: backgroundTaskManager.ContinuousTaskCancelInfo): void => {
     if (!BackgroundTaskService.matchesTask(info.id)) return;
@@ -35,6 +39,7 @@ export class BackgroundTaskService {
     BackgroundTaskService.endedTaskId = info.id;
     DiagnosticLogService.info('background.cancel', `id=${info.id}; reason=${reason}; detail=${detail}; modes=${BackgroundTaskService.modeSnapshot()}; owners=${Array.from(BackgroundTaskService.audioOwners).join(',')}`);
     BackgroundTaskService.systemBlocked = true;
+    for (const listener of BackgroundTaskService.interruptionListeners) listener();
   };
 
   private static readonly onSuspend = (info: backgroundTaskManager.ContinuousTaskSuspendInfo): void => {
@@ -50,6 +55,7 @@ export class BackgroundTaskService {
     BackgroundTaskService.taskGeneration++;
     DiagnosticLogService.info('background.suspend', `id=${info.continuousTaskId}; reason=${reason}; modes=${BackgroundTaskService.modeSnapshot()}`);
     BackgroundTaskService.systemBlocked = true;
+    for (const listener of BackgroundTaskService.interruptionListeners) listener();
   };
 
   private static readonly onActive = (info: backgroundTaskManager.ContinuousTaskActiveInfo): void => {

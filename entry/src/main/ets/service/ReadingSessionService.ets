@@ -1,3 +1,4 @@
+import { GeneralSettings } from '../model/GeneralSettings';
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { Book, Chapter } from '../model/Book';
@@ -66,6 +67,7 @@ export class ReadingSessionService {
   }
 
   static checkpoint(kind: string, location: SessionLocation, running: boolean): void {
+    if (!GeneralSettings.current.historyEnabled) { ReadingSessionService.active.delete(kind); return; }
     let entry = ReadingSessionService.active.get(kind);
     if (!entry && !running) return;
     const now = Date.now();
@@ -92,6 +94,7 @@ export class ReadingSessionService {
   }
 
   static end(kind: string): void {
+    if (!GeneralSettings.current.historyEnabled) { ReadingSessionService.active.delete(kind); return; }
     const entry = ReadingSessionService.active.get(kind);
     if (!entry) return;
     entry.endedAt = Math.max(entry.startedAt, Date.now());

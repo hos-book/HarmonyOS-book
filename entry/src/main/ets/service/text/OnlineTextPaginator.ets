@@ -1,5 +1,6 @@
 import { text as graphicsText } from '@kit.ArkGraphics2D';
 import { PlatformCompat } from '../../utils/PlatformCompat';
+import { LocalTextImage } from './LocalTextImage';
 
 export class OnlineTextPaintState {
   color: string = '';
@@ -7,6 +8,7 @@ export class OnlineTextPaintState {
 }
 
 export class OnlineTextPage {
+  imageUrl: string = '';
   firstLine: number = 0;
   // Each native line keeps its geometry; only paragraph boundaries add a vertical translation.
   lineShifts: number[] = [];
@@ -276,6 +278,32 @@ export class OnlineTextPaginator {
   static paginate(content: string, widthPx: number, heightPx: number,
     fontSizePx: number, lineHeight: number, fontFamily: string = '', fontWeight: number = 400,
     alignment: string = 'justify', paragraphSpacing: number = 0): OnlineTextPage[] {
+    const images = LocalTextImage.pattern();
+    let match = images.exec(content);
+    if (match !== null) {
+      const pages: OnlineTextPage[] = [];
+      let start = 0;
+      while (match !== null) {
+        OnlineTextPaginator.appendImageText(pages, content, start, match.index, widthPx, heightPx,
+          fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing);
+        const page = OnlineTextPage.of(content, match.index, images.lastIndex);
+        page.imageUrl = LocalTextImage.resolve(match[1]);
+        if (!page.imageUrl) {
+          start = images.lastIndex;
+          match = images.exec(content);
+          continue;
+        }
+        page.text = '';
+        page.layoutHeight = heightPx <= 1 ? Math.max(fontSizePx, widthPx * 1.4) : Math.max(fontSizePx, heightPx);
+        page.layoutWidth = widthPx;
+        pages.push(page);
+        start = images.lastIndex;
+        match = images.exec(content);
+      }
+      OnlineTextPaginator.appendImageText(pages, content, start, content.length, widthPx, heightPx,
+        fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing);
+      return pages;
+    }
     const layout = OnlineTextPaginator.measure(content, widthPx, fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing);
     const displayed = layout.displayed;
     const metrics = layout.metrics;
@@ -306,6 +334,17 @@ export class OnlineTextPaginator {
       }
     }
     return displayed.restoreSourceOffsets(pages);
+  }
+
+  private static appendImageText(pages: OnlineTextPage[], content: string, start: number, end: number,
+    width: number, height: number, fontSize: number, lineHeight: number, family: string, weight: number,
+    alignment: string, spacing: number): void {
+    const section = content.substring(start, end);
+    if (!section.trim()) return;
+    const sourceStart = start + section.length - section.trimStart().length;
+    const textPages = OnlineTextPaginator.paginate(section.trim(), width, height, fontSize, lineHeight, family, weight, alignment, spacing);
+    for (const page of textPages) { page.startOffset += sourceStart; page.endOffset += sourceStart; pages.push(page); }
+    if (textPages.length > 0) textPages[textPages.length - 1].endOffset = end;
   }
 
   private static measure(content: string, widthPx: number, fontSizePx: number, lineHeight: number,

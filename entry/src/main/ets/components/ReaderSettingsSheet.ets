@@ -1,3 +1,4 @@
+import { ReaderSettingCard } from './ReaderSettingCard';
 import { ReaderTapPolicy } from '../utils/ReaderTapPolicy';
 import { ReaderImportedFont } from '../service/text/ReaderFontService';
 import { ReaderFontTabs } from './ReaderFontTabs';
@@ -45,51 +46,6 @@ const LINE_HEIGHT_PRESETS: LineHeightPreset[] = [
   LineHeightPreset.of('标准', 1.9),
   LineHeightPreset.of('宽松', 2.2)
 ];
-
-/**
- * 设置分组卡片。
- * 内容走 @BuilderParam + 尾随闭包；UI 描述不能当普通 lambda 参数传，
- * 所以这里必须是独立组件而不是父组件里的 @Builder 方法。
- */
-@ComponentV2
-struct ReaderSettingCard {
-  @Param title: ResourceStr = '';
-  @Param inline: boolean = false;
-  @Param compact: boolean = false;
-  @BuilderParam content: () => void = this.emptyContent;
-
-  @Builder
-  emptyContent(): void {
-  }
-
-  build() {
-    Column({ space: this.compact ? 4 : AppSpace.Sm }) {
-      if (this.inline) {
-        Row({ space: AppSpace.Sm }) {
-          Text(this.title)
-            .fontSize(AppFont.Body)
-            .fontColor($r('sys.color.font_primary'))
-            .layoutWeight(1)
-          this.content()
-        }.width('100%').alignItems(VerticalAlign.Center)
-      } else {
-      Text(this.title)
-        .fontSize(AppFont.Caption)
-        .fontColor($r('sys.color.font_secondary'))
-        .fontWeight(FontWeight.Medium)
-        .width('100%')
-      this.content()
-      }
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding({ left: AppSpace.Md, right: AppSpace.Md,
-      top: this.compact ? 8 : AppSpace.Md, bottom: this.compact ? 8 : AppSpace.Md })
-    .borderRadius(AppRadius.Lg)
-    .backgroundColor(AppColor.GlassSheetControlTint)
-    .border({ width: 0.5, color: AppColor.GlassSheetStroke })
-  }
-}
 
 /** 分档按钮使用 @Param 观察选中态，避免 @Builder 按值参数停留在首次渲染。 */
 @ComponentV2
@@ -319,6 +275,7 @@ export struct ReaderSettingsSheet {
   @Param tapRightPercent: number = 33;
   @Param tapTopPercent: number = 33;
   @Param tapBottomPercent: number = 33;
+  @Param showChapterBar: boolean = true;
   @Param showHeader: boolean = true;
   @Param cornerLayout: string = ReaderCornerLayout.DEFAULT;
   @Event onCornerChange: (corner: number, content: number) => void = () => {};
@@ -831,6 +788,7 @@ export struct ReaderSettingsSheet {
   buildHeaderSection() {
     ReaderSettingCard({ title: $r('app.string.reader_header_title') }) {
       Column({ space: 8 }) {
+        this.chromeToggle($r('app.string.reader_show_chapter_bar'), 'showChapterBar', this.showChapterBar)
         this.chromeToggle($r('app.string.reader_show_header'), 'showHeader', this.showHeader)
         if (this.showHeader) {
           this.cornerSelector(0)

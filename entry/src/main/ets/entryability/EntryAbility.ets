@@ -15,7 +15,9 @@ import lazy { MembershipService } from '../service/MembershipService';
 import lazy { AutoBackupService } from '../service/AutoBackupService';
 import { AudioService } from '../service/AudioService';
 import lazy { WidgetUpdater } from '../service/WidgetUpdater';
+import lazy { WidgetPlaybackService } from '../service/WidgetPlaybackService';
 import { DataService } from '../service/DataService';
+import { SourceTestTaskService } from '../service/rulesource/SourceTestTaskService';
 import { ChapterCacheService } from '../service/ChapterCacheService';
 import { DownloadService } from '../service/DownloadService';
 import { StatsService } from '../service/StatsService';
@@ -84,6 +86,7 @@ export default class EntryAbility extends UIAbility {
     DownloadService.getInstance().setContext(this.context);
     // 书架资源使用持久目录，启动旧缓存迁移
     DataService.setContext(this.context);
+    SourceTestTaskService.setContext(this.context);
     this.captureContinuation(want, launchParam);
 
     // 关键修复:限时初始化,避免后台恢复时阻塞过久导致系统 watchdog 杀进程
@@ -413,9 +416,7 @@ export default class EntryAbility extends UIAbility {
         WidgetUpdater.optimisticSetPlaying(true).catch((err: Error) => {
           hilog.warn(DOMAIN, TAG, 'optimistic play push failed: %{public}s', err?.message ?? '');
         });
-        AudioService.getInstance().whenReady().then(() => {
-          return AudioService.getInstance().play();
-        }).catch((err: Error) => {
+        WidgetPlaybackService.execute(this.context, 'play').catch((err: Error) => {
           hilog.error(DOMAIN, TAG, 'callee play failed: %{public}s', err?.message ?? JSON.stringify(err));
         });
         return new AckParcelable();
@@ -427,9 +428,7 @@ export default class EntryAbility extends UIAbility {
         WidgetUpdater.optimisticSetPlaying(false).catch((err: Error) => {
           hilog.warn(DOMAIN, TAG, 'optimistic pause push failed: %{public}s', err?.message ?? '');
         });
-        AudioService.getInstance().whenReady().then(() => {
-          return AudioService.getInstance().pause('widget');
-        }).catch((err: Error) => {
+        WidgetPlaybackService.execute(this.context, 'pause').catch((err: Error) => {
           hilog.error(DOMAIN, TAG, 'callee pause failed: %{public}s', err?.message ?? JSON.stringify(err));
         });
         return new AckParcelable();
@@ -437,9 +436,7 @@ export default class EntryAbility extends UIAbility {
       this.callee.on('next', (_data: rpc.MessageSequence) => {
         DiagnosticLogService.info('widget.command', 'next');
         this.startupPlaybackPending = false;
-        AudioService.getInstance().whenReady().then(() => {
-          return AudioService.getInstance().playNext();
-        }).catch((err: Error) => {
+        WidgetPlaybackService.execute(this.context, 'next').catch((err: Error) => {
           hilog.error(DOMAIN, TAG, 'callee next failed: %{public}s', err?.message ?? JSON.stringify(err));
         });
         return new AckParcelable();
@@ -447,9 +444,7 @@ export default class EntryAbility extends UIAbility {
       this.callee.on('prev', (_data: rpc.MessageSequence) => {
         DiagnosticLogService.info('widget.command', 'previous');
         this.startupPlaybackPending = false;
-        AudioService.getInstance().whenReady().then(() => {
-          return AudioService.getInstance().playPrevious();
-        }).catch((err: Error) => {
+        WidgetPlaybackService.execute(this.context, 'prev').catch((err: Error) => {
           hilog.error(DOMAIN, TAG, 'callee prev failed: %{public}s', err?.message ?? JSON.stringify(err));
         });
         return new AckParcelable();

@@ -103,7 +103,7 @@ export class HomeSourceService {
   }
 
   static isEligible(source: LocalRuleSource): boolean {
-    return source.enabled && (source.isAudio() || source.isText()) && source.canExecute() &&
+    return source.enabled && (source.isAudio() || source.isText() || source.isComic()) && source.canExecute() &&
       HomeSourceService.hasHomeContent(source) &&
       !source.bookSourceUrl.startsWith('builtin://');
   }

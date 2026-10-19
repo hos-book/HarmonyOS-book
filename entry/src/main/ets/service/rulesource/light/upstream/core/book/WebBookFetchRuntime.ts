@@ -164,6 +164,15 @@ export class WebBookFetchRuntime {
         resolve(this.failure(url, `WebView 暂不支持 ${method} 请求`));
         return;
       }
+      const acceptPattern = String(request.webJsAcceptPattern || '');
+      if (acceptPattern) {
+        try {
+          new RegExp(acceptPattern, 'i');
+        } catch (_) {
+          resolve(this.failure(url, `网页等待条件不是有效的正则：${acceptPattern}`));
+          return;
+        }
+      }
       if (this.queue.length >= 32) {
         resolve(this.failure(url, '网页抓取任务过多，请稍后重试'));
         return;
@@ -320,7 +329,10 @@ export class WebBookFetchRuntime {
       return;
     }
     if (!this.matchesWebJs(task, value)) {
-      this.finishActive(this.failure(finalUrl, '网页等待条件未满足，未取得可用内容'));
+      // The page did load: keep it (and a non-zero status) so callers judge a challenge or login gate
+      // by its content instead of treating every unmet wait like a network failure.
+      this.finishActive({ url: finalUrl, statusCode: 200, headers: {}, body: html, success: false,
+        error: '网页等待条件未满足，未取得可用内容' });
       return;
     }
     this.finishActive(this.success(finalUrl, value && value !== 'undefined' && value !== 'null' ? value : html));

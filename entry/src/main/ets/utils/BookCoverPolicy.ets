@@ -1,7 +1,9 @@
 import { Book } from '../model/Book';
+import { BookPresentation } from '../model/BookPresentation';
 
 export class BookCoverPolicy {
   static setDetail(book: Book, url: string): void {
+    if (BookPresentation.get(book.id)?.cover) { BookPresentation.apply(book); return; }
     if (!url.trim()) return;
     if (!book.coverFromDetail && book.cover && book.cover !== url) book.coverFallback = book.cover;
     book.cover = url;

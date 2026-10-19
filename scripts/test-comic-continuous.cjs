@@ -1,0 +1,129 @@
+// Run real continuous-list methods with simulated ArkUI notifications and network timing.
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const ts = require(path.join(process.env.DEVECO_HOME,
+  'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
+const root = path.resolve(__dirname, '../entry/src/main/ets');
+const compile = code => ts.transpileModule(code, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
+}).outputText;
+const scope = { exports: {}, ComicPage: class {}, PreferenceService: { getPreloadChapters: async () => 1 } };
+const data = fs.readFileSync(path.join(root, 'service/ComicScrollDataSource.ets'), 'utf8').replace(/^import .*;\r?\n/gm, '');
+vm.runInNewContext(compile(data), scope);
+Object.assign(scope, scope.exports);
+const source = fs.readFileSync(path.join(root, 'components/ComicContinuousComponent.ets'), 'utf8');
+function method(name, text = source) {
+  const match = new RegExp(`  private (?:async )?${name}\\(`).exec(text);
+  assert.ok(match, name);
+  const start = match.index, body = text.indexOf('{', start);
+  let depth = 1, end = body + 1;
+  while (depth && end < text.length) {
+    if (text[end] === '{') depth++;
+    if (text[end] === '}') depth--;
+    end++;
+  }
+  return text.slice(start, end);
+}
+vm.runInNewContext(compile(`class Continuous { ${['loadNeighbor', 'reportPosition', 'visibleChanged', 'trimChapters']
+  .map(name => method(name)).join('\n')} }\nglobalThis.Continuous = Continuous;`), scope);
+const parentSource = fs.readFileSync(path.join(root, 'pages/ComicReaderPage.ets'), 'utf8');
+vm.runInNewContext(compile(`class Parent { ${method('onScrollPosition', parentSource)} }
+  globalThis.Parent = Parent;`), scope);
+const pages = index => Array.from({ length: 6 }, (_, n) => ({ key: `${index}:${n}`, index: n, url: `${index}/${n}` }));
+function reader(index = 2, descending = false) {
+  const r = new scope.Continuous(), events = [], requests = [], positions = [];
+  const chapter = scope.ComicScrollChapter.create(index, pages(index));
+  Object.assign(r, { source: new scope.ComicScrollDataSource(), chapters: [chapter], serial: 1,
+    firstVisible: 0, lastVisible: 2, disposed: false, restoring: false,
+    nextLoading: false, previousLoading: false, nextFailed: false, previousFailed: false,
+    book: { chapters: new Array(20), chaptersDescending: descending },
+    scroller: { isAtEnd: () => false, currentOffset: () => ({ yOffset: 100 }),
+      scrollToIndex: () => assert.fail('joining chapters must not reposition the list') },
+    loadPages: async i => { requests.push(i); return pages(i); },
+    onPosition: (i, p, list) => positions.push([i, p, list.length]), events, requests, positions });
+  r.source.reset(chapter.rows);
+  r.source.registerDataChangeListener({ onDataAdd: i => events.push(['add', i]),
+    onDataDelete: i => events.push(['delete', i]), onDataReloaded: () => assert.fail('unexpected full reload') });
+  return r;
+}
+(async () => {
+  const r = reader();
+  const first = r.source.getData(0);
+  await r.loadNeighbor(true);
+  assert.equal(r.source.getData(0), first, 'append retains original row identity');
+  assert.equal(r.source.totalCount(), 12);
+  assert.equal(r.events.filter(e => e[0] === 'add').length, 6);
+  r.firstVisible = 7; r.reportPosition();
+  assert.deepEqual(r.positions.at(-1), [3, 1, 6], 'progress is chapter-local');
+  r.firstVisible = 2; r.lastVisible = 4;
+  const visible = r.source.getData(2);
+  await r.loadNeighbor(false);
+  assert.equal(r.firstVisible, 8);
+  assert.equal(r.lastVisible, 10);
+  assert.equal(r.source.getData(r.firstVisible), visible, 'prepend preserves visible anchor identity');
+  assert.equal(r.source.getData(0).chapterIndex, 1);
+  const reverse = reader(10, true);
+  await reverse.loadNeighbor(true);
+  await reverse.loadNeighbor(false);
+  assert.deepEqual(reverse.requests, [9, 11], 'descending chapter order is honored');
+
+  const pending = reader();
+  let finish;
+  pending.loadPages = i => { pending.requests.push(i); return new Promise(resolve => { finish = resolve; }); };
+  const task = pending.loadNeighbor(true);
+  await Promise.resolve(); await Promise.resolve();
+  await pending.loadNeighbor(true);
+  assert.equal(pending.requests.length, 1, 'same boundary has one in-flight request');
+  pending.serial++;
+  finish(pages(3)); await task;
+  assert.equal(pending.source.totalCount(), 6, 'reset discards stale response');
+
+  const failed = reader();
+  failed.loadPages = async () => { throw new Error('offline'); };
+  await failed.loadNeighbor(true);
+  assert.equal(failed.nextFailed, true);
+  assert.equal(failed.source.totalCount(), 6, 'failure retains current images');
+  failed.loadPages = async i => pages(i);
+  await failed.loadNeighbor(true);
+  assert.equal(failed.source.totalCount(), 6, 'failed boundary waits for retry');
+  await failed.loadNeighbor(true, true);
+  assert.equal(failed.nextFailed, false);
+  assert.equal(failed.source.totalCount(), 12);
+
+  const bounded = reader(0);
+  for (let n = 0; n < 3; n++) await bounded.loadNeighbor(true);
+  bounded.firstVisible = 19; bounded.lastVisible = 21;
+  const anchor = bounded.source.getData(19);
+  bounded.trimChapters();
+  assert.equal(bounded.chapters.length, 3);
+  assert.equal(bounded.source.getData(bounded.firstVisible), anchor, 'trim only removes offscreen chapters');
+  assert.ok(bounded.events.some(e => e[0] === 'delete'));
+
+  const parent = new scope.Parent();
+  let saves = 0, resets = 0;
+  Object.assign(parent, { busy: false, mode: 0, alive: true, chapterIndex: 2, book: {}, generation: 1,
+    preparedComicChapters: new Map([[0, []], [10, []]]), pages: { setPages: () => resets++ },
+    scheduleSave: () => saves++, preloadChapters() {},
+    restorePage: () => assert.fail('visible progress must not reposition'),
+    loadChapter: () => assert.fail('visible progress must not replace the chapter'), scrollResetToken: 9 });
+  parent.onScrollPosition(3, 2, pages(3));
+  assert.equal(parent.chapterIndex, 3);
+  assert.equal(parent.pageIndex, 2);
+  assert.equal(parent.pageCount, 6);
+  assert.equal(parent.scrollResetToken, 9, 'normal crossing does not reset continuous reader');
+  parent.onScrollPosition(3, 3, pages(3));
+  assert.equal(resets, 1, 'paged datasource only switches when chapter actually changes');
+  assert.equal(saves, 2);
+  assert.equal(parent.preparedComicChapters.has(10), false);
+
+  scope.PreferenceService.getPreloadChapters = async () => 0;
+  const noPreload = reader();
+  await noPreload.loadNeighbor(true);
+  assert.equal(noPreload.requests.length, 0);
+  noPreload.scroller.isAtEnd = () => true;
+  await noPreload.loadNeighbor(true);
+  assert.equal(noPreload.source.totalCount(), 12, 'disabled prefetch still permits boundary continuation');
+  console.log('comic continuous: append/prepend anchors, chapter progress/order, request isolation, retry, trimming and disabled prefetch passed');
+})().catch(error => { console.error(error); process.exitCode = 1; });

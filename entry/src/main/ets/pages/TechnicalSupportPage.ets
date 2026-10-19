@@ -59,6 +59,8 @@ export struct TechnicalSupportPage {
       Flex({ wrap: FlexWrap.Wrap }) {
         if (sponsor) {
           this.buildName($r('app.string.sponsor_thanks_hendo'), SupportNameStyle.BlackGold)
+        } else {
+          this.buildName($r('app.string.technical_support_light_page'), SupportNameStyle.BlackGold)
         }
         ForEach(sponsor ? this.sponsorNames : this.technicalNames, (name: string) => {
           this.buildName(name, sponsor ? SupportNameStyle.Gold : SupportNameStyle.Technical)

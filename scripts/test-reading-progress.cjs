@@ -14,6 +14,7 @@ const preferences = { getPreferences: async () => ({
   getSync: (key, fallback) => values.has(key) ? values.get(key) : fallback,
   putSync: (key, value) => values.set(key, value),
   deleteSync: key => values.delete(key),
+  getAll: async () => Object.fromEntries(values),
   flush: async () => {}
 }) };
 const cache = new Map();
@@ -27,7 +28,7 @@ function load(relative) {
   if (cache.has(filename)) return cache.get(filename);
   const exports = {};
   cache.set(filename, exports);
-  vm.runInNewContext(compile(fs.readFileSync(filename, 'utf8')), {
+  vm.runInNewContext(compile(fs.readFileSync(filename, 'utf8').replace(/@ObservedV2\s*/g, '').replace(/@Trace\s*/g, '')), {
     exports, require: name => {
       if (name === '@kit.ArkData') return { preferences };
       if (name === '@kit.BasicServicesKit') return { emitter: events };
@@ -76,5 +77,17 @@ function load(relative) {
   await service.remove({}, 'novel');
   await pending;
   assert.equal(shelf.textProgressMap.has('novel'), false);
+  const settings = load('model/GeneralSettings').GeneralSettings.current;
+  await service.save({}, TextReadingPosition.atChar('history-fixture', 1, '', 10, 0, 'Before'));
+  settings.historyEnabled = false;
+  await service.save({}, TextReadingPosition.atChar('history-fixture', 2, '', 25, 0, 'Disabled'));
+  assert.equal((await service.get({}, 'history-fixture')).charOffset, 25, 'resume keeps moving');
+  assert.equal((await service.getAll({}, true)).find(p => p.bookId === 'history-fixture').charOffset, 10, 'history is frozen while disabled');
+  settings.historyEnabled = true;
+  await service.save({}, TextReadingPosition.atChar('history-fixture', 3, '', 40, 0, 'Enabled'));
+  assert.equal((await service.getAll({}, true)).find(p => p.bookId === 'history-fixture').charOffset, 40);
+  await service.remove({}, 'history-fixture');
+  assert.equal((await service.getAll({}, true)).length, 0, 'deletion removes both snapshots');
+  console.log('PASS history toggle freezes history independently of resume positions');
   console.log('PASS: shelf follows chapter 420+, backward jumps, character offsets, deletion, and out-of-order refreshes');
 })().catch(error => { console.error(error); process.exitCode = 1; });

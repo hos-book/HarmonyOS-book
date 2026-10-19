@@ -1,3 +1,4 @@
+import { GeneralSettings } from '../model/GeneralSettings';
 import { Book } from '../model/Book';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { TextToSpeechState } from '../model/TextToSpeechState';
@@ -69,6 +70,7 @@ export struct MainPage {
   /** 各 Tab 页的滚动控制器,用于双击 Tab 回顶部 */
   private scrollers: Map<number, Scroller> = new Map();
   /** 上一次 Tab 点击时间,用于双击检测 */
+  @Local generalSettings: GeneralSettings = GeneralSettings.current;
   private lastTabClickTime: number = 0;
   private lastTabClickIndex: number = -1;
   private viewportUpdateTimerId: number = -1;
@@ -221,7 +223,16 @@ export struct MainPage {
    */
   private changeTab(index: number): void {
     if (index < 0 || index > 3 || index === this.currentTab) return;
-    this.tabController.changeIndex(index);
+    if (!this.generalSettings.historyEnabled && index === 2) index = 0;
+    this.tabController.changeIndex(!this.generalSettings.historyEnabled && index === 3 ? 2 : index);
+  }
+
+  @Monitor('generalSettings.historyEnabled')
+  private onHistoryVisibilityChanged(): void {
+    const logical = !this.generalSettings.historyEnabled && this.currentTab === 2 ? 0 : this.currentTab;
+    this.currentTab = logical;
+    this.tabController.changeIndex(!this.generalSettings.historyEnabled && logical === 3 ? 2 : logical);
+    this.lastTabClickIndex = -1;
   }
 
   private async restoreLastPlayed(): Promise<void> {
@@ -375,6 +386,7 @@ export struct MainPage {
         }
         .tabBar(this.buildTabBar($r('sys.symbol.bookshelf'), '书架'))
 
+        if (this.generalSettings.historyEnabled) {
         TabContent() {
           ReadingStatsPage({
             navStack: this.navStack,
@@ -383,6 +395,7 @@ export struct MainPage {
           })
         }
         .tabBar(this.buildTabBar($r('sys.symbol.calendar_fill'), '记录'))
+        }
 
         TabContent() {
           ProfilePage({
@@ -401,7 +414,7 @@ export struct MainPage {
         const DOUBLE_TAP_DELAY = 300;
         if (index === this.lastTabClickIndex && (now - this.lastTabClickTime) < DOUBLE_TAP_DELAY) {
           // 双击当前 Tab → 滚动回顶部
-          const scroller = this.scrollers.get(index);
+          const scroller = this.scrollers.get(!this.generalSettings.historyEnabled && index === 2 ? 3 : index);
           if (scroller) {
             try { scroller.scrollEdge(Edge.Top); } catch (_e) { /* ignore */ }
           }
@@ -410,7 +423,7 @@ export struct MainPage {
         this.lastTabClickIndex = index;
       })
       .onChange((index: number) => {
-        this.currentTab = index;
+        this.currentTab = !this.generalSettings.historyEnabled && index === 2 ? 3 : index;
       })
       .animationDuration(300)
       .width('100%')

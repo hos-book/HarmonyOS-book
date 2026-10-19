@@ -5,11 +5,12 @@ import { AppColor } from '../theme/Theme';
 
 class ImmersiveCircleClip implements AttributeModifier<CommonAttribute> {
   private radius: number;
+  private material: boolean;
 
-  constructor(radius: number) { this.radius = radius; }
+  constructor(radius: number, material: boolean) { this.radius = radius; this.material = material; }
 
   applyNormalAttribute(node: CommonAttribute): void {
-    if (PlatformCompat.floatingTabs) node.borderRadius(this.radius, RenderStrategy.OFFSCREEN);
+    if (this.material && PlatformCompat.floatingTabs) node.borderRadius(this.radius, RenderStrategy.OFFSCREEN);
     else node.borderRadius(this.radius);
     node.clip(true);
   }
@@ -22,6 +23,8 @@ export struct ImmersiveCircleButton {
   @Param label: Resource = $r('app.string.content_reload');
   @Param diameter: number = 40;
   @Param iconSize: number = 24;
+  /** 密集工具栏使用原生薄磨砂按钮，避免每个入口创建 HdsTabs 智感材质宿主。 */
+  @Param useMaterial: boolean = true;
   /** 图标色；已选态（如已加入书架）传品牌色。 */
   @Param iconColor: ResourceColor = $r('sys.color.font_primary');
   @Event onPress: () => void = () => {};
@@ -53,7 +56,16 @@ export struct ImmersiveCircleButton {
 
   build() {
     Stack({ alignContent: Alignment.Center }) {
-      if (PlatformCompat.floatingTabs) {
+      if (!this.useMaterial) {
+        Button({ type: ButtonType.Circle }) { this.iconContent() }
+          .width(this.diameter).height(this.diameter).padding(0)
+          .backgroundColor(Color.Transparent)
+          .backgroundEffect({ radius: 12, saturation: 1, brightness: 1,
+            color: $r('app.color.shelf_toolbar_background') })
+          .border({ width: 0.5, color: $r('sys.color.comp_divider') })
+          .onTouch((event: TouchEvent): void => this.updateTouch(event))
+          .accessibilityText(this.label).onClick((): void => this.onPress())
+      } else if (PlatformCompat.floatingTabs) {
         HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
           TabContent() { Column() }.height(this.diameter).tabBar(this.materialContent())
         }
@@ -84,6 +96,7 @@ export struct ImmersiveCircleButton {
         .radialGradient({ center: [this.touchX, this.touchY], radius: this.diameter,
           colors: [[AppColor.BrandSoft, 0], [Color.Transparent, 1]] })
         .opacity(this.touching ? 1 : 0).hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
-    }.width(this.diameter).height(this.diameter).attributeModifier(new ImmersiveCircleClip(this.diameter / 2))
+    }.width(this.diameter).height(this.diameter)
+      .attributeModifier(new ImmersiveCircleClip(this.diameter / 2, this.useMaterial))
   }
 }

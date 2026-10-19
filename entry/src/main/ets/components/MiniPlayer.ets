@@ -48,11 +48,9 @@ export struct MiniPlayer {
           .objectFit(ImageFit.Cover)
           .id('mini-player-cover-image')
       } else {
-        // 无封面:用 app 图标占位(替代旧的绿色书形占位)
-        Image($r('app.media.app_icon_legacy'))
+        CoverImage({ title: this.book.title, useFixedHeight: true, imgHeight: '100%' })
           .width('100%')
           .height('100%')
-          .objectFit(ImageFit.Cover)
           .id('mini-player-cover-image')
       }
     }

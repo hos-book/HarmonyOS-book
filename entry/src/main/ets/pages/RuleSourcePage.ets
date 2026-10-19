@@ -1,3 +1,4 @@
+import { SourceTestTaskService } from '../service/rulesource/SourceTestTaskService';
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { RuleSourceImportQueue } from '../service/rulesource/RuleSourceImportQueue';
 import lazy { scanBarcode, scanCore } from '@kit.ScanKit';
@@ -193,6 +194,8 @@ export struct RuleSourcePage {
 
   aboutToAppear(): void {
     this.pageAttached = true;
+    SourceTestTaskService.subscribe(this.testTaskHandler);
+    this.syncTestTask();
     WindowUtils.addSafeAreaListener(this.safeAreaListener);
     this.lastInvalidationCounter = SourceDataService.getInvalidationCounter();
     this.loadSources();
@@ -204,7 +207,7 @@ export struct RuleSourcePage {
     this.loadRevision++;
     WindowUtils.removeSafeAreaListener(this.safeAreaListener);
     this.stopRefreshCheck();
-    this.activeTester?.cancel();
+    SourceTestTaskService.unsubscribe(this.testTaskHandler);
   }
 
   private startRefreshCheck(): void {
@@ -770,7 +773,7 @@ export struct RuleSourcePage {
     this.isImporting = true;
     try {
       const uris = await this.pickLocalJsonUris();
-      if (uris.length === 0) return;
+      if (uris.length === 0) { this.showImportPanel = false; return; }
       this.hasFileImportResult = false;
       const result = await LocalRuleSourceFileImporter.importFiles(uris, (current: number, total: number) => {
         this.importFileCurrent = current;
@@ -1127,44 +1130,28 @@ export struct RuleSourcePage {
       this.testScope === 2 ? this.allSources.filter((source: LocalRuleSource) => selectedUrls.includes(source.bookSourceUrl)) :
         this.allSources.slice();
     if (sources.length === 0) { this.showToast($r('app.string.source_manage_test_empty')); return; }
-    this.isBulkTesting = true;
-    this.testCancelled = false;
-    this.testFailures = [];
-    this.failureDataSource.setSources([]);
-    this.bulkTestTotal = 0;
-    this.bulkTestCompleted = 0;
-    this.bulkTestPassed = 0;
-    this.bulkTestFailed = 0;
-    this.bulkTestRetained = 0;
-    try {
-      const tester = LocalRuleSourceBulkTester.createDefault(this.testMode);
-      this.activeTester = tester;
-      const report: LocalRuleSourceBulkTestReport = await tester.run(sources,
-        this.testKeyword.trim() || RULE_SOURCE_TEST_KEYWORD,
-        (progress: LocalRuleSourceBulkTestProgress) => {
-          this.applyBulkTestProgress(progress);
-        });
-      this.bulkTestRetained = report.retained;
-      this.testFailures = report.failedSources;
-      this.failureDataSource.setSources(this.testFailures);
-      this.testCancelled = report.cancelled;
-      SourceDataService.invalidateLocalSources();
-      await this.loadSources(false);
-      this.showToast(report.cancelled ? $r('app.string.source_manage_test_cancelled') :
-        $r('app.string.rule_source_bulk_completed'));
-    } catch (_error) {
-      SourceDataService.invalidateLocalSources();
-      await this.loadSources(false);
-      this.showToast($r('app.string.rule_source_bulk_operation_failed'));
-    } finally {
-      this.isBulkTesting = false;
-      this.activeTester = undefined;
-    }
+    SourceTestTaskService.start(sources, this.testKeyword.trim() || RULE_SOURCE_TEST_KEYWORD,
+      this.testMode).catch((): void => {});
   }
 
-  private cancelBulkTest(): void {
-    this.activeTester?.cancel();
+  private testTaskHandler: () => void = (): void => { this.syncTestTask(); };
+
+  private syncTestTask(): void {
+    if (!this.pageAttached) return;
+    const state = SourceTestTaskService.state;
+    const wasRunning = this.isBulkTesting;
+    this.isBulkTesting = state.running;
+    this.applyBulkTestProgress(state.progress);
+    if (state.report !== null) {
+      this.bulkTestRetained = state.report.retained;
+      this.testFailures = state.report.failedSources;
+      this.failureDataSource.setSources(this.testFailures);
+      this.testCancelled = state.report.cancelled;
+    }
+    if (wasRunning && !state.running) this.loadSources(false);
   }
+
+  private cancelBulkTest(): void { SourceTestTaskService.cancel(); }
 
   private async handleFailedSources(remove: boolean): Promise<void> {
     if (this.isBulkTesting || this.busySourceUrl.length > 0) return;
@@ -1409,6 +1396,7 @@ export struct RuleSourcePage {
               }
             }, (item: RuleSourceListItem) => item.sourceUrl)
           }
+          ListItem() { Row().height(88) }
         }
         .width('100%')
         .layoutWeight(1)

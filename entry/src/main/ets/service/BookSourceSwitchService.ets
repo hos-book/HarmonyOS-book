@@ -133,8 +133,14 @@ export class SourceSwitchBookDataSource implements IDataSource {
   totalCount(): number { return this.books.length; }
   getData(index: number): Book { return this.books[index]; }
   setBooks(books: Book[]): void {
+    const previousCount = this.books.length;
+    const appended = books.length >= previousCount && this.books.every((book: Book, index: number): boolean => book.id === books[index].id);
     this.books = books;
-    this.listeners.forEach((listener: DataChangeListener): void => listener.onDataReloaded());
+    if (appended) {
+      for (let index = previousCount; index < books.length; index++) {
+        this.listeners.forEach((listener: DataChangeListener): void => listener.onDataAdd(index));
+      }
+    } else this.listeners.forEach((listener: DataChangeListener): void => listener.onDataReloaded());
   }
   registerDataChangeListener(listener: DataChangeListener): void { this.listeners.push(listener); }
   unregisterDataChangeListener(listener: DataChangeListener): void {

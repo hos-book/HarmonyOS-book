@@ -1,3 +1,4 @@
+import { GeneralSettings } from '../model/GeneralSettings';
 import { MembershipState } from '../model/MembershipState';
 import { MembershipService } from '../service/MembershipService';
 import { ImmersiveActionButton } from '../components/ImmersiveActionButton';
@@ -75,6 +76,8 @@ const SEARCH_CONCURRENCY_OPTIONS: number[] = [3, 6, 9, 12];
 @ComponentV2
 export struct SettingsPage {
   @Param navStack: NavPathStack = new NavPathStack();
+  @Local generalSettings: GeneralSettings = GeneralSettings.current;
+  @Local savingGeneral: boolean = false;
   @Local currentMode: number = ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET;
   @Local selectedThemeIndex: number = 0;
   @Local defaultTab: number = 0;
@@ -578,6 +581,7 @@ export struct SettingsPage {
           GridCol() { this.buildLaunchGroup() }.enabled(this.isLoaded)
           GridCol() { this.buildPlaybackGroup() }.enabled(this.isLoaded)
           GridCol() { this.buildSearchGroup() }
+          GridCol() { this.buildGeneralGroup() }.enabled(this.isLoaded)
           GridCol() { RankingSettingsComponent() }
         }
         .width('100%')
@@ -599,6 +603,37 @@ export struct SettingsPage {
     .onSizeChange((_oldValue: SizeOptions, newValue: SizeOptions) => {
       this.handleViewportSizeChange(newValue);
     })
+  }
+
+  private async setShowShelfSource(enabled: boolean): Promise<void> {
+    if (this.savingGeneral) return;
+    const previous: boolean = this.generalSettings.showShelfSource;
+    if (previous === enabled) return;
+    this.savingGeneral = true;
+    this.generalSettings.showShelfSource = enabled;
+    try {
+      await PreferenceService.setShowShelfSource(enabled);
+    } catch (_error) {
+      this.generalSettings.showShelfSource = previous;
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.tts_save_error') });
+    } finally { this.savingGeneral = false; }
+  }
+
+  @Builder
+  buildGeneralGroup() {
+    Column() {
+      this.buildGroupTitle($r('app.string.shelf_title'))
+      Column() {
+        this.buildSwitchItem(
+          $r('app.string.settings_shelf_source'),
+          '',
+          UIUtils.makeBinding<boolean>(() => this.generalSettings.showShelfSource),
+          (enabled: boolean): void => { this.setShowShelfSource(enabled); },
+          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral)
+        )
+      }.width('100%')
+        .backgroundColor($r('sys.color.comp_background_primary')).borderRadius(AppRadius.Lg)
+    }.width('100%').alignItems(HorizontalAlign.Start)
   }
 
   @Builder

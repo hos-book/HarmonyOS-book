@@ -11,6 +11,7 @@ const root = path.resolve(__dirname, '../entry/src/main/ets');
 const values = new Map();
 const events = new EventEmitter();
 const mocks = {
+  '../../model/GeneralSettings': { GeneralSettings: { current: { historyEnabled: true } } },
   '@kit.InputKit': { KeyCode: { KEYCODE_VOLUME_UP: 16, KEYCODE_VOLUME_DOWN: 17,
     KEYCODE_PAGE_UP: 2012, KEYCODE_PAGE_DOWN: 2013, KEYCODE_DPAD_LEFT: 2014, KEYCODE_DPAD_RIGHT: 2015 } },
   '@kit.BasicServicesKit': { emitter: events },
@@ -18,6 +19,7 @@ const mocks = {
   '@kit.ArkData': { preferences: { getPreferences: async () => ({
     getSync: (key, fallback) => values.get(key) ?? fallback,
     putSync: (key, value) => values.set(key, value),
+    getAll: async () => Object.fromEntries(values),
     flush: async () => {}
   }) } }
 };
@@ -189,6 +191,8 @@ function reader() {
   const page = Object.create(ReaderPage.prototype);
   Object.assign(page, {
     context: {}, book: { id: 'test-book', chapters: [{ title: '第一章' }, { title: '第二章' }] },
+    readingTime: { checkpoint() {} },
+    speechState: { active: false, bookId: '' },
     pageTurnMode: PageTurnMode.Cover, currentResourceIndex: 0, currentChapterTitle: '第一章',
     onlineTextContent: content, onlineTextPages: normal, onlineTextPageIndex: 1,
     onlineTextTurnSerial: 0, onlineTextLoadSerial: 0, onlineTextTurnPreview: null,
@@ -217,7 +221,9 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   const typographyStart = source.indexOf('  private systemTypographyKey:');
   const typographyEnd = source.indexOf('  aboutToAppear()', typographyStart);
   assert.ok(typographyStart >= 0 && typographyEnd > typographyStart);
+  mocks['../service/text/ReadingTimeTracker'] = compile('service/text/ReadingTimeTracker');
   const { Typography } = compile('pages/ReaderPage', `import { OnlineTextPaginator } from '../service/text/OnlineTextPaginator';
+  import { ReadingTimeTracker } from '../service/text/ReadingTimeTracker';
   export class Typography {
     ${source.slice(typographyStart, typographyEnd)}
   }`);

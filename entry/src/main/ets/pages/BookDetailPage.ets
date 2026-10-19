@@ -5,6 +5,7 @@ import { emitter } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AppColor, AppRadius, AppSpace, AppFont, AppMaterial } from '../theme/Theme';
 import { Book, Chapter } from '../model/Book';
+import { GeneralSettings } from '../model/GeneralSettings';
 import { PlayerState, PLAYER_STATE_KEY } from '../model/PlayerState';
 import { BookSourceService } from '../service/BookSourceService';
 import { BookMetadataText as LocalRuleMetadataText } from '../utils/BookMetadataText';
@@ -147,6 +148,7 @@ export struct DetailTitleBarActions {
 
 @ComponentV2
 export struct BookDetailPage {
+  @Local generalSettings: GeneralSettings = GeneralSettings.current;
   @Param navStack: NavPathStack = new NavPathStack();
   @Param bookId: string = '';
   /**
@@ -235,6 +237,7 @@ export struct BookDetailPage {
 
   /** 顶栏返回：有弹层先关弹层，否则退页——与系统返回键同语义。 */
   private handleTopBarBack(): void {
+    this.sheetDismissedAt = 0;
     if (this.handleBack()) return;
     this.navStack.pop();
   }
@@ -248,7 +251,7 @@ export struct BookDetailPage {
    * 所以额外记录「弹层刚刚关闭」的时间窗，在这个窗口内一律消费掉返回事件。
    */
   private handleBack(): boolean {
-    if (Date.now() - this.sheetDismissedAt < BookDetailPage.SHEET_BACK_GUARD_MS) return true;
+    if (Date.now() - this.sheetDismissedAt < 32) { this.sheetDismissedAt = 0; return true; }
     if (this.showChapterSheet) {
       this.showChapterSheet = false;
       return true;
@@ -461,10 +464,14 @@ export struct BookDetailPage {
     this.loadingToc = book.tocComplete === false || book.chapters.length === 0;
     this.tocFailed = false;
     try {
+      this.isFavorite = await PreferenceService.isFavorite(book.id);
+      await this.loadTextReadingProgress(book.id);
       const sourceBook = !this.loadingToc ? book : await BookSourceService.loadTextBook(book,
         (partial: Book): void => {
           if (!this.detailActive || generation !== this.tocGeneration) return;
-          this.book = this.copyBookForRender(partial);
+          const display = this.copyBookForRender(partial);
+          if (book.chapters.length > display.chapters.length) display.chapters = book.chapters.slice();
+          this.book = display;
         });
       if (!this.detailActive || generation !== this.tocGeneration) return;
       const loaded = this.copyBookForRender(sourceBook);
@@ -480,6 +487,10 @@ export struct BookDetailPage {
     } catch (e) {
       if (!this.detailActive || generation !== this.tocGeneration) return;
       this.tocFailed = true;
+      if (book.chapters.length > 0) {
+        this.book = this.copyBookForRender(book);
+        SearchCache.put(book);
+      }
       this.debugInfo = e instanceof Error ? e.message : String(e);
       hilog.error(DETAIL_LOG_DOMAIN, DETAIL_LOG_TAG,
         'text detail failed, id=%{public}s elapsedMs=%{public}d error=%{public}s',
@@ -559,7 +570,7 @@ export struct BookDetailPage {
       // 保留详情封面优先级，再恢复目录；本地读失败仍能在线加载。
       const stored = await DataService.getBookById(ctx, id).catch((): undefined => undefined);
       if (stored) BookCoverPolicy.merge(cached, stored);
-      if (stored && stored.tocComplete !== false && stored.chapters.length > 0) {
+      if (stored && stored.chapters.length > 0 && (stored.tocComplete !== false || cached.chapters.length === 0)) {
         cached.chapters = stored.chapters;
         cached.tocComplete = stored.tocComplete;
         cached.chapterCount = Math.max(cached.chapterCount, stored.chapterCount, stored.chapters.length);
@@ -589,11 +600,14 @@ export struct BookDetailPage {
     const startedAt = Date.now();
     this.loadingToc = true;
     this.tocFailed = false;
+    const fallback = this.copyBookForRender(book);
     let firstShown = false;
     try {
       await BookSourceService.loadAudioBook(book, (loaded: Book): void => {
         if (!this.detailActive || generation !== this.tocGeneration) return;
-        this.book = this.copyBookForRender(loaded);
+        const display = this.copyBookForRender(loaded);
+        if (fallback.chapters.length > display.chapters.length) display.chapters = fallback.chapters.slice();
+        this.book = display;
         this.loadingToc = loaded.tocComplete === false;
         if (!firstShown && loaded.chapters.length > 0) {
           firstShown = true;
@@ -605,6 +619,10 @@ export struct BookDetailPage {
     } catch (error) {
       if (!this.detailActive || generation !== this.tocGeneration) return;
       this.tocFailed = true;
+      if (fallback.chapters.length > 0) {
+        this.book = fallback;
+        SearchCache.put(fallback);
+      }
       this.debugInfo = error instanceof Error ? error.message : String(error);
       hilog.warn(DETAIL_LOG_DOMAIN, DETAIL_LOG_TAG, 'toc load failed: %{public}s', this.debugInfo);
     } finally {
@@ -1043,11 +1061,10 @@ export struct BookDetailPage {
             })
             .shadow({ radius: 8, color: '#33000000', offsetY: 2 })
         } else {
-          // 无封面:用 app 图标占位(替代旧的书形占位)
-          Image($r('app.media.app_icon_legacy'))
+          CoverImage({ title: this.book!.title, imgWidth: this.detailCoverWidth(),
+            imgHeight: this.detailCoverHeight(), useFixedHeight: true, radius: AppRadius.Sm })
             .width(this.detailCoverWidth()).height(this.detailCoverHeight())
             .borderRadius(AppRadius.Sm)
-            .objectFit(ImageFit.Contain)
             .shadow({ radius: 8, color: '#33000000', offsetY: 2 })
         }
         // 封面上不再压来源角标：右侧标题区已展示来源名，重复且遮挡封面。
@@ -1138,8 +1155,6 @@ export struct BookDetailPage {
         HdsImmersiveTab({ label: this.displayStatus(), scroller: this.statsScroller, materialEnabled: this.entryMaterialStage >= 3 })
         HdsImmersiveTab({ label: this.displayUpdateShort(), scroller: this.statsScroller, materialEnabled: this.entryMaterialStage >= 4 })
         HdsImmersiveTab({ label: this.displayScale(), scroller: this.statsScroller, materialEnabled: this.entryMaterialStage >= 5 })
-        // 评分放最后：多数书源没有评分，避免「暂无」占住首屏第一个位置。
-        HdsImmersiveTab({ label: this.scoreText(), scroller: this.statsScroller, materialEnabled: this.entryMaterialStage >= 6 })
       }
       .height(58)
       .alignItems(VerticalAlign.Center)
@@ -1178,6 +1193,7 @@ export struct BookDetailPage {
         active: false,
         onTap: (): void => { this.showSourceSheet = true; }
       })
+      if (this.generalSettings.historyEnabled) {
       DetailActionItem({
         icon: $r('sys.symbol.calendar_fill'),
         label: (this.book?.contentType === 'text' || this.book?.contentType === 'comic')
@@ -1186,6 +1202,7 @@ export struct BookDetailPage {
         active: false,
         onTap: (): void => { this.openSessionHistory(); }
       })
+      }
     }
     .width('100%')
     .padding({ top: AppSpace.Md, bottom: AppSpace.Md })
@@ -1418,8 +1435,12 @@ export struct BookDetailPage {
   buildPrimaryCta() {
     Button({ type: ButtonType.Capsule }) {
       Row({ space: AppSpace.Sm }) {
-        SymbolGlyph((this.book?.contentType === 'text' || this.book?.contentType === 'comic') ? $r('sys.symbol.book') : $r('sys.symbol.play_fill'))
+        if (this.chaptersLoading() || this.isStartingPlay) {
+          LoadingProgress().width(18).height(18).color(AppColor.Brand)
+        } else {
+          SymbolGlyph((this.book?.contentType === 'text' || this.book?.contentType === 'comic') ? $r('sys.symbol.book') : $r('sys.symbol.play_fill'))
           .fontSize(18).fontColor([$r('sys.color.font_primary')])
+        }
         Text(this.primaryCtaLabel())
           .fontSize(AppFont.Title).fontWeight(FontWeight.Medium)
           .fontColor($r('sys.color.font_primary')).maxLines(1)

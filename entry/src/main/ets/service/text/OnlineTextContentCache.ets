@@ -163,8 +163,9 @@ export class OnlineTextContentCache {
     await task;
   }
 
-  static async invalidateSources(context: common.Context, sourceUrls: Set<string>): Promise<void> {
-    await OnlineTextContentCache.removeMatching(context, sourceUrls);
+  static async invalidateSources(context: common.Context, sourceUrls: Set<string>,
+    protectedBooks: Set<string> = new Set()): Promise<void> {
+    await OnlineTextContentCache.removeMatching(context, sourceUrls, undefined, protectedBooks);
   }
 
   static async removeBook(context: common.Context, sourceUrl: string, bookUrl: string): Promise<void> {
@@ -173,7 +174,7 @@ export class OnlineTextContentCache {
   }
 
   private static async removeMatching(context: common.Context, sourceUrls: Set<string>,
-    bookUrl?: string): Promise<void> {
+    bookUrl?: string, protectedBooks: Set<string> = new Set()): Promise<void> {
     const task = OnlineTextContentCache.writeChain.then(async (): Promise<void> => {
       await OnlineTextContentCache.migrateStorage(context);
       const directory = `${context.filesDir}/online_text_content`;
@@ -189,7 +190,8 @@ export class OnlineTextContentCache {
           const record: CachedTextChapter = JSON.parse(await fileIo.readText(path));
           parts = JSON.parse(record.key);
         } catch (_e) { continue; }
-        if (Array.isArray(parts) && sourceUrls.has(parts[0]) &&
+        if (Array.isArray(parts) && !protectedBooks.has(OnlineTextContentCache.key(parts[0], parts[1], '')) &&
+          sourceUrls.has(parts[0]) &&
           (bookUrl === undefined || parts[1] === bookUrl)) await fileIo.unlink(path);
       }
     });

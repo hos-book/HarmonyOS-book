@@ -1,0 +1,71 @@
+// Exercise the actual comic input handlers without ArkUI rendering.
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const vm = require('node:vm');
+const ts = require(path.join(process.env.DEVECO_HOME,
+  'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
+const root = path.resolve(__dirname, '../entry/src/main/ets');
+const TouchType = { Down: 0, Up: 1, Move: 2, Cancel: 3 };
+const policyExports = {};
+const compile = code => ts.transpileModule(code, {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
+}).outputText;
+vm.runInNewContext(compile(fs.readFileSync(path.join(root, 'utils/ReaderTapPolicy.ets'), 'utf8')),
+  { exports: policyExports, TouchType });
+const source = fs.readFileSync(path.join(root, 'pages/ComicReaderPage.ets'), 'utf8');
+function method(name) {
+  const start = source.indexOf(`  private ${name}(`);
+  assert.ok(start >= 0, name);
+  const body = source.indexOf('{', start);
+  let depth = 1, end = body + 1;
+  while (depth && end < source.length) {
+    if (source[end] === '{') depth++;
+    if (source[end] === '}') depth--;
+    end++;
+  }
+  return source.slice(start, end);
+}
+let now = 1000;
+const scope = { ...policyExports, TouchType, Date: { now: () => now }, Curve: { EaseInOut: 0 } };
+const handlers = ['onContentTap', 'contentTouch', 'turnPage', 'adjacent', 'canChange'].map(method).join('\n');
+vm.runInNewContext(compile(`class ComicInput { ${handlers} }\nglobalThis.ComicInput = ComicInput;`), scope);
+function reader(mode = 1) {
+  const r = new scope.ComicInput();
+  Object.assign(r, { mode, pageIndex: 1, pageCount: 4, widthVp: 300, heightVp: 600,
+    leftSafe: 0, rightSafe: 0, tapLeftPercent: 33, tapRightPercent: 33,
+    tapTopPercent: 33, tapBottomPercent: 33, generation: 1, restoreTimer: -1,
+    touchTracker: new policyExports.ReaderTouchTracker(), chapterIndex: 0,
+    book: { chapters: [{}, {}] }, turns: [], chapters: [], toggles: 0,
+    toggleChrome() { this.toggles++; }, scheduleSave() {}, continueScroll() {},
+    loadChapter(index) { this.chapters.push(index); },
+    getUIContext() { return { animateTo(options, update) { update(); options.onFinish(); } }; }
+  });
+  r.swiper = { changeIndex(index, animated) { r.turns.push([index, animated]); r.pageIndex = index; } };
+  return r;
+}
+function touch(r, type, x = 280, y = 300) {
+  r.contentTouch({ type, touches: type === TouchType.Up ? [] : [{ x, y }],
+    changedTouches: [{ x, y, windowX: x, windowY: y }] });
+}
+const r = reader();
+touch(r, TouchType.Down); now += 100; touch(r, TouchType.Up);
+assert.deepEqual(r.turns, [[2, true]], 'side tap starts animation on release');
+r.onContentTap({ windowX: 280, windowY: 300 });
+assert.equal(r.turns.length, 1, 'later native click cannot turn twice');
+touch(r, TouchType.Down, 150); now += 100; touch(r, TouchType.Up, 150);
+r.onContentTap({ windowX: 150, windowY: 300 });
+assert.equal(r.toggles, 1, 'center click still opens toolbar');
+touch(r, TouchType.Down); now += 600; touch(r, TouchType.Up);
+assert.equal(r.turns.length, 1, 'holding cannot become a page tap');
+touch(r, TouchType.Down); touch(r, TouchType.Move, 240); touch(r, TouchType.Up);
+assert.equal(r.turns.length, 1, 'movement returning to start cannot become a tap');
+touch(r, TouchType.Down); touch(r, TouchType.Cancel); touch(r, TouchType.Up);
+assert.equal(r.turns.length, 1, 'cancelled touch cannot turn');
+r.turning = true;
+touch(r, TouchType.Down); now += 100; touch(r, TouchType.Up);
+assert.equal(r.turns.length, 1, 'ongoing animation rejects a second page request');
+const dissolve = reader(3);
+touch(dissolve, TouchType.Down); now += 100; touch(dissolve, TouchType.Up);
+assert.equal(dissolve.pageIndex, 2, 'dissolve also starts on release');
+console.log('comic page input: immediate turn, no duplicate, center toolbar, hold/move/cancel and animation lock passed');

@@ -16,6 +16,7 @@ import { HdsCompat, CompatibleTabsModifier } from '../utils/HdsCompat';
 import { PreferenceService } from '../service/PreferenceService';
 import { ReaderSpeechText } from '../components/ReaderSpeechText';
 import { ReaderSpeechSheet } from '../components/ReaderSpeechSheet';
+import { ReadingTimeTracker } from '../service/text/ReadingTimeTracker';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { TextToSpeechState } from '../model/TextToSpeechState';
 import { PlatformCompat } from '../utils/PlatformCompat';
@@ -104,6 +105,7 @@ export struct ReaderPage {
   @Param targetDomPos: string = '';
   @Local book: Book | null = null;
   @Local showSourceSwitch: boolean = false;
+  @Local selectingText: boolean = false;
   @Local reloadingChapter: boolean = false;
   @Local loading: boolean = true;
   @Local readerError: string = '';
@@ -145,6 +147,7 @@ export struct ReaderPage {
   @Local tapRightPercent: number = 33;
   @Local tapTopPercent: number = 33;
   @Local tapBottomPercent: number = 33;
+  @Local showChapterBar: boolean = true;
   @Local showHeader: boolean = true;
   @Local cornerLayout: string = ReaderCornerLayout.DEFAULT;
   @Local showFooter: boolean = true;
@@ -274,9 +277,10 @@ export struct ReaderPage {
   private systemTypographyKey: string = '';
   private sessionTimer: number = -1;
   private readingForeground: boolean = true;
+  private readingTime: ReadingTimeTracker = new ReadingTimeTracker();
   private foregroundHandler = (): void => {
     this.readingForeground = true;
-    if (this.readerVisible) this.saveProgress();
+    if (this.readerVisible) { this.syncSpeechPosition(); this.saveProgress(); }
   };
 
   private currentSystemTypographyKey(): string {
@@ -627,6 +631,9 @@ export struct ReaderPage {
   @Builder
   private buildSourceActions(): void {
     Row({ space: 8 }) {
+      ImmersiveCircleButton({ icon: $r('sys.symbol.chevron_left'),
+        label: $r('app.string.comic_back'), onPress: (): void => { this.saveProgress(); this.navStack.pop(); } })
+      Blank()
       if (this.book?.sourceUrl) {
         ImmersiveCircleButton({
           icon: $r('sys.symbol.arrow_clockwise'), iconSize: 20,
@@ -652,7 +659,7 @@ export struct ReaderPage {
         onPress: (): void => { this.openBookDetail(); }
       })
     }.width('100%').justifyContent(FlexAlign.End)
-      .padding({ right: this.rightSafeVp + Math.max(16, this.marginRight) + (this.showHeader && this.cornerVisible(1) ? Math.max(28, this.pageLabelWidthVp) + 8 : 0) })
+      .padding({ left: this.leftSafeVp + 16, right: this.rightSafeVp + 12 })
       .hitTestBehavior(HitTestMode.Transparent)
       .position({ x: 0, y: this.topSafeVp + 4 })
   }
@@ -879,8 +886,27 @@ export struct ReaderPage {
     this.initializeReader();
   }
 
+  @Monitor('speechState.charOffset', 'speechState.chapterIndex', 'speechState.playing')
+  private syncSpeechPosition(): void {
+    const speech = this.speechState;
+    if (!this.readerVisible || this.leaving || this.loading || !this.book || !speech.active ||
+      speech.bookId !== this.bookId || speech.loading || !this.isOnlineTextBook()) return;
+    this.readingTime.checkpoint(this.book, !speech.playing && this.readingForeground);
+    if (speech.chapterIndex !== this.currentResourceIndex) {
+      if (!this.onlineTextLoading) this.loadOnlineTextChapter(speech.chapterIndex, speech.charOffset, 0, false, false);
+      return;
+    }
+    this.onlineTextPageIndex = OnlineTextPaginator.pageIndexForOffset(this.onlineTextPages, speech.charOffset);
+    this.updateOnlineTextPosition(false, speech.charOffset);
+    if (this.pageTurnMode === PageTurnMode.Vertical) this.continuousRevision++;
+  }
+
   private saveProgress(): void {
+    this.readingTime.checkpoint(this.book, this.readerVisible && this.readingForeground && !this.leaving &&
+      !this.loading && !this.onlineTextLoading && !this.speechState.playing);
     if (!this.context || !this.currentPosition) return;
+    if (this.speechState.active && this.speechState.bookId === this.bookId &&
+      (this.speechState.playing || !this.readerVisible)) return;
     if (this.book && !this.loading && !TextToSpeechService.getInstance().state.playing) {
       const location = SessionLocation.text(this.book, this.currentPosition);
       location.total = this.onlineTextContent.length;
@@ -935,6 +961,7 @@ export struct ReaderPage {
       this.tapRightPercent = settings.tapRightPercent;
       this.tapTopPercent = settings.tapTopPercent;
       this.tapBottomPercent = settings.tapBottomPercent;
+      this.showChapterBar = settings.showChapterBar;
       this.showHeader = settings.showHeader;
       this.cornerLayout = settings.cornerLayout;
       this.showFooter = settings.showFooter;
@@ -990,6 +1017,7 @@ export struct ReaderPage {
     this.tapRightPercent = 33;
     this.tapTopPercent = 33;
     this.tapBottomPercent = 33;
+    this.showChapterBar = true;
     this.showHeader = true;
     this.cornerLayout = ReaderCornerLayout.DEFAULT;
     this.showFooter = true;
@@ -1044,6 +1072,7 @@ export struct ReaderPage {
     settings.tapRightPercent = this.tapRightPercent;
     settings.tapTopPercent = this.tapTopPercent;
     settings.tapBottomPercent = this.tapBottomPercent;
+    settings.showChapterBar = this.showChapterBar;
     settings.showHeader = this.showHeader;
     settings.cornerLayout = this.cornerLayout;
     settings.showFooter = this.showFooter;
@@ -1289,6 +1318,7 @@ export struct ReaderPage {
     settings.tapRightPercent = this.tapRightPercent;
     settings.tapTopPercent = this.tapTopPercent;
     settings.tapBottomPercent = this.tapBottomPercent;
+    settings.showChapterBar = this.showChapterBar;
     settings.showHeader = this.showHeader;
     settings.cornerLayout = this.cornerLayout;
     settings.showFooter = this.showFooter;
@@ -1867,7 +1897,7 @@ export struct ReaderPage {
       }.width(this.readerControlWidthVp()).height(READER_BAR_HEIGHT)
         .alignItems(VerticalAlign.Center)
         .margin({ bottom: Math.max(this.bottomSafeVp, READER_MIN_SAFE_BOTTOM) + READER_FLOATING_BOTTOM })
-      this.buildReaderChapterBar()
+      if (this.showChapterBar) { this.buildReaderChapterBar() }
     }
     .width('100%')
     .height(READER_BAR_MASK_HEIGHT + this.bottomSafeVp + READER_FLOATING_BOTTOM + 104)
@@ -1876,6 +1906,9 @@ export struct ReaderPage {
     .opacity(this.readerBarVisible ? 1 : 0)
     .animation({ duration: 180, curve: curves.cubicBezierCurve(0.2, 0, 0, 1) })
     .hitTestBehavior(this.readerBarVisible ? HitTestMode.Transparent : HitTestMode.None)
+    .animation(null)
+    .visibility(this.readerBarVisible ? Visibility.Visible : Visibility.Hidden)
+    .enabled(this.readerBarVisible)
   }
 
   private toggleReaderBar(): void {
@@ -2193,8 +2226,9 @@ export struct ReaderPage {
     .defaultFocus(true)
     .onVisibleAreaChange([0, 1], (visible: boolean): void => {
       this.readerVisible = visible;
-      if (visible) this.saveProgress();
-      else ReadingSessionService.end('reading');
+      if (visible) this.syncSpeechPosition();
+      this.saveProgress();
+      if (!visible) ReadingSessionService.end('reading');
       this.screenOn.setVisible(visible);
     })
     // 背景由 ReaderBackground 铺，根节点保持透明
@@ -2243,6 +2277,8 @@ export struct ReaderPage {
         Column() {
           if (this.pageTurnMode === PageTurnMode.Vertical) {
             ReaderContinuousComponent({
+              selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet,
+              onSelectionChange: (active: boolean): void => { this.selectingText = active; },
               tapRegions: this.tapRegions,
           tapLeftPercent: this.tapLeftPercent,
           tapRightPercent: this.tapRightPercent,
@@ -2272,6 +2308,8 @@ export struct ReaderPage {
             })
           } else {
             ReaderSpeechText({
+              selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet,
+              onSelectionChange: (active: boolean): void => { this.selectingText = active; },
               page: this.currentOnlineTextPageLayout(),
               text: this.currentOnlineTextPageContent(),
               source: this.currentOnlineTextPageSource(),
@@ -2335,6 +2373,7 @@ export struct ReaderPage {
         this.buildOnlineTextPage()
       } else {
         ReaderPageTurnComponent({
+          selectionActive: this.selectingText,
           tapRegions: this.tapRegions,
           tapLeftPercent: this.tapLeftPercent,
           tapRightPercent: this.tapRightPercent,
@@ -2570,6 +2609,7 @@ export struct ReaderPage {
           tapTopPercent: this.tapTopPercent,
           tapBottomPercent: this.tapBottomPercent,
 
+      showChapterBar: this.showChapterBar,
       showHeader: this.showHeader,
       cornerLayout: this.cornerLayout,
       onCornerChange: (corner: number, content: number): void => {
@@ -2595,6 +2635,7 @@ export struct ReaderPage {
         this.tapRegions = ReaderTapPolicy.DEFAULT; this.saveReadingSettings();
       },
       onChromeChange: (field: string, enabled: boolean): void => {
+        if (field === 'showChapterBar') this.showChapterBar = enabled;
         if (field === 'showHeader') this.showHeader = enabled;
         if (field === 'showFooter') this.showFooter = enabled;
         if (field === 'showChapterTitle') this.showChapterTitle = enabled;

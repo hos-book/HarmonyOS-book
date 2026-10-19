@@ -1,3 +1,4 @@
+import { GeneralSettings } from '../model/GeneralSettings';
 import { preferences } from '@kit.ArkData';
 import { fileIo } from '@kit.CoreFileKit';
 import { common } from '@kit.AbilityKit';
@@ -154,6 +155,7 @@ export class StatsService {
   }
 
   static async addListenSeconds(seconds: number, book: BookUsageInput, endedAt?: number): Promise<void> {
+    if (!GeneralSettings.current.historyEnabled) return;
     if (!Number.isFinite(seconds) || seconds < 1 || !book.bookId) return;
     // 在入队前固定书籍和日期，避免排队跨过零点后把昨日时长写入今天。
     const recordedAt = endedAt !== undefined && Number.isFinite(endedAt) ? endedAt : Date.now();
@@ -163,6 +165,7 @@ export class StatsService {
     };
     await StatsService.enqueue(async (): Promise<void> => {
       await StatsService.ensureReady();
+      if (!GeneralSettings.current.historyEnabled) return;
       await StatsService.addSeconds(Math.floor(seconds), input, recordedAt, endedAt !== undefined);
     });
   }

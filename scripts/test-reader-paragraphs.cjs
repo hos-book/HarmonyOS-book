@@ -7,6 +7,7 @@ const ide = process.env.DEVECO_HOME;
 if (!ide) throw new Error('Set DEVECO_HOME to the installed Release IDE');
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = path.resolve(__dirname, '../entry/src');
+let localImages;
 let apiVersion = 20;
 function load(relative, mocks = {}) {
   const filename = path.join(root, relative);
@@ -15,6 +16,7 @@ function load(relative, mocks = {}) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
   }).outputText;
   vm.runInNewContext(code, { exports, require: name => {
+    if (name === './LocalTextImage') return localImages ??= load('main/ets/service/text/LocalTextImage.ets');
     if (name === '../../utils/PlatformCompat') return { PlatformCompat: { supports: version => apiVersion >= version } };
     if (!(name in mocks)) throw new Error(`Unexpected dependency: ${name}`);
     return mocks[name];
@@ -76,6 +78,20 @@ const graphicsText = {
   }
 };
 const native = load('main/ets/service/text/OnlineTextPaginator.ets', { '@kit.ArkGraphics2D': { text: graphicsText } });
+localImages.LocalTextImage.setRoot('/files');
+const token = localImages.LocalTextImage.token('/files/ebooks/import_fixture/image_0_0.img');
+const mixedBody = '图前正文很长\n' + token + '\n图后正文很长';
+const mixedPages = native.OnlineTextPaginator.paginate(mixedBody, 300, 200, 18, 1.9);
+const imagePage = mixedPages.find(page => page.imageUrl);
+assert.ok(imagePage);
+assert.equal(imagePage.startOffset, mixedBody.indexOf(token));
+assert.equal(imagePage.endOffset, mixedBody.indexOf(token) + token.length);
+assert.equal(imagePage.layoutHeight, 200);
+assert.equal(mixedPages.at(-1).endOffset, mixedBody.length);
+assert.equal(localImages.LocalTextImage.speechContent(mixedBody).length, mixedBody.length);
+const badToken = localImages.LocalTextImage.token('/files/secret');
+assert.equal(native.OnlineTextPaginator.paginate(badToken, 300, 200, 18, 1.9).length, 0, 'invalid markers cannot create blank page loops');
+console.log('PASS EPUB images reserve one stable page, retain source offsets and reject external paths');
 for (const [alignment, expected] of [['justify', 3], ['start', 0], ['center', 2], ['end', 1]]) {
   const pages = native.OnlineTextPaginator.paginate('甲乙丙丁戊己庚辛壬癸', 100, 20, 18, 1.9, '', 400, alignment);
   assert.equal(pages.length, 3);

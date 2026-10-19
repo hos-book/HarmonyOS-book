@@ -1,3 +1,5 @@
+import { LocalTextImage } from './LocalTextImage';
+
 export class SpeechSegment {
   start: number = 0;
   end: number = 0;
@@ -9,7 +11,17 @@ export class SpeechSegment {
 
 /** 偏移始终对应阅读器规范化正文，分段不删除或重排原文。 */
 export class SpeechTextSegmenter {
+  /** 仅清理合成输入中的数字脚注，正文和字符偏移保持原样。 */
+  private static spokenText(content: string): string {
+    return content.replace(new RegExp('\\[\\s*\\d{1,4}\\s*\\]|【\\s*\\d{1,4}\\s*】', 'g'), '').trim();
+  }
+
+  private static isPunctuationOnly(text: string): boolean {
+    return new RegExp('^[\\s。，、！？!?；;：:“”‘’「」『』（）()\\[\\]【】…—.\\-]+$').test(text);
+  }
+
   static split(content: string, mergeShort: boolean = false): SpeechSegment[] {
+    content = LocalTextImage.speechContent(content);
     const result: SpeechSegment[] = [];
     let start = 0;
     let paragraphStart = 0;
@@ -24,14 +36,15 @@ export class SpeechTextSegmenter {
       const limit = i - start >= 179 && !(code >= 0xD800 && code <= 0xDBFF);
       if (boundary || limit || i === content.length - 1) {
         let end = i + 1;
-        while (end < content.length && '”’」』）'.includes(content.charAt(end))) end++;
+        // 连续问号和收尾标点随上一句合成，避免拆出没有语音数据的请求。
+        while (end < content.length && '。！？!?；;”’」』）'.includes(content.charAt(end))) end++;
         const segment = new SpeechSegment();
         segment.start = start;
         segment.end = end;
         const raw = content.substring(start, end);
         segment.leadingWhitespace = Math.max(0, raw.search(new RegExp('\\S')));
-        segment.text = raw.trim();
-        if (segment.text.length > 0) {
+        segment.text = SpeechTextSegmenter.spokenText(raw);
+        if (segment.text.length > 0 && !SpeechTextSegmenter.isPunctuationOnly(segment.text)) {
           const readStart = start + segment.leadingWhitespace;
           while (readStart >= paragraphEnd && paragraphEnd < content.length) {
             paragraphStart = paragraphEnd + 1;
@@ -52,14 +65,13 @@ export class SpeechTextSegmenter {
   /** HTTP 同段短句合并到约 64 字、上限约 180 字，允许附带尾部标点；不跨自然段。 */
   private static mergeShortSegments(content: string, segments: SpeechSegment[]): SpeechSegment[] {
     const result: SpeechSegment[] = [];
-    const punctuationOnly = new RegExp('^[\\s。，、！？!?；;：:“”‘’「」『』（）()…—.\\-]+$');
     for (const segment of segments) {
       const previous = result.length > 0 ? result[result.length - 1] : null;
-      const punctuation = punctuationOnly.test(segment.text);
+      const punctuation = SpeechTextSegmenter.isPunctuationOnly(segment.text);
       if (previous !== null && previous.paragraphStart === segment.paragraphStart &&
         (previous.text.length < 64 || punctuation) && segment.end - previous.start <= (punctuation ? 196 : 180)) {
         previous.end = segment.end;
-        previous.text = content.substring(previous.start, previous.end).trim();
+        previous.text = SpeechTextSegmenter.spokenText(content.substring(previous.start, previous.end));
       } else if (!punctuation) {
         result.push(segment);
       }

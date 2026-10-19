@@ -31,6 +31,10 @@ class LightPanelControlData {
 
 /** The imported source dispatcher is the only application entry to the upstream engine. */
 export class LightSourceBridge {
+  static async cacheComicImages(source: LocalRuleSource, urls: string[], request?: LightSourceRequest): Promise<string[]> {
+    return JSON.parse(await LightSourceCore.cacheComicImages(LightSourceBridge.prepare(source), JSON.stringify(urls), request));
+  }
+
   static async cover(source: LocalRuleSource, raw: string, revision: number): Promise<string> {
     return LightSourceCore.cover(LightSourceBridge.prepare(source), raw, revision);
   }

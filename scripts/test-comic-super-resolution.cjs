@@ -66,7 +66,7 @@ function setup() {
       module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021
     } }).outputText;
     vm.runInNewContext(js, { exports, require: name => mocks[name] || {},
-      canIUse: () => state.capable, console: { warn() {} }, Uint8Array });
+      canIUse: () => state.capable, console: { warn() {} }, Uint8Array, setTimeout, clearTimeout });
     return exports;
   }
   const preference = load('service/PreferenceService').PreferenceService;
@@ -94,7 +94,10 @@ function setup() {
   await h.run();
   assert.equal(h.state.created, 1, 'cache hit avoids processing');
   assert.equal(h.state.downloads, 0, 'local comic processing never downloads or uploads images');
-  assert.equal(await h.run('https://source/remote.jpg'), '', 'remote images do not enter local processor');
+  const remote = setup();
+  await remote.preference.setComicSuperResolution(true);
+  assert.match(await remote.run('https://source/remote.jpg'), /^file:/);
+  assert.equal(remote.state.downloads, 1, 'ordinary remote comic images enter the bounded processor');
   assert.equal(h.state.destroyed, 1);
   assert.equal(h.state.releasedInput, 1);
   assert.equal(h.state.releasedOutput, 1);

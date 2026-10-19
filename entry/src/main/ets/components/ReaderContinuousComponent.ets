@@ -11,12 +11,17 @@ import { ReaderSpeechText } from './ReaderSpeechText';
 /** 按真实排版行懒加载的连续正文。只保留当前章附近内容，补章不替换可见正文。 */
 @ComponentV2
 export struct ReaderContinuousComponent {
+  @Param selectionEnabled: boolean = true;
+  @Local selectionActive: boolean = false;
+  @Event onSelectionChange: (active: boolean) => void = () => {};
   @Param tapLeftPercent: number = 33;
   @Param tapRightPercent: number = 33;
   @Param tapTopPercent: number = 33;
   @Param tapBottomPercent: number = 33;
   @Param tapRegions: string = ReaderTapPolicy.DEFAULT;
   private tapTracker: ReaderTouchTracker = new ReaderTouchTracker();
+  private touchStartedAt: number = 0;
+  private touchStartedSelecting: boolean = false;
   private contentHeight: number = 0;
   @Param keyTurnRequest: number = 0;
   @Param revision: number = 0;
@@ -292,10 +297,12 @@ export struct ReaderContinuousComponent {
                 .width('100%').height(this.rowHeight * 2).maxLines(2)
             } else {
               ReaderSpeechText({
+                selectionEnabled: this.selectionEnabled,
+                onSelectionChange: (active: boolean): void => { this.selectionActive = active; this.onSelectionChange(active); },
                 page: row.page, text: row.text, source: row.source, sourceStart: row.startOffset,
                 fontFamily: this.fontFamily, fontWeight: this.fontWeight,
                 state: this.speechState, fontSize: this.fontSize, lineHeight: this.lineHeight, palette: this.palette,
-                highlightEnabled: this.speechState.bookId === this.bookId && this.speechState.chapterIndex === row.chapterIndex
+                highlightEnabled: this.selectionEnabled && this.speechState.bookId === this.bookId && this.speechState.chapterIndex === row.chapterIndex
               })
                 .width('100%').height(this.getUIContext().px2vp(row.page.layoutHeight))
                 .margin({ bottom: this.getUIContext().px2vp(row.page.trailingSpacing) })
@@ -324,10 +331,28 @@ export struct ReaderContinuousComponent {
       .onReachStart((): void => { this.loadNeighbor(false); })
       .onTouch((event: TouchEvent): void => {
         this.tapTracker.update(event);
+        if (event.type === TouchType.Down) {
+          this.touchStartedAt = Date.now();
+          this.touchStartedSelecting = this.selectionActive;
+        }
         // 索引未变化时平台不会重复上报；完成定位后的首次真实触摸解除恢复锁。
         if (event.type === TouchType.Down && this.restoreTimer === -1) {
           this.restoring = false;
           this.restoreTarget = -1;
+        }
+        if (event.type === TouchType.Up && !this.touchStartedSelecting && !this.selectionActive &&
+          Date.now() - this.touchStartedAt < 500 && this.tapTracker.canTap()) {
+          const touch = event.changedTouches[0] ?? event.touches[0];
+          if (touch !== undefined) {
+            const action = ReaderTapPolicy.resolve(this.tapRegions, touch.x,
+              touch.y - this.topGestureInset, this.contentWidth, this.contentHeight - this.topGestureInset,
+              this.tapLeftPercent, this.tapRightPercent, this.tapTopPercent, this.tapBottomPercent);
+            if (action === 1) this.onCenterTap();
+            else if (action === 0 || action === 2) {
+              this.onScrollStart();
+              this.scroller.scrollBy(0, (action === 2 ? 1 : -1) * this.contentHeight * 0.85);
+            }
+          }
         }
       })
       .onScrollStart((): void => {
@@ -335,17 +360,6 @@ export struct ReaderContinuousComponent {
         if (!this.restoring) this.onScrollStart();
       })
       .onScrollStop((): void => this.reportPosition(true))
-      .parallelGesture(TapGesture().onAction((event: GestureEvent): void => {
-        const finger = event.fingerList[0];
-        if (finger === undefined || !this.tapTracker.canTap()) return;
-        const action = ReaderTapPolicy.resolve(this.tapRegions, finger.localX,
-          finger.localY - this.topGestureInset, this.contentWidth, this.contentHeight - this.topGestureInset, this.tapLeftPercent, this.tapRightPercent, this.tapTopPercent, this.tapBottomPercent);
-        if (action === 1) this.onCenterTap();
-        else if (action === 0 || action === 2) {
-          this.onScrollStart();
-          this.scroller.scrollBy(0, (action === 2 ? 1 : -1) * this.contentHeight * 0.85);
-        }
-      }))
       this.loadIndicator(false)
       this.loadIndicator(true)
     }

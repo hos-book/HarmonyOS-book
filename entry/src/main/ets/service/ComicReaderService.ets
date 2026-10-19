@@ -35,12 +35,57 @@ export class ComicPageDataSource implements IDataSource {
 export class ComicReaderService {
   private static pending: Map<string, Promise<ComicPage[]>> = new Map();
   private static requests: Map<string, LightSourceRequest> = new Map();
+  private static imagePending: Map<string, Promise<boolean>> = new Map();
+
+  /** 图片预取独立于清单加载，进入该章无需等待整章图片下载完。 */
+  static async preloadImages(book: Book, chapter: Chapter, pages: ComicPage[], context: common.Context,
+    cancelCheck: () => boolean): Promise<boolean> {
+    const key = OnlineTextContentCache.key(book.sourceUrl, book.bookUrl || book.id,
+      chapter.originSourceValue || chapter.source.value);
+    const imageKey = `${key}:images`;
+    const pending = ComicReaderService.imagePending.get(imageKey);
+    if (pending && !ComicReaderService.requests.get(imageKey)?.isCancelled()) return pending;
+    const request = new LightSourceRequest(0);
+    request.cancelCheck = cancelCheck;
+    ComicReaderService.requests.set(imageKey, request);
+    const task = ComicReaderService.fillImages(book, chapter, pages, context, key, request);
+    ComicReaderService.imagePending.set(imageKey, task);
+    try { return await task; } finally {
+      if (ComicReaderService.imagePending.get(imageKey) === task) {
+        ComicReaderService.imagePending.delete(imageKey);
+        ComicReaderService.requests.delete(imageKey);
+      }
+    }
+  }
+
+  private static async fillImages(book: Book, chapter: Chapter, pages: ComicPage[], context: common.Context,
+    key: string, request: LightSourceRequest): Promise<boolean> {
+    const paths = await BookSourceService.cacheComicImages(book, pages.map((page: ComicPage): string => page.url), request);
+    if (request.isCancelled() || paths.length !== pages.length) return false;
+    const saved: ComicPage[] = [];
+    for (let index = 0; index < pages.length; index++) {
+      const page = new ComicPage();
+      page.key = pages[index].key;
+      page.index = pages[index].index;
+      page.width = pages[index].width;
+      page.height = pages[index].height;
+      page.url = paths[index].startsWith('/') ? fileUri.getUriFromPath(paths[index]) : paths[index];
+      saved.push(page);
+    }
+    await OnlineTextContentCache.write(context, key, JSON.stringify(saved));
+    if (request.isCancelled()) return false;
+    for (let index = 0; index < saved.length; index++) pages[index].url = saved[index].url;
+    const complete = (await ComicReaderService.cached(context, book, chapter)).length === pages.length;
+    if (complete) emitter.emit('app.chapter.cache.updated', { data: { chapterId: chapter.id } });
+    hilog.info(0x0001, 'ComicReader', 'image prefetch complete=%{public}s pages=%{public}d', String(complete), pages.length);
+    return complete;
+  }
 
   static cancelPendingExcept(book?: Book, chapter?: Chapter): void {
     const keep = book && chapter ? OnlineTextContentCache.key(book.sourceUrl, book.bookUrl || book.id,
       chapter.originSourceValue || chapter.source.value) : '';
     for (const key of ComicReaderService.requests.keys()) {
-      if (key !== keep) ComicReaderService.requests.get(key)?.cancel();
+      if (key !== keep && key !== `${keep}:images`) ComicReaderService.requests.get(key)?.cancel();
     }
   }
 
@@ -65,6 +110,8 @@ export class ComicReaderService {
     force: boolean = false, preload: boolean = false): Promise<ComicPage[]> {
     const key = OnlineTextContentCache.key(book.sourceUrl, book.bookUrl || book.id,
       chapter.originSourceValue || chapter.source.value);
+    if (force) ComicReaderService.requests.get(`${key}:images`)?.cancel();
+    else if (!preload) ComicReaderService.requests.get(`${key}:images`)?.promote();
     const pending = ComicReaderService.pending.get(key);
     if (pending) {
       const request = ComicReaderService.requests.get(key);

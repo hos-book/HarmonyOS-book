@@ -202,7 +202,10 @@ export class WindowUtils {
   }
 
   static updateColorMode(colorMode: ConfigurationConstant.ColorMode): void {
-    if (WindowUtils.colorMode === colorMode) return;
+    if (WindowUtils.colorMode === colorMode) {
+      WindowUtils.updateReaderStatusBar();
+      return;
+    }
     WindowUtils.colorMode = colorMode;
     WindowUtils.readerColorListeners.forEach((listener: () => void): void => listener());
     WindowUtils.applySystemBarContent().catch(() => { /* ignore */ });

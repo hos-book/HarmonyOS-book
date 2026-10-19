@@ -10,7 +10,7 @@ const ide = process.env.DEVECO_HOME;
 if (!ide) throw new Error('Set DEVECO_HOME to the installed Release DevEco Studio');
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = path.resolve(__dirname, '../entry/src/main/ets');
-const read = name => fs.readFileSync(path.join(root, name + '.ets'), 'utf8');
+const read = name => fs.readFileSync(path.join(root, name + (fs.existsSync(path.join(root, name + '.ets')) ? '.ets' : '.ts')), 'utf8');
 function compile(text, globals = {}) {
   const module = { exports: {} };
   const code = ts.transpileModule(text.replace(/import lazy /g, 'import ')
@@ -102,7 +102,7 @@ homeService.loadHome = async () => ({ blocks: [], categories: [], loadedAt: Date
 const home = Object.assign(new HomeHarness(), {
   homeGen: 0, homeSources: [], homeBlocks: [], homeCategories: [],
   homeSourcesRevision: -1, homeSourceMenuSerial: 0, homeSourceKeyword: '',
-  homeSourceMenuVisible: true, loadingHomeSources: false,
+  homeSourceMenuVisible: true, loadingHomeSources: false, homeSourceKind: 0,
   categoryDS: { setBooks() {} }, onScrollerReady() {},
   updateHomeBlocks(value) { this.homeBlocks = value; },
   updateHomeCategories(value) { this.homeCategories = value; },
@@ -112,19 +112,61 @@ const home = Object.assign(new HomeHarness(), {
 });
 const shelfText = read('pages/FavoritePage');
 const shelfLoad = shelfText.slice(shelfText.indexOf('  async loadFavorites()'),
-  shelfText.indexOf('  /** 阅读器覆盖书架'));
+  shelfText.indexOf('  private async refreshTextProgress()'));
 const { ShelfHarness } = compile(`export class ShelfHarness { ${shelfLoad} }`, {
+  BookPresentation: { groups: [] },
+  setTimeout, clearTimeout,
   SourceDataService: sources, PreferenceService: preferences,
   DataService: { getBooks: async () => books }
 });
 const shelf = Object.assign(new ShelfHarness(), {
   context: {}, favoritesLoadSerial: 0, selectedBookIds: new Set(), visible: false,
+  alive: true, sourceNames: new Map(),
+  initialLoadTimer: -1, scheduleAutoUpdate() {},
   isMissingCachedBook: () => false, buildChapterIndexMap: async () => ({}),
   refreshTextProgress: async () => {}, filteredBooks: value => value,
   bookDataSource: { setBooks() {} }
 });
 
 (async () => {
+  const timers = new Map();
+  let timerId = 0, loads = 0, progressReads = 0, updates = 0, completeLoad;
+  const visibilityCode = shelfText.slice(shelfText.indexOf('  onVisibleChange()'),
+    shelfText.indexOf('  private syncShelfSourceVisibility()'));
+  const { VisibilityHarness } = compile(`export class VisibilityHarness { ${visibilityCode} }`, {
+    setTimeout: callback => { timers.set(++timerId, callback); return timerId; },
+    clearTimeout: id => timers.delete(id)
+  });
+  const visibility = Object.assign(new VisibilityHarness(), {
+    alive: true, visible: true, foreground: true, loading: true,
+    initialLoadTimer: -1, initialLoadRunning: false, autoUpdateTimer: -1,
+    syncShelfSourceVisibility() {}, exitManagement() {},
+    loadFavorites: () => { loads++; return new Promise(resolve => { completeLoad = resolve; }); },
+    refreshTextProgress: () => { progressReads++; }, refreshOnlineBooks: () => { updates++; }
+  });
+  visibility.scheduleInitialLoad();
+  visibility.onVisibleChange();
+  assert.equal(timers.size, 1, 'Appear and visible must share the initial load');
+  const initial = timers.get(visibility.initialLoadTimer);
+  timers.clear(); initial();
+  visibility.onVisibleChange();
+  assert.equal(loads, 1, 'visibility must not duplicate an in-flight load');
+  assert.equal(timers.size, 0);
+  completeLoad();
+  await new Promise(resolve => setImmediate(resolve));
+  visibility.loading = false;
+  for (let i = 0; i < 20; i++) {
+    visibility.visible = true; visibility.onVisibleChange();
+    visibility.visible = false; visibility.onVisibleChange();
+  }
+  assert.equal(progressReads, 0, 'warm tab switching uses progress already updated by save events');
+  assert.equal(timers.size, 0, 'leaving the shelf cancels pending automatic checks');
+  assert.equal(updates, 0, 'rapid switching must not launch an automatic update');
+  visibility.visible = true; visibility.onVisibleChange();
+  timers.get(visibility.autoUpdateTimer)(); timers.clear();
+  assert.equal(updates, 1, 'a settled visible shelf can check updates');
+  console.log('PASS shelf lifecycle: coalesced initialization, no progress reload on tab switches, cancelled delayed updates');
+
   const baselineStart = performance.now();
   assert.equal((await sources.getSources()).length, 2000);
   const baselineMs = performance.now() - baselineStart;
@@ -133,6 +175,7 @@ const shelf = Object.assign(new ShelfHarness(), {
   resetCounts();
   await home.loadHomeBlocks();
   await shelf.loadFavorites();
+  await shelf.loadSourceNames(books, shelf.favoritesLoadSerial);
   assert.equal(fullReads, 0, 'home and shelf initialization must not scan all rules');
   assert.equal(pointReads, 3, 'only three distinct sources referenced by the pages are queried');
   assert.equal(parsedRules, 3);
@@ -164,6 +207,7 @@ const shelf = Object.assign(new ShelfHarness(), {
   rows.get(sourceUrl(1111))[1] = 'Renamed source';
   sources.invalidateLocalSources(sourceUrl(1111));
   await shelf.loadFavorites();
+  await shelf.loadSourceNames(books, shelf.favoritesLoadSerial);
   assert.equal(shelf.sourceNames.get(sourceUrl(1111)), 'Renamed source');
   await home.loadHomeSourceMenu();
   assert.equal(fullReads, 2, 'source changes invalidate the menu list');
@@ -172,6 +216,7 @@ const shelf = Object.assign(new ShelfHarness(), {
   sources.invalidateLocalSources(sourceUrl(1999));
   await home.loadHomeBlocks();
   await shelf.loadFavorites();
+  await shelf.loadSourceNames(books, shelf.favoritesLoadSerial);
   assert.equal(home.rankingMode, true, 'a deleted selected source falls back to rankings');
   assert.equal(shelf.favoriteBooks.length, 5, 'deleting a source retains existing favorites');
   assert.equal(shelf.sourceNames.has(sourceUrl(1999)), false);

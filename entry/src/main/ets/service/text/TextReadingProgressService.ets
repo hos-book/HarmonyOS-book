@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { emitter } from '@kit.BasicServicesKit';
 import { TextReadingPosition } from '../../model/TextReading';
+import { GeneralSettings } from '../../model/GeneralSettings';
 
 const STORE_NAME: string = 'online_text_reading_progress';
 const KEY_PREFIX: string = 'position_';
@@ -50,19 +51,25 @@ export class TextReadingProgressService {
     await TextReadingProgressService.init(context);
     const store = TextReadingProgressService.store;
     if (store === null || !position.bookId) return;
+    await TextReadingProgressService.prepareHistory(store);
     store.putSync(TextReadingProgressService.key(position.bookId), JSON.stringify(position));
+    if (GeneralSettings.current.historyEnabled) {
+      store.putSync('history_' + TextReadingProgressService.key(position.bookId), JSON.stringify(position));
+    }
     emitter.emit(EVT_TEXT_READING_PROGRESS_CHANGED);
     await store.flush();
   }
 
   /** 记录页与备份共用逐条校验，坏记录不影响其他书籍。 */
-  static async getAll(context: common.Context): Promise<TextReadingPosition[]> {
+  static async getAll(context: common.Context, historyOnly: boolean = false): Promise<TextReadingPosition[]> {
     await TextReadingProgressService.init(context);
     const store = TextReadingProgressService.store;
     const positions: TextReadingPosition[] = [];
     if (store === null) return positions;
+    if (historyOnly) await TextReadingProgressService.prepareHistory(store);
+    const prefix = historyOnly ? 'history_' + KEY_PREFIX : KEY_PREFIX;
     for (const key of Object.keys(await store.getAll())) {
-      if (!key.startsWith(KEY_PREFIX)) continue;
+      if (!key.startsWith(prefix)) continue;
       const raw = store.getSync(key, '');
       if (typeof raw !== 'string' || !raw) continue;
       try {
@@ -72,6 +79,17 @@ export class TextReadingProgressService {
     }
     return positions.sort((left: TextReadingPosition, right: TextReadingPosition): number =>
       right.updatedAt - left.updatedAt);
+  }
+
+  private static async prepareHistory(store: preferences.Preferences): Promise<void> {
+    if (store.getSync('history_snapshot_migrated', false) === true) return;
+    const entries = await store.getAll();
+    if (store.getSync('history_snapshot_migrated', false) === true) return;
+    for (const key of Object.keys(entries)) {
+      if (key.startsWith(KEY_PREFIX)) store.putSync('history_' + key, store.getSync(key, ''));
+    }
+    store.putSync('history_snapshot_migrated', true);
+    await store.flush();
   }
 
   static isValidPosition(position: TextReadingPosition): boolean {
@@ -88,11 +106,13 @@ export class TextReadingProgressService {
     const store = TextReadingProgressService.store;
     if (store === null) throw new Error('Reading progress storage is unavailable');
     for (const key of Object.keys(await store.getAll())) {
-      if (key.startsWith(KEY_PREFIX) && !key.startsWith(KEY_PREFIX + 'import_')) store.deleteSync(key);
+      if ((key.startsWith(KEY_PREFIX) && !key.startsWith(KEY_PREFIX + 'import_')) ||
+        (key.startsWith('history_' + KEY_PREFIX) && !key.startsWith('history_' + KEY_PREFIX + 'import_'))) store.deleteSync(key);
     }
     for (const position of positions) {
       if (!TextReadingProgressService.isValidPosition(position) || position.bookId.startsWith('import_')) continue;
       store.putSync(TextReadingProgressService.key(position.bookId), JSON.stringify(position));
+      store.putSync('history_' + TextReadingProgressService.key(position.bookId), JSON.stringify(position));
     }
     await store.flush();
     emitter.emit(EVT_TEXT_READING_PROGRESS_CHANGED);
@@ -103,6 +123,7 @@ export class TextReadingProgressService {
     const store = TextReadingProgressService.store;
     if (store === null) return;
     store.deleteSync(TextReadingProgressService.key(bookId));
+    store.deleteSync('history_' + TextReadingProgressService.key(bookId));
     emitter.emit(EVT_TEXT_READING_PROGRESS_CHANGED);
     await store.flush();
   }

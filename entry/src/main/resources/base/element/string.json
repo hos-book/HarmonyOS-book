@@ -1,8 +1,17 @@
 {
   "string": [
-    { "name": "reader_chapter_jump_title", "value": "确认跳转章节" },
-    { "name": "reader_chapter_jump_message", "value": "是否跳转到「%s」？" },
-    { "name": "reader_chapter_jump_action", "value": "跳转" },
+    {
+      "name": "reader_chapter_jump_title",
+      "value": "确认跳转章节"
+    },
+    {
+      "name": "reader_chapter_jump_message",
+      "value": "是否跳转到「%s」？"
+    },
+    {
+      "name": "reader_chapter_jump_action",
+      "value": "跳转"
+    },
     {
       "name": "light_source_save_settings",
       "value": "保存书源设置"
@@ -1238,6 +1247,10 @@
     {
       "name": "technical_support_title",
       "value": "技术支持"
+    },
+    {
+      "name": "technical_support_light_page",
+      "value": "开源轻页"
     },
     {
       "name": "technical_support_names",
@@ -4925,11 +4938,11 @@
     },
     {
       "name": "comic_scroll",
-      "value": "条漫 · 连续滚动"
+      "value": "上下滚动"
     },
     {
       "name": "comic_paged",
-      "value": "翻页 · 从左向右"
+      "value": "左右翻页"
     },
     {
       "name": "comic_rtl",
@@ -4945,7 +4958,7 @@
     },
     {
       "name": "comic_dissolve",
-      "value": "消散翻页"
+      "value": "消散模式"
     },
     {
       "name": "comic_ai_sr",
@@ -4971,37 +4984,269 @@
       "name": "comic_next_failed",
       "value": "这一话未能加载，已保留当前画面，请稍后重试。"
     },
-    {"name": "search_switch_layout", "value": "切换列表或网格"},
-    {"name": "profile_local_import", "value": "本地导入"},
-    {"name": "chapter_order_ascending", "value": "正序"},
-    {"name": "chapter_order_descending", "value": "倒序"},
-    {"name": "chapter_back_top", "value": "回到顶部"},
-    {"name": "chapter_back_bottom", "value": "回到底部"},
-    {"name": "ranking_settings_title", "value": "全网榜单分类"},
-    {"name": "ranking_settings_desc", "value": "关闭后隐藏该平台榜单；上下移动可调整首页分类和榜单展示顺序。"},
-    {"name": "ranking_settings_save_failed", "value": "榜单设置保存失败，请重试"},
-    {"name": "ranking_settings_retry", "value": "加载失败，点击重试"},
-    {"name": "ranking_move_up", "value": "上移"},
-    {"name": "ranking_move_down", "value": "下移"},
-    {"name": "ranking_fanqie", "value": "番茄小说"},
-    {"name": "ranking_faloo", "value": "飞卢小说"},
-    {"name": "ranking_month_flowers", "value": "月鲜花榜"},
-    {"name": "ranking_novel_hot", "value": "热门榜"},
-    {"name": "ranking_fantasy_reading", "value": "玄幻脑洞阅读榜"},
-    {"name": "ranking_urban_reading", "value": "都市高武阅读榜"},
-    {"name": "ranking_historical_reading", "value": "古风世情阅读榜"},
-    {"name": "ranking_fantasy_new", "value": "玄幻脑洞新书榜"},
-    {"name": "ranking_historical_new", "value": "古风世情新书榜"},
-    {"name": "ranking_week_flowers", "value": "周鲜花榜"},
-    {"name": "ranking_week_clicks", "value": "周点击榜"},
-    {"name": "ranking_month_clicks", "value": "月点击榜"},
-    {"name": "ranking_month_favorites", "value": "月收藏榜"},
-    {"name": "ranking_categories_empty", "value": "暂无展示分类，请在设置中开启全网榜单分类"},
-    {"name": "record_content_filter", "value": "记录类型筛选"},
-    {"name": "record_edit", "value": "编辑记录"},
-    {"name": "record_edit_done", "value": "完成编辑"},
-    {"name": "source_switch_replace_title", "value": "覆盖书架中的原书源？"},
-    {"name": "source_switch_replace_message", "value": "覆盖后，书架将使用新来源，并保留原来的位置和置顶状态。取消则保留原来源，同时加入新来源，两本都会显示在书架。"},
-    {"name": "source_switch_replace_confirm", "value": "覆盖原来源"}
+    {
+      "name": "search_switch_layout",
+      "value": "切换列表或网格"
+    },
+    {
+      "name": "profile_local_import",
+      "value": "本地导入"
+    },
+    {
+      "name": "chapter_order_ascending",
+      "value": "正序"
+    },
+    {
+      "name": "chapter_order_descending",
+      "value": "倒序"
+    },
+    {
+      "name": "chapter_back_top",
+      "value": "回到顶部"
+    },
+    {
+      "name": "chapter_back_bottom",
+      "value": "回到底部"
+    },
+    {
+      "name": "ranking_settings_title",
+      "value": "全网榜单分类"
+    },
+    {
+      "name": "ranking_settings_desc",
+      "value": "关闭后隐藏该平台榜单；上下移动可调整首页分类和榜单展示顺序。"
+    },
+    {
+      "name": "ranking_settings_save_failed",
+      "value": "榜单设置保存失败，请重试"
+    },
+    {
+      "name": "ranking_settings_retry",
+      "value": "加载失败，点击重试"
+    },
+    {
+      "name": "ranking_move_up",
+      "value": "上移"
+    },
+    {
+      "name": "ranking_move_down",
+      "value": "下移"
+    },
+    {
+      "name": "ranking_fanqie",
+      "value": "番茄小说"
+    },
+    {
+      "name": "ranking_faloo",
+      "value": "飞卢小说"
+    },
+    {
+      "name": "ranking_month_flowers",
+      "value": "月鲜花榜"
+    },
+    {
+      "name": "ranking_novel_hot",
+      "value": "热门榜"
+    },
+    {
+      "name": "ranking_fantasy_reading",
+      "value": "玄幻脑洞阅读榜"
+    },
+    {
+      "name": "ranking_urban_reading",
+      "value": "都市高武阅读榜"
+    },
+    {
+      "name": "ranking_historical_reading",
+      "value": "古风世情阅读榜"
+    },
+    {
+      "name": "ranking_fantasy_new",
+      "value": "玄幻脑洞新书榜"
+    },
+    {
+      "name": "ranking_historical_new",
+      "value": "古风世情新书榜"
+    },
+    {
+      "name": "ranking_week_flowers",
+      "value": "周鲜花榜"
+    },
+    {
+      "name": "ranking_week_clicks",
+      "value": "周点击榜"
+    },
+    {
+      "name": "ranking_month_clicks",
+      "value": "月点击榜"
+    },
+    {
+      "name": "ranking_month_favorites",
+      "value": "月收藏榜"
+    },
+    {
+      "name": "ranking_categories_empty",
+      "value": "暂无展示分类，请在设置中开启全网榜单分类"
+    },
+    {
+      "name": "record_content_filter",
+      "value": "记录类型筛选"
+    },
+    {
+      "name": "record_edit",
+      "value": "编辑记录"
+    },
+    {
+      "name": "record_edit_done",
+      "value": "完成编辑"
+    },
+    {
+      "name": "source_switch_replace_title",
+      "value": "覆盖书架中的原书源？"
+    },
+    {
+      "name": "source_switch_replace_message",
+      "value": "覆盖后，书架将使用新来源，并保留原来的位置和置顶状态。取消则保留原来源，同时加入新来源，两本都会显示在书架。"
+    },
+    {
+      "name": "source_switch_replace_confirm",
+      "value": "覆盖原来源"
+    },
+    {
+      "name": "reader_show_chapter_bar",
+      "value": "显示章节条"
+    },
+    {
+      "name": "comic_chapter_position",
+      "value": "第 %d / %d 章 · 第 %d / %d 页"
+    },
+    {
+      "name": "search_selected_sources",
+      "value": "指定源搜索"
+    },
+    {
+      "name": "search_source_all",
+      "value": "全部书源"
+    },
+    {
+      "name": "search_source_empty",
+      "value": "请至少选择一个书源"
+    },
+    {
+      "name": "search_group_title",
+      "value": "同名书籍来源"
+    },
+    {
+      "name": "settings_history_enabled",
+      "value": "历史记录"
+    },
+    {
+      "name": "settings_history_enabled_hint",
+      "value": "关闭后保留已有记录，停止记录历史、搜索和阅听时长；续读续播位置继续保存"
+    },
+    {
+      "name": "settings_shelf_source",
+      "value": "显示书架书源"
+    },
+    {
+      "name": "settings_reading_general",
+      "value": "阅听与书架"
+    },
+    {
+      "name": "home_source_kind_all",
+      "value": "全部类型"
+    },
+    {
+      "name": "home_source_kind_audio",
+      "value": "有声书"
+    },
+    {
+      "name": "home_source_kind_text",
+      "value": "电子书"
+    },
+    {
+      "name": "home_source_kind_comic",
+      "value": "漫画"
+    },
+    {
+      "name": "shelf_edit_title",
+      "value": "封面与重命名"
+    },
+    {
+      "name": "shelf_edit_name",
+      "value": "书名"
+    },
+    {
+      "name": "shelf_edit_local_cover",
+      "value": "选择本地封面"
+    },
+    {
+      "name": "shelf_edit_source_cover",
+      "value": "查找书源封面"
+    },
+    {
+      "name": "shelf_edit_cover_failed",
+      "value": "封面读取失败，请选择有效图片"
+    },
+    {
+      "name": "shelf_group_none",
+      "value": "未分组"
+    },
+    {
+      "name": "shelf_group_all",
+      "value": "全部分组"
+    },
+    {
+      "name": "shelf_group_filter",
+      "value": "分组"
+    },
+    {
+      "name": "shelf_group_new",
+      "value": "新分组名称"
+    },
+    {
+      "name": "common_add",
+      "value": "新增"
+    },
+    {
+      "name": "common_save",
+      "value": "保存"
+    },
+    {
+      "name": "source_test_notification_title",
+      "value": "书源检测"
+    },
+    {
+      "name": "source_test_running",
+      "value": "正在检测"
+    },
+    {
+      "name": "source_test_notification_progress",
+      "value": "%1$s · %2$d/%3$d · 通过 %4$d · 失败 %5$d"
+    },
+    {
+      "name": "comic_loading_elapsed",
+      "value": "正在解析整章，已等待 %1$d 秒"
+    },
+    {
+      "name": "shelf_group_settings",
+      "value": "设置分组"
+    },
+    {
+      "name": "shelf_group_delete_title",
+      "value": "删除分组"
+    },
+    {
+      "name": "shelf_group_delete_message",
+      "value": "确定删除分组“%s”吗？该分组中的书籍将恢复为不分组，书籍不会被删除。"
+    },
+    {
+      "name": "common_delete",
+      "value": "删除"
+    },
+    {
+      "name": "tts_builtin_voice",
+      "value": "默认自带音色"
+    }
   ]
 }

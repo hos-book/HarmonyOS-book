@@ -101,9 +101,8 @@ const replaceMethod = (text, signature, body) => {
   return text.replace(expression, body);
 };
 function adapt(name, text) {
-  // Execution policy stays in host ports; retain the one upstream bug fix not yet split out.
-  const rewritten = rewritePackageImports(name, text).replaceAll('\r\n', '\n');
-  return name === 'core/book/WebBookFetchRuntime.ts' ? require('./light-source-web-wait.cjs')(rewritten) : rewritten;
+  // Execution policy stays in host ports; upstream owns the web-wait behavior.
+  return rewritePackageImports(name, text).replaceAll('\r\n', '\n');
 }
 
 // Prepare and validate every transformation before mutating the working tree.
@@ -154,8 +153,7 @@ generated.push({ name: 'LightAudioSupport.ts', original: audioMethods.join('\n')
   `export class LightAudioSupport {\n${audioMethods.join('\n\n')}\n}\n` });
 const manifest = { schemaVersion: 2, sources, license: 'GPL-3.0',
   hashNormalization: 'LF',
-  patches: [{ id: 'bounded-web-wait', file: 'scripts/light-source-web-wait.cjs',
-    sha256: hash(readText(path.join(__dirname, 'light-source-web-wait.cjs'))) }],
+  patches: [],
   files: generated.map(entry => ({ path: entry.name,
     ...provenance(entry.origin || locate(entry.name)),
     ...(entry.generated ? { generated: true } : {}),

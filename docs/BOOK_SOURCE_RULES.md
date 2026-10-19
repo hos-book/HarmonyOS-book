@@ -1,6 +1,6 @@
 # 书源规则
 
-书源格式、字段、表达式和选择器统一参考[公共书源规则开发文档](https://github.com/wip3l/harmony-book-source-engine/blob/feat/source-cover-decode/docs/book-source-development.md)，与轻页共用同一份规范。本文件仅记录简听的宿主接入和限制，不维护第二套规则语法。公共规范当前位于 PR #2 分支，合并后入口可切换 main。固定引擎提交和同步步骤见[引擎同步](LIGHT_SOURCE_SYNC.md)。
+书源格式、字段、表达式和选择器统一参考[公共书源规则开发文档](https://github.com/wip3l/harmony-book-source-engine/blob/main/docs/book-source-development.md)，与轻页共用同一份规范。本文件仅记录简听的宿主接入和限制，不维护第二套规则语法。公共规范已合并到 main。固定引擎提交和同步步骤见[引擎同步](LIGHT_SOURCE_SYNC.md)。
 
 ## 支持的定义
 
@@ -30,6 +30,6 @@
 同一份规则源码不代表每个第三方源已完成真机验证；设备网页、登录、Cookie作用域、受保护图片和超过运行预算的脚本仍需具体书源验证。当前固定版本、已适配文件、回归与升级方法以同步文档和 `third_party/light-source/upstream.json` 为准。
 ## 加密封面
 
-`coverDecode` 的唯一字段说明与示例见[公共规范：加密封面](https://github.com/wip3l/harmony-book-source-engine/blob/feat/source-cover-decode/docs/book-source-development.md#加密封面-coverdecode)。简听已接入公共加载器，网站参数只存在于用户导入定义。
+`coverDecode` 的唯一字段说明与示例见[公共规范：加密封面](https://github.com/wip3l/harmony-book-source-engine/blob/main/docs/book-source-development.md#加密封面-coverdecode)。简听已接入公共加载器，网站参数只存在于用户导入定义。
 
 封面 URL 的 `#source-cover-v1=` 片段仅记录书源标识，不含密钥。应用按需通过已导入书源的隔离会话下载解密（单图最多 8 MiB），以 3 并发、64 待处理上限加载，并缓存到应用缓存目录（最多 64 MiB）。源定义或登录状态变化会隔离缓存；删除书源后不能继续解析加密封面。收藏和记录保留原始地址，缓存清理后可重新加载。列表、播放器、系统媒体封面共用该入口。

@@ -99,6 +99,7 @@ export class TextReadingSettings {
   tapRightPercent: number = 33;
   tapTopPercent: number = 33;
   tapBottomPercent: number = 33;
+  showChapterBar: boolean = true;
   showHeader: boolean = true;
   showFooter: boolean = true;
   showChapterTitle: boolean = true;
@@ -133,7 +134,7 @@ export class TextReadingSettings {
   /** 常规边距 UI 上限（左右/下） */
   static readonly MARGIN_UI_MAX: number = 64;
 
-  followSystemTheme: boolean = false;
+  followSystemTheme: boolean = true;
   marginLeft: number = 16;
   marginRight: number = 16;
   marginTop: number = 12;

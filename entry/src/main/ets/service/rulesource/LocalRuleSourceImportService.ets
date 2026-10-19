@@ -27,8 +27,11 @@ export class LocalRuleSourceImportService {
       const cache = ChapterCacheService.getInstance();
       cache.suspendPreload();
       try {
-        const clearAudio = (bookId: string, chapters: Chapter[]): void => cache.clearBook(bookId, chapters);
-        SearchCache.invalidateSources(replaced, clearAudio);
+        const protectedIds = await DataService.historyBookIds();
+        const clearAudio = (bookId: string, chapters: Chapter[]): void => {
+          if (protectedIds !== null && !protectedIds.has(bookId)) cache.clearBook(bookId, chapters);
+        };
+        if (protectedIds !== null) SearchCache.invalidateSources(replaced, clearAudio, protectedIds);
         await DataService.invalidateSourceCaches(replaced, clearAudio);
       } finally {
         cache.resumePreload();

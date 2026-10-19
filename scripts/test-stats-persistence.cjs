@@ -67,6 +67,7 @@ function newProcess() {
     }
   };
   const modules = {
+    '../model/GeneralSettings': { GeneralSettings: { current: { historyEnabled: true } } },
     '@kit.ArkData': { preferences },
     '@kit.CoreFileKit': { fileIo },
     '@kit.BasicServicesKit': { emitter: { emit() {} } }

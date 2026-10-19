@@ -1,5 +1,6 @@
 import { Book, Chapter } from '../model/Book';
 import { BookCoverPolicy } from './BookCoverPolicy';
+import { BookPresentation } from '../model/BookPresentation';
 
 /** 最大缓存条目数，防止内存无限增长 */
 const MAX_CACHE_SIZE = 80;
@@ -18,6 +19,7 @@ export class SearchCache {
       }
     }
     if (existing) BookCoverPolicy.merge(book, existing);
+    BookPresentation.apply(book);
     // 若已存在先删除，确保重新插入后在 Map 末尾（LRU 顺序）
     if (searchCache.has(id)) {
       searchCache.delete(id);
@@ -50,15 +52,18 @@ export class SearchCache {
   }
 
   static invalidateSources(sourceUrls: Set<string>,
-    beforeInvalidate?: (bookId: string, chapters: Chapter[]) => void): string[] {
+    beforeInvalidate?: (bookId: string, chapters: Chapter[]) => void,
+    protectedIds?: Set<string>): string[] {
     const ids: string[] = [];
     for (const book of searchCache.values()) {
       if (!sourceUrls.has(book.sourceUrl)) continue;
       if (beforeInvalidate !== undefined) beforeInvalidate(book.id, book.chapters);
-      book.chapters = [];
+      if (protectedIds === undefined || !protectedIds.has(book.id)) {
+        book.chapters = [];
+        book.totalDuration = 0;
+      }
       book.tocComplete = false;
       book.variables = {};
-      book.totalDuration = 0;
       ids.push(book.id);
     }
     return ids;

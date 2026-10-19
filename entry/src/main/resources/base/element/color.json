@@ -1,5 +1,6 @@
 {
   "color": [
+    { "name": "shelf_toolbar_background", "value": "#80F5F5F5" },
     { "name": "ranking_match_surface", "value": "#10000000" },
     { "name": "ranking_match_border", "value": "#10000000" },
     {"name": "membership_name_month", "value": "#9E681C"},

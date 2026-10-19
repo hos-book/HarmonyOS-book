@@ -9,6 +9,8 @@ import { image } from '@kit.ImageKit';
 import { PreferenceService, WidgetPlayerSnapshot } from './PreferenceService';
 import { Book, Chapter } from '../model/Book';
 import { PlayerState } from '../model/PlayerState';
+import { TextToSpeechState } from '../model/TextToSpeechState';
+import { PlaybackCoordinator } from './PlaybackCoordinator';
 import { StorageMigrationService } from './StorageMigrationService';
 
 const DOMAIN = 0xFF00;
@@ -66,6 +68,15 @@ export class PlayerFormData {
  *   - 失败时卡片自动回退到默认占位
  */
 export class WidgetUpdater {
+  static async updateBookPresentation(book: Book): Promise<void> {
+    const snapshot = await PreferenceService.getWidgetPlayerSnapshot();
+    if (!snapshot || snapshot.bookId !== book.id) return;
+    snapshot.bookTitle = book.title;
+    snapshot.cover = book.cover;
+    snapshot.updatedAt = Date.now();
+    await PreferenceService.setWidgetPlayerSnapshot(snapshot);
+    await WidgetUpdater.pushSnapshotToCards();
+  }
   /** 主进程的 Context,用于沙箱写入封面缓存 */
   private static appContext: common.Context | null = null;
   /**
@@ -109,6 +120,10 @@ export class WidgetUpdater {
   }
 
   private static async loadCover(url: string, allowNetwork: boolean): Promise<string | null> {
+    if (url.startsWith('file://') || url.startsWith('/data/')) {
+      const path = url.replace(/^file:\/\//, '');
+      try { return (await fileIo.stat(path)).size <= MAX_IMG_BYTES ? path : null; } catch (_error) { return null; }
+    }
     if (!url || !url.startsWith('http')) return null;
     const cached = WidgetUpdater.coverPathCache.get(url);
     if (cached) {
@@ -315,17 +330,37 @@ export class WidgetUpdater {
       && a.cover === b.cover
       && a.chapterId === b.chapterId
       && a.chapterTitle === b.chapterTitle
+      && a.playbackKind === b.playbackKind
       && a.isPlaying === b.isPlaying;
   }
 
   /** 把当前 PlayerState 写入快照,并广播给所有听书卡片 */
   static async updatePlayerCard(state: PlayerState | null, force: boolean = false): Promise<void> {
-    if (PlatformCompat.wearable) return;
+    if (PlatformCompat.wearable || PlaybackCoordinator.speechActive) return;
+    const existing = await PreferenceService.getWidgetPlayerSnapshot();
+    // 朗读停止后，旧有声书的暂停/释放回调不能抢回桌面卡片。
+    if (PlaybackCoordinator.speechActive) return;
+    if (existing?.playbackKind === 'tts' && !state?.isPlaying && !state?.isLoading) return;
+    await WidgetUpdater.updateSnapshot(WidgetUpdater.buildSnapshot(state), force);
+  }
+
+  static async updateSpeechCard(book: Book, state: TextToSpeechState): Promise<void> {
+    if (PlatformCompat.wearable || !PlaybackCoordinator.speechActive) return;
+    const chapter = book.chapters[state.chapterIndex];
+    const snap: WidgetPlayerSnapshot = {
+      playbackKind: 'tts', charOffset: state.charOffset,
+      bookId: book.id, bookTitle: book.title, author: book.author, cover: book.cover,
+      chapterId: chapter?.id ?? '', chapterTitle: chapter?.title ?? '',
+      progressMs: 0, durationMs: 0, isPlaying: state.playing && !state.loading, updatedAt: Date.now()
+    };
+    await WidgetUpdater.updateSnapshot(snap);
+  }
+
+  private static async updateSnapshot(snap: WidgetPlayerSnapshot, force: boolean = false): Promise<void> {
     const generation = ++WidgetUpdater.updateGeneration;
-    const snap = WidgetUpdater.buildSnapshot(state);
     const existing = await PreferenceService.getWidgetPlayerSnapshot();
     if (!WidgetUpdater.isLatest(generation)) return;
-    if (force || !existing || !WidgetUpdater.sameCardState(snap, existing)) {
+    if (force || !existing || !WidgetUpdater.sameCardState(snap, existing) || snap.charOffset !== existing.charOffset) {
       await PreferenceService.setWidgetPlayerSnapshot(snap);
     }
     if (!WidgetUpdater.isLatest(generation)) return;
@@ -449,6 +484,14 @@ export class WidgetUpdater {
   /** EntryAbility 启动时调:把兜底快照写回 preferences 给桌面卡片使用。
    *  和 seedSnapshotFromLastPlayed 分开,确保只有主进程会写盘。 */
   static async seedAndPersistFromLastPlayed(): Promise<WidgetPlayerSnapshot | null> {
+    const existing = await PreferenceService.getWidgetPlayerSnapshot();
+    if (existing?.playbackKind === 'tts') {
+      if (PlaybackCoordinator.speechActive) return existing;
+      existing.isPlaying = false;
+      existing.updatedAt = Date.now();
+      await PreferenceService.setWidgetPlayerSnapshot(existing);
+      return existing;
+    }
     const snap = await WidgetUpdater.seedSnapshotFromLastPlayed();
     if (snap) {
       await PreferenceService.setWidgetPlayerSnapshot(snap);
@@ -548,6 +591,7 @@ export class WidgetUpdater {
     const book: Book | null = state ? state.currentBook : null;
     const chapter: Chapter | null = state ? state.currentChapter : null;
     return {
+      playbackKind: 'audio',
       bookId: book ? book.id : '',
       bookTitle: book ? book.title : '',
       author: book ? book.author : '',

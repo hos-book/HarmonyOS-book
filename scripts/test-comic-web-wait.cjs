@@ -40,7 +40,9 @@ async function run(readyAt, maxAttempts, timeoutMs) {
   assert.match(late.result.body,/page.webp/);
   const absent=await run(Infinity,3,20000);
   assert.equal(absent.result.success,false,'unmet selector cannot return initial HTML as success');
-  assert.equal(absent.result.body,'');
+  assert.equal(absent.result.statusCode,200,'loaded page is retained for challenge/login classification');
+  assert.equal(absent.result.body,'<html>waiting</html>');
+  assert.match(absent.result.error,/等待条件未满足/);
   const timeout=await run(Infinity,120,3000);
   assert.equal(timeout.result.success,false);
   assert.equal(timeout.now,3000,'requested deadline remains enforced');

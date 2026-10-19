@@ -12,11 +12,47 @@ import { SourceScriptNotice } from '../book/SourceScriptNotice';
 
 const MAX_HTML_PARSE_LENGTH = 4 * 1024 * 1024;
 
+interface ParsedSimpleSelector {
+  tag: string;
+  id: string;
+  classes: string[];
+  attrs: Array<Record<string, string>>;
+  notAttrs: Array<Record<string, string>>;
+  nthChild: number | null;
+  nthOfType: number | null;
+  indexStart: number | null;
+  indexEnd: number | null;
+  indexValues: number[];
+  excludeIndices: number[];
+}
+
+/** matchSimpleElements 对一条简单选择器的预处理结果：伪类拆出来后剩下的部分已解析。只读。 */
+interface SimpleSelectorQuery {
+  containsText: string;
+  hasSelector: string;
+  notSelector: string;
+  positionMode: string;
+  positionValue: number;
+  parsed: ParsedSimpleSelector | null;
+}
+
 export class AnalyzeRule {
   // Abuse guards for a single rule evaluation. The former 5,000 / 20,000 ceilings silently cut
   // catalogs of long novels (8,000+ chapters) down to 5,001 entries.
   private static readonly MAX_LIST_RESULTS: number = 50000;
   private static readonly MAX_VISITED_NODES: number = 200000;
+  // 目录逐章取字段时同一条规则要执行上万次，只与规则文本有关的中间结果按文本缓存。
+  // 只放只读的解析结果和不带 g/y 标志的正则（没有 lastIndex 状态，嵌套调用共用也安全）；条目过多时整体清空。
+  private static readonly RULE_CACHE_LIMIT: number = 512;
+  private static attrPatterns: Map<string, RegExp[]> = new Map<string, RegExp[]>();
+  private static classPatterns: Map<string, RegExp> = new Map<string, RegExp>();
+  private static simpleSelectors: Map<string, SimpleSelectorQuery> = new Map<string, SimpleSelectorQuery>();
+  private static readonly KNOWN_ATTRS: string[] = ['href', 'src', 'content', 'data-src', 'data-lazy', 'data-original',
+    'data-bid', 'onclick', 'title', 'alt', 'class', 'id'];
+  private static readonly COMMON_TAGS: string[] = ['a', 'article', 'audio', 'body', 'br', 'button', 'dd', 'div', 'dl',
+    'dt', 'em', 'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'head', 'header', 'html', 'i', 'iframe', 'img',
+    'input', 'label', 'li', 'main', 'meta', 'nav', 'ol', 'option', 'p', 'script', 'section', 'select', 'source', 'span',
+    'strong', 'table', 'tbody', 'td', 'textarea', 'th', 'thead', 'title', 'tr', 'ul', 'video'];
   private content: string = '';
   private baseUrl: string = '';
   private ctx: RuleContext;
@@ -1557,16 +1593,9 @@ export class AnalyzeRule {
       part.includes(')') || part.includes(':')) {
       return false;
     }
-    const knownAttrs = ['href', 'src', 'content', 'data-src', 'data-lazy', 'data-original', 'data-bid',
-      'onclick', 'title', 'alt', 'class', 'id'];
-    if (knownAttrs.includes(part)) return true;
+    if (AnalyzeRule.KNOWN_ATTRS.includes(part)) return true;
     if (!/^[A-Za-z_][A-Za-z0-9_-]*$/.test(part)) return false;
-    const commonTags = ['a', 'article', 'audio', 'body', 'br', 'button', 'dd', 'div', 'dl', 'dt', 'em',
-      'footer', 'form', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'head', 'header', 'html', 'i', 'iframe',
-      'img', 'input', 'label', 'li', 'main', 'meta', 'nav', 'ol', 'option', 'p', 'script', 'section',
-      'select', 'source', 'span', 'strong', 'table', 'tbody', 'td', 'textarea', 'th', 'thead', 'title',
-      'tr', 'ul', 'video'];
-    return !commonTags.includes(part.toLowerCase());
+    return !AnalyzeRule.COMMON_TAGS.includes(part.toLowerCase());
   }
 
   private normalizeAttrName(part: string): string {
@@ -1630,6 +1659,16 @@ export class AnalyzeRule {
 
   private escapeRegex(text: string): string {
     return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  /** 按规则文本取缓存；create 抛错时不缓存，错误照常抛给调用方。 */
+  private static cached<T>(cache: Map<string, T>, key: string, create: () => T): T {
+    const hit = cache.get(key);
+    if (hit !== undefined) return hit;
+    const value = create();
+    if (cache.size >= AnalyzeRule.RULE_CACHE_LIMIT) cache.clear();
+    cache.set(key, value);
+    return value;
   }
 
   private evalCss(selector: string): string[] {
@@ -1704,34 +1743,14 @@ export class AnalyzeRule {
 
   private matchSimpleElements(html: string, sel: string): string[] {
     if (!html || !sel) return [];
-    let query = sel.trim();
-    let containsText = '';
-    let hasSelector = '';
-    let notSelector = '';
-    let positionMode = '';
-    let positionValue = 0;
-    query = query.replace(/:contains\(\s*(['"]?)(.*?)\1\s*\)/i, (_: string, _quote: string, text: string) => {
-      containsText = text;
-      return '';
-    });
-    query = query.replace(/:has\(\s*([^()]*)\s*\)/i, (_: string, nested: string) => {
-      hasSelector = nested.trim();
-      return '';
-    });
-    query = query.replace(/:not\(\s*([^()\[\]]+)\s*\)/i, (_: string, nested: string) => {
-      notSelector = nested.trim();
-      return '';
-    });
-    query = query.replace(/:(first|last)(?![-\w(])/i, (_: string, mode: string) => {
-      positionMode = mode.toLowerCase();
-      return '';
-    });
-    query = query.replace(/:(eq|lt|gt)\(\s*(-?\d+)\s*\)/i, (_: string, mode: string, index: string) => {
-      positionMode = mode.toLowerCase();
-      positionValue = parseInt(index);
-      return '';
-    });
-    const parsed = this.parseSimpleSelector(query);
+    const selector = AnalyzeRule.cached(AnalyzeRule.simpleSelectors, sel,
+      (): SimpleSelectorQuery => this.prepareSimpleSelector(sel));
+    const containsText = selector.containsText;
+    const hasSelector = selector.hasSelector;
+    const notSelector = selector.notSelector;
+    const positionMode = selector.positionMode;
+    const positionValue = selector.positionValue;
+    const parsed = selector.parsed;
     if (!parsed) return [];
     const tagPattern = parsed.tag ? this.escapeRegex(parsed.tag) : '[a-zA-Z][a-zA-Z0-9_-]*';
     try {
@@ -1765,6 +1784,45 @@ export class AnalyzeRule {
     } catch (_) {
       return [];
     }
+  }
+
+  /** 拆出 :contains / :has / :not / 位置伪类，剩下的部分交给 parseSimpleSelector。只依赖选择器文本。 */
+  private prepareSimpleSelector(sel: string): SimpleSelectorQuery {
+    let query = sel.trim();
+    let containsText = '';
+    let hasSelector = '';
+    let notSelector = '';
+    let positionMode = '';
+    let positionValue = 0;
+    query = query.replace(/:contains\(\s*(['"]?)(.*?)\1\s*\)/i, (_: string, _quote: string, text: string) => {
+      containsText = text;
+      return '';
+    });
+    query = query.replace(/:has\(\s*([^()]*)\s*\)/i, (_: string, nested: string) => {
+      hasSelector = nested.trim();
+      return '';
+    });
+    query = query.replace(/:not\(\s*([^()\[\]]+)\s*\)/i, (_: string, nested: string) => {
+      notSelector = nested.trim();
+      return '';
+    });
+    query = query.replace(/:(first|last)(?![-\w(])/i, (_: string, mode: string) => {
+      positionMode = mode.toLowerCase();
+      return '';
+    });
+    query = query.replace(/:(eq|lt|gt)\(\s*(-?\d+)\s*\)/i, (_: string, mode: string, index: string) => {
+      positionMode = mode.toLowerCase();
+      positionValue = parseInt(index);
+      return '';
+    });
+    return {
+      containsText: containsText,
+      hasSelector: hasSelector,
+      notSelector: notSelector,
+      positionMode: positionMode,
+      positionValue: positionValue,
+      parsed: this.parseSimpleSelector(query)
+    };
   }
 
   private extractAttr(html: string, attr: string): string {
@@ -1865,19 +1923,7 @@ export class AnalyzeRule {
       !this.matchExcludedAttrs(attrText, parsed.notAttrs);
   }
 
-  private parseSimpleSelector(sel: string): {
-    tag: string,
-    id: string,
-    classes: string[],
-    attrs: Array<Record<string, string>>,
-    notAttrs: Array<Record<string, string>>,
-    nthChild: number | null,
-    nthOfType: number | null,
-    indexStart: number | null,
-    indexEnd: number | null,
-    indexValues: number[],
-    excludeIndices: number[]
-  } | null {
+  private parseSimpleSelector(sel: string): ParsedSimpleSelector | null {
     let s = sel.trim();
     const notAttrs: Array<Record<string, string>> = [];
     s = s.replace(/:not\(\[([^\]]+)\]\)/g, (_: string, body: string) => {
@@ -1962,7 +2008,9 @@ export class AnalyzeRule {
     if (id && this.getHtmlAttr(attrText, 'id') !== id) return false;
     const classValue = this.getHtmlAttr(attrText, 'class');
     for (const cls of classes) {
-      if (!new RegExp(`(^|\\s)${this.escapeRegex(cls)}(\\s|$)`).test(classValue)) return false;
+      const pattern = AnalyzeRule.cached(AnalyzeRule.classPatterns, cls,
+        (): RegExp => new RegExp(`(^|\\s)${this.escapeRegex(cls)}(\\s|$)`));
+      if (!pattern.test(classValue)) return false;
     }
     for (const attr of attrs) {
       const value = this.getHtmlAttr(attrText, attr['name']);
@@ -2054,10 +2102,13 @@ export class AnalyzeRule {
   }
 
   private getHtmlAttr(attrText: string, attr: string): string {
-    const re = new RegExp(`\\s${this.escapeRegex(attr)}\\s*=\\s*(["'])(.*?)\\1`, 'i');
-    const m = attrText.match(re);
+    const patterns = AnalyzeRule.cached(AnalyzeRule.attrPatterns, attr, (): RegExp[] => [
+      new RegExp(`\\s${this.escapeRegex(attr)}\\s*=\\s*(["'])(.*?)\\1`, 'i'),
+      new RegExp(`\\s${this.escapeRegex(attr)}\\s*=\\s*([^\\s>]+)`, 'i')
+    ]);
+    const m = attrText.match(patterns[0]);
     if (m) return m[2];
-    const bare = new RegExp(`\\s${this.escapeRegex(attr)}\\s*=\\s*([^\\s>]+)`, 'i').exec(attrText);
+    const bare = patterns[1].exec(attrText);
     return bare ? bare[1] : '';
   }
 

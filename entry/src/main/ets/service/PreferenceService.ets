@@ -1,3 +1,5 @@
+import { GeneralSettings } from '../model/GeneralSettings';
+import { BookPresentation, BookPresentationEdit } from '../model/BookPresentation';
 import lazy { MembershipService } from './MembershipService';
 import { MembershipState } from '../model/MembershipState';
 import { preferences } from '@kit.ArkData';
@@ -9,6 +11,7 @@ import { AppAppearance } from '../model/AppAppearance';
 
 /** 书架收藏变化事件:加入/移出书架后触发,书架页据此自动刷新 */
 export const EVT_FAVORITES_CHANGED = 'app.favorites.changed';
+export const EVT_SHELF_SOURCE_VISIBILITY_CHANGED = 'app.shelf.sourceVisibility.changed';
 export const EVT_HOME_SOURCE_CHANGED = 'app.home.source.changed';
 
 /**
@@ -141,6 +144,8 @@ export class ChapterPlayProgress {
 
 /** 卡片侧需要的最小快照,主进程写,FormExtensionAbility 读后渲染 */
 export interface WidgetPlayerSnapshot {
+  playbackKind?: string;
+  charOffset?: number;
   bookId: string;
   bookTitle: string;
   author: string;
@@ -178,6 +183,32 @@ export class HwAccount {
 }
 
 export class PreferenceService {
+  static async saveBookPresentation(edits: BookPresentationEdit[], groups: string[]): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    await store.put('book_presentation_v1', JSON.stringify(edits));
+    await store.put('shelf_groups_v1', JSON.stringify(groups));
+    await store.flush();
+    BookPresentation.edits = edits;
+    BookPresentation.groups = groups;
+    emitter.emit(EVT_FAVORITES_CHANGED);
+  }
+
+  static async setHistoryEnabled(enabled: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    await store.put('history_enabled', enabled);
+    await store.flush();
+    GeneralSettings.current.historyEnabled = enabled;
+    if (!enabled) { ReadingSessionService.end('reading'); ReadingSessionService.end('audio'); ReadingSessionService.end('tts'); }
+  }
+
+  static async setShowShelfSource(enabled: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    await store.put('show_shelf_source', enabled);
+    await store.flush();
+    GeneralSettings.current.showShelfSource = enabled;
+    emitter.emit(EVT_SHELF_SOURCE_VISIBILITY_CHANGED);
+  }
+
   private static store: preferences.Preferences | null = null;
   private static initPromise: Promise<void> | null = null;
   private static favoriteListener: (() => void) | null = null;
@@ -209,6 +240,14 @@ export class PreferenceService {
       const options: preferences.Options = { name: STORE_NAME };
       PreferenceService.initPromise = preferences.getPreferences(context, options).then(async (s) => {
         PreferenceService.store = s;
+        try {
+          const edits = s.getSync('book_presentation_v1', '[]');
+          const groups = s.getSync('shelf_groups_v1', '[]');
+          if (typeof edits === 'string') BookPresentation.edits = JSON.parse(edits);
+          if (typeof groups === 'string') BookPresentation.groups = JSON.parse(groups);
+        } catch (_error) { /* 损坏的展示偏好不影响书籍和目录 */ }
+        GeneralSettings.current.historyEnabled = s.getSync('history_enabled', true) !== false;
+        GeneralSettings.current.showShelfSource = s.getSync('show_shelf_source', true) !== false;
         const material = await s.get(KEY_MATERIAL_STYLE, 0);
         const accent = await s.get(KEY_ACCENT_COLOR, '');
         AppAppearance.current.material = AppAppearance.normalizeMaterial(typeof material === 'number' ? material : 0);
@@ -432,6 +471,7 @@ export class PreferenceService {
   }
 
   static async upsertHistory(item: PlayHistoryItem): Promise<void> {
+    if (!GeneralSettings.current.historyEnabled) return;
     const s = await PreferenceService.ensureStore();
     const list = await PreferenceService.getHistory();
     const idx = list.findIndex((it) => it.bookId === item.bookId);
@@ -727,6 +767,30 @@ export class PreferenceService {
     const idx = await s.get(KEY_DEFAULT_TAB, 0) as number;
     if (idx < 0 || idx > 3) return 0;
     return idx;
+  }
+
+  static async getShelfGroup(): Promise<string> {
+    const store = await PreferenceService.ensureStore();
+    const value = await store.get('shelf_selected_group', '');
+    return typeof value === 'string' ? value : '';
+  }
+
+  static async getShelfViewMode(): Promise<number> {
+    const store = await PreferenceService.ensureStore();
+    const value = await store.get('shelf_view_mode', 0);
+    return value === 1 ? 1 : 0;
+  }
+
+  static async setShelfViewMode(mode: number): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    await store.put('shelf_view_mode', mode === 1 ? 1 : 0);
+    await store.flush();
+  }
+
+  static async setShelfGroup(group: string): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    await store.put('shelf_selected_group', group);
+    await store.flush();
   }
 
   static async getShelfStatusFilter(): Promise<number> {
@@ -1125,6 +1189,7 @@ export class PreferenceService {
 
   /** 获取搜索历史 */
   static async setSearchHistory(history: string[]): Promise<void> {
+    if (!GeneralSettings.current.historyEnabled) return;
     const s = await PreferenceService.ensureStore();
     await s.put(KEY_SEARCH_HISTORY, JSON.stringify(history.slice(0, MAX_SEARCH_HISTORY)));
     await s.flush();
@@ -1161,6 +1226,7 @@ export class PreferenceService {
   }
 
   static async getSearchHistory(): Promise<string[]> {
+    if (!GeneralSettings.current.historyEnabled) return [];
     const s = await PreferenceService.ensureStore();
     const raw = await s.get(KEY_SEARCH_HISTORY, '[]') as string;
     try {
@@ -1172,6 +1238,7 @@ export class PreferenceService {
 
   /** 添加搜索历史 */
   static async addSearchHistory(keyword: string): Promise<void> {
+    if (!GeneralSettings.current.historyEnabled) return;
     if (!keyword || keyword.trim().length === 0) return;
     const s = await PreferenceService.ensureStore();
     const list = await PreferenceService.getSearchHistory();

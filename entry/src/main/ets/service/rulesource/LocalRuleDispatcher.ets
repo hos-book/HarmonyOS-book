@@ -10,6 +10,11 @@ import { LightSourceBridge } from './light/LightSourceBridge';
 import { LightSourceRequest } from './light/LightSourceRequestPolicy';
 
 export class LocalRuleDispatcher {
+  static async cacheComicImages(source: LocalRuleSource, urls: string[], request?: LightSourceRequest): Promise<string[]> {
+    LocalRuleDispatcher.requireSource(source);
+    return LightSourceBridge.cacheComicImages(source, urls, request);
+  }
+
   static async explore(source: LocalRuleSource, address: string, page: number = 1,
     variables: Record<string, string> = {},
     resultLimit: number = LocalRuleExecutionLimits.MAX_SEARCH_RESULTS): Promise<LocalRuleExploreResult> {

@@ -133,6 +133,16 @@ export class AudioService {
     }
   }
   private state: PlayerState | null = null;
+  updateBookPresentation(book: Book): void {
+    if (this.state?.currentBook?.id !== book.id) return;
+    const current: Book = JSON.parse(JSON.stringify(this.state.currentBook));
+    current.title = book.title;
+    current.cover = book.cover;
+    current.coverFallback = book.coverFallback;
+    current.coverFromDetail = book.coverFromDetail;
+    this.state.currentBook = current;
+    if (this.state.currentChapter) AVSessionService.getInstance().updateMetadata(current, this.state.currentChapter);
+  }
   private context: common.UIAbilityContext | null = null;
   private timer: number = -1;
   private pendingSeek: number = 0;

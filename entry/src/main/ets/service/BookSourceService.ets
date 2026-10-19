@@ -686,6 +686,12 @@ export class BookSourceService {
   }
 
   /** Lossless rule output for media and paragraph actions; existing reader/player contracts remain intact. */
+  static async cacheComicImages(book: Book, urls: string[], request?: LightSourceRequest): Promise<string[]> {
+    const source = await LocalRuleSourceRepository.getByUrl(book.sourceUrl);
+    if (source === undefined || !source.canExecute()) throw new Error('本地书源不可用或已被删除');
+    return LocalRuleDispatcher.cacheComicImages(source, urls, request);
+  }
+
   static async getSourceChapterContent(book: Book, chapterUrl: string,
     chapterVariables?: Record<string, string>, request?: LightSourceRequest): Promise<LocalRuleContentResult> {
     const source = await LocalRuleSourceRepository.getByUrl(book.sourceUrl);

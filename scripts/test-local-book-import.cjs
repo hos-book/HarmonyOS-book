@@ -165,6 +165,25 @@ function load(relative) {
 }
 (async () => {
   const { LocalBookImportService: service } = load('service/LocalBookImportService');
+  const imageDirectory = path.join(context.filesDir, 'ebooks/import_image_fixture').replaceAll('\\', '/');
+  await fsp.mkdir(imageDirectory, { recursive: true });
+  const imageStats = { raw: 0, layout: 0, imageBytes: 0 };
+  const body = await service.epubBody(context, { getResourceContent(index, relative) {
+    assert.equal(index, 0); assert.equal(relative, 'images/figure.png');
+    return Uint8Array.from(MOBI_COVER_PNG).buffer;
+  } }, 0, '<p>图前文字</p><img src="images/figure.png"/><p>图后文字</p><img src="https://remote/blocked.png"/>', imageDirectory, imageStats);
+  const { LocalTextImage: images } = load('service/text/LocalTextImage');
+  images.setRoot(context.filesDir);
+  const marker = images.pattern().exec(body);
+  assert.ok(marker && body.includes('图前文字') && body.includes('图后文字'));
+  assert.ok(images.resolve(marker[1]).startsWith('file://'));
+  assert.equal(images.resolve(imageDirectory + '/../secret'), '');
+  assert.deepEqual(await fsp.readFile(marker[1]), MOBI_COVER_PNG);
+  assert.equal(imageStats.imageBytes, MOBI_COVER_PNG.length);
+  assert.equal(images.speechContent(body).length, body.length);
+  assert.ok(!images.speechContent(body).includes('image_0_0'));
+  assert.equal(liveImages, 0, 'EPUB extraction releases decoder without decoding full bitmap');
+  console.log('PASS EPUB body image extraction, local path confinement, remote rejection and speech offsets');
   assert.equal(parserLoads, 0, 'loading import service at startup must not load ReaderKit');
   parserAvailable = false;
   await assert.rejects(service.openEpub(context, '/unavailable.epub'), /当前设备不支持 EPUB 解析/);
@@ -475,17 +494,17 @@ function load(relative) {
   assert.ok(removed.includes(online.id));
   assert.equal(invalidatedChapters.get(online.id).length, online.chapters.length,
     'Disk-only chapters are provided for targeted audio cleanup before the TOC is removed');
-  assert.equal(fs.existsSync(path.join(context.filesDir, 'library_toc', online.id + '.json')), false);
-  assert.equal(await textCache.read(context, keys[0]), undefined);
+  assert.equal(fs.existsSync(path.join(context.filesDir, 'library_toc', online.id + '.json')), true, 'reading references preserve their directory');
+  assert.equal(await textCache.read(context, keys[0]), 'cached text', 'reading references preserve cached body');
   assert.equal(await textCache.read(context, keys[1]), 'cached text');
   data.cachedBooksMem = null;
   const invalidated = await data.getBookById(context, online.id);
   assert.equal(invalidated.title, online.title);
-  assert.equal(invalidated.chapters.length, 0);
+  assert.equal(invalidated.chapters.length, online.chapters.length);
   assert.equal(invalidated.tocComplete, false);
   assert.equal((await data.getBookById(context, other.id)).chapters.length, other.chapters.length);
   assert.ok(favorites.has('favorite') && historyIds.has('audio_history'));
-  console.log('PASS source replacement clears only its persisted TOC/context/text, retaining books and user progress');
+  console.log('PASS source replacement retains referenced TOC/body and invalidates stale definition context');
 
   free = 0;
   await assert.rejects(() => service.importBook(context, file, 'import_full', '', '', '', () => {}), /空间不足/);

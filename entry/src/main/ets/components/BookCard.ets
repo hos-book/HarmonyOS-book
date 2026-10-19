@@ -146,6 +146,7 @@ export struct BookCard {
             .onError(() => { this.imageLoadFailed = true; })
         } else {
           CoverImage({
+            title: this.book.title,
             imgWidth: '100%',
             aspectRatioValue: this.displayCoverRatio(),
             radius: this.coverRadius,

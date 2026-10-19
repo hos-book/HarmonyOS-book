@@ -4,12 +4,13 @@
  * 网络与选择器通过 NativeRunnerHost 注入，本文件不依赖系统 API，可直接在 Node 回归脚本中加载。
  */
 
+import { CooperativeScheduler } from '../concurrency/CooperativeScheduler';
 import { NativeExpr, NativeScope } from './NativeExpr';
 import { SourceCoverUrl } from './SourceCoverUrl';
 import type { NativeExprHost, NativeValue } from './NativeExpr';
 import type {
-  NativeActionSpec, NativeCommentsSpec, NativeContentSpec, NativeFetchSpec, NativeRequestSpec, NativeSourceDefinition,
-  NativeStageSpec, NativeTocSpec
+  NativeActionSpec, NativeCommentsSpec, NativeContentSpec, NativeFetchSpec, NativeMenuSpec, NativeRequestSpec,
+  NativeSourceDefinition, NativeStageSpec, NativeTocSpec
 } from './NativeSourceSpec';
 
 export interface NativeRequest {
@@ -184,17 +185,60 @@ interface StagePage {
   baseUrl: string;
 }
 
+/** 详情页的响应，留给紧接着的目录第一页复用（目录与详情是同一个请求时）。 */
+interface KeptPage {
+  body: string;
+  baseUrl: string;
+  keptAt: number;
+}
+
+/** loadStage 对响应的处理：keep 记下供之后复用，take 有记下的同一请求时直接用、不再请求。 */
+type StageReuse = '' | 'keep' | 'take';
+
 const MENU_STATIC = 'native:menu:';
 const MENU_ITEM = 'native:item:';
 const MAX_TOC_PAGES = 1000;
-/** toc.nextUrl 一次给出多个地址时，剩余目录页每批并发请求的页数。 */
-const TOC_PAGE_BATCH = 4;
-const MAX_CONTENT_PAGES = 30;
+/** 目录或正文的 nextUrl 一次给出多个地址时，剩余分页每批并发请求的页数；书源可用 batch 改为 1～16。 */
+const DEFAULT_PAGE_BATCH = 4;
+const MAX_PAGE_BATCH = 16;
+/** 记下的详情页只在这段时间内、只复用一次；打开书、换源都是取完详情立即取目录。 */
+const KEPT_PAGE_TTL_MS = 60 * 1000;
+const MAX_KEPT_PAGES = 4;
+/** 正文分页最多跟随的页数，以及多页拼接后的正文长度上限（与兼容书源相同的 8 MB）。 */
+const MAX_CONTENT_PAGES = 200;
+const MAX_CONTENT_CHARS = 8 * 1024 * 1024;
 const MAX_LIST_ITEMS = 20000;
 const DEFAULT_COMMENT_BUBBLES = 60;
 const MAX_COMMENT_BUBBLES = 300;
 
+/**
+ * 逐章取字段时让出主线程，节奏与兼容书源的 RuleExecutionService 相同：连续执行约 6 ms 让出一次，
+ * 距上次空出整帧超过 50 ms 时改为空出一帧（只让 1 ms 可能仍落在同一个原生定时器任务里）。
+ */
+class UiPacer {
+  private static readonly SLICE_MS: number = CooperativeScheduler.DEFAULT_UI_SLICE_MS;
+  private static readonly FRAME_MS: number = 50;
+  private sliceStartedAt: number = Date.now();
+  private frameYieldedAt: number = Date.now();
+
+  /** 时间片用完时让出；没用完时不产生 await，避免每章多一次微任务。 */
+  due(): boolean {
+    return Date.now() - this.sliceStartedAt >= UiPacer.SLICE_MS;
+  }
+
+  async yield(): Promise<void> {
+    if (Date.now() - this.frameYieldedAt >= UiPacer.FRAME_MS) {
+      await CooperativeScheduler.yieldToNextUiFrame();
+      this.frameYieldedAt = Date.now();
+    } else {
+      await CooperativeScheduler.yieldToEventLoop();
+    }
+    this.sliceStartedAt = Date.now();
+  }
+}
+
 export class NativeSourceRunner {
+  private static keptPages: Map<string, KeptPage> = new Map<string, KeptPage>();
   private definition: NativeSourceDefinition;
   private host: NativeRunnerHost;
   private expr: NativeExpr;
@@ -373,11 +417,10 @@ export class NativeSourceRunner {
     const explore = this.requireStage(this.definition.explore, '发现');
     const scope = (await this.baseScope()).set('page', page);
     let url = '';
-    let menuHeaders: Record<string, string> = {};
+    let menu: NativeMenuSpec | undefined = undefined;
     if (target.startsWith(MENU_STATIC)) {
-      const menu = (explore.menus || [])[Number(target.substring(MENU_STATIC.length))];
+      menu = (explore.menus || [])[Number(target.substring(MENU_STATIC.length))];
       url = menu && menu.url ? NativeExpr.toText(this.template(menu.url, scope)) : '';
-      if (menu && menu.headers) menuHeaders = menu.headers;
     } else if (target.startsWith(MENU_ITEM) && explore.dynamicMenus) {
       let item: NativeValue = null;
       try {
@@ -389,8 +432,11 @@ export class NativeSourceRunner {
     }
     if (!url) throw new NativeSourceError('发现分类没有可用的地址');
     const stage: NativeStageSpec = Object.assign({}, explore, {
-      url: '= __url', headers: Object.assign({}, explore.headers || {}, menuHeaders)
+      url: '= __url', headers: Object.assign({}, explore.headers || {}, menu && menu.headers ? menu.headers : {})
     });
+    // 静态分类可以各用各的请求方法和请求体，一个书源对接请求方式不同的几个接口。
+    if (menu && menu.method !== undefined) stage.method = menu.method;
+    if (menu && menu.body !== undefined) stage.body = menu.body;
     const loaded = await this.loadStage(stage, scope.child().set('__url', url), '', '发现');
     return this.readBooks(explore, loaded, 'explore');
   }
@@ -398,7 +444,8 @@ export class NativeSourceRunner {
   async detail(book: NativeBookInput): Promise<NativeBookRecord> {
     const stage = this.definition.detail || {};
     const scope = (await this.baseScope()).set('book', book);
-    const loaded = await this.loadStage(stage, scope, book.bookUrl, '详情');
+    const loaded = await this.loadStage(stage, scope, book.bookUrl, '详情', 'keep');
+    await this.runExtraFetches(this.definition.detail ? this.definition.detail.fetch : undefined, loaded);
     const record = this.readBook(stage.fields || {}, loaded.scope, loaded.baseUrl, 'detail');
     if (!record.bookUrl) record.bookUrl = book.bookUrl;
     const keep = this.definition.detail ? this.definition.detail.keep : undefined;
@@ -418,15 +465,18 @@ export class NativeSourceRunner {
     const nextStage: NativeStageSpec = Object.assign({}, stage, { url: '= __url' });
     const pageScope = async (page: number, url: string): Promise<NativeScope> =>
       (await this.baseScope()).set('book', book).set('page', page).child().set('__url', url);
+    const pacer = new UiPacer();
     let nextUrl = '';
     for (let page = 1; page <= MAX_TOC_PAGES; page++) {
       if (this.cancelled()) return [];
       const loaded = await this.loadStage(page === 1 ? stage : nextStage, await pageScope(page, nextUrl),
-        defaultUrl, '目录');
+        defaultUrl, '目录', page === 1 ? 'take' : '');
       visited.add(loaded.baseUrl);
-      if (this.appendTocPage(stage, loaded, chapters, limit)) break;
+      const full = await this.appendTocPage(stage, loaded, chapters, limit, pacer);
+      if (this.cancelled()) return [];
+      if (full) break;
       if (!stage.nextUrl) break;
-      const pending = this.tocNextUrls(stage.nextUrl, loaded).filter((url: string): boolean => !visited.has(url));
+      const pending = this.nextUrls(stage.nextUrl, loaded, 'toc.nextUrl').filter((url: string): boolean => !visited.has(url));
       if (pending.length === 0) break;
       if (pending.length === 1) {
         nextUrl = pending[0];
@@ -435,15 +485,16 @@ export class NativeSourceRunner {
       }
       // 一次给出多个地址表示“剩余全部目录页”：按列出顺序分批并发请求，不再跟随这些页自己的 nextUrl。
       const listed = pending.slice(0, MAX_TOC_PAGES - page);
-      for (let offset = 0; offset < listed.length; offset += TOC_PAGE_BATCH) {
+      const batchSize = this.batchSize(stage.batch);
+      for (let offset = 0; offset < listed.length; offset += batchSize) {
         if (this.cancelled()) return [];
-        const batch = listed.slice(offset, offset + TOC_PAGE_BATCH);
+        const batch = listed.slice(offset, offset + batchSize);
         const pages = await Promise.all(batch.map(async (url: string, index: number): Promise<StagePage> =>
           this.loadStage(nextStage, await pageScope(page + offset + index + 1, url), defaultUrl, '目录')));
         for (const listedPage of pages) {
-          if (this.appendTocPage(stage, listedPage, chapters, limit)) {
-            return stage.reverse === true ? chapters.reverse() : chapters;
-          }
+          const listedFull = await this.appendTocPage(stage, listedPage, chapters, limit, pacer);
+          if (this.cancelled()) return [];
+          if (listedFull) return stage.reverse === true ? chapters.reverse() : chapters;
         }
       }
       break;
@@ -451,11 +502,15 @@ export class NativeSourceRunner {
     return stage.reverse === true ? chapters.reverse() : chapters;
   }
 
-  /** 把一页目录的章节追加到 chapters；到达条数上限时返回 true。 */
-  private appendTocPage(stage: NativeTocSpec, loaded: StagePage, chapters: NativeChapterRecord[],
-    limit: number): boolean {
+  /** 把一页目录的章节追加到 chapters；到达条数上限或已取消时返回 true。 */
+  private async appendTocPage(stage: NativeTocSpec, loaded: StagePage, chapters: NativeChapterRecord[],
+    limit: number, pacer: UiPacer): Promise<boolean> {
     const fields = stage.fields || {};
     for (const item of this.listItems(stage.list || '', loaded.scope, loaded.baseUrl, 'toc.list')) {
+      if (pacer.due()) {
+        await pacer.yield();
+        if (this.cancelled()) return true;
+      }
       const itemScope = loaded.scope.child().set('item', item).set('index', chapters.length);
       const title = NativeExpr.toText(this.value(fields['title'], itemScope, false, 'toc.fields.title')).trim();
       if (!title) continue;
@@ -477,9 +532,9 @@ export class NativeSourceRunner {
     return false;
   }
 
-  /** toc.nextUrl 的结果：一个地址是下一页；列表或多行文本是剩余全部目录页。已补全、去重。 */
-  private tocNextUrls(spec: NativeValue, loaded: StagePage): string[] {
-    const raw = this.value(spec, loaded.scope, false, 'toc.nextUrl');
+  /** nextUrl 的结果：一个地址是下一页；列表或多行文本是剩余全部分页。已补全、去重。 */
+  private nextUrls(spec: NativeValue, loaded: StagePage, field: string): string[] {
+    const raw = this.value(spec, loaded.scope, false, field);
     const values: NativeValue[] = Array.isArray(raw) ? raw : NativeExpr.toText(raw).split(/\r?\n/);
     const urls: string[] = [];
     for (const value of values) {
@@ -490,60 +545,112 @@ export class NativeSourceRunner {
     return urls;
   }
 
+  /** 分页列表每批并发请求的页数：书源的 batch，没写或不合法时用默认值。 */
+  private batchSize(batch: number | undefined): number {
+    return Math.max(1, Math.min(Math.floor(Number(batch)) || DEFAULT_PAGE_BATCH, MAX_PAGE_BATCH));
+  }
+
+  /** 把一页正文（文本或图片）追加到结果里，返回追加的字符数。 */
+  private appendContentPage(stage: NativeContentSpec, kind: string, loaded: StagePage, parts: string[],
+    imageUrls: string[]): number {
+    if (kind === 'images') {
+      let added = 0;
+      const images = this.value(stage.images, loaded.scope, true, 'content.images');
+      for (const image of Array.isArray(images) ? images : [images]) {
+        const url = NativeExpr.resolveUrl(NativeExpr.toText(image).trim(), loaded.baseUrl);
+        if (url) {
+          imageUrls.push(url);
+          const tag = `<img src="${url.replace(/"/g, '%22')}">`;
+          parts.push(tag);
+          added += tag.length;
+        }
+      }
+      return added;
+    }
+    const text = this.value(stage.text, loaded.scope, false, 'content.text');
+    const added = Array.isArray(text) ?
+      text.map((line: NativeValue): string => NativeExpr.toText(line)).join('\n') : NativeExpr.toText(text);
+    parts.push(added);
+    return added.length;
+  }
+
   async content(book: NativeBookInput, chapter: NativeChapterInput): Promise<NativeContentResult> {
     const stage = this.requireStage(this.definition.content, '正文');
     const bookType = String(book.type || this.definition.type || 'text').toLowerCase();
     const kind = bookType === 'video' && stage.video ? 'video' : (bookType === 'audio' && stage.audio ? 'audio' :
       ((bookType === 'comic' || bookType === 'image') && stage.images ? 'images' :
         (stage.text ? 'text' : (stage.images ? 'images' : (stage.audio ? 'audio' : 'video')))));
+    const empty = (baseUrl: string): NativeContentResult => ({
+      kind: kind, text: '', baseUrl: baseUrl, paragraphComments: [], chapterCommentUrl: '', links: [],
+      images: [], mediaHeaders: {}, imageDecode: null
+    });
+    if (this.cancelled()) return empty('');
+    const pageScope = async (page: number, url: string): Promise<NativeScope> =>
+      (await this.baseScope()).set('book', book).set('chapter', chapter).set('page', page).child().set('__url', url);
+    const firstPage = await this.loadStage(stage, await pageScope(1, ''), chapter.url, '正文');
+    const firstBase = firstPage.baseUrl;
+    await this.runExtraFetches(stage.fetch, firstPage);
+    if (kind === 'audio' || kind === 'video') {
+      const audio = NativeExpr.toText(this.first(this.value(kind === 'audio' ? stage.audio : stage.video,
+        firstPage.scope, false, `content.${kind}`))).trim();
+      if (!audio) throw new NativeSourceError(this.mediaFailure(stage, firstPage, kind));
+      return {
+        kind: kind, text: NativeExpr.resolveUrl(audio, firstPage.baseUrl), baseUrl: firstPage.baseUrl,
+        paragraphComments: [], chapterCommentUrl: '', links: [], images: [],
+        mediaHeaders: this.renderHeaders(stage.mediaHeaders, firstPage.scope), imageDecode: null
+      };
+    }
     const parts: string[] = [];
     const imageUrls: string[] = [];
-    const visited: Set<string> = new Set();
-    let nextUrl = '';
-    let firstBase = '';
-    let firstPage: StagePage | null = null;
-    for (let page = 1; page <= MAX_CONTENT_PAGES; page++) {
-      if (this.cancelled()) {
-        return {
-          kind: kind, text: '', baseUrl: firstBase, paragraphComments: [], chapterCommentUrl: '', links: [],
-          images: [], mediaHeaders: {}, imageDecode: null
-        };
+    let size = this.appendContentPage(stage, kind, firstPage, parts, imageUrls);
+    const visited: Set<string> = new Set([firstBase, NativeExpr.resolveUrl(chapter.url, this.definition.url)]);
+    const nextStage: NativeStageSpec = Object.assign({}, stage, { url: '= __url' });
+    let loaded = firstPage;
+    let page = 1;
+    let skipped = 0;
+    while (stage.nextUrl) {
+      if (this.cancelled()) return empty(firstBase);
+      const pending = this.nextUrls(stage.nextUrl, loaded, 'content.nextUrl')
+        .filter((url: string): boolean => !visited.has(url));
+      if (pending.length === 0) break;
+      if (page >= MAX_CONTENT_PAGES || size >= MAX_CONTENT_CHARS) {
+        skipped = pending.length;
+        break;
       }
-      const scope = (await this.baseScope()).set('book', book).set('chapter', chapter).set('page', page);
-      const pageStage: NativeStageSpec = page === 1 ? stage : Object.assign({}, stage, { url: '= __url' });
-      const loaded = await this.loadStage(pageStage, scope.child().set('__url', nextUrl), chapter.url, '正文');
-      if (!firstBase) firstBase = loaded.baseUrl;
-      if (!firstPage) firstPage = loaded;
-      await this.runExtraFetches(stage, loaded);
-      if (kind === 'audio' || kind === 'video') {
-        const audio = NativeExpr.toText(this.first(this.value(kind === 'audio' ? stage.audio : stage.video,
-          loaded.scope, false, `content.${kind}`))).trim();
-        if (!audio) throw new NativeSourceError(this.mediaFailure(stage, loaded, kind));
-        return {
-          kind: kind, text: NativeExpr.resolveUrl(audio, loaded.baseUrl), baseUrl: loaded.baseUrl,
-          paragraphComments: [], chapterCommentUrl: '', links: [], images: [],
-          mediaHeaders: this.renderHeaders(stage.mediaHeaders, loaded.scope), imageDecode: null
-        };
+      if (pending.length === 1) {
+        visited.add(pending[0]);
+        page++;
+        loaded = await this.loadStage(nextStage, await pageScope(page, pending[0]), chapter.url, '正文');
+        visited.add(loaded.baseUrl);
+        await this.runExtraFetches(stage.fetch, loaded);
+        size += this.appendContentPage(stage, kind, loaded, parts, imageUrls);
+        continue;
       }
-      if (kind === 'images') {
-        const images = this.value(stage.images, loaded.scope, true, 'content.images');
-        for (const image of Array.isArray(images) ? images : [images]) {
-          const url = NativeExpr.resolveUrl(NativeExpr.toText(image).trim(), loaded.baseUrl);
-          if (url) {
-            imageUrls.push(url);
-            parts.push(`<img src="${url.replace(/"/g, '%22')}">`);
-          }
+      // 一次给出多个地址表示“本章剩余全部分页”：按列出顺序分批并发请求，不再跟随这些页自己的 nextUrl。
+      const listed = pending.slice(0, MAX_CONTENT_PAGES - page);
+      skipped = pending.length - listed.length;
+      const batchSize = this.batchSize(stage.batch);
+      for (let offset = 0; offset < listed.length; offset += batchSize) {
+        if (this.cancelled()) return empty(firstBase);
+        if (size >= MAX_CONTENT_CHARS) {
+          skipped += listed.length - offset;
+          break;
         }
-      } else {
-        const text = this.value(stage.text, loaded.scope, false, 'content.text');
-        parts.push(Array.isArray(text) ?
-          text.map((line: NativeValue): string => NativeExpr.toText(line)).join('\n') : NativeExpr.toText(text));
+        const batch = listed.slice(offset, offset + batchSize);
+        const pages = await Promise.all(batch.map(async (url: string, index: number): Promise<StagePage> =>
+          this.loadStage(nextStage, await pageScope(page + offset + index + 1, url), chapter.url, '正文')));
+        for (const listedPage of pages) {
+          await this.runExtraFetches(stage.fetch, listedPage);
+          size += this.appendContentPage(stage, kind, listedPage, parts, imageUrls);
+        }
       }
-      if (!stage.nextUrl) break;
-      nextUrl = NativeExpr.resolveUrl(
-        NativeExpr.toText(this.value(stage.nextUrl, loaded.scope, false, 'content.nextUrl')), loaded.baseUrl);
-      if (!nextUrl || visited.has(nextUrl)) break;
-      visited.add(nextUrl);
+      break;
+    }
+    if (skipped > 0 && this.host.trace) {
+      this.host.trace({
+        field: 'content.nextUrl', rule: NativeExpr.toText(stage.nextUrl), type: 'limit', count: skipped, preview: '',
+        error: `本章分页超过 ${MAX_CONTENT_PAGES} 页或正文超过 8 MB，后面 ${skipped} 页没有获取`
+      });
     }
     let text = parts.join('\n');
     if (kind === 'text') {
@@ -554,7 +661,7 @@ export class NativeSourceRunner {
     }
     const result: NativeContentResult = {
       kind: kind, text: text, baseUrl: firstBase, paragraphComments: [], chapterCommentUrl: '', links: [],
-      images: imageUrls, mediaHeaders: firstPage ? this.renderHeaders(stage.mediaHeaders, firstPage.scope) : {},
+      images: imageUrls, mediaHeaders: this.renderHeaders(stage.mediaHeaders, firstPage.scope),
       imageDecode: null
     };
     if (kind === 'images' && stage.imageDecode && firstPage) {
@@ -728,16 +835,31 @@ export class NativeSourceRunner {
     for (const name of Object.keys(lets)) scope.set(name, this.value(lets[name], scope, false, `let.${name}`));
   }
 
-  /** 请求一个阶段的页面并准备好求值环境；地址渲染为空时不发请求。 */
-  private async loadStage(stage: NativeStageSpec, scope: NativeScope, defaultUrl: string, label: string): Promise<StagePage> {
+  /** 请求一个阶段的页面并准备好求值环境；地址渲染为空时不发请求。reuse 见 StageReuse。 */
+  private async loadStage(stage: NativeStageSpec, scope: NativeScope, defaultUrl: string, label: string,
+    reuse: StageReuse = ''): Promise<StagePage> {
     const request = this.buildRequest(stage, scope, defaultUrl, true);
     let body = '';
     let baseUrl = request.url || NativeExpr.toText(scope.get('baseUrl'));
     if (request.url) {
-      const response = await this.host.fetch(request);
-      if (!response.ok || !response.body) throw new NativeSourceError(this.describeFailure(label, response));
-      body = response.body;
-      baseUrl = response.url || request.url;
+      const key = reuse ? this.keptPageKey(request) : '';
+      const kept = reuse === 'take' ? NativeSourceRunner.takeKeptPage(key) : null;
+      if (kept) {
+        body = kept.body;
+        baseUrl = kept.baseUrl;
+        if (this.host.trace) {
+          this.host.trace({
+            field: `${label}请求`, rule: request.url, type: 'reuse', count: 1,
+            preview: '与详情是同一个请求，复用详情页响应，未重新请求', error: ''
+          });
+        }
+      } else {
+        const response = await this.host.fetch(request);
+        if (!response.ok || !response.body) throw new NativeSourceError(this.describeFailure(label, response));
+        body = response.body;
+        baseUrl = response.url || request.url;
+        if (reuse === 'keep') NativeSourceRunner.keepPage(key, body, baseUrl);
+      }
     }
     const pageScope = this.responseScope(scope, body, baseUrl);
     this.applyLets(stage.let, pageScope);
@@ -746,6 +868,26 @@ export class NativeSourceRunner {
       if (failure && failure !== 'false') throw new NativeSourceError(`${label}接口返回失败：${failure}`);
     }
     return { scope: pageScope, baseUrl: baseUrl };
+  }
+
+  /** 请求的完整特征：书源加上地址、方法、请求头、请求体与取页方式，全部相同才算同一个请求。 */
+  private keptPageKey(request: NativeRequest): string {
+    return JSON.stringify([this.definition.url, this.definition.name, request.url, request.method, request.headers,
+      request.body, request.webView, request.webWaitFor, request.charset]);
+  }
+
+  private static keepPage(key: string, body: string, baseUrl: string): void {
+    const pages = NativeSourceRunner.keptPages;
+    pages.delete(key);
+    while (pages.size >= MAX_KEPT_PAGES) pages.delete(pages.keys().next().value as string);
+    pages.set(key, { body: body, baseUrl: baseUrl, keptAt: Date.now() });
+  }
+
+  private static takeKeptPage(key: string): KeptPage | null {
+    const kept = NativeSourceRunner.keptPages.get(key);
+    if (!kept) return null;
+    NativeSourceRunner.keptPages.delete(key);
+    return Date.now() - kept.keptAt <= KEPT_PAGE_TTL_MS ? kept : null;
   }
 
   private responseScope(scope: NativeScope, body: string, baseUrl: string): NativeScope {
@@ -786,7 +928,10 @@ export class NativeSourceRunner {
       body = typeof spec.body === 'string' ? NativeExpr.toText(this.template(spec.body, scope)) :
         JSON.stringify(this.renderDeep(spec.body, scope));
     }
-    const method = String(spec.method || (body ? 'POST' : 'GET')).toUpperCase();
+    // 请求方法也按模板求值，可以随分类、变量切换 GET/POST。
+    const rendered = spec.method ? NativeExpr.toText(this.template(spec.method, scope)).trim() : '';
+    const method = (rendered || (body ? 'POST' : 'GET')).toUpperCase();
+    if (!/^[A-Z]+$/.test(method)) throw new NativeSourceError(`请求方法无效：${rendered}`);
     const web = spec.webView && typeof spec.webView === 'object' ? spec.webView : null;
     return {
       url: url, method: method, headers: headers, body: body, webView: spec.webView === true || !!web,
@@ -809,8 +954,8 @@ export class NativeSourceRunner {
     return value;
   }
 
-  private async runExtraFetches(stage: NativeContentSpec, loaded: StagePage): Promise<void> {
-    const fetches = stage.fetch;
+  private async runExtraFetches(fetches: Record<string, NativeFetchSpec> | undefined,
+    loaded: StagePage): Promise<void> {
     if (!fetches) return;
     for (const name of Object.keys(fetches)) {
       const spec: NativeFetchSpec = fetches[name];

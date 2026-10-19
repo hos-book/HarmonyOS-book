@@ -2,6 +2,8 @@ import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { taskpool } from '@kit.ArkTS';
 import { Book, Chapter } from '../model/Book';
+import { BookPresentation } from '../model/BookPresentation';
+import { LocalTextImage } from './text/LocalTextImage';
 import { BookStorageCompat } from '../utils/BookStorageCompat';
 import { BookCoverPolicy } from '../utils/BookCoverPolicy';
 import { PreferenceService } from './PreferenceService';
@@ -58,6 +60,7 @@ export class DataService {
 
   /** 由 EntryAbility 启动时注入,用于缓存书文件读写 */
   static setContext(c: common.Context): void {
+    LocalTextImage.setRoot(c.filesDir);
     DataService.ctx = c;
     if (DataService.migrationPromise === null) {
       DataService.migrationPromise = DataService.migrateLegacyStorage();
@@ -404,7 +407,7 @@ export class DataService {
       merged.push(book);
       seen.add(book.id);
     }
-    return merged;
+    return merged.map((book: Book): Book => BookPresentation.apply(book));
   }
 
   /** 元数据壳:索引/卡片兜底只用 id/标题/作者/封面/章数,去掉 chapters + intro 砍掉绝大部分体积 */
@@ -439,7 +442,7 @@ export class DataService {
   }
 
   /** 返回:本地导入书 + 缓存书(去重,本地优先)。缓存书为元数据壳,章节按需用 getChaptersForBook 懒加载。 */
-  static async getBooks(_context: common.UIAbilityContext): Promise<Book[]> {
+  static async getBooks(_context: common.Context): Promise<Book[]> {
     const local = await DataService.load();
     const cached = await DataService.loadCachedBooks();
     const seen = new Set<string>();
@@ -456,7 +459,7 @@ export class DataService {
         seen.add(b.id);
       }
     }
-    return merged;
+    return merged.map((book: Book): Book => BookPresentation.apply(book));
   }
 
   /** 按 id 取书,并补齐章节:本地导入书自带章节;缓存书章节缺失时从 sidecar 懒加载(瞬时,无网络)。 */
@@ -465,7 +468,7 @@ export class DataService {
     const fromLocal = local.find((b) => b.id === id);
     if (fromLocal) {
       if (fromLocal.chapters.length === 0) fromLocal.chapters = await DataService.getChaptersForBook(id);
-      return fromLocal;
+      return BookPresentation.apply(fromLocal);
     }
     const cached = await DataService.loadCachedBooks();
     const book = cached.find((b) => b.id === id);
@@ -478,7 +481,7 @@ export class DataService {
         if (!book.chapterCount || book.chapterCount < toc.length) book.chapterCount = toc.length;
       }
     }
-    return book;
+    return BookPresentation.apply(book);
   }
 
   static async getImportedBooks(): Promise<Book[]> {
@@ -560,7 +563,7 @@ export class DataService {
   }
 
   /** 收藏/历史属于用户数据；读取引用失败时暂停淘汰，不能按空历史处理。 */
-  private static async historyBookIds(): Promise<Set<string> | null> {
+  static async historyBookIds(): Promise<Set<string> | null> {
     if (!DataService.ctx) return null;
     try {
       const ids = new Set<string>(await PreferenceService.getFavorites());
@@ -575,21 +578,29 @@ export class DataService {
     beforeInvalidate?: (bookId: string, chapters: Chapter[]) => void): Promise<string[]> {
     const list = await DataService.loadCachedBooks();
     const ids: string[] = [];
+    const protectedIds = await DataService.historyBookIds();
+    const protectedBooks: string[] = [];
+    const discardedIds: string[] = [];
     for (const book of list) {
       if (!sourceUrls.has(book.sourceUrl)) continue;
       if (beforeInvalidate !== undefined) {
         const chapters = book.chapters.length > 0 ? book.chapters : await DataService.getChaptersForBook(book.id);
         beforeInvalidate(book.id, chapters);
       }
-      book.chapters = [];
+      if (protectedIds === null || protectedIds.has(book.id)) {
+        protectedBooks.push(OnlineTextContentCache.key(book.sourceUrl, book.bookUrl, ''));
+      } else {
+        book.chapters = [];
+        book.totalDuration = 0;
+        discardedIds.push(book.id);
+      }
       book.tocComplete = false;
       book.variables = {};
-      book.totalDuration = 0;
       ids.push(book.id);
     }
     await DataService.writeIndex(list);
     const task = DataService.writeChain.then(async (): Promise<void> => {
-      for (const id of ids) {
+      for (const id of discardedIds) {
         await DataService.deleteToc(id);
         const legacy = DataService.legacyTocPath(id);
         if (legacy && await fileIo.access(legacy)) await fileIo.unlink(legacy);
@@ -597,7 +608,9 @@ export class DataService {
     });
     DataService.writeChain = task.then(() => {}, () => {});
     await task;
-    if (DataService.ctx !== null) await OnlineTextContentCache.invalidateSources(DataService.ctx, sourceUrls);
+    if (DataService.ctx !== null) {
+      await OnlineTextContentCache.invalidateSources(DataService.ctx, sourceUrls, new Set(protectedBooks));
+    }
     return ids;
   }
 

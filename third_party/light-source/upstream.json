@@ -3,7 +3,7 @@
   "sources": {
     "engine": {
       "repository": "https://github.com/wip3l/harmony-book-source-engine",
-      "commit": "2f8c4bf0665f971d71515ee6949faaadc043b5bb"
+      "commit": "e02c5b2b97806f68a5cf299784ccfbdb4e4ab069"
     },
     "application": {
       "repository": "https://github.com/wip3l/legado-harmony",
@@ -12,13 +12,7 @@
   },
   "license": "GPL-3.0",
   "hashNormalization": "LF",
-  "patches": [
-    {
-      "id": "bounded-web-wait",
-      "file": "scripts/light-source-web-wait.cjs",
-      "sha256": "f09fcace135ddc493c478677777c94025811a799608b3a53d7f54075ba25d446"
-    }
-  ],
+  "patches": [],
   "files": [
     {
       "path": "core/book/WebBookService.ts",
@@ -87,8 +81,8 @@
       "path": "core/book/WebBookFetchRuntime.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/book/WebBookFetchRuntime.ts",
-      "upstreamSha256": "97abd0496b3ad9ca426923b59052ce921034624dc285ecb98b8f3e8ca3a33729",
-      "sha256": "0386633e14e6fdca6d8516e9721f0964e4892ddd5412ca4e1fd4a8efc234cf9c"
+      "upstreamSha256": "a77dc81ed1a860c36d60d71ed3acf438f8381ae14af05da3757994c126efe6bc",
+      "sha256": "a77dc81ed1a860c36d60d71ed3acf438f8381ae14af05da3757994c126efe6bc"
     },
     {
       "path": "core/book/WebJsAwaitScript.ts",
@@ -241,8 +235,8 @@
       "path": "core/rule/AnalyzeRule.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/rule/AnalyzeRule.ts",
-      "upstreamSha256": "06b197d5272868f8c7881238a7709078b0ae13a35c0fe1abf9de4f86d817a016",
-      "sha256": "06b197d5272868f8c7881238a7709078b0ae13a35c0fe1abf9de4f86d817a016"
+      "upstreamSha256": "c0ee54d0270b5b449e405848680188b852610b5e879f2ea7719b327b75a5e069",
+      "sha256": "c0ee54d0270b5b449e405848680188b852610b5e879f2ea7719b327b75a5e069"
     },
     {
       "path": "core/rule/JavaRegexCompat.ts",
@@ -360,15 +354,15 @@
       "path": "core/nativesource/NativeExpr.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeExpr.ts",
-      "upstreamSha256": "cec01aa98eeb23854d53fde3919abbd5725d0c1ab9f7b5934f4c71bec4c73536",
-      "sha256": "cec01aa98eeb23854d53fde3919abbd5725d0c1ab9f7b5934f4c71bec4c73536"
+      "upstreamSha256": "0117be4df33903fbd8fa327d0d698842aaf8f8ec1400b7290bfcbfc909b20903",
+      "sha256": "0117be4df33903fbd8fa327d0d698842aaf8f8ec1400b7290bfcbfc909b20903"
     },
     {
       "path": "core/nativesource/NativeSourceRunner.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceRunner.ts",
-      "upstreamSha256": "2a53a1972699fbd0a9f47227d15689690eef3d36672920011b29a29ce7f7e2a6",
-      "sha256": "2a53a1972699fbd0a9f47227d15689690eef3d36672920011b29a29ce7f7e2a6"
+      "upstreamSha256": "e72e4541afdd5c551673dfca2c765f5621f7067ffd32f1f50639be1127e365a7",
+      "sha256": "e72e4541afdd5c551673dfca2c765f5621f7067ffd32f1f50639be1127e365a7"
     },
     {
       "path": "core/nativesource/SourceCoverUrl.ts",
@@ -381,8 +375,8 @@
       "path": "core/nativesource/NativeSourceSpec.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceSpec.ts",
-      "upstreamSha256": "285ba3dd3de938b6efd365a4e31812635fc9e39153406e173fab22874c15a341",
-      "sha256": "285ba3dd3de938b6efd365a4e31812635fc9e39153406e173fab22874c15a341"
+      "upstreamSha256": "4cd3b4d9e11b85d57e75c85fcbfc551a772bcbde530f56211b783473f94c5e3e",
+      "sha256": "4cd3b4d9e11b85d57e75c85fcbfc551a772bcbde530f56211b783473f94c5e3e"
     },
     {
       "path": "core/nativesource/NativeSourceCrypto.ts",
@@ -493,8 +487,8 @@
       "path": "core/nativesource/SourceImageDecoder.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/SourceImageDecoder.ts",
-      "upstreamSha256": "1a78aaefb2e1c8c79f6bec884fdc0d677cd53393bc6077ed6634455a9063d757",
-      "sha256": "1a78aaefb2e1c8c79f6bec884fdc0d677cd53393bc6077ed6634455a9063d757"
+      "upstreamSha256": "66ba8fa6efc436d44627ebc5d85634a136c9b6d634188dcb53b88773b55fcb51",
+      "sha256": "66ba8fa6efc436d44627ebc5d85634a136c9b6d634188dcb53b88773b55fcb51"
     },
     {
       "path": "core/book/ExploreCoordinator.ts",

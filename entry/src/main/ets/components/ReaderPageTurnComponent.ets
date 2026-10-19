@@ -8,6 +8,7 @@ import { PageTurnMode } from '../model/TextReading';
 /** 只预览目标页；动画完成才通知阅读页提交进度，回弹不改变阅读位置。 */
 @ComponentV2
 export struct ReaderPageTurnComponent {
+  @Param selectionActive: boolean = false;
   @Param tapLeftPercent: number = 33;
   @Param tapRightPercent: number = 33;
   @Param tapTopPercent: number = 33;
@@ -44,6 +45,8 @@ export struct ReaderPageTurnComponent {
   private released: boolean = false;
   private commitOnRelease: boolean = false;
   private touchBlocked: boolean = false;
+  private touchStartedAt: number = 0;
+  private touchStartedSelecting: boolean = false;
 
   private backgroundHandler = (): void => {
     this.cancelTurn(this.phase === 'settling' && this.commitOnRelease);
@@ -136,10 +139,19 @@ export struct ReaderPageTurnComponent {
   private handleTouch(event: TouchEvent): void {
     this.tapTracker.update(event);
     if (event.type === TouchType.Down) {
+      this.touchStartedAt = Date.now();
+      this.touchStartedSelecting = this.selectionActive;
       const touch = event.touches[0];
       // 整段手势沿用落点判定，避免从状态栏下拉到正文后触发翻页。
       this.touchBlocked = touch === undefined || touch.y < this.safeTop || touch.x < this.safeLeft ||
         touch.x >= this.pageWidth - this.safeRight || touch.y >= this.pageHeight - this.safeBottom;
+    } else if (event.type === TouchType.Up) {
+      const touch = event.changedTouches[0] ?? event.touches[0];
+      // 点击走原始触摸链，避免原生选字的识别器吞掉工具栏点击。
+      // 长按及从活动选区开始的操作只处理选字，不转成翻页或工具栏点击。
+      if (touch !== undefined && !this.touchStartedSelecting && Date.now() - this.touchStartedAt < 500) {
+        this.handleTap(touch.x, touch.y);
+      }
     } else if (event.type === TouchType.Cancel) {
       this.touchBlocked = true;
       this.handlePanCancel();
@@ -147,6 +159,7 @@ export struct ReaderPageTurnComponent {
   }
 
   private handlePanStart(event: GestureEvent): void {
+    if (this.selectionActive) return;
     this.tapTracker.cancel();
     const finger = event.fingerList[0];
     if (this.touchBlocked || finger === undefined ||
@@ -182,14 +195,12 @@ export struct ReaderPageTurnComponent {
     if (this.phase === 'dragging') this.settle(false);
   }
 
-  private handleTap(event: GestureEvent): void {
-    if (this.phase !== 'idle' || this.touchBlocked || !this.tapTracker.canTap()) return;
-    const finger = event.fingerList[0];
-    if (finger === undefined) return;
-    const action = ReaderTapPolicy.resolve(this.tapRegions, finger.localX - this.safeLeft,
-      finger.localY - this.safeTop, this.pageWidth - this.safeLeft - this.safeRight,
+  private handleTap(x: number, y: number): void {
+    if (this.selectionActive || this.phase !== 'idle' || this.touchBlocked || !this.tapTracker.canTap()) return;
+    const action = ReaderTapPolicy.resolve(this.tapRegions, x - this.safeLeft,
+      y - this.safeTop, this.pageWidth - this.safeLeft - this.safeRight,
       this.pageHeight - this.safeTop - this.safeBottom, this.tapLeftPercent, this.tapRightPercent, this.tapTopPercent, this.tapBottomPercent);
-    if (action === 0 || action === 2) this.beginTurn(action === 2, true, finger.localY);
+    if (action === 0 || action === 2) this.beginTurn(action === 2, true, y);
     else if (action === 1) this.onCenterTap();
   }
 
@@ -361,13 +372,10 @@ export struct ReaderPageTurnComponent {
       this.pageHeight = size.height;
     })
     .onTouch((event: TouchEvent): void => this.handleTouch(event))
-    .gesture(GestureGroup(GestureMode.Exclusive,
-      PanGesture({ fingers: 1, direction: this.mode === PageTurnMode.Vertical ? PanDirection.Vertical : PanDirection.Horizontal, distance: 8 })
+    .gesture(PanGesture({ fingers: 1, direction: this.mode === PageTurnMode.Vertical ? PanDirection.Vertical : PanDirection.Horizontal, distance: 8 })
         .onActionStart((event: GestureEvent): void => this.handlePanStart(event))
         .onActionUpdate((event: GestureEvent): void => this.handlePanUpdate(event))
         .onActionEnd((event: GestureEvent): void => this.handlePanEnd(event))
-        .onActionCancel((): void => this.handlePanCancel()),
-      TapGesture().onAction((event: GestureEvent): void => this.handleTap(event))
-    ))
+        .onActionCancel((): void => this.handlePanCancel()))
   }
 }

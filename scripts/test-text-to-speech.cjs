@@ -20,7 +20,8 @@ function load(relative, dependencies = {}, globals = {}) {
     } }, { filename: file });
   return module.exports;
 }
-const { SpeechTextSegmenter } = load('service/text/SpeechTextSegmenter.ets');
+const localImages = load('service/text/LocalTextImage.ets');
+const { SpeechTextSegmenter } = load('service/text/SpeechTextSegmenter.ets', { './LocalTextImage': localImages });
 const { SpeechPcmBuffer } = load('service/text/SpeechPcmBuffer.ets');
 const pcmFormat = { audioType: 'pcm', sampleRate: 16000, sampleBit: 16, audioChannel: 1 };
 const model = load('model/TextToSpeechState.ets');
@@ -39,7 +40,7 @@ const book = (id = 'book', texts = ['第一句。第二句！', '第三句。'])
   chapters: texts.map((text, index) => ({ id: String(index), title: `章节${index}`, source: { value: `${id}/${index}`, type: 'url' }, text })) });
 function harness(memory = new Map()) {
   let uptime = 0;
-  const engines = [], spoken = [], timers = new Map(), cached = new Map(), stats = [], httpSpoken = [], httpPrepared = [], systemSpoken = [];
+  const engines = [], spoken = [], timers = new Map(), cached = new Map(), stats = [], httpSpoken = [], httpPrepared = [], systemSpoken = [], widgets = [];
   let id = 0, failContent = false, createDeferred = null, focusCallback = null, deviceCallback = null;
   const coordinator = load('service/PlaybackCoordinator.ets');
   const session = { callbacks: null, paused: false, setSpeechCallbacks(cbs) { this.callbacks = cbs; },
@@ -63,6 +64,11 @@ function harness(memory = new Map()) {
       engines.push(engine); return engine;
     } };
   const dependencies = {
+    '../WidgetUpdater': { WidgetUpdater: { updateSpeechCard: async (book, state) => widgets.push({
+      bookId: book.id, chapterIndex: state.chapterIndex, charOffset: state.charOffset,
+      isPlaying: state.playing && !state.loading }) } },
+    './TextReadingProgressService': { TextReadingProgressService: { save: async () => {} } },
+    '../../model/TextReading': load('model/TextReading.ets', { './ReaderTheme': load('model/ReaderTheme.ets') }),
     './SpeechPcmBuffer': { SpeechPcmBuffer },
     '../DiagnosticLogService': { DiagnosticLogService: { info() {} } },
     '../ReadingSessionService': { ReadingSessionService: { checkpoint() {}, end() {} }, SessionLocation: { audio: () => ({}) } },
@@ -128,7 +134,7 @@ function harness(memory = new Map()) {
   });
   const service = TextToSpeechService.getInstance();
   const context = { resourceManager: { getStringSync: key => key } };
-  return { service, tts, memory, spoken, engines, timers, session, httpSpoken, httpPrepared, stats,
+  return { service, tts, memory, spoken, engines, timers, session, httpSpoken, httpPrepared, stats, widgets,
     advance: ms => { uptime += ms; }, coordinator: coordinator.PlaybackCoordinator,
     init: () => service.initialize(context), reloadSettings: () => TextToSpeechService.reloadSettings(context),
     failContent: value => { failContent = value; },
@@ -144,6 +150,19 @@ function harness(memory = new Map()) {
 let passed = 0;
 async function check(name, action) { await action(); console.log(`PASS ${name}`); passed++; }
 (async () => {
+  await check('朗读在前后台同步卡片书籍、章节和暂停恢复状态', async () => {
+    const h = harness(); await h.init();
+    await h.service.start(book(), 0, 0); await settle();
+    assert.equal(h.widgets.at(-1).bookId, 'book');
+    assert.equal(h.widgets.at(-1).isPlaying, true);
+    h.service.setForeground(false);
+    h.service.pause(); await settle();
+    assert.equal(h.widgets.at(-1).isPlaying, false, 'background pause still reaches cards');
+    await h.service.resume(); await settle();
+    assert.equal(h.widgets.at(-1).isPlaying, true);
+    await h.service.moveChapter(1); await settle();
+    assert.equal(h.widgets.at(-1).chapterIndex, 1);
+  });
   await check('恢复朗读备份后刷新已初始化的设置，不创建引擎或启动播放', async () => {
     const h = harness(); await h.init();
     h.memory.set('speed', 1.5); h.memory.set('follow', false); h.memory.set('person', 21);
@@ -444,6 +463,26 @@ async function check(name, action) { await action(); console.log(`PASS ${name}`)
     assert.ok(h.httpPrepared.slice(1).every(item => item.task.cancelled));
     await h.service.resume(); await settle();
     assert.equal(h.httpSpoken.at(-1).text, '第二句。');
+    h.service.stop();
+  });
+  await check('连续问号和数字脚注不会提交空语音，系统与导入音色保留正文位置', async () => {
+    const content = '“安魂谣？？？”【10】猛地转头看向城市废墟，“是谁在唱安魂谣？？”\n[11]\n“是个男人的声音……不是那位？”';
+    for (const http of [false, true]) {
+      const segments = SpeechTextSegmenter.split(content, http);
+      assert.ok(segments.length > 1);
+      assert.ok(segments.every(item => /[\u4e00-\u9fff]/.test(item.text)));
+      assert.ok(segments.every(item => !/【10】|\[11\]/.test(item.text)));
+      assert.equal(segments.at(-1).paragraphStart, content.indexOf('“是个男人'));
+      assert.equal(segments.at(-1).end, content.length);
+    }
+    const h = harness(); await h.init();
+    await h.service.start(book('footnote', [content]), 0, 0); await settle();
+    for (let i = 0; i < 10 && h.service.state.playing; i++) {
+      assert.ok(/[\u4e00-\u9fff]/.test(h.spoken.at(-1).text));
+      await h.complete();
+    }
+    assert.equal(h.service.state.error, '');
+    assert.equal(h.service.state.charOffset, content.length);
     h.service.stop();
   });
   await check('HTTP 同段短句合并，保留自然段和字符位置，跳过纯标点请求', async () => {

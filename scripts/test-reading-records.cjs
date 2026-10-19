@@ -26,12 +26,12 @@ const ts = require(path.join(process.env.DEVECO_HOME,
   vm.runInNewContext(ts.transpileModule(viewClasses + `\nexport class RecordPage {${methods}}`, {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS, experimentalDecorators: true }
   }).outputText, {
-    exports: exported, ObservedV2: value => value, Trace: () => {}, ...policy, ...model,
+    exports: exported, ObservedV2: value => value, Trace: () => {}, LocalBuilder: () => {}, ...policy, ...model,
     TextReadingProgressService: progress,
     StatsService: { removeBookStats: async ids => removedStats.push(...ids) },
     PreferenceService: { getProgress: async () => null, removeHistory: async id => removedHistory.push(id),
       removeProgress: async id => removedAudio.push(id) },
-    DataService: { getBookById: async (_ctx, id) => books.get(id) },
+    DataService: { getBooks: async () => [...books.values()], getBookById: async (_ctx, id) => books.get(id) },
     SearchCache: { get: () => undefined },
     DiagnosticLogService: { info() {} },
     Curve: { FastOutSlowIn: 0 }

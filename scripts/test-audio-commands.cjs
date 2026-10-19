@@ -116,7 +116,9 @@ async function fixture(initialState = 'paused', realUsage = false) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
   }).outputText;
   vm.runInNewContext(prefCode, { module: prefModule, exports: prefModule.exports,
-    require: () => ({ ConfigurationConstant: { ColorMode: { COLOR_MODE_NOT_SET: -1 } } }) });
+    require: name => name === '../model/GeneralSettings'
+      ? { GeneralSettings: { current: { historyEnabled: true } } }
+      : { ConfigurationConstant: { ColorMode: { COLOR_MODE_NOT_SET: -1 } } } });
   const preference = prefModule.exports.PreferenceService;
   const preferenceValues = new Map();
   preference.ensureStore = async () => ({

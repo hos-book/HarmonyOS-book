@@ -109,6 +109,14 @@ export struct SearchPage {
   @Local recommendationBooks: Book[] = [];
   @Local recommendationsLoading: boolean = true;
 
+  @Local sourcePickerVisible: boolean = false;
+  @Local sourceFilterEnabled: boolean = false;
+  @Local selectedSourceUrls: string[] = [];
+  @Local availableSearchSources: BookSource[] = [];
+  @Local resultGroupVisible: boolean = false;
+  @Local resultGroups: Map<string, Book[]> = new Map();
+  private groupedBooks: BookDataSource = new BookDataSource();
+  private resultsRefreshTimer: number = -1;
   private resultDataSource: BookDataSource = new BookDataSource();
   private searchController: SearchController = new SearchController();
   private resultScroller: Scroller = new Scroller();
@@ -177,6 +185,8 @@ export struct SearchPage {
     this.leavingPage = true;
     this.pageShown = false;
     this.searchGen++;
+    if (this.resultsRefreshTimer >= 0) clearTimeout(this.resultsRefreshTimer);
+    this.resultsRefreshTimer = -1;
     this.cancelRecommendations();
   }
 
@@ -488,7 +498,8 @@ export struct SearchPage {
       const sources = await SourceDataService.getEnabledSources();
       if (gen !== this.searchGen) return;
       const selectedSources = sources.filter((source: BookSource): boolean =>
-        SearchOptions.matchesSourceType(source.bookSourceType, this.searchTextOnly, this.searchAudioOnly));
+        SearchOptions.matchesSourceType(source.bookSourceType, this.searchTextOnly, this.searchAudioOnly) &&
+        (!this.sourceFilterEnabled || this.selectedSourceUrls.includes(source.bookSourceUrl)));
       this.searchSourceTotal = selectedSources.length;
       const concurrency = await PreferenceService.getSearchConcurrency();
       if (gen !== this.searchGen) return;
@@ -539,6 +550,7 @@ export struct SearchPage {
       const books: Book[] = [];
       const audioBooks: Book[] = [];
       const textBooks: Book[] = [];
+      const comicBooks: Book[] = [];
       const fallbackContentType: 'audio' | 'text' | 'comic' = source.bookSourceType === 0 || source.bookSourceType === 3
         ? 'text' : source.bookSourceType === 2 ? 'comic' : 'audio';
       for (const item of results) {
@@ -551,7 +563,7 @@ export struct SearchPage {
         const book = this.searchResultToBook(item, contentType);
         books.push(book);
         if (contentType === 'comic') {
-          this.comicBooks = this.comicBooks.concat([book]);
+          comicBooks.push(book);
         } else if (contentType === 'text') {
           textBooks.push(book);
         } else {
@@ -559,6 +571,7 @@ export struct SearchPage {
         }
       }
       if (books.length === 0) return;
+      if (comicBooks.length > 0) this.comicBooks = this.comicBooks.concat(comicBooks);
       if (textBooks.length > 0) {
         this.textBooks = this.textBooks.concat(textBooks);
         this.textCount = this.textBooks.length;
@@ -567,7 +580,7 @@ export struct SearchPage {
         this.audioBooks = this.audioBooks.concat(audioBooks);
         this.audioCount = this.audioBooks.length;
       }
-      this.refreshVisibleBooks();
+      this.scheduleResultsRefresh();
       this.prefetchCovers(books);
       if (source instanceof LocalRuleSource && source.ruleSearch.coverUrl.trim().length === 0 &&
         source.ruleBookInfo.coverUrl.trim().length > 0) {
@@ -682,6 +695,20 @@ export struct SearchPage {
     return cloned;
   }
 
+  private scheduleResultsRefresh(): void {
+    if (this.resultsRefreshTimer >= 0) return;
+    this.resultsRefreshTimer = setTimeout((): void => {
+      this.resultsRefreshTimer = -1;
+      if (!this.leavingPage) this.refreshVisibleBooks();
+    }, 120);
+  }
+
+  private groupKey(book: Book): string {
+    return `${book.contentType ?? 'audio'}:${book.title.replace(/\s+/g, '').toLowerCase()}`;
+  }
+
+  private groupCount(book: Book): number { return this.resultGroups.get(this.groupKey(book))?.length ?? 1; }
+
   private refreshVisibleBooks(): void {
     const visible: Book[] = [];
     if (this.searchTab === 0 || this.searchTab === 1) {
@@ -693,8 +720,17 @@ export struct SearchPage {
     if (this.searchTab === 0 || this.searchTab === 3) {
       for (const book of this.comicBooks) visible.push(book);
     }
-    this.resultDataSource.setBooks(visible);
-    this.visibleResultCount = visible.length;
+    const groups = new Map<string, Book[]>();
+    const representatives: Book[] = [];
+    for (const book of visible) {
+      const key = this.groupKey(book);
+      const group = groups.get(key);
+      if (group) group.push(book);
+      else { groups.set(key, [book]); representatives.push(book); }
+    }
+    this.resultGroups = groups;
+    this.resultDataSource.setBooks(representatives);
+    this.visibleResultCount = representatives.length;
   }
 
   private selectSearchTab(index: number): void {
@@ -735,6 +771,17 @@ export struct SearchPage {
   }
 
   private openBook(book: Book): void {
+    const group = this.resultGroups.get(this.groupKey(book));
+    if (group && group.length > 1) {
+      this.groupedBooks.setBooks(group);
+      this.resultGroupVisible = true;
+      return;
+    }
+    this.openBookDetail(book);
+  }
+
+  private openBookDetail(book: Book): void {
+    this.resultGroupVisible = false;
     SearchCache.put(book);
     if (PlaybackStore.getInstance().isCurrentBook(book.id)) {
       this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
@@ -743,6 +790,63 @@ export struct SearchPage {
       return;
     }
     this.navStack.pushPathByName('detail', book.id);
+  }
+
+  private async openSourcePicker(): Promise<void> {
+    const sources = await SourceDataService.getEnabledSources();
+    if (this.leavingPage) return;
+    this.availableSearchSources = sources;
+    this.sourcePickerVisible = true;
+  }
+
+  @Builder
+  buildSourcePicker() {
+    Column({ space: 12 }) {
+      Button($r('app.string.search_source_all')).backgroundColor(AppColor.Brand)
+        .onClick((): void => { this.sourceFilterEnabled = false; this.sourcePickerVisible = false; this.updateSearchOptions(); })
+      List() {
+        Repeat<BookSource>(this.availableSearchSources).each((item: RepeatItem<BookSource>) => {
+          ListItem() {
+            Row({ space: 12 }) {
+              Text(item.item.bookSourceName).layoutWeight(1).fontColor($r('sys.color.font_primary')).maxLines(2)
+              Checkbox({ name: item.item.bookSourceUrl }).select(this.selectedSourceUrls.includes(item.item.bookSourceUrl))
+                .selectedColor(AppColor.Brand).onChange((checked: boolean): void => {
+                  this.selectedSourceUrls = checked ? this.selectedSourceUrls.concat([item.item.bookSourceUrl]) :
+                    this.selectedSourceUrls.filter((url: string): boolean => url !== item.item.bookSourceUrl);
+                })
+            }.width('100%').padding(12)
+          }
+        }).key((source: BookSource): string => source.bookSourceUrl).virtualScroll()
+      }.layoutWeight(1).width('100%').scrollBar(BarState.Auto)
+      Button($r('app.string.tts_custom_confirm')).backgroundColor(AppColor.Brand).enabled(this.selectedSourceUrls.length > 0)
+        .onClick((): void => { this.sourceFilterEnabled = true; this.sourcePickerVisible = false; this.updateSearchOptions(); })
+    }.width('100%').height('100%').padding(16)
+  }
+
+  @Builder
+  buildGroupBadge(book: Book) {
+    if (this.groupCount(book) > 1) {
+      Text(`${this.groupCount(book)}`).fontSize(12).fontColor(Color.White).backgroundColor(AppColor.Brand)
+        .constraintSize({ minWidth: 26 }).height(26).textAlign(TextAlign.Center).borderRadius(13).margin(6)
+        .hitTestBehavior(HitTestMode.None)
+    }
+  }
+
+  @Builder
+  buildResultGroup() {
+    List() {
+      LazyForEach(this.groupedBooks, (book: Book) => {
+        ListItem() {
+          Row({ space: 12 }) {
+            CoverImage({ url: book.cover, imgWidth: 60, aspectRatioValue: 0.75, radius: 8 })
+            Column({ space: 6 }) {
+              Text(book.title).fontColor($r('sys.color.font_primary')).fontSize(16)
+              Text(book.narrator || book.author).fontColor($r('sys.color.font_secondary')).fontSize(13)
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+          }.width('100%').padding(12).onClick((): void => { this.openBookDetail(book); })
+        }
+      }, (book: Book): string => book.id)
+    }.width('100%').height('100%').scrollBar(BarState.Auto).padding({ bottom: 24 })
   }
 
   @Builder
@@ -969,12 +1073,15 @@ export struct SearchPage {
     Grid(this.resultScroller) {
       LazyForEach(this.resultDataSource, (book: Book, index: number) => {
         GridItem() {
+          Stack({ alignContent: Alignment.TopEnd }) {
           BookCard({
             book: book,
             indexHint: index,
             coverAspectRatio: SEARCH_COVER_ASPECT_RATIO,
             onTap: () => this.openBook(book)
           })
+          this.buildGroupBadge(book)
+          }.width('100%')
         }
       }, (book: Book) => book.id)
     }
@@ -1003,7 +1110,7 @@ export struct SearchPage {
   @Builder
   buildListItem(book: Book) {
     Row({ space: AppSpace.Md }) {
-      Stack({ alignContent: Alignment.BottomStart }) {
+      Stack({ alignContent: Alignment.TopEnd }) {
         if (book.cover && book.cover.startsWith('http')) {
           CoverImage({
             url: book.cover,
@@ -1021,6 +1128,7 @@ export struct SearchPage {
             .borderRadius(AppRadius.Md)
             .objectFit(ImageFit.Cover)
         }
+        this.buildGroupBadge(book)
         if (book.narrator) {
           Text(book.narrator)
             .fontSize(10)
@@ -1030,6 +1138,7 @@ export struct SearchPage {
             .padding({ left: 6, right: 6, top: 2, bottom: 2 })
             .backgroundColor($r('sys.color.ohos_id_color_mask_thin'))
             .borderRadius({ topRight: AppRadius.Sm, bottomLeft: AppRadius.Md })
+            .align(Alignment.BottomStart)
         }
       }
 
@@ -1127,6 +1236,35 @@ export struct SearchPage {
           if (value.length === 0 && this.hasSearched) this.clearSearch();
         })
 
+      if (this.hasSearched && !this.searching) {
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph(this.viewMode === 0 ?
+            $r('sys.symbol.list_bullet') : $r('sys.symbol.square_grid_2x2'))
+            .fontSize(22)
+            .fontColor([$r('sys.color.icon_primary')])
+        }
+        .width(SEARCH_TITLE_CONTROL_HEIGHT)
+        .height(SEARCH_TITLE_CONTROL_HEIGHT)
+        .padding(0)
+        .borderRadius(AppRadius.Pill)
+        .backgroundColor(Color.Transparent)
+        .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
+        .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.94 })
+        .accessibilityText($r('app.string.search_switch_layout'))
+        .id('search-layout-button')
+        .onClick(() => {
+          this.searchController.stopEditing();
+          this.getUIContext().animateTo({ duration: AppMotion.Base, curve: AppCurve.Standard }, () => {
+            this.viewMode = this.viewMode === 0 ? 1 : 0;
+            try {
+              this.resultScroller.scrollEdge(Edge.Top);
+            } catch (_e) {
+              // 切换布局的同一帧可能暂时没有可滚动节点。
+            }
+          });
+        })
+      }
+
       Button({ type: ButtonType.Circle }) {
         SymbolGlyph($r('sys.symbol.funnel'))
           .fontSize(22)
@@ -1146,29 +1284,7 @@ export struct SearchPage {
           this.searchOptionsVisible = !this.searchOptionsVisible;
         })
         .bindPopup(this.searchOptionsVisible, this.searchOptionsPopupOptions())
-          Stack({ alignContent: Alignment.Center }) {
-            SymbolGlyph(this.viewMode === 0 ?
-              $r('sys.symbol.list_bullet') : $r('sys.symbol.square_grid_2x2'))
-              .fontSize(18)
-              .fontColor([$r('sys.color.font_primary')])
-          }
-          .width(SEARCH_TITLE_CONTROL_HEIGHT)
-          .height(SEARCH_TITLE_CONTROL_HEIGHT)
-          .borderRadius(AppRadius.Pill)
-          .backgroundColor(Color.Transparent)
-          .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
-          .accessibilityText($r('app.string.search_switch_layout'))
-          .id('search-layout-button')
-          .onClick(() => {
-            this.getUIContext().animateTo({ duration: AppMotion.Base, curve: AppCurve.Standard }, () => {
-              this.viewMode = this.viewMode === 0 ? 1 : 0;
-              try {
-                this.resultScroller.scrollEdge(Edge.Top);
-              } catch (_e) {
-                // 切换布局的同一帧可能暂时没有可滚动节点。
-              }
-            });
-          })
+
     }
     .width('100%')
     .height(SEARCH_HEADER_HEIGHT)
@@ -1197,6 +1313,8 @@ export struct SearchPage {
   @LocalBuilder
   buildSearchOptionsMenu() {
     Column() {
+      SearchOptionItem({ label: $r('app.string.search_selected_sources'), selected: this.sourceFilterEnabled,
+        onToggle: (): void => { this.searchOptionsVisible = false; this.openSourcePicker(); } })
       SearchOptionItem({
         label: $r('app.string.search_exact'), selected: this.exactSearch,
         onToggle: (): void => {
@@ -1270,6 +1388,11 @@ export struct SearchPage {
 
   build() {
     HdsNavDestination() {
+      Column().width(0).height(0).bindSheet($$this.resultGroupVisible, this.buildResultGroup(), {
+        height: '82%', showClose: true, backgroundColor: AppMaterial.SheetBackground,
+        blurStyle: AppMaterial.SheetBlur, systemMaterial: AppMaterial.Sheet,
+        title: { title: $r('app.string.search_group_title') } })
+
       Stack({ alignContent: Alignment.TopStart }) {
         Column()
           .width('100%')
@@ -1317,11 +1440,14 @@ export struct SearchPage {
       hideRatio: 1.0
     })
     .systemBarStyle(
-      { statusBarContentColor: WindowUtils.getSystemBarContentColor() },
-      { statusBarContentColor: WindowUtils.getSystemBarContentColor() }
+      { statusBarContentColor: '#FFFFFFFF' },
+      { statusBarContentColor: '#FF000000' }
     )
     .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
     .backgroundColor(HomeTheme.BgNeutral)
+    .bindSheet($$this.sourcePickerVisible, this.buildSourcePicker(), { height: '82%', showClose: true,
+      backgroundColor: AppMaterial.SheetBackground, blurStyle: AppMaterial.SheetBlur,
+      systemMaterial: AppMaterial.Sheet, title: { title: $r('app.string.search_selected_sources') } })
     .onShown(() => this.handlePageShown())
     .onWillHide(() => this.handlePageHidden())
     .onHidden(() => this.handlePageHidden())

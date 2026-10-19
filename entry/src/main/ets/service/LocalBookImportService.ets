@@ -10,10 +10,13 @@ import { MobiBookParser, MobiBookInfo } from './text/MobiBookParser';
 import { FileOpenRouting } from '../utils/FileOpenRouting';
 import { DiagnosticLogService } from './DiagnosticLogService';
 import { LocalImportTaskQueue } from './LocalImportTaskQueue';
+import { LocalTextImage } from './text/LocalTextImage';
+import { image } from '@kit.ImageKit';
 
 class EpubReadStats {
   raw: number = 0;
   layout: number = 0;
+  imageBytes: number = 0;
 }
 
 export class LocalImportFile {
@@ -30,6 +33,55 @@ export class LocalBookPreview {
 }
 
 export class LocalBookImportService {
+  private static async epubBody(context: common.Context, handler: bookParser.BookParserHandler,
+    index: number, html: string, directory: string, stats: EpubReadStats): Promise<string> {
+    const tags = /<(?:img|image)\b[^>]*>/gi;
+    const images: string[] = [];
+    const placeholders: string[] = [];
+    let marked = '';
+    let start = 0;
+    let match = tags.exec(html);
+    while (match !== null) {
+      marked += html.substring(start, match.index);
+      const attr = /(?:src|(?:xlink:)?href)\s*=\s*["']([^"']+)["']/i.exec(match[0]);
+      let token = '';
+      if (attr !== null && !/^(?:[a-z]+:|\/\/)/i.test(attr[1])) {
+        try {
+          const bytes = handler.getResourceContent(index, attr[1].split('#')[0]);
+          if (bytes.byteLength > 0 && bytes.byteLength <= 20 * 1024 * 1024 &&
+            stats.imageBytes + bytes.byteLength <= 128 * 1024 * 1024) {
+            const source = image.createImageSource(bytes);
+            try {
+              const info = await source.getImageInfo();
+              if (info.size.width > 0 && info.size.height > 0 && info.size.width * info.size.height <= 32 * 1024 * 1024) {
+                const path = `${directory}/image_${index}_${images.length}.img`;
+                const file = await fileIo.open(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
+                try {
+                  let offset = 0;
+                  while (offset < bytes.byteLength) {
+                    const written = await fileIo.write(file.fd, bytes.slice(offset));
+                    if (written <= 0) throw new Error('Incomplete EPUB image');
+                    offset += written;
+                  }
+                } finally { await fileIo.close(file); }
+                stats.imageBytes += bytes.byteLength;
+                token = `HSDAEPUBIMAGE${index}X${images.length}END`;
+                images.push(LocalTextImage.token(path));
+                placeholders.push(token);
+              }
+            } finally { await source.release(); }
+          }
+        } catch (_error) { /* 单张无效图片不影响正文阅读 */ }
+      }
+      marked += token ? `\n${token}\n` : '\n';
+      start = tags.lastIndex;
+      match = tags.exec(html);
+    }
+    marked += html.substring(start);
+    let text = LocalBookImportService.htmlText(marked);
+    for (let position = 0; position < images.length; position++) text = text.replace(placeholders[position], images[position]);
+    return text;
+  }
   static readonly MAX_CHAPTERS: number = 50000;
   static readonly MAX_ARCHIVE_BYTES: number = 32 * 1024 * 1024 * 1024;
   static readonly MAX_EXPANDED_BYTES: number = 64 * 1024 * 1024 * 1024;
@@ -253,6 +305,8 @@ export class LocalBookImportService {
         if (newline > offset + 16000) end = newline;
         const code = text.charCodeAt(end - 1);
         if (code >= 0xD800 && code <= 0xDBFF) end--;
+        const imageStart = text.lastIndexOf('\uFFF9', end - 1);
+        if (imageStart >= offset && text.indexOf('\uFFFB', imageStart) >= end) end = imageStart;
       }
       const content = text.substring(offset, end).trim();
       if (content.length > 0) {
@@ -458,7 +512,7 @@ export class LocalBookImportService {
           const label = titles.get(spine[index].idRef);
           const html = await LocalBookImportService.epubSpineText(handler, index, spine[index].href, epubStats);
           await LocalBookImportService.appendText(book, directory, label || `${book.title} ${index + 1}`,
-            LocalBookImportService.htmlText(html), writes);
+            await LocalBookImportService.epubBody(context, handler, index, html, directory, epubStats), writes);
         }
       } else {
         await LocalBookImportService.importText(book, directory, file.uri, file.ext !== '.txt', report, writes);

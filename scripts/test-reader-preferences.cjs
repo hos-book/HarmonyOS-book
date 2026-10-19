@@ -62,7 +62,7 @@ function load(relative) {
   assert.equal(migrated.textAlignment, 'justify', 'legacy preferences default to justified text');
   assert.equal(migrated.backgroundImageMode, 'cover', 'legacy images keep their existing crop');
   assert.equal(migrated.marginLeft, migrated.marginRight);
-  assert.equal(migrated.followSystemTheme, false);
+  assert.equal(migrated.followSystemTheme, true);
   assert.equal(migrated.alwaysShowStatusBar, true, 'existing installations show the status bar by default');
   assert.equal(migrated.volumeKeyPageTurn, false);
   migrated.volumeKeyPageTurn = true;
@@ -99,13 +99,15 @@ function load(relative) {
   await service.save({}, new TextReadingSettings());
   const reset = await service.get({});
   assert.equal(reset.cornerLayout, '0123');
-  assert.equal(reset.followSystemTheme, false);
+  assert.equal(reset.followSystemTheme, true);
   assert.equal(reset.volumeKeyPageTurn, false);
   assert.equal(reset.alwaysShowStatusBar, true);
   assert.equal(reset.marginLeft, 16);
   assert.equal(reset.paragraphSpacing, 0);
   assert.equal(reset.marginRight, 16);
   assert.equal(flushes, 2);
+  values.set('follow_system_theme', false);
+  assert.equal((await service.get({})).followSystemTheme, false, 'explicit opt-out survives the new default');
   const { ReaderThemeId, resolvePalette } = load('model/ReaderTheme');
   const custom = new TextReadingSettings();
   custom.themeId = ReaderThemeId.Black;

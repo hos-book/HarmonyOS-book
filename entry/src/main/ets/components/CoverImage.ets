@@ -30,6 +30,7 @@ class CoverCompositeClip implements AttributeModifier<CommonAttribute> {
 @ComponentV2
 export struct CoverImage {
   @Param url: string = '';
+  @Param title: string = '';
   @Param imgWidth: Length = '100%';
   @Param imgHeight: Length = 0;
   @Param useFixedHeight: boolean = false;
@@ -150,6 +151,7 @@ export struct CoverImage {
   private networkImage(url: string) {
     if (this.useFixedHeight) {
       Image(this.resolvedUrl)
+        .draggable(false)
         .width(this.imgWidth)
         .height(this.imgHeight)
         .borderRadius(this.compositeEdges ? 0 : this.radius)
@@ -175,6 +177,7 @@ export struct CoverImage {
         })
     } else {
       Image(this.resolvedUrl)
+        .draggable(false)
         .width(this.displayWidth())
         .aspectRatio(this.displayRatio())
         .borderRadius(this.compositeEdges ? 0 : this.radius)
@@ -206,6 +209,7 @@ export struct CoverImage {
     // 占位素材是方图，必须填满封面框；不能跟随真实封面的 Contain 留白。
     if (this.useFixedHeight) {
       Image($r('app.media.book_cover_placeholder'))
+        .draggable(false)
         .width(this.imgWidth)
         .height(this.imgHeight)
         .borderRadius(this.compositeEdges ? 0 : this.radius)
@@ -213,6 +217,7 @@ export struct CoverImage {
         .objectFit(ImageFit.Cover)
     } else {
       Image($r('app.media.book_cover_placeholder'))
+        .draggable(false)
         .width(this.displayWidth())
         .aspectRatio(this.displayRatio())
         .borderRadius(this.compositeEdges ? 0 : this.radius)
@@ -224,8 +229,20 @@ export struct CoverImage {
   build() {
     Stack() {
       this.placeholderImage()
+      if (this.title && !this.imageReady) {
+        Text(this.title).fontSize(18).fontWeight(FontWeight.Medium).fontColor('#FFF4E6')
+          .copyOption(CopyOptions.None).draggable(false)
+          .maxLines(5).textOverflow({ overflow: TextOverflow.Ellipsis }).textAlign(TextAlign.Center)
+          .width('86%').padding(8).backgroundColor('#AA493E35').borderRadius(6)
+      }
       if (this.url.startsWith('http') && this.resolvedUrl && this.showImage && !this.giveUp) {
         this.networkImage(this.url)
+      } else if (this.url.startsWith('file://') || this.url.startsWith('/data/')) {
+        Image(this.url.startsWith('file://') ? this.url : `file://${this.url}`)
+          .draggable(false)
+          .width(this.displayWidth()).height(this.useFixedHeight ? this.imgHeight : undefined)
+          .aspectRatio(this.useFixedHeight ? undefined : this.displayRatio()).objectFit(this.imageFit)
+          .borderRadius(this.radius).sourceSize({ width: this.decodeW, height: this.decodeH })
       }
     }
     .width(this.displayWidth())

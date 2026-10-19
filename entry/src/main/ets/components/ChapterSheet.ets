@@ -313,7 +313,7 @@ export struct ChapterSheet {
           .width('100%')
           .layoutWeight(1)
           .cachedCount(5)
-          .scrollBar(BarState.Off)
+          .scrollBar(BarState.Auto)
           .edgeEffect(EdgeEffect.Spring)
           .transition(
             TransitionEffect.opacity(0)

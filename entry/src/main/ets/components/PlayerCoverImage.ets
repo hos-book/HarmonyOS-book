@@ -1,6 +1,7 @@
 import { CoverPrefetcher } from '../service/CoverPrefetcher';
 import { EnhancedPlayerCover } from './EnhancedPlayerCover';
 import { SourceCoverService } from '../service/SourceCoverService';
+import { CoverImage } from './CoverImage';
 
 class PlayerCoverRequest {
   url: string;
@@ -17,6 +18,7 @@ class PlayerCoverRequest {
 @ComponentV2
 export struct PlayerCoverImage {
   @Param url: string = '';
+  @Param title: string = '';
   @Param fallback: string = '';
   @Param highQuality: boolean = false;
   @Local decodeSize: number = 300;
@@ -83,6 +85,9 @@ export struct PlayerCoverImage {
 
   build() {
     Stack() {
+      if (!this.resolvedUrl && !this.resolvedFallback) {
+        CoverImage({ title: this.title, useFixedHeight: true, imgHeight: '100%', imageFit: ImageFit.Contain })
+      } else {
       Image(this.source(this.previewFailed ? this.resolvedUrl : (this.resolvedFallback || this.resolvedUrl)))
         .width('100%').height('100%').objectFit(ImageFit.Cover)
         .sourceSize({ width: 300, height: 300 })
@@ -105,6 +110,7 @@ export struct PlayerCoverImage {
             })
         }, (request: PlayerCoverRequest): string => request.key)
         EnhancedPlayerCover({ url: this.failedKey === this.requestKey() ? (this.resolvedFallback || this.resolvedUrl) : this.resolvedUrl })
+      }
       }
     }
     .width('100%').height('100%')
