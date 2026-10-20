@@ -807,8 +807,8 @@ export class PreferenceService {
 
   static async getDefaultTab(): Promise<number> {
     const s = await PreferenceService.ensureStore();
-    const idx = await s.get(KEY_DEFAULT_TAB, 0) as number;
-    if (idx < 0 || idx > 3) return 0;
+    const idx = await s.get(KEY_DEFAULT_TAB, 0);
+    if (typeof idx !== 'number' || !Number.isInteger(idx) || idx < 0 || idx > 3) return 0;
     return idx;
   }
 

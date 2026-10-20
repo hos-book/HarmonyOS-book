@@ -54,6 +54,10 @@ export struct MainPage {
   private homeBackHandler: (() => boolean) | undefined = undefined;
   private shelfBackHandler: (() => boolean) | undefined = undefined;
   @Local currentTab: number = 0;
+  @Local tabsReady: boolean = false;
+  @Local initialTabIndex: number = 0;
+  private defaultTabRequest: number = 0;
+  private pendingInitialTab: number = -1;
   @Local playerState: PlayerState = AppStorageV2.connect(PlayerState, PLAYER_STATE_KEY, () => new PlayerState())!;
   /** 当前迷你栏样式,折叠态下让 MiniPlayer 只渲染封面 */
   @Local miniBarCollapsed: boolean = false;
@@ -105,6 +109,7 @@ export struct MainPage {
   }
 
   aboutToDisappear(): void {
+    this.defaultTabRequest++;
     this.onHomeShownHandlerChange(undefined);
     this.pendingHomeResume = undefined;
     this.onBackHandlerChange(undefined);
@@ -205,30 +210,50 @@ export struct MainPage {
     if (typeof v !== 'number') return;
     const idx = v as number;
     if (idx < 0 || idx > 3) return;
+    if (!this.tabsReady) {
+      this.changeTab(idx);
+      return;
+    }
     setTimeout(() => {
       this.changeTab(idx);
     }, 60);
   }
 
   private async restoreDefaultTab(): Promise<void> {
-    const idx = await PreferenceService.getDefaultTab();
-    if (idx <= 0 || idx > 3) return;
-    setTimeout(() => {
-      this.changeTab(idx);
-    }, 50);
+    if (this.tabsReady) return;
+    const request = ++this.defaultTabRequest;
+    let index: number = 0;
+    try {
+      index = await PreferenceService.getDefaultTab();
+    } catch (_error) {
+      // 偏好读取失败时仍可进入首页。
+    }
+    if (request !== this.defaultTabRequest) return;
+    if (this.pendingInitialTab !== -1) index = this.pendingInitialTab;
+    if (!this.generalSettings.historyEnabled && index === 2) index = 0;
+    this.currentTab = index;
+    this.initialTabIndex = !this.generalSettings.historyEnabled && index === 3 ? 2 : index;
+    this.pendingInitialTab = -1;
+    this.tabsReady = true;
   }
 
   /**
-   * 统一切 Tab 入口,让外部事件、默认页恢复、页面内跳转都走 HdsTabs 原生切换。
+   * 首屏挂载前保存目标页，挂载后的跳转使用 HdsTabs 原生切换。
    */
   private changeTab(index: number): void {
-    if (index < 0 || index > 3 || index === this.currentTab) return;
+    if (!Number.isInteger(index) || index < 0 || index > 3) return;
+    if (!this.tabsReady) {
+      this.pendingInitialTab = index;
+      return;
+    }
     if (!this.generalSettings.historyEnabled && index === 2) index = 0;
+    if (index === this.currentTab) return;
     this.tabController.changeIndex(!this.generalSettings.historyEnabled && index === 3 ? 2 : index);
   }
 
   @Monitor('generalSettings.historyEnabled')
   private onHistoryVisibilityChanged(): void {
+    if (!this.tabsReady) return;
     const logical = !this.generalSettings.historyEnabled && this.currentTab === 2 ? 0 : this.currentTab;
     this.currentTab = logical;
     this.tabController.changeIndex(!this.generalSettings.historyEnabled && logical === 3 ? 2 : logical);
@@ -344,7 +369,8 @@ export struct MainPage {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      HdsTabs({ controller: this.tabController }) {
+      if (this.tabsReady) {
+      HdsTabs({ controller: this.tabController, index: this.initialTabIndex }) {
         TabContent() {
           HomePage({
             visible: this.currentTab === 0,
@@ -430,8 +456,9 @@ export struct MainPage {
       .height('100%')
       .backgroundColor(HomeTheme.BgNeutral)
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+      }
 
-      if (!PlatformCompat.floatingTabs && (this.speechState.active || this.playerState.currentBook)) {
+      if (this.tabsReady && !PlatformCompat.floatingTabs && (this.speechState.active || this.playerState.currentBook)) {
         Column() {
           this.miniBarBuilder()
         }
@@ -457,6 +484,7 @@ export struct MainPage {
     }
     .width('100%')
     .height('100%')
+    .backgroundColor(HomeTheme.BgNeutral)
     .onSizeChange((_oldValue: SizeOptions, newValue: SizeOptions) => {
       this.handleViewportSizeChange(newValue);
     })
