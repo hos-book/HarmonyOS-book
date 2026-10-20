@@ -21,6 +21,9 @@ export class LocalRulePanelService {
     }
     return result;
   }
+  static async options(source: LocalRuleSource, control: LocalRuleControl): Promise<string[]> {
+    return LightSourceBridge.panelOptions(source, control.id);
+  }
   static async checkLogin(source: LocalRuleSource, content: string,
     _variables: Record<string, string> = {}, baseUrl: string = source.bookSourceUrl): Promise<void> {
     if (!await LightSourceBridge.checkLogin(source, content, baseUrl)) {

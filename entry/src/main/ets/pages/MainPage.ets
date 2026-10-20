@@ -53,6 +53,7 @@ export struct MainPage {
   private pendingHomeResume: (() => void) | undefined = undefined;
   private homeBackHandler: (() => boolean) | undefined = undefined;
   private shelfBackHandler: (() => boolean) | undefined = undefined;
+  private recordsBackHandler: (() => boolean) | undefined = undefined;
   @Local currentTab: number = 0;
   @Local tabsReady: boolean = false;
   @Local initialTabIndex: number = 0;
@@ -95,6 +96,7 @@ export struct MainPage {
     });
     this.onBackHandlerChange((): boolean => {
       if (this.currentTab === 1) return this.shelfBackHandler?.() ?? false;
+      if (this.currentTab === 2 && this.generalSettings.historyEnabled) return this.recordsBackHandler?.() ?? false;
       return this.currentTab === 0 && (this.homeBackHandler?.() ?? false);
     });
     this.context = this.getUIContext().getHostContext() as common.UIAbilityContext;
@@ -415,6 +417,9 @@ export struct MainPage {
         if (this.generalSettings.historyEnabled) {
         TabContent() {
           ReadingStatsPage({
+            onBackHandlerChange: (handler: (() => boolean) | undefined): void => {
+              this.recordsBackHandler = handler;
+            },
             navStack: this.navStack,
             inTab: true,
             onScrollerReady: (scroller: Scroller) => { this.scrollers.set(2, scroller); }

@@ -8,7 +8,7 @@
       "uiSyntax": "hml",
       "window": { "designWidth": 320, "autoDesignWidth": true },
       "colorMode": "auto",
-      "isDefault": true,
+      "isDefault": false,
       "updateEnabled": true,
       "scheduledUpdateTime": "10:30",
       "updateDuration": 0,

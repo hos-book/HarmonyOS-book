@@ -1,5 +1,6 @@
 import { BusinessError } from '@kit.BasicServicesKit';
 import { AccountAvatar } from '../components/AccountAvatar';
+import { MembershipBadge } from '../components/MembershipBadge';
 import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
 import { AuthService, HwAuthErrorCode } from '../service/AuthService';
 import { AppBackupSnapshot } from '../service/AppBackupService';
@@ -85,6 +86,7 @@ export struct AccountPage {
   }
 
   private async requireAutoMembership(): Promise<boolean> {
+    if (!MembershipState.featureEnabled) return this.alive;
     if (this.checkingMembership) return false;
     this.checkingMembership = true;
     try {
@@ -366,7 +368,8 @@ export struct AccountPage {
   private formatDate(value: number): string {
     const date = new Date(value);
     return `${date.getFullYear()}/${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')} ` +
-      `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+      `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:` +
+      `${String(date.getSeconds()).padStart(2, '0')}`;
   }
 
   build() {
@@ -437,6 +440,9 @@ export struct AccountPage {
           .fontColor(this.auth.isLoggedIn ? this.membership.nameColor : $r('sys.color.font_primary'))
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+        if (this.membership.displayActive) {
+          MembershipBadge({ productId: this.membership.displayProductId, badgeHeight: 20, compact: true })
+        }
         Text(this.auth.isLoggedIn ? $r('app.string.account_huawei_connected') : $r('app.string.account_local_available'))
           .fontSize(AppFont.Caption)
           .fontColor($r('sys.color.font_tertiary'))
@@ -626,12 +632,6 @@ export struct AccountPage {
           .fontSize(AppFont.Body)
           .fontColor($r('sys.color.font_secondary'))
           .lineHeight(21)
-        Text(this.auth.isLoggedIn && this.lastBackupAt() > 0
-          ? $r('app.string.cloud_last_backup', this.formatDate(this.lastBackupAt()))
-          : $r('app.string.cloud_last_backup_unknown'))
-          .fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_tertiary'))
-
         this.automaticBackupSettings()
 
         Column() {
@@ -671,6 +671,13 @@ export struct AccountPage {
               .width('100%')
           }
         }
+        Text(this.auth.isLoggedIn && this.lastBackupAt() > 0
+          ? $r('app.string.cloud_last_backup', this.formatDate(this.lastBackupAt()))
+          : $r('app.string.cloud_last_backup_unknown'))
+          .fontSize(AppFont.Caption)
+          .fontColor($r('sys.color.font_secondary'))
+          .width('100%')
+          .id('cloud-last-backup-time')
         Text($r('app.string.cloud_backup_exclusions'))
           .fontSize(AppFont.Caption)
           .lineHeight(19)

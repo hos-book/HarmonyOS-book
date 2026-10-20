@@ -120,6 +120,15 @@ export class LocalRuleBrowserLoginCoordinator {
     });
   }
 
+  static open(sourceUrl: string, sourceName: string, address: string): void {
+    const route = RuleSourceLoginRouteParams.of(sourceUrl, sourceName || sourceUrl, address);
+    if (!route.isValid()) throw new Error('网页登录仅支持有效的 HTTPS 地址');
+    if (LocalRuleBrowserLoginCoordinator.pending !== undefined) throw new Error('请先完成当前网页登录');
+    const opener = LocalRuleBrowserLoginCoordinator.opener;
+    if (opener === undefined) throw new Error('网页登录导航尚未就绪');
+    opener(route);
+  }
+
   static attach(requestId: string, closePage: LocalRuleBrowserLoginCancel): boolean {
     const pending = LocalRuleBrowserLoginCoordinator.pending;
     if (pending === undefined || pending.route.requestId !== requestId || pending.closing) return false;

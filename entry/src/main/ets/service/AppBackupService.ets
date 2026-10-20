@@ -23,6 +23,7 @@ import { LocalRuleSourceImportService } from './rulesource/LocalRuleSourceImport
 import { GuangYuSourceIdentity } from './rulesource/guangyu/GuangYuSourceIdentity';
 import { ShuShanSourceIdentity } from './rulesource/shushan/ShuShanSourceIdentity';
 import { SourceDataService } from './SourceDataService';
+import { DiagnosticLogService } from './DiagnosticLogService';
 import { ReadingBackupService, ReadingBackupSnapshot } from './text/ReadingBackupService';
 
 const BACKUP_DIR: string = 'backup';
@@ -97,47 +98,68 @@ export class AppBackupService {
   }
 
   static async createSnapshot(context: common.Context, outputPath: string = '', strict: boolean = false): Promise<void> {
-    await PreferenceService.init(context);
-    DataService.setContext(context);
-    const snapshot = new AppBackupSnapshot();
-    snapshot.exportedAt = Date.now();
-    snapshot.preferences = AppBackupService.normalizePlaybackSnapshot(await PreferenceService.exportBackupSnapshot());
-    snapshot.stats = (await StatsService.exportBackupStats(context))
-      .filter((item: BookUsageStats): boolean => AppBackupService.validStats(item));
-    snapshot.medals = await MedalService.instance.exportSnapshot(context,
-      snapshot.stats.reduce((total: number, item: BookUsageStats): number => total + item.listenSeconds, 0));
-    snapshot.books = await DataService.exportBackupBookShells();
-    snapshot.reading = await ReadingBackupService.createSnapshot(context);
+    let stage = 'preferences';
     try {
-      await LocalRuleSourceRepository.init(context);
-      const localSources = await LocalRuleSourceRepository.getAll();
-      for (const source of localSources) {
-        snapshot.ruleSources.push(AppBackupService.toBackupRuleSource(source));
+      await PreferenceService.init(context);
+      DataService.setContext(context);
+      const snapshot = new AppBackupSnapshot();
+      snapshot.exportedAt = Date.now();
+      snapshot.preferences = AppBackupService.normalizePlaybackSnapshot(await PreferenceService.exportBackupSnapshot());
+      stage = 'stats';
+      snapshot.stats = (await StatsService.exportBackupStats(context))
+        .filter((item: BookUsageStats): boolean => AppBackupService.validStats(item));
+      stage = 'medals';
+      snapshot.medals = await MedalService.instance.exportSnapshot(context,
+        snapshot.stats.reduce((total: number, item: BookUsageStats): number => total + item.listenSeconds, 0));
+      stage = 'books';
+      snapshot.books = await DataService.exportBackupBookShells();
+      stage = 'reading';
+      snapshot.reading = await ReadingBackupService.createSnapshot(context);
+      stage = 'sources';
+      try {
+        await LocalRuleSourceRepository.init(context);
+        stage = 'sources_read';
+        const localSources = await LocalRuleSourceRepository.getAll();
+        stage = 'sources_convert';
+        for (const source of localSources) {
+          snapshot.ruleSources.push(AppBackupService.toBackupRuleSource(source));
+        }
+      } catch (error) {
+        console.error(`[AppBackupService] source export failed: ${DiagnosticLogService.describe(error)}`);
+        if (error instanceof Error) console.error(`[AppBackupService] source export stack: ${DiagnosticLogService.sanitize(error.stack ?? '')}`);
+        if (strict) throw new Error('Cannot back up source definitions');
+        console.warn(`[AppBackupService] skip local rule backup: ${AppBackupService.errorMessage(error)}`);
       }
-    } catch (error) {
-      if (strict) throw new Error('Cannot back up source definitions');
-      console.warn(`[AppBackupService] skip local rule backup: ${AppBackupService.errorMessage(error)}`);
-    }
 
-    const dir = AppBackupService.backupDir(context);
-    try { await fileIo.mkdir(dir); } catch (_e) { /* 已存在 */ }
-    const path = outputPath || AppBackupService.backupPath(context);
-    const tmp = path + '.tmp';
-    const bytes = new util.TextEncoder().encodeInto(JSON.stringify(snapshot));
-    if (bytes.byteLength > MAX_BACKUP_BYTES) throw new Error('Backup exceeds size limit');
-    const file = await fileIo.open(tmp,
-      fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
-    try {
-      if (await fileIo.write(file.fd, bytes.buffer) !== bytes.byteLength) {
-        throw new Error('Incomplete backup write');
+      const dir = AppBackupService.backupDir(context);
+      try { await fileIo.mkdir(dir); } catch (_e) { /* 已存在 */ }
+      const path = outputPath || AppBackupService.backupPath(context);
+      const tmp = path + '.tmp';
+      stage = 'serialize';
+      const bytes = new util.TextEncoder().encodeInto(JSON.stringify(snapshot));
+      console.info(`[AppBackupService] snapshot bytes=${bytes.byteLength} limit=${MAX_BACKUP_BYTES} books=${snapshot.books.length} sources=${snapshot.ruleSources.length}`);
+      if (bytes.byteLength > MAX_BACKUP_BYTES) throw new Error('Backup exceeds size limit');
+      stage = 'write';
+      const file = await fileIo.open(tmp,
+        fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+      try {
+        if (await fileIo.write(file.fd, bytes.buffer) !== bytes.byteLength) {
+          throw new Error('Incomplete backup write');
+        }
+        stage = 'flush';
+        try { await fileIo.fsync(file.fd); } catch (_e) {
+          if (strict) throw new Error('Cannot flush backup');
+        }
+      } finally {
+        await fileIo.close(file);
       }
-      try { await fileIo.fsync(file.fd); } catch (_e) {
-        if (strict) throw new Error('Cannot flush backup');
-      }
-    } finally {
-      await fileIo.close(file);
+      stage = 'commit';
+      await fileIo.moveFile(tmp, path);
+    } catch (error) {
+      console.error(`[AppBackupService] create snapshot failed stage=${stage}: ${DiagnosticLogService.describe(error)}`);
+      if (error instanceof Error) throw error;
+      throw new Error(DiagnosticLogService.describe(error));
     }
-    await fileIo.moveFile(tmp, path);
   }
 
   private static normalizePlaybackSnapshot(original: PreferenceBackupSnapshot): PreferenceBackupSnapshot {
@@ -562,9 +584,10 @@ export class AppBackupService {
   }
 
   private static sanitizeHeader(header: string): string {
-    const text = header.trim();
-    if (text.length === 0) return '';
     try {
+      // 导入的 JSON 可能保留对象形式的 header；静态字段类型不代表运行期一定是字符串。
+      const text = typeof header === 'string' ? header.trim() : JSON.stringify(header);
+      if (typeof text !== 'string' || text.length === 0) return '';
       const parsed = JSON.parse(text) as Object;
       if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return '';
       const record = parsed as Record<string, Object>;

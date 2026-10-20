@@ -2102,8 +2102,9 @@ export class AnalyzeRule {
   }
 
   private getHtmlAttr(attrText: string, attr: string): string {
+    // 引号里的值可以跨行（例如多行的 og:description）；用 . 会匹配不到，退到下面的无引号写法只取到一个引号。
     const patterns = AnalyzeRule.cached(AnalyzeRule.attrPatterns, attr, (): RegExp[] => [
-      new RegExp(`\\s${this.escapeRegex(attr)}\\s*=\\s*(["'])(.*?)\\1`, 'i'),
+      new RegExp(`\\s${this.escapeRegex(attr)}\\s*=\\s*(["'])([\\s\\S]*?)\\1`, 'i'),
       new RegExp(`\\s${this.escapeRegex(attr)}\\s*=\\s*([^\\s>]+)`, 'i')
     ]);
     const m = attrText.match(patterns[0]);

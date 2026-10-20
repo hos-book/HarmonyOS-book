@@ -1,4 +1,5 @@
 import { SourceTestTaskService } from '../service/rulesource/SourceTestTaskService';
+import { MembershipState } from '../model/MembershipState';
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { RuleSourceImportQueue } from '../service/rulesource/RuleSourceImportQueue';
 import lazy { scanBarcode, scanCore } from '@kit.ScanKit';
@@ -2010,8 +2011,10 @@ export struct RuleSourcePage {
           .fontSize(AppFont.Caption)
           .fontColor($r('sys.color.font_tertiary'))
           .maxLines(2)
-        Text($r('app.string.rule_source_membership_hint'))
-          .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+        if (MembershipState.featureEnabled) {
+          Text($r('app.string.rule_source_membership_hint'))
+            .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+        }
       }
       .width('100%')
       .alignItems(HorizontalAlign.Start)

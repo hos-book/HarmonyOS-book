@@ -102,11 +102,40 @@ const replaceMethod = (text, signature, body) => {
 };
 function adapt(name, text) {
   // Execution policy stays in host ports; upstream owns the web-wait behavior.
+  // This host deliberately has no synchronous or pooled QuickJS runtime. Keep the
+  // optional upstream defaults out of the dependency graph; nativeScripts supplies both paths.
+  if (name === 'core/nativesource/NativeJsLibrary.ts') return `
+import type { NativeScriptLibrary } from './NativeExpr';
+export class NativeJsLibrary {
+  static check(_code: string, _names: string[], _functions: string[] = []): string { return ''; }
+  static forCode(_code: string): NativeScriptLibrary {
+    return { has: () => true, call: () => { throw new Error('Native JS requires the isolated host'); } };
+  }
+}
+`;
+  if (name === 'core/nativesource/NativeScriptSessions.ts') return `
+import type { NativeScriptEngine } from './NativeScriptHost';
+export class NativeScriptSessions {
+  static forCode(_code: string): NativeScriptEngine {
+    throw new Error('Native script requires the isolated host');
+  }
+}
+`;
   return rewritePackageImports(name, text).replaceAll('\r\n', '\n');
 }
 
 // Prepare and validate every transformation before mutating the working tree.
 const generated = [...files].map(([name, original]) => ({ name, original, text: adapt(name, original) }));
+// Both parsers have no platform imports. JSONPath must stay in the same bounded task
+// as NativeExpr so each $.field access does not replay the entire batch across the host.
+const ts = require(path.join(process.env.DEVECO_HOME, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
+const exprOriginal = files.get('core/nativesource/NativeExpr.ts') + '\n' + files.get('core/rule/JsonPathEvaluator.ts');
+const exprProgram = ts.transpileModule(exprOriginal, { compilerOptions: {
+  target: ts.ScriptTarget.ES2020, module: ts.ModuleKind.CommonJS, removeComments: true
+}}).outputText;
+generated.push({ name: 'NativeExprProgram.ts', original: exprOriginal,
+  origin: locate('core/nativesource/NativeExpr.ts'), generated: true,
+  text: 'export const nativeExprProgram: string = ' + JSON.stringify(exprProgram) + ';\n' });
 // Keep upstream CookieStore semantics reusable, while its persistence/session entry remains local.
 const cookieOriginal = files.get('core/http/CookieStore.ts');
 let cookieSemantics = cookieOriginal.replaceAll('CookieStore', 'LightCookieSemantics')

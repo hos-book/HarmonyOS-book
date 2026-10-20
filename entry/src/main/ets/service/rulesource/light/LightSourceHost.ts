@@ -5,6 +5,11 @@ export interface LightSourceHost {
   acquireWeb?(): Promise<number>;
   releaseWeb?(lease: number): void;
   evaluate(script: string, sourceUrl: string, timingId?: number): Promise<string>;
+  evaluateNative?(script: string, sourceUrl: string, timeoutMs: number): Promise<string>;
+  toast?(message: string): void;
+  refreshExplore?(sourceUrl: string): Promise<void>;
+  openBrowser?(sourceUrl: string, sourceName: string, address: string): Promise<void>;
+  cancelBrowser?(sourceUrl: string): void;
   hydrate(url: string): Promise<string>;
   getSource(url: string): Promise<string>;
   listSources(): Promise<string>;

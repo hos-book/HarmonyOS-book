@@ -1,5 +1,6 @@
 import { GeneralSettings } from '../model/GeneralSettings';
 import { BookGroupSheet } from '../components/BookGroupSheet';
+import { ShelfGroupManager } from '../components/ShelfGroupManager';
 import { BookPresentation } from '../model/BookPresentation';
 import { BookEditSheet } from '../components/BookEditSheet';
 import { WidgetUpdater } from '../service/WidgetUpdater';
@@ -189,6 +190,8 @@ export struct FavoritePage {
   @Local shelfGroup: string = '';
   @Local shelfGroups: string[] = [];
   @Local groupMenuVisible: boolean = false;
+  @Local groupManagerVisible: boolean = false;
+  @Local savingGroups: boolean = false;
   private groupSelectionRevision: number = 0;
   private groupSaveTask: Promise<void> = Promise.resolve();
   private pendingDeleteFiles: boolean = false;
@@ -938,6 +941,45 @@ export struct FavoritePage {
     return options;
   }
 
+  private openGroupManager(): void {
+    if (!this.alive || this.removingBook || this.showBatchDelete) return;
+    this.groupMenuVisible = false;
+    this.statusFilterMenuVisible = false;
+    this.shelfGroups = BookPresentation.groups.slice();
+    this.groupManagerVisible = true;
+  }
+
+  @Builder
+  buildGroupManager() {
+    ShelfGroupManager({ groups: this.shelfGroups,
+      onBusy: (busy: boolean): void => { this.savingGroups = busy; },
+      onDelete: async (group: string): Promise<void> => { await this.deleteShelfGroup(group); },
+      onSave: async (previous: string, name: string): Promise<void> => {
+        if (!name || name === BookPresentation.UNGROUPED || BookPresentation.groups.includes(name) ||
+          (previous && !BookPresentation.groups.includes(previous))) throw new Error('Invalid group name');
+        const selected = previous.length > 0 && this.shelfGroup === previous;
+        const groups = previous ? BookPresentation.groups.map((group: string): string => group === previous ? name : group)
+          : BookPresentation.groups.concat(name);
+        const ids = previous ? BookPresentation.edits.filter((edit): boolean => edit.group === previous)
+          .map((edit): string => edit.bookId) : [];
+        await PreferenceService.saveBookPresentation(BookPresentation.assignGroup(ids, name), groups);
+        this.shelfGroups = BookPresentation.groups.slice();
+        if (selected) this.selectShelfGroup(name);
+      }
+    })
+  }
+
+  private async deleteShelfGroup(group: string): Promise<void> {
+    if (!group || group === BookPresentation.UNGROUPED || !BookPresentation.groups.includes(group)) return;
+    const selected = this.shelfGroup === group;
+    const ids = BookPresentation.edits.filter((edit): boolean => edit.group === group)
+      .map((edit): string => edit.bookId);
+    const groups = BookPresentation.groups.filter((name: string): boolean => name !== group);
+    await PreferenceService.saveBookPresentation(BookPresentation.assignGroup(ids, ''), groups);
+    this.shelfGroups = BookPresentation.groups.slice();
+    if (selected) this.selectShelfGroup(BookPresentation.UNGROUPED);
+  }
+
   @LocalBuilder
   buildGroupMenu() {
     Scroll() {
@@ -952,6 +994,9 @@ export struct FavoritePage {
             .backgroundColor(group === this.shelfGroup ? AppColor.BrandSoft : Color.Transparent)
             .onClick((): void => this.selectShelfGroup(group))
         }, (group: string): string => group)
+        Button($r('app.string.shelf_group_manage')).width('100%')
+          .fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
+          .onClick((): void => this.openGroupManager())
       }.width('100%').padding(AppSpace.Xs)
     }.width(200).constraintSize({ maxHeight: 320 }).scrollBar(BarState.Auto)
   }
@@ -1243,6 +1288,10 @@ export struct FavoritePage {
   private handleManageBack(): boolean {
     if (this.removingBook) return true;
     if (this.showBatchGroup) { this.showBatchGroup = false; return true; }
+    if (this.groupManagerVisible) {
+      if (!this.savingGroups) this.groupManagerVisible = false;
+      return true;
+    }
     if (this.showBatchDelete) {
       this.showBatchDelete = false;
       return true;
@@ -1619,6 +1668,13 @@ export struct FavoritePage {
           onWillDismiss: (action: DismissSheetAction): void => { if (!this.removingBook) action.dismiss(); }
         })
       Column().width(0).height(0)
+        .bindSheet($$this.groupManagerVisible, this.buildGroupManager(), {
+          height: '65%', showClose: true, backgroundColor: AppMaterial.SheetBackground,
+          blurStyle: AppMaterial.SheetBlur,
+          systemMaterial: PlatformCompat.immersiveMaterial ? AppMaterial.Sheet : undefined,
+          onWillDismiss: (action: DismissSheetAction): void => { if (!this.savingGroups) action.dismiss(); }
+        })
+      Column().width(0).height(0)
         .bindSheet($$this.showUpdates, this.buildUpdatesSheet(), {
           height: '72%', preferType: SheetType.BOTTOM, showClose: true, dragBar: true,
           backgroundColor: AppMaterial.SheetBackground, blurStyle: AppMaterial.SheetBlur,
@@ -1918,6 +1974,7 @@ export struct FavoritePage {
             this.groupMenuVisible = !this.groupMenuVisible;
           } })
           .id('shelf-group-button')
+          .priorityGesture(LongPressGesture({ repeat: false }).onAction((): void => this.openGroupManager()))
           .enabled(!this.removingBook && !this.showBatchDelete)
           .bindPopup(this.groupMenuVisible, this.groupMenuOptions())
       }

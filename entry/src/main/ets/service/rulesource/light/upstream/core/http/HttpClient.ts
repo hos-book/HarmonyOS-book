@@ -56,8 +56,10 @@ export interface HttpBinaryResponse {
 export class HttpClient {
   private timeout: number;
   private activeClients: Set<http.HttpRequest> = new Set<http.HttpRequest>();
+  static readonly DEFAULT_USER_AGENT: string =
+    'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
   private defaultHeaders: Record<string, string> = {
-    'User-Agent': 'Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'User-Agent': HttpClient.DEFAULT_USER_AGENT,
     'Accept': '*/*',
     'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
     'Connection': 'keep-alive'

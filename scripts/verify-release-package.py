@@ -17,6 +17,16 @@ def verify_hap(data, name, args):
             'targetAPIVersion', 'compileSdkVersion', 'apiReleaseType', 'buildMode', 'debug')}
         summary['module'] = name
         errors = []
+        default_forms = []
+        for resource in hap.namelist():
+            if resource.startswith('resources/') and '/profile/' in resource and resource.endswith('.json'):
+                profile = json.loads(hap.read(resource))
+                for form in profile.get('forms', []):
+                    if form.get('isDefault') is True:
+                        default_forms.append(form.get('name', resource))
+        summary['defaultForms'] = default_forms
+        if len(default_forms) > 1:
+            errors.append('Multiple default forms: ' + ', '.join(default_forms))
         if app.get('apiReleaseType') != 'Release':
             errors.append('SDK channel must be Release')
         if app.get('debug') is not False:
@@ -74,6 +84,11 @@ def main():
     if args.name_cache is not None:
         cache = json.loads(args.name_cache.read_text(encoding='utf-8'))
         properties = cache.get('PropertyCache', {})
+        dynamic_exports = ['EpubParserService', 'createEpubReaderController', 'createEpubReaderBuilder']
+        renamed_exports = [name for name in dynamic_exports if properties.get(name, name) != name]
+        if renamed_exports:
+            for result in results:
+                result['errors'].append('Obfuscation breaks dynamic EPUB exports: ' + ', '.join(renamed_exports))
         source_root = Path(__file__).resolve().parents[1] / 'entry/src/main/ets'
         contracts = [
             'service/rulesource/light/upstream/core/nativesource/NativeSourceSpec.ts',

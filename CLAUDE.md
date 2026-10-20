@@ -13,7 +13,7 @@
 - 编译使用经确认的 Release SDK；当前配套为 DevEco Studio 26.0.0.821，编译版本与目标/最低版本分开管理。上传前检查 APP 内所有 HAP 的 `apiReleaseType = Release`，QuickJS HAR 也需用正式工具链重建。
 - Stage 模式，单模块 `entry/`，设备类型为 `phone`、`tablet`、`2in1`、`wearable`；前三者按实际窗口尺寸适配，标准手表使用独立圆屏页面；多端交互与待验证项目见 `docs/APP_UI.md`。
 - ArkTS + ArkUI V2；页面使用 `@Local` 和 Service 单例。
-- `bundleName = com.huan.listenbook`；当前 `versionName = 0.1.40`、`versionCode = 1000040`，以 `AppScope/app.json5` 为准。
+- `bundleName = com.huan.listenbook`；当前 `versionName = 0.1.65`、`versionCode = 1000065`，以 `AppScope/app.json5` 为准。
 - 后台模式为 `audioPlayback`、`dataTransfer`，权限包括网络、振动和长时后台运行。
 - `entry/libs/quickjs.har` 为 arm64-v8a / x86_64 双 ABI 本地依赖；源码和构建脚本在 `third_party/quickjs/`、`scripts/build-quickjs.ps1`。
 - 签名在本机 DevEco Studio 配置，`build-profile.json5` 含私有签名信息，禁止提交其中的本机改动。
@@ -24,8 +24,8 @@
 
 | 页面 / 流程 | 服务入口 | 数据 |
 |---|---|---|
-| 主题 / 主题图标 | `AppIconPage` → `AppIconService` → `bundleManager` | 默认图标免费，其余图标需要会员；选择由系统保存；API 26 起切换，API 20–25 仅预览 |
-| 免费主题及原会员功能 | `ProfilePage` → `MembershipPage`；`MembershipService` 免费契约 | 合同办理期间隐藏会员及购买入口，图标、自动备份、书源总数和搜索并发全部开放；不调用 IAP、不因会员状态重置设置 |
+| 主题 / 主题图标 | `AppIconPage` → `AppIconService` → `bundleManager` | 所有图标免费开放；选择由系统保存；API 26 起切换，API 20–25 仅预览 |
+| 会员中心与主题 | `ProfilePage` → `MembershipSubscriptionPage` / `MembershipPage` → `MembershipService` | 会员中心暂时隐藏，权益全部放开；保留华为 IAP、验签与快照实现 |
 | 全网榜单、平台排行、版本匹配 | `RankingHomePage` → `RankingService` / `BookMatchService` → `BookSourceService` | 公开榜单元数据、独立本地缓存、已启用的导入书源 |
 | 首页推荐、分类、更多 | `HomePage` → `HomeSourceService` / `BlockMorePage` → `BookSourceService` | 已选择、启用且支持发现的小说或有声书源，选择保存在本地偏好中 |
 | 搜索和搜索推荐 | `SearchPage` → `SourceDataService` → `BookSourceService` | 已启用且具备搜索规则的导入源、`SearchCache`、本地搜索历史 |
@@ -48,15 +48,13 @@
 
 主导航是 `Index` + `NavPathStack`，`MainPage` 承载“首页 / 书架 / 记录 / 我的”。搜索、详情、阅读、播放器、导入、下载和书源管理使用独立路由。
 
-## 合同办理期间的免费版本
+## 会员页面与权益
 
-当前 0.1.54 隐藏会员中心、套餐、购买/管理订阅及会员徽标。`MembershipService` 不再引用 IAP，不查订单、不恢复会员快照、不因核验失败重置用户设置。`MembershipState.hasAccess` 与 `hasCurrentEntitlement()` 对所有用户开放功能，但不伪造已购会员。
+当前 `MembershipState.featureEnabled = false`：隐藏会员中心入口、徽章、会员昵称颜色、书源会员提示及专属图标提示。主题页正常提供图标选择。会员页面、素材、购买、订单验签、恢复购买和订阅管理代码完整保留；关闭期间不查询 IAP、不发起购买、不清除购买快照，也不按会员状态重置用户设置。旧会员中心路由回退主题页。
 
-桌面图标、自动云备份和 1/3/7 天周期、书源导入总数、搜索并发 1–12 全部免费。图标仍需要 API 26；自动云备份仍需系统账号登录、用户主动开启、可用云空间，并保留账号隔离、覆盖确认、前台调度和失败退避。第三方站点自身的内容授权保持不变。
+所有用户均可不限会员总数导入书源、自定义 1–12 搜索并发、开启自动云备份及 1/3/7 天周期、切换全部图标。云备份仍需要账号与可用云空间，图标切换仍要求 API 26；安全预算和设备能力限制保留。免费开放不伪造会员订单或有效期。
 
-主题页沿用 `MembershipPage.ets` 和原主题路由；旧订阅路由兼容落到免费主题页。IAP 旧实现保留在 Git 历史中，后续恢复付费需要完成签约并重新接入，不能仅切换 UI 开关。当前用户要求先安装手机试用，暂不生成正式分发包。
-
-`node scripts/test-membership.cjs` 验证当前免费版本服务和图标/搜索设置；旧付费回归场景以 Git 历史为准。
+重新开启统一开关可恢复保留的会员策略。`node scripts/test-membership.cjs` 同时验证关闭状态下离线放行、不调用 IAP、不显示会员身份、不重置设置，以及显式开启后的订单验签、恢复购买、到期/退款、账号变化和购买并发。
 
 ## 应用市场更新
 

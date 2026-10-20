@@ -26,6 +26,16 @@ export interface NativeExprHost {
   cookie?(url: string, name: string): string;
 }
 
+/**
+ * 书源顶层 js 里定义的函数，由宿主的脚本引擎执行。表达式里按函数名直接调用；脚本里通过 native.名称
+ * 回调内置函数（builtin）。和 lib 一样只做纯计算，碰不到网络和书源状态。
+ */
+export interface NativeScriptLibrary {
+  /** 脚本里有没有这个名字的函数。 */
+  has(name: string): boolean;
+  call(name: string, args: NativeValue[], builtin: (name: string, args: NativeValue[]) => NativeValue): NativeValue;
+}
+
 export class NativeExprError extends Error {
   constructor(message: string) {
     super(message);
@@ -67,6 +77,11 @@ export class NativeScope {
 
   child(): NativeScope {
     return new NativeScope(this);
+  }
+
+  /** JSON snapshot for an isolated asynchronous expression host. */
+  snapshot(): Record<string, NativeValue> {
+    return Object.assign(this.parent ? this.parent.snapshot() : {}, this.values);
   }
 }
 
@@ -569,6 +584,9 @@ class Parser {
   }
 }
 
+// 需要传入匿名函数的内置函数：JS 里用数组自带的方法，不经 native 提供。
+const LAMBDA_BUILTINS = ['map', 'flatMap', 'filter', 'find'];
+
 // 内置函数名：函数库里的定义不能与之重名。新增内置函数时同步补到这里。
 const BUILTIN_NAMES = ['str', 'num', 'int', 'bool', 'typeOf', 'len', 'trim', 'lower', 'upper', 'default', 'coalesce',
   'replace', 'replaceText', 'match', 'matchAll', 'test', 'split', 'lines', 'join', 'compact', 'unique', 'first', 'last',
@@ -700,9 +718,31 @@ export class NativeExpr {
   private steps: number = 0;
   private depth: number = 0;
   private library: Map<string, FunctionDecl> = new Map();
+  private script: NativeScriptLibrary | null = null;
+  private scriptDependencies: Map<string, boolean> = new Map();
 
   constructor(host: NativeExprHost) {
     this.host = host;
+  }
+
+  /** 全部内置函数名。 */
+  static builtinNames(): string[] {
+    return BUILTIN_NAMES.slice();
+  }
+
+  /** JS 函数库里可以通过 native.名称 调用的内置函数。 */
+  static scriptBuiltinNames(): string[] {
+    return BUILTIN_NAMES.filter((name: string): boolean => LAMBDA_BUILTINS.indexOf(name) < 0);
+  }
+
+  /** lib 里定义的函数名；语法有误时返回空列表。 */
+  static libraryFunctionNames(source: string | undefined): string[] {
+    if (!source || !source.trim()) return [];
+    try {
+      return NativeExpr.parseLibrary(source).map((fn: FunctionDecl): string => fn.name);
+    } catch (e) {
+      return [];
+    }
   }
 
   /** 语法检查函数库，返回错误信息；通过时返回空串。 */
@@ -729,9 +769,59 @@ export class NativeExpr {
   /** 载入书源的函数库，之后的表达式可以直接调用其中的函数。 */
   loadLibrary(source: string | undefined): NativeExpr {
     this.library = new Map();
+    this.scriptDependencies.clear();
     if (!source || !source.trim()) return this;
     for (const fn of NativeExpr.parseLibrary(source)) this.library.set(fn.name, fn);
     return this;
+  }
+
+  /** 接上书源的 JS 函数库；查找顺序是 lib 函数、内置函数、JS 函数。 */
+  loadScript(script: NativeScriptLibrary | null): NativeExpr {
+    this.script = script;
+    return this;
+  }
+
+  /** Inspect the parsed expression without evaluating it. Only JS calls need an isolated script host. */
+  requiresScript(source: string, template: boolean = false): boolean {
+    const key = (template ? 't:' : 'e:') + source;
+    const cached = this.scriptDependencies.get(key);
+    if (cached !== undefined) return cached;
+    const nodes: Node[] = template ? NativeExpr.splitTemplate(source)
+      .filter((part): boolean => part.expr).map((part): Node => parseExpression(part.text)) : [parseExpression(source)];
+    const functions: Set<string> = new Set();
+    let required = false;
+    let visited = 0;
+    while (nodes.length > 0) {
+      // Large/ambiguous dependency graphs stay in the bounded script host.
+      if (++visited > 10000) { required = true; break; }
+      const node = nodes.pop() as Node;
+      if (node.t === 'call') {
+        const name = node.name as string;
+        const fn = this.library.get(name);
+        if (fn) {
+          if (!functions.has(name)) { functions.add(name); nodes.push(fn.body); }
+        } else if (BUILTIN_NAMES.indexOf(name) < 0) {
+          required = true;
+          break;
+        }
+      }
+      if (node.a) nodes.push(node.a);
+      if (node.b) nodes.push(node.b);
+      if (node.c) nodes.push(node.c);
+      if (node.args) for (const child of node.args) nodes.push(child);
+      if (node.keys) for (const child of node.keys) nodes.push(child);
+    }
+    if (this.scriptDependencies.size >= AST_CACHE_LIMIT) this.scriptDependencies.clear();
+    this.scriptDependencies.set(key, required);
+    return required;
+  }
+
+  /** 供 JS 里的 native.名称 调用内置函数；scope 是发起调用的那条表达式的作用域。 */
+  callBuiltin(name: string, args: NativeValue[], scope: NativeScope): NativeValue {
+    if (BUILTIN_NAMES.indexOf(name) < 0 || LAMBDA_BUILTINS.indexOf(name) >= 0) {
+      throw new NativeExprError(`native.${name} 不是可用的内置函数`);
+    }
+    return this.invoke(name, args, scope);
   }
 
   /** 语法检查，返回错误信息；通过时返回空串。 */
@@ -1140,6 +1230,21 @@ export class NativeExpr {
     const args = argNodes.map((arg: Node): NativeValue => this.run(arg, scope));
     const userFunction = this.library.get(name);
     if (userFunction) return this.callFunction(userFunction, args);
+    return this.invoke(name, args, scope);
+  }
+
+  private callScript(script: NativeScriptLibrary, name: string, args: NativeValue[], scope: NativeScope): NativeValue {
+    if (this.depth >= MAX_CALL_DEPTH) throw new NativeExprError(`函数 “${name}” 调用层数过深`);
+    this.depth++;
+    try {
+      return script.call(name, args,
+        (builtin: string, builtinArgs: NativeValue[]): NativeValue => this.callBuiltin(builtin, builtinArgs, scope));
+    } finally {
+      this.depth--;
+    }
+  }
+
+  private invoke(name: string, args: NativeValue[], scope: NativeScope): NativeValue {
     const text = (index: number): string => NativeExpr.toText(args[index]);
     const num = (index: number, fallback: number = 0): number =>
       index < args.length && args[index] !== null && args[index] !== undefined ? NativeExpr.toNumber(args[index]) : fallback;
@@ -1451,6 +1556,7 @@ export class NativeExpr {
         return name === 'selAll' ? found : (found.length > 0 ? found[0] : '');
       }
       default:
+        if (this.script && this.script.has(name)) return this.callScript(this.script, name, args, scope);
         throw new NativeExprError(`没有名为 “${name}” 的内置函数`);
     }
   }

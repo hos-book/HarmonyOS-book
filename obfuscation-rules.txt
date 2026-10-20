@@ -12,6 +12,18 @@
 -enable-name-cache
 -print-namecache obfuscation-cache.json
 
+# 动态 import 的模块命名空间访问不会随导出符号同步改名。
+# 保留 ReaderKit 延迟加载边界，避免导入预览、正文读取找不到导出入口。
+-keep-global-name
+  EpubParserService
+  createEpubReaderController
+  createEpubReaderBuilder
+
+-keep-property-name
+  EpubParserService
+  createEpubReaderController
+  createEpubReaderBuilder
+
 # ─── 保留 JSON 序列化/反序列化的属性名 ───
 # 这些属性来自外部 JSON（Legado 书源格式）或本地持久化，
 # 通过 JSON.parse / JSON.stringify 访问，混淆器无法静态追踪，必须显式保留。

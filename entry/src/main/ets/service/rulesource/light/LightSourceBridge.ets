@@ -60,6 +60,10 @@ export class LightSourceBridge {
     panel.entries = raw.entries.map((item: LocalRuleControl): LocalRuleControl => LightSourceBridge.panelControl(item));
     return panel;
   }
+  static async panelOptions(source: LocalRuleSource, controlId: string): Promise<string[]> {
+    const options: string[] = JSON.parse(await LightSourceCore.panelOptions(LightSourceBridge.prepare(source), controlId));
+    return options;
+  }
   private static panelControl(item: LocalRuleControl): LocalRuleControl {
     const control = new LocalRuleControl();
     control.id = item.id ?? '';

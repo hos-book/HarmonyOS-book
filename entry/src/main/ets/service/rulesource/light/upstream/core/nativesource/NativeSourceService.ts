@@ -14,7 +14,9 @@ import { RuleExecutionTarget, RuleValue, RuleValueKind } from '../rule/RuleValue
 import { BookTypeSupport } from '../book/BookTypeSupport';
 import { BookUrlResolver } from '../book/BookUrlResolver';
 import { BookFieldSanitizer } from '../../utils/BookFieldSanitizer';
-import type { NativeValue } from './NativeExpr';
+import { NativeExpr } from './NativeExpr';
+import type { NativeScriptLibrary, NativeValue } from './NativeExpr';
+import { NativeJsLibrary } from './NativeJsLibrary';
 import { NativeSourceRunner } from './NativeSourceRunner';
 import { SourceCoverUrl } from './SourceCoverUrl';
 import type {
@@ -28,11 +30,18 @@ import { VerificationSupport } from '../http/VerificationSupport';
 import { ReaderActionMarker } from '../book/ReaderActionMarker';
 import type { NativeLoginSpec, NativeSourceDefinition, NativeVarSpec, NativeVoiceSpec } from './NativeSourceSpec';
 import type {
-  NativeActionEntry, NativeLoginCredential, NativeLoginResult, NativeLoginState, NativeRuleTrace
+  NativeActionEntry, NativeLoginCredential, NativeLoginResult, NativeLoginState, NativeRuleTrace, NativeVarOptions
 } from './NativeSourceRunner';
 import type { NativeLoginFieldSpec } from './NativeSourceSpec';
 import { NetworkErrorText } from '../http/NetworkErrorText';
 import { NativeSourceImport } from './NativeSourceImport';
+import { NativeScriptSessions } from './NativeScriptSessions';
+import { NativeSourceInteraction } from './NativeSourceInteraction';
+import type { NativeBrowserResult } from './NativeSourceInteraction';
+import type { NativeScriptEngine } from './NativeScriptHost';
+import { BookSourceRuntimeStore } from '../book/BookSourceRuntimeStore';
+import { deviceInfo } from '@kit.BasicServicesKit';
+import { SourceEngineHost } from '../host/SourceEngineHost';
 
 export interface NativeFilterGroup {
   title: string;
@@ -55,6 +64,8 @@ export interface NativeVarItem {
 }
 
 class NativeHost implements NativeRunnerHost {
+  evaluateExpression?: NativeRunnerHost['evaluateExpression'];
+  private nativeScripts: Pick<NativeRunnerHost, 'scriptEngine' | 'evaluateExpression'> | undefined;
   private source: BookSource;
   private http: HttpClient;
   private cancelled: () => boolean;
@@ -72,6 +83,8 @@ class NativeHost implements NativeRunnerHost {
     this.cancelled = cancelled;
     this.maxResponseBytes = maxResponseBytes;
     this.debugContext = debugContext;
+    this.nativeScripts = SourceEngineHost.nativeScripts()?.create(source, this);
+    this.evaluateExpression = this.nativeScripts?.evaluateExpression;
     if (debugContext) {
       this.trace = (entry: NativeRuleTrace): void => {
         const trace = new BookSourceDebugRuleTrace();
@@ -92,10 +105,17 @@ class NativeHost implements NativeRunnerHost {
     analyzeUrl.parse(url);
     const webRequest = analyzeUrl.buildRequest();
     webRequest.useWebView = true;
-    webRequest.webJs = `(function(){return document.querySelector(${JSON.stringify(request.webWaitFor)})` +
-      `?document.documentElement.outerHTML:'';})()`;
-    webRequest.webJsAcceptPattern = '\\S';
-    webRequest.webJsMaxAttempts = Math.max(4, request.webTimeout * 2);
+    // 脚本的 browser.render 带了 js：在页面里求值注入的表达式（对象转成 JSON 文本）；没有 waitFor 时只求值一次。
+    const result = request.webJs ?
+      `var __r=(${request.webJs});return __r===undefined||__r===null?'':(typeof __r==='string'?__r:JSON.stringify(__r));` :
+      'return document.documentElement.outerHTML;';
+    webRequest.webJs = request.webWaitFor ?
+      `(function(){if(!document.querySelector(${JSON.stringify(request.webWaitFor)}))return '';${result}})()` :
+      `(function(){${result}})()`;
+    if (request.webWaitFor) {
+      webRequest.webJsAcceptPattern = '\\S';
+      webRequest.webJsMaxAttempts = Math.max(4, request.webTimeout * 2);
+    }
     webRequest.readTimeout = request.webTimeout * 1000;
     webRequest.debugContext = this.debugContext || undefined;
     if (this.maxResponseBytes > 0) webRequest.maxResponseBytes = this.maxResponseBytes;
@@ -114,7 +134,7 @@ class NativeHost implements NativeRunnerHost {
     if (request.retry > 0) options['retry'] = request.retry;
     const url = Object.keys(options).length > 0 ? `${request.url},${JSON.stringify(options)}` : request.url;
     const analyzeUrl = new AnalyzeUrl(this.source, this.http).setCancelCheck(this.cancelled);
-    const response = request.webView && request.webWaitFor ?
+    const response = request.webView && (request.webWaitFor || request.webJs) ?
       await this.fetchWaitingFor(analyzeUrl, url, request) :
       await analyzeUrl.fetch(url, this.maxResponseBytes > 0 ? this.maxResponseBytes : undefined, this.debugContext);
     // 没拿到响应且请求层报的是明确的网络错误（域名解析、超时、连不上等）：与登录无关，直接给出真实原因。
@@ -158,6 +178,85 @@ class NativeHost implements NativeRunnerHost {
     if (list) return analyzer.getStringList(rule);
     const value = analyzer.getString(rule);
     return value ? [value] : [];
+  }
+
+  scriptLibrary(code: string): NativeScriptLibrary {
+    return NativeJsLibrary.forCode(code);
+  }
+
+  scriptEngine(code: string): NativeScriptEngine {
+    if (this.nativeScripts?.scriptEngine) return this.nativeScripts.scriptEngine(code);
+    return NativeScriptSessions.forCode(code);
+  }
+
+  cookieGet(url: string, name: string): string {
+    const jar = CookieStore.forSource(this.source.bookSourceUrl);
+    return name ? jar.getCookieValue(url, name) : jar.getCookie(url);
+  }
+
+  cookieSet(url: string, value: string): void {
+    const jar = CookieStore.forSource(this.source.bookSourceUrl);
+    jar.setCookies(url, value);
+    jar.saveAsync();
+  }
+
+  cookieRemove(url: string, name: string): void {
+    const jar = CookieStore.forSource(this.source.bookSourceUrl);
+    jar.removeCookie(url, name || undefined);
+    jar.saveAsync();
+  }
+
+  async saveVars(values: Record<string, NativeValue>): Promise<void> {
+    await NativeSourceService.saveRuntime(this.source, JSON.stringify(values), null);
+  }
+
+  async saveCredential(token: string, user: string): Promise<void> {
+    await NativeSourceService.saveRuntime(this.source, null, NativeSourceService.loginInfoWith(this.source, token, user));
+  }
+
+  toast(message: string): void {
+    const handler = NativeSourceInteraction.handler();
+    if (!handler) throw new Error('当前环境不支持提示');
+    handler.toast(this.source.bookSourceName || '', message);
+  }
+
+  async refreshExplore(): Promise<void> {
+    const handler = NativeSourceInteraction.handler();
+    if (!handler) throw new Error('当前环境不支持刷新发现页');
+    NativeSourceService.clearCache(this.source.bookSourceUrl);
+    await handler.refreshExplore(this.source.bookSourceUrl);
+  }
+
+  async openBrowser(url: string, title: string, wait: boolean): Promise<NativeBrowserResult> {
+    const handler = NativeSourceInteraction.handler();
+    if (!handler) return { body: '', error: '当前环境不支持打开网页' };
+    return await handler.openBrowser({
+      url: url, title: title || this.source.bookSourceName || '网页',
+      sourceUrl: this.source.bookSourceUrl, sourceName: this.source.bookSourceName || ''
+    }, wait);
+  }
+
+  requestVerification(url: string, title: string): void {
+    VerificationSupport.requestVerification(url, title, this.source);
+  }
+
+  deviceId(): string {
+    try {
+      return deviceInfo.ODID || '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  userAgent(): string {
+    try {
+      const headers = JSON.parse(this.source.header || '{}') as Record<string, Object>;
+      for (const name of Object.keys(headers)) {
+        if (name.toLowerCase() === 'user-agent' && headers[name]) return String(headers[name]);
+      }
+    } catch (e) {
+    }
+    return HttpClient.DEFAULT_USER_AGENT;
   }
 
   selectItems(content: string, rule: string, baseUrl: string): NativeValue[] {
@@ -211,6 +310,11 @@ class NativeHost implements NativeRunnerHost {
   cookie(url: string, name: string): string {
     return CookieStore.forSource(this.source.bookSourceUrl).getCookieValue(url, name);
   }
+}
+
+interface NativeRuntimeState {
+  variable: string | null;
+  loginInfo: string | null;
 }
 
 interface NativeCacheEntry {
@@ -268,7 +372,13 @@ export class NativeSourceService {
 
   /** 导入用：把 JSON 对象转成书源记录，不合法时抛出带原因的错误。 */
   static importObject(value: Object, existing: BookSource | null = null): BookSource {
-    return NativeSourceService.toBookSource(NativeSourceSpec.fromObject(value), existing);
+    const definition = NativeSourceSpec.fromObject(value);
+    if (definition.js && definition.js.trim()) {
+      const problem = NativeJsLibrary.check(definition.js, NativeExpr.libraryFunctionNames(definition.lib),
+        NativeSourceSpec.scriptFunctions(definition));
+      if (problem) throw new Error(problem);
+    }
+    return NativeSourceService.toBookSource(definition, existing);
   }
 
   /** 导出用：还原成带 sourceFormat 的定义对象。 */
@@ -276,9 +386,45 @@ export class NativeSourceService {
     return NativeSourceSpec.toExportObject(NativeSourceService.definitionOf(source)) as Object;
   }
 
+  /**
+   * 脚本写入的变量和登录凭据：已经保存到数据库，但别处拿着的书源对象可能还是旧值。在设置页下次保存前，
+   * 以这里记下的为准，避免下一次运行读到旧值、把脚本刚写的值覆盖掉。
+   */
+  private static runtimeState: Map<string, NativeRuntimeState> = new Map();
+
+  /** 保存脚本写入的变量（variable）或登录凭据（loginInfo），传 null 的那一项不变。 */
+  static async saveRuntime(source: BookSource, variable: string | null, loginInfo: string | null): Promise<void> {
+    const url = source.bookSourceUrl;
+    const state = NativeSourceService.runtimeState.get(url) || { variable: null, loginInfo: null };
+    if (variable !== null) {
+      state.variable = variable;
+      source.variable = variable;
+    }
+    if (loginInfo !== null) {
+      state.loginInfo = loginInfo;
+      source.loginInfo = loginInfo;
+    }
+    NativeSourceService.runtimeState.set(url, state);
+    const persistence = BookSourceRuntimeStore.forSource(source);
+    if (persistence) {
+      await persistence.updateBookSourceLoginRuntime(url, NativeSourceService.effectiveVariable(source),
+        source.loginHeader || '', NativeSourceService.effectiveLoginInfo(source));
+    }
+  }
+
+  private static effectiveVariable(source: BookSource): string {
+    const state = NativeSourceService.runtimeState.get(source.bookSourceUrl);
+    return state && state.variable !== null ? state.variable : (source.variable || '');
+  }
+
+  private static effectiveLoginInfo(source: BookSource): string {
+    const state = NativeSourceService.runtimeState.get(source.bookSourceUrl);
+    return state && state.loginInfo !== null ? state.loginInfo : (source.loginInfo || '');
+  }
+
   static storedVars(source: BookSource): Record<string, NativeValue> {
     try {
-      const parsed = JSON.parse(source.variable || '{}') as Object;
+      const parsed = JSON.parse(NativeSourceService.effectiveVariable(source) || '{}') as Object;
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, NativeValue>;
     } catch (e) {
     }
@@ -302,6 +448,9 @@ export class NativeSourceService {
   static variableWithValues(source: BookSource, items: NativeVarItem[]): string {
     const stored = NativeSourceService.storedVars(source);
     for (const item of items) stored[item.key] = item.value;
+    // 设置页接着会保存这个结果，之后以书源对象上的值为准。
+    const state = NativeSourceService.runtimeState.get(source.bookSourceUrl);
+    if (state) state.variable = null;
     return JSON.stringify(stored);
   }
 
@@ -378,7 +527,12 @@ export class NativeSourceService {
     const stored = NativeSourceService.storedVars(source);
     if (String(stored[target.key] === undefined ? '' : stored[target.key]) === selection) return '';
     stored[target.key] = selection;
-    return JSON.stringify(stored);
+    // 调用方接着会保存这个结果：之后以它为准，不能再让脚本先前写入的值盖过发现页的选择。
+    const state = NativeSourceService.runtimeState.get(source.bookSourceUrl);
+    if (state) state.variable = null;
+    const variable = JSON.stringify(stored);
+    source.variable = variable;
+    return variable;
   }
 
   private static runner(source: BookSource, http: HttpClient, cancelled: () => boolean,
@@ -393,7 +547,7 @@ export class NativeSourceService {
 
   static credential(source: BookSource): NativeLoginCredential {
     try {
-      const parsed = JSON.parse(source.loginInfo || '{}') as Record<string, Object>;
+      const parsed = JSON.parse(NativeSourceService.effectiveLoginInfo(source) || '{}') as Record<string, Object>;
       return { token: String(parsed['nativeToken'] || ''), user: String(parsed['nativeUser'] || '') };
     } catch (e) {
       return { token: '', user: '' };
@@ -403,8 +557,12 @@ export class NativeSourceService {
   /** 写入或清除凭据后的 loginInfo 文本。只保存登录换来的凭据，不保存用户填写的密码。 */
   static loginInfoWith(source: BookSource, token: string, user: string): string {
     let record: Record<string, Object> = {};
+    const loginInfo = NativeSourceService.effectiveLoginInfo(source);
+    // 调用方接着会保存这个结果，之后以书源对象上的值为准。
+    const state = NativeSourceService.runtimeState.get(source.bookSourceUrl);
+    if (state) state.loginInfo = null;
     try {
-      const parsed = JSON.parse(source.loginInfo || '{}') as Object;
+      const parsed = JSON.parse(loginInfo || '{}') as Object;
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) record = parsed as Record<string, Object>;
     } catch (e) {
     }
@@ -420,7 +578,12 @@ export class NativeSourceService {
 
   static loginForm(source: BookSource): NativeLoginFieldSpec[] {
     const login = NativeSourceService.loginSpec(source);
-    return login && login.submit && Array.isArray(login.form) ? login.form : [];
+    return login && (login.submit || login.script) && Array.isArray(login.form) ? login.form : [];
+  }
+
+  /** 书源设置页的动态选项（vars 里写了 optionsScript 的变量）。 */
+  static async varOptions(source: BookSource, http: HttpClient, key: string = ''): Promise<Record<string, NativeVarOptions>> {
+    return await NativeSourceService.runner(source, http, (): boolean => false).varOptions(key);
   }
 
   static async submitLogin(source: BookSource, http: HttpClient,

@@ -8,6 +8,8 @@ import { BookDetailPage, DetailBackInterceptor, DetailTitleBarActions, DetailTit
 import { PlayerPage, PlayerBackInterceptor, PlayerEntryDecider } from './PlayerPage';
 import { SettingsPage } from './SettingsPage';
 import { MembershipPage } from './MembershipPage';
+import { MembershipSubscriptionPage } from './MembershipSubscriptionPage';
+import { MembershipState } from '../model/MembershipState';
 import { AboutPage } from './AboutPage';
 import { TechnicalSupportPage } from './TechnicalSupportPage';
 import { AccountPage } from './AccountPage';
@@ -89,6 +91,8 @@ struct Index {
   @Local detailTitleOpacity: number = 1;
   private widgetSubscribed: boolean = false;
   private homeBackHandler: (() => boolean) | undefined = undefined;
+  private statsBackHandler: (() => boolean) | undefined = undefined;
+  private historyBackHandler: (() => boolean) | undefined = undefined;
   private homeShownHandler: (() => void) | undefined = undefined;
   /** 已消费过的路由 ts，避免冷启动时 AppStorage + emitter 两条路径同时触发同一个 push */
   private lastConsumedRouteTs: number = 0;
@@ -464,7 +468,11 @@ struct Index {
       }
     } else if (name === 'membershipSubscription') {
       ProfileMenuDestination() {
-        MembershipPage({ navStack: this.navStack })
+        if (MembershipState.featureEnabled) {
+          MembershipSubscriptionPage({ navStack: this.navStack })
+        } else {
+          MembershipPage({ navStack: this.navStack })
+        }
       }
     } else if (name === 'membership') {
       ProfileMenuDestination() {
@@ -531,8 +539,10 @@ struct Index {
       }
     } else if (name === 'stats') {
       NavDestination() {
-        ReadingStatsPage({ navStack: this.navStack })
+        ReadingStatsPage({ navStack: this.navStack,
+          onBackHandlerChange: (handler: (() => boolean) | undefined): void => { this.statsBackHandler = handler; } })
       }
+      .onBackPressed((): boolean => this.statsBackHandler?.() ?? false)
       .hideTitleBar(true)
       .backgroundColor($r('sys.color.background_primary'))
       .systemTransition(NavigationSystemTransitionType.SLIDE_RIGHT)
@@ -540,8 +550,10 @@ struct Index {
       SessionHistoryPage({ navStack: this.navStack, bookIds: this.resolveParam(param, 'bookIds') })
     } else if (name === 'unfavoriteHistory') {
       NavDestination() {
-        UnfavoritedHistoryPage({ navStack: this.navStack })
+        UnfavoritedHistoryPage({ navStack: this.navStack,
+          onBackHandlerChange: (handler: (() => boolean) | undefined): void => { this.historyBackHandler = handler; } })
       }
+      .onBackPressed((): boolean => this.historyBackHandler?.() ?? false)
       .hideTitleBar(true)
       .backgroundColor($r('sys.color.background_primary'))
       .systemTransition(NavigationSystemTransitionType.SLIDE_RIGHT)

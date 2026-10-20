@@ -7,6 +7,8 @@ import { webview } from '@kit.ArkWeb';
 import { LightSourceTiming } from './LightSourceTiming';
 import { LightSourceRequestPolicy, LightSourceRateWaiter } from './LightSourceRequestPolicy';
 import { SourceEngineHost, SourceEngineHostAdapter, SourceRateWaiter } from './upstream/core/host/SourceEngineHost';
+import { LightNativeScripts } from './LightNativeScripts';
+import { NativeSourceInteraction } from './upstream/core/nativesource/NativeSourceInteraction';
 
 class LightExecutionState {
   local: LocalRuleSource;
@@ -472,6 +474,7 @@ class LightEngineRateWaiter implements SourceRateWaiter {
 
 // One startup installation. All mutable execution state remains bound to source instances.
 const engineHost: SourceEngineHostAdapter = {
+  nativeScripts: {create: (source, host) => LightNativeScripts.create(source, host)},
   cookies: sourceUrl => LightCookieStore.forSource(sourceUrl),
   persistence: source => LightSourceDatabase.getInstance(source),
   scripts: {
@@ -497,3 +500,35 @@ const engineHost: SourceEngineHostAdapter = {
   }
 };
 SourceEngineHost.install(engineHost);
+NativeSourceInteraction.setHandler({
+  toast: (_name, message) => {
+    if (!LightSourceRuntime.host.toast) throw new Error('当前环境不支持提示');
+    LightSourceRuntime.host.toast(message);
+  },
+  refreshExplore: async sourceUrl => {
+    if (!LightSourceRuntime.host.refreshExplore) throw new Error('当前环境不支持刷新发现页');
+    await LightSourceRuntime.host.refreshExplore(sourceUrl);
+  },
+  openBrowser: async (request, wait) => {
+    if (!/^https:\/\//i.test(request.url)) return {body:'',error:'网页登录仅支持 HTTPS 地址'};
+    const host = LightSourceRuntime.host;
+    const cookies = LightCookieStore.forSource(request.sourceUrl);
+    try {
+      await cookies.flush();
+      if (!wait) {
+        if (!host.openBrowser) throw new Error('网页登录入口不可用');
+        await host.openBrowser(request.sourceUrl,request.sourceName,request.url);
+        return {body:'',error:''};
+      }
+      if (!host.browse) throw new Error('网页登录入口不可用');
+      const body = await host.browse(request.sourceUrl,request.sourceName,request.url,'','');
+      return {body,error:''};
+    } catch (error) { return {body:'',error:error instanceof Error ? error.message : String(error)}; }
+    finally {
+      if (wait) {
+        const state = JSON.parse(await host.readState(request.sourceUrl) || '{}');
+        cookies.load(JSON.parse(await host.hydrate(request.sourceUrl)),false,state.lightCookieRecords || []);
+      }
+    }
+  }
+});

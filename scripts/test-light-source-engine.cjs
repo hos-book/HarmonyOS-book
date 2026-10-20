@@ -92,7 +92,7 @@ function load(name) {
   const output = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021, experimentalDecorators: true }
   }).outputText;
-  vm.runInNewContext(output, { module, exports: module.exports, console, setTimeout, clearTimeout,
+  vm.runInNewContext(output, { module, exports: module.exports, console, setTimeout, clearTimeout, setInterval, clearInterval,
     ObservedV2: value => value, Trace: () => {},
     AppStorage: { get: key => storage.get(key), setOrCreate: (key, value) => storage.set(key, value),
       set: (key, value) => storage.set(key, value), delete: key => storage.delete(key) },
@@ -163,6 +163,7 @@ async function run() {
     ruleContent: { content: '$.text' } };
   const { LocalRuleSourceImportParser: parser } = load('service/rulesource/LocalRuleSourceImportParser');
   const { LocalRuleSourceCodec: codec } = load('service/rulesource/LocalRuleSourceCodec');
+  await require('./test-native-js-host.cjs')({load,prefix,runtime:LightSourceRuntime,parser,codec,engine,fixtures,states});
   assert.equal(parser.parse(JSON.stringify({format:'jianting.source',version:1})).sources.length,0, 'removed format is rejected');
   const local = parser.parse(JSON.stringify(source)).sources[0];
   assert.equal(local.bookSourceUrl, source.bookSourceUrl);

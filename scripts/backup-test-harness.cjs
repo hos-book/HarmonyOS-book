@@ -226,7 +226,9 @@ function harness() {
           const hash = createHash('sha256'); return { update: async blob => hash.update(blob.data), digest: async () => ({ data: hash.digest() }) };
         } } };
         if (name === './AuthService') return { AuthService: { instance: auth } };
-        if (name === './DiagnosticLogService') return { DiagnosticLogService: { info() {} } };
+        if (name === './DiagnosticLogService') return { DiagnosticLogService: {
+          info() {}, describe: error => error?.message || String(error), sanitize: text => text
+        } };
         if (name === './AppBackupService') return load('service/AppBackupService');
         if (name === './PreferenceService') return {
           PreferenceBackupSnapshot: class { constructor() { Object.assign(this, snapshot().preferences); } },

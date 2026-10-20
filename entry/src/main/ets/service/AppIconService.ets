@@ -27,9 +27,9 @@ export class AppIconService {
     return PlatformCompat.supports(26);
   }
 
-  /** 当前免费版本开放全部图标，仍保留系统能力检查。 */
+  /** 非默认图标要求有效会员权益，系统能力检查独立保留。 */
   get membershipRequired(): boolean {
-    return false;
+    return MembershipState.featureEnabled;
   }
 
   getOptions(): AppIconOption[] {

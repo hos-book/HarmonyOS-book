@@ -188,12 +188,17 @@ export class LightSourceCore {
         return JSON.stringify({controls,entries:menus.map(item => ({id:`${item.title}:${item.url}`,title:item.title,
           url:item.url,type:'category',group:item.groupTitle || ''}))});
       }
-      const controls: Object[] = NativeSourceService.varItems(source).map(item => ({
+      const definition = NativeSourceSpec.unpack(source.jsLib);
+      const controls: Object[] = NativeSourceService.varItems(source).map(item => {
+        const dynamic = definition?.vars?.some(spec => spec.key === item.key && !!spec.optionsScript) ?? false;
+        const options = item.options;
+        return {
         id: `light-native-var:${item.key}`, title: item.label,
-        type: item.options.length ? 'select' : item.key === 'token' ? 'password' : 'text',
-        options: item.options, optionValues: item.options, value: item.value,
-        action: item.options.length ? `light-native-set:${item.key}` : ''
-      }));
+        type: dynamic ? 'dynamic-select' : options.length ? 'select' : item.key === 'token' ? 'password' : 'text',
+        options, optionValues: options, value: item.value,
+        placeholder: '',
+        action: dynamic || options.length ? `light-native-set:${item.key}` : ''
+      };});
       if (controls.length) controls.push({id:'light-native-save',title:saveLabel,type:'button',action:'light-native-save'});
       const spec = NativeSourceService.loginSpec(source);
       const form = NativeSourceService.loginForm(source);
@@ -211,7 +216,9 @@ export class LightSourceCore {
         controls.push({id:`light-native-action:${item.index}`,title:item.label,type:'button',
           action:`light-native-action:${item.index}`});
       }
+      const menuStarted = Date.now();
       const menus = login ? [] : await NativeSourceService.exploreMenus(source, new HttpClient());
+      console.info(`[LightNativeTiming] stage=menus count=${menus.length} elapsedMs=${Date.now() - menuStarted}`);
       let group = '';
       const entries = menus.map(menu => {
         if (!menu.target) group = menu.title;
@@ -219,6 +226,20 @@ export class LightSourceCore {
           type:menu.target ? 'category' : 'group', group};
       });
       return JSON.stringify({controls,entries});
+    });
+  }
+  static async panelOptions(localJson: string, controlId: string): Promise<string> {
+    const local = JSON.parse(localJson) as LocalRuleSource;
+    const source = this.source(local);
+    if (!controlId.startsWith('light-native-var:')) throw new Error('未知原生书源变量');
+    const key = controlId.substring('light-native-var:'.length);
+    return LightSourceRuntime.run(source, local, async () => {
+      const item = NativeSourceService.varItems(source).find(value => value.key === key);
+      if (!item) throw new Error('未知原生书源变量');
+      const dynamic = (await NativeSourceService.varOptions(source, new HttpClient(), key))[key];
+      if (dynamic?.options.length) return JSON.stringify(dynamic.options);
+      if (item.options.length) return JSON.stringify(item.options);
+      throw new Error(dynamic?.error || '没有拿到选项');
     });
   }
   static async panelAction(localJson: string, actionJson: string, controlsJson: string): Promise<string> {
@@ -287,7 +308,15 @@ export class LightSourceCore {
       }
       if (action.action.startsWith('light-native-set:')) {
         if (typeof action.value !== 'string') throw new Error('书源选项值未传入解析引擎');
-        const variable = NativeSourceService.variableAfterSelect(source,action.title,action.value);
+        const key = action.action.substring('light-native-set:'.length);
+        const items = NativeSourceService.varItems(source);
+        const item = items.find(value => value.key === key);
+        if (!item) throw new Error('未知原生书源变量');
+        const dynamic = (await NativeSourceService.varOptions(source,new HttpClient(),key))[key];
+        const options = dynamic && !dynamic.error && dynamic.options.length ? dynamic.options : item.options;
+        if (options.length && !options.includes(action.value)) throw new Error('原生书源变量选项无效');
+        item.value = action.value;
+        const variable = NativeSourceService.variableWithValues(source,[item]);
         if (variable) await LightSourceDatabase.getInstance(source).updateBookSourceVariable(source.bookSourceUrl,variable);
         return JSON.stringify({refresh:true});
       }
@@ -296,8 +325,10 @@ export class LightSourceCore {
       const items = NativeSourceService.varItems(source);
       for (const item of items) {
         const input = inputs.find(value => value.id === `light-native-var:${item.key}`);
-        if (!input) continue;
-        if (item.options.length && !item.options.includes(input.value)) throw new Error('原生书源变量选项无效');
+        if (!input || input.value === item.value) continue;
+        const dynamic = (await NativeSourceService.varOptions(source,new HttpClient(),item.key))[item.key];
+        const options = dynamic && !dynamic.error && dynamic.options.length ? dynamic.options : item.options;
+        if (options.length && !options.includes(input.value)) throw new Error('原生书源变量选项无效');
         item.value = input.value;
       }
       await LightSourceDatabase.getInstance(source).updateBookSourceVariable(source.bookSourceUrl,
@@ -357,6 +388,7 @@ export class LightSourceCore {
     });
   }
   static async explore(localJson: string, address: string, page: number, limit: number): Promise<string> {
+    const started = Date.now();
     const local = JSON.parse(localJson) as LocalRuleSource;
     const source = this.source(local);
     return LightSourceRuntime.run(source, local, async () => {
@@ -364,6 +396,7 @@ export class LightSourceCore {
       const items = await coordinator.explore({ title: '', url: address,
         sourceUrl: source.bookSourceUrl, sourceName: source.bookSourceName }, page, limit);
       if (!items.length && coordinator.getNoticeMessage()) throw new Error(coordinator.getNoticeMessage());
+      console.info(`[LightNativeTiming] stage=explore count=${items.length} elapsedMs=${Date.now() - started}`);
       return JSON.stringify({ books: items.map(item => this.result(item, source)), nextUrl: items.length ? address : '' });
     });
   }

@@ -88,7 +88,6 @@ class ListeningRecordDataSource implements IDataSource {
   }
 }
 
-const AVERAGE_BOOK_SECONDS: number = 8 * 60 * 60;
 const MINI_TITLE_BAR_HEIGHT: number = 56;
 
 @ComponentV2
@@ -98,6 +97,7 @@ export struct ReadingStatsPage {
   /** 记录 Tab 只展示收藏书籍；时钟入口打开未收藏历史模式。 */
   @Param onlyUnfavorited: boolean = false;
   @Event onScrollerReady: (scroller: Scroller) => void = () => {};
+  @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
 
   @Local statsReady: boolean = false;
   @Local statsError: boolean = false;
@@ -113,6 +113,7 @@ export struct ReadingStatsPage {
   @Local appeared: boolean = false;
   @Local selectMode: boolean = false;
   @Local selectedIds: Set<string> = new Set();
+  @Local deletingRecords: boolean = false;
 
   private scroller: Scroller = new Scroller();
   private recordDataSource: ListeningRecordDataSource = new ListeningRecordDataSource();
@@ -133,6 +134,7 @@ export struct ReadingStatsPage {
   };
 
   aboutToAppear(): void {
+    this.onBackHandlerChange((): boolean => this.handleBack());
     DiagnosticLogService.info('records.open', `unfavorited=${this.onlyUnfavorited}`);
     this.recoveryActive = true;
     this.recoveryAttempted.clear();
@@ -148,6 +150,7 @@ export struct ReadingStatsPage {
   }
 
   aboutToDisappear(): void {
+    this.onBackHandlerChange(undefined);
     this.recoveryActive = false;
     if (this.dayTimer !== -1) clearTimeout(this.dayTimer);
     this.dayTimer = -1;
@@ -440,10 +443,6 @@ export struct ReadingStatsPage {
     return this.monthSeconds;
   }
 
-  private equivalentBookCount(): number {
-    return Math.max(0, Math.round(this.totalListenSeconds() / AVERAGE_BOOK_SECONDS));
-  }
-
   private formatDuration(seconds: number): string {
     const total = Math.max(0, Math.floor(seconds));
     if (total < 60) return total > 0 ? '不足1分钟' : '0分钟';
@@ -482,33 +481,47 @@ export struct ReadingStatsPage {
     this.selectMode = false;
   }
 
-  private confirmDeleteSelected(): void {
-    if (this.selectedIds.size === 0) return;
-    const count = this.selectedIds.size;
-    this.getUIContext().getPromptAction().showDialog({
-      title: '删除记录',
-      message: this.getUIContext().getHostContext()?.resourceManager.getStringSync($r('app.string.record_delete_confirm').id, count),
-      buttons: [
-        { text: '取消', color: '#8F8F8F' },
-        { text: '删除', color: '#C45D34' }
-      ]
-    }).then((result) => {
-      if (result.index === 1) {
-        this.deleteSelected();
-      }
-    }).catch(() => { /* ignore */ });
+  private handleBack(): boolean {
+    if (this.deletingRecords) return true;
+    if (!this.selectMode) return false;
+    this.clearSelection();
+    return true;
   }
 
-  private async deleteSelected(): Promise<void> {
-    const context = this.getUIContext().getHostContext();
-    if (!context) return;
-    const deletedIds = new Set<string>();
+  private async confirmDeleteSelected(): Promise<void> {
+    if (this.selectedIds.size === 0 || this.deletingRecords) return;
+    const count = this.selectedIds.size;
+    const deletedIds = new Set<string>(this.selectedIds);
     for (const item of this.records) {
       if (!this.selectedIds.has(item.bookId)) continue;
       for (const aliasBookId of item.aliasBookIds) deletedIds.add(aliasBookId);
     }
-    for (const selectedId of this.selectedIds) deletedIds.add(selectedId);
     const ids = Array.from(deletedIds);
+    this.deletingRecords = true;
+    try {
+      const result = await this.getUIContext().getPromptAction().showDialog({
+        title: $r('app.string.record_delete_title'),
+        message: $r('app.string.record_delete_confirm', count),
+        buttons: [
+          { text: $r('app.string.common_cancel'), color: $r('sys.color.font_primary') },
+          { text: $r('app.string.common_delete'), color: AppColor.BrandDark }
+        ]
+      });
+      if (result.index !== 1 || !this.recoveryActive) return;
+      await this.deleteSelected(ids);
+    } catch (error) {
+      DiagnosticLogService.info('records.delete.failed', String(error));
+      if (this.recoveryActive) {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.record_delete_failed') });
+      }
+    } finally {
+      this.deletingRecords = false;
+    }
+  }
+
+  private async deleteSelected(ids: string[]): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
     await StatsService.removeBookStats(ids);
     for (const id of ids) {
       await PreferenceService.removeHistory(id);
@@ -597,7 +610,7 @@ export struct ReadingStatsPage {
     Row({ space: AppSpace.Sm }) {
       if (!this.inTab) {
         ImmersiveCircleButton({ icon: $r('sys.symbol.chevron_left'), label: $r('app.string.app_icon_back'),
-          onPress: (): void => { this.navStack.pop(); } })
+          onPress: (): void => { if (!this.handleBack()) this.navStack.pop(); } })
       }
       Text(this.pageTitle()).fontSize(26).fontWeight(FontWeight.Bold)
         .fontColor($r('sys.color.font_primary')).maxLines(1)
@@ -755,225 +768,60 @@ export struct ReadingStatsPage {
   }
 
   @Builder
+  buildSummaryTag(icon: Resource, label: Resource, value: ResourceStr) {
+    Row({ space: 5 }) {
+      SymbolGlyph(icon).fontSize(13).fontColor([AppColor.Brand])
+      Text() {
+        Span(label).fontColor($r('sys.color.font_secondary'))
+        Span(' ')
+        Span(value).fontColor($r('sys.color.font_primary')).fontWeight(FontWeight.Medium)
+      }.fontSize(12).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+    }
+    .padding({ left: 9, right: 9, top: 6, bottom: 6 })
+    .border({ width: 0.5, color: $r('sys.color.comp_divider') })
+    .borderRadius(8)
+    .margin({ right: 8, bottom: 8 })
+    .constraintSize({ maxWidth: '100%' })
+  }
+
+  @Builder
   buildSummaryCard() {
-    Column() {
-      Stack({ alignContent: Alignment.TopStart }) {
-        Row() {
-          Blank()
-          this.buildSummaryArt()
-        }
-        .width('100%')
-        .height('100%')
-        .padding({ right: AppSpace.Sm })
-        .alignItems(VerticalAlign.Top)
-
-        Column({ space: AppSpace.Xs }) {
-          Text('累计收听时长')
-            .fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_secondary'))
-          Row({ space: AppSpace.Xs }) {
-            Text(this.statsReady ? `${Math.floor(this.totalListenSeconds() / 3600)}` : $r('app.string.record_stats_pending'))
-              .fontSize(32)
-              .fontColor($r('sys.color.font_primary'))
-              .fontWeight(FontWeight.Bold)
-            Text('小时')
-              .fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_tertiary'))
-              .margin({ bottom: 4 })
-            Text(this.statsReady ? `${Math.floor((this.totalListenSeconds() % 3600) / 60)}` : $r('app.string.record_stats_pending'))
-              .fontSize(AppFont.Title)
-              .fontColor($r('sys.color.font_primary'))
-              .fontWeight(FontWeight.Bold)
-              .margin({ bottom: 2 })
-            Text('分钟')
-              .fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_tertiary'))
-              .margin({ bottom: 4 })
-          }
-          .width('100%')
-          .alignItems(VerticalAlign.Bottom)
-          .justifyContent(FlexAlign.Start)
-          Text(this.statsReady ? $r('app.string.record_stats_equivalent_books', this.equivalentBookCount()) :
-            (this.statsError ? $r('app.string.record_stats_read_failed') : $r('app.string.record_stats_loading')))
-            .fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_tertiary'))
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-            .width('100%')
-        }
-        .width('62%')
-        .alignItems(HorizontalAlign.Start)
-        .margin({ left: AppSpace.Md, top: AppSpace.Md })
+    Column({ space: 12 }) {
+      Text() {
+        Span($r('app.string.record_total_inline')).fontColor($r('sys.color.font_secondary'))
+        Span(' ')
+        Span(this.statsReady ? `${Math.floor(this.totalListenSeconds() / 3600)}` :
+          $r('app.string.record_stats_pending'))
+          .fontSize(18).fontWeight(FontWeight.Medium).fontColor($r('sys.color.font_primary'))
+        Span(' ')
+        Span($r('app.string.record_unit_hours')).fontColor($r('sys.color.font_secondary'))
+        Span(' ')
+        Span(this.statsReady ? `${Math.floor((this.totalListenSeconds() % 3600) / 60)}` :
+          $r('app.string.record_stats_pending'))
+          .fontSize(18).fontWeight(FontWeight.Medium).fontColor($r('sys.color.font_primary'))
+        Span(' ')
+        Span($r('app.string.record_unit_minutes')).fontColor($r('sys.color.font_secondary'))
+      }.fontSize(14).width('100%')
+      Flex({ wrap: FlexWrap.Wrap }) {
+        this.buildSummaryTag($r('sys.symbol.calendar'), $r('app.string.record_streak'),
+          this.statsReady ? $r('app.string.record_streak_days', this.streak) : $r('app.string.record_stats_pending'))
+        this.buildSummaryTag($r('sys.symbol.clock'), $r('app.string.record_month_inline'),
+          this.statsReady ? $r('app.string.record_duration_short', Math.floor(this.monthListenSeconds() / 3600),
+            Math.floor((this.monthListenSeconds() % 3600) / 60)) : $r('app.string.record_stats_pending'))
+      }.width('100%')
+      if (!this.statsReady || this.statsError) {
+        Text(this.statsError ? $r('app.string.record_stats_read_failed') : $r('app.string.record_stats_loading'))
+          .fontSize(AppFont.Caption).fontColor($r('sys.color.font_tertiary')).width('100%')
       }
-      .height(98)
-      .width('100%')
-
-      Row() {
-        Column({ space: AppSpace.Sm }) {
-          Text('连续收听')
-            .fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_secondary'))
-          Row({ space: AppSpace.Xs }) {
-            Text(this.statsReady ? `${this.streak}` : $r('app.string.record_stats_pending'))
-              .fontSize(AppFont.Title)
-              .fontColor($r('sys.color.font_primary'))
-              .fontWeight(FontWeight.Bold)
-            Text('天')
-              .fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_tertiary'))
-          }
-          .alignItems(VerticalAlign.Bottom)
-        }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
-
-        Column()
-          .width(0.5)
-          .height(34)
-          .backgroundColor(AppColor.Divider)
-
-        Column({ space: AppSpace.Sm }) {
-          Text('本月收听')
-            .fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_secondary'))
-          Row({ space: AppSpace.Xs }) {
-            Text(this.statsReady ? `${Math.floor(this.monthListenSeconds() / 3600)}` : $r('app.string.record_stats_pending'))
-              .fontSize(AppFont.Title)
-              .fontColor($r('sys.color.font_primary'))
-              .fontWeight(FontWeight.Bold)
-            Text('小时')
-              .fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_tertiary'))
-            Text(this.statsReady ? `${Math.floor((this.monthListenSeconds() % 3600) / 60)}` : $r('app.string.record_stats_pending'))
-              .fontSize(AppFont.Title)
-              .fontColor($r('sys.color.font_primary'))
-              .fontWeight(FontWeight.Bold)
-            Text('分钟')
-              .fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_tertiary'))
-          }
-          .alignItems(VerticalAlign.Bottom)
-        }
-        .layoutWeight(1)
-        .padding({ left: AppSpace.Md })
-        .alignItems(HorizontalAlign.Start)
-      }
-      .height(72)
-      .width('100%')
-      .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Sm, bottom: AppSpace.Sm })
-      .backgroundColor($r('app.color.record_stats_detail_surface'))
-      .borderRadius({ topLeft: AppRadius.Lg, topRight: AppRadius.Lg, bottomLeft: AppRadius.Xl, bottomRight: AppRadius.Xl })
-      .alignItems(VerticalAlign.Center)
     }
     .width('100%')
-    .height(170)
-    .borderRadius(AppRadius.Xl)
-    .backgroundColor($r('app.color.home_card_surface_soft'))
-    .shadow({ radius: 18, color: HomeTheme.CardShadow, offsetY: 6 })
-    .clip(true)
+    .alignItems(HorizontalAlign.Start)
+    .padding({ top: 2, bottom: 8 })
+    .border({ width: { bottom: 0.5 }, color: $r('sys.color.comp_divider') })
     .opacity(this.appeared ? 1 : 0)
     .translate({ y: this.appeared ? 0 : 18 })
     .animation({ duration: 460, curve: AppCurve.Decelerate })
     .onClick(() => { if (this.statsError) this.loadStats(); })
-  }
-
-  @Builder
-  buildSummaryArt() {
-    Stack({ alignContent: Alignment.BottomEnd }) {
-      Column()
-        .width(108)
-        .height(108)
-        .borderRadius(54)
-        .backgroundColor('#42FFFFFF')
-        .margin({ right: 0, bottom: 0 })
-
-      Column()
-        .width(80)
-        .height(80)
-        .borderRadius(40)
-        .backgroundColor('#18D9BDAA')
-        .margin({ right: 18, bottom: 14 })
-
-      Column()
-        .width(96)
-        .height(6)
-        .borderRadius(3)
-        .backgroundColor('#16A98363')
-        .margin({ right: 4, bottom: 5 })
-
-      Column()
-        .width(2)
-        .height(34)
-        .borderRadius(1)
-        .backgroundColor('#BFA38D')
-        .rotate({ angle: -28 })
-        .margin({ right: 83, bottom: 59 })
-
-      Column()
-        .width(8)
-        .height(8)
-        .borderRadius(4)
-        .backgroundColor(AppColor.Brand)
-        .margin({ right: 87, bottom: 87 })
-
-      Column()
-        .width(48)
-        .height(18)
-        .borderRadius({ topLeft: 16, topRight: 16 })
-        .border({ width: 4, color: '#C5A187' })
-        .margin({ right: 28, bottom: 54 })
-
-      Stack({ alignContent: Alignment.TopStart }) {
-        Column()
-          .width(92)
-          .height(56)
-          .borderRadius(14)
-          .backgroundColor('#D7AE8E')
-
-        Column()
-          .width(62)
-          .height(6)
-          .borderRadius(3)
-          .backgroundColor('#40FFFFFF')
-          .margin({ left: 15, top: 10 })
-
-        Row({ space: 5 }) {
-          Column().width(3).height(18).borderRadius(2).backgroundColor('#9D7A61')
-          Column().width(3).height(24).borderRadius(2).backgroundColor('#9D7A61')
-          Column().width(3).height(14).borderRadius(2).backgroundColor('#9D7A61')
-          Column().width(3).height(22).borderRadius(2).backgroundColor('#9D7A61')
-          Column().width(3).height(16).borderRadius(2).backgroundColor('#9D7A61')
-        }
-        .alignItems(VerticalAlign.Center)
-        .margin({ left: 15, top: 23 })
-
-        Column()
-          .width(27)
-          .height(27)
-          .borderRadius(14)
-          .backgroundColor('#F3DFCE')
-          .margin({ left: 54, top: 22 })
-
-        Column()
-          .width(12)
-          .height(12)
-          .borderRadius(6)
-          .backgroundColor('#9D7A61')
-          .margin({ left: 62, top: 30 })
-
-        Row({ space: 5 }) {
-          Column().width(8).height(8).borderRadius(4).backgroundColor('#F3DFCE')
-          Column().width(8).height(8).borderRadius(4).backgroundColor('#F3DFCE')
-        }
-        .margin({ left: 57, top: 45 })
-      }
-      .width(92)
-      .height(56)
-      .margin({ right: 4, bottom: 10 })
-    }
-    .width(132)
-    .height(98)
-    .opacity(0.64)
   }
 
   @Builder
@@ -1003,20 +851,22 @@ export struct ReadingStatsPage {
   buildEditActions() {
     if (this.selectMode) {
       Row({ space: AppSpace.Md }) {
-        Text('全选')
+        Text($r('app.string.shelf_select_all'))
           .fontSize(AppFont.Body)
           .fontColor(AppColor.Brand)
           .onClick(() => this.selectAll())
-        Text('删除')
+        Text($r('app.string.common_delete'))
           .fontSize(AppFont.Body)
           .fontColor(AppColor.BrandDark)
+          .enabled(this.selectedIds.size > 0 && !this.deletingRecords)
           .onClick(() => this.confirmDeleteSelected())
-        Text('取消')
+        Text($r('app.string.common_cancel'))
           .fontSize(AppFont.Body)
           .fontColor($r('sys.color.font_tertiary'))
           .onClick(() => this.clearSelection())
       }
       .alignItems(VerticalAlign.Center)
+      .enabled(!this.deletingRecords)
 
     }
   }

@@ -64,6 +64,27 @@ function untouched(h) {
   assert.equal(fs.readdirSync(exported.context.cacheDir).length, 0);
   exported.settled();
 
+  // Imported comic definitions can carry a JSON object instead of a header string.
+  const comicBackup = harness();
+  const comicSource = sourceFixture(comicBackup);
+  comicSource.bookSourceType = comicBackup.load('model/LocalRuleSource').LocalRuleSourceType.COMIC;
+  comicSource.header = { 'User-Agent': 'comic-reader', Referer: 'https://comic.example/',
+    Cookie: 'PRIVATE_COOKIE', Authorization: 'PRIVATE_TOKEN', Accept: 123 };
+  const originalHeader = JSON.stringify(comicSource.header);
+  comicBackup.control.sources = [comicSource];
+  await comicBackup.service.backup(comicBackup.context);
+  const comicSaved = JSON.parse(fs.readFileSync(comicBackup.cloudPath(), 'utf8'));
+  assert.equal(comicSaved.ruleSources[0].bookSourceType, comicSource.bookSourceType);
+  assert.deepEqual(JSON.parse(comicSaved.ruleSources[0].header), {
+    'User-Agent': 'comic-reader', Referer: 'https://comic.example/'
+  });
+  assert.equal(JSON.stringify(comicSaved).includes('PRIVATE_'), false);
+  assert.equal(JSON.stringify(comicSource.header), originalHeader, 'backup must not mutate imported headers');
+  selectBackup(comicBackup, comicSaved);
+  assert.equal(await comicBackup.local.restore(comicBackup.context, async () => true), true);
+  assert.equal(comicBackup.control.restoredSources[0].header, comicSaved.ruleSources[0].header);
+  comicBackup.settled();
+
   // Released builds wrote several generations of obfuscated numeric keys.
   for (const [timeKey, indexKey, positionKey] of [
     ['h15', 'chapterIndex', 'm56'], ['q11', 'chapterIndex', 'l50'],

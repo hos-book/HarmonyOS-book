@@ -806,7 +806,7 @@
     },
     {
       "name": "cloud_last_backup",
-      "value": "最近备份：%s"
+      "value": "最近成功备份：%s"
     },
     {
       "name": "cloud_last_backup_unknown",
@@ -1115,6 +1115,50 @@
     {
       "name": "reader_image_apply_failed",
       "value": "图片应用失败，请重试或更换图片"
+    },
+    {
+      "name": "record_total_inline",
+      "value": "累计阅听"
+    },
+    {
+      "name": "record_month_inline",
+      "value": "本月"
+    },
+    {
+      "name": "record_streak_days",
+      "value": "%d 天"
+    },
+    {
+      "name": "record_duration_short",
+      "value": "%d 时 %d 分"
+    },
+    {
+      "name": "record_total_duration",
+      "value": "累计阅听时长"
+    },
+    {
+      "name": "record_streak",
+      "value": "连续阅听"
+    },
+    {
+      "name": "record_month_duration",
+      "value": "本月阅听"
+    },
+    {
+      "name": "record_unit_hours",
+      "value": "小时"
+    },
+    {
+      "name": "record_unit_minutes",
+      "value": "分钟"
+    },
+    {
+      "name": "record_unit_days",
+      "value": "天"
+    },
+    {
+      "name": "record_duration_compact",
+      "value": "%d 小时 %d 分钟"
     },
     {
       "name": "record_stats_pending",
@@ -1442,7 +1486,15 @@
     },
     {
       "name": "record_delete_confirm",
-      "value": "确认删除已选 %d 本书的阅听记录？"
+      "value": "确定删除所选 %d 本书的阅听记录吗？对应的时长统计和阅读、播放进度也会清除，书架中的书籍及本地文件不会删除。此操作不可撤销。"
+    },
+    {
+      "name": "record_delete_title",
+      "value": "删除阅听记录"
+    },
+    {
+      "name": "record_delete_failed",
+      "value": "删除未完成，请重试"
     },
     {
       "name": "record_read_progress",
@@ -4478,7 +4530,7 @@
     },
     {
       "name": "membership_entry_desc",
-      "value": "专属主题 · 更多会员权益"
+      "value": "随心阅读，自在听书，乐享漫画"
     },
     {
       "name": "membership_card_title",
@@ -4554,7 +4606,7 @@
     },
     {
       "name": "membership_benefit",
-      "value": "1. 自动云备份：可开启自动备份，选择每天、每 3 天或每周。非会员可手动云备份。\n2. 全量主题解锁：有效期内解锁全部会员桌面图标及后续新增官方皮肤。默认图标、原有界面配色和阅读器主题保持免费。\n3. 自定义源无限制：会员导入总数不限，非会员最多 8 个。\n4. 搜索并发自定义：默认 3，可设置 1–12。\n5. 专属客服：会员可享专属客服支持。"
+      "value": "1. 自动云备份：可开启自动备份，选择每天、每 3 天或每周。非会员可手动云备份。\n2. 全量主题解锁：有效期内解锁全部会员桌面图标及后续新增官方皮肤。默认图标、原有界面配色和阅读器主题保持免费。\n3. 自定义源无限制：会员导入总数不限，非会员最多 8 个。\n4. 搜索并发自定义：默认 3，会员可设置 1–12。\n5. 专属客服：会员可享专属客服支持。"
     },
     {
       "name": "membership_month",
@@ -4654,7 +4706,7 @@
     },
     {
       "name": "rule_source_membership_hint",
-      "value": "书源导入不限总数；已有源更新会保留启用状态。"
+      "value": "非会员最多 8 个自定义源，会员不限总数；已有源更新不占新名额。"
     },
     {
       "name": "rule_source_save_failed",
@@ -5211,6 +5263,18 @@
     {
       "name": "shelf_group_filter",
       "value": "分组"
+    },
+    {
+      "name": "shelf_group_manage",
+      "value": "分组管理"
+    },
+    {
+      "name": "shelf_group_rename",
+      "value": "重命名分组"
+    },
+    {
+      "name": "shelf_group_duplicate",
+      "value": "分组名称已存在"
     },
     {
       "name": "shelf_group_new",

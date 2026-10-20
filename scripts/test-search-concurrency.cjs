@@ -15,6 +15,8 @@ function searchHarness() {
   assert.ok(start >= 0 && end > start, 'load the real search queue and source failure handler');
   const code = ts.transpileModule(`export class SearchQueue {
     searchGen = 1;
+    searching = true;
+    sourcePages = new Map();
     searchedSourceCount = 0;
     ${source.slice(start, end)}
   }`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 } }).outputText;

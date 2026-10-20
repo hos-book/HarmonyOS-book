@@ -8,7 +8,7 @@
 
 | 来源 | 仓库 | 固定提交 | 本地工作区 |
 | --- | --- | --- | --- |
-| 解析内核 | `wip3l/harmony-book-source-engine` 的 `main` | `e02c5b2b97806f68a5cf299784ccfbdb4e4ab069` | `D:\harmony-book-source-engine` |
+| 解析内核 | `wip3l/harmony-book-source-engine` 的本地分支 `codex/jianting-native-js-host` | `817b11ee7b0a4ba5b8587464499ae7af4b0441d6` | `D:\harmony-book-source-engine` |
 | 应用辅助代码 | `wip3l/legado-harmony` 的共同维护分支 `codex/sourceengine-host` | `67e5f2dc99b4fb62fe714b45d7d6acc56e7afad2` | `D:\legado-harmony-sourceengine-host` |
 
 应用辅助代码沿用迁移前的固定提交，其中末次网页等待修复仍是本地提交，不假定上游公开仓库已有该提交。精确版本、逐文件来源、原始路径和 SHA256 见 `third_party/light-source/upstream.json`（schemaVersion 2）。摘要统一按 LF 换行计算；生成文件的 upstreamSha256 对应抽取的方法或原始模板，generated 标记与 upstreamPath 共同记录出处。
@@ -41,6 +41,26 @@ node scripts/test-rule-source-export.cjs
 测试需设置 `DEVECO_HOME` 为 Release DevEco Studio。同步前本地迁入文件必须与旧清单一致，两个输入仓库相关源码必须干净；检查失败不会覆盖本地引擎。`--check` 不写入文件，核对两个版本、生成结果、兼容补丁及 LICENSE/NOTICE。上游方法或依赖变化需先调整脚本，再同步。随后执行相关静态检查、Release SDK 增量构建，以及设备导入→测试→搜索→详情→阅读/播放验证。对比通过后提交升级；Git 提交可用于回退。此流程是维护工具，没有启用自动拉取、自动发布或后台更新。
 
 ## 能力与验证边界
+
+### 原生 JS 宿主接入（2026-10-20）
+
+公共包 main 已从 `e02c5b2` 更新到 `c32c2dc`。在此基础上，本地分支增加异步表达式/阶段宿主端口、动态选项保存修复、公开端口导出、按 AST 选择 JS 执行路径和书籍字段批量求值，尚未推送；不能假定其他机器从上游 main 就能取得这些改动。应用辅助代码仍固定为 `67e5f2d`，本次同步 82 个文件。
+
+`LightNativeScripts.ts` 接管原生 `js`、阶段 `script`、表达式函数、`optionsScript` 和交互动作。每次求值通过 `LightSourceSandbox → LocalRuleQuickJsRuntime.execute()` 在独立 taskpool 上下文执行；异步宿主调用通过有界日志回放衔接，已完成的请求、变量写入及交互动作不重复执行。时间和随机数在同次回放内固定。Cookie、网络、HTTPS 隐私浏览器仍复用既有宿主；浏览器完成后执行源声明的 `login.check`。
+
+同步脚本将默认 `NativeJsLibrary`、`NativeScriptSessions` 平台实现替换为明确不支持的后备实现，由注入的宿主端口接管，不引入第二套 QuickJS HAR。`NativeExprProgram.ts` 由固定上游 `NativeExpr.ts` 和无平台依赖的 `JsonPathEvaluator.ts` 经 Release IDE 自带 TypeScript 编译生成，需设置 `DEVECO_HOME`（本轮为 DevEco Studio 26.0.0 Release）。JSONPath 在同一沙箱内求值，避免每个 `$.field` 都回放整个任务。生成文件仍禁止手改。
+
+兼容边界：JS 全局变量不跨阶段、任务或批次保留，持久状态应通过 `vars` / `cache`；这与上游持久 JS 会话不完全等价。书籍列表每最多 16 项的 JS 字段合并为一次求值，详情的 JS 字段合并为一次求值，同批次可复用函数库状态，字段函数应保持纯计算。阶段计算累计预算 2 秒、总时长 60 秒；表达式（含整批字段）计算 2 秒、总时长 10 秒，回放计算也计入预算，人工浏览器等待扣除。最多 256 次宿主调用；交换日志、单请求和输出字符串分别按 16×1024²、4×1024²、8×1024² 字符限制，源 JS 上限 512 Ki 字符；底层 QuickJS 的输入、堆、栈和 pending-job 限制继续生效。导入检查定义结构，JS 语法和函数执行错误在运行测试时报告。
+
+发现面板不预先运行变量 `optionsScript`；点击动态选项时才加载对应脚本，保存时只验证实际修改的变量。静态标题和仅使用内置函数的表达式不启动 QuickJS，由 AST 检查函数及 lib 依赖后选择路径，不先执行再回退。此修复处理番茄源数百个菜单/字段重复启动任务，以及服务器选项探测阻塞发现页的问题。
+
+验证：同步 `--check`、简听引擎回归、书源导入导出、漫画网页等待均通过；上游原生源 243 项、JS 库 34 项、脚本阶段 58 项通过。新增主机回归覆盖异步阶段、表达式/模板/crypto、动作只执行一次、隔离、取消/超时、搜索→详情→目录→正文、动态选项和浏览器受控桥；763 个静态/普通动态菜单不启动 QuickJS，30 本书的 JS/JSONPath 字段仅运行 2 个任务并保持跨批次序号与字段正确，详情 JS 字段运行 1 个任务。主机测试以 VM 模拟 QuickJS，不替代真机。
+
+Release SDK 26.0.0.105 增量 debug HAP 构建并安装 Mate 80 成功（本轮构建 52.288 秒），产物元数据为 Release、最低 API 20、目标 API 26。MCP 静态检查因 LSP 未初始化不可用，MCP 构建因本机 ohpm 批处理递归失败，实际构建使用 Release IDE CLI。
+
+真机用户操作与日志核验（2026-10-20 17:45—17:46，进程 56893）：第一个「番茄小说（原生脚本）」的 363 个静态菜单解析 2 毫秒，分类 30 本书端到端加载 742 毫秒；分类规则实际只产生 3 次 QuickJS 任务（失败检测 1 次、字段批次 2 次），修复前同类书单触发数百次任务。「乡村神医」详情含 3603 章目录加载成功，耗时 5449 毫秒；进入阅读后 3 次正文加载为 955、782、1397 毫秒，其中 HTTP 为 897、716、1309 毫秒。第四个「小六番茄（原生脚本）」184 个含远程分类的菜单加载 3046 毫秒，30 本书加载 2043 毫秒，详情含 1395 章目录加载 5035 毫秒；用户确认书单正常显示。菜单计时不含 ArkUI 绘制，分类计时包含网络和规则解析；目录数字是详情整体耗时，不能全部归因于服务器。第一源此前搜索接口返回的服务端 Java/Xposed 异常是独立问题，不宣称被此次 App 修复解决。未完成真实账号登录、音频播放、下载导出或手表验证。
+
+在线依据沿用本任务已读取的 [ArkTS 语法规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkTS 检索指引](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/SKILL.md)、[ArkUI 检索指引](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md) 和 [HiLog 指引](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hilog/SKILL.md)。
 
 ### 公共包 main 更新（2026-10-19）
 

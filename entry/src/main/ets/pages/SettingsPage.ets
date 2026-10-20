@@ -315,6 +315,7 @@ export struct SettingsPage {
 
   private async requireSearchMembership(): Promise<boolean> {
     if (this.checkingSearchMembership || this.searchConcurrencyLoading || this.searchConcurrencyLoadFailed) return false;
+    if (!MembershipState.featureEnabled) return this.alive;
     this.checkingSearchMembership = true;
     try {
       const entitled = await this.membershipService.hasCurrentEntitlement();

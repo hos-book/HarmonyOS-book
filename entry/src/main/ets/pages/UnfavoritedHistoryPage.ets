@@ -4,10 +4,12 @@ import { ReadingStatsPage } from './ReadingStatsPage';
 @ComponentV2
 export struct UnfavoritedHistoryPage {
   @Param navStack: NavPathStack = new NavPathStack();
+  @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
 
   build() {
     ReadingStatsPage({
       navStack: this.navStack,
+      onBackHandlerChange: this.onBackHandlerChange,
       onlyUnfavorited: true
     })
   }

@@ -1,5 +1,11 @@
 import { BookSource } from '../../model/data/Book';
 import { BookSourceRuntimePersistence } from '../book/BookSourceRuntimeStore';
+import type { NativeRunnerHost } from '../nativesource/NativeSourceRunner';
+
+/** Native JS execution belongs to the host when supplied, including expression evaluation. */
+export interface SourceNativeScripts {
+  create(source: BookSource, host: NativeRunnerHost): Pick<NativeRunnerHost, 'scriptEngine' | 'evaluateExpression'>;
+}
 
 /**
  * 宿主应用可以替换的引擎能力（“端口”）。端口都是可信的应用代码，绝不能暴露给书源脚本。
@@ -68,6 +74,7 @@ export interface SourceDiagnostics {
 }
 
 export interface SourceEngineHostAdapter {
+  nativeScripts?: SourceNativeScripts;
   cookies?: (sourceUrl: string) => SourceCookieJar;
   persistence?: (source: BookSource) => BookSourceRuntimePersistence;
   scripts?: SourceScriptExecutor;
@@ -121,6 +128,10 @@ export class SourceEngineHost {
 
   static scriptExecutor(): SourceScriptExecutor | undefined {
     return SourceEngineHost.adapter.scripts;
+  }
+
+  static nativeScripts(): SourceNativeScripts | undefined {
+    return SourceEngineHost.adapter.nativeScripts;
   }
 
   static async evaluate(script: string, sourceUrl: string, timingId: number = 0): Promise<string> {

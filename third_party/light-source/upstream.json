@@ -3,7 +3,7 @@
   "sources": {
     "engine": {
       "repository": "https://github.com/wip3l/harmony-book-source-engine",
-      "commit": "e02c5b2b97806f68a5cf299784ccfbdb4e4ab069"
+      "commit": "817b11ee7b0a4ba5b8587464499ae7af4b0441d6"
     },
     "application": {
       "repository": "https://github.com/wip3l/legado-harmony",
@@ -25,8 +25,8 @@
       "path": "core/host/SourceEngineHost.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/host/SourceEngineHost.ts",
-      "upstreamSha256": "11263c50eb9a751d861a4371eda8321855e85aa9bcad1b92113dd9f743ab8ada",
-      "sha256": "11263c50eb9a751d861a4371eda8321855e85aa9bcad1b92113dd9f743ab8ada"
+      "upstreamSha256": "48aae370681ec8277c1d61ae74b271b91d1ddc01ba6abc6e1db5714fe42d33a1",
+      "sha256": "48aae370681ec8277c1d61ae74b271b91d1ddc01ba6abc6e1db5714fe42d33a1"
     },
     {
       "path": "model/data/Book.ts",
@@ -43,11 +43,67 @@
       "sha256": "10fabe1f517278095ebca9756d7f35e6152b5fa67253812fa641f33a8b45d68b"
     },
     {
+      "path": "core/nativesource/NativeSourceRunner.ts",
+      "source": "engine",
+      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceRunner.ts",
+      "upstreamSha256": "bb74b6d323cfd301e582b3b68a60890520ddc95b64a5513a465a2798a3707b52",
+      "sha256": "bb74b6d323cfd301e582b3b68a60890520ddc95b64a5513a465a2798a3707b52"
+    },
+    {
+      "path": "core/concurrency/CooperativeScheduler.ts",
+      "source": "engine",
+      "upstreamPath": "sourceengine/src/main/ets/core/concurrency/CooperativeScheduler.ts",
+      "upstreamSha256": "2acd4c9efb55208e61069a41d373b5951271593268b08018cd9ef9fe36d41461",
+      "sha256": "2acd4c9efb55208e61069a41d373b5951271593268b08018cd9ef9fe36d41461"
+    },
+    {
+      "path": "core/nativesource/NativeExpr.ts",
+      "source": "engine",
+      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeExpr.ts",
+      "upstreamSha256": "442a25660f4df12c5efa978e2914db7d1b71f5cbc71e0fdbc44dc45980582516",
+      "sha256": "442a25660f4df12c5efa978e2914db7d1b71f5cbc71e0fdbc44dc45980582516"
+    },
+    {
+      "path": "core/nativesource/SourceCoverUrl.ts",
+      "source": "engine",
+      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/SourceCoverUrl.ts",
+      "upstreamSha256": "cf3c585d7a0820f3ad8e90320d40959d0ccc9f94f41b2bf0e4b133028acbc95d",
+      "sha256": "cf3c585d7a0820f3ad8e90320d40959d0ccc9f94f41b2bf0e4b133028acbc95d"
+    },
+    {
+      "path": "core/nativesource/NativeJsPrelude.ts",
+      "source": "engine",
+      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeJsPrelude.ts",
+      "upstreamSha256": "2b7028fc764b62f849ec6c1e067a6671524f766b9a1f7269e8a88108f5287179",
+      "sha256": "2b7028fc764b62f849ec6c1e067a6671524f766b9a1f7269e8a88108f5287179"
+    },
+    {
+      "path": "core/nativesource/NativeScriptHost.ts",
+      "source": "engine",
+      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeScriptHost.ts",
+      "upstreamSha256": "ab8fc3717fb08ebf028871855c1f6c55a0fb8af0f5ce73b3b03ea930c3b39e9e",
+      "sha256": "ab8fc3717fb08ebf028871855c1f6c55a0fb8af0f5ce73b3b03ea930c3b39e9e"
+    },
+    {
+      "path": "core/nativesource/NativeSourceInteraction.ts",
+      "source": "engine",
+      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceInteraction.ts",
+      "upstreamSha256": "ab7f975190d2a7f6a2e92c5f81aa982e75c59a69b2a2d3b0ce70f06cbf210037",
+      "sha256": "ab7f975190d2a7f6a2e92c5f81aa982e75c59a69b2a2d3b0ce70f06cbf210037"
+    },
+    {
+      "path": "core/nativesource/NativeSourceSpec.ts",
+      "source": "engine",
+      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceSpec.ts",
+      "upstreamSha256": "95093f76f6964e8f963e3fc440d6bec4c55bcb5763490524f036b2f38cc22320",
+      "sha256": "95093f76f6964e8f963e3fc440d6bec4c55bcb5763490524f036b2f38cc22320"
+    },
+    {
       "path": "core/http/HttpClient.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/http/HttpClient.ts",
-      "upstreamSha256": "0e0cca1c79082631a4adc2e4bfa647f9606bdac77a2a7ffe6389e21f08b9db93",
-      "sha256": "0e0cca1c79082631a4adc2e4bfa647f9606bdac77a2a7ffe6389e21f08b9db93"
+      "upstreamSha256": "755b7c30e0a87e0a68cc19ffa7f62b67b6def0d7c615969ba9f059786c1f54ae",
+      "sha256": "755b7c30e0a87e0a68cc19ffa7f62b67b6def0d7c615969ba9f059786c1f54ae"
     },
     {
       "path": "core/http/CookieStore.ts",
@@ -235,8 +291,8 @@
       "path": "core/rule/AnalyzeRule.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/rule/AnalyzeRule.ts",
-      "upstreamSha256": "c0ee54d0270b5b449e405848680188b852610b5e879f2ea7719b327b75a5e069",
-      "sha256": "c0ee54d0270b5b449e405848680188b852610b5e879f2ea7719b327b75a5e069"
+      "upstreamSha256": "84f145feabb0441a5dc1228adc69baaa890aceed123b7eb5c85f33f6ef504cab",
+      "sha256": "84f145feabb0441a5dc1228adc69baaa890aceed123b7eb5c85f33f6ef504cab"
     },
     {
       "path": "core/rule/JavaRegexCompat.ts",
@@ -302,13 +358,6 @@
       "sha256": "ee3f1da47bf87c77f7d6b193fa0d5f41d3ad5cb097c1f7c7cf9aecd31d40ff99"
     },
     {
-      "path": "core/concurrency/CooperativeScheduler.ts",
-      "source": "engine",
-      "upstreamPath": "sourceengine/src/main/ets/core/concurrency/CooperativeScheduler.ts",
-      "upstreamSha256": "2acd4c9efb55208e61069a41d373b5951271593268b08018cd9ef9fe36d41461",
-      "sha256": "2acd4c9efb55208e61069a41d373b5951271593268b08018cd9ef9fe36d41461"
-    },
-    {
       "path": "core/rule/RuleExecutionModels.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/rule/RuleExecutionModels.ts",
@@ -333,8 +382,8 @@
       "path": "core/nativesource/NativeSourceService.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceService.ts",
-      "upstreamSha256": "aed64a9f8cc01e5820232ddf7056dd9a427d3b9fc9624712053e36db282944c2",
-      "sha256": "aed64a9f8cc01e5820232ddf7056dd9a427d3b9fc9624712053e36db282944c2"
+      "upstreamSha256": "b8afbd405af08d3328c493655859f6e65d29ee593effe33550d90637bba4b830",
+      "sha256": "b8afbd405af08d3328c493655859f6e65d29ee593effe33550d90637bba4b830"
     },
     {
       "path": "core/http/DigestHash.ts",
@@ -351,32 +400,11 @@
       "sha256": "a79f4090aaf826e373e26456a0874561955b40f06b76763f9ea22e5d34881b8d"
     },
     {
-      "path": "core/nativesource/NativeExpr.ts",
+      "path": "core/nativesource/NativeJsLibrary.ts",
       "source": "engine",
-      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeExpr.ts",
-      "upstreamSha256": "0117be4df33903fbd8fa327d0d698842aaf8f8ec1400b7290bfcbfc909b20903",
-      "sha256": "0117be4df33903fbd8fa327d0d698842aaf8f8ec1400b7290bfcbfc909b20903"
-    },
-    {
-      "path": "core/nativesource/NativeSourceRunner.ts",
-      "source": "engine",
-      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceRunner.ts",
-      "upstreamSha256": "e72e4541afdd5c551673dfca2c765f5621f7067ffd32f1f50639be1127e365a7",
-      "sha256": "e72e4541afdd5c551673dfca2c765f5621f7067ffd32f1f50639be1127e365a7"
-    },
-    {
-      "path": "core/nativesource/SourceCoverUrl.ts",
-      "source": "engine",
-      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/SourceCoverUrl.ts",
-      "upstreamSha256": "cf3c585d7a0820f3ad8e90320d40959d0ccc9f94f41b2bf0e4b133028acbc95d",
-      "sha256": "cf3c585d7a0820f3ad8e90320d40959d0ccc9f94f41b2bf0e4b133028acbc95d"
-    },
-    {
-      "path": "core/nativesource/NativeSourceSpec.ts",
-      "source": "engine",
-      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceSpec.ts",
-      "upstreamSha256": "4cd3b4d9e11b85d57e75c85fcbfc551a772bcbde530f56211b783473f94c5e3e",
-      "sha256": "4cd3b4d9e11b85d57e75c85fcbfc551a772bcbde530f56211b783473f94c5e3e"
+      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeJsLibrary.ts",
+      "upstreamSha256": "b0a311af20ff21806541efbdcce2482b64939ee3676a265359e388c587f71b33",
+      "sha256": "2b23879b8af9f39c4342094754efabb702a92e689b1d6c8eb3fe747939df0790"
     },
     {
       "path": "core/nativesource/NativeSourceCrypto.ts",
@@ -391,6 +419,13 @@
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceImport.ts",
       "upstreamSha256": "64a20602a409b9a4c6e602ac6a3bee15a93f8c263c66bb80e3804715adcb5615",
       "sha256": "64a20602a409b9a4c6e602ac6a3bee15a93f8c263c66bb80e3804715adcb5615"
+    },
+    {
+      "path": "core/nativesource/NativeScriptSessions.ts",
+      "source": "engine",
+      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeScriptSessions.ts",
+      "upstreamSha256": "b1399f461ab4e4843116dbb2dc03ff53c5eec932d3cb25c0f659a547b1b3fe55",
+      "sha256": "3180184d0410ac1a3ec489511399c38c71e557a1adbe90f9b548226e11bc3bf7"
     },
     {
       "path": "core/book/BookSourceDataUrlSupport.ts",
@@ -517,6 +552,14 @@
       "upstreamPath": "sourceengine/src/main/ets/core/http/RawHttpTextClient.ts",
       "upstreamSha256": "025d7e4bf26563c96a15d5e0edf644310ef65a21dc4f6e364b41a833bdf9feaf",
       "sha256": "025d7e4bf26563c96a15d5e0edf644310ef65a21dc4f6e364b41a833bdf9feaf"
+    },
+    {
+      "path": "NativeExprProgram.ts",
+      "source": "engine",
+      "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeExpr.ts",
+      "generated": true,
+      "upstreamSha256": "2b8c9272cb8d1c03802aeb0dee1f07f83d5d3df7ae3a3f7abf3b31d15e1e22e7",
+      "sha256": "70f5dbb0eb6173a10bc47e60ae6a44e18ed1fa665886f0a24521c85965b57e6d"
     },
     {
       "path": "core/http/LightCookieSemantics.ts",

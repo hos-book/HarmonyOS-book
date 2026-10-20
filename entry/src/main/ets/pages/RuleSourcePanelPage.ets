@@ -96,8 +96,9 @@ export struct RuleSourcePanelPage {
       if (result.message) this.getUIContext().getPromptAction().showToast({ message: result.message });
       if (result.browserUrl) {
         const route = RuleSourceLoginRouteParams.of(source.bookSourceUrl, source.bookSourceName, result.browserUrl);
-        route.initialHtml = result.browserHtml;
-        route.injectJs = result.browserInjectJs;
+        // URL-only actions omit these fields in the engine's JSON response.
+        route.initialHtml = result.browserHtml ?? '';
+        route.injectJs = result.browserInjectJs ?? '';
         if (!route.isValid()) {
           throw new Error(this.getUIContext().getHostContext()?.resourceManager
             .getStringSync($r('app.string.rule_source_login_https_only').id) ?? 'Invalid HTTPS URL');
@@ -127,8 +128,23 @@ export struct RuleSourcePanelPage {
     }
   }
 
-  private choose(control: LocalRuleControl): void {
-    if (this.busy || control.options.length === 0) return;
+  private async choose(control: LocalRuleControl): Promise<void> {
+    if (this.busy) return;
+    if (control.type === 'dynamic-select') {
+      if (this.source === undefined) return;
+      this.busy = true;
+      try {
+        const options = await LocalRulePanelService.options(this.source, control);
+        if (!this.alive) return;
+        control.options = options;
+        control.optionValues = options;
+        this.errorMessage = '';
+      } catch (error) {
+        if (this.alive) this.errorMessage = error instanceof Error ? error.message : String(error);
+        return;
+      } finally { this.busy = false; }
+    }
+    if (control.options.length === 0) return;
     this.getUIContext().showTextPickerDialog({
       range: control.options,
       selected: Math.max(0, control.optionValues.indexOf(control.value)),
@@ -258,7 +274,7 @@ export struct RuleSourcePanelPage {
       if (control.type !== 'button') {
         Text(control.title).fontSize(AppFont.Body).fontColor($r('sys.color.font_secondary')).width('100%')
       }
-      if (control.type === 'select') {
+      if (control.type === 'select' || control.type === 'dynamic-select') {
         Button(control.options[control.optionValues.indexOf(control.value)] || control.value || control.options[0] || control.title, { type: ButtonType.Normal })
           .width('100%').height(48).borderRadius(AppRadius.Sm)
           .backgroundColor(AppColor.BrandSoft).fontColor(AppColor.Brand)

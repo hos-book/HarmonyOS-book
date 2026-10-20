@@ -48,12 +48,14 @@ export struct ComicPageImage {
   private imageHeight(): number {
     const ratio = this.ratio > 0 ? this.ratio : this.page.width > 0 && this.page.height > 0 ?
       this.page.height / this.page.width : 1.45;
-    return Math.max(1, this.pageWidth * ratio);
+    // 分片连续拼接时高度必须落在物理像素上，避免逐片取整露出深色底。
+    const ui = this.getUIContext();
+    return ui.px2vp(Math.max(1, Math.round(ui.vp2px(this.pageWidth * ratio))));
   }
 
   private decodeWidth(): number {
     const ratio = this.imageHeight() / Math.max(1, this.pageWidth);
-    return Math.max(1, Math.floor(Math.min(this.pageWidth * this.zoom, 1536, 4096 / ratio,
+    return Math.max(1, Math.floor(Math.min(this.getUIContext().vp2px(this.pageWidth) * this.zoom, 1536, 4096 / ratio,
       Math.sqrt(4 * 1024 * 1024 / ratio))));
   }
 
@@ -73,7 +75,8 @@ export struct ComicPageImage {
         Image(this.enhancedUrl || this.page.url)
           .id(`${this.page.key}:${this.retry}`)
           .width(this.pageWidth).height(this.imageHeight())
-          .objectFit(ImageFit.Contain)
+          // 容器已按原图比例计算；Fill 消除解码宽高取整造成的亚像素留边。
+          .objectFit(ImageFit.Fill)
           .syncLoad(false)
           .autoResize(true)
           .sourceSize({ width: this.decodeWidth(), height: Math.max(1, Math.floor(this.decodeWidth() * this.imageHeight() / Math.max(1, this.pageWidth))) })

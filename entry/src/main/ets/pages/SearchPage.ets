@@ -92,6 +92,8 @@ export struct SearchPage {
   @Local historyWidth: number = 0;
   private historyWrite: Promise<void> = Promise.resolve();
   @Local searching: boolean = false;
+  private sourcePages: Map<string, number> = new Map();
+  private searchSeen: Set<string> = new Set();
   @Local searchedSourceCount: number = 0;
   @Local searchSourceTotal: number = 0;
   @Local hasSearched: boolean = false;
@@ -262,6 +264,7 @@ export struct SearchPage {
   private clearSearch(): void {
     this.searchCollapseOffset = 0;
     this.searchGen++;
+    this.resetPagination();
     this.searching = false;
     this.searchedSourceCount = 0;
     this.searchSourceTotal = 0;
@@ -476,6 +479,7 @@ export struct SearchPage {
     this.trimHistory();
     this.persistHistory();
     this.searchGen++;
+    this.resetPagination();
     const gen = this.searchGen;
     this.searching = true;
     this.searchedSourceCount = 0;
@@ -507,8 +511,8 @@ export struct SearchPage {
       if (gen !== this.searchGen) return;
       hilog.info(DOMAIN, TAG, 'search schedule concurrency=%{public}d sources=%{public}d generation=%{public}d',
         concurrency, selectedSources.length, gen);
-      const seen = new Set<string>();
-      await this.searchSources(selectedSources, keyword, gen, seen, concurrency);
+      for (const source of selectedSources) this.sourcePages.set(source.bookSourceUrl, 1);
+      await this.searchSources(selectedSources, keyword, gen, this.searchSeen, concurrency);
       if (gen !== this.searchGen) return;
       this.audioCount = this.audioBooks.length;
       this.textCount = this.textBooks.length;
@@ -516,30 +520,42 @@ export struct SearchPage {
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'search failed: %{public}s', String(e));
     } finally {
-      if (gen === this.searchGen) this.searching = false;
+      if (gen === this.searchGen) {
+        this.searching = false;
+      }
     }
+  }
+
+  private resetPagination(): void {
+    this.sourcePages = new Map();
+    this.searchSeen = new Set();
   }
 
   private async searchSources(sources: BookSource[], keyword: string, gen: number,
     seen: Set<string>, concurrency: number): Promise<void> {
-    let nextIndex: number = 0;
+    const pending: BookSource[] = sources.slice();
     const nextSource = (): BookSource | undefined => {
-      if (gen !== this.searchGen || nextIndex >= sources.length) return undefined;
-      return sources[nextIndex++];
+      if (gen !== this.searchGen) return undefined;
+      return pending.shift();
+    };
+    const enqueueNextPage = (source: BookSource): void => {
+      if (gen === this.searchGen && this.sourcePages.has(source.bookSourceUrl)) pending.push(source);
     };
     const tasks: Promise<void>[] = [];
     for (let index = 0; index < Math.min(concurrency, sources.length); index++) {
-      tasks.push(this.searchSourceQueue(nextSource, keyword, gen, seen));
+      tasks.push(this.searchSourceQueue(nextSource, enqueueNextPage, keyword, gen, seen));
     }
     await Promise.all(tasks);
   }
 
-  private async searchSourceQueue(nextSource: () => BookSource | undefined, keyword: string,
+  private async searchSourceQueue(nextSource: () => BookSource | undefined,
+    enqueueNextPage: (source: BookSource) => void, keyword: string,
     gen: number, seen: Set<string>): Promise<void> {
-    // 空闲位置立即接续下一个书源，不等待同批其他慢源。
+    // 下一页放回队尾，先让尚未搜索的源返回首页；所有页共用并发上限。
     let source = nextSource();
     while (source !== undefined) {
       await this.searchOneSource(source, keyword, gen, seen);
+      enqueueNextPage(source);
       source = nextSource();
     }
   }
@@ -547,21 +563,29 @@ export struct SearchPage {
   private async searchOneSource(source: BookSource, keyword: string, gen: number,
     seen: Set<string>): Promise<void> {
     try {
-      const results = await BookSourceService.searchBooks(source, keyword);
+      const page = this.sourcePages.get(source.bookSourceUrl) ?? 1;
+      const results = await BookSourceService.searchBooks(source, keyword, page);
       if (gen !== this.searchGen) return;
+      // 使用筛选前的身份判断翻页进度；不支持翻页、反复返回首页的源在此终止。
+      const freshResults: SearchResult[] = [];
+      for (const item of results) {
+        const key = `${item.sourceUrl}\u001f${item.bookUrl}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        freshResults.push(item);
+      }
+      if (freshResults.length === 0) this.sourcePages.delete(source.bookSourceUrl);
+      else this.sourcePages.set(source.bookSourceUrl, page + 1);
       const books: Book[] = [];
       const audioBooks: Book[] = [];
       const textBooks: Book[] = [];
       const comicBooks: Book[] = [];
       const fallbackContentType: 'audio' | 'text' | 'comic' = source.bookSourceType === 0 || source.bookSourceType === 3
         ? 'text' : source.bookSourceType === 2 ? 'comic' : 'audio';
-      for (const item of results) {
+      for (const item of freshResults) {
         if (!SearchOptions.matches(item.name, item.author || '', keyword, this.exactSearch, this.searchByAuthor)) continue;
         const contentType: 'audio' | 'text' | 'comic' = item.contentType ?? fallbackContentType;
         if (!SearchOptions.matchesContentType(contentType, this.searchTextOnly, this.searchAudioOnly, this.searchComicOnly)) continue;
-        const dedupeKey = `${item.sourceUrl}\u001f${item.bookUrl}`;
-        if (seen.has(dedupeKey)) continue;
-        seen.add(dedupeKey);
         const book = this.searchResultToBook(item, contentType);
         books.push(book);
         if (contentType === 'comic') {
@@ -592,10 +616,13 @@ export struct SearchPage {
         });
       }
     } catch (e) {
+      if (gen === this.searchGen) this.sourcePages.delete(source.bookSourceUrl);
       hilog.warn(DOMAIN, TAG, 'source search failed [%{public}s]: %{public}s',
         source.bookSourceName, String(e));
     } finally {
-      if (gen === this.searchGen) this.searchedSourceCount++;
+      if (gen === this.searchGen && this.searching && !this.sourcePages.has(source.bookSourceUrl)) {
+        this.searchedSourceCount++;
+      }
     }
   }
 

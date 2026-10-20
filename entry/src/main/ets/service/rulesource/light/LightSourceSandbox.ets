@@ -25,6 +25,17 @@ class LightDecodeEnvelope {
 
 /** No platform objects cross into the imported source engine. */
 export class LightSourceSandbox {
+  static async evaluateNative(script: string, sourceUrl: string, timeoutMs: number): Promise<string> {
+    const request = new LocalRuleQuickJsRequest();
+    request.script = script;
+    request.sourceUrl = sourceUrl;
+    request.timeoutMs = Math.max(1, Math.min(2000, timeoutMs));
+    request.stackLimitBytes = 1024 * 1024;
+    const result = await LocalRuleQuickJsRuntime.execute(request);
+    if (!result.success) throw new Error(result.errorMessage || '原生 JS 执行失败');
+    if (result.value.length > 8 * 1024 * 1024) throw new Error('原生 JS 输出超过限制');
+    return JSON.stringify({value:result.value,elapsedMs:result.elapsedMs});
+  }
   static async evaluate(script: string, sourceUrl: string, timingId: number = 0): Promise<string> {
     const responses: Record<string, LightDecodeValue> = {};
     const decoders: Map<number, util.TextDecoder> = new Map<number, util.TextDecoder>();

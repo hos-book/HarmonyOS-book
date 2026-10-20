@@ -1,0 +1,38 @@
+{
+  "sourceFormat": "native",
+  "version": 1,
+  "name": "原生JS接入验证",
+  "url": "https://native-js-smoke.invalid",
+  "group": "开发验证",
+  "js": "function title(s){return s.toUpperCase()} function search(ctx){vars.set('last',ctx.key);return [{name:'我的JS验证书',bookUrl:'/book'}]} function detail(){return {name:'我的JS验证书',author:'本地验证',tocUrl:'/toc'}} function toc(){return [{title:'JS第一章',url:'/chapter'}]} function content(){return '原生JS正文验证成功。\\n本章由有界 QuickJS 后台执行生成，不请求任何网站。'} function options(){return ['线路一','线路二']} function action(){ui.toast('原生JS交互验证成功');ui.refreshExplore();return '完成'}",
+  "vars": [
+    {
+      "key": "line",
+      "label": "验证线路",
+      "default": "线路一",
+      "optionsScript": "options"
+    }
+  ],
+  "actions": [
+    {
+      "label": "验证JS交互",
+      "script": "action"
+    }
+  ],
+  "search": {
+    "script": "search",
+    "fields": {
+      "name": "=title(item.name)",
+      "bookUrl": "$.bookUrl"
+    }
+  },
+  "detail": {
+    "script": "detail"
+  },
+  "toc": {
+    "script": "toc"
+  },
+  "content": {
+    "script": "content"
+  }
+}

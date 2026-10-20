@@ -1,8 +1,10 @@
 import { MembershipDisplaySnapshot } from './MembershipDisplaySnapshot';
 
-/** 合同办理期间全部功能免费开放；免费使用不表示已购买会员。 */
+/** 权益只来自本次进程验签；磁盘快照仅提供展示，不恢复 VIP 开关。 */
 @ObservedV2
 export class MembershipState {
+  /** 会员功能暂时隐藏，关闭时所有原会员权益免费开放；保留购买及验签实现。 */
+  static readonly featureEnabled: boolean = false;
   private static singleton: MembershipState | null = null;
   static get current(): MembershipState {
     if (!MembershipState.singleton) MembershipState.singleton = new MembershipState();
@@ -13,7 +15,9 @@ export class MembershipState {
   /** 回前台时保留有效的展示快照，新的会员操作等待当前账号核验。 */
   @Trace revalidating: boolean = false;
 
-  get hasAccess(): boolean { return true; }
+  get hasAccess(): boolean {
+    return !MembershipState.featureEnabled || this.developerAccess || (!this.revalidating && this.active);
+  }
 
   @Trace expiresAt: number = 0;
   @Trace productId: string = '';
@@ -22,7 +26,8 @@ export class MembershipState {
   @Trace private displaySnapshot: MembershipDisplaySnapshot | null = null;
 
   get displayActive(): boolean {
-    return false;
+    return MembershipState.featureEnabled &&
+      (this.active || MembershipDisplaySnapshot.valid(this.displaySnapshot, Date.now()));
   }
 
   get displayProductId(): string {

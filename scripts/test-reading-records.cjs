@@ -19,7 +19,7 @@ const ts = require(path.join(process.env.DEVECO_HOME,
   ]);
   const routes = [], removedStats = [], removedHistory = [], removedAudio = [];
   const source = fs.readFileSync(path.join(__dirname, '../entry/src/main/ets/pages/ReadingStatsPage.ets'), 'utf8');
-  const viewClasses = source.slice(source.indexOf('@ObservedV2'), source.indexOf('const AVERAGE_BOOK_SECONDS'));
+  const viewClasses = source.slice(source.indexOf('@ObservedV2'), source.indexOf('const MINI_TITLE_BAR_HEIGHT'));
   const methods = source.slice(source.indexOf('  private shouldShowRecord('), source.indexOf('  private totalListenSeconds(')) +
     source.slice(source.indexOf('  private async deleteSelected('), source.indexOf('  build()'));
   const exported = {};
@@ -69,7 +69,7 @@ const ts = require(path.join(process.env.DEVECO_HOME,
   assert.equal(routes[1][1].progressMs, 500);
   page.records = records;
   page.selectedIds = new Set(['novel']);
-  await page.deleteSelected();
+  await page.deleteSelected(['novel']);
   assert.equal(await progress.get(h.context, 'novel'), null);
   assert.equal((await progress.get(h.context, 'unfavorited')).charOffset, 88);
   assert.deepEqual(removedStats, ['novel']);
