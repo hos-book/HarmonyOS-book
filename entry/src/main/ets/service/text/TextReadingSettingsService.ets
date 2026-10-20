@@ -77,6 +77,9 @@ export class TextReadingSettingsService {
     const tapBottomPercent = store.getSync('tapBottomPercent', 33);
     result.tapBottomPercent = ReaderTapPolicy.percent(typeof tapBottomPercent === 'number' ? tapBottomPercent : 33, result.tapTopPercent);
     result.showChapterBar = store.getSync('showChapterBar', true) !== false;
+    result.showBrightnessBar = store.getSync('showBrightnessBar', true) !== false;
+    const brightness = store.getSync('reader_brightness', -1);
+    result.brightness = TextReadingSettings.normalizeBrightness(typeof brightness === 'number' ? brightness : -1);
     result.showHeader = store.getSync('showHeader', true) !== false;
     const cornerLayout = store.getSync('corner_layout', ReaderCornerLayout.DEFAULT);
     result.cornerLayout = ReaderCornerLayout.normalize(typeof cornerLayout === 'string' ? cornerLayout : '');
@@ -154,6 +157,8 @@ export class TextReadingSettingsService {
     store.putSync('tapTopPercent', settings.tapTopPercent);
     store.putSync('tapBottomPercent', settings.tapBottomPercent);
     store.putSync('showChapterBar', settings.showChapterBar);
+    store.putSync('showBrightnessBar', settings.showBrightnessBar);
+    store.putSync('reader_brightness', TextReadingSettings.normalizeBrightness(settings.brightness));
     store.putSync('showHeader', settings.showHeader);
     store.putSync('corner_layout', ReaderCornerLayout.normalize(settings.cornerLayout));
     store.putSync('showFooter', settings.showFooter);

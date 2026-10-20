@@ -1122,7 +1122,8 @@ export struct HomePage {
     const keyword = value.trim().toLowerCase();
     const matches = this.homeSources.filter((source: LocalRuleSource): boolean =>
       (this.homeSourceKind === 0 || (this.homeSourceKind === 1 && source.isAudio()) ||
-        (this.homeSourceKind === 2 && source.isText()) || (this.homeSourceKind === 3 && source.isComic())) &&
+        (this.homeSourceKind === 2 && source.isText() && !source.isComic()) ||
+        (this.homeSourceKind === 3 && source.isComic())) &&
       (source.bookSourceName.toLowerCase().includes(keyword) ||
       source.bookSourceUrl.toLowerCase().includes(keyword) ||
       source.bookSourceGroup.toLowerCase().includes(keyword)));

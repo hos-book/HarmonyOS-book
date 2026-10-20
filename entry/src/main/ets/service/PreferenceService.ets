@@ -183,6 +183,12 @@ export class HwAccount {
 }
 
 export class PreferenceService {
+  static async setBookGroup(bookIds: string[], group: string, groups: string[] = []): Promise<void> {
+    await PreferenceService.ensureStore();
+    const names = Array.from(new Set(BookPresentation.groups.concat(groups).concat(group ? [group] : [])));
+    await PreferenceService.saveBookPresentation(BookPresentation.assignGroup(bookIds, group), names);
+  }
+
   static async saveBookPresentation(edits: BookPresentationEdit[], groups: string[]): Promise<void> {
     const store = await PreferenceService.ensureStore();
     await store.put('book_presentation_v1', JSON.stringify(edits));
@@ -191,6 +197,42 @@ export class PreferenceService {
     BookPresentation.edits = edits;
     BookPresentation.groups = groups;
     emitter.emit(EVT_FAVORITES_CHANGED);
+  }
+
+  static async setAdaptiveHandedness(enabled: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const previous = store.getSync('adaptive_handedness', true);
+    try {
+      await store.put('adaptive_handedness', enabled);
+      await store.flush();
+      GeneralSettings.current.adaptiveHandedness = enabled;
+    } catch (error) {
+      await store.put('adaptive_handedness', previous);
+      throw new Error(`Failed to save handedness preference: ${String(error)}`);
+    }
+  }
+
+  static async getComicBrightnessBar(): Promise<boolean> {
+    const store = await PreferenceService.ensureStore();
+    return store.getSync('comic_brightness_bar', true) !== false;
+  }
+
+  static async setComicBrightnessBar(enabled: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    await store.put('comic_brightness_bar', enabled);
+    await store.flush();
+  }
+
+  static async getComicBrightness(): Promise<number> {
+    const store = await PreferenceService.ensureStore();
+    const value = store.getSync('comic_brightness', -1);
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? Math.min(1, value) : -1;
+  }
+
+  static async setComicBrightness(value: number): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    await store.put('comic_brightness', Number.isFinite(value) && value >= 0 ? Math.min(1, value) : -1);
+    await store.flush();
   }
 
   static async setHistoryEnabled(enabled: boolean): Promise<void> {
@@ -248,6 +290,7 @@ export class PreferenceService {
         } catch (_error) { /* 损坏的展示偏好不影响书籍和目录 */ }
         GeneralSettings.current.historyEnabled = s.getSync('history_enabled', true) !== false;
         GeneralSettings.current.showShelfSource = s.getSync('show_shelf_source', true) !== false;
+        GeneralSettings.current.adaptiveHandedness = s.getSync('adaptive_handedness', true) !== false;
         const material = await s.get(KEY_MATERIAL_STYLE, 0);
         const accent = await s.get(KEY_ACCENT_COLOR, '');
         AppAppearance.current.material = AppAppearance.normalizeMaterial(typeof material === 'number' ? material : 0);

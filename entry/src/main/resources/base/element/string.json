@@ -5267,6 +5267,29 @@
     {"name": "reader_card_open", "value": "打开简听"},
     {"name": "reader_card_continue", "value": "继续阅读"},
     {"name": "reader_card_chapters", "value": "第 %d / %d 章"},
-    {"name": "reader_card_progress", "value": "继续阅读 %d%%"}
+    {"name": "reader_card_progress", "value": "继续阅读 %d%%"},
+    {
+      "name": "book_group_action",
+      "value": "分组"
+    },
+    {
+      "name": "player_speed_max",
+      "value": "3.0x"
+    },
+    {
+      "name": "shelf_remove_from_group",
+      "value": "仅在当前分组删除"
+    },
+    {
+      "name": "import_group_failed",
+      "value": "%s：已保存，分组设置失败，可在书架重新设置"
+    },
+    {"name": "reader_show_brightness_bar", "value": "显示亮度条"},
+    {"name": "reader_brightness", "value": "阅读亮度"},
+    {"name": "reader_brightness_auto", "value": "自动"},
+    {"name": "reader_brightness_failed", "value": "亮度调整失败，请重试"},
+    {"name": "tts_enter_reader", "value": "进入阅读，继续朗读"},
+    {"name": "settings_adaptive_handedness", "value": "智感握姿"},
+    {"name": "settings_adaptive_handedness_desc", "value": "根据左右手握持自动调整底栏、阅读亮度条和朗读小播控的位置"}
   ]
 }

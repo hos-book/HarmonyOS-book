@@ -27,6 +27,8 @@ import { CoverImage } from '../components/CoverImage';
 import { CoverAspectRatio } from '../utils/CoverAspectRatio';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
 import { DetailActionItem } from '../components/DetailActionItem';
+import { BookGroupSheet } from '../components/BookGroupSheet';
+import { BookPresentation } from '../model/BookPresentation';
 import { HdsImmersiveTab } from '../components/HdsImmersiveTab';
 import { ChapterSheet } from '../components/ChapterSheet';
 import { BookSourceSwitchSheet } from '../components/BookSourceSwitchSheet';
@@ -192,6 +194,8 @@ export struct BookDetailPage {
   @Local showChapterSheet: boolean = false;
   /** 换源弹层。 */
   @Local showSourceSheet: boolean = false;
+  @Local showGroupSheet: boolean = false;
+  @Local savingGroup: boolean = false;
   /** 书源展示名；标签行缺 tags 时兜底展示，避免来源整页丢失。 */
   @Local sourceName: string = '';
   /** 弹层刚被关闭的时刻，用于返回键兜底（见 handleBack）。 */
@@ -251,6 +255,8 @@ export struct BookDetailPage {
    * 所以额外记录「弹层刚刚关闭」的时间窗，在这个窗口内一律消费掉返回事件。
    */
   private handleBack(): boolean {
+    if (this.savingGroup) return true;
+    if (this.showGroupSheet) { this.showGroupSheet = false; return true; }
     if (Date.now() - this.sheetDismissedAt < 32) { this.sheetDismissedAt = 0; return true; }
     if (this.showChapterSheet) {
       this.showChapterSheet = false;
@@ -1193,6 +1199,10 @@ export struct BookDetailPage {
         active: false,
         onTap: (): void => { this.showSourceSheet = true; }
       })
+      DetailActionItem({
+        icon: $r('sys.symbol.folder'), label: $r('app.string.book_group_action'), active: false,
+        onTap: (): void => { this.showGroupSheet = true; }
+      })
       if (this.generalSettings.historyEnabled) {
       DetailActionItem({
         icon: $r('sys.symbol.calendar_fill'),
@@ -1209,6 +1219,22 @@ export struct BookDetailPage {
   }
 
   /** 信息胶囊与快捷操作直接布局在封面氛围背景上。 */
+  @Builder
+  buildGroupSheet() {
+    BookGroupSheet({ initialGroup: BookPresentation.get(this.bookId)?.group ?? '',
+      onConfirm: async (group: string, groups: string[]): Promise<void> => {
+        if (!this.book || this.savingGroup) return;
+        this.savingGroup = true;
+        try {
+          await DataService.upsertCachedBook(this.book);
+          await PreferenceService.setBookGroup([this.book.id], group, groups);
+          if (!await PreferenceService.isFavorite(this.book.id)) await PreferenceService.toggleFavorite(this.book.id);
+          this.isFavorite = true;
+          this.showGroupSheet = false;
+        } finally { this.savingGroup = false; }
+      } })
+  }
+
   @Builder
   buildInfoPanel() {
     Column() {
@@ -1647,6 +1673,12 @@ export struct BookDetailPage {
     .width('100%')
     .height('100%')
     .backgroundColor($r('sys.color.background_primary'))
+    .bindSheet($$this.showGroupSheet, this.buildGroupSheet(), {
+      height: '65%', showClose: true, backgroundColor: AppMaterial.SheetBackground,
+      blurStyle: AppMaterial.SheetBlur, systemMaterial: AppMaterial.Sheet,
+      onWillDismiss: (action: DismissSheetAction): void => { if (!this.savingGroup) action.dismiss(); },
+      onDisappear: (): void => { this.sheetDismissedAt = Date.now(); }
+    })
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     .onSizeChange((_oldValue: SizeOptions, newValue: SizeOptions) => {
       this.handleViewportSizeChange(newValue);

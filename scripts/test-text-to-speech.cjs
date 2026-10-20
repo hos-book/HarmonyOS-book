@@ -78,13 +78,13 @@ function harness(memory = new Map()) {
     './HttpTtsPlayer': { HttpTtsAudioOutput: class { async release() {} }, HttpTtsPlayer: class {
       ready = false;
       async speakAudio(_ctx, buffer, speed, id, onStart) {
-        assert.equal(speed, 1);
+        assert(speed >= 1 && speed <= 1.5);
         assert.equal(new DataView(buffer).getUint32(0, false), 0x52494646);
         if (this.cancelled) throw new Error('cancelled');
         onStart();
         await new Promise((resolve, reject) => {
           this.reject = reject;
-          systemSpoken.push({ id, complete: resolve });
+          systemSpoken.push({ id, speed, complete: resolve });
         });
       }
       prepare(config, text, speed) {
@@ -134,7 +134,7 @@ function harness(memory = new Map()) {
   });
   const service = TextToSpeechService.getInstance();
   const context = { resourceManager: { getStringSync: key => key } };
-  return { service, tts, memory, spoken, engines, timers, session, httpSpoken, httpPrepared, stats, widgets,
+  return { service, tts, memory, spoken, systemSpoken, engines, timers, session, httpSpoken, httpPrepared, stats, widgets,
     advance: ms => { uptime += ms; }, coordinator: coordinator.PlaybackCoordinator,
     init: () => service.initialize(context), reloadSettings: () => TextToSpeechService.reloadSettings(context),
     failContent: value => { failContent = value; },
@@ -307,6 +307,20 @@ async function check(name, action) { await action(); console.log(`PASS ${name}`)
     const h = harness(); await h.init(); await h.service.start(book(), 0, 0); h.service.setSpeed(1.5); await settle();
     assert.equal(h.spoken.at(-1).speed, 1.5); assert.equal(h.spoken.length, 2);
     assert.equal(h.memory.get('speed'), 1.5); h.service.stop();
+  });
+  await check('三倍速使用两倍合成和一点五倍播放，重启保持三倍速', async () => {
+    const h = harness(); await h.init(); await h.service.start(book(), 0, 0);
+    h.service.setSpeed(3); await settle();
+    assert.equal(h.service.state.speed, 3);
+    assert.equal(h.spoken.at(-1).speed, 2);
+    assert.equal(h.systemSpoken.at(-1).speed, 1.5);
+    assert.equal(h.memory.get('speed'), 3);
+    h.service.stop();
+    const restored = harness(h.memory); await restored.init();
+    assert.equal(restored.service.state.speed, 3);
+    restored.service.setSpeed(4);
+    assert.equal(restored.service.state.speed, 3);
+    restored.service.stop();
   });
   await check('初始化超时后可重试，迟到的引擎被释放', async () => {
     const h = harness(); await h.init(); let finish;

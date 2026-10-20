@@ -302,7 +302,7 @@ export struct ReaderContinuousComponent {
                 page: row.page, text: row.text, source: row.source, sourceStart: row.startOffset,
                 fontFamily: this.fontFamily, fontWeight: this.fontWeight,
                 state: this.speechState, fontSize: this.fontSize, lineHeight: this.lineHeight, palette: this.palette,
-                highlightEnabled: this.selectionEnabled && this.speechState.bookId === this.bookId && this.speechState.chapterIndex === row.chapterIndex
+                highlightEnabled: this.speechState.bookId === this.bookId && this.speechState.chapterIndex === row.chapterIndex
               })
                 .width('100%').height(this.getUIContext().px2vp(row.page.layoutHeight))
                 .margin({ bottom: this.getUIContext().px2vp(row.page.trailingSpacing) })

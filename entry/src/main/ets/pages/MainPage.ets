@@ -327,7 +327,7 @@ export struct MainPage {
       // 保留随主题色变化的沉浸光感。
       lightColor: AppColor.Brand,
       // 智感握持:左右手自动跟手
-      adaptToHandedness: true,
+      adaptToHandedness: this.generalSettings.adaptiveHandedness,
       // 迷你栏配置:HdsTabs 会自动管理折叠/展开
       miniBar: (this.speechState.active || this.playerState.currentBook) ? {
         miniBarBuilder: () => this.miniBarBuilder(),

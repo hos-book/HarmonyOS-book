@@ -8,6 +8,7 @@ import { AppColor, AppFont, AppMaterial, AppRadius, AppSpace } from '../theme/Th
 @ComponentV2
 export struct ReaderSettingCard {
   @Param title: ResourceStr = '';
+  @Param description: ResourceStr = '';
   @Param inline: boolean = false;
   @Param compact: boolean = false;
   @BuilderParam content: () => void = this.emptyContent;
@@ -33,6 +34,9 @@ export struct ReaderSettingCard {
         .fontWeight(FontWeight.Medium)
         .width('100%')
       this.content()
+      }
+      if (this.description) {
+        Text(this.description).fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary')).width('100%')
       }
     }
     .width('100%')

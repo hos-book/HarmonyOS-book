@@ -4,4 +4,5 @@ export class GeneralSettings {
   static readonly current: GeneralSettings = new GeneralSettings();
   @Trace historyEnabled: boolean = true;
   @Trace showShelfSource: boolean = true;
+  @Trace adaptiveHandedness: boolean = true;
 }

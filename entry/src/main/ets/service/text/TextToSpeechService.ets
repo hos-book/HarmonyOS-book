@@ -121,7 +121,7 @@ export class TextToSpeechService {
     const person = this.store.getSync('person', 13);
     const language = this.store.getSync('language', 'zh-CN');
     const follow = this.store.getSync('follow', true);
-    this.state.speed = typeof speed === 'number' && Number.isFinite(speed) ? Math.max(0.5, Math.min(2, speed)) : 1;
+    this.state.speed = typeof speed === 'number' && Number.isFinite(speed) ? Math.max(0.5, Math.min(3, speed)) : 1;
     this.state.person = typeof person === 'number' && Number.isFinite(person) ? person : 13;
     this.state.language = typeof language === 'string' ? language : 'zh-CN';
     this.state.follow = typeof follow === 'boolean' ? follow : true;
@@ -321,7 +321,7 @@ export class TextToSpeechService {
     if (!Number.isFinite(speed)) return;
     const resume = this.state.playing || this.state.loading;
     this.pause();
-    this.state.speed = Math.round(Math.max(0.5, Math.min(2, speed)) * 100) / 100;
+    this.state.speed = Math.round(Math.max(0.5, Math.min(3, speed)) * 100) / 100;
     this.saveSettings();
     if (resume) this.resume();
   }
@@ -643,7 +643,7 @@ export class TextToSpeechService {
     this.notify();
     const params: textToSpeech.SpeakParams = {
       requestId: this.requestId,
-      extraParams: { 'queueMode': 0, 'speed': this.state.speed, 'volume': 1, 'pitch': 1,
+      extraParams: { 'queueMode': 0, 'speed': Math.min(2, this.state.speed), 'volume': 1, 'pitch': 1,
         'languageContext': this.state.language, 'audioType': 'pcm', 'soundChannel': 1, 'playType': 0, 'isBackStage': true }
     };
     try {
@@ -670,7 +670,7 @@ export class TextToSpeechService {
     this.httpPlaybackChain = this.httpPlaybackChain.catch((): void => {}).then(async (): Promise<void> => {
       if (!this.valid(ticket) || id !== this.requestId) return;
       try {
-        await player.speakAudio(context, buffer, 1, id, (): void => {
+        await player.speakAudio(context, buffer, Math.max(1, this.state.speed / 2), id, (): void => {
           if (!this.valid(ticket) || id !== this.requestId) return;
           if (this.spokenSince < 0) this.spokenSince = systemDateTime.getUptime(systemDateTime.TimeType.STARTUP);
           this.highlightParagraph();

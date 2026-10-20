@@ -20,6 +20,7 @@ export struct ShelfBatchActions {
   @Param busy: boolean = false;
   @Event onSelectAll: () => void = () => {};
   @Event onDelete: () => void = () => {};
+  @Event onGroup: () => void = () => {};
   @Local measuredWidth: number = 320;
 
   @Builder
@@ -64,6 +65,14 @@ export struct ShelfBatchActions {
         .enabled(!this.busy && this.totalCount > 0)
         .accessibilityText(this.allSelected ? $r('app.string.shelf_deselect_all') : $r('app.string.shelf_select_all'))
         .onClick((): void => this.onSelectAll())
+        Divider().vertical(true).height(20).color($r('sys.color.comp_divider'))
+        Button({ type: ButtonType.Capsule, stateEffect: false }) {
+          Row({ space: AppSpace.Xs }) {
+            SymbolGlyph($r('sys.symbol.folder')).fontSize(20).fontColor([AppColor.Brand])
+            Text($r('app.string.book_group_action')).fontSize(AppFont.Body).fontColor(AppColor.Brand)
+          }.hitTestBehavior(HitTestMode.None)
+        }.height(44).layoutWeight(1).padding(0).backgroundColor(Color.Transparent)
+          .enabled(this.selectedCount > 0 && !this.busy).onClick((): void => this.onGroup())
         Divider().vertical(true).height(20).color($r('sys.color.comp_divider'))
         Button({ type: ButtonType.Capsule, stateEffect: false }) {
           Row({ space: AppSpace.Xs }) {

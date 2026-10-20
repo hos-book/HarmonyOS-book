@@ -41,6 +41,8 @@ function load(relative) {
   const { TextReadingSettingsService: service } = load('service/text/TextReadingSettingsService');
   values.set('font_size', 22); // Existing installations have no new preference keys.
   const migrated = await service.get({});
+  assert.equal(migrated.showBrightnessBar, true);
+  assert.equal(migrated.brightness, -1, 'existing readers retain system brightness');
   assert.equal(migrated.cornerLayout, '0123', 'legacy settings keep their original four corners');
   for (let corner = 0; corner < 4; corner++) {
     for (let content = 0; content < 4; content++) {
@@ -66,6 +68,8 @@ function load(relative) {
   assert.equal(migrated.alwaysShowStatusBar, true, 'existing installations show the status bar by default');
   assert.equal(migrated.volumeKeyPageTurn, false);
   migrated.volumeKeyPageTurn = true;
+  migrated.showBrightnessBar = false;
+  migrated.brightness = 0.37;
   migrated.followSystemTheme = true;
   migrated.alwaysShowStatusBar = false;
   migrated.pageTurnMode = PageTurnMode.Vertical;
@@ -75,6 +79,8 @@ function load(relative) {
   migrated.marginBottom = 0;
   await service.save({}, migrated);
   const restored = await service.get({});
+  assert.equal(restored.showBrightnessBar, false);
+  assert.equal(restored.brightness, 0.37);
   assert.equal(restored.cornerLayout, '3120', 'corner order survives a preferences reload');
   assert.equal(restored.pageTurnMode, 'vertical');
   assert.equal(restored.paragraphSpacing, 1.2, 'paragraph spacing survives reload');

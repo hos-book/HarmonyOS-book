@@ -1,3 +1,7 @@
+import { ReaderBrightnessService } from '../service/text/ReaderBrightnessService';
+import { ReaderBrightnessBar } from '../components/ReaderBrightnessBar';
+import { GeneralSettings } from '../model/GeneralSettings';
+import { ReaderHoldingHandService } from '../service/text/ReaderHoldingHandService';
 import { ReaderWidgetService } from '../service/ReaderWidgetService';
 import { ChapterSheetActions } from '../components/ChapterSheetActions';
 import { ReaderVolumeKeyService } from '../service/text/ReaderVolumeKeyService';
@@ -10,6 +14,7 @@ import { ChapterCacheIndicator } from '../components/ChapterCacheIndicator';
 import { BookSourceSwitchSheet } from '../components/BookSourceSwitchSheet';
 import { TextReaderRouteParams } from '../model/TextReading';
 import { ReaderSpeechFloating } from '../components/ReaderSpeechFloating';
+import { CoverImage } from '../components/CoverImage';
 import { ReaderFontService, ReaderImportedFont } from '../service/text/ReaderFontService';
 import { ReaderScreenOnService } from '../service/text/ReaderScreenOnService';
 import { HdsTabs, HdsTabsFloatingStyle } from '@kit.UIDesignKit';
@@ -149,6 +154,9 @@ export struct ReaderPage {
   @Local tapTopPercent: number = 33;
   @Local tapBottomPercent: number = 33;
   @Local showChapterBar: boolean = true;
+  @Local showBrightnessBar: boolean = true;
+  @Local readingBrightness: number = -1;
+  private brightnessControl: ReaderBrightnessService = new ReaderBrightnessService();
   @Local showHeader: boolean = true;
   @Local cornerLayout: string = ReaderCornerLayout.DEFAULT;
   @Local showFooter: boolean = true;
@@ -300,7 +308,21 @@ export struct ReaderPage {
     this.scheduleReaderSettingsRefresh();
   };
 
+  @Local holdingHandSide: number = 0;
+  @Local generalSettings: GeneralSettings = GeneralSettings.current;
+  @Local speechMiniVerticalRatio: number = -1;
+  private speechMiniDragStartY: number = 0;
+  private holdingHand: ReaderHoldingHandService = new ReaderHoldingHandService();
+
+  @Monitor('generalSettings.adaptiveHandedness')
+  private syncHoldingHand(): void {
+    this.holdingHand.setVisible(this.readerVisible && !this.leaving && this.generalSettings.adaptiveHandedness);
+    if (!this.generalSettings.adaptiveHandedness) this.holdingHandSide = 0;
+  }
+
   aboutToAppear(): void {
+    this.holdingHand.onChange = (left: boolean): void => { this.holdingHandSide = left ? 1 : 2; };
+    this.holdingHand.setVisible(this.generalSettings.adaptiveHandedness);
     emitter.on('app.reader.background', this.backgroundHandler);
     emitter.on('app.reader.foreground', this.foregroundHandler);
     this.sessionTimer = setInterval((): void => {
@@ -321,6 +343,9 @@ export struct ReaderPage {
     WindowUtils.addReaderColorListener(this.readerColorListener);
     WindowUtils.refreshAvoidArea();
     emitter.on(EVT_READER_JUMP_CHAPTER, this.jumpChapterHandler);
+    this.brightnessControl.onFailure = (): void => this.showToast($r('app.string.reader_brightness_failed'));
+    this.brightnessControl.init(this.context).catch((): void => {});
+    this.brightnessControl.setVisible(true);
     this.screenOn.init(this.context).catch((): void => {});
     this.screenOn.setVisible(true);
     this.initializeReader();
@@ -330,6 +355,8 @@ export struct ReaderPage {
     this.readerVisible = false;
     this.volumeKeys.dispose();
     this.screenOn.dispose();
+    this.brightnessControl.dispose();
+    this.holdingHand.setVisible(false);
     emitter.off('app.reader.background', this.backgroundHandler);
     emitter.off('app.reader.foreground', this.foregroundHandler);
     if (this.sessionTimer >= 0) clearInterval(this.sessionTimer);
@@ -968,6 +995,9 @@ export struct ReaderPage {
       this.tapTopPercent = settings.tapTopPercent;
       this.tapBottomPercent = settings.tapBottomPercent;
       this.showChapterBar = settings.showChapterBar;
+      this.showBrightnessBar = settings.showBrightnessBar;
+      this.readingBrightness = settings.brightness;
+      this.brightnessControl.configure(this.readingBrightness);
       this.showHeader = settings.showHeader;
       this.cornerLayout = settings.cornerLayout;
       this.showFooter = settings.showFooter;
@@ -1024,6 +1054,9 @@ export struct ReaderPage {
     this.tapTopPercent = 33;
     this.tapBottomPercent = 33;
     this.showChapterBar = true;
+    this.showBrightnessBar = true;
+    this.readingBrightness = -1;
+    this.brightnessControl.configure(-1);
     this.showHeader = true;
     this.cornerLayout = ReaderCornerLayout.DEFAULT;
     this.showFooter = true;
@@ -1079,6 +1112,8 @@ export struct ReaderPage {
     settings.tapTopPercent = this.tapTopPercent;
     settings.tapBottomPercent = this.tapBottomPercent;
     settings.showChapterBar = this.showChapterBar;
+    settings.showBrightnessBar = this.showBrightnessBar;
+    settings.brightness = this.readingBrightness;
     settings.showHeader = this.showHeader;
     settings.cornerLayout = this.cornerLayout;
     settings.showFooter = this.showFooter;
@@ -1325,6 +1360,8 @@ export struct ReaderPage {
     settings.tapTopPercent = this.tapTopPercent;
     settings.tapBottomPercent = this.tapBottomPercent;
     settings.showChapterBar = this.showChapterBar;
+    settings.showBrightnessBar = this.showBrightnessBar;
+    settings.brightness = this.readingBrightness;
     settings.showHeader = this.showHeader;
     settings.cornerLayout = this.cornerLayout;
     settings.showFooter = this.showFooter;
@@ -1486,7 +1523,11 @@ export struct ReaderPage {
     this.showSettingsSheet = false;
     this.showSpeechSheet = false;
     if (data.resourceIndex >= 0) {
-      this.jumpToResourceIndex(data.resourceIndex);
+      if (data.charOffset >= 0 && this.isOnlineTextBook()) {
+        this.loadOnlineTextChapter(data.resourceIndex, data.charOffset, 0, false, false);
+      } else {
+        this.jumpToResourceIndex(data.resourceIndex);
+      }
     }
   }
 
@@ -1869,7 +1910,7 @@ export struct ReaderPage {
       gradientMask: { maskColor: Color.Transparent, maskHeight: 0 },
       systemMaterialEffect: HdsCompat.adaptiveMaterial,
       lightColor: AppColor.Brand,
-      adaptToHandedness: true
+      adaptToHandedness: this.generalSettings.adaptiveHandedness
     };
   }
 
@@ -2081,7 +2122,7 @@ export struct ReaderPage {
     } catch (_error) { this.showToast($r('app.string.tts_engine_error')); }
   }
 
-  private async openSpeechPlayer(): Promise<void> {
+  private async openSpeechPlayer(preservePaused: boolean = false): Promise<void> {
     const book = this.book;
     if (!this.isOnlineTextBook() || this.context === null || book === null ||
       this.onlineTextLoading || this.openingSpeechPlayer) return;
@@ -2094,7 +2135,7 @@ export struct ReaderPage {
       this.hideReaderBar();
       SearchCache.put(book);
       if (speech.state.active && speech.state.bookId === book.id) {
-        if (!speech.state.playing && !speech.state.loading) speech.resume();
+        if (!preservePaused && !speech.state.playing && !speech.state.loading) speech.resume();
       } else {
         speech.start(book, this.currentResourceIndex, this.currentOnlineTextCharOffset());
       }
@@ -2178,6 +2219,10 @@ export struct ReaderPage {
             .width('100%')
             .height('100%')
           this.buildReaderTabs()
+          if (this.showBrightnessBar) { this.buildBrightnessBar() }
+          if (this.speechState.active && this.speechState.bookId === this.bookId && this.isOnlineTextBook()) {
+            this.buildSpeechMiniPlayer()
+          }
         }
         .width('100%')
         .height('100%')
@@ -2235,12 +2280,145 @@ export struct ReaderPage {
       this.saveProgress();
       if (!visible) ReadingSessionService.end('reading');
       this.screenOn.setVisible(visible);
+      this.brightnessControl.setVisible(visible);
+      this.syncHoldingHand();
     })
     // 背景由 ReaderBackground 铺，根节点保持透明
     .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
     .onSizeChange((oldValue: SizeOptions, newValue: SizeOptions): void => {
       this.handleViewportSizeChange(oldValue, newValue);
     })
+  }
+
+  @Builder
+  private speechMiniMaterialContent(): void {
+    Stack().width('100%').height('100%')
+  }
+
+  private speechMiniTop(): number { return this.readerTopInsetVp() + 48; }
+
+  private speechMiniBottom(): number {
+    const height = this.readerViewportHeightVp > 0 ? this.readerViewportHeightVp : WindowUtils.getWindowHeightVp();
+    const bottom = Math.max(this.bottomSafeVp, READER_MIN_SAFE_BOTTOM) + (this.readerBarVisible ?
+      READER_BAR_HEIGHT + (this.showChapterBar ? 76 : READER_FLOATING_BOTTOM + 12) : 16);
+    return Math.max(this.speechMiniTop(), height - bottom - 48);
+  }
+
+  private speechMiniY(): number {
+    if (this.speechMiniVerticalRatio < 0) return this.speechMiniBottom();
+    return this.speechMiniTop() + this.speechMiniVerticalRatio * (this.speechMiniBottom() - this.speechMiniTop());
+  }
+
+  private speechMiniX(): number {
+    const width = this.readerViewportWidthVp > 0 ? this.readerViewportWidthVp : WindowUtils.getWindowWidthVp();
+    return this.holdingHandSide === 2 ? Math.max(this.leftSafeVp + 12, width - this.rightSafeVp - 152) : this.leftSafeVp + 12;
+  }
+
+  @Builder
+  private buildSpeechMiniPlayer(): void {
+    Stack() {
+      if (PlatformCompat.floatingTabs) {
+        HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
+          TabContent() { Column() }.height(48).tabBar(this.speechMiniMaterialContent())
+        }.barMode(BarMode.Fixed).barHeight(48).barOverlap(true)
+          .barFloatingStyle({
+            barWidth: { smallWidth: 140, mediumWidth: 140, largeWidth: 140 },
+            systemMaterialEffect: HdsCompat.material,
+            barSideMargin: 0, barBottomMargin: 0,
+            gradientMask: { maskColor: '#00000000', maskHeight: 48 },
+            adaptToHandedness: false, thermoCtrl: true, barOpacity: 1
+          })
+          .scrollable(false).onContentWillChange((): boolean => false)
+          .width(140).height(48).hitTestBehavior(HitTestMode.None)
+      } else {
+        Stack().width(140).height(48).borderRadius(24)
+          .backgroundColor($r('sys.color.comp_background_primary'))
+          .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
+      }
+    Row({ space: 4 }) {
+      Button({ type: ButtonType.Circle }) {
+        CoverImage({ url: this.speechState.cover, title: this.book?.title ?? '',
+          author: this.book?.author ?? '', localPlaceholder: true,
+          imgWidth: 40, imgHeight: 40, useFixedHeight: true, radius: 20,
+          decodeW: 120, decodeH: 120 })
+      }.width(40).height(40).padding(0).backgroundColor(Color.Transparent)
+        .accessibilityText($r('app.string.tts_title')).id('reader-speech-cover')
+        .onClick((): void => { this.openSpeechPlayer(true); })
+      Button({ type: ButtonType.Circle }) {
+        if (this.speechState.loading) {
+          LoadingProgress().width(28).height(28).color(AppColor.Brand)
+        } else {
+          Stack() {
+            SymbolGlyph(this.speechState.playing ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'))
+              .fontSize(18).fontColor([this.palette.primary])
+          }.width(32).height(32).borderRadius(16).border({ width: 1.5, color: this.palette.primary })
+        }
+      }.width(44).height(40).padding(0).backgroundColor(Color.Transparent)
+        .accessibilityText(this.speechState.playing || this.speechState.loading ?
+          $r('app.string.tts_pause') : $r('app.string.tts_play')).id('reader-speech-toggle')
+        .onClick((): void => {
+          const speech = TextToSpeechService.getInstance();
+          if (speech.state.playing || speech.state.loading) speech.pause();
+          else speech.resume();
+        })
+      Button({ type: ButtonType.Circle }) {
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.palette.primary])
+      }.width(40).height(40).padding(0).backgroundColor(Color.Transparent)
+        .accessibilityText($r('app.string.tts_stop')).id('reader-speech-stop')
+        .onClick((): void => { TextToSpeechService.getInstance().stop(); })
+    }.width(140).height(48).padding(4)
+    }.width(140).height(48).attributeModifier(new ReaderControlClip())
+      .position({ x: this.speechMiniX(), y: this.speechMiniY() })
+      .priorityGesture(GestureGroup(GestureMode.Sequence,
+        LongPressGesture({ repeat: false, duration: 350 }).onAction((): void => {
+          this.speechMiniDragStartY = this.speechMiniY();
+        }),
+        PanGesture({ direction: PanDirection.Vertical, distance: 1 })
+          .onActionUpdate((event: GestureEvent): void => {
+            const span = this.speechMiniBottom() - this.speechMiniTop();
+            this.speechMiniVerticalRatio = span > 0 ? Math.max(0, Math.min(1,
+              (this.speechMiniDragStartY + event.offsetY - this.speechMiniTop()) / span)) : 0;
+          })
+      ))
+      .onTouch((event: TouchEvent): void => { event.stopPropagation(); })
+      .id('reader-speech-mini-player')
+  }
+
+  private changeReadingBrightness(value: number, commit: boolean): void {
+    this.readingBrightness = TextReadingSettings.normalizeBrightness(value);
+    this.brightnessControl.configure(this.readingBrightness);
+    if (commit) this.saveReadingSettings();
+  }
+
+  private brightnessBarHeight(): number {
+    const height = this.readerViewportHeightVp > 0 ? this.readerViewportHeightVp : WindowUtils.getWindowHeightVp();
+    return Math.min(280, Math.max(160, height - this.readerTopInsetVp() -
+      Math.max(this.bottomSafeVp, READER_MIN_SAFE_BOTTOM) - 180));
+  }
+
+  private brightnessBarX(): number {
+    const width = this.readerViewportWidthVp > 0 ? this.readerViewportWidthVp : WindowUtils.getWindowWidthVp();
+    return this.holdingHandSide === 1 ? this.leftSafeVp + 12 : Math.max(this.leftSafeVp + 12, width - this.rightSafeVp - 60);
+  }
+
+  private brightnessBarY(): number {
+    const height = this.readerViewportHeightVp > 0 ? this.readerViewportHeightVp : WindowUtils.getWindowHeightVp();
+    const top = this.readerTopInsetVp() + 48;
+    const bottom = Math.max(this.bottomSafeVp, READER_MIN_SAFE_BOTTOM) + READER_BAR_HEIGHT + 76;
+    return Math.max(top, top + (height - top - bottom - this.brightnessBarHeight()) / 2);
+  }
+
+  @Builder
+  buildBrightnessBar() {
+    ReaderBrightnessBar({ value: this.readingBrightness, barHeight: this.brightnessBarHeight(), foreground: this.palette.primary,
+      onChange: (value: number, commit: boolean): void => { this.changeReadingBrightness(value, commit); } })
+      .position({ x: this.brightnessBarX(), y: this.brightnessBarY() })
+      .opacity(this.readerBarVisible ? 1 : 0)
+      .visibility(this.readerBarVisible ? Visibility.Visible : Visibility.Hidden)
+      .enabled(this.readerBarVisible)
+      .hitTestBehavior(this.readerBarVisible ? HitTestMode.Default : HitTestMode.None)
+      .onTouch((event: TouchEvent): void => { event.stopPropagation(); })
+      .id('reader-brightness-bar')
   }
 
   @Builder
@@ -2291,6 +2469,9 @@ export struct ReaderPage {
           tapBottomPercent: this.tapBottomPercent,
 
               keyTurnRequest: this.keyTurnRequest,
+              speechState: this.speechState,
+              followOffset: this.speechState.active && this.speechState.bookId === this.bookId &&
+                this.speechState.chapterIndex === this.currentResourceIndex ? this.speechState.charOffset : -1,
               revision: this.continuousRevision, chapterIndex: this.currentResourceIndex,
               content: this.onlineTextContent, charOffset: this.currentOnlineTextCharOffset(),
               chapterCount: this.book?.chapters.length ?? 0,
@@ -2319,7 +2500,9 @@ export struct ReaderPage {
               text: this.currentOnlineTextPageContent(),
               source: this.currentOnlineTextPageSource(),
               sourceStart: this.onlineTextPages[this.onlineTextPageIndex]?.startOffset ?? 0,
-              highlightEnabled: false,
+              state: this.speechState,
+              highlightEnabled: this.speechState.bookId === this.bookId &&
+                this.speechState.chapterIndex === this.currentResourceIndex,
               fontSize: this.fontSize, lineHeight: this.lineHeight, palette: this.palette,
               fontFamily: this.fontFamily, fontWeight: this.fontWeight
             })
@@ -2617,6 +2800,7 @@ export struct ReaderPage {
           tapBottomPercent: this.tapBottomPercent,
 
       showChapterBar: this.showChapterBar,
+      showBrightnessBar: this.showBrightnessBar,
       showHeader: this.showHeader,
       cornerLayout: this.cornerLayout,
       onCornerChange: (corner: number, content: number): void => {
@@ -2642,6 +2826,7 @@ export struct ReaderPage {
         this.tapRegions = ReaderTapPolicy.DEFAULT; this.saveReadingSettings();
       },
       onChromeChange: (field: string, enabled: boolean): void => {
+        if (field === 'showBrightnessBar') this.showBrightnessBar = enabled;
         if (field === 'showChapterBar') this.showChapterBar = enabled;
         if (field === 'showHeader') this.showHeader = enabled;
         if (field === 'showFooter') this.showFooter = enabled;

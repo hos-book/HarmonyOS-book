@@ -1,5 +1,6 @@
 import { LocalBookImportService, LocalImportFile, LocalBookPreview } from '../service/LocalBookImportService';
 import { LocalBookCover } from '../components/LocalBookCover';
+import { BookGroupSheet } from '../components/BookGroupSheet';
 import { common } from '@kit.AbilityKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { picker } from '@kit.CoreFileKit';
@@ -43,6 +44,9 @@ export struct ImportPage {
   @Param importFileType: string = '';
   private externalImportConsumed: boolean = false;
   @Local bookTitle: string = '';
+  @Local shelfGroup: string = '';
+  @Local shelfGroups: string[] = [];
+  @Local showGroupSheet: boolean = false;
   @Local bookAuthor: string = '';
   @Local pickedFiles: PickedFile[] = [];
   @Local coverPath: string = '';
@@ -317,6 +321,12 @@ export struct ImportPage {
     }
     this.importedCount++;
     try {
+      await PreferenceService.setBookGroup([book.id], this.shelfGroup, this.shelfGroups);
+    } catch (error) {
+      DiagnosticLogService.failure('import.shelfGroup', error);
+      this.importFailures.push(this.context!.resourceManager.getStringSync($r('app.string.import_group_failed').id, book.title));
+    }
+    try {
       if (!await PreferenceService.isFavorite(book.id)) await PreferenceService.toggleFavorite(book.id);
     } catch (error) {
       DiagnosticLogService.failure('import.favorite', error);
@@ -454,6 +464,16 @@ export struct ImportPage {
   }
 
   // PLACEHOLDER_BUILD
+  @Builder
+  buildGroupSheet() {
+    BookGroupSheet({ initialGroup: this.shelfGroup, initialGroups: this.shelfGroups,
+      onConfirm: async (group: string, groups: string[]): Promise<void> => {
+        this.shelfGroup = group;
+        this.shelfGroups = groups;
+        this.showGroupSheet = false;
+      } })
+  }
+
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       Column() {
@@ -480,6 +500,15 @@ export struct ImportPage {
             this.buildFileSection()
             this.buildCoverSection()
             this.buildInfoSection()
+            Row({ space: AppSpace.Sm }) {
+              Text($r('app.string.book_group_action')).fontSize(AppFont.Body)
+                .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+              Text(this.shelfGroup || $r('app.string.shelf_group_none')).fontColor(AppColor.Brand)
+              SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(16).fontColor([AppColor.Brand])
+            }.width('100%').padding(AppSpace.Md).borderRadius(AppRadius.Lg)
+              .backgroundColor($r('sys.color.comp_background_secondary'))
+              .enabled(!this.importing && !this.parsing).onClick((): void => { this.showGroupSheet = true; })
+              .bindSheet($$this.showGroupSheet, this.buildGroupSheet(), { height: '65%', showClose: true })
           }
           .width('100%')
           .padding({

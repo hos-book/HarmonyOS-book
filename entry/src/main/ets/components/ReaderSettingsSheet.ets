@@ -296,6 +296,7 @@ export struct ReaderSettingsSheet {
   @Param tapTopPercent: number = 33;
   @Param tapBottomPercent: number = 33;
   @Param showChapterBar: boolean = true;
+  @Param showBrightnessBar: boolean = true;
   @Param showHeader: boolean = true;
   @Param cornerLayout: string = ReaderCornerLayout.DEFAULT;
   @Event onCornerChange: (corner: number, content: number) => void = () => {};
@@ -808,9 +809,16 @@ export struct ReaderSettingsSheet {
 
   @Builder
   buildHeaderSection() {
+    ReaderSettingCard({ title: $r('app.string.reader_show_brightness_bar'), inline: true }) {
+      Toggle({ type: ToggleType.Switch, isOn: this.showBrightnessBar }).selectedColor(AppColor.Brand)
+        .onChange((enabled: boolean): void => this.onChromeChange('showBrightnessBar', enabled))
+    }
+    ReaderSettingCard({ title: $r('app.string.reader_show_chapter_bar'), inline: true }) {
+      Toggle({ type: ToggleType.Switch, isOn: this.showChapterBar }).selectedColor(AppColor.Brand)
+        .onChange((enabled: boolean): void => this.onChromeChange('showChapterBar', enabled))
+    }
     ReaderSettingCard({ title: $r('app.string.reader_header_title') }) {
       Column({ space: 8 }) {
-        this.chromeToggle($r('app.string.reader_show_chapter_bar'), 'showChapterBar', this.showChapterBar)
         this.chromeToggle($r('app.string.reader_show_header'), 'showHeader', this.showHeader)
         if (this.showHeader) {
           this.cornerSelector(0)

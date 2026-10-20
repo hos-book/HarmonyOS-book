@@ -87,6 +87,12 @@ export class ReaderCornerLayout {
 }
 
 export class TextReadingSettings {
+  showBrightnessBar: boolean = true;
+  brightness: number = -1;
+
+  static normalizeBrightness(value: number): number {
+    return Number.isFinite(value) && value >= 0 ? Math.max(0, Math.min(1, value)) : -1;
+  }
   cornerLayout: string = ReaderCornerLayout.DEFAULT;
   textAlignment: string = 'justify';
 
@@ -289,6 +295,7 @@ export const EVT_READER_TYPOGRAPHY_CHANGED: string = 'app.reader.typography.chan
 export class ReaderJumpChapterEvent {
   bookId: string = '';
   resourceIndex: number = -1;
+  charOffset: number = -1;
 }
 
 export class TextSourceError extends Error {

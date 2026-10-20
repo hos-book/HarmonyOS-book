@@ -80,7 +80,7 @@ export struct ReaderSpeechText {
       range.end = this.selectionEnd;
       return range;
     }
-    if (!this.selectionEnabled || !this.highlightEnabled || !this.state.active) return new SpeechHighlightRange();
+    if (!this.highlightEnabled || !this.state.active) return new SpeechHighlightRange();
     return SpeechTextHighlighter.displayRange(this.text, this.source,
       this.state.highlightOffset - this.sourceStart, this.state.highlightEnd - this.sourceStart);
   }

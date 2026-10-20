@@ -22,6 +22,9 @@
     ],
     "requestPermissions": [
       {
+        "name": "ohos.permission.DETECT_GESTURE"
+      },
+      {
         "name": "ohos.permission.INTERNET"
       },
       {

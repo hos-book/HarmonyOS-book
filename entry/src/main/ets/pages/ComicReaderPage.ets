@@ -1,4 +1,8 @@
 import { ReaderWidgetService } from '../service/ReaderWidgetService';
+import { GeneralSettings } from '../model/GeneralSettings';
+import { ReaderBrightnessBar } from '../components/ReaderBrightnessBar';
+import { ReaderBrightnessService } from '../service/text/ReaderBrightnessService';
+import { ReaderHoldingHandService } from '../service/text/ReaderHoldingHandService';
 import { curves } from '@kit.ArkUI';
 import { ChapterSheetActions } from '../components/ChapterSheetActions';
 import { ChapterSegmentGrid } from '../components/ChapterSegmentGrid';
@@ -58,6 +62,19 @@ export struct ComicReaderPage {
   private touchStartedAt: number = 0;
   private touchTracker: ReaderTouchTracker = new ReaderTouchTracker();
   @Local showChapterBar: boolean = true;
+  @Local showBrightnessBar: boolean = true;
+  @Local readingBrightness: number = -1;
+  @Local holdingHandLeft: boolean = false;
+  @Local generalSettings: GeneralSettings = GeneralSettings.current;
+  private readerVisible: boolean = true;
+  private brightnessControl: ReaderBrightnessService = new ReaderBrightnessService();
+  private holdingHand: ReaderHoldingHandService = new ReaderHoldingHandService();
+
+  @Monitor('generalSettings.adaptiveHandedness')
+  private syncHoldingHand(): void {
+    this.holdingHand.setVisible(this.alive && this.readerVisible && this.generalSettings.adaptiveHandedness);
+    if (!this.generalSettings.adaptiveHandedness) this.holdingHandLeft = false;
+  }
   private readonly tapLeftPercent: number = 100 / 3;
   private readonly tapRightPercent: number = 100 / 3;
   private turning: boolean = false;
@@ -129,6 +146,17 @@ export struct ComicReaderPage {
 
   aboutToAppear(): void {
     this.alive = true;
+    this.readerVisible = true;
+    this.holdingHand.onChange = (left: boolean): void => { this.holdingHandLeft = left; };
+    this.syncHoldingHand();
+    const context = this.getUIContext().getHostContext();
+    if (context) {
+      this.brightnessControl.onFailure = (): void => {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.reader_brightness_failed') });
+      };
+      this.brightnessControl.init(context).catch((): void => {});
+      this.brightnessControl.setVisible(true);
+    }
     this.loadFeedbackTimer = setInterval((): void => {
       if (this.busy) this.loadingSeconds = Math.floor((Date.now() - this.loadStartedAt) / 1000);
     }, 1000);
@@ -142,6 +170,9 @@ export struct ComicReaderPage {
   }
 
   aboutToDisappear(): void {
+    this.readerVisible = false;
+    this.holdingHand.setVisible(false);
+    this.brightnessControl.dispose();
     if (this.loadFeedbackTimer >= 0) clearInterval(this.loadFeedbackTimer);
     this.savePosition();
     this.alive = false;
@@ -169,7 +200,12 @@ export struct ComicReaderPage {
       const superResolution = await PreferenceService.getComicSuperResolution();
       const settings = await TextReadingSettingsService.get(context);
       this.showChapterBar = settings.showChapterBar;
+      const showBrightnessBar = await PreferenceService.getComicBrightnessBar();
+      const brightness = await PreferenceService.getComicBrightness();
       if (!this.alive) return;
+      this.showBrightnessBar = showBrightnessBar;
+      this.readingBrightness = brightness;
+      this.brightnessControl.configure(brightness);
       this.superResolution = superResolution && ComicSuperResolutionService.supported();
       this.book = book;
       SearchCache.put(book);
@@ -491,7 +527,20 @@ export struct ComicReaderPage {
         }
         this.bottomBar()
       }.width('100%').height('100%').hitTestBehavior(HitTestMode.Transparent)
+      if (this.showBrightnessBar && this.chrome) {
+        ReaderBrightnessBar({ value: this.readingBrightness, barHeight: this.brightnessBarHeight(),
+          onChange: (value: number, commit: boolean): void => { this.changeBrightness(value, commit); } })
+          .position({ x: this.holdingHandLeft ? this.leftSafe + 12 : Math.max(this.leftSafe + 12, this.widthVp - this.rightSafe - 60),
+            y: Math.max(this.topSafe + 48, this.topSafe + 48 +
+              (this.heightVp - this.topSafe - 48 - this.bottomSafe - 140 - this.brightnessBarHeight()) / 2) })
+          .id('comic-brightness-bar')
+      }
     }.width('100%').height('100%').backgroundColor('#121212')
+    .onVisibleAreaChange([0, 1], (visible: boolean): void => {
+      this.readerVisible = visible;
+      this.brightnessControl.setVisible(visible);
+      this.syncHoldingHand();
+    })
     .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
     .onAreaChange((_old, area) => {
       const width = Number(area.width);
@@ -551,7 +600,7 @@ export struct ComicReaderPage {
       gradientMask: { maskColor: Color.Transparent, maskHeight: 0 },
       systemMaterialEffect: HdsCompat.adaptiveMaterial,
       lightColor: AppColor.Brand,
-      adaptToHandedness: true
+      adaptToHandedness: this.generalSettings.adaptiveHandedness
     };
   }
 
@@ -933,6 +982,30 @@ export struct ComicReaderPage {
     .height('100%')
   }
 
+  private brightnessBarHeight(): number {
+    return Math.min(280, Math.max(160, this.heightVp - this.topSafe - this.bottomSafe - 180));
+  }
+
+  private changeBrightness(value: number, commit: boolean): void {
+    this.readingBrightness = value;
+    this.brightnessControl.configure(value);
+    if (commit) {
+      PreferenceService.setComicBrightness(value).catch((): void => {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+      });
+    }
+  }
+
+  private async setBrightnessBar(enabled: boolean): Promise<void> {
+    const previous = this.showBrightnessBar;
+    this.showBrightnessBar = enabled;
+    try { await PreferenceService.setComicBrightnessBar(enabled); }
+    catch (_error) {
+      this.showBrightnessBar = previous;
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    }
+  }
+
   private async saveControls(): Promise<void> {
     const context = this.getUIContext().getHostContext();
     if (!context) return;
@@ -954,23 +1027,24 @@ export struct ComicReaderPage {
           $r('app.string.comic_dissolve')], selected: [0, 1, 3].indexOf(this.mode),
           onSelect: (index: number): void => this.changeMode([0, 1, 3][index]) })
       }
-      Row() {
-        Text($r('app.string.reader_show_chapter_bar')).layoutWeight(1).fontColor($r('sys.color.font_primary'))
+      ReaderSettingCard({ title: $r('app.string.reader_show_chapter_bar'), inline: true }) {
         Toggle({ type: ToggleType.Switch, isOn: this.showChapterBar }).selectedColor(AppColor.Brand)
           .onChange((enabled: boolean): void => { this.showChapterBar = enabled; this.saveControls(); })
-      }.width('100%')
-      Row() {
-        Text($r('app.string.comic_ai_sr')).layoutWeight(1).fontColor($r('sys.color.font_primary'))
+      }
+      ReaderSettingCard({ title: $r('app.string.reader_show_brightness_bar'), inline: true }) {
+        Toggle({ type: ToggleType.Switch, isOn: this.showBrightnessBar }).selectedColor(AppColor.Brand)
+          .onChange((enabled: boolean): void => { this.setBrightnessBar(enabled); })
+      }
+      ReaderSettingCard({ title: $r('app.string.comic_ai_sr'), inline: true,
+        description: $r('app.string.comic_ai_sr_hint') }) {
         Toggle({ type: ToggleType.Switch, isOn: this.superResolution })
           .selectedColor(AppColor.Brand).enabled(ComicSuperResolutionService.supported())
           .onChange((enabled: boolean) => { this.setSuperResolution(enabled); })
-      }.width('100%')
-      Text($r('app.string.comic_ai_sr_hint')).fontSize(12).fontColor($r('sys.color.font_secondary'))
-      Row() {
-        Text($r('app.string.comic_ai_color')).layoutWeight(1).fontColor($r('sys.color.font_primary'))
+      }
+      ReaderSettingCard({ title: $r('app.string.comic_ai_color'), inline: true,
+        description: $r('app.string.comic_ai_color_unavailable') }) {
         Toggle({ type: ToggleType.Switch, isOn: false }).enabled(false)
-      }.width('100%')
-      Text($r('app.string.comic_ai_color_unavailable')).fontSize(12).fontColor($r('sys.color.font_secondary'))
+      }
       Text($r('app.string.comic_gesture_hint')).fontSize(12).fontColor($r('sys.color.font_secondary'))
     }.width('100%').padding(24)
     }.width('100%').height('100%').scrollBar(BarState.Auto)

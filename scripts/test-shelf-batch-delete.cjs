@@ -9,7 +9,7 @@ const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-l
 const root = path.resolve(__dirname, '../entry/src/main/ets');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
 function compile(source, globals) {
-  const context = { exports: {}, Set, Map, JSON, console, LocalBuilder: () => {}, ...globals };
+  const context = { exports: {}, Set, Map, JSON, console, LocalBuilder: () => {}, Builder: () => {}, ...globals };
   const output = ts.transpileModule(source, {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
@@ -28,8 +28,11 @@ const store = {
   delete: async key => { values.delete(key); },
   flush: async () => { flushes++; }
 };
+const presentation = compile(read('model/BookPresentation.ets'), { require: () => ({}) });
+const { BookPresentation, BookPresentationEdit } = presentation;
 const { PreferenceService } = compile(read('service/PreferenceService.ets'), {
-  require: name => name === '@kit.BasicServicesKit' ? { emitter: { emit: () => events++ } } : {}
+  require: name => name === '@kit.BasicServicesKit' ? { emitter: { emit: () => events++ } } :
+    name === '../model/BookPresentation' ? presentation : {}
 });
 PreferenceService.store = store;
 const fileCalls = [];
@@ -39,6 +42,7 @@ const methods = page.slice(page.indexOf('  private async deleteBookFilesAndRecor
 const filter = page.slice(page.indexOf('  private filteredBooks('), page.indexOf('  private handleBookTap('));
 const { Shelf } = compile(`export class Shelf { ${filter}\n${methods}\n }`, {
   PreferenceService,
+  BookPresentation,
   StatsService: { removeBookStats: async ids => { fileCalls.push('stats:' + ids.join(',')); } },
   TextReadingProgressService: { remove: async (ctx, id) => { fileCalls.push('reading:' + id); } },
   TextToSpeechService: { getInstance: () => ({ state: { bookId: 'audio' },
@@ -163,6 +167,32 @@ async function run() {
   shelf.toggleSelectAllBooks();
   assert.deepEqual([...shelf.selectedBookIds], ['other'], 'busy selection cannot change');
   assert.equal(shelf.handleManageBack(), true);
+  // Moving a book updates group membership without changing metadata, favorites or files.
+  const edit = new BookPresentationEdit();
+  edit.bookId = 'audio'; edit.title = 'My title'; edit.cover = 'file://cover.jpg';
+  BookPresentation.edits = [edit];
+  favorites(['audio', 'import_text', 'other']);
+  assert(BookPresentation.matchesGroup('audio', BookPresentation.UNGROUPED));
+  await PreferenceService.setBookGroup(['audio', 'import_text'], '小说');
+  assert(!BookPresentation.matchesGroup('audio', BookPresentation.UNGROUPED));
+  assert(BookPresentation.matchesGroup('audio', '小说'));
+  assert.equal(BookPresentation.get('audio').title, 'My title');
+  assert.equal(BookPresentation.get('audio').cover, 'file://cover.jpg');
+  const grouped = makeShelf();
+  grouped.shelfGroup = '小说';
+  grouped.enterManagement('audio'); grouped.confirmBatchDelete(); grouped.deleteGroupOnly = true;
+  const beforeFiles = fileCalls.length;
+  await grouped.deleteSelectedBooks();
+  assert(BookPresentation.matchesGroup('audio', BookPresentation.UNGROUPED));
+  assert(!BookPresentation.matchesGroup('audio', '小说'));
+  assert(BookPresentation.matchesGroup('import_text', '小说'));
+  assert.deepEqual(await PreferenceService.getFavorites(), ['audio', 'import_text', 'other']);
+  assert.equal(fileCalls.length, beforeFiles);
+  assert.equal(JSON.parse(values.get('book_presentation_v1')).find(x => x.bookId === 'audio').group, '');
+  failWrite = true;
+  await assert.rejects(PreferenceService.setBookGroup(['audio'], '失败分组'));
+  failWrite = false;
+  assert(BookPresentation.matchesGroup('audio', BookPresentation.UNGROUPED));
   // Pinning survives a new service instance and never rewrites the original shelf order.
   favorites(['new', 'audio', 'import_text', 'other']);
   await PreferenceService.setFavoritesPinned(['audio'], true);

@@ -605,6 +605,15 @@ export struct SettingsPage {
     })
   }
 
+  private async setAdaptiveHandedness(enabled: boolean): Promise<void> {
+    if (this.savingGeneral) return;
+    this.savingGeneral = true;
+    try { await PreferenceService.setAdaptiveHandedness(enabled); }
+    catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
+    } finally { this.savingGeneral = false; }
+  }
+
   private async setShowShelfSource(enabled: boolean): Promise<void> {
     if (this.savingGeneral) return;
     const previous: boolean = this.generalSettings.showShelfSource;
@@ -706,6 +715,14 @@ export struct SettingsPage {
         .constraintSize({ minHeight: 56 })
 
         AppearanceSettingsComponent()
+        this.buildDivider()
+        this.buildSwitchItem(
+          $r('app.string.settings_adaptive_handedness'),
+          $r('app.string.settings_adaptive_handedness_desc'),
+          UIUtils.makeBinding<boolean>(() => this.generalSettings.adaptiveHandedness),
+          (enabled: boolean): void => { this.setAdaptiveHandedness(enabled); },
+          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral)
+        )
         this.buildDivider()
         this.buildSwitchItem(
           $r('app.string.settings_cover_super_resolution'),

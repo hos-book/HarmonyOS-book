@@ -1,3 +1,5 @@
+import { TextReaderRouteParams, TextReadingPosition, ReaderJumpChapterEvent, EVT_READER_JUMP_CHAPTER } from '../model/TextReading';
+import { TextReadingProgressService } from '../service/text/TextReadingProgressService';
 import { ChapterSheetActions } from '../components/ChapterSheetActions';
 import { PlaybackWaveIcon } from '../components/PlaybackWaveIcon';
 import { ChapterSegmentGrid } from '../components/ChapterSegmentGrid';
@@ -409,6 +411,39 @@ export struct PlayerPage {
       return true;
     }
     return false;
+  }
+
+  private async closeSpeechToReader(keepSpeaking: boolean = false): Promise<void> {
+    const book = this.book ?? TextToSpeechService.getInstance().currentBook();
+    if (!book || this.isLeaving) return;
+    this.isLeaving = true;
+    const matches = this.speechState.bookId === book.id;
+    const chapterIndex = matches ? this.speechState.chapterIndex : -1;
+    const offset = matches ? this.speechState.charOffset : 0;
+    if (matches && !keepSpeaking) TextToSpeechService.getInstance().stop();
+    SearchCache.put(book);
+    const context = this.getUIContext().getHostContext();
+    if (context && chapterIndex >= 0) {
+      await TextReadingProgressService.save(context, TextReadingPosition.atChar(book.id, chapterIndex, '',
+        offset, 0, book.chapters[chapterIndex]?.title ?? '')).catch((): void => {});
+    }
+    const names = this.navStack.getAllPathName();
+    for (let index = names.length - 2; index >= 0; index--) {
+      if (names[index] !== 'reader') continue;
+      const param: TextReaderRouteParams | null = JSON.parse(JSON.stringify(this.navStack.getParamByIndex(index)) || 'null');
+      if (param !== null && param.bookId === book.id) {
+        this.navStack.popToIndex(index);
+        if (chapterIndex >= 0 && !keepSpeaking) {
+          const event = new ReaderJumpChapterEvent();
+          event.bookId = book.id;
+          event.resourceIndex = chapterIndex;
+          event.charOffset = offset;
+          emitter.emit(EVT_READER_JUMP_CHAPTER, { data: event });
+        }
+        return;
+      }
+    }
+    this.navStack.replacePathByName('reader', TextReaderRouteParams.of(book.id));
   }
 
   /** 长按恢复默认值时的轻震反馈 */
@@ -1572,8 +1607,16 @@ export struct PlayerPage {
         });
       })
       Blank()
+      if (this.isSpeechBook()) {
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r('sys.symbol.book')).fontSize(24).fontColor(['#FFFFFF'])
+        }.width(40).height(40).backgroundColor(Color.Transparent)
+          .accessibilityText($r('app.string.tts_enter_reader')).id('tts-enter-reader')
+          .margin({ right: 8 })
+          .onClick((): void => { this.closeSpeechToReader(true); })
+      }
       Button({ type: ButtonType.Circle }) {
-        SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(20).fontColor(['#FFFFFF'])
+        SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(24).fontColor(['#FFFFFF'])
       }
         .width(40).height(40).backgroundColor(Color.Transparent)
         .accessibilityText($r('app.string.content_reload'))
@@ -2019,8 +2062,7 @@ export struct PlayerPage {
         }.width(56).height(44).backgroundColor(Color.Transparent)
           .accessibilityText($r('app.string.tts_stop')).id('tts-stop')
           .onClick((): void => {
-            if (this.speechMatchesBook()) TextToSpeechService.getInstance().stop();
-            this.navStack.pop();
+            this.closeSpeechToReader();
           })
       } else {
       Column() {
@@ -2504,7 +2546,7 @@ export struct PlayerPage {
     const current = action.startsWith('speed') ? this.speedValue
       : action.startsWith('intro') ? this.skipIntroValue : this.skipOutroValue;
     const min = action.startsWith('speed') ? 0.5 : 0;
-    const max = action.startsWith('speed') ? (this.isSpeechBook() ? 2 : 3) : 120;
+    const max = action.startsWith('speed') ? (3) : 120;
     return action.endsWith('Down') ? current > min : current < max;
   }
 
@@ -2521,7 +2563,7 @@ export struct PlayerPage {
   private adjustValue(action: string): void {
     const delta = action.endsWith('Down') ? -1 : 1;
     if (action.startsWith('speed')) {
-      this.speedValue = Math.min(this.isSpeechBook() ? 2 : 3, Math.max(0.5, Math.round(this.speedValue * 20 + delta) / 20));
+      this.speedValue = Math.min(3, Math.max(0.5, Math.round(this.speedValue * 20 + delta) / 20));
       this.setPlaybackSpeed(this.speedValue);
       return;
     }
@@ -2674,7 +2716,7 @@ export struct PlayerPage {
 
           Row({ space: AppSpace.Sm }) {
             this.buildAdjustmentButton('speedDown')
-            Slider({ value: this.speedValue, min: 0.5, max: this.isSpeechBook() ? 2 : 3, step: 0.05 })
+            Slider({ value: this.speedValue, min: 0.5, max: 3, step: 0.05 })
               .blockColor(AppColor.Brand)
               .trackColor($r('sys.color.comp_divider'))
               .selectedColor(AppColor.Brand)
@@ -2696,7 +2738,7 @@ export struct PlayerPage {
               .fontSize(AppFont.Caption)
               .fontColor($r('sys.color.font_tertiary'))
             Blank()
-            Text(this.isSpeechBook() ? '2.0x' : '3.0x')
+             Text($r('app.string.player_speed_max'))
               .fontSize(AppFont.Caption)
               .fontColor($r('sys.color.font_tertiary'))
           }

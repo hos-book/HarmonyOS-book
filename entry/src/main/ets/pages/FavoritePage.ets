@@ -1,4 +1,5 @@
 import { GeneralSettings } from '../model/GeneralSettings';
+import { BookGroupSheet } from '../components/BookGroupSheet';
 import { BookPresentation } from '../model/BookPresentation';
 import { BookEditSheet } from '../components/BookEditSheet';
 import { WidgetUpdater } from '../service/WidgetUpdater';
@@ -170,6 +171,9 @@ export struct FavoritePage {
   @Local selectedBookIds: Set<string> = new Set();
   @Local showBatchDelete: boolean = false;
   @Local deleteLocalFiles: boolean = false;
+  @Local deleteGroupOnly: boolean = false;
+  @Local showBatchGroup: boolean = false;
+  private pendingGroupRemoval: string = '';
   private pendingSelection: string = '';
   private pendingDetailBookId: string = '';
   private pendingManagementExit: boolean = false;
@@ -212,8 +216,7 @@ export struct FavoritePage {
 
   @Computed
   get shelfGroupBooks(): Book[] {
-    return this.shelfGroup ? this.favoriteBooks.filter((book: Book): boolean =>
-      BookPresentation.get(book.id)?.group === this.shelfGroup) : this.favoriteBooks;
+    return this.favoriteBooks.filter((book: Book): boolean => BookPresentation.matchesGroup(book.id, this.shelfGroup));
   }
 
   @Computed
@@ -292,7 +295,7 @@ export struct FavoritePage {
     const groupRevision: number = this.groupSelectionRevision;
     PreferenceService.getShelfGroup().then((group: string): void => {
       if (!this.alive || groupRevision !== this.groupSelectionRevision) return;
-      this.shelfGroup = this.shelfGroups.includes(group) ? group : '';
+      this.shelfGroup = group === BookPresentation.UNGROUPED || this.shelfGroups.includes(group) ? group : '';
       this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
     }).catch((): void => {});
     const revision = this.statusFilterRevision;
@@ -396,7 +399,7 @@ export struct FavoritePage {
     this.initialLoadTimer = -1;
     const serial = ++this.favoritesLoadSerial;
     this.shelfGroups = BookPresentation.groups.slice();
-    if (this.shelfGroup && !this.shelfGroups.includes(this.shelfGroup)) this.selectShelfGroup('');
+    if (this.shelfGroup && this.shelfGroup !== BookPresentation.UNGROUPED && !this.shelfGroups.includes(this.shelfGroup)) this.selectShelfGroup('');
     const ids = await PreferenceService.getShelfFavorites();
     const pinnedIds = new Set(await PreferenceService.getPinnedFavorites());
     const allBooks = await DataService.getBooks(this.context);
@@ -882,7 +885,7 @@ export struct FavoritePage {
   private filteredBooks(books: Book[]): Book[] {
     const keyword = this.shelfKeyword.trim().toLocaleLowerCase();
     return books.filter((book: Book): boolean => {
-      if (this.shelfGroup && BookPresentation.get(book.id)?.group !== this.shelfGroup) return false;
+      if (!BookPresentation.matchesGroup(book.id, this.shelfGroup)) return false;
       if (this.shelfFilter === 1 && (book.contentType === 'text' || book.contentType === 'comic')) return false;
       if (this.shelfFilter === 2 && book.contentType !== 'text') return false;
       if (this.shelfFilter === 3 && book.contentType !== 'comic') return false;
@@ -939,8 +942,8 @@ export struct FavoritePage {
   buildGroupMenu() {
     Scroll() {
       Column({ space: 2 }) {
-        ForEach(['', ...this.shelfGroups], (group: string) => {
-          Text(group || $r('app.string.shelf_group_all'))
+        ForEach(['', BookPresentation.UNGROUPED, ...this.shelfGroups], (group: string) => {
+          Text(group === BookPresentation.UNGROUPED ? $r('app.string.shelf_group_none') : group || $r('app.string.shelf_group_all'))
             .fontSize(16)
             .fontColor(group === this.shelfGroup ? AppColor.Brand : $r('sys.color.font_primary'))
             .width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
@@ -1239,6 +1242,7 @@ export struct FavoritePage {
 
   private handleManageBack(): boolean {
     if (this.removingBook) return true;
+    if (this.showBatchGroup) { this.showBatchGroup = false; return true; }
     if (this.showBatchDelete) {
       this.showBatchDelete = false;
       return true;
@@ -1270,7 +1274,39 @@ export struct FavoritePage {
   private confirmBatchDelete(): void {
     if (this.selectedBookIds.size === 0 || this.removingBook) return;
     this.deleteLocalFiles = false;
+    this.deleteGroupOnly = false;
     this.showBatchDelete = true;
+  }
+
+  private async removeFromGroup(bookIds: string[]): Promise<void> {
+    if (this.removingBook) return;
+    this.removingBook = true;
+    try {
+      await PreferenceService.setBookGroup(bookIds, '');
+      this.showBatchDelete = false;
+      this.selectedBookIds = new Set();
+      this.isManaging = false;
+      await this.loadFavorites();
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.rule_source_operation_failed') });
+    } finally { this.removingBook = false; }
+  }
+
+  @Builder
+  buildBatchGroupSheet() {
+    BookGroupSheet({ onConfirm: async (group: string, groups: string[]): Promise<void> => {
+      const ids = this.filteredBooks(this.favoriteBooks).filter((book: Book): boolean =>
+        this.selectedBookIds.has(book.id)).map((book: Book): string => book.id);
+      if (ids.length === 0 || this.removingBook) return;
+      this.removingBook = true;
+      try {
+        await PreferenceService.setBookGroup(ids, group, groups);
+        this.showBatchGroup = false;
+        this.selectedBookIds = new Set();
+        this.isManaging = false;
+        await this.loadFavorites();
+      } finally { this.removingBook = false; }
+    } })
   }
 
   private async deleteSelectedBooks(): Promise<void> {
@@ -1278,6 +1314,10 @@ export struct FavoritePage {
     const books = this.filteredBooks(this.favoriteBooks).filter((book: Book): boolean =>
       this.selectedBookIds.has(book.id));
     if (books.length === 0) { this.showBatchDelete = false; return; }
+    if (this.deleteGroupOnly && this.shelfGroup && this.shelfGroup !== BookPresentation.UNGROUPED) {
+      await this.removeFromGroup(books.map((book: Book): string => book.id));
+      return;
+    }
     const deleteFiles = this.deleteLocalFiles;
     this.removingBook = true;
     this.favoritesLoadSerial++;
@@ -1353,6 +1393,9 @@ export struct FavoritePage {
           this.pendingManagementExit = false;
           this.exitManagement();
         }
+        const groupRemoval = this.pendingGroupRemoval;
+        this.pendingGroupRemoval = '';
+        if (groupRemoval) this.removeFromGroup([groupRemoval]);
         const book = this.pendingRemoval;
         this.pendingRemoval = null;
         if (book !== null) this.removeActionBook(book, this.pendingDeleteFiles);
@@ -1385,6 +1428,11 @@ export struct FavoritePage {
         $r('app.string.shelf_unpin') : $r('app.string.shelf_pin') })
         .enabled(!this.pinningBook && !this.removingBook && !this.isRefreshing)
         .onClick((): void => { this.pendingPinBookId = book.id; })
+      if (this.shelfGroup && this.shelfGroup !== BookPresentation.UNGROUPED) {
+        MenuItem({ content: $r('app.string.shelf_remove_from_group') })
+          .enabled(!this.removingBook)
+          .onClick((): void => { this.pendingGroupRemoval = book.id; })
+      }
       MenuItem({ content: $r('app.string.shelf_delete_only') })
         .contentFontColor(AppColor.Brand)
         .onClick((): void => { this.removeActionBook(book, false); })
@@ -1565,6 +1613,12 @@ export struct FavoritePage {
           blurStyle: AppMaterial.SheetBlur, systemMaterial: AppMaterial.Sheet
         })
       Column().width(0).height(0)
+        .bindSheet($$this.showBatchGroup, this.buildBatchGroupSheet(), {
+          height: '65%', showClose: true, backgroundColor: AppMaterial.SheetBackground,
+          blurStyle: AppMaterial.SheetBlur, systemMaterial: AppMaterial.Sheet,
+          onWillDismiss: (action: DismissSheetAction): void => { if (!this.removingBook) action.dismiss(); }
+        })
+      Column().width(0).height(0)
         .bindSheet($$this.showUpdates, this.buildUpdatesSheet(), {
           height: '72%', preferType: SheetType.BOTTOM, showClose: true, dragBar: true,
           backgroundColor: AppMaterial.SheetBackground, blurStyle: AppMaterial.SheetBlur,
@@ -1730,7 +1784,8 @@ export struct FavoritePage {
       allSelected: this.allVisibleBooksSelected(),
       busy: this.removingBook,
       onSelectAll: (): void => this.toggleSelectAllBooks(),
-      onDelete: (): void => this.confirmBatchDelete()
+      onDelete: (): void => this.confirmBatchDelete(),
+      onGroup: (): void => { this.showBatchGroup = true; }
     })
       .width(`calc(100% - ${AppSpace.Md * 2}vp)`)
       .margin({ bottom: WindowUtils.getFloatingTabBottomVp() })
@@ -1744,11 +1799,21 @@ export struct FavoritePage {
         .width('100%')
       Text($r('app.string.shelf_batch_description'))
         .fontSize(AppFont.Body).fontColor($r('sys.color.font_secondary')).width('100%')
+      if (this.shelfGroup && this.shelfGroup !== BookPresentation.UNGROUPED) {
+        Row({ space: AppSpace.Sm }) {
+          Checkbox({ name: 'shelfRemoveFromGroup' }).select(this.deleteGroupOnly).selectedColor(AppColor.Brand)
+            .enabled(!this.removingBook).onChange((checked: boolean): void => {
+              this.deleteGroupOnly = checked;
+              if (checked) this.deleteLocalFiles = false;
+            })
+          Text($r('app.string.shelf_remove_from_group')).layoutWeight(1).fontColor($r('sys.color.font_primary'))
+        }.width('100%')
+      }
       Row({ space: AppSpace.Sm }) {
         Checkbox({ name: 'shelfDeleteLocalFiles' })
           .select(this.deleteLocalFiles).selectedColor(AppColor.Brand)
           .enabled(!this.removingBook)
-          .onChange((checked: boolean): void => { this.deleteLocalFiles = checked; })
+          .onChange((checked: boolean): void => { this.deleteLocalFiles = checked; if (checked) this.deleteGroupOnly = false; })
           .accessibilityText($r('app.string.shelf_batch_delete_files'))
         Column({ space: 4 }) {
           Text($r('app.string.shelf_batch_delete_files'))
@@ -1756,7 +1821,7 @@ export struct FavoritePage {
           Text($r('app.string.shelf_batch_files_hint'))
             .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary')).width('100%')
         }.layoutWeight(1)
-        .onClick((): void => { if (!this.removingBook) this.deleteLocalFiles = !this.deleteLocalFiles; })
+        .onClick((): void => { if (!this.removingBook) { this.deleteLocalFiles = !this.deleteLocalFiles; if (this.deleteLocalFiles) this.deleteGroupOnly = false; } })
       }.width('100%').padding(AppSpace.Sm)
       .backgroundColor($r('sys.color.comp_background_secondary')).borderRadius(AppRadius.Md)
       Row({ space: AppSpace.Md }) {
@@ -1844,7 +1909,7 @@ export struct FavoritePage {
         onPress: (): void => this.showStatusFilter() })
         .enabled(!this.removingBook && !this.showBatchDelete)
         .bindPopup(this.statusFilterMenuVisible, this.statusFilterMenuOptions())
-      if (this.shelfGroups.length > 0) {
+      if (!this.isManaging) {
         ImmersiveCircleButton({ icon: $r('sys.symbol.folder'), label: $r('app.string.shelf_group_filter'),
           useMaterial: false,
           iconColor: this.shelfGroup ? AppColor.Brand : $r('sys.color.icon_primary'),
@@ -1940,6 +2005,28 @@ export struct FavoritePage {
     .alignItems(HorizontalAlign.Center)
   }
 
+  // 透明明暗层沿用原封面的颜色，书脊随封面宽度缩放，不增加图片解码。
+  @Builder
+  buildBookSpine() {
+    Row()
+      .width('14%')
+      .height('100%')
+      .linearGradient({
+        direction: GradientDirection.Right,
+        colors: [
+          ['#66000000', 0],
+          ['#16000000', 0.18],
+          ['#38FFFFFF', 0.36],
+          ['#10FFFFFF', 0.5],
+          ['#30000000', 0.6],
+          ['#08000000', 0.78],
+          ['#00000000', 1]
+        ]
+      })
+      .hitTestBehavior(HitTestMode.None)
+      .accessibilityLevel('no')
+  }
+
   @Builder
   buildBookTile(book: Book) {
     Stack() {
@@ -1989,6 +2076,7 @@ export struct FavoritePage {
           CoverImage({ title: book.title, author: book.author, localPlaceholder: book.id.startsWith('import_'),
             imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO, radius: 0 })
         }
+        this.buildBookSpine()
         this.buildTypeBadge(false, book.contentType ?? 'audio')
         this.buildSourceBadge(book)
         this.buildPinnedBadge(book)
@@ -2001,11 +2089,11 @@ export struct FavoritePage {
       }
       .width('100%')
       .aspectRatio(BOOKSHELF_COVER_RATIO)
-      .borderRadius(0)
+      .borderRadius({ topLeft: 3, bottomLeft: 3, topRight: 5, bottomRight: 5 })
       .clip(true)
       .border({ width: this.isManaging && this.selectedBookIds.has(book.id) ? 2 : 0,
-        color: AppColor.Brand, radius: 0 })
-      .shadow({ radius: 4, color: '#1A000000', offsetY: 1 })
+        color: AppColor.Brand, radius: { topLeft: 3, bottomLeft: 3, topRight: 5, bottomRight: 5 } })
+      .shadow({ radius: 6, color: '#26000000', offsetX: 2, offsetY: 3 })
       // 展示子树不参与触摸命中，封面/占位图的原生长按不能抢走书卡菜单。
       .hitTestBehavior(HitTestMode.None)
 
@@ -2089,7 +2177,7 @@ export struct FavoritePage {
     })
     .backgroundColor(contentType !== 'audio' ? '#CC4E7FA8' : '#CCFF8800')
     .borderRadius(AppRadius.Sm)
-    .margin({ top: small ? 5 : 6, left: small ? 5 : 6 })
+    .margin({ top: small ? 5 : 6, left: small ? 10 : 14 })
   }
 
   @Builder
@@ -2114,13 +2202,15 @@ export struct FavoritePage {
           CoverImage({ title: book.title, author: book.author, localPlaceholder: book.id.startsWith('import_'),
             imgWidth: 72, imgHeight: 100, useFixedHeight: true, radius: 0 })
         }
+        this.buildBookSpine()
         this.buildTypeBadge(true, book.contentType ?? 'audio')
         this.buildSourceBadge(book)
       }
       .width(72)
       .height(100)
-      .borderRadius(0)
+      .borderRadius({ topLeft: 3, bottomLeft: 3, topRight: 5, bottomRight: 5 })
       .clip(true)
+      .shadow({ radius: 5, color: '#26000000', offsetX: 2, offsetY: 2 })
       .hitTestBehavior(HitTestMode.None)
 
       Column({ space: 4 }) {
