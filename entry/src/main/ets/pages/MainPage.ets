@@ -56,7 +56,6 @@ export struct MainPage {
   private recordsBackHandler: (() => boolean) | undefined = undefined;
   @Local currentTab: number = 0;
   @Local tabsReady: boolean = false;
-  @Local initialTabIndex: number = 0;
   private defaultTabRequest: number = 0;
   private pendingInitialTab: number = -1;
   @Local playerState: PlayerState = AppStorageV2.connect(PlayerState, PLAYER_STATE_KEY, () => new PlayerState())!;
@@ -234,7 +233,6 @@ export struct MainPage {
     if (this.pendingInitialTab !== -1) index = this.pendingInitialTab;
     if (!this.generalSettings.historyEnabled && index === 2) index = 0;
     this.currentTab = index;
-    this.initialTabIndex = !this.generalSettings.historyEnabled && index === 3 ? 2 : index;
     this.pendingInitialTab = -1;
     this.tabsReady = true;
   }
@@ -372,7 +370,9 @@ export struct MainPage {
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       if (this.tabsReady) {
-      HdsTabs({ controller: this.tabController, index: this.initialTabIndex }) {
+      // 属性刷新时 Tabs 会重新应用 index，必须始终绑定当前页，不能保留冷启动索引。
+      HdsTabs({ controller: this.tabController,
+        index: !this.generalSettings.historyEnabled && this.currentTab === 3 ? 2 : this.currentTab }) {
         TabContent() {
           HomePage({
             visible: this.currentTab === 0,
