@@ -55,6 +55,9 @@ export struct MainPage {
   private shelfBackHandler: (() => boolean) | undefined = undefined;
   private recordsBackHandler: (() => boolean) | undefined = undefined;
   @Local currentTab: number = 0;
+  // 原生 Tabs 已完成选中切换；这里只镜像物理索引，供后续属性刷新使用。
+  // 不参与状态观测，避免 onChange 再刷新 HdsTabs 整组属性并重建 MiniPlayer。
+  private nativeTabIndex: number = 0;
   @Local tabsReady: boolean = false;
   private defaultTabRequest: number = 0;
   private pendingInitialTab: number = -1;
@@ -233,6 +236,7 @@ export struct MainPage {
     if (this.pendingInitialTab !== -1) index = this.pendingInitialTab;
     if (!this.generalSettings.historyEnabled && index === 2) index = 0;
     this.currentTab = index;
+    this.nativeTabIndex = !this.generalSettings.historyEnabled && index === 3 ? 2 : index;
     this.pendingInitialTab = -1;
     this.tabsReady = true;
   }
@@ -255,8 +259,9 @@ export struct MainPage {
   private onHistoryVisibilityChanged(): void {
     if (!this.tabsReady) return;
     const logical = !this.generalSettings.historyEnabled && this.currentTab === 2 ? 0 : this.currentTab;
+    this.nativeTabIndex = !this.generalSettings.historyEnabled && logical === 3 ? 2 : logical;
     this.currentTab = logical;
-    this.tabController.changeIndex(!this.generalSettings.historyEnabled && logical === 3 ? 2 : logical);
+    this.tabController.changeIndex(this.nativeTabIndex);
     this.lastTabClickIndex = -1;
   }
 
@@ -370,9 +375,8 @@ export struct MainPage {
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       if (this.tabsReady) {
-      // 属性刷新时 Tabs 会重新应用 index，必须始终绑定当前页，不能保留冷启动索引。
-      HdsTabs({ controller: this.tabController,
-        index: !this.generalSettings.historyEnabled && this.currentTab === 3 ? 2 : this.currentTab }) {
+      // 属性刷新仍读取最新选中页；子页 visible 单独响应 currentTab，不反向重配底栏。
+      HdsTabs({ controller: this.tabController, index: this.nativeTabIndex }) {
         TabContent() {
           HomePage({
             visible: this.currentTab === 0,
@@ -454,9 +458,11 @@ export struct MainPage {
         this.lastTabClickIndex = index;
       })
       .onChange((index: number) => {
+        this.nativeTabIndex = index;
         this.currentTab = !this.generalSettings.historyEnabled && index === 2 ? 3 : index;
       })
-      .animationDuration(300)
+      // 底部 Tab 直接展示已缓存页面，避免两页材质在横移动画中持续全屏重绘。
+      .animationDuration(0)
       .width('100%')
       .height('100%')
       .backgroundColor(HomeTheme.BgNeutral)

@@ -356,6 +356,11 @@ export struct HomePage {
   @Local rightSafeVp: number = WindowUtils.getRightSafeVp();
   @Local topSafeVp: number = WindowUtils.getStatusBarHeightVp();
   @Local bottomSafeVp: number = WindowUtils.getBottomSafeVp();
+  // 封面仅以 22% 叠加在主题底色上，状态栏应跟随主题而非滚动位置。
+  @Local statusBarContentColor: string = WindowUtils.isDarkMode() ? '#FFFFFFFF' : '#FF000000';
+  private readonly statusBarColorListener = (): void => {
+    this.statusBarContentColor = WindowUtils.isDarkMode() ? '#FFFFFFFF' : '#FF000000';
+  };
   private readonly safeAreaChangeHandler = (topVp: number, bottomVp: number): void => {
     this.leftSafeVp = WindowUtils.getLeftSafeVp();
     this.rightSafeVp = WindowUtils.getRightSafeVp();
@@ -364,6 +369,8 @@ export struct HomePage {
   };
 
   aboutToAppear(): void {
+    this.statusBarColorListener();
+    WindowUtils.addReaderColorListener(this.statusBarColorListener);
     WindowUtils.addSafeAreaListener(this.safeAreaChangeHandler);
     this.onBackHandlerChange((): boolean => {
       if (this.rankingMode) return this.rankingBackHandler?.() ?? false;
@@ -388,6 +395,7 @@ export struct HomePage {
   }
 
   aboutToDisappear(): void {
+    WindowUtils.removeReaderColorListener(this.statusBarColorListener);
     WindowUtils.removeSafeAreaListener(this.safeAreaChangeHandler);
     this.onBackHandlerChange(undefined);
     this.cancelContentEntrance();
@@ -1483,8 +1491,8 @@ export struct HomePage {
         hideRatio: 1.0
       })
       .systemBarStyle(
-        { statusBarContentColor: '#FFFFFFFF' },
-        { statusBarContentColor: '#FF000000' }
+        { statusBarContentColor: this.statusBarContentColor },
+        { statusBarContentColor: this.statusBarContentColor }
       )
       .backgroundColor(Color.Transparent)
       // 内容统一避让两侧挖孔；背景独立铺满，子组件只保留原有页面边距。
@@ -1550,8 +1558,8 @@ export struct HomePage {
     .mode(NavigationMode.Stack)
     .hideBackButton(true)
     .systemBarStyle(
-      { statusBarContentColor: '#FFFFFFFF' },
-      { statusBarContentColor: '#FF000000' }
+      { statusBarContentColor: this.statusBarContentColor },
+      { statusBarContentColor: this.statusBarContentColor }
     )
     // 标题栏只响应吸顶后的内层滚动；外层原生移动整个 HDS，避免每帧裁剪、重建轮播。
     .bindToScrollable([this.recommendationScroller, this.contentScroller])

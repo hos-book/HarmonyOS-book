@@ -53,7 +53,7 @@ const MINI_TITLE_BAR_HEIGHT: number = 56;
 const SHELF_FILTER_TOP_OFFSET: number = MINI_TITLE_BAR_HEIGHT;
 const SHELF_FILTER_ROW_HEIGHT: number = 48;
 const SHELF_SEARCH_ROW_HEIGHT: number = 50;
-const SHELF_CONTENT_GAP: number = 24;
+const SHELF_CONTENT_GAP: number = 12;
 const SHELF_SEARCH_GEOMETRY_ID: string = 'shelf-search-morph';
 
 function cloneChapter(ch: Chapter): Chapter {
@@ -347,7 +347,7 @@ export struct FavoritePage {
     if (!this.visible) this.cancelAutoUpdate();
   }
 
-  /** 首次建页避开 300ms Tab 动画；Appear 与 visible 监控共用一个加载入口。 */
+  /** Appear 与 visible 监控共用入口；下个任务加载缓存，不再额外等待切页动画。 */
   private scheduleInitialLoad(): void {
     if (!this.alive || this.initialLoadTimer !== -1 || this.initialLoadRunning) return;
     this.initialLoadTimer = setTimeout((): void => {
@@ -357,7 +357,7 @@ export struct FavoritePage {
       this.loadFavorites().catch((): void => {
         // 保留 loading，下一次进入书架可重试，不提交空书单。
       }).finally((): void => { this.initialLoadRunning = false; });
-    }, 350);
+    }, 0);
   }
 
   private cancelAutoUpdate(): void {
@@ -367,7 +367,8 @@ export struct FavoritePage {
 
   private scheduleAutoUpdate(): void {
     this.cancelAutoUpdate();
-    if (!this.alive || !this.visible || !this.foreground || this.loading || this.checkingUpdates) return;
+    if (!this.alive || !this.visible || !this.foreground || this.loading || this.checkingUpdates ||
+      !ShelfUpdateService.shouldAutoCheck()) return;
     this.autoUpdateTimer = setTimeout((): void => {
       this.autoUpdateTimer = -1;
       if (this.alive && this.visible && this.foreground) this.refreshOnlineBooks(true);
@@ -640,6 +641,7 @@ export struct FavoritePage {
   /** 每日自动检查静默执行；手动下拉与自动检查共用任务，避免重复请求。 */
   private async refreshOnlineBooks(silent: boolean = false): Promise<void> {
     if (!this.context || !this.alive || this.checkingUpdates) return;
+    if (silent && !ShelfUpdateService.shouldAutoCheck()) return;
     if (silent && (!this.visible || !this.foreground || this.isManaging || this.removingBook)) return;
     const onlineBooks = this.favoriteBooks.filter((book: Book): boolean =>
       !this.isMissingCachedBook(book) && !this.isFavoriteAliasBook(book) &&
@@ -654,7 +656,8 @@ export struct FavoritePage {
         (): Promise<ShelfUpdateReport> => this.checkOnlineBooks(onlineBooks));
       if (report !== undefined && this.alive) {
         this.applyUpdateReport(report);
-        await this.loadFavorites();
+        // checkOnlineBooks 已逐本提交变化；无变化不重载，有变化只校正进度映射。
+        if (report.updatedCount > 0) await this.onHistoryUpdated({});
         if (!silent && this.visible && this.foreground) this.showUpdates = true;
       }
     } catch (error) {
@@ -1280,6 +1283,7 @@ export struct FavoritePage {
 
   private exitManagement(): void {
     if (this.removingBook) return;
+    if (!this.isManaging && !this.showBatchDelete && this.selectedBookIds.size === 0) return;
     this.showBatchDelete = false;
     this.isManaging = false;
     this.selectedBookIds = new Set();

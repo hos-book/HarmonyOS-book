@@ -22,10 +22,16 @@ export class ShelfUpdateReport {
 /** 本机按自然日检查；手动刷新不受日期限制，所有入口共用同一把锁。 */
 export class ShelfUpdateService {
   private static running: boolean = false;
+  private static attemptDay: string = '';
 
   static dayKey(time: number): string {
     const date = new Date(time);
     return `${date.getFullYear()}-${date.getMonth() + 1}-${date.getDate()}`;
+  }
+
+  /** 同一进程内的 Tab 往返直接命中每日门控，不再读偏好或切换页面加载状态。 */
+  static shouldAutoCheck(now: number = Date.now()): boolean {
+    return !ShelfUpdateService.running && ShelfUpdateService.attemptDay !== ShelfUpdateService.dayKey(now);
   }
 
   static async lastReport(context: common.Context): Promise<ShelfUpdateReport> {
@@ -48,17 +54,21 @@ export class ShelfUpdateService {
 
   static async run(context: common.Context, silent: boolean,
     task: () => Promise<ShelfUpdateReport>, now: number = Date.now()): Promise<ShelfUpdateReport | undefined> {
-    if (ShelfUpdateService.running) return undefined;
+    if (ShelfUpdateService.running || (silent && !ShelfUpdateService.shouldAutoCheck(now))) return undefined;
     ShelfUpdateService.running = true;
     try {
       let store: preferences.Preferences | undefined = undefined;
       try {
         store = await preferences.getPreferences(context, { name: 'listenbook_shelf_updates' });
         const today = ShelfUpdateService.dayKey(now);
-        if (silent && await store.get('attempt_day', '') === today) return undefined;
+        if (silent && await store.get('attempt_day', '') === today) {
+          ShelfUpdateService.attemptDay = today;
+          return undefined;
+        }
         // 请求前落盘，切后台、重启或失败不会在同一天反复触发静默请求。
         await store.put('attempt_day', today);
         await store.flush();
+        ShelfUpdateService.attemptDay = today;
       } catch (error) {
         console.warn(`[ShelfUpdate] schedule unavailable: ${error}`);
         if (silent) return undefined;

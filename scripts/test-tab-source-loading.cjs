@@ -134,6 +134,7 @@ const shelf = Object.assign(new ShelfHarness(), {
   const visibilityCode = shelfText.slice(shelfText.indexOf('  onVisibleChange()'),
     shelfText.indexOf('  private syncShelfSourceVisibility()'));
   const { VisibilityHarness } = compile(`export class VisibilityHarness { ${visibilityCode} }`, {
+    ShelfUpdateService: { shouldAutoCheck: () => updates === 0 },
     setTimeout: callback => { timers.set(++timerId, callback); return timerId; },
     clearTimeout: id => timers.delete(id)
   });
@@ -165,6 +166,9 @@ const shelf = Object.assign(new ShelfHarness(), {
   visibility.visible = true; visibility.onVisibleChange();
   timers.get(visibility.autoUpdateTimer)(); timers.clear();
   assert.equal(updates, 1, 'a settled visible shelf can check updates');
+  visibility.visible = false; visibility.onVisibleChange();
+  visibility.visible = true; visibility.onVisibleChange();
+  assert.equal(timers.size, 0, 'a completed daily check schedules no work on warm tab switches');
   console.log('PASS shelf lifecycle: coalesced initialization, no progress reload on tab switches, cancelled delayed updates');
 
   const baselineStart = performance.now();

@@ -132,6 +132,10 @@ export struct SearchPage {
   private recommendationsLoaded: boolean = false;
   private leavingPage: boolean = false;
   private readonly searchTitleBarBuilder: CustomBuilder = (): void => this.buildSearchTitleBar();
+  @Local statusBarContentColor: string = WindowUtils.isDarkMode() ? '#FFFFFFFF' : '#FF000000';
+  private readonly statusBarColorListener = (): void => {
+    this.statusBarContentColor = WindowUtils.isDarkMode() ? '#FFFFFFFF' : '#FF000000';
+  };
 
   @Computed
   get searchTitleBarContent(): TitleBarContentOptions {
@@ -173,6 +177,8 @@ export struct SearchPage {
   }
 
   aboutToAppear(): void {
+    this.statusBarColorListener();
+    WindowUtils.addReaderColorListener(this.statusBarColorListener);
     WindowUtils.setStatusBarLight(false);
     CoverPrefetcher.init();
     BookCard.resetAnimations();
@@ -180,6 +186,7 @@ export struct SearchPage {
   }
 
   aboutToDisappear(): void {
+    WindowUtils.removeReaderColorListener(this.statusBarColorListener);
     this.stopPendingSearchUpdates();
   }
 
@@ -1451,7 +1458,7 @@ export struct SearchPage {
     .titleBar({
       avoidLayoutSafeArea: true,
       content: this.searchTitleBarContent,
-      // 与首页一致：透明初态，内容上滑后由系统绘制沉浸渐变模糊。
+      // 保留透明初态，内容上滑后由系统绘制沉浸渐变模糊。
       style: {
         scrollEffectOpts: {
           scrollEffectType: HdsCompat.scrollEffect
@@ -1476,8 +1483,8 @@ export struct SearchPage {
       hideRatio: 1.0
     })
     .systemBarStyle(
-      { statusBarContentColor: '#FFFFFFFF' },
-      { statusBarContentColor: '#FF000000' }
+      { statusBarContentColor: this.statusBarContentColor },
+      { statusBarContentColor: this.statusBarContentColor }
     )
     .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
     .backgroundColor(HomeTheme.BgNeutral)

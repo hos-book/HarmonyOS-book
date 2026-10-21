@@ -284,6 +284,11 @@ export struct RankingHomePage {
   private generation: number = 0;
   private matchGeneration: number = 0;
   private alive: boolean = false;
+  // 内外层导航及独立榜单使用同一主题字色，避免滚动时互相覆盖。
+  @Local statusBarContentColor: string = WindowUtils.isDarkMode() ? '#FFFFFFFF' : '#FF000000';
+  private readonly statusBarColorListener = (): void => {
+    this.statusBarContentColor = WindowUtils.isDarkMode() ? '#FFFFFFFF' : '#FF000000';
+  };
   private readonly safeAreaListener = (top: number, _bottom: number): void => {
     this.topSafe = top;
     this.leftSafe = WindowUtils.getLeftSafeVp();
@@ -292,6 +297,8 @@ export struct RankingHomePage {
 
   aboutToAppear(): void {
     this.alive = true;
+    this.statusBarColorListener();
+    WindowUtils.addReaderColorListener(this.statusBarColorListener);
     this.platformData.setItems(this.platforms);
     this.onScrollerReady(this.headerScroller);
     this.onBackHandlerChange((): boolean => {
@@ -308,6 +315,7 @@ export struct RankingHomePage {
 
   aboutToDisappear(): void {
     RankingPreferences.unsubscribe(this.rankingSettingsListener);
+    WindowUtils.removeReaderColorListener(this.statusBarColorListener);
     this.alive = false;
     this.pendingMatchProgress = undefined;
     this.generation++;
@@ -844,8 +852,8 @@ export struct RankingHomePage {
     })
     .titleMode(HdsNavigationTitleMode.MINI).hideBackButton(true).mode(NavigationMode.Stack)
     .bindToScrollable([this.scroller])
-    .systemBarStyle({ statusBarContentColor: '#FFFFFFFF' },
-      { statusBarContentColor: '#FF000000' })
+    .systemBarStyle({ statusBarContentColor: this.statusBarContentColor },
+      { statusBarContentColor: this.statusBarContentColor })
     .width('100%').height(this.contentHeight + this.headerRange).flexShrink(0)
     .backgroundColor(Color.Transparent)
   }
@@ -943,8 +951,8 @@ export struct RankingHomePage {
     })
     .titleMode(HdsNavigationTitleMode.MINI).hideBackButton(false).mode(NavigationMode.Stack)
     .bindToScrollable([this.boardScroller])
-    .systemBarStyle({ statusBarContentColor: '#FFFFFFFF' },
-      { statusBarContentColor: '#FF000000' })
+    .systemBarStyle({ statusBarContentColor: this.statusBarContentColor },
+      { statusBarContentColor: this.statusBarContentColor })
     .width('100%').height('100%').backgroundColor(HomeTheme.BgNeutral)
     .padding({ left: this.leftSafe, right: this.rightSafe })
     .transition(TransitionEffect.move(TransitionEdge.END))
@@ -1006,8 +1014,8 @@ export struct RankingHomePage {
       .padding({ left: this.leftSafe, right: this.rightSafe })
       .enabled(this.activeBoard === undefined)
       .accessibilityLevel(this.activeBoard === undefined ? 'auto' : 'no-hide-descendants')
-      .systemBarStyle({ statusBarContentColor: '#FFFFFFFF' },
-        { statusBarContentColor: '#FF000000' })
+      .systemBarStyle({ statusBarContentColor: this.statusBarContentColor },
+        { statusBarContentColor: this.statusBarContentColor })
       if (this.activeBoard !== undefined) {
         this.boardPage(this.activeBoard)
       }

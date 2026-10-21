@@ -9,6 +9,7 @@ const ts = require(path.join(process.env.DEVECO_HOME,
 const ets = path.join(__dirname, '../entry/src/main/ets');
 const disk = new Map();
 let storageFails = false;
+let storageOpens = 0;
 const store = {
   get: async (key, fallback) => disk.get(key) ?? fallback,
   put: async (key, value) => disk.set(key, value),
@@ -26,6 +27,7 @@ function restart() {
     require: name => {
       assert.equal(name, '@kit.ArkData');
       return { preferences: { getPreferences: async () => {
+        storageOpens++;
         if (storageFails) throw Error('disk unavailable');
         return store;
       } } };
@@ -48,8 +50,12 @@ function restart() {
     return report;
   };
   await service.run({}, true, task, day1);
+  const opensAfterCheck = storageOpens;
   await service.run({}, true, task, day1 + 3600000);
   assert.equal(calls, 1, 'only one automatic attempt per local calendar day');
+  assert.equal(storageOpens, opensAfterCheck, 'warm daily gate needs no storage access');
+  assert.equal(service.shouldAutoCheck(day1), false);
+  assert.equal(service.shouldAutoCheck(day2), true, 'memory gate expires at the next local date');
   service = restart().ShelfUpdateService;
   await service.run({}, true, task, day1);
   assert.equal(calls, 1, 'process restart preserves the daily gate');
