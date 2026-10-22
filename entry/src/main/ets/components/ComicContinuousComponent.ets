@@ -79,8 +79,7 @@ export struct ComicContinuousComponent {
     if (!book || this.disposed || this.restoring || this.chapters.length === 0 || this.chapters.length >= 5 ||
       (forward ? this.nextLoading : this.previousLoading) || (!retry && (forward ? this.nextFailed : this.previousFailed))) return;
     const edge = forward ? this.chapters[this.chapters.length - 1] : this.chapters[0];
-    const step: number = book.chaptersDescending ? -1 : 1;
-    const index = edge.index + (forward ? step : -step);
+    const index = edge.index + (forward ? 1 : -1);
     if (index < 0 || index >= book.chapters.length) return;
     const ticket = this.serial;
     if (forward) { this.nextLoading = true; this.nextFailed = false; }

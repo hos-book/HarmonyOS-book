@@ -18,6 +18,7 @@ context.resourceManager = {
 };
 let parserAvailable = true;
 let parserLoads = 0;
+let parserOpens = 0;
 let epubCount = 2;
 let epubRaw = false;
 let layoutCalls = 0;
@@ -34,7 +35,12 @@ const fileIo = {
     const handle = await fsp.open(filename, flags ? 'w+' : 'r');
     handles.set(handle.fd, handle); handlePaths.set(handle.fd, filename); return { fd: handle.fd };
   },
-  async close(file) { const fd = typeof file === 'number' ? file : file.fd; await handles.get(fd).close(); handles.delete(fd); handlePaths.delete(fd); },
+  async close(file) {
+    const fd = typeof file === 'number' ? file : file.fd;
+    const handle = handles.get(fd);
+    handles.delete(fd); handlePaths.delete(fd);
+    await handle.close();
+  },
   async stat(file) { return typeof file === 'number' ? handles.get(file).stat() : fsp.stat(file); },
   async read(fd, buffer, options = { length: buffer.byteLength, offset: 0 }) {
     return (await handles.get(fd).read(Buffer.from(buffer), 0, options.length, options.offset)).bytesRead;
@@ -60,7 +66,16 @@ const fileIo = {
   readText: (filename) => fsp.readFile(filename, 'utf8'),
   listFile: directory => fsp.readdir(directory),
   async access(filename) { try { await fsp.access(filename); return true; } catch { return false; } },
-  moveFile: (a, b) => fsp.rename(a, b),
+  async moveFile(a, b) {
+    // Windows 文件扫描会短暂锁住替换目标；设备上的同目录 rename 没有这种共享锁语义。
+    for (let attempt = 0; ; attempt++) {
+      try { await fsp.rename(a, b); return; }
+      catch (error) {
+        if (process.platform !== 'win32' || !['EPERM', 'EACCES'].includes(error.code) || attempt >= 4) throw error;
+        await new Promise(resolve => setTimeout(resolve, 20 * (attempt + 1)));
+      }
+    }
+  },
   unlink: filename => fsp.unlink(filename),
   fsync: fd => handles.get(fd).sync()
 };
@@ -141,7 +156,7 @@ function load(relative) {
       parserLoads++;
       assert.ok(parserAvailable, 'unsupported devices must never load the ReaderKit HSP');
       return { bookParser: {
-      getDefaultHandler: async () => ({
+      getDefaultHandler: async () => { parserOpens++; return ({
         getBookInfo: () => ({ bookTitle: 'EPUB 标题', bookCreator: '作者' }),
         getSpineList: () => Array.from({ length: epubCount }, (_, index) => ({ idRef: String(index), href: `text/${index}.html` })),
         getCatalogList: () => [{ idRef: '0', catalogName: '第一章' }, { idRef: '1', catalogName: '第二章' },
@@ -151,7 +166,7 @@ function load(relative) {
           if (!epubRaw) throw new Error('resource unavailable');
           return Uint8Array.from(Buffer.from(`<body><p>章节 ${index + 1}</p><script>bad()</script></body>`)).buffer;
         }
-      })
+      }); }
     } };
     }
     if (name.endsWith('/TextReadingProgressService')) return { TextReadingProgressService: {
@@ -165,6 +180,18 @@ function load(relative) {
 }
 (async () => {
   const { LocalBookImportService: service } = load('service/LocalBookImportService');
+  const { KkBiqugeHtmlParser: legacyHtml } = load('service/text/KkBiqugeHtmlParser');
+  for (const source of [
+    '<html><head><title>不可混入正文</title><style>body{}</style></head><body><h1>标题</h1><p>中文 😀 正文</p></body></html>',
+    '<div>甲<br/>乙</div><p>丙 <b>丁</b> 戊</p>', '<p> \t甲\r\n 乙 </p><!--注释--><p>丙</p>',
+    '<p>&nbsp;&amp;&quot;&#39;&apos;&lt;&gt; &amp;lt; &amp;nbsp;</p>',
+    '<body><script>不可显示</script><style>不可显示</style><section>正文</section></body>',
+    '<p>图前</p><img src="image.jpg"/><p>图后</p>', '纯文字\r\n\n\n  多余空白\t尾部 '
+  ]) {
+    const withoutHead = source.replace(/<head\b[^>]*>[\s\S]*?<\/head\s*>/gi, '');
+    const body = /<body\b[^>]*>([\s\S]*?)<\/body\s*>/i.exec(withoutHead);
+    assert.equal(service.htmlText(source), legacyHtml.cleanContent(body ? body[1] : withoutHead), source);
+  }
   const imageDirectory = path.join(context.filesDir, 'ebooks/import_image_fixture').replaceAll('\\', '/');
   await fsp.mkdir(imageDirectory, { recursive: true });
   const imageStats = { raw: 0, layout: 0, imageBytes: 0 };
@@ -191,13 +218,89 @@ function load(relative) {
   parserAvailable = true;
   const rawHtml = '<html><body>带空格路径的完整章节</body></html>';
   const rawBytes = Uint8Array.from(Buffer.from(rawHtml)).buffer;
+  const directPath = path.join(temp, 'direct-spine.xhtml');
+  await fsp.writeFile(directPath, rawHtml);
   assert.equal(await service.epubSpineText({
+    getAbsoluteResourcePath: () => directPath,
+    getResourceContent: () => { throw new Error('resource lookup must be bypassed'); },
+    getSpineItemContent: () => { throw new Error('layout must be bypassed'); }
+  }, 0, 'chapter.xhtml'), rawHtml);
+  assert.equal(handles.size, 0, 'direct chapter reads close their handles');
+  assert.equal(await service.epubSpineText({
+    getAbsoluteResourcePath: () => path.join(temp, 'missing.xhtml'),
     getSpineItemContent: async () => { throw new Error('Invalid request.'); },
     getResourceContent: (_index, name) => {
       if (name !== '33 - 副本.html') throw new Error('Not found');
       return rawBytes;
     }
   }, 29, 'text/33%20-%20副本.html'), rawHtml);
+  const newReadStats = () => ({ file: 0, filePathAvailable: false, raw: 0, rawAttempts: 0,
+    rawMisses: 0, rawProbeAt: 0, layout: 0 });
+  const fallbackStats = newReadStats();
+  let unavailableReads = 0;
+  const fallbackParser = {
+    getResourceContent: () => { unavailableReads++; throw new Error('Header package does not contain the file'); },
+    getSpineItemContent: async index => `<body>完整正文 ${index}</body>`
+  };
+  for (let index = 0; index < 6226; index++) {
+    assert.equal(await service.epubSpineText(fallbackParser, index, `Text/${index}.xhtml`, fallbackStats),
+      `<body>完整正文 ${index}</body>`);
+  }
+  assert.ok(unavailableReads < 110, `failed resource attempts must stay bounded: ${unavailableReads}`);
+  assert.equal(fallbackStats.layout, 6226, 'every chapter still reaches the working parser');
+  const recoveryStats = newReadStats();
+  let rawRecovered = false;
+  const recoveringParser = {
+    getResourceContent: index => {
+      if (index < 4) throw new Error('resource unavailable');
+      rawRecovered = true;
+      return rawBytes;
+    },
+    getSpineItemContent: async index => `<body>正文 ${index}</body>`
+  };
+  for (let index = 0; index < 140; index++) {
+    assert.ok((await service.epubSpineText(recoveringParser, index, `Text/${index}.xhtml`, recoveryStats)).length > 0);
+  }
+  assert.equal(rawRecovered, true, 'periodic probes recover raw reads for later sections');
+  assert.equal(recoveryStats.rawMisses, 0);
+  const rescueStats = newReadStats();
+  for (let index = 0; index < 3; index++) {
+    await service.epubSpineText(fallbackParser, index, `Text/${index}.xhtml`, rescueStats);
+  }
+  let rescueAttempts = 0;
+  const rescueParser = {
+    getResourceContent: (_index, name) => {
+      rescueAttempts++;
+      if (name !== 'Text/rescue.xhtml') throw new Error('relative path unavailable');
+      return rawBytes;
+    },
+    getSpineItemContent: async () => { throw new Error('single chapter layout failure'); }
+  };
+  assert.equal(await service.epubSpineText(rescueParser, 3, 'Text/rescue.xhtml', rescueStats), rawHtml);
+  assert.equal(rescueAttempts, 2, 'layout failure retries every raw candidate for the same chapter');
+  assert.equal(rescueStats.rawMisses, 0);
+  const emptyLayoutStats = { ...newReadStats(), rawMisses: 3, rawProbeAt: 128 };
+  assert.equal(await service.epubSpineText({ ...rescueParser, getSpineItemContent: async () => '' },
+    4, 'Text/rescue.xhtml', emptyLayoutStats), rawHtml, 'empty layout output also retries raw content');
+  const failedStats = { ...newReadStats(), rawMisses: 3, rawProbeAt: 128 };
+  await assert.rejects(service.epubSpineText({
+    getResourceContent: () => { throw new Error('resource unavailable'); },
+    getSpineItemContent: async () => { throw new Error('unreadable chapter'); }
+  }, 4, 'Text/unreadable.xhtml', failedStats), /unreadable chapter/);
+  console.log(`PASS 6226-chapter fallback: ${unavailableReads} failed resource attempts, periodic recovery, no skipped failures`);
+  const { LocalImportTaskQueue: Queue } = load('service/LocalImportTaskQueue');
+  const queue = new Queue();
+  let unblockSlow;
+  const slow = new Promise(resolve => { unblockSlow = resolve; });
+  await queue.add(() => slow);
+  await queue.add(async () => {});
+  await queue.add(async () => {});
+  await queue.add(async () => {});
+  let replacementStarted = false;
+  await queue.add(async () => { replacementStarted = true; });
+  assert.ok(replacementStarted, 'free slots accept new work while an earlier write is still pending');
+  unblockSlow();
+  await queue.finish();
   await assert.rejects(service.epubSpineText({
     getSpineItemContent: async () => { throw new Error('Invalid request.'); },
     getResourceContent: () => { throw new Error('Not found'); }
@@ -271,6 +374,44 @@ function load(relative) {
   await fsp.writeFile(file.uri, '<html><head><title>ignore</title></head><body><h1>章节</h1><p>甲&amp;乙</p><script>bad()</script><p>尾声</p></body></html>');
   const html = await service.importBook(context, file, 'import_html', '', '', '', () => {});
   assert.equal(await fsp.readFile(html.chapters[0].source.value, 'utf8'), '章节\n\n甲&乙\n\n尾声');
+  assert.equal(html.chapters[0].title, '章节');
+  const { LocalBookCatalog: catalog } = load('service/text/LocalBookCatalog');
+  const originalHtml = '<html><body><h1 id="first">正文标题一</h1><p>甲</p><h2 id="第二">正文标题二</h2><p>乙</p></body></html>';
+  const originalToc = [
+    { idRef: 'part', catalogName: '原书第一章', href: 'text/part.xhtml#first' },
+    { resourceFile: 'text/part.xhtml', catalogName: '原书第二章', href: 'text/part.xhtml#%E7%AC%AC%E4%BA%8C' },
+    { resourceFile: 'other/part.xhtml', catalogName: '其他文件', href: 'other/part.xhtml#first' },
+    { idRef: 'part', catalogName: '缺失锚点', href: 'text/part.xhtml#missing' }
+  ];
+  const sections = catalog.epub(originalHtml, { idRef: 'part', href: 'text/part.xhtml' }, originalToc, 'fallback')
+    .filter(section => service.htmlText(originalHtml.slice(section.start, section.end)));
+  assert.equal(sections.map(section => section.title).join(','), '原书第一章,原书第二章');
+  assert.ok(service.htmlText(originalHtml.slice(sections[1].start, sections[1].end)).includes('乙'));
+  const linked = '<nav><a href="#one">作者命名甲</a><a href="#two">作者命名乙</a></nav><div id="one">甲正文</div><div id="two">乙正文</div>';
+  assert.equal(catalog.html(linked, '目录').map(section => section.title).join(','), '目录,作者命名甲,作者命名乙');
+  let mobiHtml = '<html><body>目录<a filepos="0000000000">原始目录名</a>中文😀<p>真正章节</p></body></html>';
+  const byteOffset = Buffer.byteLength(mobiHtml.slice(0, mobiHtml.indexOf('<p>')), 'utf8');
+  mobiHtml = mobiHtml.replace('0000000000', String(byteOffset).padStart(10, '0'));
+  const mobiSections = catalog.html(mobiHtml, '前言', '', 'utf-8');
+  assert.equal(mobiSections[1].title, '原始目录名');
+  assert.equal(mobiHtml.slice(mobiSections[1].start, mobiSections[1].end), '<p>真正章节</p></body></html>');
+  console.log('PASS EPUB anchor/encoded href/resource matching, HTML original headings/TOC and MOBI byte-offset TOC');
+  const anonymousSpines = Array.from({ length: 5000 }, (_, index) => ({ idRef: '', href: `OEBPS/text/${index}.xhtml` }));
+  const anonymousCatalog = anonymousSpines.map((spine, index) => ({
+    idRef: '', resourceFile: spine.href, href: spine.href, catalogName: `原始第${index + 1}章`
+  }));
+  const anonymousIndex = catalog.epubIndex(anonymousSpines, anonymousCatalog);
+  assert.equal(anonymousIndex.size, 5000);
+  assert.ok([...anonymousIndex.values()].every(items => items.length === 1), 'empty SDK IDs must not create a 5000-entry bucket for every chapter');
+  for (const index of [0, 2499, 4999]) {
+    const spine = anonymousSpines[index];
+    const sections = catalog.epub('<body>原始正文</body>', spine, anonymousIndex.get(catalog.spineKey(spine)), 'fallback');
+    assert.equal(sections[0].title, `原始第${index + 1}章`);
+  }
+  const duplicateSpines = anonymousSpines.slice(0, 2).map(spine => ({ ...spine, idRef: 'same' }));
+  const duplicateIndex = catalog.epubIndex(duplicateSpines, anonymousCatalog.slice(0, 2).map(item => ({ ...item, idRef: 'same' })));
+  assert.equal(duplicateIndex.get(catalog.spineKey(duplicateSpines[1]))[0].catalogName, '原始第2章');
+  console.log('PASS 5000 EPUB catalog entries with empty/duplicate SDK IDs: distinct titles and bounded per-chapter lookup');
   file.ext = '.epub';
   const epub = await service.importBook(context, file, 'import_epub', '', '', '', () => {});
   await data.addImportedBook(epub); // Existing imported_toc must not block a second import.
@@ -278,6 +419,22 @@ function load(relative) {
   assert.equal(epub.title, 'EPUB 标题');
   assert.equal(epub.chapters.map(ch => ch.title).join(','), '第一章,第二章');
   assert.equal(await fsp.readFile(epub.chapters[1].source.value, 'utf8'), '章节 2');
+
+  const preview = await service.preview(context, file);
+  const opensAfterPreview = parserOpens;
+  const reused = await service.importBook(context, file, 'import_preview_reuse', preview.title, preview.author,
+    preview.cover, () => {});
+  assert.equal(parserOpens, opensAfterPreview, 'formal import reuses the most recent prepared EPUB');
+  assert.equal(reused.chapters.length, 2);
+  await service.releasePreview(preview);
+  assert.equal(fs.existsSync(preview.directory), false);
+  assert.equal(await fsp.readFile(reused.chapters[1].source.value, 'utf8'), '章节 2', 'preview cleanup keeps imported bodies');
+  const discarded = await service.preview(context, file);
+  await service.releasePreview(discarded);
+  const opensBeforeRetry = parserOpens;
+  await service.importBook(context, file, 'import_preview_discarded', '', '', '', () => {});
+  assert.equal(parserOpens, opensBeforeRetry + 1, 'discarded previews open a fresh parser');
+  console.log('PASS direct EPUB files, resource/layout fallback, preview reuse/cleanup and rolling I/O slots');
 
   epubCount = 2200; epubRaw = true; layoutCalls = 0;
   writeDelay = 2; maxWrites = 0;

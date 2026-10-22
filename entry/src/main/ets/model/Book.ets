@@ -55,7 +55,7 @@ export interface Book {
   skipIntro?: number;
   /** 跳过片尾秒数（每本书独立设置） */
   skipOutro?: number;
-  /** 目录倒序（每本书独立设置）：详情页/播放页/阅读页统一按该顺序展示与前进 */
+  /** 目录倒序（每本书独立设置）：仅影响目录展示，不改变阅读和播放的章节顺序 */
   chaptersDescending?: boolean;
   /** 是否完结；由通用规则或来源返回的状态归一化。 */
   completed?: boolean;

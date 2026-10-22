@@ -3,8 +3,8 @@ import { MembershipDisplaySnapshot } from './MembershipDisplaySnapshot';
 /** 权益只来自本次进程验签；磁盘快照仅提供展示，不恢复 VIP 开关。 */
 @ObservedV2
 export class MembershipState {
-  /** 会员功能暂时隐藏，关闭时所有原会员权益免费开放；保留购买及验签实现。 */
-  static readonly featureEnabled: boolean = false;
+  /** 会员功能总开关：开启会员入口、购买验签及权益校验。 */
+  static readonly featureEnabled: boolean = true;
   private static singleton: MembershipState | null = null;
   static get current(): MembershipState {
     if (!MembershipState.singleton) MembershipState.singleton = new MembershipState();
@@ -21,6 +21,8 @@ export class MembershipState {
 
   @Trace expiresAt: number = 0;
   @Trace productId: string = '';
+  @Trace subscriptionGroupId: string = '';
+  @Trace pendingProductId: string = '';
   @Trace autoRenew: boolean = false;
   @Trace verifiedAt: number = 0;
   @Trace private displaySnapshot: MembershipDisplaySnapshot | null = null;
@@ -80,6 +82,8 @@ export class MembershipState {
   clearEntitlement(): void {
     this.expiresAt = 0;
     this.productId = '';
+    this.subscriptionGroupId = '';
+    this.pendingProductId = '';
     this.autoRenew = false;
     this.verifiedAt = 0;
   }

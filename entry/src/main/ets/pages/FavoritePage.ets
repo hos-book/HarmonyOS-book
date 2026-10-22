@@ -957,6 +957,13 @@ export struct FavoritePage {
     ShelfGroupManager({ groups: this.shelfGroups,
       onBusy: (busy: boolean): void => { this.savingGroups = busy; },
       onDelete: async (group: string): Promise<void> => { await this.deleteShelfGroup(group); },
+      onReorder: async (groups: string[]): Promise<void> => {
+        const current = BookPresentation.groups;
+        if (groups.length !== current.length || new Set(groups).size !== current.length ||
+          groups.some((group: string): boolean => !current.includes(group))) throw new Error('Invalid group order');
+        await PreferenceService.saveBookPresentation(BookPresentation.edits.slice(), groups);
+        this.shelfGroups = BookPresentation.groups.slice();
+      },
       onSave: async (previous: string, name: string): Promise<void> => {
         if (!name || name === BookPresentation.UNGROUPED || BookPresentation.groups.includes(name) ||
           (previous && !BookPresentation.groups.includes(previous))) throw new Error('Invalid group name');
@@ -2225,7 +2232,7 @@ export struct FavoritePage {
   @Builder
   buildTypeBadge(small: boolean, contentType: string) {
     Row() {
-      Text(contentType === 'comic' ? $r('app.string.comic_type') : contentType === 'text' ? $r('app.string.rule_source_type_text') : $r('app.string.rule_source_type_audio'))
+      Text(contentType === 'comic' ? $r('app.string.shelf_badge_comic') : contentType === 'text' ? $r('app.string.shelf_badge_text') : $r('app.string.shelf_badge_audio'))
         .fontSize(small ? 9 : 10)
         .fontColor(Color.White)
         .fontWeight(FontWeight.Medium)

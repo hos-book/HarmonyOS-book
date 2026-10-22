@@ -19,6 +19,11 @@ function compile(source, globals) {
 const values = new Map();
 let writes = 0, flushes = 0, events = 0, failWrite = false;
 const store = {
+  getSync: (key, fallback) => values.get(key) ?? fallback,
+  putSync: (key, value) => {
+    if (failWrite) throw new Error('disk full');
+    writes++; values.set(key, value);
+  },
   get: async (key, fallback) => values.get(key) ?? fallback,
   put: async (key, value) => {
     if (failWrite) throw new Error('disk full');
@@ -234,6 +239,36 @@ async function run() {
   await PreferenceService.replaceFavoriteSource('', 'unused', false);
   await PreferenceService.replaceFavoriteSource('replacement', 'replacement', true);
   assert.equal(writes, beforeNoop);
+  favorites(['new', 'audio', 'import_text', 'comic', 'pinned']);
+  values.set('pinned_favorite_book_ids', JSON.stringify(['pinned']));
+  await PreferenceService.saveProgress({ bookId: 'audio', chapterId: 'a', chapterTitle: '第一章',
+    chapterIndex: 0, positionMs: 1000, durationMs: 10000, updatedAt: Date.now() });
+  assert.deepEqual(await PreferenceService.getShelfFavorites(), ['pinned', 'audio', 'new', 'import_text', 'comic']);
+  const beforeRepeat = { writes, events };
+  await PreferenceService.promoteFavorite('audio');
+  await PreferenceService.promoteFavorite('not-favorited');
+  assert.equal(writes, beforeRepeat.writes, 'repeated progress and non-favorites do not rewrite the shelf');
+  assert.equal(events, beforeRepeat.events, 'repeated progress does not reload the shelf');
+  const readingValues = new Map();
+  const { TextReadingProgressService: reading } = compile(read('service/text/TextReadingProgressService.ets'), {
+    require: name => name === '../PreferenceService' ? { PreferenceService } :
+      name === '../../model/GeneralSettings' ? { GeneralSettings: { current: { historyEnabled: false } } } :
+        name === '@kit.BasicServicesKit' ? { emitter: { emit() {} } } : {}
+  });
+  reading.store = { getSync: (key, fallback) => readingValues.get(key) ?? fallback,
+    putSync: (key, value) => readingValues.set(key, value), getAll: async () => ({}), flush: async () => {} };
+  for (const bookId of ['import_text', 'comic']) {
+    await reading.save({}, { bookId, updatedAt: Date.now() });
+    assert.equal((await PreferenceService.getShelfFavorites())[1], bookId,
+      'reading, comic and shared speech progress promote books even with history disabled');
+  }
+  await PreferenceService.toggleFavorite('newest');
+  assert.deepEqual(await restarted.getShelfFavorites(), ['pinned', 'newest', 'comic', 'import_text', 'audio', 'new'],
+    'new books lead ordinary books and recency order survives restart');
+  await PreferenceService.removeFavorite('audio');
+  await PreferenceService.promoteFavorite('audio');
+  assert.equal(await PreferenceService.isFavorite('audio'), false, 'late progress cannot restore removed favorites');
+  console.log('PASS: recent audio/text/comic activity, stable pins, new favorites, restart, history disabled and no repeated shelf reload');
   console.log('PASS: source-switch cancel keeps both, replacement preserves order/pin, deduplication and no-op guards');
   console.log('PASS: persistent pin order, unpin, newly added books, removal/re-add and write failures');
   console.log('PASS: filter-scoped selection, cancel/back, default file retention, bulk persistence, alias IDs, partial failure/retry and busy guards');

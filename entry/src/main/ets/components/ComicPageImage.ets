@@ -1,6 +1,7 @@
 import { ComicPage } from '../service/ComicReaderService';
 import { AppColor } from '../theme/Theme';
 import { ComicSuperResolutionService } from '../service/ComicSuperResolutionService';
+import { ReaderCacheService } from '../service/ReaderCacheService';
 
 @ComponentV2
 export struct ComicPageImage {
@@ -21,14 +22,21 @@ export struct ComicPageImage {
   @Local enhancementFailed: boolean = false;
   private visible: boolean = false;
   private enhancementSerial: number = 0;
+  private cacheOwner: string = ReaderCacheService.owner();
 
-  aboutToDisappear(): void { this.visible = false; this.enhancementSerial++; }
+  aboutToDisappear(): void { this.visible = false; this.enhancementSerial++; ReaderCacheService.release(this.cacheOwner); }
+
+  private protectImage(): void {
+    if (this.visible) ReaderCacheService.protect(this.cacheOwner, [this.page.url, this.enhancedUrl]);
+    else ReaderCacheService.release(this.cacheOwner);
+  }
 
   @Monitor('superResolution', 'page')
   onEnhancementChanged(): void {
     this.enhancedUrl = '';
     this.enhancementFailed = false;
     this.enhancementSerial++;
+    this.protectImage();
     this.enhance();
   }
 
@@ -41,6 +49,7 @@ export struct ComicPageImage {
     ComicSuperResolutionService.enhance(context, this.page.url, active).then((uri: string): void => {
       if (!active()) return;
       this.enhancedUrl = uri;
+      this.protectImage();
       this.enhancementFailed = !uri;
     }).catch((): void => { if (active()) this.enhancementFailed = true; });
   }
@@ -115,6 +124,7 @@ export struct ComicPageImage {
       const visible = ratio > 0;
       if (this.visible === visible) return;
       this.visible = visible;
+      this.protectImage();
       if (visible) this.enhance();
       else this.enhancementSerial++;
     })

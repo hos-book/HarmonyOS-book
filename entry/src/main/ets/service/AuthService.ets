@@ -10,6 +10,7 @@ import { BusinessError } from '@kit.BasicServicesKit';
 import { common } from '@kit.AbilityKit';
 import { PreferenceService, HwAccount } from './PreferenceService';
 import { AccountAvatarService } from './AccountAvatarService';
+import { MedalService } from './MedalService';
 
 const TAG = 'AuthService';
 const DOMAIN = 0x0000;
@@ -68,9 +69,9 @@ export class AuthService {
     if (this.logging) return Promise.resolve();
     if (this.restoreTask) return this.restoreTask;
     this.restoring = true;
-    this.restoreTask = this.restoreAccount(context).catch((error: BusinessError): void => {
+    this.restoreTask = this.restoreAccount(context).catch(async (error: BusinessError): Promise<void> => {
       // 系统服务临时失败时保留落盘身份供下次重试，不把未核验的缓存当成已登录。
-      this.resetAccount();
+      await this.resetAccount();
       hilog.warn(DOMAIN, TAG, 'Huawei account restore failed, code=%{public}d', error.code ?? 0);
     }).finally((): void => {
       this.restoring = false;
@@ -84,7 +85,7 @@ export class AuthService {
     await PreferenceService.ensureReady(context);
     const account = await PreferenceService.getHwAccount();
     if (!account) {
-      this.resetAccount();
+      await this.resetAccount();
       return;
     }
     const request: authentication.StateRequest = {
@@ -96,7 +97,7 @@ export class AuthService {
       await this.applyAccount(context, account);
     } else if (result.state === authentication.State.UNLOGGED_IN ||
       result.state === authentication.State.UNAUTHORIZED) {
-      this.resetAccount();
+      await this.resetAccount();
       await PreferenceService.clearHwAccount();
       await AccountAvatarService.remove(context, account.avatarFile);
     } else {
@@ -177,7 +178,7 @@ export class AuthService {
       if (this.restoreTask) await this.restoreTask;
       await PreferenceService.clearHwAccount();
       if (this.accountContext) await AccountAvatarService.remove(this.accountContext, this.avatarFile);
-      this.resetAccount();
+      await this.resetAccount();
     } catch (_error) {
       throw new HwAuthError(HwAuthErrorCode.STORAGE);
     } finally {
@@ -198,6 +199,12 @@ export class AuthService {
 
   private async applyAccount(context: common.Context, account: HwAccount): Promise<void> {
     const avatarUri = await AccountAvatarService.localUri(context, account.avatarFile);
+    try {
+      await MedalService.instance.bindAccount(context, account.openID);
+    } catch (_error) {
+      MedalService.instance.failed = true;
+      hilog.warn(DOMAIN, TAG, 'Account achievements unavailable; retry on next account restore');
+    }
     this.unionID = account.unionID;
     this.openID = account.openID;
     this.loginAt = account.loginAt;
@@ -207,7 +214,8 @@ export class AuthService {
     this.isLoggedIn = true;
   }
 
-  private resetAccount(): void {
+  private async resetAccount(): Promise<void> {
+    const clearing = MedalService.instance.clearAccount();
     this.isLoggedIn = false;
     this.unionID = '';
     this.openID = '';
@@ -215,6 +223,7 @@ export class AuthService {
     this.nickName = '';
     this.avatarFile = '';
     this.avatarUri = '';
+    await clearing;
   }
 
   maskedId(): string {

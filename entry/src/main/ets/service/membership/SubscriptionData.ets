@@ -11,6 +11,7 @@ export class SubscriptionOrder {
 
 export class SubscriptionRenewal {
   autoRenewStatusCode: string = '';
+  nextRenewPeriodProductId?: string;
 }
 
 export class SubscriptionStatus {
@@ -68,5 +69,19 @@ export class SubscriptionPolicy {
 
   static active(status: SubscriptionStatus, now: number): boolean {
     return status.status === '1' && status.expiresTime > now;
+  }
+
+  /** 未来续订计划只用于展示，不能提前授予目标套餐权益。 */
+  static pendingProduct(status: SubscriptionStatus): string {
+    const renewal = status.renewalInfo;
+    const next = renewal?.nextRenewPeriodProductId;
+    return renewal?.autoRenewStatusCode === '1' && typeof next === 'string' &&
+      SubscriptionPolicy.knownProduct(next) && next !== status.lastPurchaseOrder?.productId ? next : '';
+  }
+
+  static matchesPurchase(status: SubscriptionStatus, requested: string, previous: string): boolean {
+    if (status.lastPurchaseOrder?.productId === requested) return true;
+    return previous === SubscriptionPolicy.month && requested === SubscriptionPolicy.year &&
+      status.lastPurchaseOrder?.productId === previous && SubscriptionPolicy.pendingProduct(status) === requested;
   }
 }

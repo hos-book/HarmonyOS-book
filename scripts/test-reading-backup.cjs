@@ -37,6 +37,18 @@ const { assert, fs, path, fixtures, snapshot, harness } = require('./backup-test
     const { TextReadingPosition, TextReadingSettings } = h.load('model/TextReading');
     const { TextReadingProgressService: progress } = h.load('service/text/TextReadingProgressService');
     const { TextReadingSettingsService: settings } = h.load('service/text/TextReadingSettingsService');
+    const { ReaderToolsService: tools } = h.load('service/text/ReaderToolsService');
+    const { ReaderBookmark, ReaderReplaceRule } = h.load('model/ReaderTools');
+    const bookmark = new ReaderBookmark();
+    Object.assign(bookmark, { id: 'bookmark', bookId: 'online-novel', chapterId: 'chapter', chapterUrl: '/chapter/419',
+      chapterTitle: 'Chapter 420', charOffset: 1234, createdAt: 1700000000000 });
+    const localBookmark = new ReaderBookmark();
+    Object.assign(localBookmark, bookmark, { id: 'local-mark', bookId: 'import_local' });
+    await tools.addBookmark(h.context, bookmark);
+    await tools.addBookmark(h.context, localBookmark);
+    const replaceRule = new ReaderReplaceRule();
+    Object.assign(replaceRule, { id: 'rule', pattern: '广告', bookId: 'online-novel' });
+    await tools.saveRule(h.context, replaceRule);
     const position = TextReadingPosition.atChar('online-novel', 419, 'paragraph-7', 1234, 6, 'Chapter 420');
     await progress.save(h.context, position);
     await progress.save(h.context, TextReadingPosition.atChar('import_local', 2, '', 99, 0, 'Local'));
@@ -78,6 +90,10 @@ const { assert, fs, path, fixtures, snapshot, harness } = require('./backup-test
     assert.equal(exported.stats.length, 1);
     assert.equal(exported.reading.positions.length, 1);
     assert.equal(exported.reading.positions[0].charOffset, 1234);
+    assert.equal(exported.reading.tools.bookmarks.length, 1);
+    assert.equal(exported.reading.tools.rules[0].pattern, '广告');
+    await tools.removeBookmark(h.context, 'bookmark');
+    await tools.deleteRule(h.context, 'rule');
     assert.equal(exported.reading.settings.fontSize, 24);
     assert.equal(exported.reading.settings.cornerLayout, '3210');
     assert.equal(exported.reading.speechPositions.length, 1);
@@ -100,6 +116,9 @@ const { assert, fs, path, fixtures, snapshot, harness } = require('./backup-test
     assert.equal((await progress.get(h.context, 'online-novel')).pageOffset, 6);
     assert.equal(await progress.get(h.context, 'stale-online'), null);
     assert.equal((await progress.get(h.context, 'import_local')).charOffset, 99);
+    assert.equal((await tools.bookmarks(h.context, 'online-novel'))[0].charOffset, 1234);
+    assert.equal((await tools.bookmarks(h.context, 'import_local')).length, 1);
+    assert.equal((await tools.rules(h.context))[0].id, 'rule');
     const restored = await settings.get(h.context);
     assert.equal(restored.cornerLayout, '3210', 'local/cloud backups preserve all four corner positions');
     assert.equal(restored.fontSize, 24);

@@ -1,6 +1,7 @@
 import { BusinessError } from '@kit.BasicServicesKit';
 import { AccountAvatar } from '../components/AccountAvatar';
 import { MembershipBadge } from '../components/MembershipBadge';
+import { VipFeatureBadge } from '../components/VipFeatureBadge';
 import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
 import { AuthService, HwAuthErrorCode } from '../service/AuthService';
 import { AppBackupSnapshot } from '../service/AppBackupService';
@@ -541,10 +542,15 @@ export struct AccountPage {
   automaticBackupSettings() {
     Column({ space: AppSpace.Sm }) {
       Row({ space: AppSpace.Sm }) {
-        Text($r('app.string.auto_backup_title'))
-          .fontSize(AppFont.BodyL)
-          .fontColor($r('sys.color.font_primary'))
-          .layoutWeight(1)
+        Row({ space: AppSpace.Sm }) {
+          Text($r('app.string.auto_backup_title'))
+            .fontSize(AppFont.BodyL)
+            .fontColor($r('sys.color.font_primary'))
+            .flexShrink(1)
+          if (MembershipState.featureEnabled) {
+            VipFeatureBadge()
+          }
+        }.layoutWeight(1)
         Stack() {
         Toggle({ type: ToggleType.Switch, isOn: this.membership.hasAccess && this.auth.isLoggedIn &&
           this.automatic.accountId === this.auth.openID && this.automatic.settings.enabled })
@@ -586,11 +592,7 @@ export struct AccountPage {
         .fontColor($r('sys.color.font_secondary'))
       if (this.membershipService.busy || this.checkingMembership) {
         LoadingProgress().width(18).height(18).color(AppColor.Brand)
-      } else if (!this.membership.hasAccess && this.membership.confirmedInactive) {
-        Button($r('app.string.membership_subscription_entry'))
-          .fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
-          .onClick(() => this.requireAutoMembership())
-      } else if (!this.membership.hasAccess) {
+      } else if (!this.membership.hasAccess && !this.membership.confirmedInactive) {
         Button($r('app.string.common_retry'), { buttonStyle: ButtonStyleMode.TEXTUAL })
           .fontColor(AppColor.Brand).onClick(() => this.requireAutoMembership())
       }

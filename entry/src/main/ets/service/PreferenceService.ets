@@ -9,7 +9,7 @@ import { emitter } from '@kit.BasicServicesKit';
 import { Book, Chapter } from '../model/Book';
 import { AppAppearance } from '../model/AppAppearance';
 
-/** 书架收藏变化事件:加入/移出书架后触发,书架页据此自动刷新 */
+/** 书架收藏变化事件：加入、移出或最近阅听顺序变化后触发。 */
 export const EVT_FAVORITES_CHANGED = 'app.favorites.changed';
 export const EVT_SHELF_SOURCE_VISIBILITY_CHANGED = 'app.shelf.sourceVisibility.changed';
 export const EVT_HOME_SOURCE_CHANGED = 'app.home.source.changed';
@@ -346,12 +346,29 @@ export class PreferenceService {
     return pinned.filter((id: string): boolean => favorites.has(id));
   }
 
-  /** 置顶排序不改写收藏原顺序，取消置顶后可恢复原位置。 */
+  /** 置顶书保持独立顺序，其余按最近加入或阅听的持久化顺序显示。 */
   static async getShelfFavorites(): Promise<string[]> {
     const favorites = await PreferenceService.getFavorites();
     const pinned = await PreferenceService.getPinnedFavorites();
     const pinnedSet = new Set(pinned);
     return pinned.concat(favorites.filter((id: string): boolean => !pinnedSet.has(id)));
+  }
+
+  /** 只前移已收藏的书；同步读改写避免进度回调把已移出的书重新加入。 */
+  static async promoteFavorite(bookId: string): Promise<void> {
+    if (!bookId) return;
+    const store = await PreferenceService.ensureStore();
+    const raw = store.getSync(KEY_FAVORITES, '[]');
+    if (typeof raw !== 'string') return;
+    const favorites: string[] = JSON.parse(raw);
+    const index = favorites.indexOf(bookId);
+    if (index <= 0) return;
+    favorites.splice(index, 1);
+    favorites.unshift(bookId);
+    store.putSync(KEY_FAVORITES, JSON.stringify(favorites));
+    await store.flush();
+    PreferenceService.notifyFavoriteChanged();
+    emitter.emit(EVT_FAVORITES_CHANGED, { data: { bookId } });
   }
 
   static async setFavoritesPinned(bookIds: string[], pinned: boolean): Promise<void> {
@@ -591,6 +608,9 @@ export class PreferenceService {
     const s = await PreferenceService.ensureStore();
     await s.put(KEY_PROGRESS_PREFIX + p.bookId, JSON.stringify(p));
     await s.flush();
+    await PreferenceService.promoteFavorite(p.bookId).catch((): void => {
+      // 书架排序失败不影响已保存的播放进度。
+    });
   }
 
   static async removeProgress(bookId: string): Promise<void> {
@@ -710,19 +730,19 @@ export class PreferenceService {
 
   private static tocOrderMemo: Map<string, boolean> = new Map();
 
-  /** 原始章节索引保持稳定；展示和导航统一读取本书的排序偏好。 */
-  static chapterStep(book: Book): number {
-    return (PreferenceService.tocOrderMemo.get(book.id) ?? book.chaptersDescending ?? false) ? -1 : 1;
+  /** 排序偏好仅控制目录展示；阅读和播放始终按原始章节顺序前进。 */
+  private static isTocDescending(book: Book): boolean {
+    return PreferenceService.tocOrderMemo.get(book.id) ?? book.chaptersDescending ?? false;
   }
 
   static orderedChapters(book: Book): Chapter[] {
     const chapters = book.chapters.slice();
-    return PreferenceService.chapterStep(book) < 0 ? chapters.reverse() : chapters;
+    return PreferenceService.isTocDescending(book) ? chapters.reverse() : chapters;
   }
 
   static chapterDisplayIndex(book: Book, index: number): number {
     if (index < 0) return -1;
-    return PreferenceService.chapterStep(book) < 0 ? book.chapters.length - 1 - index : index;
+    return PreferenceService.isTocDescending(book) ? book.chapters.length - 1 - index : index;
   }
 
   /** 读取本书的目录顺序;默认正序。 */

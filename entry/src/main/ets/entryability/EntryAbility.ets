@@ -19,6 +19,8 @@ import lazy { WidgetPlaybackService } from '../service/WidgetPlaybackService';
 import { DataService } from '../service/DataService';
 import { SourceTestTaskService } from '../service/rulesource/SourceTestTaskService';
 import { ChapterCacheService } from '../service/ChapterCacheService';
+import { ReaderCacheService } from '../service/ReaderCacheService';
+import { OnlineTextContentCache } from '../service/text/OnlineTextContentCache';
 import { DownloadService } from '../service/DownloadService';
 import { StatsService } from '../service/StatsService';
 import { PlayerState, PLAYER_STATE_KEY } from '../model/PlayerState';
@@ -83,6 +85,9 @@ export default class EntryAbility extends UIAbility {
     WidgetUpdater.setContext(this.context);
     // 章节音频文件缓存的沙箱根目录
     ChapterCacheService.getInstance().setContext(this.context);
+    ReaderCacheService.configure(this.context);
+    OnlineTextContentCache.migrateStorage(this.context)
+      .then((): Promise<void> => ReaderCacheService.initialize(this.context)).catch((): void => {});
     DownloadService.getInstance().setContext(this.context);
     // 书架资源使用持久目录，启动旧缓存迁移
     DataService.setContext(this.context);

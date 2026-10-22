@@ -408,7 +408,7 @@ export class StatsService {
         current.updatedAt = Math.max(current.updatedAt, incoming.updatedAt);
       }
       await StatsService.commitRecords(StatsService.normalizeRecords(merged));
-      emitter.emit(EVT_USAGE_STATS_UPDATED, { data: { historical: true } });
+      emitter.emit(EVT_USAGE_STATS_UPDATED, { data: { historical: true, restored: true } });
     });
   }
 

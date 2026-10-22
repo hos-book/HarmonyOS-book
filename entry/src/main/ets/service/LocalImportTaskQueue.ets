@@ -1,7 +1,7 @@
 import { BusinessError } from '@kit.BasicServicesKit';
 import { DiagnosticLogService } from './DiagnosticLogService';
 
-/** 每批最多四个 I/O 任务；错误立即接住，全部收尾后才允许调用方删除目录。 */
+/** 最多四个在途 I/O；任一个完成即补位，全部收尾后才允许调用方删除目录。 */
 export class LocalImportTaskQueue {
   private pending: Promise<void>[] = [];
   private failure: string = '';
@@ -15,7 +15,16 @@ export class LocalImportTaskQueue {
     if (this.active++ === 0) this.busySince = Date.now();
     const job = this.run(task);
     this.pending.push(job);
-    if (this.pending.length >= 4) await this.finish();
+    job.then((): void => {
+      const index = this.pending.indexOf(job);
+      if (index >= 0) this.pending.splice(index, 1);
+    });
+    if (this.pending.length >= 4) {
+      const started = Date.now();
+      await Promise.race(this.pending);
+      this.waitMs += Date.now() - started;
+      if (this.failure.length > 0) throw new Error(this.failure);
+    }
   }
 
   private async run(task: () => Promise<void>): Promise<void> {

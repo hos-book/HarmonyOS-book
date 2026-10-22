@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 export interface BoundedExecutionResult {
+  bytes: Uint8Array;
   success: boolean;
   value: string;
   error: string;
@@ -80,7 +81,9 @@ export interface QuickJsNativeApi {
   // Script Evaluation
   evaluateScript(engineHandle: bigint, script: string, sourceURL?: string): bigint;
   evaluateBounded(engineHandle: bigint, script: string, sourceURL: string,
-    timeoutMs: number, maxPendingJobs: number): BoundedExecutionResult;
+    timeoutMs: number, maxPendingJobs: number, input?: Uint8Array,
+    imageHost?: (name: string, data: Uint8Array, options: string) => Uint8Array,
+    cancelSignal?: Int32Array, scriptHost?: (name: string, payload: string) => string): BoundedExecutionResult;
 
   // Error / Exception
   getException(engineHandle: bigint): bigint;

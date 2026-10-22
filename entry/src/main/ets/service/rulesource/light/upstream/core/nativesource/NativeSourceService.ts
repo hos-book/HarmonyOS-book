@@ -776,8 +776,8 @@ export class NativeSourceService {
       const options: Record<string, Object> = {};
       if (hasHeaders) options['headers'] = result.mediaHeaders;
       if (result.imageDecode) options['decode'] = result.imageDecode;
-      const suffix = `,${JSON.stringify(options)}`;
-      result.images = result.images.map((url: string): string => url + suffix);
+      result.images = result.images.map((url: string, index: number): string =>
+        `${url},${JSON.stringify({ ...options, imageIndex: index })}`);
     }
     return result;
   }

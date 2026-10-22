@@ -11,6 +11,7 @@ const root = path.resolve(__dirname, '../entry/src/main/ets');
 const values = new Map();
 const events = new EventEmitter();
 const mocks = {
+  '../PreferenceService': { PreferenceService: { promoteFavorite: async () => {} } },
   '../../model/GeneralSettings': { GeneralSettings: { current: { historyEnabled: true } } },
   '@kit.InputKit': { KeyCode: { KEYCODE_VOLUME_UP: 16, KEYCODE_VOLUME_DOWN: 17,
     KEYCODE_PAGE_UP: 2012, KEYCODE_PAGE_DOWN: 2013, KEYCODE_DPAD_LEFT: 2014, KEYCODE_DPAD_RIGHT: 2015 } },
@@ -85,12 +86,27 @@ mocks['../utils/WindowUtils'] = { WindowUtils: { getSystemBottomVp: () => system
 let source = fs.readFileSync(path.join(root, 'pages/ReaderPage.ets'), 'utf8');
 const readerBottomMethods = source.slice(source.indexOf('  private readerTopInsetVp()'),
   source.indexOf('  private readerFloatingStyle()'));
-source = source.slice(0, source.search(/\s*@Builder\s+readerTabStyle\(/)) + '\n' + readerBottomMethods + '\n}';
+const chapterNavigationMethods = source.slice(source.indexOf('  private adjacentChapterIndex('),
+  source.indexOf('  private chapterSliderIndex('));
+source = source.slice(0, source.search(/\s*@Builder\s+readerTabStyle\(/)) + '\n' + readerBottomMethods +
+  '\n' + chapterNavigationMethods + '\n}';
 source = source.replace(/^  @Builder[\s\S]*?^  }\r?$/gm, '');
 source = source.replace('@ComponentV2', '').replace('export struct', 'export class')
   .replace(/@(Param|Local)\s+/g, '').replace(/  @Monitor\([\s\S]*?\)\s*/g, '');
 const { ReaderPage } = compile('pages/ReaderPage', source);
 const { TextReadingPosition, PageTurnMode } = model;
+const navigationReader = Object.create(ReaderPage.prototype);
+Object.assign(navigationReader, { book: { chaptersDescending: true, chapters: [{}, {}, {}] },
+  currentResourceIndex: 1, jumpingResourceIndex: -1, isOnlineTextBook: () => true });
+assert.equal(navigationReader.adjacentChapterIndex(true), 2, 'next follows body order with a descending TOC');
+assert.equal(navigationReader.adjacentChapterIndex(false), 0);
+assert.equal(navigationReader.canSwitchChapter(true), true);
+navigationReader.currentResourceIndex = 2;
+assert.equal(navigationReader.canSwitchChapter(true), false, 'final chapter cannot advance');
+assert.equal(navigationReader.canSwitchChapter(false), true);
+navigationReader.currentResourceIndex = 0;
+assert.equal(navigationReader.canSwitchChapter(false), false, 'first chapter cannot rewind');
+assert.equal(navigationReader.canSwitchChapter(true), true);
 const bottomReader = Object.create(ReaderPage.prototype);
 Object.assign(bottomReader, { pageTurnMode: PageTurnMode.Vertical, bottomSafeVp: 32, marginBottom: 12 });
 assert.equal(bottomReader.readerTextBottomPaddingVp(), 16, 'scroll footer shares gesture and reading spacing');
@@ -135,7 +151,7 @@ for (const visible of [true, false]) {
   assert.ok(keyReader.keyTurnRequest < 0);
 }
 for (const field of ['showSettingsSheet', 'showChapterSheet', 'showSpeechSheet', 'showSourceSwitch',
-  'pickingFont', 'pickingBackgroundImage', 'loading', 'leaving']) {
+  'showBookmarkSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont', 'pickingBackgroundImage', 'loading', 'leaving']) {
   const request = keyReader.keyTurnRequest;
   keyReader[field] = true;
   assert.equal(keyReader.canUseVolumeKeys(), false, field);
@@ -190,7 +206,7 @@ function reader() {
   // Skip ArkUI construction, retaining the actual progress, load, reflow and turn methods.
   const page = Object.create(ReaderPage.prototype);
   Object.assign(page, {
-    context: {}, book: { id: 'test-book', chapters: [{ title: '第一章' }, { title: '第二章' }] },
+    context: {}, textDocuments: new Map(), book: { id: 'test-book', chapters: [{ title: '第一章' }, { title: '第二章' }] },
     readingTime: { checkpoint() {} },
     speechState: { active: false, bookId: '' },
     pageTurnMode: PageTurnMode.Cover, currentResourceIndex: 0, currentChapterTitle: '第一章',
@@ -219,7 +235,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   assert.equal(fontPage.currentPosition.charOffset, 100);
 
   const typographyStart = source.indexOf('  private systemTypographyKey:');
-  const typographyEnd = source.indexOf('  aboutToAppear()', typographyStart);
+  const typographyEnd = source.indexOf('  holdingHandSide:', typographyStart);
   assert.ok(typographyStart >= 0 && typographyEnd > typographyStart);
   mocks['../service/text/ReadingTimeTracker'] = compile('service/text/ReadingTimeTracker');
   const { Typography } = compile('pages/ReaderPage', `import { OnlineTextPaginator } from '../service/text/OnlineTextPaginator';
@@ -302,6 +318,23 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   reopened.paginateOnlineTextContent = () => normal;
   reopened.repaginateOnlineText();
   assert.equal(reopened.onlineTextPageIndex, 1, 'reopening with an interim layout must not move back a page');
+
+  const { ReaderTextDocument, ReaderTextStage, ReaderTextEdit } = compile('model/ReaderTools');
+  const document = ReaderTextDocument.original('广告'.repeat(50) + content);
+  document.content = content;
+  const stage = new ReaderTextStage();
+  const edit = new ReaderTextEdit();
+  edit.start = 0; edit.end = 100; edit.length = 0; stage.edits = [edit]; document.stages = [stage];
+  const replaced = reader();
+  replaced.textDocuments.set(0, document);
+  replaced.saveProgress(); await tick();
+  assert.equal((await progress.get({}, 'test-book')).charOffset, 200, 'progress persists original coordinates after removing ads');
+  await replaced.loadOnlineTextChapter(0, 200, 2, false, true);
+  assert.equal(replaced.currentPosition.charOffset, 100, 'restoration maps original coordinates into the current text');
+  replaced.repaginateOnlineText();
+  assert.equal(replaced.persistedPosition().charOffset, 200, 'font/window reflow retains the original anchor');
+  await replaced.loadOnlineTextChapter(0, 50, 2, false, true);
+  assert.equal(replaced.onlineTextPageIndex, 0, 'a deleted saved anchor maps to page zero instead of reusing a stale page number');
 
   const confirmed = reader();
   confirmed.onlineTextTurnPreview = { chapterIndex: 1, pageIndex: 1, content, pages: normal };

@@ -317,6 +317,16 @@ export class HttpClient {
     }
     const client = http.createHttp();
     this.activeClients.add(client);
+    let cancelTimer: number = -1;
+    let cancelled = false;
+    if (req.cancelCheck) {
+      cancelTimer = setInterval((): void => {
+        if (!cancelled && req.cancelCheck && req.cancelCheck()) {
+          cancelled = true;
+          try { client.destroy(); } catch (_) { }
+        }
+      }, 50);
+    }
     try {
       const headers: Record<string, string> = { ...this.defaultHeaders, ...req.headers };
       const requestData = this.requestData(req);
@@ -328,12 +338,17 @@ export class HttpClient {
         extraData: requestData,
         connectTimeout: req.connectTimeout || this.timeout,
         readTimeout: req.readTimeout || this.timeout,
-        expectDataType: http.HttpDataType.ARRAY_BUFFER
+        expectDataType: http.HttpDataType.ARRAY_BUFFER,
+        maxLimit: maxResponseBytes
       };
       this.applyTlsTrust(options, req.url);
       if (forceHttp1) options.usingProtocol = http.HttpProtocol.HTTP1_1;
       const transportStartedAt = Date.now();
       const resp = await client.request(req.url, options);
+      if (cancelled || (req.cancelCheck && req.cancelCheck())) {
+        return { url: req.url, statusCode: 0, headers: {}, data: new Uint8Array(), success: false,
+          error: HttpClient.CANCELLED_ERROR };
+      }
       this.endTransportTiming(req, transportStartedAt, forceHttp1, resp);
       const responseHeaders = (resp.header || {}) as Record<string, string>;
       const setCookie = this.findHeader(responseHeaders, 'set-cookie');
@@ -368,11 +383,12 @@ export class HttpClient {
         headers: {},
         data: new Uint8Array(),
         success: false,
-        error: this.decorateTlsError(req.url, this.describeError(e as Object))
+        error: cancelled ? HttpClient.CANCELLED_ERROR : this.decorateTlsError(req.url, this.describeError(e as Object))
       };
     } finally {
+      if (cancelTimer >= 0) clearInterval(cancelTimer);
       this.activeClients.delete(client);
-      client.destroy();
+      try { client.destroy(); } catch (_) { }
     }
   }
 

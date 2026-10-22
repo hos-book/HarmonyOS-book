@@ -36,7 +36,7 @@ export class WidgetPlaybackService {
       if (ticket !== WidgetPlaybackService.generation || book.chapters.length === 0) return;
       const index = Math.max(0, book.chapters.findIndex((chapter): boolean => chapter.id === snapshot.chapterId));
       const step = command === 'next' ? 1 : command === 'prev' ? -1 : 0;
-      const target = index + step * PreferenceService.chapterStep(book);
+      const target = index + step;
       if (target < 0 || target >= book.chapters.length) return;
       await speech.start(book, target, step === 0 ? snapshot.charOffset ?? 0 : 0, step === 0);
       return;

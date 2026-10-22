@@ -1,4 +1,5 @@
 import localBookImportTest from './LocalBookImport.test';
+import localRuleQuickJsHostTest from './LocalRuleQuickJsHost.test';
 import localRuleSourceFileImportTest from './LocalRuleSourceFileImport.test';
 import abilityTest from './Ability.test';
 import shuShanContentCryptoTest from './ShuShanContentCrypto.test';
@@ -16,6 +17,7 @@ import localRuleManagementIntegrationTest from './LocalRuleManagementIntegration
 import localRuleBrowserLoginCoordinatorTests from '../../../test/LocalRuleBrowserLoginCoordinator.test';
 
 export default function testsuite() {
+  localRuleQuickJsHostTest();
   localRuleSourceFileImportTest();
   localBookImportTest();
   abilityTest();

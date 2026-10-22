@@ -26,16 +26,36 @@ export class SourceImageDecoder {
       .map(value => value.toString(16).padStart(2, '0')).join('');
   }
 
-  static decode(input: Uint8Array, spec: NativeCoverDecodeSpec): Uint8Array {
+  private static prepare(input: Uint8Array, spec: NativeCoverDecodeSpec, maxBytes: number): number {
     this.validate(spec);
-    if (!input.length || input.length > this.MAX_BYTES) throw new Error('Image exceeds byte limit');
+    if (!input.length || input.length > maxBytes) throw new Error('Image exceeds byte limit');
     // Some sites mix encrypted and ordinary covers under the same rule.
-    if (this.isImage(input)) return input;
+    if (this.isImage(input)) return -1;
     const offset = spec.ivPrefixBytes === 16 ? 16 : 0;
     if (input.length <= offset || (input.length - offset) % 16 !== 0) throw new Error('Truncated AES image');
-    const iv = offset ? Array.from(input.subarray(0, offset))
+    return offset;
+  }
+
+  private static ivHex(input: Uint8Array, spec: NativeCoverDecodeSpec, offset: number): string {
+    return offset ? Array.from(input.subarray(0, offset))
       .map(value => value.toString(16).padStart(2, '0')).join('') : spec.iv || '';
+  }
+
+  static decode(input: Uint8Array, spec: NativeCoverDecodeSpec): Uint8Array {
+    const offset = this.prepare(input, spec, this.MAX_BYTES);
+    if (offset < 0) return input;
+    const iv = this.ivHex(input, spec, offset);
     const output = NativeSourceCrypto.decryptBytes(spec.algorithm, input.subarray(offset), this.keyHex(spec), iv);
+    if (!this.isImage(output)) throw new Error('Decoded content is not an image');
+    return output;
+  }
+
+  static async decodeAsync(input: Uint8Array, spec: NativeCoverDecodeSpec,
+    maxBytes: number = SourceImageDecoder.MAX_BYTES): Promise<Uint8Array> {
+    const offset = this.prepare(input, spec, maxBytes);
+    if (offset < 0) return input;
+    const output = await NativeSourceCrypto.decryptBytesAsync(spec.algorithm, input.subarray(offset),
+      this.keyHex(spec), this.ivHex(input, spec, offset));
     if (!this.isImage(output)) throw new Error('Decoded content is not an image');
     return output;
   }

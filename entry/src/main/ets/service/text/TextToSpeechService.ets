@@ -1,4 +1,6 @@
 import { TextReadingPosition } from '../../model/TextReading';
+import { ReaderTextDocument } from '../../model/ReaderTools';
+import { ReaderToolsService } from './ReaderToolsService';
 import { TextReadingProgressService } from './TextReadingProgressService';
 import { CustomTtsConfig } from '../../model/CustomTtsConfig';
 import { CustomTtsConfigParser } from './CustomTtsConfigParser';
@@ -60,6 +62,7 @@ export class TextToSpeechService {
   private book: Book | null = null;
   private segments: SpeechSegment[] = [];
   private chapterContent: string = '';
+  private textDocument: ReaderTextDocument | null = null;
   private segmentIndex: number = 0;
   private generation: number = 0;
   private requestSequence: number = 0;
@@ -370,6 +373,7 @@ export class TextToSpeechService {
       this.state.chapterCount = book.chapters.length;
       this.segments = [];
       this.chapterContent = '';
+      this.textDocument = null;
       this.prefetchedKey = '';
       this.prefetchedText = '';
       if (restore) {
@@ -402,7 +406,7 @@ export class TextToSpeechService {
       await this.preparePlayback(ticket);
       if (!this.valid(ticket)) return;
       if (this.segments.length === 0) {
-        await this.loadChapter(this.state.chapterIndex, this.state.charOffset, ticket);
+        await this.loadChapter(this.state.chapterIndex, this.currentRawOffset(), ticket);
       } else {
         this.publishMetadata();
         this.speakNext(ticket);
@@ -462,7 +466,7 @@ export class TextToSpeechService {
 
   async moveChapter(delta: number): Promise<void> {
     if (this.book === null) return;
-    const target = this.state.chapterIndex + delta * PreferenceService.chapterStep(this.book);
+    const target = this.state.chapterIndex + delta;
     if (target < 0 || target >= this.book.chapters.length) return;
     await this.start(this.book, target, 0);
   }
@@ -573,17 +577,22 @@ export class TextToSpeechService {
     this.state.highlightEnd = -1;
     this.segments = [];
     this.chapterContent = '';
+    this.textDocument = null;
     this.publishMetadata();
     try {
-      const content = await this.fetchChapter(book, index);
+      const raw = await this.fetchChapter(book, index);
+      const document = this.context ? await ReaderToolsService.render(this.context, book.id, raw) : ReaderTextDocument.original(raw);
       if (!this.valid(ticket)) return;
+      const content = document.content;
+      this.textDocument = document;
+      this.state.charOffset = document.toDisplay(offset);
       this.chapterContent = content;
       this.rebuildSpeechSegments();
       if (this.segments.length === 0) throw new Error('Empty chapter');
       this.state.contentLength = content.length;
-      this.segmentIndex = SpeechTextSegmenter.indexAt(this.segments, offset);
+      this.segmentIndex = SpeechTextSegmenter.indexAt(this.segments, this.state.charOffset);
       this.speakNext(ticket);
-      this.prefetch(book, index + PreferenceService.chapterStep(book), ticket);
+      this.prefetch(book, index + 1, ticket);
     } catch (error) {
       if (this.valid(ticket)) this.fail(error instanceof Error ? error : new Error(String(error)), true);
     }
@@ -625,7 +634,7 @@ export class TextToSpeechService {
     if (this.segmentIndex >= this.segments.length) {
       this.state.charOffset = this.state.contentLength;
       this.savePosition(true);
-      const next = this.state.chapterIndex + PreferenceService.chapterStep(this.book);
+      const next = this.state.chapterIndex + 1;
       if (this.state.stopAtChapterEnd || next < 0 || next >= this.book.chapters.length) {
         this.pause(); this.setSleep(0); return;
       }
@@ -821,6 +830,7 @@ export class TextToSpeechService {
   }
 
   currentChapterContent(): string { return this.chapterContent; }
+  currentRawOffset(): number { return this.textDocument?.toRaw(this.state.charOffset) ?? this.state.charOffset; }
 
   hasSavedPosition(book: Book): boolean { return this.savedPosition(book) !== null; }
 
@@ -832,18 +842,18 @@ export class TextToSpeechService {
     if (chapter === undefined) return;
     ReadingSessionService.end('reading');
     ReadingSessionService.checkpoint('tts', SessionLocation.audio(book, chapter,
-      this.state.charOffset, this.state.contentLength), this.state.playing);
+      this.currentRawOffset(), this.textDocument?.rawLength ?? this.state.contentLength), this.state.playing);
     const value = new SpeechPosition();
     value.sourceUrl = book.sourceUrl;
     value.bookUrl = book.bookUrl;
     value.chapterUrl = chapter.originSourceValue || chapter.source.value;
     value.chapterIndex = this.state.chapterIndex;
-    value.charOffset = this.state.charOffset;
+    value.charOffset = this.currentRawOffset();
     try {
       store.putSync(`position_${book.id}`, JSON.stringify(value));
       if (this.context !== null) {
         const position = TextReadingPosition.atChar(book.id, this.state.chapterIndex, '',
-          this.state.charOffset, 0, chapter.title);
+          this.currentRawOffset(), 0, chapter.title);
         TextReadingProgressService.save(this.context, position).catch((): void => {});
       }
       this.lastSaveAt = Date.now();

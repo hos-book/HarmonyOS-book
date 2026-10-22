@@ -1788,7 +1788,7 @@ export class AudioService {
     if (!this.state || !this.state.currentBook || !this.state.currentChapter) return 0;
     const book = this.state.currentBook;
     const index = this.findChapterIndex(book, this.state.currentChapter);
-    return index < 0 ? 0 : Math.min(999, PreferenceService.chapterStep(book) < 0 ? index + 1 : book.chapters.length - index);
+    return index < 0 ? 0 : Math.min(999, book.chapters.length - index);
   }
 
   setSleepChapters(count: number, remember: boolean = true): boolean {
@@ -1808,7 +1808,7 @@ export class AudioService {
     }
     this.state.sleepChapterCount = count;
     this.state.sleepChaptersRemaining = count;
-    this.state.sleepTargetTitle = book.chapters[index + (count - 1) * PreferenceService.chapterStep(book)].title;
+    this.state.sleepTargetTitle = book.chapters[index + count - 1].title;
     return true;
   }
 
@@ -2078,14 +2078,14 @@ export class AudioService {
       await this.playChapterAndSeek(this.state.currentBook, chapters[idx], 0, true);
       return;
     }
-    const next = idx + PreferenceService.chapterStep(this.state.currentBook);
+    const next = idx + 1;
     if (next >= 0 && next < chapters.length) {
       await this.playChapter(this.state.currentBook, chapters[next], true);
       return;
     }
     if (mode === PlayMode.ListLoop && chapters.length > 0) {
       // 列表循环:回到第一集
-      await this.playChapter(this.state.currentBook, PreferenceService.orderedChapters(this.state.currentBook)[0], true);
+      await this.playChapter(this.state.currentBook, chapters[0], true);
       return;
     }
     // 片尾跳过也算章末，末章仍在 playing 时必须主动暂停。
@@ -2224,11 +2224,11 @@ export class AudioService {
     if (!this.state || !this.state.currentBook || !this.state.currentChapter) return;
     const chapters = this.state.currentBook.chapters;
     const idx = this.findChapterIndex(this.state.currentBook, this.state.currentChapter);
-    const next = idx + PreferenceService.chapterStep(this.state.currentBook);
+    const next = idx + 1;
     if (idx >= 0 && next >= 0 && next < chapters.length) {
       await this.playChapter(this.state.currentBook, chapters[next]);
     } else if (this.state.playMode === PlayMode.ListLoop && chapters.length > 0) {
-      await this.playChapter(this.state.currentBook, PreferenceService.orderedChapters(this.state.currentBook)[0]);
+      await this.playChapter(this.state.currentBook, chapters[0]);
     }
   }
 
@@ -2237,7 +2237,7 @@ export class AudioService {
     if (!this.state || !this.state.currentBook || !this.state.currentChapter) return;
     const chapters = this.state.currentBook.chapters;
     const idx = this.findChapterIndex(this.state.currentBook, this.state.currentChapter);
-    const previous = idx - PreferenceService.chapterStep(this.state.currentBook);
+    const previous = idx - 1;
     if (idx >= 0 && previous >= 0 && previous < chapters.length) {
       await this.playChapterFromSavedProgress(this.state.currentBook, chapters[previous]);
     }

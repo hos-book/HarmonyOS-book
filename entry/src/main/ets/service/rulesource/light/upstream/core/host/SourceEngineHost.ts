@@ -7,6 +7,11 @@ export interface SourceNativeScripts {
   create(source: BookSource, host: NativeRunnerHost): Pick<NativeRunnerHost, 'scriptEngine' | 'evaluateExpression'>;
 }
 
+/** Isolated binary image execution. The program only receives image bytes and bounded crypto. */
+export interface SourceImageScripts {
+  run(program: string, input: Uint8Array, cancelled: () => boolean): Promise<Uint8Array>;
+}
+
 /**
  * 宿主应用可以替换的引擎能力（“端口”）。端口都是可信的应用代码，绝不能暴露给书源脚本。
  * 每个端口都可以不提供：没装时引擎用自己的默认实现，开源轻页本身就不安装任何端口。
@@ -74,6 +79,7 @@ export interface SourceDiagnostics {
 }
 
 export interface SourceEngineHostAdapter {
+  imageScripts?: SourceImageScripts;
   nativeScripts?: SourceNativeScripts;
   cookies?: (sourceUrl: string) => SourceCookieJar;
   persistence?: (source: BookSource) => BookSourceRuntimePersistence;
@@ -132,6 +138,10 @@ export class SourceEngineHost {
 
   static nativeScripts(): SourceNativeScripts | undefined {
     return SourceEngineHost.adapter.nativeScripts;
+  }
+
+  static imageScripts(): SourceImageScripts | undefined {
+    return SourceEngineHost.adapter.imageScripts;
   }
 
   static async evaluate(script: string, sourceUrl: string, timingId: number = 0): Promise<string> {

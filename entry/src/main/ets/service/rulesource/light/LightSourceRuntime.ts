@@ -474,6 +474,10 @@ class LightEngineRateWaiter implements SourceRateWaiter {
 
 // One startup installation. All mutable execution state remains bound to source instances.
 const engineHost: SourceEngineHostAdapter = {
+  imageScripts: {run: async (script, input, cancelled) => {
+    if (!LightSourceRuntime.host.evaluateImage) throw new Error('图片脚本执行器未初始化');
+    return LightSourceRuntime.host.evaluateImage(script, input, cancelled);
+  }},
   nativeScripts: {create: (source, host) => LightNativeScripts.create(source, host)},
   cookies: sourceUrl => LightCookieStore.forSource(sourceUrl),
   persistence: source => LightSourceDatabase.getInstance(source),

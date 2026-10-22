@@ -1,4 +1,6 @@
 import { ReaderTapPolicy } from '../../utils/ReaderTapPolicy';
+import { ReaderToolsSnapshot } from '../../model/ReaderTools';
+import { ReaderToolsService } from './ReaderToolsService';
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
 import { TextReadingPosition, TextReadingSettings, ReaderCornerLayout } from '../../model/TextReading';
@@ -45,6 +47,7 @@ export class SpeechPositionBackup extends SpeechPosition {
 }
 
 export class ReadingBackupSnapshot {
+  tools: ReaderToolsSnapshot | undefined = undefined;
   positions: TextReadingPosition[] = [];
   settings: ReadingSettingsBackup = new ReadingSettingsBackup();
   speechPositions: SpeechPositionBackup[] = [];
@@ -57,6 +60,10 @@ export class ReadingBackupSnapshot {
 export class ReadingBackupService {
   static async createSnapshot(context: common.Context): Promise<ReadingBackupSnapshot> {
     const snapshot = new ReadingBackupSnapshot();
+    const tools = await ReaderToolsService.snapshot(context);
+    tools.bookmarks = tools.bookmarks.filter((mark): boolean => !mark.bookId.startsWith('import_'));
+    tools.rules = tools.rules.filter((rule): boolean => !rule.bookId.startsWith('import_'));
+    snapshot.tools = tools;
     snapshot.positions = (await TextReadingProgressService.getAll(context))
       .filter((position: TextReadingPosition): boolean => !position.bookId.startsWith('import_'));
     const settings = await TextReadingSettingsService.get(context);
@@ -114,6 +121,7 @@ export class ReadingBackupService {
   }
 
   static async restoreSnapshot(context: common.Context, snapshot: ReadingBackupSnapshot): Promise<void> {
+    if (snapshot.tools !== undefined) await ReaderToolsService.restore(context, snapshot.tools);
     await TextReadingProgressService.restoreBackupPositions(context, snapshot.positions);
     const settings = await TextReadingSettingsService.get(context);
     const saved = snapshot.settings;
@@ -175,6 +183,7 @@ export class ReadingBackupService {
   }
 
   static isValidSnapshot(snapshot: ReadingBackupSnapshot): boolean {
+    if (snapshot?.tools !== undefined && !ReaderToolsService.validSnapshot(snapshot.tools)) return false;
     if (!snapshot || !Array.isArray(snapshot.positions) || snapshot.positions.length > 10000 ||
       !snapshot.positions.every((position: TextReadingPosition): boolean =>
         TextReadingProgressService.isValidPosition(position) && !position.bookId.startsWith('import_')) ||

@@ -24,6 +24,7 @@ export class JSRuntimeOptions {
 }
 
 export class JSBoundedExecutionResult {
+  bytes: Uint8Array = new Uint8Array();
   success: boolean = false;
   value: string = '';
   error: string = '';
@@ -83,9 +84,11 @@ export class JSContext {
   }
 
   evaluateBounded(script: string, sourceURL: string = 'evaluate', timeoutMs: number = 100,
-    maxPendingJobs: number = 8): JSBoundedExecutionResult {
+    maxPendingJobs: number = 8, input?: Uint8Array,
+    imageHost?: (name: string, data: Uint8Array, options: string) => Uint8Array,
+    cancelSignal?: Int32Array, scriptHost?: (name: string, payload: string) => string): JSBoundedExecutionResult {
     const nativeResult = qjs.evaluateBounded(this.engineHandle, script, sourceURL,
-      Math.max(1, timeoutMs), Math.max(0, maxPendingJobs));
+      Math.max(1, timeoutMs), Math.max(0, maxPendingJobs), input, imageHost, cancelSignal, scriptHost);
     const result = new JSBoundedExecutionResult();
     result.success = nativeResult.success;
     result.value = nativeResult.value;
@@ -93,6 +96,7 @@ export class JSContext {
     result.timedOut = nativeResult.timedOut;
     result.elapsedMs = nativeResult.elapsedMs;
     result.pendingJobs = nativeResult.pendingJobs;
+    result.bytes = nativeResult.bytes;
     return result;
   }
 

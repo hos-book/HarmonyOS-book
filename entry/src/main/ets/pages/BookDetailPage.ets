@@ -21,7 +21,7 @@ import { SearchCache } from '../utils/SearchCache';
 import { WindowUtils } from '../utils/WindowUtils';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { TextReaderRouteParams, TextReadingPosition, EVT_READER_JUMP_CHAPTER, ReaderJumpChapterEvent } from '../model/TextReading';
-import { TextReadingProgressService } from '../service/text/TextReadingProgressService';
+import { TextReadingProgressService, EVT_TEXT_READING_PROGRESS_CHANGED } from '../service/text/TextReadingProgressService';
 import { OneShotLayoutCallback, OneShotTransitionIds } from '../utils/OneShotTransition';
 import { CoverImage } from '../components/CoverImage';
 import { CoverAspectRatio } from '../utils/CoverAspectRatio';
@@ -204,6 +204,13 @@ export struct BookDetailPage {
   private viewportUpdateTimerId: number = -1;
   /** 顶部数据行的横向滚动控制器；沉浸胶囊自己接管拖动时用它驱动滚动。 */
   private statsScroller: Scroller = new Scroller();
+  private readingProgressHandler = (): void => {
+    const book = this.book;
+    if (!this.detailActive || !book || (book.contentType !== 'text' && book.contentType !== 'comic')) return;
+    this.loadTextReadingProgress(book.id).catch((error: Error): void => {
+      hilog.warn(DETAIL_LOG_DOMAIN, DETAIL_LOG_TAG, 'reading progress refresh failed: %{public}s', error.message);
+    });
+  };
   private downloadHandler = (evt: emitter.EventData): void => {
     const data = evt.data as DownloadUpdatePayload;
     if (!data || data.bookId !== this.bookId) return;
@@ -219,6 +226,7 @@ export struct BookDetailPage {
     this.syncCoverRatio();
     this.downloadTick = this.downloadTick + 1;
     emitter.on(EVT_DOWNLOAD_UPDATED, this.downloadHandler);
+    emitter.on(EVT_TEXT_READING_PROGRESS_CHANGED, this.readingProgressHandler);
     DetailBackInterceptor.set((): boolean => this.handleBack());
     // 顶栏按钮画在 HDS 标题栏里（Index.ets 渲染），这里把动作和初始态挂上去。
     const titleBarState = DetailTitleBarState.get();
@@ -320,6 +328,7 @@ export struct BookDetailPage {
     this.tocGeneration++;
     this.cancelViewportUpdateTimer();
     emitter.off(EVT_DOWNLOAD_UPDATED, this.downloadHandler);
+    emitter.off(EVT_TEXT_READING_PROGRESS_CHANGED, this.readingProgressHandler);
     DetailBackInterceptor.set(null);
     const titleBarState = DetailTitleBarState.get();
     titleBarState.onBack = (): void => {};
@@ -543,8 +552,10 @@ export struct BookDetailPage {
   }
 
   private async loadTextReadingProgress(bookId: string): Promise<void> {
-    const context = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    this.textReadingProgress = await TextReadingProgressService.get(context, bookId);
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
+    const position = await TextReadingProgressService.get(context, bookId);
+    if (this.detailActive && this.book?.id === bookId) this.textReadingProgress = position;
   }
 
   /** 从 Preferences 加载本书的播放历史。 */
@@ -881,7 +892,7 @@ export struct BookDetailPage {
       resumeProgressMs = this.lastHistory.progressMs;
     }
     if (!target) {
-      target = PreferenceService.orderedChapters(this.book)[0];
+      target = this.book.chapters[0];
     }
     if (!target) {
       this.isStartingPlay = false;

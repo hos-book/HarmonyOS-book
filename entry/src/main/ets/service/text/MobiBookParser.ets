@@ -9,6 +9,7 @@ export class MobiBookInfo {
   cover: string = '';
   coverOffset: number = -1;
   thumbnailOffset: number = -1;
+  encoding: string = 'utf-8';
 }
 
 /** MOBI6/PalmDOC: bounded record reads; hybrid MOBI uses its legacy rendition. */
@@ -55,6 +56,7 @@ export class MobiBookParser {
 
   private static metadata(header: Uint8Array, headerLength: number, encoding: string): MobiBookInfo {
     const info = new MobiBookInfo();
+    info.encoding = encoding;
     info.textLength = MobiBookParser.u32(header, 4);
     const titleOffset = MobiBookParser.u32(header, 84);
     const titleLength = MobiBookParser.u32(header, 88);

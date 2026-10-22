@@ -78,6 +78,12 @@ const graphicsText = {
   }
 };
 const native = load('main/ets/service/text/OnlineTextPaginator.ets', { '@kit.ArkGraphics2D': { text: graphicsText } });
+const replacedContent = '\n\n甲乙\n\n\n丙丁&nbsp;';
+const replacedPages = native.OnlineTextPaginator.paginate(replacedContent, 300, 40, 18, 1.9);
+assert.equal(replacedPages.at(-1).endOffset, replacedContent.length,
+  'replacement text retains its complete coordinate space, including newly blank paragraphs');
+assert.ok(built.at(-1).text.includes('&nbsp;'), 'replacement output is literal text, not decoded a second time');
+native.OnlineTextPaginator.invalidateLayouts();
 localImages.LocalTextImage.setRoot('/files');
 const token = localImages.LocalTextImage.token('/files/ebooks/import_fixture/image_0_0.img');
 const mixedBody = '图前正文很长\n' + token + '\n图后正文很长';

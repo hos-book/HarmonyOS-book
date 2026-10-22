@@ -55,6 +55,7 @@ export struct MainPage {
   private shelfBackHandler: (() => boolean) | undefined = undefined;
   private recordsBackHandler: (() => boolean) | undefined = undefined;
   @Local currentTab: number = 0;
+  @Local tabContentOpacity: number = 1;
   // 原生 Tabs 已完成选中切换；这里只镜像物理索引，供后续属性刷新使用。
   // 不参与状态观测，避免 onChange 再刷新 HdsTabs 整组属性并重建 MiniPlayer。
   private nativeTabIndex: number = 0;
@@ -402,6 +403,7 @@ export struct MainPage {
               this.openCategory(sourceUrl, sourceName, title, url),
             onScrollerReady: (scroller: Scroller) => { this.scrollers.set(0, scroller); }
           })
+          .opacity(this.tabContentOpacity)
         }
         .tabBar(this.buildTabBar($r('sys.symbol.house_fill'), '首页'))
 
@@ -415,6 +417,7 @@ export struct MainPage {
             onBookTap: (id: string) => this.navigateToBook(id, '', 0, false),
             onScrollerReady: (scroller: Scroller) => { this.scrollers.set(1, scroller); }
           })
+          .opacity(this.tabContentOpacity)
         }
         .tabBar(this.buildTabBar($r('sys.symbol.bookshelf'), '书架'))
 
@@ -428,6 +431,7 @@ export struct MainPage {
             inTab: true,
             onScrollerReady: (scroller: Scroller) => { this.scrollers.set(2, scroller); }
           })
+          .opacity(this.tabContentOpacity)
         }
         .tabBar(this.buildTabBar($r('sys.symbol.calendar_fill'), '记录'))
         }
@@ -437,6 +441,7 @@ export struct MainPage {
             navStack: this.navStack,
             onScrollerReady: (scroller: Scroller) => { this.scrollers.set(3, scroller); }
           })
+          .opacity(this.tabContentOpacity)
         }
         .tabBar(this.buildTabBar($r('sys.symbol.person_fill'), '我的'))
       }
@@ -458,10 +463,19 @@ export struct MainPage {
         this.lastTabClickIndex = index;
       })
       .onChange((index: number) => {
+        const changed = this.nativeTabIndex !== index;
         this.nativeTabIndex = index;
         this.currentTab = !this.generalSettings.historyEnabled && index === 2 ? 3 : index;
+        if (changed) {
+          this.getUIContext().animateTo({ duration: 0 }, () => {
+            this.tabContentOpacity = 0.55;
+          });
+          this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
+            this.tabContentOpacity = 1;
+          });
+        }
       })
-      // 底部 Tab 直接展示已缓存页面，避免两页材质在横移动画中持续全屏重绘。
+      // 仅内容淡入，底栏与迷你播放器保持稳定，不让两页材质参与整屏横移。
       .animationDuration(0)
       .width('100%')
       .height('100%')

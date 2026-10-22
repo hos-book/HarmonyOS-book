@@ -84,11 +84,12 @@ def main():
     if args.name_cache is not None:
         cache = json.loads(args.name_cache.read_text(encoding='utf-8'))
         properties = cache.get('PropertyCache', {})
-        dynamic_exports = ['EpubParserService', 'createEpubReaderController', 'createEpubReaderBuilder']
+        dynamic_exports = ['EpubParserService', 'createEpubReaderController', 'createEpubReaderBuilder',
+                           'LocalRuleQuickJsRequest', 'LocalRuleQuickJsRuntime']
         renamed_exports = [name for name in dynamic_exports if properties.get(name, name) != name]
         if renamed_exports:
             for result in results:
-                result['errors'].append('Obfuscation breaks dynamic EPUB exports: ' + ', '.join(renamed_exports))
+                result['errors'].append('Obfuscation breaks dynamic module exports: ' + ', '.join(renamed_exports))
         source_root = Path(__file__).resolve().parents[1] / 'entry/src/main/ets'
         contracts = [
             'service/rulesource/light/upstream/core/nativesource/NativeSourceSpec.ts',

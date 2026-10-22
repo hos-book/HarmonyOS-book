@@ -64,7 +64,14 @@ export struct ChapterListItem {
       .alignItems(HorizontalAlign.Start)
 
       Row({ space: AppSpace.Xs }) {
-        if (this.isPlaying && !this.isTextBook) {
+        if (this.isPlaying && this.isTextBook) {
+          Text($r('app.string.chapter_current_reading'))
+            .fontSize(AppFont.Caption)
+            .fontColor(AppColor.BrandDark)
+            .backgroundColor(AppColor.BrandSoft)
+            .borderRadius(AppRadius.Xs)
+            .padding({ left: 6, right: 6, top: 2, bottom: 2 })
+        } else if (this.isPlaying) {
           SymbolGlyph($r('sys.symbol.speaker_wave_2_fill'))
             .fontSize(18).fontColor([AppColor.BrandDark])
         }

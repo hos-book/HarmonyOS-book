@@ -960,14 +960,23 @@ static napi_value EvaluateScript(napi_env env, napi_callback_info info) {
 
 struct BoundedExecutionState {
     std::chrono::steady_clock::time_point deadline;
+    std::chrono::steady_clock::time_point overallDeadline;
+    int32_t* cancelSignal = nullptr;
     bool timedOut = false;
+    bool cancelled = false;
+    std::chrono::steady_clock::duration hostWait {};
 };
 
 static int BoundedInterruptHandler(JSRuntime* runtime, void* opaque) {
     (void)runtime;
     auto* state = static_cast<BoundedExecutionState*>(opaque);
     if (!state) return 0;
-    if (std::chrono::steady_clock::now() < state->deadline) return 0;
+    if (state->cancelSignal && __atomic_load_n(state->cancelSignal, __ATOMIC_RELAXED) != 0) {
+        state->cancelled = true;
+        return 1;
+    }
+    const auto now = std::chrono::steady_clock::now();
+    if (now < state->deadline && now < state->overallDeadline) return 0;
     state->timedOut = true;
     return 1;
 }
@@ -998,9 +1007,214 @@ static std::string TakeQuickJsException(JSContext* ctx) {
     return message;
 }
 
+static constexpr size_t MAX_IMAGE_BYTES = 20 * 1024 * 1024;
+
+static bool ReadNapiBytes(napi_env env, napi_value value, uint8_t*& bytes, size_t& length) {
+    napi_typedarray_type type;
+    void* data = nullptr;
+    napi_value buffer;
+    size_t offset = 0;
+    if (napi_get_typedarray_info(env, value, &type, &length, &data, &buffer, &offset) != napi_ok ||
+        type != napi_uint8_array || length > MAX_IMAGE_BYTES) return false;
+    bytes = static_cast<uint8_t*>(data);
+    return bytes || length == 0;
+}
+
+static napi_value NapiBytes(napi_env env, const uint8_t* bytes, size_t length) {
+    void* target = nullptr;
+    napi_value buffer = nullptr;
+    napi_value result = nullptr;
+    if (napi_create_arraybuffer(env, length, &target, &buffer) != napi_ok) return nullptr;
+    if (length) memcpy(target, bytes, length);
+    if (napi_create_typedarray(env, napi_uint8_array, length, buffer, 0, &result) != napi_ok) return nullptr;
+    return result;
+}
+
+// Read real ArrayBuffers/views without consulting script-defined properties or iterators.
+static bool ReadQuickJsBytes(JSContext* ctx, JSValueConst value, uint8_t*& data, size_t& length) {
+    size_t offset = 0;
+    size_t elementSize = 0;
+    JSValue buffer = JS_GetTypedArrayBuffer(ctx, value, &offset, &length, &elementSize);
+    const bool view = !JS_IsException(buffer);
+    if (!view) {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+        buffer = JS_DupValue(ctx, value);
+    }
+    size_t bufferLength = 0;
+    uint8_t* base = JS_GetArrayBuffer(ctx, &bufferLength, buffer);
+    JSValue exception = JS_GetException(ctx);
+    const bool valid = JS_IsNull(exception) || JS_IsUndefined(exception);
+    JS_FreeValue(ctx, exception);
+    if (!view) length = bufferLength;
+    const bool bounded = valid && (!view || elementSize == 1) && length <= MAX_IMAGE_BYTES &&
+        offset <= bufferLength && length <= bufferLength - offset;
+    data = bounded && base ? base + offset : nullptr;
+    JS_FreeValue(ctx, buffer);
+    return bounded && (data || length == 0);
+}
+
+struct BoundedImageHost {
+    napi_env env;
+    napi_value callback;
+    BoundedExecutionState* execution;
+    size_t calls = 0;
+    size_t totalBytes = 0;
+    bool exhausted = false;
+};
+
+static JSValue CallBoundedImageHost(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    auto* host = static_cast<BoundedImageHost*>(JS_GetContextOpaque(ctx));
+    if (!host || argc != 3 || !JS_IsString(argv[0]) || !JS_IsString(argv[2])) {
+        return JS_ThrowTypeError(ctx, "Invalid image operation");
+    }
+    if (BoundedInterruptHandler(JS_GetRuntime(ctx), host->execution)) {
+        return JS_ThrowInternalError(ctx, "Image execution stopped");
+    }
+    if (host->exhausted || ++host->calls > 32) {
+        host->exhausted = true;
+        return JS_ThrowRangeError(ctx, "Image host call budget exceeded");
+    }
+    size_t operationLength = 0, optionsLength = 0;
+    const char* rawOperation = JS_ToCStringLen(ctx, &operationLength, argv[0]);
+    const char* rawOptions = JS_ToCStringLen(ctx, &optionsLength, argv[2]);
+    if (!rawOperation || !rawOptions) {
+        if (rawOperation) JS_FreeCString(ctx, rawOperation);
+        if (rawOptions) JS_FreeCString(ctx, rawOptions);
+        return JS_EXCEPTION;
+    }
+    const bool bounded = operationLength <= 16 && optionsLength <= 16384;
+    const std::string operation = bounded ? std::string(rawOperation, operationLength) : "";
+    const std::string options = bounded ? std::string(rawOptions, optionsLength) : "";
+    JS_FreeCString(ctx, rawOperation);
+    JS_FreeCString(ctx, rawOptions);
+    if (!bounded || (operation != "decrypt" && operation != "encrypt" && operation != "hash" && operation != "hmac")) {
+        return JS_ThrowTypeError(ctx, "Unsupported image operation");
+    }
+    uint8_t* input = nullptr;
+    size_t inputLength = 0;
+    if (!ReadQuickJsBytes(ctx, argv[1], input, inputLength)) return JS_ThrowTypeError(ctx, "Expected bounded image bytes");
+    host->totalBytes += inputLength;
+    if (host->totalBytes > 128 * 1024 * 1024) {
+        host->exhausted = true;
+        return JS_ThrowRangeError(ctx, "Image operation byte budget exceeded");
+    }
+    napi_handle_scope scope;
+    if (napi_open_handle_scope(host->env, &scope) != napi_ok) return JS_ThrowOutOfMemory(ctx);
+    napi_value args[3] = {NAPIString(host->env, operation), NapiBytes(host->env, input, inputLength), NAPIString(host->env, options)};
+    napi_value output = nullptr;
+    const auto hostStarted = std::chrono::steady_clock::now();
+    napi_status status = args[1] ? napi_call_function(host->env, NAPIUndefined(host->env), host->callback, 3, args, &output) : napi_generic_failure;
+    host->execution->deadline += std::chrono::steady_clock::now() - hostStarted;
+    JSValue result = JS_UNDEFINED;
+    uint8_t* bytes = nullptr;
+    size_t length = 0;
+    if (status != napi_ok) {
+        bool pending = false;
+        napi_is_exception_pending(host->env, &pending);
+        if (pending) {
+            napi_value exception;
+            napi_get_and_clear_last_exception(host->env, &exception);
+        }
+        result = JS_ThrowInternalError(ctx, "Image crypto operation failed");
+    } else if (!ReadNapiBytes(host->env, output, bytes, length)) {
+        result = JS_ThrowTypeError(ctx, "Invalid image crypto result");
+    } else if (BoundedInterruptHandler(JS_GetRuntime(ctx), host->execution)) {
+        result = JS_ThrowInternalError(ctx, "Image execution stopped");
+    } else {
+        host->totalBytes += length;
+        if (host->totalBytes > 128 * 1024 * 1024) {
+            host->exhausted = true;
+            result = JS_ThrowRangeError(ctx, "Image operation byte budget exceeded");
+        } else result = JS_NewArrayBufferCopy(ctx, bytes, length);
+    }
+    napi_close_handle_scope(host->env, scope);
+    return result;
+}
+
+// A single bounded task retains its stack while the application answers a JSON host call.
+// No runtime/session escapes evaluateBounded; the application still owns all capabilities.
+struct BoundedScriptHost {
+    napi_env env;
+    napi_value callback;
+    BoundedExecutionState* execution;
+    size_t calls = 0;
+    size_t totalBytes = 0;
+    bool exhausted = false;
+};
+
+static JSValue CallBoundedScriptHost(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    auto* host = static_cast<BoundedScriptHost*>(JS_GetContextOpaque(ctx));
+    if (!host || argc != 2 || !JS_IsString(argv[0]) || !JS_IsString(argv[1])) {
+        return JS_ThrowTypeError(ctx, "Invalid script host call");
+    }
+    if (BoundedInterruptHandler(JS_GetRuntime(ctx), host->execution)) {
+        return JS_ThrowInternalError(ctx, "Script execution stopped");
+    }
+    if (host->exhausted || ++host->calls > 4096) {
+        host->exhausted = true;
+        return JS_ThrowRangeError(ctx, "Script host call budget exceeded");
+    }
+    size_t nameLength = 0, payloadLength = 0;
+    const char* name = JS_ToCStringLen(ctx, &nameLength, argv[0]);
+    const char* payload = JS_ToCStringLen(ctx, &payloadLength, argv[1]);
+    if (!name || !payload) {
+        if (name) JS_FreeCString(ctx, name);
+        if (payload) JS_FreeCString(ctx, payload);
+        return JS_EXCEPTION;
+    }
+    host->totalBytes += payloadLength;
+    if (nameLength > 128 || payloadLength > 4 * 1024 * 1024 || host->totalBytes > 64 * 1024 * 1024) {
+        host->exhausted = true;
+        JS_FreeCString(ctx, name);
+        JS_FreeCString(ctx, payload);
+        return JS_ThrowRangeError(ctx, "Script host input budget exceeded");
+    }
+    napi_handle_scope scope;
+    if (napi_open_handle_scope(host->env, &scope) != napi_ok) {
+        JS_FreeCString(ctx, name);
+        JS_FreeCString(ctx, payload);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+    napi_value args[2] = {nullptr, nullptr};
+    napi_create_string_utf8(host->env, name, nameLength, &args[0]);
+    napi_create_string_utf8(host->env, payload, payloadLength, &args[1]);
+    JS_FreeCString(ctx, name);
+    JS_FreeCString(ctx, payload);
+    napi_value output = nullptr;
+    const auto hostStarted = std::chrono::steady_clock::now();
+    const napi_status status = napi_call_function(host->env, NAPIUndefined(host->env), host->callback, 2, args, &output);
+    const auto waited = std::chrono::steady_clock::now() - hostStarted;
+    host->execution->deadline += waited;
+    host->execution->hostWait += waited;
+    JSValue result = JS_UNDEFINED;
+    size_t length = 0;
+    if (status != napi_ok) {
+        bool pending = false;
+        napi_is_exception_pending(host->env, &pending);
+        if (pending) {
+            napi_value exception;
+            napi_get_and_clear_last_exception(host->env, &exception);
+        }
+        result = JS_ThrowInternalError(ctx, "Script host operation stopped");
+    } else if (BoundedInterruptHandler(JS_GetRuntime(ctx), host->execution)) {
+        result = JS_ThrowInternalError(ctx, "Script execution stopped");
+    } else if (napi_get_value_string_utf8(host->env, output, nullptr, 0, &length) != napi_ok ||
+        length > 8 * 1024 * 1024 || host->totalBytes + length > 64 * 1024 * 1024) {
+        host->exhausted = true;
+        result = JS_ThrowRangeError(ctx, "Script host output budget exceeded");
+    } else {
+        host->totalBytes += length;
+        std::vector<char> text(length + 1);
+        napi_get_value_string_utf8(host->env, output, text.data(), text.size(), &length);
+        result = JS_NewStringLen(ctx, text.data(), length);
+    }
+    napi_close_handle_scope(host->env, scope);
+    return result;
+}
+
 static napi_value EvaluateBounded(napi_env env, napi_callback_info info) {
-    size_t argc = 5;
-    napi_value args[5] = {nullptr, nullptr, nullptr, nullptr, nullptr};
+    size_t argc = 9;
+    napi_value args[9] = {};
     NAPI_CALL(napi_get_cb_info(env, info, &argc, args, nullptr, nullptr));
 
     const int64_t engineHandle = NValueToHandle(env, args[0]);
@@ -1019,18 +1233,81 @@ static napi_value EvaluateBounded(napi_env env, napi_callback_info info) {
     const auto startedAt = std::chrono::steady_clock::now();
     BoundedExecutionState state;
     state.deadline = startedAt + std::chrono::milliseconds(timeoutMs);
+    state.overallDeadline = state.deadline;
+    napi_valuetype inputType = napi_undefined;
+    if (argc > 5) napi_typeof(env, args[5], &inputType);
+    const bool binary = inputType != napi_undefined;
+    BoundedImageHost host {env, argc > 6 ? args[6] : nullptr, &state};
+    napi_valuetype scriptHostType = napi_undefined;
+    if (argc > 8) napi_typeof(env, args[8], &scriptHostType);
+    const bool scripted = scriptHostType == napi_function;
+    BoundedScriptHost scriptHost {env, scripted ? args[8] : nullptr, &state};
+    bool prepared = true;
+    std::string prepareError = "Invalid bounded execution arguments";
+    if (scripted) {
+        // The application watchdog enforces active wall time and cancellation, including
+        // interrupted HTTP/browser waits. This independent ceiling also bounds manual verification.
+        state.overallDeadline = startedAt + std::chrono::minutes(16);
+        napi_typedarray_type type = napi_int8_array;
+        size_t count = 0, offset = 0;
+        void* data = nullptr;
+        const napi_status signalStatus = napi_get_typedarray_info(env, args[7], &type, &count, &data, nullptr, &offset);
+        prepared = !binary && script.size() <= 12 * 1024 * 1024 &&
+            signalStatus == napi_ok &&
+            // Some Ark N-API builds report TypedArray byte length (4), others element count (1).
+            type == napi_int32_array && (count == 1 || count == sizeof(int32_t)) && data;
+        if (!prepared) prepareError += ": signalStatus=" + std::to_string(signalStatus) +
+            " type=" + std::to_string(type) + " count=" + std::to_string(count) +
+            " binary=" + std::to_string(binary) + " data=" + std::to_string(data != nullptr);
+        if (prepared) {
+            state.cancelSignal = static_cast<int32_t*>(data);
+            JS_SetContextOpaque(ctx, &scriptHost);
+            JSValue global = JS_GetGlobalObject(ctx);
+            prepared = JS_SetPropertyStr(ctx, global, "__boundedHost",
+                JS_NewCFunction(ctx, CallBoundedScriptHost, "boundedHost", 2)) >= 0;
+            JS_FreeValue(ctx, global);
+        }
+    }
+    if (binary) {
+        state.overallDeadline = startedAt + std::chrono::seconds(10);
+        uint8_t* bytes = nullptr;
+        size_t length = 0;
+        napi_valuetype callbackType = napi_undefined;
+        if (host.callback) napi_typeof(env, host.callback, &callbackType);
+        prepared = !scripted && script.size() <= 1536 * 1024 && ReadNapiBytes(env, args[5], bytes, length) && length > 0 && callbackType == napi_function;
+        napi_valuetype signalType = napi_undefined;
+        if (argc > 7) napi_typeof(env, args[7], &signalType);
+        if (signalType != napi_undefined) {
+            napi_typedarray_type type;
+            size_t count = 0, offset = 0;
+            void* data = nullptr;
+            napi_value buffer;
+            if (napi_get_typedarray_info(env, args[7], &type, &count, &data, &buffer, &offset) == napi_ok &&
+                type == napi_int32_array && (count == 1 || count == sizeof(int32_t))) state.cancelSignal = static_cast<int32_t*>(data);
+            else prepared = false;
+        }
+        if (prepared) {
+            JS_SetContextOpaque(ctx, &host);
+            JSValue global = JS_GetGlobalObject(ctx);
+            prepared = JS_SetPropertyStr(ctx, global, "__imageInput", JS_NewArrayBufferCopy(ctx, bytes, length)) >= 0 &&
+                JS_SetPropertyStr(ctx, global, "__imageHost", JS_NewCFunction(ctx, CallBoundedImageHost, "imageOperation", 3)) >= 0;
+            JS_FreeValue(ctx, global);
+        }
+    }
     JS_SetInterruptHandler(runtime, BoundedInterruptHandler, &state);
 
-    JSValue evaluated = JS_Eval(ctx, script.c_str(), script.size(), sourceURL.c_str(), 0);
+    JSValue evaluated = prepared ? JS_Eval(ctx, script.c_str(), script.size(), sourceURL.c_str(), 0) :
+        JS_ThrowTypeError(ctx, "%s", prepareError.c_str());
     bool success = !JS_IsException(evaluated);
     std::string value;
     std::string error;
+    napi_value binaryResult = nullptr;
     if (!success) {
         error = TakeQuickJsException(ctx);
     }
 
     int pendingJobs = 0;
-    while (success && !state.timedOut && pendingJobs < maxPendingJobs) {
+    while (success && !state.timedOut && !state.cancelled && pendingJobs < maxPendingJobs) {
         JSContext* jobContext = nullptr;
         const int jobResult = JS_ExecutePendingJob(runtime, &jobContext);
         if (jobResult == 0) break;
@@ -1042,7 +1319,7 @@ static napi_value EvaluateBounded(napi_env env, napi_callback_info info) {
         pendingJobs++;
     }
     // Resolve returned promises within the same interrupt and pending-job budgets.
-    if (success && !state.timedOut) {
+    if (success && !state.timedOut && !state.cancelled) {
         const int promiseState = JS_PromiseState(ctx, evaluated);
         if (promiseState == JS_PROMISE_PENDING) {
             success = false;
@@ -1052,23 +1329,37 @@ static napi_value EvaluateBounded(napi_env env, napi_callback_info info) {
             error = QuickJsValueToString(ctx, reason);
             JS_FreeValue(ctx, reason);
             success = false;
-        } else if (promiseState == JS_PROMISE_FULFILLED) {
-            JSValue result = JS_PromiseResult(ctx, evaluated);
-            value = QuickJsValueToString(ctx, result);
-            JS_FreeValue(ctx, result);
         } else {
-            value = QuickJsValueToString(ctx, evaluated);
+            JSValue result = promiseState == JS_PROMISE_FULFILLED ? JS_PromiseResult(ctx, evaluated) : JS_DupValue(ctx, evaluated);
+            if (binary) {
+                uint8_t* bytes = nullptr;
+                size_t length = 0;
+                if (!ReadQuickJsBytes(ctx, result, bytes, length) || length == 0) {
+                    success = false;
+                    error = "Image script must return 1 byte to 20 MiB of binary data";
+                } else {
+                    binaryResult = NapiBytes(env, bytes, length);
+                    if (!binaryResult) { success = false; error = "Image output allocation failed"; }
+                }
+            } else value = QuickJsValueToString(ctx, result);
+            JS_FreeValue(ctx, result);
         }
     }
     JS_FreeValue(ctx, evaluated);
     JS_SetInterruptHandler(runtime, nullptr, nullptr);
+    JS_SetContextOpaque(ctx, nullptr);
+    BoundedInterruptHandler(runtime, &state);
+    if (state.cancelled || host.exhausted || scriptHost.exhausted) {
+        success = false;
+        error = state.cancelled ? "Script execution cancelled" : "Script host budget exceeded";
+    }
     if (state.timedOut) {
         success = false;
         if (error.empty()) error = "Script execution timed out";
     }
 
     const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - startedAt).count();
+        std::chrono::steady_clock::now() - startedAt - state.hostWait).count();
     napi_value output;
     napi_create_object(env, &output);
     SetNamedProperty(env, output, "success", NAPIBoolean(env, success));
@@ -1077,6 +1368,9 @@ static napi_value EvaluateBounded(napi_env env, napi_callback_info info) {
     SetNamedProperty(env, output, "timedOut", NAPIBoolean(env, state.timedOut));
     SetNamedProperty(env, output, "elapsedMs", NAPINumber(env, static_cast<double>(elapsed)));
     SetNamedProperty(env, output, "pendingJobs", NAPINumber(env, static_cast<double>(pendingJobs)));
+    napi_value resultBytes = success && binaryResult ? binaryResult : NapiBytes(env, nullptr, 0);
+    if (!resultBytes) return nullptr;
+    SetNamedProperty(env, output, "bytes", resultBytes);
     return output;
 }
 

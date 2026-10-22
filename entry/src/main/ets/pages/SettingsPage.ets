@@ -1,5 +1,6 @@
 import { GeneralSettings } from '../model/GeneralSettings';
 import { MembershipState } from '../model/MembershipState';
+import { VipFeatureBadge } from '../components/VipFeatureBadge';
 import { MembershipService } from '../service/MembershipService';
 import { ImmersiveActionButton } from '../components/ImmersiveActionButton';
 import { ImmersiveOptionTabs } from '../components/ImmersiveOptionTabs';
@@ -23,6 +24,8 @@ import { ReaderPage } from './ReaderPage';
 import { RankingSettingsComponent } from '../components/RankingSettingsComponent';
 import { AppearanceSettingsComponent } from '../components/AppearanceSettingsComponent';
 import { CoverSuperResolutionService } from '../service/CoverSuperResolutionService';
+import { ReaderCacheService, ReaderCacheKind, ReaderCacheUsage } from '../service/ReaderCacheService';
+import { OnlineTextContentCache } from '../service/text/OnlineTextContentCache';
 
 interface ThemeOption {
   mode: number;
@@ -112,6 +115,10 @@ export struct SettingsPage {
   @Local isClearingCache: boolean = false;
   @Local isClearingBookshelf: boolean = false;
   @Local isClearingDownloads: boolean = false;
+  @Local readerCacheUsage: ReaderCacheUsage = new ReaderCacheUsage();
+  @Local readerCacheLoading: boolean = true;
+  @Local readerCacheFailed: boolean = false;
+  @Local clearingReaderCache: boolean = false;
   @Local viewportWidth: number = 0;
   @Local viewportHeight: number = 0;
   private viewportUpdateTimerId: number = -1;
@@ -119,6 +126,7 @@ export struct SettingsPage {
   aboutToAppear(): void {
     this.alive = true;
     this.loadPrefs();
+    this.loadReaderCacheUsage();
   }
 
   aboutToDisappear(): void {
@@ -546,16 +554,58 @@ export struct SettingsPage {
     }
   }
 
-  private clearTextContentCache(): void {
+  private async loadReaderCacheUsage(): Promise<void> {
+    this.readerCacheLoading = true;
+    this.readerCacheFailed = false;
     try {
-      ReaderPage.clearTextContentCache();
-      hilog.info(0xFF00, 'SettingsPage', 'text content cache cleared');
-      try { this.getUIContext().getPromptAction().showToast({ message: '在线文本缓存已清除' }); } catch (_e) { /* ignore */ }
-    } catch (e) {
-      hilog.warn(0xFF00, 'SettingsPage', 'clear text content cache failed: %{public}s',
-        e instanceof Error ? e.message : String(e));
-      try { this.getUIContext().getPromptAction().showToast({ message: '清除失败' }); } catch (_e) { /* ignore */ }
-    }
+      const context = this.getUIContext().getHostContext();
+      if (!context) throw new Error('Context unavailable');
+      await OnlineTextContentCache.migrateStorage(context);
+      const usage = await ReaderCacheService.usage();
+      if (this.alive) this.readerCacheUsage = usage;
+    } catch (_error) {
+      if (this.alive) this.readerCacheFailed = true;
+    } finally { if (this.alive) this.readerCacheLoading = false; }
+  }
+
+  private cacheSize(bytes: number): string {
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
+  }
+
+  private readerCacheSummary(kind: ReaderCacheKind): ResourceStr {
+    if (this.readerCacheLoading) return $r('app.string.settings_reader_cache_loading');
+    if (this.readerCacheFailed) return $r('app.string.settings_reader_cache_unavailable');
+    return $r('app.string.settings_reader_cache_summary',
+      this.cacheSize(kind === ReaderCacheKind.Text ? this.readerCacheUsage.textBytes : this.readerCacheUsage.comicBytes),
+      this.cacheSize(kind === ReaderCacheKind.Text ? ReaderCacheService.TEXT_LIMIT : ReaderCacheService.COMIC_LIMIT));
+  }
+
+  private async clearReaderCache(kind: ReaderCacheKind): Promise<void> {
+    if (this.clearingReaderCache) return;
+    if (this.readerCacheFailed) { await this.loadReaderCacheUsage(); return; }
+    this.clearingReaderCache = true;
+    try {
+      const prompt = this.getUIContext().getPromptAction();
+      const choice = await prompt.showDialog({
+        title: kind === ReaderCacheKind.Text ? $r('app.string.settings_text_cache_title') : $r('app.string.settings_comic_cache_title'),
+        message: $r('app.string.settings_reader_cache_confirm'),
+        buttons: [{ text: $r('app.string.common_cancel'), color: $r('sys.color.font_secondary') },
+          { text: $r('app.string.settings_reader_cache_clear'), color: AppColor.Brand }]
+      });
+      if (choice.index !== 1 || !this.alive) return;
+      const context = this.getUIContext().getHostContext();
+      if (!context) throw new Error('Context unavailable');
+      const result = kind === ReaderCacheKind.Text ? await OnlineTextContentCache.clear(context) :
+        await ReaderCacheService.clear(ReaderCacheKind.Comic);
+      if (kind === ReaderCacheKind.Text) ReaderPage.clearTextContentCache();
+      if (this.alive) prompt.showToast({ message: $r('app.string.settings_reader_cache_result',
+        this.cacheSize(result.releasedBytes), result.protectedCount, result.failed) });
+      await this.loadReaderCacheUsage();
+    } catch (_error) {
+      if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_reader_cache_clear_failed') });
+    } finally { if (this.alive) this.clearingReaderCache = false; }
   }
 
   build() {
@@ -859,12 +909,11 @@ export struct SettingsPage {
 
         this.buildDivider()
 
-        this.buildActionItem(
-          '清除在线文本缓存',
-          '清除已缓存的在线章节内容，下次阅读时重新请求',
-          () => this.clearTextContentCache(),
-          false
-        )
+        this.buildReaderCacheItem(ReaderCacheKind.Text)
+
+        this.buildDivider()
+
+        this.buildReaderCacheItem(ReaderCacheKind.Comic)
 
         this.buildDivider()
 
@@ -897,10 +946,21 @@ export struct SettingsPage {
       this.buildGroupTitle($r('app.string.settings_search_group'))
 
       Column({ space: AppSpace.Sm }) {
-        Text($r('app.string.settings_search_concurrency'))
-          .fontSize(AppFont.BodyL)
-          .fontColor($r('sys.color.font_primary'))
-          .width('100%')
+        Row({ space: AppSpace.Sm }) {
+          Text($r('app.string.settings_search_concurrency'))
+            .fontSize(AppFont.BodyL)
+            .fontColor($r('sys.color.font_primary'))
+            .flexShrink(1)
+          if (MembershipState.featureEnabled) {
+            VipFeatureBadge()
+          }
+        }.width('100%')
+        if (MembershipState.featureEnabled) {
+          Text($r('app.string.settings_search_concurrency_membership_hint'))
+            .fontSize(AppFont.Caption)
+            .fontColor($r('sys.color.font_secondary'))
+            .width('100%')
+        }
         if (this.searchConcurrencyLoading || this.checkingSearchMembership || this.membershipService.busy) {
           Row({ space: AppSpace.Sm }) {
             LoadingProgress().width(18).height(18).color(AppColor.Brand)
@@ -1007,6 +1067,30 @@ export struct SettingsPage {
       bottom: AppSpace.Sm
     })
     .constraintSize({ minHeight: 56 })
+  }
+
+  @Builder
+  buildReaderCacheItem(kind: ReaderCacheKind) {
+    Row() {
+      Column({ space: 2 }) {
+        Text(kind === ReaderCacheKind.Text ? $r('app.string.settings_text_cache_title') : $r('app.string.settings_comic_cache_title'))
+          .fontSize(AppFont.BodyL)
+          .fontColor($r('sys.color.font_primary'))
+        Text(this.readerCacheSummary(kind))
+          .fontSize(AppFont.Caption)
+          .fontColor($r('sys.color.font_tertiary'))
+      }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+      if (this.clearingReaderCache || this.readerCacheLoading) {
+        LoadingProgress().width(18).height(18).color(AppColor.Brand)
+      } else {
+        SymbolGlyph($r('sys.symbol.trash')).fontSize(18).fontColor([$r('sys.color.font_tertiary')])
+      }
+    }
+    .width('100%')
+    .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
+    .constraintSize({ minHeight: 56 })
+    .enabled(!this.clearingReaderCache && !this.readerCacheLoading)
+    .onClick(() => this.clearReaderCache(kind))
   }
 
   @Builder

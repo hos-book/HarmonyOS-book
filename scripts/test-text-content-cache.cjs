@@ -8,7 +8,7 @@ const vm = require('node:vm');
 const ide = process.env.DEVECO_HOME || process.env.DEVECO_PATH;
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hsda-text-cache-'));
-const context = { cacheDir: path.join(root, 'cache'), filesDir: path.join(root, 'files') };
+const context = { cacheDir: path.join(root, 'cache').replaceAll('\\', '/'), filesDir: path.join(root, 'files').replaceAll('\\', '/') };
 fs.mkdirSync(context.cacheDir); fs.mkdirSync(context.filesDir);
 let failWrite = false;
 let failMove = false;
@@ -16,7 +16,8 @@ const handles = new Map();
 const fileIo = {
   OpenMode: { CREATE: 1, READ_WRITE: 2, TRUNC: 4 },
   listFile: p => fs.promises.readdir(p),
-  stat: p => fs.promises.stat(p),
+  stat: async p => { const s = await fs.promises.stat(p); return { size: s.size, mtime: s.mtimeMs / 1000, isFile: () => s.isFile(), isDirectory: () => s.isDirectory() }; },
+  utimes: (p, ms) => fs.utimesSync(p, ms / 1000, ms / 1000),
   access: async p => fs.existsSync(p),
   copyFile: (a, b) => fs.promises.copyFile(a, b),
   rmdir: p => fs.promises.rm(p, { recursive: true }),
@@ -44,7 +45,7 @@ function load(relative, modules) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
   }).outputText;
   const module = { exports: {} };
-  vm.runInNewContext(code, { module, exports: module.exports, require: name => {
+  vm.runInNewContext(code, { module, exports: module.exports, setTimeout: () => 1, require: name => {
     assert.ok(modules[name], `Unexpected module ${name}`);
     return modules[name];
   } }, { filename: source });
@@ -53,7 +54,11 @@ function load(relative, modules) {
 const identity = load('utils/BookIdentity.ets', {});
 const migration = load('service/StorageMigrationService.ets', { '@kit.CoreFileKit': { fileIo } });
 function newProcess() {
+  const budget = load('service/ReaderCacheService.ts', {
+    '@kit.CoreFileKit': { fileIo }, '@kit.BasicServicesKit': { emitter: { emit() {} } }
+  });
   return load('service/text/OnlineTextContentCache.ets', {
+    '../ReaderCacheService': budget,
     '@kit.CoreFileKit': { fileIo },
     '@kit.ArkTS': { buffer: { from: text => ({ buffer: Uint8Array.from(Buffer.from(text)).buffer }) } },
     '@kit.PerformanceAnalysisKit': { hilog: { warn() {} } },
@@ -168,6 +173,15 @@ function newProcess() {
   assert.equal(await cache.read(context, key), undefined);
   assert.equal(await cache.read(context, otherKey), 'second');
   console.log('PASS reload bypasses disk; chapter eviction waits for writes and preserves adjacent chapters');
+
+  const clearingCache = newProcess();
+  const inFlight = clearingCache.write(context, key, 'write before clear');
+  const cleared = await clearingCache.clear(context);
+  await inFlight;
+  assert.ok(cleared.releasedBytes > 0);
+  assert.equal(await clearingCache.read(context, key), undefined);
+  assert.equal(await clearingCache.read(context, otherKey), undefined);
+  console.log('PASS settings disk cleanup waits for pending writes and removes persisted chapters');
 
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => {
   fs.rmSync(root, { recursive: true, force: true });

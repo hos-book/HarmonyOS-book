@@ -362,8 +362,8 @@ export class OnlineTextPaginator {
     layout.source = content;
     layout.key = key;
     layout.serial = ++OnlineTextPaginator.layoutSerial;
-    const normalized = OnlineTextPaginator.normalizeContent(content);
-    layout.displayed = OnlineTextIndentedContent.fromNormalized(normalized);
+    // 获取正文时已标准化；替换后的文字必须保持坐标，不能再次 trim/解码/去标签。
+    layout.displayed = OnlineTextIndentedContent.fromNormalized(content);
     if (layout.displayed.text.length === 0) return layout;
     const safeWidth = Math.max(1, widthPx);
     const safeFontSize = Math.max(1, fontSizePx);

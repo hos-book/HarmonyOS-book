@@ -1,4 +1,9 @@
 import { ReaderBrightnessService } from '../service/text/ReaderBrightnessService';
+import { ReaderBookmark, ReaderTextDocument } from '../model/ReaderTools';
+import { ReaderToolsService } from '../service/text/ReaderToolsService';
+import { ReaderBookmarkSheet } from '../components/ReaderBookmarkSheet';
+import { ReaderReplaceSheet } from '../components/ReaderReplaceSheet';
+import { LocalTextImage } from '../service/text/LocalTextImage';
 import { ReaderBrightnessBar } from '../components/ReaderBrightnessBar';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { ReaderHoldingHandService } from '../service/text/ReaderHoldingHandService';
@@ -30,7 +35,7 @@ import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { image } from '@kit.ImageKit';
-import { curves } from '@kit.ArkUI';
+import { curves, SymbolGlyphModifier } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { bookParser } from '@hms.core.readerservice.bookParser';
 import { readerCore } from '@hms.core.readerservice.readerComponent';
@@ -64,6 +69,7 @@ import {
 } from '../service/text/OnlineTextPaginator';
 import { TextReadingProgressService } from '../service/text/TextReadingProgressService';
 import { OnlineTextContentCache } from '../service/text/OnlineTextContentCache';
+import { ReaderCacheService } from '../service/ReaderCacheService';
 import { TextReadingSettingsService } from '../service/text/TextReadingSettingsService';
 import { AppColor, AppFont, AppSpace, AppRadius, AppMaterial } from '../theme/Theme';
 import { ChapterDataSource } from '../utils/ChapterDataSource';
@@ -111,6 +117,14 @@ export struct ReaderPage {
   @Param targetDomPos: string = '';
   @Local book: Book | null = null;
   @Local showSourceSwitch: boolean = false;
+  @Local showReaderMenu: boolean = false;
+  @Local showBookmarkSheet: boolean = false;
+  @Local showReplaceSheet: boolean = false;
+  @Local bookmarks: ReaderBookmark[] = [];
+  @Local bookmarkBusy: boolean = false;
+  @Local replaceSample: string = '';
+  private textDocuments: Map<number, ReaderTextDocument> = new Map();
+  private textRulesGeneration: number = 0;
   @Local selectingText: boolean = false;
   @Local reloadingChapter: boolean = false;
   @Local loading: boolean = true;
@@ -254,6 +268,7 @@ export struct ReaderPage {
   }
 
   private onlineTextContent: string = '';
+  private diskCacheOwner: string = ReaderCacheService.owner();
   private onlineTextContentRequests: Map<number, Promise<string>> = new Map();
   private onlineTextLoadSerial: number = 0;
   @Local readerViewportWidthVp: number = 0;
@@ -352,6 +367,7 @@ export struct ReaderPage {
   }
 
   aboutToDisappear(): void {
+    ReaderCacheService.release(this.diskCacheOwner);
     this.readerVisible = false;
     this.volumeKeys.dispose();
     this.screenOn.dispose();
@@ -490,7 +506,7 @@ export struct ReaderPage {
   private async resolveStartPosition(book: Book): Promise<TextReadingPosition> {
     if (!this.context) return TextReadingPosition.of(book.id, 0, '', 0, this.chapterTitle(0));
     if (this.speechState.active && this.speechState.bookId === book.id) {
-      return TextReadingPosition.atChar(book.id, this.speechState.chapterIndex, '', this.speechState.charOffset, 0, this.speechState.chapterTitle);
+      return TextReadingPosition.atChar(book.id, this.speechState.chapterIndex, '', TextToSpeechService.getInstance().currentRawOffset(), 0, this.speechState.chapterTitle);
     }
     if (this.targetResourceIndex >= 0) {
       const target = this.clampResourceIndex(this.targetResourceIndex, book.chapters.length);
@@ -507,7 +523,7 @@ export struct ReaderPage {
       return TextReadingPosition.atChar(
         book.id, fallbackIndex, saved.domPos, saved.charOffset, saved.pageOffset, this.chapterTitle(fallbackIndex));
     }
-    const first = PreferenceService.chapterStep(book) < 0 ? book.chapters.length - 1 : 0;
+    const first = 0;
     return TextReadingPosition.atChar(book.id, first, '', 0, 0, this.chapterTitle(first));
   }
 
@@ -553,11 +569,13 @@ export struct ReaderPage {
     try {
       const content = await this.getOnlineTextChapterContent(currentBook, resourceIndex, forceReload);
       if (this.leaving || serial !== this.onlineTextLoadSerial) return false;
+      const hasCharOffset = charOffset > 0;
+      charOffset = this.textDocuments.get(resourceIndex)?.toDisplay(charOffset) ?? charOffset;
       const pages = this.paginateOnlineTextContent(content);
       let nextPageIndex = 0;
       if (openLastPage) {
         nextPageIndex = Math.max(0, pages.length - 1);
-      } else if (charOffset > 0) {
+      } else if (hasCharOffset) {
         nextPageIndex = OnlineTextPaginator.pageIndexForOffset(pages, charOffset);
       } else {
         nextPageIndex = Math.max(0, Math.min(pageOffset, pages.length - 1));
@@ -569,7 +587,7 @@ export struct ReaderPage {
       this.currentChapterTitle = this.chapterTitle(resourceIndex);
       this.loading = false;
       this.readerError = '';
-      const offset = !openLastPage && charOffset > 0 ? Math.min(charOffset, content.length) :
+      const offset = !openLastPage && hasCharOffset ? Math.min(charOffset, content.length) :
         pages[nextPageIndex].startOffset;
       this.updateOnlineTextPosition(true, offset);
       if (this.pageTurnMode === PageTurnMode.Vertical) this.continuousRevision++;
@@ -601,7 +619,7 @@ export struct ReaderPage {
     const index = this.currentResourceIndex;
     const chapter = book.chapters[index];
     if (!chapter) return;
-    const offset = this.currentOnlineTextCharOffset();
+    const offset = this.currentRawCharOffset();
     this.reloadingChapter = true;
     try {
       if (this.speechState.bookId === book.id) TextToSpeechService.getInstance().pause();
@@ -626,7 +644,7 @@ export struct ReaderPage {
     const chapter = book.chapters[index];
     if (!chapter) return;
     const position = TextReadingPosition.atChar(book.id, index, '',
-      matched ? this.currentOnlineTextCharOffset() : 0, 0, chapter.title);
+      matched ? this.currentRawCharOffset() : 0, 0, chapter.title);
     const chapterUrl = chapter.originSourceValue ?? chapter.source.value;
     const value = await BookSourceService.getTextChapterContent(book, chapterUrl, chapter.title, chapter.variables);
     const content = OnlineTextPaginator.normalizeContent(value.content);
@@ -686,17 +704,158 @@ export struct ReaderPage {
         label: $r('app.string.reader_details'),
         onPress: (): void => { this.openBookDetail(); }
       })
+      ImmersiveCircleButton({
+        icon: $r('sys.symbol.square_grid_2x2'), iconSize: 24,
+        label: $r('app.string.reader_more'),
+        onPress: (): void => { this.showReaderMenu = !this.showReaderMenu; }
+      })
+        .bindMenu(this.showReaderMenu, this.buildReaderMenu(), {
+          placement: Placement.BottomLeft,
+          onDisappear: (): void => { this.showReaderMenu = false; }
+        })
     }.width('100%').justifyContent(FlexAlign.End)
       .padding({ left: this.leftSafeVp + 16, right: this.rightSafeVp + 12 })
       .hitTestBehavior(HitTestMode.Transparent)
       .position({ x: 0, y: this.topSafeVp + 4 })
   }
 
+  @Builder
+  private buildReaderMenu(): void {
+    Menu() {
+      MenuItem({ content: $r('app.string.reader_bookmark_add'),
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.bookmark')) })
+        .enabled(!this.loading && !this.onlineTextLoading && !this.bookmarkBusy && !this.readerError)
+        .onClick((): void => { this.showReaderMenu = false; this.addBookmark(); })
+      MenuItem({ content: $r('app.string.reader_bookmarks'),
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.bookmark')) })
+        .onClick((): void => { this.showReaderMenu = false; this.openBookmarks(); })
+      if (this.isOnlineTextBook()) {
+        MenuItem({ content: $r('app.string.reader_replace_rules'),
+          symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.arrow_left_arrow_right')) })
+          .enabled(!this.onlineTextLoading)
+          .onClick((): void => { this.showReaderMenu = false; this.openReplaceRules(); })
+      }
+    }
+  }
+
+  private async addBookmark(): Promise<void> {
+    const book = this.book;
+    const context = this.context;
+    const chapter = book?.chapters[this.currentResourceIndex];
+    if (!book || !context || !chapter || this.bookmarkBusy || this.onlineTextLoading) return;
+    const mark = new ReaderBookmark();
+    mark.id = ReaderToolsService.newId(); mark.bookId = book.id;
+    mark.chapterId = chapter.id; mark.chapterUrl = chapter.originSourceValue ?? chapter.source.value;
+    mark.chapterTitle = chapter.title.substring(0, 1024); mark.resourceIndex = this.currentResourceIndex;
+    mark.charOffset = this.currentRawCharOffset(); mark.domPos = this.currentPosition?.domPos ?? '';
+    mark.preview = LocalTextImage.speechContent(this.onlineTextContent)
+      .substring(this.currentOnlineTextCharOffset(), this.currentOnlineTextCharOffset() + 120).trim();
+    mark.createdAt = Date.now();
+    this.bookmarkBusy = true;
+    try {
+      await ReaderToolsService.addBookmark(context, mark);
+      if (!this.leaving) this.showToast($r('app.string.reader_bookmark_saved'));
+    } catch (_error) { if (!this.leaving) this.showToast($r('app.string.reader_tools_storage_error')); }
+    finally { this.bookmarkBusy = false; }
+  }
+
+  private async openBookmarks(): Promise<void> {
+    if (!this.context || !this.book) return;
+    try {
+      const marks = await ReaderToolsService.bookmarks(this.context, this.book.id);
+      if (this.leaving) return;
+      this.bookmarks = marks;
+      this.hideReaderBar();
+      this.showBookmarkSheet = true;
+    } catch (_error) { this.showToast($r('app.string.reader_tools_storage_error')); }
+  }
+
+  private async jumpToBookmark(mark: ReaderBookmark): Promise<void> {
+    const book = this.book;
+    if (!book || mark.bookId !== book.id || this.onlineTextLoading) return;
+    let index = book.chapters.findIndex((chapter): boolean =>
+      (chapter.originSourceValue ?? chapter.source.value) === mark.chapterUrl);
+    if (index < 0 && !mark.chapterUrl) index = book.chapters.findIndex((chapter): boolean => chapter.id === mark.chapterId);
+    if (index < 0) { this.showToast($r('app.string.reader_bookmark_missing')); return; }
+    if (this.speechState.bookId === book.id) TextToSpeechService.getInstance().pause();
+    this.showBookmarkSheet = false;
+    if (this.isOnlineTextBook()) await this.loadOnlineTextChapter(index, mark.charOffset, 0, false, false);
+    else if (this.readerKitReady && this.readerKitController) {
+      try { await this.readerKitController.startPlay(index, mark.domPos); }
+      catch (_error) { this.showToast($r('app.string.reader_bookmark_missing')); }
+    }
+  }
+
+  @Builder
+  private buildBookmarkSheet(): void {
+    ReaderBookmarkSheet({ bookmarks: this.bookmarks,
+      onJump: (mark: ReaderBookmark): void => { this.jumpToBookmark(mark); },
+      onDelete: async (mark: ReaderBookmark): Promise<void> => {
+        if (!this.context) return;
+        await ReaderToolsService.removeBookmark(this.context, mark.id);
+        this.bookmarks = this.bookmarks.filter((item): boolean => item.id !== mark.id);
+      }
+    })
+  }
+
+  private async openReplaceRules(): Promise<void> {
+    if (!this.book || !this.context || this.onlineTextLoading) return;
+    const book = this.book;
+    try {
+      const raw = await this.getRawOnlineTextChapterContent(book, this.currentResourceIndex);
+      if (this.leaving) return;
+      this.replaceSample = raw.substring(0, 32000);
+    } catch (_error) { this.replaceSample = ''; }
+    if (this.leaving) return;
+    if (this.speechState.bookId === book.id) TextToSpeechService.getInstance().pause();
+    this.hideReaderBar();
+    this.showReplaceSheet = true;
+  }
+
+  @Builder
+  private buildReplaceSheet(): void {
+    ReaderReplaceSheet({ bookId: this.bookId, sample: this.replaceSample,
+      onChanged: async (): Promise<void> => {
+        if (this.leaving) return;
+        const offset = this.currentRawCharOffset();
+        if (this.speechState.bookId === this.bookId) TextToSpeechService.getInstance().stop();
+        this.completeOnlineTextTurn(false);
+        this.textRulesGeneration++;
+        this.textDocuments.clear();
+        await this.loadOnlineTextChapter(this.currentResourceIndex, offset, 0, false, this.readerError.length > 0);
+      }
+    })
+  }
+
   private async getOnlineTextChapterContent(book: Book, resourceIndex: number, forceReload: boolean = false): Promise<string> {
+    const generation = this.textRulesGeneration;
+    const raw = await this.getRawOnlineTextChapterContent(book, resourceIndex, forceReload);
+    const document = this.context ? await ReaderToolsService.render(this.context, book.id, raw) : ReaderTextDocument.original(raw);
+    if (generation !== this.textRulesGeneration) return this.getOnlineTextChapterContent(book, resourceIndex);
+    this.textDocuments.set(resourceIndex, document);
+    if (this.textDocuments.size > 8) {
+      for (const key of this.textDocuments.keys()) {
+        if (key !== this.currentResourceIndex && key !== resourceIndex) { this.textDocuments.delete(key); break; }
+      }
+    }
+    if (document.failed && resourceIndex === this.jumpingResourceIndex) this.showToast($r('app.string.reader_replace_failed'));
+    return document.content;
+  }
+
+  private async getRawOnlineTextChapterContent(book: Book, resourceIndex: number, forceReload: boolean = false): Promise<string> {
     const chapter = book.chapters[resourceIndex];
     if (chapter === undefined) throw new Error('章节索引无效');
     const chapterUrl = chapter.originSourceValue ?? chapter.source.value;
     const cacheKey = OnlineTextContentCache.key(book.sourceUrl, book.bookUrl || book.id, chapterUrl);
+    if (this.context && !this.leaving && book.sourceUrl) {
+      const keys: string[] = [cacheKey];
+      for (const index of [this.currentResourceIndex - 1, this.currentResourceIndex, this.currentResourceIndex + 1]) {
+        const nearby = book.chapters[index];
+        if (nearby) keys.push(OnlineTextContentCache.key(book.sourceUrl, book.bookUrl || book.id,
+          nearby.originSourceValue ?? nearby.source.value));
+      }
+      OnlineTextContentCache.protect(this.context, this.diskCacheOwner, keys);
+    }
     const cached = ReaderPage.onlineTextContentCache.get(cacheKey);
     if (!forceReload && cached !== undefined) {
       ReaderPage.onlineTextContentCache.delete(cacheKey);
@@ -768,6 +927,19 @@ export struct ReaderPage {
     if (page !== undefined) return page.startOffset;
     const position = this.currentPosition;
     return position !== null ? position.charOffset : 0;
+  }
+
+  private currentRawCharOffset(): number {
+    const offset = this.currentOnlineTextCharOffset();
+    return this.textDocuments.get(this.currentResourceIndex)?.toRaw(offset) ?? offset;
+  }
+
+  private persistedPosition(): TextReadingPosition | null {
+    const position = this.currentPosition;
+    if (!position) return null;
+    return TextReadingPosition.atChar(position.bookId, position.resourceIndex, position.domPos,
+      this.isOnlineTextBook() ? this.currentRawCharOffset() : position.charOffset,
+      position.pageOffset, position.chapterTitle);
   }
 
   private handleReaderTextSizeChange(size: SizeOptions): void {
@@ -921,7 +1093,8 @@ export struct ReaderPage {
       speech.bookId !== this.bookId || speech.loading || !this.isOnlineTextBook()) return;
     this.readingTime.checkpoint(this.book, !speech.playing && this.readingForeground);
     if (speech.chapterIndex !== this.currentResourceIndex) {
-      if (!this.onlineTextLoading) this.loadOnlineTextChapter(speech.chapterIndex, speech.charOffset, 0, false, false);
+      if (!this.onlineTextLoading) this.loadOnlineTextChapter(speech.chapterIndex,
+        TextToSpeechService.getInstance().currentRawOffset(), 0, false, false);
       return;
     }
     this.onlineTextPageIndex = OnlineTextPaginator.pageIndexForOffset(this.onlineTextPages, speech.charOffset);
@@ -935,14 +1108,15 @@ export struct ReaderPage {
     if (!this.context || !this.currentPosition) return;
     if (this.speechState.active && this.speechState.bookId === this.bookId &&
       (this.speechState.playing || !this.readerVisible)) return;
+    const position = this.persistedPosition();
+    if (!position) return;
     if (this.book && !this.loading && !TextToSpeechService.getInstance().state.playing) {
-      const location = SessionLocation.text(this.book, this.currentPosition);
-      location.total = this.onlineTextContent.length;
+      const location = SessionLocation.text(this.book, position);
+      location.total = this.textDocuments.get(this.currentResourceIndex)?.rawLength ?? this.onlineTextContent.length;
       ReadingSessionService.checkpoint('reading', location,
         this.readerVisible && this.readingForeground && !this.leaving);
     }
     const context = this.context;
-    const position = this.currentPosition;
     const book = this.book;
     TextReadingProgressService.save(context, position).then((): void => {
       if (book) ReaderWidgetService.update(context, book, position);
@@ -1652,11 +1826,11 @@ export struct ReaderPage {
   private canTurnWithKeyboard(): boolean {
     return this.readerVisible && !this.leaving && !this.loading &&
       this.readerError.length === 0 && !this.showChapterSheet && !this.showSettingsSheet &&
-      !this.showSpeechSheet && !this.showSourceSwitch && !this.pickingFont && !this.pickingBackgroundImage;
+      !this.showSpeechSheet && !this.showSourceSwitch && !this.showBookmarkSheet && !this.showReplaceSheet && !this.showReaderMenu && !this.pickingFont && !this.pickingBackgroundImage;
   }
 
   @Monitor('volumeKeyPageTurn', 'readerVisible', 'loading', 'readerError', 'showChapterSheet',
-    'showSettingsSheet', 'showSpeechSheet', 'showSourceSwitch', 'pickingFont', 'pickingBackgroundImage')
+    'showSettingsSheet', 'showSpeechSheet', 'showSourceSwitch', 'showBookmarkSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont', 'pickingBackgroundImage')
   syncVolumeKeys(): void {
     this.volumeKeys.setEnabled(this.canUseVolumeKeys(), (forward: boolean): void => this.handleVolumePageTurn(forward));
   }
@@ -1693,8 +1867,7 @@ export struct ReaderPage {
   }
 
   private adjacentChapterIndex(forward: boolean): number {
-    return this.currentResourceIndex + (forward ? 1 : -1) *
-      (this.book !== null ? PreferenceService.chapterStep(this.book) : 1);
+    return this.currentResourceIndex + (forward ? 1 : -1);
   }
 
   private canSwitchChapter(forward: boolean): boolean {
@@ -1709,10 +1882,9 @@ export struct ReaderPage {
     return this.chapterSliderPosition(this.currentResourceIndex);
   }
 
-  /** 滑条按目录显示顺序计数；倒序目录与底栏箭头使用同一方向。 */
+  /** 滑条按目录显示顺序定位；上下章按钮独立按正文顺序前进。 */
   private chapterSliderPosition(index: number): number {
-    return this.book !== null && PreferenceService.chapterStep(this.book) < 0 ?
-      this.book.chapters.length - 1 - index : index;
+    return this.book !== null ? PreferenceService.chapterDisplayIndex(this.book, index) : index;
   }
 
   private async changeChapterSlider(value: number, mode: SliderChangeMode): Promise<void> {
@@ -1958,7 +2130,8 @@ export struct ReaderPage {
   }
 
   private toggleReaderBar(): void {
-    if (this.showChapterSheet || this.showSettingsSheet || this.showSpeechSheet || this.showSourceSwitch) return;
+    if (this.showChapterSheet || this.showSettingsSheet || this.showSpeechSheet || this.showSourceSwitch ||
+      this.showBookmarkSheet || this.showReplaceSheet || this.showReaderMenu) return;
     if (this.readerBarVisible) {
       this.hideReaderBar();
     } else {
@@ -2137,7 +2310,7 @@ export struct ReaderPage {
       if (speech.state.active && speech.state.bookId === book.id) {
         if (!preservePaused && !speech.state.playing && !speech.state.loading) speech.resume();
       } else {
-        speech.start(book, this.currentResourceIndex, this.currentOnlineTextCharOffset());
+        speech.start(book, this.currentResourceIndex, this.currentRawCharOffset());
       }
       this.navStack.pushPathByName('player', book.id);
     } catch (_error) {
@@ -2156,6 +2329,20 @@ export struct ReaderPage {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
+      Column().width(0).height(0)
+        .bindSheet($$this.showBookmarkSheet, this.buildBookmarkSheet(), {
+          height: '82%', preferType: SheetType.BOTTOM, showClose: true,
+          backgroundColor: AppMaterial.SheetBackground,
+          blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick,
+          onDisappear: (): void => { this.showBookmarkSheet = false; if (!this.leaving) this.showReaderBar(); }
+        })
+      Column().width(0).height(0)
+        .bindSheet($$this.showReplaceSheet, this.buildReplaceSheet(), {
+          height: '90%', preferType: SheetType.BOTTOM, showClose: true,
+          backgroundColor: AppMaterial.SheetBackground,
+          blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick,
+          onDisappear: (): void => { this.showReplaceSheet = false; if (!this.leaving) this.showReaderBar(); }
+        })
       // 背景层最底：预设底色或自定义图片与蒙层
       ReaderBackground({
         palette: this.palette,
@@ -2460,7 +2647,7 @@ export struct ReaderPage {
         Column() {
           if (this.pageTurnMode === PageTurnMode.Vertical) {
             ReaderContinuousComponent({
-              selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet,
+              selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet && !this.showReplaceSheet && !this.showReaderMenu,
               onSelectionChange: (active: boolean): void => { this.selectingText = active; },
               tapRegions: this.tapRegions,
           tapLeftPercent: this.tapLeftPercent,
@@ -2475,7 +2662,6 @@ export struct ReaderPage {
               revision: this.continuousRevision, chapterIndex: this.currentResourceIndex,
               content: this.onlineTextContent, charOffset: this.currentOnlineTextCharOffset(),
               chapterCount: this.book?.chapters.length ?? 0,
-              chapterStep: this.book !== null ? PreferenceService.chapterStep(this.book) : 1,
               fontSize: this.fontSize, lineHeight: this.lineHeight, paragraphSpacing: this.paragraphSpacing, palette: this.palette,
               textAlignment: this.textAlignment,
               fontFamily: this.fontFamily, fontWeight: this.fontWeight,
@@ -2494,7 +2680,7 @@ export struct ReaderPage {
             })
           } else {
             ReaderSpeechText({
-              selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet,
+              selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet && !this.showReplaceSheet && !this.showReaderMenu,
               onSelectionChange: (active: boolean): void => { this.selectingText = active; },
               page: this.currentOnlineTextPageLayout(),
               text: this.currentOnlineTextPageContent(),

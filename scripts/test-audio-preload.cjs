@@ -50,12 +50,12 @@ const stubs = {
   'utils/PlatformCompat': { PlatformCompat: { supports: () => false } },
   '@kit.BasicServicesKit': { emitter: { emit: event => events.push(event) } },
   '@kit.MediaKit': { media: {} },
-  'service/PreferenceService': { PreferenceService: { chapterStep: () => 1 } },
+  'service/PreferenceService': { PreferenceService: {} },
   'service/AudioDownloadTransport': { AudioDownloadTransport: Transfer },
   'service/BookSourceService': { BookSourceService: { invalidateAudioTocs: urls => invalidated.push([...urls]),
     resolveAudioRequest: async () => { throw new Error('Cached files must not resolve source requests'); } } },
   'service/SourceDataService': { SourceDataService: { invalidateLocalSources() {} } },
-  'service/DataService': { DataService: { invalidateSourceCaches: async (urls, beforeInvalidate) => {
+  'service/DataService': { DataService: { historyBookIds: async () => new Set(), invalidateSourceCaches: async (urls, beforeInvalidate) => {
     if (beforeInvalidate) beforeInvalidate('stored-book', storedChapters);
     invalidated.push([...urls]); return ['book'];
   } } },
@@ -184,11 +184,11 @@ function load(name) {
   assert.equal(replay.getAudioUrl(firstChapter.id), firstUrl, 'Foreground URL remains available for fast replay');
   console.log('PASS next chapter priority and chapter 1 -> 2 -> 1 complete-file reuse');
 
-  for (const direction of [1, -1]) {
-    stubs['service/PreferenceService'].PreferenceService.chapterStep = () => direction;
+  for (const descending of [false, true]) {
     const ordered = await freshCache();
-    const orderedBook = makeBook(`ordered-${direction}`);
-    const current = direction === 1 ? 0 : 5;
+    const orderedBook = makeBook(`ordered-${descending}`);
+    orderedBook.chaptersDescending = descending;
+    const current = 0;
     const before = transfers.length;
     ordered.preloadAudioChapters(orderedBook, current);
     ordered.preloadAudioChapters(orderedBook, current);
@@ -196,7 +196,7 @@ function load(name) {
     assert.equal(ordered.queue.size, 2, 'Repeated triggers deduplicate queued chapters');
     for (let distance = 1; distance <= 3; distance++) {
       assert.equal(transfers.length, before + distance, 'Only one background transfer runs');
-      const expected = orderedBook.chapters[current + distance * direction].source.value;
+      const expected = orderedBook.chapters[current + distance].source.value;
       assert.equal(transfers.at(-1).options.url, `${expected}.mp3`, 'Nearest chapter goes first');
       transfers.at(-1).finish(6000);
       await settle();
@@ -204,9 +204,8 @@ function load(name) {
     assert.equal(ordered.queue.size, 0);
     assert.equal(ordered.runningCount, 0);
   }
-  console.log('PASS nearest-first forward/reverse ordering, queue deduplication and serial transfers');
+  console.log('PASS next chapter preloading with either TOC order, queue deduplication and serial transfers');
 
-  stubs['service/PreferenceService'].PreferenceService.chapterStep = () => 1;
   const stopping = await freshCache();
   const stoppingBook = makeBook('stopping');
   stopping.preloadAudioChapters(stoppingBook, 0);

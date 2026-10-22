@@ -140,12 +140,9 @@ export class DownloadService {
 
   async downloadNextChapters(book: Book, startIndex: number, count: number): Promise<number> {
     await DownloadNotificationService.requestPermission();
-    await PreferenceService.applyTocOrder(book);
-    const ordered = PreferenceService.orderedChapters(book);
-    const originalStart = Math.max(0, Math.min(startIndex, Math.max(0, book.chapters.length - 1)));
-    const safeStart = PreferenceService.chapterDisplayIndex(book, originalStart);
+    const safeStart = Math.max(0, Math.min(startIndex, Math.max(0, book.chapters.length - 1)));
     const safeEnd = Math.min(book.chapters.length, safeStart + Math.max(1, count));
-    return this.enqueueChapters(book, ordered.slice(safeStart, safeEnd));
+    return this.enqueueChapters(book, book.chapters.slice(safeStart, safeEnd));
   }
 
   async downloadIncremental(book: Book): Promise<number> {

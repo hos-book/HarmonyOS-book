@@ -7,6 +7,7 @@ import { common } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { OnlineTextContentCache } from './text/OnlineTextContentCache';
 import { LightSourceRequest } from './rulesource/light/LightSourceRequestPolicy';
+import { ReaderCacheService } from './ReaderCacheService';
 
 export class ComicPage {
   key: string = '';
@@ -90,6 +91,7 @@ export class ComicReaderService {
   }
 
   static async cached(context: common.Context, book: Book, chapter: Chapter): Promise<ComicPage[]> {
+    ReaderCacheService.configure(context);
     const key = OnlineTextContentCache.key(book.sourceUrl, book.bookUrl || book.id,
       chapter.originSourceValue || chapter.source.value);
     const saved = await OnlineTextContentCache.read(context, key);
@@ -102,12 +104,14 @@ export class ComicReaderService {
         const path = new fileUri.FileUri(page.url).path;
         if (!path.startsWith(`${context.cacheDir}/comic_images/`) || (await fileIo.stat(path)).size <= 0) return [];
       }
+      await ReaderCacheService.record(pages.map((page: ComicPage): string => page.url));
       return pages;
     } catch (_error) { return []; }
   }
 
   static async load(book: Book, chapter: Chapter, context?: common.Context,
     force: boolean = false, preload: boolean = false): Promise<ComicPage[]> {
+    if (context) ReaderCacheService.configure(context);
     const key = OnlineTextContentCache.key(book.sourceUrl, book.bookUrl || book.id,
       chapter.originSourceValue || chapter.source.value);
     if (force) ComicReaderService.requests.get(`${key}:images`)?.cancel();

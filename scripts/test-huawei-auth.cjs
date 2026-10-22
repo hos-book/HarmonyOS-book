@@ -19,6 +19,8 @@ function harness(seed) {
   const values = new Map(seed ? [[accountKey, seed]] : []);
   const logs = [];
   const calls = [];
+  const medals = { accountId: '', bindAccount: async (_context, id) => { medals.accountId = id; },
+    clearAccount: () => { medals.accountId = ''; } };
   const control = {
     state: 1, stateError: null, readError: false, failFlush: false,
     stateGate: null, loginGate: null,
@@ -26,6 +28,7 @@ function harness(seed) {
     response: request => ({ state: request.state, data: { ...identity, ...profile, authorizationCode: 'NEVER_STORE_TOKEN' } })
   };
   const store = {
+    getSync: (key, fallback) => values.has(key) ? values.get(key) : fallback,
     get: async (key, fallback) => {
       if (control.readError) throw new Error('read failed');
       return values.has(key) ? values.get(key) : fallback;
@@ -68,6 +71,11 @@ function harness(seed) {
     vm.runInNewContext(compiled.get(name), {
       exports, ObservedV2: value => value, Trace: () => {},
       require: dependency => {
+        if (dependency === './MedalService') return { MedalService: { instance: medals } };
+        if (dependency === '../model/GeneralSettings' || dependency === '../model/BookPresentation') return load(dependency);
+        if (dependency === './MembershipService') return { MembershipService: { instance: {} } };
+        if (dependency === '../model/MembershipState') return { MembershipState: { current: { hasAccess: false } } };
+        if (dependency === './ReadingSessionService') return { ReadingSessionService: { init: async () => {} } };
         if (dependency === '@kit.AccountKit') return { authentication: {
           HuaweiIDProvider, AuthenticationController, IdType: { OPEN_ID: 2 },
           State: { UNLOGGED_IN: 0, AUTHORIZED: 1, UNAUTHORIZED: 2 }
@@ -96,7 +104,7 @@ function harness(seed) {
   }
   const authModule = load('AuthService');
   const prefs = load('PreferenceService').PreferenceService;
-  return { auth: authModule.AuthService.instance, codes: authModule.HwAuthErrorCode, prefs, control, values, calls, logs };
+  return { auth: authModule.AuthService.instance, codes: authModule.HwAuthErrorCode, prefs, control, values, calls, logs, medals };
 }
 
 function deferred() {
@@ -119,6 +127,7 @@ function deferred() {
   const loggedIn = await empty.auth.login({});
   assert.equal(empty.auth.isLoggedIn, true);
   assert.equal(loggedIn.openID, identity.openID);
+  assert.equal(empty.medals.accountId, identity.openID);
   assert.deepEqual(Object.keys(JSON.parse(empty.values.get(accountKey))).sort(), ['avatarFile', 'loginAt', 'nickName', 'openID', 'unionID']);
   assert.equal(empty.auth.nickName, profile.nickName);
   assert.equal(empty.auth.avatarUri, 'file:///cache/' + avatarFile);
@@ -154,6 +163,7 @@ function deferred() {
     changed.control.state = state;
     await changed.auth.restore({});
     assert.equal(changed.auth.isLoggedIn, false);
+    assert.equal(changed.medals.accountId, '');
     assert.equal(changed.values.has(accountKey), false, 'system logout/switch clears stale identity');
   }
   const retry = harness(JSON.stringify(identity));

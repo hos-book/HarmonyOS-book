@@ -14,15 +14,44 @@ import { SubscriptionVerifier } from './membership/SubscriptionVerifier';
 import { LifetimeOrder, LifetimePolicy } from './membership/LifetimeData';
 import { MembershipDisplaySnapshot } from '../model/MembershipDisplaySnapshot';
 import { MembershipDisplayStore } from './membership/MembershipDisplayStore';
+import { MembershipOfferClient } from './membership/MembershipOfferClient';
 
 export class MembershipPlan {
   id: string;
   price: string;
   groupId: string;
+  regularPrice: string;
+  offerId: string = '';
+  offerPeriodUnit?: iap.PeriodUnit;
+  offerPeriodCount: number = 0;
+  offerPaymentMode?: iap.OfferPaymentMode;
+  introductory: boolean = false;
   constructor(product: iap.Product) {
     this.id = product.id;
     this.price = product.localPrice || product.price;
+    this.regularPrice = this.price;
     this.groupId = product.subscriptionInfo?.groupId || '';
+    const promotion = product.promotionalOffers?.find((offer: iap.PromotionalOffer): boolean =>
+      offer.offerId === 'cheaplist' && typeof offer.localPrice === 'string' && offer.localPrice.length > 0 &&
+      Number.isFinite(offer.microPrice) && offer.microPrice >= 0);
+    if (promotion) {
+      this.price = promotion.localPrice;
+      this.offerId = promotion.offerId;
+      this.offerPeriodUnit = promotion.periodUnit;
+      this.offerPeriodCount = promotion.periodCount ?? 0;
+      this.offerPaymentMode = promotion.paymentMode;
+    } else if (product.subscriptionInfo?.hasEligibilityForIntroOffer === false) {
+      // SDK 语义：false 表示尚未享受推介促销；资格未知时不承诺首购价。
+      const intro = product.subscriptionInfo.introductoryOffer;
+      if (intro && typeof intro.localPrice === 'string' && intro.localPrice.length > 0 &&
+        Number.isFinite(intro.microPrice) && intro.microPrice >= 0) {
+        this.price = intro.localPrice;
+        this.introductory = true;
+        this.offerPeriodUnit = intro.periodUnit;
+        this.offerPeriodCount = intro.periodCount;
+        this.offerPaymentMode = intro.paymentMode;
+      }
+    }
   }
 }
 
@@ -31,7 +60,7 @@ class MembershipTimeout extends Error implements BusinessError {
   constructor() { super('IAP request timed out'); }
 }
 
-/** 无自有服务器：每次查询都向华为获取凭据，在本机验签，不持久化 VIP 布尔值。 */
+/** 权益向华为查询并在本机验签；仅促销购买额外请求优惠签名，不持久化 VIP 布尔值。 */
 @ObservedV2
 export class MembershipService {
   private static singleton: MembershipService | null = null;
@@ -95,12 +124,14 @@ export class MembershipService {
     return this.displayWriteTask;
   }
 
-  /** 共用已验签权益；到期、换号或核验失败时不放行新的会员操作。 */
-  async hasCurrentEntitlement(): Promise<boolean> {
-    if (MembershipState.current.hasAccess) return true;
+  /** 普通操作复用已验签权益；书源导入可要求重新核验，及时识别退款或撤销。 */
+  async hasCurrentEntitlement(forceRefresh: boolean = false): Promise<boolean> {
+    if (!MembershipState.featureEnabled || MembershipState.current.developerAccess) return true;
+    if (!forceRefresh && MembershipState.current.hasAccess) return true;
     const context = this.abilityContext;
     if (!context || !this.supported) return false;
-    await this.refresh(context);
+    if (forceRefresh && this.busy && !this.refreshTask) return false;
+    await this.refresh(context, forceRefresh);
     return MembershipState.current.hasAccess;
   }
 
@@ -419,13 +450,17 @@ export class MembershipService {
     if (accountId && !await this.matchesSystemAccount(accountId)) throw new Error('IAP account changed during verification');
     this.verifiedAccountId = accountId;
     let latest: SubscriptionStatus | undefined = undefined;
+    let latestGroupId = '';
     const orders: SubscriptionOrder[] = [];
     const now = Date.now();
     for (const payload of payloads) {
       const status = SubscriptionPolicy.validate(payload, this.allowSandbox, now);
       if (status) this.logSubscriptionDates(context, payload, status);
       if (status && SubscriptionPolicy.active(status, now)) {
-        if (!latest || status.expiresTime > latest.expiresTime) latest = status;
+        if (!latest || status.expiresTime > latest.expiresTime) {
+          latest = status;
+          latestGroupId = payload.subGroupId;
+        }
         if (status.lastPurchaseOrder) orders.push(status.lastPurchaseOrder);
       }
     }
@@ -438,6 +473,8 @@ export class MembershipService {
       for (const order of lifetimeOrders) orders.push(order);
     } else if (latest && latest.lastPurchaseOrder) {
       state.productId = latest.lastPurchaseOrder.productId;
+      state.subscriptionGroupId = latestGroupId;
+      state.pendingProductId = SubscriptionPolicy.pendingProduct(latest);
       state.expiresAt = latest.expiresTime;
       state.autoRenew = latest.renewalInfo?.autoRenewStatusCode === '1';
       state.verifiedAt = now;
@@ -538,27 +575,69 @@ export class MembershipService {
     }
   }
 
+  canUpgradeToYear(): boolean {
+    const state = MembershipState.current;
+    if (!state.active || state.revalidating || state.productId !== SubscriptionPolicy.month ||
+      state.pendingProductId === SubscriptionPolicy.year) return false;
+    const month = this.plans.find((plan: MembershipPlan): boolean => plan.id === SubscriptionPolicy.month);
+    const year = this.plans.find((plan: MembershipPlan): boolean => plan.id === SubscriptionPolicy.year);
+    return month !== undefined && year !== undefined && month.groupId.length > 0 &&
+      month.groupId === year.groupId && month.groupId === state.subscriptionGroupId;
+  }
+
   async purchase(context: common.UIAbilityContext, id: string): Promise<void> {
     if (this.purchaseInProgress || this.busy || !this.supported ||
       !this.plans.some((plan: MembershipPlan): boolean => plan.id === id)) return;
     this.purchaseInProgress = true;
+    const displayedPlan = this.plans.find((plan: MembershipPlan): boolean => plan.id === id);
     let reconcile = false;
     try {
       // 会员中心刚核验的结果在 30 秒内复用；先等正在执行的查询，避免旧结果覆盖新购买。
       if (this.refreshTask) await this.refreshTask;
       const age = Date.now() - this.refreshedAt;
-      await this.refresh(context, this.refreshedAt === 0 || age < 0 || age > 30000);
+      const upgrading = MembershipState.current.productId === SubscriptionPolicy.month && id === SubscriptionPolicy.year;
+      await this.refresh(context, upgrading || this.refreshedAt === 0 || age < 0 || age > 30000);
       const state = MembershipState.current;
       if (state.active) {
         if (state.lifetime) return;
-        if (id !== LifetimePolicy.product) { await this.manageSubscriptions(context); return; }
+        if (id !== LifetimePolicy.product) {
+          if (state.productId !== SubscriptionPolicy.month || id !== SubscriptionPolicy.year ||
+            state.pendingProductId === id) { await this.manageSubscriptions(context); return; }
+          await this.loadProducts(context);
+          if (!this.canUpgradeToYear()) {
+            this.message = $r('app.string.membership_upgrade_unavailable');
+            return;
+          }
+          // 同组切换前必须完成原订阅发货，不能让新收银台与旧确认并发。
+          await this.confirmationTask;
+          if (this.confirmationPending) {
+            this.message = $r('app.string.membership_confirmation_pending');
+            return;
+          }
+          if (!this.canUpgradeToYear()) return;
+        }
       }
       if ((!state.hasAccess && !state.confirmedInactive) || state.revalidating ||
         this.refreshedAt === 0 || Date.now() < this.refreshedAt || Date.now() - this.refreshedAt > 30000) return;
       this.busy = true;
-      const result = await this.bounded(iap.createPurchase(context,
-        { productType: id === LifetimePolicy.product ? iap.ProductType.NONCONSUMABLE : iap.ProductType.AUTORENEWABLE,
-          productId: id }), 180000);
+      await this.loadProducts(context, !!displayedPlan?.offerId);
+      const selectedPlan = this.plans.find((plan: MembershipPlan): boolean => plan.id === id);
+      if (!displayedPlan || !selectedPlan || displayedPlan.price !== selectedPlan.price ||
+        displayedPlan.offerId !== selectedPlan.offerId || displayedPlan.introductory !== selectedPlan.introductory) {
+        this.message = $r('app.string.membership_offer_changed');
+        return;
+      }
+      const previousProduct = state.active ? state.productId : '';
+      const planGroup = this.plans.find((plan: MembershipPlan): boolean => plan.id === id)?.groupId ?? '';
+      const parameter: iap.PurchaseParameter = {
+        productType: id === LifetimePolicy.product ? iap.ProductType.NONCONSUMABLE : iap.ProductType.AUTORENEWABLE,
+        productId: id
+      };
+      if (selectedPlan.offerId) {
+        parameter.jwsRepresentation = await MembershipOfferClient.request(context, id, selectedPlan.offerId);
+        parameter.promotionalOfferId = selectedPlan.offerId;
+      }
+      const result = await this.bounded(iap.createPurchase(context, parameter), 180000);
       if (id === LifetimePolicy.product) {
         const order = LifetimePolicy.validate(await SubscriptionVerifier.verifyLifetime(context, result.purchaseData),
           this.allowSandbox, Date.now());
@@ -568,18 +647,20 @@ export class MembershipService {
       } else {
         const payload = await SubscriptionVerifier.verify(context, result.purchaseData);
         const status = SubscriptionPolicy.validate(payload, this.allowSandbox, Date.now());
-        if (!status || !status.lastPurchaseOrder || status.lastPurchaseOrder.productId !== id ||
-          !SubscriptionPolicy.active(status, Date.now())) {
+        if (!status || !status.lastPurchaseOrder || !SubscriptionPolicy.active(status, Date.now()) ||
+          !planGroup || payload.subGroupId !== planGroup ||
+          !SubscriptionPolicy.matchesPurchase(status, id, previousProduct)) {
           throw new Error('Inactive subscription purchase result');
         }
-        await this.applyPurchase(context, id, status.expiresTime, status.renewalInfo?.autoRenewStatusCode === '1');
+        await this.applyPurchase(context, status.lastPurchaseOrder.productId, status.expiresTime,
+          status.renewalInfo?.autoRenewStatusCode === '1', payload.subGroupId, SubscriptionPolicy.pendingProduct(status));
         this.logSubscriptionDates(context, payload, status);
         this.queueConfirmation(context, [status.lastPurchaseOrder], [], false);
       }
     } catch (error) {
       const failure: BusinessError = error;
       this.message = this.errorMessage(failure);
-      reconcile = failure.code !== iap.IAPErrorCode.USER_CANCELED;
+      reconcile = failure.code !== iap.IAPErrorCode.USER_CANCELED && failure.code !== -3;
     } finally {
       this.busy = false;
       this.purchaseInProgress = false;
@@ -590,13 +671,16 @@ export class MembershipService {
   }
 
   /** 将已通过 IAP 签名校验的购买结果立即写入内存和展示快照。 */
-  private async applyPurchase(context: common.UIAbilityContext, id: string, expiresAt: number, autoRenew: boolean): Promise<void> {
+  private async applyPurchase(context: common.UIAbilityContext, id: string, expiresAt: number, autoRenew: boolean,
+    subscriptionGroupId: string = '', pendingProductId: string = ''): Promise<void> {
     if (this.verifiedAccountId && !await this.matchesSystemAccount(this.verifiedAccountId)) this.verifiedAccountId = '';
     this.accountCheckPending = false;
     const now = Date.now();
     const state = MembershipState.current;
     state.clear();
     state.productId = id;
+    state.subscriptionGroupId = subscriptionGroupId;
+    state.pendingProductId = pendingProductId;
     state.expiresAt = expiresAt;
     state.autoRenew = autoRenew;
     state.verifiedAt = now;
@@ -670,6 +754,9 @@ export class MembershipService {
   private errorMessage(error: BusinessError): Resource {
     hilog.warn(0x0000, 'MembershipService', 'IAP operation failed, code=%{public}d', error.code ?? -1);
     switch (error.code) {
+      case -3: return $r('app.string.membership_offer_unavailable');
+      case 1001860059: return $r('app.string.membership_offer_invalid');
+      case 1001860060: return $r('app.string.membership_offer_signature_invalid');
       case -2: return $r('app.string.membership_timeout');
       case 1001860000: return $r('app.string.membership_cancelled');
       case 1001860050: return $r('app.string.membership_login_required');

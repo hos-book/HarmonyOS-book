@@ -14,7 +14,7 @@ const speech = { state: { active: true }, currentBook: () => book,
   async initialize() {}, async resume() { calls.push('resume'); }, pause() { calls.push('pause'); },
   async moveChapter(step) { calls.push(step); }, async start(...args) { calls.push(Array.from(args.slice(1))); } };
 const prefs = { snapshot: { playbackKind: 'tts', bookId: 'text', chapterId: 'b', charOffset: 73 },
-  async getWidgetPlayerSnapshot() { return this.snapshot; }, async applyTocOrder() {}, chapterStep: () => 1 };
+  async getWidgetPlayerSnapshot() { return this.snapshot; }, async applyTocOrder() {} };
 const audio = { async whenReady() {}, async play() { calls.push('audio-play'); } };
 const data = { async getBookById() { return book; } };
 const deps = { './AudioService': { AudioService: { getInstance: () => audio } },
@@ -34,9 +34,11 @@ const router = moduleContext.exports.WidgetPlaybackService;
   assert.deepEqual(Array.from(calls[0]), [1, 73, true]);
   await router.execute({}, 'next');
   assert.deepEqual(Array.from(calls[1]), [2, 0, false]);
-  prefs.chapterStep = () => -1;
+  book.chaptersDescending = true;
   await router.execute({}, 'next');
-  assert.deepEqual(Array.from(calls[2]), [0, 0, false]);
+  assert.deepEqual(Array.from(calls[2]), [2, 0, false]);
+  await router.execute({}, 'prev');
+  assert.deepEqual(Array.from(calls[3]), [0, 0, false]);
   prefs.snapshot = { bookId: 'old-audio' };
   await router.execute({}, 'play');
   assert.equal(calls.at(-1), 'audio-play');

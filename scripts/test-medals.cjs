@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const vm = require('node:vm');
+const { createHash } = require('node:crypto');
 const ide = process.env.DEVECO_HOME;
 if (!ide) throw new Error('Set DEVECO_HOME to the Release IDE');
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
@@ -17,11 +18,12 @@ function processFixture(seconds = 0) {
   const control = { seconds, failRead: false, failWrite: false, statsUnavailable: false, writes: 0 };
   const listeners = new Map();
   const emitter = { on: (id, fn) => listeners.set(id, fn), emit: (id, data = {}) => listeners.get(id)?.(data) };
-  let memory = fs.existsSync(disk) ? fs.readFileSync(disk, 'utf8') : '';
+  let memory = fs.existsSync(disk) ? JSON.parse(fs.readFileSync(disk, 'utf8')) : {};
+  if (memory.version === 1) memory = { medal_state_v1: JSON.stringify(memory) };
   const store = {
-    get: async (_key, fallback) => { if (control.failRead) throw new Error('read failed'); return memory || fallback; },
-    put: async (_key, value) => { memory = value; },
-    flush: async () => { if (control.failWrite) throw new Error('disk full'); fs.writeFileSync(disk, memory); control.writes++; }
+    get: async (key, fallback) => { if (control.failRead) throw new Error('read failed'); return memory[key] ?? fallback; },
+    put: async (key, value) => { memory[key] = value; },
+    flush: async () => { if (control.failWrite) throw new Error('disk full'); fs.writeFileSync(disk, JSON.stringify(memory)); control.writes++; }
   };
   const modules = new Map();
   function load(relative) {
@@ -36,6 +38,10 @@ function processFixture(seconds = 0) {
       console: { warn() {} },
       require: name => {
         if (name === '@kit.ArkData') return { preferences: { getPreferences: async () => store } };
+        if (name === '@kit.ArkTS') return { util: { TextEncoder: class { encodeInto(s) { return Buffer.from(s); } } } };
+        if (name === '@kit.CryptoArchitectureKit') return { cryptoFramework: { createMd: () => {
+          const hash = createHash('sha256'); return { update: async b => hash.update(b.data), digest: async () => ({ data: hash.digest() }) };
+        } } };
         if (name === '@kit.BasicServicesKit') return { emitter };
         if (name === './StatsService') return { EVT_USAGE_STATS_UPDATED: 'stats', StatsService: {
           init: async () => { if (control.statsUnavailable) throw new Error('stats failed'); },
@@ -53,6 +59,64 @@ function processFixture(seconds = 0) {
 }
 async function check(name, run) { fs.rmSync(disk, { force: true }); await run(); passed++; console.log(`PASS ${name}`); }
 (async () => {
+  await check('accounts isolate awards, survive deletion/restart and claim legacy achievements only once', async () => {
+    let f = processFixture(100 * 3600);
+    await f.service.bindAccount(context, 'account-A');
+    assert.equal(f.service.usageLevel(), 4);
+    assert.equal(f.service.usageLevelName().id, 'app.string.account_reading_medal_100h_name');
+    await f.service.equipMedal('reading_100h');
+    f.control.seconds = 0; await f.service.refreshUnlocks();
+    assert.equal(f.service.usageLevel(), 4); assert.equal(f.service.totalSeconds, 100 * 3600);
+    f = processFixture(0); await f.service.bindAccount(context, 'account-A');
+    assert.equal(f.service.usageLevel(), 4); assert.equal(f.service.selectedMedalId, 'reading_100h');
+    await f.service.bindAccount(context, 'account-B');
+    assert.equal(f.service.usageLevel(), 1); assert.equal(f.service.awards.length, 0);
+    f.control.seconds = 10 * 3600; await f.service.refreshUnlocks();
+    assert.equal(f.service.usageLevel(), 2);
+    await f.service.bindAccount(context, 'account-A');
+    assert.equal(f.service.totalSeconds, 100 * 3600, 'B time must not be awarded to A');
+    assert.equal(f.service.selectedMedalId, 'reading_100h');
+    f.service.clearAccount(); await new Promise(resolve => setImmediate(resolve)); await f.service.flush();
+    assert.equal(f.service.accountId, '');
+    f.control.seconds += 1000 * 3600; await f.service.refreshUnlocks();
+    await f.service.bindAccount(context, 'account-B');
+    assert.equal(f.service.totalSeconds, 10 * 3600, 'guest time must not be claimed after migration');
+  });
+  await check('account backup only restores to same identity and never drops earned level', async () => {
+    const f = processFixture(500 * 3600); await f.service.bindAccount(context, 'account-A');
+    const saved = await f.service.exportSnapshot(context, 500 * 3600);
+    assert.match(saved.ownerKey, /^[a-f0-9]{64}$/);
+    assert.equal(JSON.stringify(saved).includes('account-A'), false);
+    await f.service.bindAccount(context, 'account-B');
+    f.control.seconds += 5000 * 3600;
+    await f.service.refreshUnlocks(true, true);
+    await f.service.restoreSnapshot(context, saved);
+    assert.equal(f.service.awards.length, 0);
+    assert.equal(f.service.totalSeconds, 0);
+    await f.service.bindAccount(context, 'account-A');
+    assert.equal(f.service.usageLevel(), 6);
+    await f.service.restoreSnapshot(context, saved);
+    assert.equal(f.service.totalSeconds, 500 * 3600);
+    f.control.seconds += 500 * 3600; await f.service.refreshUnlocks();
+    await f.service.restoreSnapshot(context, saved);
+    assert.equal(f.service.usageLevel(), 7);
+  });
+  await check('usage levels follow listening thresholds, cap at V9 and ignore equipped medals', async () => {
+    const f = processFixture(); await f.service.init(context);
+    assert.equal(f.service.usageLevel(), 1);
+    for (const [index, hours] of [1, 10, 50, 100, 300, 500, 1000, 2000, 5000].entries()) {
+      f.control.seconds = hours * 3600 - 1; await f.service.refreshUnlocks();
+      assert.equal(f.service.usageLevel(), Math.max(1, index));
+      f.control.seconds++; await f.service.refreshUnlocks();
+      assert.equal(f.service.usageLevel(), index + 1);
+    }
+    await f.service.equipMedal('reading_1h');
+    assert.equal(f.service.usageLevel(), 9);
+    f.control.seconds = 9000 * 3600; await f.service.refreshUnlocks();
+    assert.equal(f.service.usageLevel(), 9);
+    f.control.seconds = 0; await f.service.refreshUnlocks();
+    assert.equal(f.service.usageLevel(), 9);
+  });
   await check('first install hides national medal; locked medals cannot be equipped', async () => {
     const { service } = processFixture(); await service.init(context);
     assert.equal(service.awards.length, 0); assert.equal(service.selectedMedalId, '');
@@ -83,7 +147,7 @@ async function check(name, run) { fs.rmSync(disk, { force: true }); await run();
   await check('event captures threshold before deletion; permanent awards survive restart', async () => {
     let f = processFixture(); await f.service.init(context);
     f.control.seconds = 3600; f.event(false); f.control.seconds = 0; f.event(false); await f.service.flush();
-    assert.ok(f.service.isUnlocked('reading_1h')); assert.equal(f.service.totalSeconds, 0);
+    assert.ok(f.service.isUnlocked('reading_1h')); assert.equal(f.service.totalSeconds, 3600);
     assert.equal(f.service.awards.find(a => a.medalId === 'reading_1h').historical, false);
     f = processFixture(); await f.service.init(context); assert.ok(f.service.isUnlocked('reading_1h'));
   });
@@ -109,8 +173,10 @@ async function check(name, run) { fs.rmSync(disk, { force: true }); await run();
     f = processFixture(); f.control.failRead = true; await assert.rejects(f.service.init(context));
     assert.equal(fs.readFileSync(disk, 'utf8'), saved); assert.equal(f.service.ready, false);
     f.control.failRead = false; await f.service.init(context); assert.ok(f.service.isUnlocked('reading_1h'));
-    f = processFixture(); f.control.statsUnavailable = true; await assert.rejects(f.service.init(context)); assert.equal(fs.readFileSync(disk, 'utf8'), saved);
-    fs.writeFileSync(disk, '{broken'); f = processFixture(); await assert.rejects(f.service.init(context)); assert.equal(fs.readFileSync(disk, 'utf8'), '{broken');
+    const beforeStatsFailure = fs.readFileSync(disk, 'utf8');
+    f = processFixture(); f.control.statsUnavailable = true; await assert.rejects(f.service.init(context)); assert.equal(fs.readFileSync(disk, 'utf8'), beforeStatsFailure);
+    fs.writeFileSync(disk, JSON.stringify({ medal_accounts_v2: '{broken' })); f = processFixture(); await assert.rejects(f.service.init(context));
+    assert.equal(JSON.parse(fs.readFileSync(disk, 'utf8')).medal_accounts_v2, '{broken');
   });
   await check('backup restore merges permanent awards and restores unequipped state', async () => {
     const f = processFixture(3600); await f.service.init(context); await f.service.equipMedal('');

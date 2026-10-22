@@ -25,6 +25,7 @@ const { SpeechTextSegmenter } = load('service/text/SpeechTextSegmenter.ets', { '
 const { SpeechPcmBuffer } = load('service/text/SpeechPcmBuffer.ets');
 const pcmFormat = { audioType: 'pcm', sampleRate: 16000, sampleBit: 16, audioChannel: 1 };
 const model = load('model/TextToSpeechState.ets');
+const readerToolsModel = load('model/ReaderTools.ets');
 const { SpeechTextHighlighter } = load('service/text/SpeechTextHighlighter.ets');
 const { CustomTtsConfig } = load('model/CustomTtsConfig.ets');
 const { CustomTtsTemplate: LocalRuleTemplate } = load('service/text/CustomTtsTemplate.ets');
@@ -115,7 +116,7 @@ function harness(memory = new Map()) {
     '../BackgroundTaskService': { BackgroundTaskService: { startSpeech: async () => {}, stopSpeech: async () => {}, isRunning: () => true } },
     '../PlaybackCoordinator': coordinator,
     '../PreferenceService': { PreferenceService: { isFavorite: async () => false, toggleFavorite: async () => true,
-      applyTocOrder: async () => {}, chapterStep: () => 1 } },
+      applyTocOrder: async () => {} } },
     '../StatsService': { StatsService: { addListenSeconds: async (seconds, value) => stats.push([seconds, value]) } },
     '../DataService': { DataService: { upsertCachedBook: async () => {} } },
     '../BookSourceService': { BookSourceService: { getTextChapterContent: async (value, url) => {
@@ -127,6 +128,15 @@ function harness(memory = new Map()) {
     './OnlineTextPaginator': { OnlineTextPaginator: { normalizeContent: value => value } },
     './SpeechTextSegmenter': { SpeechTextSegmenter }
   };
+  dependencies['../../model/ReaderTools'] = readerToolsModel;
+  dependencies['./ReaderToolsService'] = load('service/text/ReaderToolsService.ets', {
+    '../../model/ReaderTools': readerToolsModel,
+    '@kit.ArkData': dependencies['@kit.ArkData'],
+    '@kit.ArkTS': { util: {} },
+    '../rulesource/LocalRuleQuickJsRuntime': { LocalRuleQuickJsRequest: class {}, LocalRuleQuickJsRuntime: {
+      async execute(request) { return { success: true, value: String(vm.runInNewContext(request.script, {}, { timeout: 100 })) }; }
+    } }
+  });
   const { TextToSpeechService } = load('service/text/TextToSpeechService.ets', dependencies, {
     setTimeout: (callback, delay) => { const key = ++id; timers.set(key, { callback, delay }); return key; },
     clearTimeout: key => timers.delete(key), setInterval: (callback, delay) => { const key = ++id; timers.set(key, { callback, delay }); return key; },
@@ -150,6 +160,25 @@ function harness(memory = new Map()) {
 let passed = 0;
 async function check(name, action) { await action(); console.log(`PASS ${name}`); passed++; }
 (async () => {
+  await check('替换正文用于朗读，存储原文坐标，关闭规则后重启仍回到同一句', async () => {
+    const memory = new Map();
+    const rule = new readerToolsModel.ReaderReplaceRule();
+    Object.assign(rule, { id: 'ad', pattern: '广告', replacement: '', bookId: 'book' });
+    memory.set('data', JSON.stringify({ bookmarks: [], rules: [rule] }));
+    const b = book('book', ['前文。广告\n下一句。末句。']);
+    const originalOffset = b.chapters[0].text.indexOf('下一句');
+    const h = harness(memory); await h.init();
+    await h.service.start(b, 0, originalOffset); await settle();
+    assert.equal(h.spoken.at(-1).text.trim(), '下一句。');
+    assert.ok(!h.service.currentChapterContent().includes('广告'));
+    h.service.pause();
+    assert.equal(JSON.parse(memory.get('position_book')).charOffset, originalOffset);
+    memory.set('data', JSON.stringify({ bookmarks: [], rules: [] }));
+    const restored = harness(memory); await restored.init();
+    await restored.service.start(b, 0, 0, true); await settle();
+    assert.equal(restored.spoken.at(-1).text.trim(), '下一句。');
+    assert.equal(restored.service.currentRawOffset(), originalOffset);
+  });
   await check('朗读在前后台同步卡片书籍、章节和暂停恢复状态', async () => {
     const h = harness(); await h.init();
     await h.service.start(book(), 0, 0); await settle();
@@ -259,6 +288,26 @@ async function check(name, action) { await action(); console.log(`PASS ${name}`)
     await h.complete(); await settle(); assert.equal(h.spoken[2].text, '第三句。');
     assert.equal(h.service.state.chapterIndex, 1);
     await h.complete(); await settle(); assert.equal(h.service.state.playing, false); h.service.stop();
+  });
+  await check('倒序目录下手动和自动朗读仍按正文前进，首尾不越界', async () => {
+    const h = harness(); await h.init();
+    const b = book('descending', ['第一章。', '第二章。', '第三章。']);
+    b.chaptersDescending = true;
+    await h.service.start(b, 1, 0); await settle();
+    await h.service.moveChapter(1); await settle();
+    assert.equal(h.service.state.chapterIndex, 2);
+    await h.service.moveChapter(1); await settle();
+    assert.equal(h.service.state.chapterIndex, 2);
+    await h.service.moveChapter(-1); await settle();
+    assert.equal(h.service.state.chapterIndex, 1);
+    await h.complete(); await settle();
+    assert.equal(h.service.state.chapterIndex, 2);
+    await h.complete(); await settle();
+    assert.equal(h.service.state.playing, false);
+    await h.service.start(b, 0, 0); await settle();
+    await h.service.moveChapter(-1); await settle();
+    assert.equal(h.service.state.chapterIndex, 0);
+    h.service.stop();
   });
   await check('暂停恢复当前句，旧回调与重复完成不能推进新请求', async () => {
     const h = harness(); await h.init(); await h.service.start(book(), 0, 5);

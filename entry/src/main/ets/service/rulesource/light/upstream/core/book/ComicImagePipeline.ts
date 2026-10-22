@@ -1,6 +1,9 @@
 import { BookSource } from '../../model/data/Book';
 import { HttpClient } from '../http/HttpClient';
 import { NativeSourceCrypto } from '../nativesource/NativeSourceCrypto';
+import { NativeSourceSpec } from '../nativesource/NativeSourceSpec';
+import { NativeImageScriptRunner } from '../nativesource/NativeImageScriptRunner';
+import { SourceEngineHost } from '../host/SourceEngineHost';
 import fs from '@ohos.file.fs';
 import { util } from '@kit.ArkTS';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
@@ -13,6 +16,11 @@ export class ComicImageSpec {
   decodeAlgorithm: string = '';
   decodeKey: string = '';
   decodeIv: string = '';
+  ivPrefixBytes: number = 0;
+  script: string = '';
+  params: Object = {};
+  processPlainImages: boolean = false;
+  imageIndex: number = 0;
 }
 
 /**
@@ -47,24 +55,35 @@ export class ComicImagePipeline {
         spec.decodeAlgorithm = String(record['algorithm'] || '');
         spec.decodeKey = String(record['key'] || '');
         spec.decodeIv = String(record['iv'] || '');
+        spec.ivPrefixBytes = Number(record['ivPrefixBytes'] || 0);
+        spec.script = String(record['script'] || '');
+        spec.params = record['params'] || {};
+        spec.processPlainImages = record['processPlainImages'] === true;
       }
+      const imageIndex = Number(options['imageIndex']);
+      spec.imageIndex = Number.isSafeInteger(imageIndex) && imageIndex >= 0 ? imageIndex : 0;
       spec.hasOptions = true;
     } catch (_) {
     }
     return spec;
   }
 
-  static async materialize(http: HttpClient, source: BookSource, raw: string): Promise<string> {
+  static async materialize(http: HttpClient, source: BookSource, raw: string, forceLocal: boolean = false): Promise<string> {
+    const cancelled = (): boolean => SourceEngineHost.isCancelled(source);
+    const checkCancelled = (): void => { if (cancelled()) throw new Error('Comic image prefetch cancelled'); };
+    checkCancelled();
     const spec = this.parse(raw);
     if (!/^https?:\/\//i.test(spec.url)) return spec.url || raw;
     const decodeRule = source.contentRule?.imageDecode || '';
-    if (!spec.hasOptions && !decodeRule) return spec.url;
+    if (!forceLocal && !spec.hasOptions && !decodeRule) return spec.url;
     const cacheDir = AppStorage.get<string>('appCacheDir') || '';
     if (!cacheDir) return spec.url;
     const dir = `${cacheDir}/comic_images`;
     this.ensureDir(dir);
-    const basePath = `${dir}/${this.hashText(`${source.bookSourceUrl}\n${spec.url}\n${decodeRule}` +
-      `\n${spec.decodeAlgorithm}\n${spec.decodeKey}\n${spec.decodeIv}`)}`;
+    const js = spec.script ? NativeSourceSpec.unpack(source.jsLib)?.js || '' : '';
+    // Include every transformation input, including script revisions, headers and page position.
+    const basePath = `${dir}/${await this.hashText(JSON.stringify([source.bookSourceUrl, spec, decodeRule, js]))}`;
+    checkCancelled();
     const existing = this.findExisting(basePath);
     if (existing) return existing;
 
@@ -79,26 +98,47 @@ export class ComicImagePipeline {
       connectTimeout: 15000,
       readTimeout: 30000
     }, this.MAX_IMAGE_BYTES);
+    checkCancelled();
     if (!response.success || response.data.length === 0) return spec.url;
 
     let bytes = response.data;
+    if (bytes.length > this.MAX_IMAGE_BYTES) throw new Error('图片超过 20 MiB');
+    if (spec.script && (spec.processPlainImages || !this.looksLikeImage(bytes))) {
+      bytes = await NativeImageScriptRunner.run(js, spec.script, bytes,
+        { url: spec.url, index: spec.imageIndex, params: spec.params }, cancelled);
+    }
     if (spec.decodeAlgorithm && spec.decodeKey && !this.looksLikeImage(bytes)) {
-      try {
-        bytes = NativeSourceCrypto.decryptBytes(spec.decodeAlgorithm, bytes, spec.decodeKey, spec.decodeIv);
-      } catch (e) {
-        console.warn('[ComicImagePipeline] native image decode failed:', (e as Error).message);
-        return spec.url;
+      let iv = spec.decodeIv;
+      if (spec.ivPrefixBytes) {
+        if (spec.ivPrefixBytes !== 16 || iv || !/^AES\/CBC\/PKCS(?:5|7)Padding$/i.test(spec.decodeAlgorithm) ||
+          bytes.length <= 16 || (bytes.length - 16) % 16 !== 0) throw new Error('无效的图片前置 IV');
+        iv = Array.from(bytes.subarray(0, 16)).map(value => value.toString(16).padStart(2, '0')).join('');
+        bytes = bytes.subarray(16);
       }
+      bytes = await NativeSourceCrypto.decryptBytesAsync(spec.decodeAlgorithm, bytes, spec.decodeKey, iv);
     }
     if (decodeRule && !this.looksLikeImage(bytes)) {
       const decoded = await this.decodeImage(bytes, decodeRule);
       if (decoded.length > 0) bytes = decoded;
     }
-    if (!this.looksLikeImage(bytes)) return spec.url;
+    checkCancelled();
+    if (!bytes.length || bytes.length > this.MAX_IMAGE_BYTES || !this.looksLikeImage(bytes)) {
+      if (spec.script || spec.decodeAlgorithm || decodeRule) throw new Error('图片解码未返回有效图片');
+      return spec.url;
+    }
     const path = `${basePath}${this.imageExtension(bytes, spec.url)}`;
     const file = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
     try {
-      fs.writeSync(file.fd, bytes.buffer);
+      const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+      let written = 0;
+      while (written < buffer.byteLength) {
+        const count = fs.writeSync(file.fd, buffer.slice(written));
+        if (count <= 0) throw new Error('图片缓存写入失败');
+        written += count;
+      }
+    } catch (error) {
+      try { fs.unlinkSync(path); } catch (_) {}
+      throw error;
     } finally {
       fs.closeSync(file);
     }
@@ -209,13 +249,10 @@ export class ComicImagePipeline {
     }
   }
 
-  private static hashText(value: string): string {
-    let hash = 2166136261;
-    for (let index = 0; index < value.length; index++) {
-      hash ^= value.charCodeAt(index);
-      hash = Math.imul(hash, 16777619);
-    }
-    return (hash >>> 0).toString(16).padStart(8, '0');
+  private static async hashText(value: string): Promise<string> {
+    const md = cryptoFramework.createMd('SHA256');
+    await md.update({ data: new util.TextEncoder().encodeInto(value) });
+    return Array.from((await md.digest()).data).map(value => value.toString(16).padStart(2, '0')).join('');
   }
 
   private static decodeEntities(value: string): string {

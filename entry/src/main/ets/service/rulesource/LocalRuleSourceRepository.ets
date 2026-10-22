@@ -400,7 +400,8 @@ export class LocalRuleSourceRepository {
   private static async writeBatch(sources: LocalRuleSource[], importing: boolean): Promise<number> {
     if (sources.length === 0) return 0;
 
-    const unlimitedSources = await MembershipService.instance.hasCurrentEntitlement();
+    // 导入不能复用退款/撤销前的短期权益缓存；在开启数据库事务前完成重新核验。
+    const unlimitedSources = await MembershipService.instance.hasCurrentEntitlement(importing);
 
     const prepared: PreparedRuleSource[] = [];
     for (const source of sources) {
@@ -449,7 +450,7 @@ export class LocalRuleSourceRepository {
           item.source.isPinned = previous.isPinned;
           item.source.customOrder = previous.customOrder;
         } else {
-          if ((!unlimitedSources || !MembershipState.current.hasAccess) && sourceCount >= 8) {
+          if ((!unlimitedSources || !MembershipState.current.hasAccess) && sourceCount >= 10) {
             throw new SourceLimitError();
           }
           sourceCount++;

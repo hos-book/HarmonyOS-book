@@ -45,6 +45,13 @@ export class LightSourceAppHost implements LightSourceHost {
   async evaluateNative(script: string, sourceUrl: string, timeoutMs: number): Promise<string> {
     return LightSourceSandbox.evaluateNative(script, sourceUrl, timeoutMs);
   }
+  async evaluateNativeHost(script: string, sourceUrl: string, timeoutMs: number,
+    handler: (name: string, payload: string) => Promise<string>, check: () => void): Promise<string> {
+    return LightSourceSandbox.evaluateNativeHost(script, sourceUrl, timeoutMs, handler, check);
+  }
+  async evaluateImage(script: string, input: Uint8Array, cancelled: () => boolean): Promise<Uint8Array> {
+    return LightSourceSandbox.evaluateImage(script, input, cancelled);
+  }
   toast(message: string): void {
     promptAction.showToast({message:message.substring(0, 512)});
   }

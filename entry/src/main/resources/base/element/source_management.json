@@ -45,7 +45,7 @@
     { "name": "source_manage_explore_enabled", "value": "发现已启用" },
     { "name": "source_manage_explore_disabled", "value": "发现已禁用" },
     { "name": "source_manage_changed", "value": "已更新 %d 个书源" },
-    { "name": "source_manage_import_result", "value": "已导入 %d 个书源，%d 个锁定书源未覆盖" },
+    { "name": "source_manage_import_result", "value": "已导入或更新 %d 个书源，%d 个锁定书源未覆盖" },
     { "name": "source_manage_test_settings", "value": "书源校验" },
     { "name": "source_manage_test_mode", "value": "校验范围" },
     { "name": "source_manage_test_search", "value": "搜索" },

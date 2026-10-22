@@ -13,16 +13,20 @@
 -print-namecache obfuscation-cache.json
 
 # 动态 import 的模块命名空间访问不会随导出符号同步改名。
-# 保留 ReaderKit 延迟加载边界，避免导入预览、正文读取找不到导出入口。
+# 保留 ReaderKit 和阅读替换规则的延迟加载入口。
 -keep-global-name
   EpubParserService
   createEpubReaderController
   createEpubReaderBuilder
+  LocalRuleQuickJsRequest
+  LocalRuleQuickJsRuntime
 
 -keep-property-name
   EpubParserService
   createEpubReaderController
   createEpubReaderBuilder
+  LocalRuleQuickJsRequest
+  LocalRuleQuickJsRuntime
 
 # ─── 保留 JSON 序列化/反序列化的属性名 ───
 # 这些属性来自外部 JSON（Legado 书源格式）或本地持久化，
@@ -106,6 +110,7 @@
   lastPurchaseOrder
   renewalInfo
   autoRenewStatusCode
+  nextRenewPeriodProductId
   productId
   productType
   purchaseToken
@@ -125,6 +130,12 @@
   # Medal preferences and backup JSON
   medals
   selectedMedalId
+  ownerKey
+  earnedSeconds
+  statsBaseline
+  legacyClaimed
+  lastOwnerKey
+  profiles
   awards
   medalId
   unlockedAt

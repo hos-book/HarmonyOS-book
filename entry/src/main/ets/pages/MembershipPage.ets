@@ -31,19 +31,34 @@ export struct MembershipPage {
         Blank()
       }.width('100%').padding({ top: WindowUtils.getStatusBarHeightVp() + AppSpace.Sm,
         left: AppSpace.Sm, right: AppSpace.Md, bottom: AppSpace.Sm })
-      Scroll() {
-        Column({ space: AppSpace.Lg }) {
-          if (AppIconService.instance.membershipRequired && this.membership.busy) {
-            Row({ space: AppSpace.Sm }) {
-              LoadingProgress().width(24).height(24).color(AppColor.Brand)
-              Text($r('app.string.membership_syncing')).fontSize(AppFont.Body)
-                .fontColor($r('sys.color.font_secondary')).layoutWeight(1)
-            }.width('100%')
-          }
-          AppIconPage({ onMembershipRequired: (): void => { this.showMembership = true; } })
-        }.width('100%').constraintSize({ maxWidth: 680 }).padding({ left: AppSpace.Md, right: AppSpace.Md,
-          top: AppSpace.Sm, bottom: WindowUtils.getBottomSafeVp() + AppSpace.Lg })
-      }.width('100%').layoutWeight(1).scrollBar(BarState.Off).align(Alignment.Top)
+      Tabs({ barPosition: BarPosition.Start }) {
+        TabContent() {
+          Scroll() {
+            Column({ space: AppSpace.Lg }) {
+              if (AppIconService.instance.membershipRequired && this.membership.busy) {
+                Row({ space: AppSpace.Sm }) {
+                  LoadingProgress().width(24).height(24).color(AppColor.Brand)
+                  Text($r('app.string.membership_syncing')).fontSize(AppFont.Body)
+                    .fontColor($r('sys.color.font_secondary')).layoutWeight(1)
+                }.width('100%')
+              }
+              AppIconPage({ onMembershipRequired: (): void => { this.showMembership = true; } })
+            }.width('100%').constraintSize({ maxWidth: 680 }).padding({ left: AppSpace.Md, right: AppSpace.Md,
+              top: AppSpace.Sm, bottom: WindowUtils.getBottomSafeVp() + AppSpace.Lg })
+          }.width('100%').height('100%').scrollBar(BarState.Off).align(Alignment.Top)
+        }.tabBar(SubTabBarStyle.of($r('app.string.app_icon_title'))
+          .indicator({ color: AppColor.Brand })
+          .labelStyle({ selectedColor: AppColor.Brand, unselectedColor: $r('sys.color.font_secondary') }))
+        TabContent() {
+          Column() {
+            Text($r('app.string.theme_bundle_pending')).fontSize(AppFont.Body)
+              .fontColor($r('sys.color.font_secondary')).textAlign(TextAlign.Center)
+          }.width('100%').height('100%').justifyContent(FlexAlign.Center)
+          .padding({ left: AppSpace.Md, right: AppSpace.Md, bottom: WindowUtils.getBottomSafeVp() })
+        }.tabBar(SubTabBarStyle.of($r('app.string.theme_bundle_title'))
+          .indicator({ color: AppColor.Brand })
+          .labelStyle({ selectedColor: AppColor.Brand, unselectedColor: $r('sys.color.font_secondary') }))
+      }.width('100%').layoutWeight(1).barMode(BarMode.Fixed).barHeight('auto')
     }.width('100%').height('100%').backgroundColor($r('sys.color.background_primary'))
     .bindSheet($$this.showMembership, this.membershipSheet(), {
       height: '90%', preferType: SheetType.BOTTOM, showClose: false, dragBar: false, backgroundColor: '#EFEDE7'

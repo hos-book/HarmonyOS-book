@@ -133,6 +133,9 @@ export interface NativeMenuSpec {
   title: string;
   url?: string;
   when?: string;
+  /** 当前分类的列表/字段；未写时分别沿用 explore 的配置。 */
+  list?: string;
+  fields?: Record<string, NativeValue>;
   /** 只在这个分类的请求上附加的请求头，例如个人书架需要的登录凭据。 */
   headers?: Record<string, string>;
   /** 这个分类自己的请求方法与请求体，不写时沿用 explore 的。body 写空串表示不带请求体。 */
@@ -202,10 +205,18 @@ export interface NativeLinkSpec {
 
 /** 漫画图片解密：密钥和 IV 在取正文时算好，应用下载图片后用系统加密框架解密。 */
 export interface NativeImageDecodeSpec {
+  /** js 中的字节处理函数，与标准加密字段互斥。 */
+  script?: string;
+  params?: Record<string, NativeValue>;
+  processPlainImages?: boolean;
   /** 如 AES/CBC/PKCS5Padding。 */
-  algorithm: string;
-  key: string;
+  algorithm?: string;
+  key?: string;
   iv?: string;
+  /** 显式编码时 key 是字面值、模板或表达式；省略时保留旧规则语义。 */
+  keyEncoding?: 'hex' | 'utf8';
+  /** 每张图片前 16 字节作为 IV，仅支持 AES-CBC，不能同时配置 iv。 */
+  ivPrefixBytes?: number;
 }
 
 export interface NativeContentSpec extends NativeStageSpec {
@@ -240,6 +251,8 @@ export interface NativeCoverDecodeSpec {
 
 export interface NativeSourceDefinition {
   coverDecode?: NativeCoverDecodeSpec;
+  /** 封面专用请求头，覆盖顶层 headers，支持模板/表达式。 */
+  coverHeaders?: Record<string, string>;
   nativeSource: number;
   name: string;
   url: string;
@@ -282,6 +295,9 @@ export class NativeSourceSpec {
   /** 定义里所有指向 js 函数的地方：阶段 script、动作按钮、动态选项、脚本登录。 */
   static scriptRefs(definition: NativeSourceDefinition): Array<{ path: string, fn: NativeValue }> {
     const refs: Array<{ path: string, fn: NativeValue }> = [];
+    if (definition.content?.imageDecode?.script !== undefined) {
+      refs.push({ path: 'content.imageDecode.script', fn: definition.content.imageDecode.script });
+    }
     const raw = definition as NativeValue as Record<string, NativeValue>;
     for (const name of NativeSourceSpec.SCRIPT_STAGES) {
       const stage = raw[name] as NativeStageSpec | undefined;
@@ -476,6 +492,12 @@ export class NativeSourceSpec {
     }
     NativeSourceSpec.checkValues(definition.let, 'let', errors);
     NativeSourceSpec.checkValues(definition.headers, 'headers', errors);
+    if (definition.coverHeaders !== undefined && (!definition.coverHeaders ||
+      typeof definition.coverHeaders !== 'object' || Array.isArray(definition.coverHeaders) ||
+      Object.values(definition.coverHeaders).some((value: string): boolean => typeof value !== 'string'))) {
+      errors.push('coverHeaders 必须是请求头名称到字符串的对象');
+    }
+    NativeSourceSpec.checkValues(definition.coverHeaders, 'coverHeaders', errors);
     if (definition.cache !== undefined) {
       if (!definition.cache || typeof definition.cache !== 'object' || Array.isArray(definition.cache)) {
         errors.push('cache 必须是对象');
@@ -556,7 +578,23 @@ export class NativeSourceSpec {
         !explore.dynamicMenus.title || !explore.dynamicMenus.target)) {
         errors.push('explore.dynamicMenus 需要 url、list、title 和 target');
       }
-      NativeSourceSpec.requireBookFields(explore, 'explore', errors);
+      if (explore.dynamicMenus || !Array.isArray(explore.menus) || explore.menus.length === 0) {
+        NativeSourceSpec.requireBookFields(explore, 'explore', errors);
+      }
+      for (const [index, menu] of (Array.isArray(explore.menus) ? explore.menus : []).entries()) {
+        if (!menu || typeof menu !== 'object' || Array.isArray(menu)) {
+          errors.push(`explore.menus[${index}] 必须是对象`);
+          continue;
+        }
+        if (menu.list !== undefined && typeof menu.list !== 'string') errors.push(`explore.menus[${index}].list 必须是字符串`);
+        if (menu.fields !== undefined && (!menu.fields || typeof menu.fields !== 'object' || Array.isArray(menu.fields))) {
+          errors.push(`explore.menus[${index}].fields 必须是对象`);
+        }
+        if (menu.url) NativeSourceSpec.requireBookFields(Object.assign({}, explore, {
+          list: menu.list === undefined ? explore.list : menu.list,
+          fields: menu.fields === undefined ? explore.fields : menu.fields
+        }), `explore.menus[${index}]`, errors);
+      }
     }
     if (definition.toc) {
       // 脚本阶段可以不写 list 和 fields（按返回数组的每项、同名键取值）；写了 fields 就要写全。
@@ -586,10 +624,42 @@ export class NativeSourceSpec {
       }
       if (content.imageDecode !== undefined) {
         const decode = content.imageDecode;
-        if (!decode || !decode.algorithm || !decode.key) {
-          errors.push('content.imageDecode 需要 algorithm 和 key');
-        } else if (!/^(aes|desede|3des)\//i.test(String(decode.algorithm))) {
-          errors.push('content.imageDecode.algorithm 只支持 AES 和 3DES，例如 AES/CBC/PKCS5Padding');
+        if (decode && decode.script !== undefined) {
+          if ([decode.algorithm, decode.key, decode.iv, decode.keyEncoding, decode.ivPrefixBytes]
+            .some((value: NativeValue): boolean => value !== undefined)) {
+            errors.push('content.imageDecode.script 不能与 algorithm/key/iv/keyEncoding/ivPrefixBytes 混用');
+          }
+          if (decode.params !== undefined && (!decode.params || typeof decode.params !== 'object' || Array.isArray(decode.params))) {
+            errors.push('content.imageDecode.params 必须是对象');
+          }
+          if (decode.processPlainImages !== undefined && typeof decode.processPlainImages !== 'boolean') {
+            errors.push('content.imageDecode.processPlainImages 必须是布尔值');
+          }
+        } else {
+          if (decode && (decode.params !== undefined || decode.processPlainImages !== undefined)) {
+            errors.push('content.imageDecode.params/processPlainImages 需要 script');
+          }
+          if (!decode || !decode.algorithm || !decode.key) {
+            errors.push('content.imageDecode 需要 algorithm 和 key');
+          } else if (!/^(aes|desede|3des)\//i.test(String(decode.algorithm))) {
+            errors.push('content.imageDecode.algorithm 只支持 AES 和 3DES，例如 AES/CBC/PKCS5Padding');
+          }
+          if (decode && decode.keyEncoding !== undefined && !['hex', 'utf8'].includes(decode.keyEncoding)) {
+            errors.push('content.imageDecode.keyEncoding 只支持 hex 或 utf8');
+          }
+          if (decode && decode.keyEncoding !== undefined && typeof decode.key === 'string' &&
+            !decode.key.trim().startsWith('=') && !decode.key.includes('{{')) {
+            const length = NativeSourceSpec.coverKeyBytes({ algorithm: decode.algorithm || '', key: decode.key, keyEncoding: decode.keyEncoding });
+            const sizes = /^aes\//i.test(decode.algorithm || '') ? [16, 24, 32] : [24];
+            if (!sizes.includes(length)) errors.push(`content.imageDecode.key 需要 ${sizes.join('/')} 字节的有效密钥`);
+          }
+          if (decode && decode.ivPrefixBytes !== undefined) {
+            if (decode.ivPrefixBytes !== 16) errors.push('content.imageDecode.ivPrefixBytes 只允许 16');
+            if (decode.iv !== undefined) errors.push('content.imageDecode 的 iv 与 ivPrefixBytes 不能同时配置');
+            if (!/^AES\/CBC\/PKCS(?:5|7)Padding$/i.test(decode.algorithm || '')) {
+              errors.push('content.imageDecode.ivPrefixBytes 需要 AES/CBC/PKCS5Padding 或 PKCS7Padding');
+            }
+          }
         }
       }
       if (content.comments) {

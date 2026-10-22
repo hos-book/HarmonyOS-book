@@ -34,11 +34,25 @@ const deleteCode = ts.transpileModule(`class GroupPage { ${pageSource.slice(dele
   compilerOptions: { target: ts.ScriptTarget.ES2021 }
 }).outputText;
 const remove = vm.runInNewContext(`${deleteCode}; GroupPage.prototype.deleteShelfGroup`, context).bind(page);
+const reorderStart = pageSource.indexOf('      onReorder: async (groups: string[])');
+const reorderEnd = pageSource.indexOf('\n      onSave:', reorderStart);
+const reorderCode = ts.transpileModule(`const reorder = ${pageSource.slice(reorderStart, reorderEnd).trim()
+  .replace(/^onReorder: /, '').replace(/,$/, '')};`, { compilerOptions: { target: ts.ScriptTarget.ES2021 } }).outputText;
+const reorder = vm.runInNewContext(`(function() { ${reorderCode}; return reorder; })`, context).call(page);
 (async () => {
   model.groups = ['Old', 'Other'];
   const book = new Edit();
   Object.assign(book, { bookId: 'book', title: 'Custom title', cover: 'local-cover', group: 'Old' });
   model.edits = [book];
+  await reorder(['Other', 'Old']);
+  assert.equal(model.groups.join(','), 'Other,Old');
+  assert.equal(page.shelfGroup, 'Old');
+  assert.equal(model.edits[0].title, 'Custom title');
+  await assert.rejects(reorder(['Old', 'Old']));
+  fail = true;
+  await assert.rejects(reorder(['Old', 'Other']));
+  assert.equal(model.groups.join(','), 'Other,Old');
+  fail = false;
   await save('Old', 'Renamed');
   assert.equal(model.edits[0].group, 'Renamed');
   assert.equal(model.edits[0].title, 'Custom title');

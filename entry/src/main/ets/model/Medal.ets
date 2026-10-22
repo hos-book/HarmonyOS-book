@@ -43,4 +43,16 @@ export class MedalSnapshot {
   version: number = 1;
   selectedMedalId: string = '';
   awards: MedalAward[] = [];
+  /** SHA-256 应用内账号标识；空值为旧版或未登录数据。 */
+  ownerKey: string = '';
+  earnedSeconds: number = 0;
+  /** 仅本机增量游标，恢复备份时不复制。 */
+  statsBaseline: number = 0;
+}
+
+export class MedalAccountStore {
+  version: number = 2;
+  legacyClaimed: boolean = false;
+  lastOwnerKey: string = '';
+  profiles: MedalSnapshot[] = [];
 }

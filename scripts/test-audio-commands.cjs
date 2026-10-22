@@ -1025,7 +1025,7 @@ async function check(name, test) {
       book.chapters = ['a', 'b'].map(id => ({ id, title: id }));
       book.chaptersDescending = descending;
       book.skipOutro = 10;
-      f.state.currentChapter = book.chapters[descending ? 0 : 1];
+      f.state.currentChapter = book.chapters[1];
       f.state.playMode = 0;
       const played = [];
       f.service.playChapter = async (_book, chapter) => played.push(chapter.id);
@@ -1047,7 +1047,7 @@ async function check(name, test) {
     assert.equal(f.service.pendingSeek, 10000);
     assert.deepEqual(f.player.seeks, []);
   });
-  await check('book order persists independently and all playback directions follow it', async () => {
+  await check('descending TOC persists without reversing playback, sleep chapters or list loops', async () => {
     const f = await fixture('playing');
     const book = f.state.currentBook;
     book.chapters = ['a', 'b', 'c'].map(id => ({ id, title: id }));
@@ -1058,26 +1058,34 @@ async function check(name, test) {
     assert.equal(book.chaptersDescending, true);
     assert.equal(f.preference.orderedChapters(book).map(ch => ch.id).join(','), 'c,b,a');
     assert.equal(book.chapters.map(ch => ch.id).join(','), 'a,b,c');
-    assert.equal(f.preference.chapterStep({ id: 'other' }), 1);
+    assert.equal(f.preference.chapterDisplayIndex(book, 0), 2);
+    assert.equal(f.preference.chapterDisplayIndex({ id: 'other', chapters: book.chapters }, 0), 0);
     const played = [];
     f.service.playChapter = async (_book, chapter) => played.push(chapter.id);
     f.service.playChapterFromSavedProgress = f.service.playChapter;
     await f.service.playNext();
     await f.service.playPrevious();
     f.service.autoPlayNext();
-    assert.deepEqual(played, ['a', 'c', 'a']);
+    assert.deepEqual(played, ['c', 'a', 'c']);
     assert.equal(f.service.getAvailableSleepChapters(), 2);
     assert.equal(f.service.setSleepChapters(2), true);
-    assert.equal(f.state.sleepTargetTitle, 'a');
+    assert.equal(f.state.sleepTargetTitle, 'c');
     f.state.sleepMode = 0;
-    f.state.currentChapter = book.chapters[0];
+    f.state.currentChapter = book.chapters[2];
     await f.service.playNext();
     assert.equal(played.length, 3);
     f.state.playMode = 2;
     await f.service.playNext();
-    assert.equal(played.at(-1), 'c');
+    assert.equal(played.at(-1), 'a');
+    await f.service.autoPlayNext();
+    assert.equal(played.at(-1), 'a');
+    f.state.currentChapter = book.chapters[0];
+    const beforePrevious = played.length;
+    await f.service.playPrevious();
+    assert.equal(played.length, beforePrevious);
+    assert.equal(f.service.getAvailableSleepChapters(), 3);
     await f.preference.saveTocOrder(book.id, false);
-    assert.equal(f.preference.chapterStep(book), 1);
+    assert.equal(f.preference.orderedChapters(book).map(ch => ch.id).join(','), 'a,b,c');
     await f.service.playNext();
     assert.equal(played.at(-1), 'b');
   });

@@ -76,7 +76,9 @@ const visit = name => {
   if (!filename) throw new Error(`Missing upstream module: ${name}`);
   const text = readText(filename);
   files.set(name, text);
-  for (const match of rewritePackageImports(name, text).matchAll(/(?:from\s*|import\s*)['"]([^'"]+)['"]/g)) {
+  const dependencies = name === 'core/nativesource/NativeImageScriptRunner.ts' ?
+    text.replace(/^import .* from '@devzeng\/quickjs';\n/m, '') : text;
+  for (const match of rewritePackageImports(name, dependencies).matchAll(/(?:from\s*|import\s*)['"]([^'"]+)['"]/g)) {
     if (match[1].startsWith('@legado/sourceengine')) throw new Error(`Unsupported package import: ${match[1]}`);
     if (!match[1].startsWith('.')) continue;
     const base = path.posix.normalize(path.posix.join(path.posix.dirname(name), match[1]));
@@ -101,6 +103,22 @@ const replaceMethod = (text, signature, body) => {
   return text.replace(expression, body);
 };
 function adapt(name, text) {
+  if (name === 'core/nativesource/NativeImageScriptRunner.ts') {
+    text = text.replace(/^import .* from '@devzeng\/quickjs';\n/m, '')
+      .replace(/^import .* from '\.\/NativeSourceCrypto';\n/m, '');
+    return replaceMethod(text, 'static async run\\(', `  static async run(js: string, fn: string, input: Uint8Array, context: NativeImageScriptContext,
+    cancelled: () => boolean = (): boolean => false): Promise<Uint8Array> {
+    const code = this.program(js, fn, context);
+    if (!input.length || input.length > this.MAX_BYTES) throw new Error('图片脚本输入须为 1 字节至 20 MiB');
+    if (cancelled()) throw new Error('书源请求已取消');
+    const executor = SourceEngineHost.imageScripts();
+    if (!executor) throw new Error('Image script requires the isolated host');
+    const bytes = await executor.run(code, input, cancelled);
+    if (cancelled()) throw new Error('书源请求已取消');
+    if (!bytes.length || bytes.length > this.MAX_BYTES) throw new Error('图片脚本输出超过限制');
+    return bytes;
+  }`);
+  }
   // Execution policy stays in host ports; upstream owns the web-wait behavior.
   // This host deliberately has no synchronous or pooled QuickJS runtime. Keep the
   // optional upstream defaults out of the dependency graph; nativeScripts supplies both paths.

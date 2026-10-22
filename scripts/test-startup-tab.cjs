@@ -18,11 +18,12 @@ function page(read, historyEnabled = true) {
     tabChanged(index: number) { ${tabChanged} }
   }`, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
-  }).outputText, { exports, PreferenceService: { getDefaultTab: read } });
+  }).outputText, { exports, PreferenceService: { getDefaultTab: read }, Curve: { EaseOut: 'ease-out' } });
   const value = new exports.Page();
   Object.assign(value, { tabsReady: false, defaultTabRequest: 0, pendingInitialTab: -1,
     currentTab: 0, generalSettings: { historyEnabled }, switches: [] });
   value.tabController = { changeIndex: i => value.switches.push(i) };
+  value.getUIContext = () => ({ animateTo: (_options, update) => update() });
   return value;
 }
 (async () => {

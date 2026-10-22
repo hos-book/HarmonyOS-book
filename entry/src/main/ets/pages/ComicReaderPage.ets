@@ -25,6 +25,8 @@ import { BookSourceService } from '../service/BookSourceService';
 import { PreferenceService } from '../service/PreferenceService';
 import { TextReadingProgressService } from '../service/text/TextReadingProgressService';
 import { ComicPage, ComicPageDataSource, ComicReaderService } from '../service/ComicReaderService';
+import { ReaderCacheService } from '../service/ReaderCacheService';
+import { OnlineTextContentCache } from '../service/text/OnlineTextContentCache';
 import { ComicSuperResolutionService } from '../service/ComicSuperResolutionService';
 import { ComicPageImage } from '../components/ComicPageImage';
 import { ComicContinuousComponent } from '../components/ComicContinuousComponent';
@@ -89,6 +91,7 @@ export struct ComicReaderPage {
   private chapterPositionGeneration: number = 0;
   @Local showSettings: boolean = false;
   @Local showSourceSwitch: boolean = false;
+  @Local sheetPresented: boolean = false;
   @Local loadingSeconds: number = 0;
   private loadStartedAt: number = Date.now();
   private loadFeedbackTimer: number = -1;
@@ -101,6 +104,31 @@ export struct ComicReaderPage {
   @Local scrollInitialPages: ComicPage[] = [];
   private activeChapterPages: ComicPage[] = [];
   private preparedComicChapters: Map<number, ComicPage[]> = new Map();
+  private diskCacheOwner: string = ReaderCacheService.owner();
+
+  private protectComicCache(): void {
+    if (!this.alive) return;
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
+    ReaderCacheService.configure(context);
+    const paths = this.activeChapterPages.map((page: ComicPage): string => page.url);
+    for (const pages of this.preparedComicChapters.values()) {
+      for (const page of pages) paths.push(page.url);
+    }
+    ReaderCacheService.protect(this.diskCacheOwner, paths);
+    const book = this.book;
+    if (book) {
+      const keys: string[] = [];
+      const indexes = Array.from(this.preparedComicChapters.keys());
+      indexes.push(this.chapterIndex);
+      for (const index of indexes) {
+        const chapter = book.chapters[index];
+        if (chapter) keys.push(OnlineTextContentCache.key(book.sourceUrl, book.bookUrl || book.id,
+          chapter.originSourceValue || chapter.source.value));
+      }
+      OnlineTextContentCache.protect(context, `${this.diskCacheOwner}-lists`, keys);
+    }
+  }
   private preloadGeneration: number = 0;
   private swiper: SwiperController = new SwiperController();
   private generation: number = 0;
@@ -170,6 +198,8 @@ export struct ComicReaderPage {
   }
 
   aboutToDisappear(): void {
+    ReaderCacheService.release(this.diskCacheOwner);
+    ReaderCacheService.release(`${this.diskCacheOwner}-lists`);
     this.readerVisible = false;
     this.holdingHand.setVisible(false);
     this.brightnessControl.dispose();
@@ -213,7 +243,7 @@ export struct ComicReaderPage {
       const explicit = this.params.resourceIndex >= 0;
       this.mode = position?.domPos === 'comic:paged' || position?.domPos === 'comic:rtl' ? 1 : position?.domPos === 'comic:dissolve' ? 3 : 0;
       await this.loadChapter(Math.max(0, Math.min(book.chapters.length - 1,
-        explicit ? this.params.resourceIndex : position?.resourceIndex ?? (book.chaptersDescending ? book.chapters.length - 1 : 0))),
+        explicit ? this.params.resourceIndex : position?.resourceIndex ?? 0)),
         explicit ? 0 : position?.pageOffset ?? 0);
     } catch (error) {
       if (this.alive) { this.reportError(error); this.failed = true; this.busy = false; }
@@ -246,6 +276,7 @@ export struct ComicReaderPage {
       this.scrollInitialPages = pages;
       this.scrollResetToken++;
       this.preparedComicChapters.clear();
+      this.protectComicCache();
       this.pageIndex = Math.max(0, Math.min(page, pages.length - 1));
       this.pageCount = pages.length;
       this.busy = false;
@@ -269,16 +300,18 @@ export struct ComicReaderPage {
     const count = await PreferenceService.getPreloadChapters();
     for (let distance = 1; distance <= count; distance++) {
       if (!this.alive || !this.foreground || generation !== this.generation || ticket !== this.preloadGeneration) return;
-      const target = index + (book.chaptersDescending ? -distance : distance);
+      const target = index + distance;
       if (target < 0 || target >= book.chapters.length) return;
       if (distance > await PreferenceService.getPreloadChapters()) return;
       try {
         const pages = await ComicReaderService.load(book, book.chapters[target], context, false, true);
         if (!this.alive || generation !== this.generation || ticket !== this.preloadGeneration) return;
         if (Math.abs(target - this.chapterIndex) <= 3) this.preparedComicChapters.set(target, pages);
+        this.protectComicCache();
         const complete = await ComicReaderService.preloadImages(book, book.chapters[target], pages, context,
           (): boolean => !this.alive || !this.foreground || generation !== this.generation ||
             (ticket !== this.preloadGeneration && target !== this.chapterIndex));
+        this.protectComicCache();
         if (!complete) return;
       }
       catch (_error) { return; }
@@ -316,7 +349,7 @@ export struct ComicReaderPage {
   }
 
   private adjacent(direction: number): number {
-    return this.chapterIndex + (this.book?.chaptersDescending ? -direction : direction);
+    return this.chapterIndex + direction;
   }
 
   private canChange(direction: number): boolean {
@@ -406,6 +439,7 @@ export struct ComicReaderPage {
     const pages = await ComicReaderService.load(book, book.chapters[index], this.getUIContext().getHostContext(), false, preload);
     if (this.alive && ticket === this.generation && Math.abs(index - this.chapterIndex) <= 3) {
       this.preparedComicChapters.set(index, pages);
+      this.protectComicCache();
     }
     return pages;
   }
@@ -421,6 +455,7 @@ export struct ComicReaderPage {
       for (const key of this.preparedComicChapters.keys()) {
         if (Math.abs(key - index) > 3) this.preparedComicChapters.delete(key);
       }
+      this.protectComicCache();
       if (this.book) this.preloadChapters(this.book, index, this.generation);
     }
     this.pageIndex = page;
@@ -511,13 +546,17 @@ export struct ComicReaderPage {
       }
       // Each sheet needs its own stable host; repeated bindSheet on one node overrides earlier bindings.
       Column().width(0).height(0).hitTestBehavior(HitTestMode.None)
-        .bindSheet($$this.showSettings, this.settingsSheet(), { height: '70%', showClose: true,
-          backgroundColor: AppMaterial.SheetBackground, blurStyle: AppMaterial.ReaderSheetBlur,
-          systemMaterial: AppMaterial.ReaderSheetThick, title: { title: $r('app.string.comic_reading_mode') } })
+        .bindSheet($$this.showSettings, this.settingsSheet(), { height: '70%', preferType: SheetType.BOTTOM,
+          showClose: true, backgroundColor: AppMaterial.SheetBackground, blurStyle: AppMaterial.ReaderSheetBlur,
+          systemMaterial: AppMaterial.ReaderSheetThick, title: { title: $r('app.string.comic_reading_mode') },
+          onWillAppear: (): void => { this.sheetPresented = true; },
+          onDisappear: (): void => { this.sheetPresented = false; } })
       Column().width(0).height(0).hitTestBehavior(HitTestMode.None)
         .bindSheet($$this.showSourceSwitch, this.sourceSwitchSheet(), { height: '82%', preferType: SheetType.BOTTOM,
           showClose: true, backgroundColor: AppMaterial.SheetBackground,
-          blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick })
+          blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick,
+          onWillAppear: (): void => { this.sheetPresented = true; },
+          onDisappear: (): void => { this.sheetPresented = false; } })
       Stack({ alignContent: Alignment.BottomEnd }) {
         if (!this.chrome && this.pageCount > 0) {
         Text($r('app.string.comic_chapter_position', this.chapterAtOrdinal(this.chapterIndex) + 1,
@@ -552,8 +591,11 @@ export struct ComicReaderPage {
     .bindSheet($$this.showChapters, this.chapterSheet(), { height: SheetSize.LARGE, preferType: SheetType.BOTTOM,
       showClose: false, maskColor: Color.Transparent, backgroundColor: AppMaterial.SheetBackground,
       blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick,
+      onWillAppear: (): void => { this.sheetPresented = true; },
       onAppear: (): void => this.scrollChapterListToCurrent(),
-      onDisappear: (): void => { this.showChapters = false; this.chapterPositionGeneration++; } })
+      onDisappear: (): void => {
+        this.sheetPresented = false; this.showChapters = false; this.chapterPositionGeneration++;
+      } })
 
   }
 
@@ -764,7 +806,8 @@ export struct ComicReaderPage {
     .animation({ duration: 180, curve: Curve.EaseOut })
     .hitTestBehavior(this.chrome ? HitTestMode.Transparent : HitTestMode.None)
     .animation(null)
-    .visibility(this.chrome ? Visibility.Visible : Visibility.Hidden)
+    // Keep both covered live-material bars out of the entire sheet transition, including dismissal.
+    .visibility(this.chrome && !this.sheetPresented ? Visibility.Visible : Visibility.Hidden)
     .enabled(this.chrome)
   }
 
@@ -810,11 +853,6 @@ export struct ComicReaderPage {
     const book = this.book;
     if (!book) return;
     book.chaptersDescending = !book.chaptersDescending;
-    this.preloadGeneration++;
-    if (this.mode === 0) {
-      this.scrollInitialPages = this.activeChapterPages;
-      this.scrollResetToken++;
-    }
     this.chapterDescending = book.chaptersDescending;
     PreferenceService.saveTocOrder(book.id, book.chaptersDescending).catch((): void => {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.chapter_order_save_failed') });

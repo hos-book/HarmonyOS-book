@@ -6,6 +6,9 @@ export interface LightSourceHost {
   releaseWeb?(lease: number): void;
   evaluate(script: string, sourceUrl: string, timingId?: number): Promise<string>;
   evaluateNative?(script: string, sourceUrl: string, timeoutMs: number): Promise<string>;
+  evaluateNativeHost?(script: string, sourceUrl: string, timeoutMs: number,
+    handler: (name: string, payload: string) => Promise<string>, check: () => void): Promise<string>;
+  evaluateImage?(script: string, input: Uint8Array, cancelled: () => boolean): Promise<Uint8Array>;
   toast?(message: string): void;
   refreshExplore?(sourceUrl: string): Promise<void>;
   openBrowser?(sourceUrl: string, sourceName: string, address: string): Promise<void>;

@@ -54,6 +54,31 @@ let count = 0;
 async function test(name, fn) { await fn(); count++; console.log('PASS', name); }
 
 async function main() {
+  await test('Offer transport rejects missing endpoint, wrong product, expired signatures and HTTP failures, always releasing HTTP', async () => {
+    let endpoint = '', released = 0, calls = 0;
+    let response = { responseCode: 200, result: JSON.stringify({ productId: 'lastVip', offerId: 'cheaplist',
+      jwsRepresentation: 'a.b.c', expiresAt: now + 300000 }) };
+    const client = load('service/membership/MembershipOfferClient.ets', {
+      '@kit.NetworkKit': { http: { RequestMethod: { POST: 'POST' }, HttpDataType: { STRING: 0 },
+        createHttp: () => ({ request: async () => { calls++; return response; }, destroy: () => { released++; } }) } }
+    }).MembershipOfferClient;
+    const ctx = { resourceManager: { getStringSync: () => endpoint } };
+    await assert.rejects(client.request(ctx, 'lastVip', 'cheaplist'), e => e.code === -3);
+    assert.equal(calls, 0);
+    endpoint = 'https://example.test/offer';
+    assert.equal(await client.request(ctx, 'lastVip', 'cheaplist'), 'a.b.c');
+    for (const result of [
+      { productId: 'iconYear', offerId: 'cheaplist', jwsRepresentation: 'a.b.c', expiresAt: now + 300000 },
+      { productId: 'lastVip', offerId: 'cheaplist', jwsRepresentation: 'a.b.c', expiresAt: now - 1 },
+      null
+    ]) {
+      response = { responseCode: 200, result: JSON.stringify(result) };
+      await assert.rejects(client.request(ctx, 'lastVip', 'cheaplist'), e => e.code === -3);
+    }
+    response = { responseCode: 503, result: '{}' };
+    await assert.rejects(client.request(ctx, 'lastVip', 'cheaplist'), e => e.code === -3);
+    assert.equal(released, calls);
+  });
   await test('Known IDs, expiry, cancellation, refund and sandbox separation', () => {
     const p = payload();
     assert.equal(policy.active(policy.validate(p, false, now), now), true);
@@ -161,8 +186,8 @@ async function main() {
     developer.DeveloperMembership.ENABLED = developerEnabled;
     let defaultsReset = 0;
     const stateModule = load('model/MembershipState.ets', { './MembershipDisplaySnapshot': displayData });
-    // 旧购买回归显式启用保留的会员实现；免费模式单独验证出厂开关。
-    if (featureEnabled) stateModule.MembershipState.featureEnabled = true;
+    // 各场景显式设置总开关，不依赖当前发布默认值。
+    stateModule.MembershipState.featureEnabled = featureEnabled;
     let displayReadGate = Promise.resolve(), displayReadError = false, displayWriteError = false;
     const displayStore = load('service/membership/MembershipDisplayStore.ets', {
       '../../model/MembershipDisplaySnapshot': displayData,
@@ -181,10 +206,12 @@ async function main() {
     const current = [], unfinished = [], finishes = [], icons = [];
     const lifetimeCurrent = [], lifetimeUnfinished = [], purchases = [], queries = [], productQueries = [];
     let productGate = Promise.resolve(), queryGate = Promise.resolve(), purchaseGate = Promise.resolve(), finishGate = Promise.resolve();
-    let queryError = null, finishError = null, purchaseError = null, purchaseCount = 0;
+    let queryError = null, finishError = null, purchaseError = null, purchaseCount = 0, manageCount = 0;
     let purchaseData = null, publishPurchase = true, verificationError = null;
     let savedAccount = 'account-1', systemAccount = 'account-1', accountError = null, accountGate = Promise.resolve();
     const accountChecks = [];
+    const offerRequests = [];
+    let promotion = null, offerError = null;
     let emptyPurchaseList = [];
     const iap = {
       ProductType: { AUTORENEWABLE: 2, NONCONSUMABLE: 1 }, ProductStatus: { VALID: 0 }, PeriodUnit: { MONTH: 2, YEAR: 3, MINUTE: 4 },
@@ -213,12 +240,12 @@ async function main() {
         if (publishPurchase) current.push(subscription);
         return { purchaseData: JSON.stringify(subscription) };
       },
-      showManagedSubscriptions: async () => {},
+      showManagedSubscriptions: async () => { manageCount++; },
       queryProducts: async (_, ids) => {
         productQueries.push(ids);
         await productGate;
         assert.deepEqual(Array.from(ids).sort(), ['iconMonth', 'iconYear', 'lastVip']);
-        return [{ id: 'lastVip', type: 1, localPrice: '¥198.00', price: '¥198.00' },
+        return [{ id: 'lastVip', type: 1, localPrice: '¥198.00', price: '¥198.00', promotionalOffers: promotion ? [promotion] : [] },
           ...['iconMonth', 'iconYear'].map(id => ({ id, type: 2, price: '¥10.00',
             subscriptionInfo: { periodUnit: id === 'iconMonth' ? 2 : 3, periodCount: 1, groupId: 'icons' } }))];
       }
@@ -229,6 +256,11 @@ async function main() {
         setSearchConcurrency: async count => { assert.equal(count, 3); }
       } },
       './membership/DeveloperMembership': developer,
+      './membership/MembershipOfferClient': { MembershipOfferClient: { request: async (_context, productId, offerId) => {
+        offerRequests.push({ productId, offerId });
+        if (offerError) throw offerError;
+        return 'header.payload.signature';
+      } } },
       './AutoBackupService': { AutoBackupService: { instance: { resetMembershipDefaults: async () => { defaultsReset++; } } } },
       '@kit.IAPKit': { iap }, '../model/MembershipState': stateModule,
       '@kit.AccountKit': { authentication: {
@@ -256,6 +288,7 @@ async function main() {
       } }
     });
     return { defaultsReset: () => defaultsReset, service: MembershipService.instance, state: stateModule.MembershipState.current,
+      offerRequests, setPromotion: value => { promotion = value; }, setOfferError: value => { offerError = value; },
       current, unfinished, finishes, icons, lifetimeCurrent, lifetimeUnfinished, purchases, queries, productQueries,
       setProductGate: gate => { productGate = gate; }, setQueryError: e => { queryError = e; },
       setQueryGate: gate => { queryGate = gate; },
@@ -269,7 +302,49 @@ async function main() {
       setDisplayReadGate: gate => { displayReadGate = gate; },
       failDisplayRead: () => { displayReadError = true; }, failDisplayWrite: () => { displayWriteError = true; },
       setFinishError: e => { finishError = e; }, setPurchaseError: e => { purchaseError = e; }, purchaseCount: () => purchaseCount,
-      setEmptyPurchaseList: value => { emptyPurchaseList = value; } };
+      setEmptyPurchaseList: value => { emptyPurchaseList = value; }, manageCount: () => manageCount };
+  }
+  await test('Huawei promotion price and signature are used together; signing failure never charges regular price', async () => {
+    const s = session();
+    s.setPromotion({ offerId: 'cheaplist', localPrice: '¥98.00', microPrice: 98000000, paymentMode: 5 });
+    await s.service.load(context);
+    const plan = s.service.plans.find(p => p.id === 'lastVip');
+    assert.equal(plan.price, '¥98.00');
+    assert.equal(plan.regularPrice, '¥198.00');
+    s.setOfferError({ code: -3 });
+    await s.service.purchase(context, 'lastVip');
+    assert.equal(s.purchaseCount(), 0);
+    assert.equal(s.service.message, 'app.string.membership_offer_unavailable');
+    s.setOfferError(null);
+    await s.service.purchase(context, 'lastVip');
+    assert.equal(s.purchaseCount(), 1);
+    assert.equal(s.purchases[0].promotionalOfferId, 'cheaplist');
+    assert.equal(s.purchases[0].jwsRepresentation, 'header.payload.signature');
+  });
+  await test('An expired campaign refreshes the displayed plan and stops before the cashier', async () => {
+    const s = session();
+    s.setPromotion({ offerId: 'cheaplist', localPrice: '¥39.00', microPrice: 39000000, paymentMode: 5 });
+    await s.service.load(context);
+    s.setPromotion(null);
+    await s.service.purchase(context, 'lastVip');
+    assert.equal(s.purchaseCount(), 0);
+    assert.equal(s.offerRequests.length, 0);
+    assert.equal(s.service.message, 'app.string.membership_offer_changed');
+  });
+  function subscriptionPage(s) {
+    const source = fs.readFileSync(path.join(root, 'pages/MembershipSubscriptionPage.ets'), 'utf8').replace(/\r\n/g, '\n');
+    const methods = source.slice(source.indexOf('  private isAnnualUpgrade('), source.indexOf('  @Builder\n  planCard('));
+    const exports = {};
+    vm.runInNewContext(ts.transpileModule(`class SubscriptionPage {
+      agreed = false;
+      findPlan(id) { return this.membership.plans.find(plan => plan.id === id); }
+      ${methods}
+    } exports.SubscriptionPage = SubscriptionPage;`, {
+      compilerOptions: { target: ts.ScriptTarget.ES2020 }
+    }).outputText, { exports, $r: name => name });
+    const page = new exports.SubscriptionPage();
+    page.state = s.state; page.membership = s.service;
+    return page;
   }
   function iconPage(s, membershipRequired = true) {
     const source = fs.readFileSync(path.join(root, 'pages/AppIconPage.ets'), 'utf8');
@@ -391,6 +466,14 @@ async function main() {
     s.state.expiresAt = now - 1;
     assert.equal(await s.service.hasCurrentEntitlement(), false);
     assert.equal(s.queries.length, 4);
+  });
+  await test('Fresh import entitlement rejects revoked access while the five-minute cache is still valid', async () => {
+    const s = session(); s.current.push(payload()); await s.service.refresh(context);
+    assert.equal(s.state.hasAccess, true);
+    s.current.length = 0;
+    assert.equal(await s.service.hasCurrentEntitlement(true), false);
+    assert.equal(s.queries.length, 4, 'fresh operation queries current orders instead of using cached access');
+    assert.equal(s.state.confirmedInactive, true);
   });
   await test('Membership center and settings share valid access and prices beyond sixty seconds', async () => {
     const s = session(); s.current.push(payload()); await s.service.load(context);
@@ -808,6 +891,107 @@ async function main() {
     s.lifetimeCurrent[0].purchaseOrderRevocationReasonCode = '0';
     await s.service.refresh(context, true);
     assert.equal(s.state.lifetime, false);
+  });
+  await test('Annual upgrade UI requires consent and a matching group; pending changes open management', async () => {
+    const s = session(); s.current.push(payload()); await s.service.load(context);
+    const page = subscriptionPage(s);
+    assert.equal(page.planAction('iconYear'), 'app.string.membership_upgrade_year');
+    assert.equal(page.shouldManagePlan('iconYear'), false);
+    assert.equal(page.canSelectPlan('iconYear'), false);
+    page.agreed = true;
+    assert.equal(page.canSelectPlan('iconYear'), true);
+    assert.equal(page.shouldManagePlan('iconMonth'), true);
+    s.state.pendingProductId = 'iconYear';
+    assert.equal(page.planAction('iconYear'), 'app.string.membership_manage');
+    assert.equal(page.shouldManagePlan('iconYear'), true);
+    s.state.pendingProductId = ''; s.state.subscriptionGroupId = 'other';
+    assert.equal(page.canSelectPlan('iconYear'), false);
+    s.state.productId = 'lastVip';
+    assert.equal(page.canSelectPlan('iconYear'), false);
+  });
+  await test('Monthly member upgrades through annual cashier and applies only verified annual expiry', async () => {
+    const s = session(); s.current.push(payload()); await s.service.load(context); await s.service.confirmationTask;
+    const annual = payload(); annual.lastSubscriptionStatus.lastPurchaseOrder.productId = 'iconYear';
+    annual.lastSubscriptionStatus.lastPurchaseOrder.purchaseToken = 'annual-token';
+    annual.lastSubscriptionStatus.lastPurchaseOrder.purchaseOrderId = 'annual-order';
+    annual.lastSubscriptionStatus.expiresTime = now + 365 * 86400000;
+    s.setPurchaseData(annual);
+    await s.service.purchase(context, 'iconYear'); await s.service.confirmationTask;
+    assert.equal(s.purchaseCount(), 1); assert.equal(s.manageCount(), 0);
+    assert.equal(s.purchases[0].productType, 2); assert.equal(s.purchases[0].productId, 'iconYear');
+    assert.equal(s.state.productId, 'iconYear'); assert.equal(s.state.subscriptionGroupId, 'icons');
+    assert.equal(s.state.expiresAt, annual.lastSubscriptionStatus.expiresTime);
+    assert.equal(s.state.pendingProductId, ''); assert.equal(s.state.hasAccess, true);
+    assert.equal(s.finishes.at(-1).purchaseOrderId, 'annual-order');
+  });
+  await test('Deferred annual upgrade preserves monthly entitlement and prevents repeat annual purchase', async () => {
+    const s = session(); s.current.push(payload()); await s.service.load(context); await s.service.confirmationTask;
+    const deferred = clone(s.current[0]);
+    deferred.lastSubscriptionStatus.renewalInfo.nextRenewPeriodProductId = 'iconYear';
+    s.setPurchaseData(deferred);
+    await s.service.purchase(context, 'iconYear'); await s.service.confirmationTask;
+    assert.equal(s.purchaseCount(), 1); assert.equal(s.state.productId, 'iconMonth');
+    assert.equal(s.state.pendingProductId, 'iconYear'); assert.equal(s.state.hasAccess, true);
+    assert.equal(s.state.expiresAt, deferred.lastSubscriptionStatus.expiresTime);
+    assert.equal(s.finishes.length, 1, 'deferred switch does not fabricate or acknowledge an annual order');
+    s.current[0] = deferred;
+    await s.service.purchase(context, 'iconYear');
+    assert.equal(s.purchaseCount(), 1); assert.equal(s.manageCount(), 1);
+    const cold = session(); cold.current.push(deferred); await cold.service.load(context);
+    assert.equal(cold.state.pendingProductId, 'iconYear'); assert.equal(cold.state.productId, 'iconMonth');
+    cold.state.clearEntitlement(); assert.equal(cold.state.pendingProductId, '');
+  });
+  await test('Unrelated groups and missing current product metadata cannot create a second subscription', async () => {
+    for (const mode of ['receipt-group', 'product-group', 'missing-month']) {
+      const s = session(); s.current.push(payload());
+      if (mode === 'receipt-group') s.current[0].subGroupId = 'other';
+      await s.service.load(context);
+      if (mode === 'product-group') s.service.plans.find(p => p.id === 'iconYear').groupId = 'other';
+      if (mode === 'missing-month') s.service.plans = s.service.plans.filter(p => p.id !== 'iconMonth');
+      await s.service.purchase(context, 'iconYear');
+      assert.equal(s.purchaseCount(), 0); assert.equal(s.state.productId, 'iconMonth');
+      assert.equal(s.service.message, 'app.string.membership_upgrade_unavailable');
+    }
+  });
+  await test('Cancelled upgrade preserves monthly access and cancelled or unknown renewal plans are not pending', async () => {
+    const s = session(); s.current.push(payload()); await s.service.load(context); await s.service.confirmationTask;
+    const expiry = s.state.expiresAt;
+    s.setPurchaseError({ code: 1001860000 });
+    await s.service.purchase(context, 'iconYear');
+    assert.equal(s.purchaseCount(), 1); assert.equal(s.state.productId, 'iconMonth');
+    assert.equal(s.state.expiresAt, expiry); assert.equal(s.state.hasAccess, true);
+    assert.equal(s.state.pendingProductId, '');
+    const status = payload().lastSubscriptionStatus;
+    status.renewalInfo = { autoRenewStatusCode: '0', nextRenewPeriodProductId: 'iconYear' };
+    assert.equal(policy.pendingProduct(status), '');
+    status.renewalInfo = { autoRenewStatusCode: '1', nextRenewPeriodProductId: 'unknown' };
+    assert.equal(policy.pendingProduct(status), '');
+  });
+  await test('Upgrade rejects wrong groups and monthly receipts without a verified annual renewal plan', async () => {
+    for (const mode of ['no-change', 'renewal-off', 'wrong-group', 'wrong-product']) {
+      const s = session(); s.current.push(payload()); await s.service.load(context); await s.service.confirmationTask;
+      const response = clone(s.current[0]);
+      if (mode === 'renewal-off') response.lastSubscriptionStatus.renewalInfo =
+        { autoRenewStatusCode: '0', nextRenewPeriodProductId: 'iconYear' };
+      if (mode === 'wrong-group') {
+        response.subGroupId = 'other'; response.lastSubscriptionStatus.lastPurchaseOrder.productId = 'iconYear';
+      }
+      if (mode === 'wrong-product') response.lastSubscriptionStatus.lastPurchaseOrder.productId = 'unknown';
+      s.setPurchaseData(response);
+      await s.service.purchase(context, 'iconYear'); await s.service.confirmationTask;
+      assert.equal(s.state.productId, 'iconMonth'); assert.equal(s.state.pendingProductId, '');
+      assert.equal(s.finishes.length, 1, 'invalid switch receipts must not acknowledge a new purchase');
+    }
+  });
+  await test('Upgrade waits for original delivery and stops when acknowledgement fails', async () => {
+    const s = session(); s.current.push(payload()); s.setFinishError({ code: 1001860005 });
+    await s.service.load(context); await s.service.confirmationTask;
+    await s.service.purchase(context, 'iconYear');
+    assert.equal(s.purchaseCount(), 0); assert.equal(s.state.productId, 'iconMonth');
+    assert.equal(s.service.message, 'app.string.membership_confirmation_pending');
+    s.setFinishError(null);
+    await s.service.purchase(context, 'iconYear'); await s.service.confirmationTask;
+    assert.equal(s.purchaseCount(), 1); assert.equal(s.state.productId, 'iconYear');
   });
   await test('Lifetime purchase cancellation grants nothing; yearly name color follows verified state', async () => {
     const s = session(); await s.service.load(context); s.setPurchaseError({ code: 1001860000 });

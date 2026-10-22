@@ -2,6 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const crypto = require('node:crypto');
 const ts = require(path.join(process.env.DEVECO_HOME,
   'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = path.resolve(__dirname, '../entry/src/main/ets');
@@ -14,7 +15,7 @@ const handles = new Map();
 const fileIo = { OpenMode: { CREATE: 1, WRITE_ONLY: 2, TRUNC: 4 }, mkdirSync() {},
   accessSync: name => files.has(name),
   openSync(name) { handles.set(++openId, name); return { fd: openId }; },
-  writeSync(fd, bytes) { files.set(handles.get(fd), bytes); }, closeSync() {},
+  writeSync(fd, bytes) { files.set(handles.get(fd), bytes); return bytes.byteLength; }, closeSync() {},
   stat: async name => { if (!files.has(name)) throw Error('missing'); return { size: files.get(name).byteLength }; },
   unlink: async name => files.delete(name) };
 const fileUri = { getUriFromPath: name => 'file://' + name,
@@ -37,7 +38,16 @@ function evaluate(relative, require, globals = {}) {
   return exports;
 }
 const { ComicImagePipeline } = evaluate('service/rulesource/light/upstream/core/book/ComicImagePipeline.ts',
-  name => name === '@ohos.file.fs' ? { default: fileIo } : {},
+  name => {
+    if (name === '@ohos.file.fs') return { default: fileIo };
+    if (name.endsWith('SourceEngineHost')) return { SourceEngineHost: { isCancelled: () => false } };
+    if (name === '@kit.ArkTS') return { util: { TextEncoder: class { encodeInto(text) { return new TextEncoder().encode(text); } } } };
+    if (name === '@kit.CryptoArchitectureKit') return { cryptoFramework: { createMd: () => {
+      const hash = crypto.createHash('sha256');
+      return { update: async blob => hash.update(blob.data), digest: async () => ({ data: hash.digest() }) };
+    } } };
+    return {};
+  },
   { AppStorage: { get: () => '/cache' } });
 const { LightSourceRequest } = evaluate('service/rulesource/light/LightSourceRequestPolicy.ts', () => ({}));
 const text = fs.readFileSync(path.join(root, 'service/rulesource/light/LightSourceCore.ts'), 'utf8');
@@ -48,8 +58,10 @@ while (depth && end < text.length) {
   if (text[end] === '}') depth--;
   end++;
 }
-const coreScope = { ComicImagePipeline, HttpClient, LightSourceRequestPolicy: { bind() {} },
-  LightSourceRuntime: { run: (_source, _local, action) => action() } };
+const ReaderCacheService = { configure() {}, beginComicWrite() {}, endComicWrite() {}, record: async () => {},
+  touch: async () => {}, enforce: async () => {} };
+const coreScope = { ComicImagePipeline, HttpClient, LightSourceRequestPolicy: { bind() {} }, ReaderCacheService,
+  LightSourceRuntime: { run: (_source, _local, action) => action(), setError() {} } };
 vm.runInNewContext(compile(`class Core { static source(local) { return local; } ${text.slice(start, end)} }
   globalThis.Core = Core;`), coreScope);
 const source = { bookSourceUrl: 'https://source.test' };
@@ -66,6 +78,7 @@ const { ComicReaderService: reader } = evaluate('service/ComicReaderService.ets'
   if (name === '@kit.BasicServicesKit') return { emitter: { emit: (...args) => events.push(args) } };
   if (name === '@kit.PerformanceAnalysisKit') return { hilog: { info() {} } };
   if (name.endsWith('LightSourceRequestPolicy')) return { LightSourceRequest };
+  if (name.endsWith('ReaderCacheService')) return { ReaderCacheService };
   if (name.endsWith('OnlineTextContentCache')) return { OnlineTextContentCache: {
     key: (...parts) => parts.join('|'), read: async (_ctx, key) => records.get(key),
     write: async (_ctx, key, body) => records.set(key, body), removeChapter: async (_ctx, key) => records.delete(key)

@@ -80,9 +80,13 @@ export struct ImportPage {
 
   aboutToDisappear(): void {
     this.disposed = true;
+    if (!this.importing) this.releasePreviews();
+  }
+
+  private releasePreviews(): void {
     for (const file of this.pickedFiles) {
       if (file.preview !== null && file.preview.directory.length > 0) {
-        fileIo.rmdir(file.preview.directory).catch((): void => {});
+        LocalBookImportService.releasePreview(file.preview);
       }
     }
   }
@@ -99,7 +103,7 @@ export struct ImportPage {
         try {
           file.preview = await LocalBookImportService.preview(this.context, file);
           if (this.disposed && file.preview.directory.length > 0) {
-            await fileIo.rmdir(file.preview.directory).catch((): void => {});
+            await LocalBookImportService.releasePreview(file.preview);
           }
         } catch (error) {
           failures++;
@@ -423,7 +427,10 @@ export struct ImportPage {
       } else {
         this.progressText = this.context.resourceManager.getStringSync($r('app.string.import_no_files').id);
       }
-    } finally { this.importing = false; }
+    } finally {
+      this.importing = false;
+      if (this.disposed) this.releasePreviews();
+    }
   }
 
   private async probeAudioDuration(path: string): Promise<number> {

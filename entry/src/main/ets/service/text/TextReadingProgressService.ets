@@ -3,6 +3,7 @@ import { preferences } from '@kit.ArkData';
 import { emitter } from '@kit.BasicServicesKit';
 import { TextReadingPosition } from '../../model/TextReading';
 import { GeneralSettings } from '../../model/GeneralSettings';
+import { PreferenceService } from '../PreferenceService';
 
 const STORE_NAME: string = 'online_text_reading_progress';
 const KEY_PREFIX: string = 'position_';
@@ -58,6 +59,9 @@ export class TextReadingProgressService {
     }
     emitter.emit(EVT_TEXT_READING_PROGRESS_CHANGED);
     await store.flush();
+    await PreferenceService.promoteFavorite(position.bookId).catch((): void => {
+      // 小说、漫画和朗读共用此进度入口；书架排序失败不影响续读。
+    });
   }
 
   /** 记录页与备份共用逐条校验，坏记录不影响其他书籍。 */

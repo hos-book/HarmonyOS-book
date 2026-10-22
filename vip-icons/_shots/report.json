@@ -1,0 +1,90 @@
+{
+  "src": "D:\\HSDA\\vip-icons\\会员图标对比.html",
+  "url": "file:///D:/HSDA/vip-icons/%E4%BC%9A%E5%91%98%E5%9B%BE%E6%A0%87%E5%AF%B9%E6%AF%94.html",
+  "outdir": "D:\\HSDA\\vip-icons\\_shots",
+  "include": [
+    "lint",
+    "screenshots",
+    "structure"
+  ],
+  "shots": {
+    "desktop": {
+      "screenshot": "D:\\HSDA\\vip-icons\\_shots\\会员图标对比_desktop.jpg",
+      "screenshotBytes": 32179,
+      "truncated": false,
+      "structure": {
+        "title": "会员图标设计对比 · 简约版",
+        "firstH1": "会员图标 · 简约版",
+        "viewport": {
+          "w": 1424,
+          "h": 749
+        },
+        "fullpage": {
+          "w": 1424,
+          "h": 749
+        },
+        "counts": {
+          "section": 3,
+          "h1": 1,
+          "h2": 0,
+          "img": 0,
+          "canvas": 0,
+          "svg": 10,
+          "links": 0,
+          "buttons": 0
+        }
+      },
+      "consoleErrors": [],
+      "consoleWarnings": [],
+      "horizontalOverflow": [],
+      "resourceErrors": [],
+      "reportSource": "cdp"
+    }
+  },
+  "engine": "chrome_cli",
+  "chromiumExec": "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+  "engineDegraded": true,
+  "engineDegradedReason": "playwright 未装",
+  "elapsedSec": 10.67,
+  "schemaVersion": 2,
+  "status": "pass",
+  "engineInfo": {
+    "name": "chrome_cli",
+    "degraded": true,
+    "degradedReasons": [
+      "playwright 未装"
+    ]
+  },
+  "input": {
+    "original": "D:\\HSDA\\vip-icons\\会员图标对比.html",
+    "resolvedPath": "D:\\HSDA\\vip-icons\\会员图标对比.html",
+    "baseUrl": "file:///D:/HSDA/vip-icons/%E4%BC%9A%E5%91%98%E5%9B%BE%E6%A0%87%E5%AF%B9%E6%AF%94.html",
+    "protocol": "file",
+    "cwd": "D:\\HSDA",
+    "mediaMode": {
+      "reducedMotion": true
+    }
+  },
+  "artifacts": {
+    "screenshots": [
+      {
+        "viewport": "desktop",
+        "path": "D:\\HSDA\\vip-icons\\_shots\\会员图标对比_desktop.jpg",
+        "size": 32179,
+        "visualCoverage": {
+          "complete": true,
+          "reason": null
+        }
+      }
+    ]
+  },
+  "summary": {
+    "blocker": 0,
+    "error": 0,
+    "warning": 0,
+    "info": 0
+  },
+  "findings": [],
+  "prioritizedActions": [],
+  "reportPath": "D:\\HSDA\\vip-icons\\_shots\\report.json"
+}

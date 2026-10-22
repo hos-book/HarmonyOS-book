@@ -939,7 +939,7 @@ export struct PlayerPage {
     }
     if (!this.book || !this.playerState.currentChapter) return;
     const idx = this.currentChapterIndex();
-    const target = idx - PreferenceService.chapterStep(this.book);
+    const target = idx - 1;
     if (idx >= 0 && target >= 0 && target < this.book.chapters.length) {
       const ch = this.book.chapters[target];
       // AudioService 内部会查缓存/解析 URL，这里不用再做
@@ -954,7 +954,7 @@ export struct PlayerPage {
     }
     if (!this.book || !this.playerState.currentChapter) return;
     const idx = this.currentChapterIndex();
-    const target = idx + PreferenceService.chapterStep(this.book);
+    const target = idx + 1;
     if (idx >= 0 && target >= 0 && target < this.book.chapters.length) {
       const ch = this.book.chapters[target];
       await AudioService.getInstance().playChapter(this.book, ch);

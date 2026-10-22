@@ -52,10 +52,16 @@ function testRows() {
 }
 const repositoryText = fs.readFileSync(path.join(root, 'service/rulesource/LocalRuleSourceRepository.ets'), 'utf8');
 let member = true;
+let refreshedMember = null;
 const { LocalRuleSourceRepository: repo } = compile(repositoryText, {
   require: name => {
     if (name === '@kit.ArkData') return { relationalStore: { ConflictResolution: { ON_CONFLICT_REPLACE: 1 } } };
-    if (name === '../MembershipService') return { MembershipService: { instance: { hasCurrentEntitlement: async () => member } } };
+    if (name === '../MembershipService') return { MembershipService: { instance: {
+      hasCurrentEntitlement: async (force = false) => {
+        if (force && refreshedMember !== null) member = refreshedMember;
+        return member;
+      }
+    } } };
     if (name === '../../model/MembershipState') return { MembershipState: { current: { get hasAccess() { return member; } } } };
     return {};
   }
@@ -120,26 +126,33 @@ async function testImportOrder() {
   await repo.upsertImportedBatch([source('first'), source('second')]);
   assert.deepEqual(sorted(), ['first', 'second']);
   member = false;
-  await repo.upsertImportedBatch(Array.from({ length: 6 }, (_, i) => source('free-' + i)));
-  assert.equal(rows.size, 8);
+  await repo.upsertImportedBatch(Array.from({ length: 8 }, (_, i) => source('free-' + i)));
+  assert.equal(rows.size, 10);
   await repo.upsertImportedBatch([source('first'), source('first')]);
-  await assert.rejects(repo.insert(source('ninth')), /SOURCE_LIMIT_REACHED/);
+  await assert.rejects(repo.insert(source('eleventh')), /SOURCE_LIMIT_REACHED/);
   const previousName = rows.get('first').bookSourceName;
-  await assert.rejects(repo.upsertImportedBatch([source('first', { bookSourceName: 'Rollback' }), source('ninth')]), /SOURCE_LIMIT_REACHED/);
+  await assert.rejects(repo.upsertImportedBatch([source('first', { bookSourceName: 'Rollback' }), source('eleventh')]), /SOURCE_LIMIT_REACHED/);
   assert.equal(rows.get('first').bookSourceName, previousName, 'whole batch rolls back');
   member = true;
-  await repo.upsertImportedBatch(Array.from({ length: 20 }, (_, i) => source('paid-' + i)));
-  assert.equal(rows.size, 28, 'member has no total-count cap');
-  member = false;
+  await repo.upsertImportedBatch(Array.from({ length: 58 }, (_, i) => source('paid-' + i)));
+  assert.equal(rows.size, 68, 'member has no total-count cap');
+  refreshedMember = false;
+  await assert.rejects(repo.upsertImportedBatch([source('expired-add')]), /SOURCE_LIMIT_REACHED/);
+  assert.equal(member, false, 'import refreshes stale membership before writing a new source');
+  refreshedMember = null;
   await repo.update(source('first', { bookSourceName: 'Still editable' }));
   assert.equal(rows.get('first').bookSourceName, 'Still editable');
+  const existing = [...rows.keys()].map(url => source(url));
+  assert.equal(await repo.upsertImportedBatch(existing), 68, 'expired member can update all 68 existing sources');
+  assert.equal(rows.size, 68, 'reimporting does not add sources');
   await assert.rejects(repo.upsertImportedBatch([source('extra')]), /SOURCE_LIMIT_REACHED/);
-  assert.equal(rows.size, 28, 'expiry preserves existing sources');
+  await assert.rejects(repo.upsertImportedBatch([...existing, source('extra')]), /SOURCE_LIMIT_REACHED/);
+  assert.equal(rows.size, 68, 'expiry blocks the 69th source and preserves existing sources');
   rows.delete('first');
   rows.delete('second');
-  for (const key of [...rows.keys()]) if (rows.size > 7) rows.delete(key);
+  for (const key of [...rows.keys()]) if (rows.size > 9) rows.delete(key);
   await repo.upsertImportedBatch([source('available-again'), source('available-again')]);
-  assert.equal(rows.size, 8, 'duplicates consume one slot and deletion releases capacity');
+  assert.equal(rows.size, 10, 'duplicates consume one slot and deletion releases capacity');
 }
 (async () => {
   testRows();

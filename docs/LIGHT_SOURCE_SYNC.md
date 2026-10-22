@@ -4,14 +4,34 @@
 
 ## 固定版本与维护边界
 
+### 公共包更新（2026-10-22）
+
+公共包 `main` 更新至 `2f60664`，保留已有异步宿主适配并增加图片二进制宿主端口，固定为本地 `5b3acba`；应用辅助代码更新至本地 `c8263a5`。通过既有脚本同步 83 个文件，分类独立列表/字段、封面请求头、图片密钥编码与前置 IV、图片脚本和地址字段诊断均已接入。本地适配提交未推送。
+
+`NativeImageScriptRunner.program()` 复用公共包包装逻辑，执行通过 `SourceEngineHost.imageScripts → LightSourceSandbox → LocalRuleQuickJsRuntime.execute()` 进入 taskpool。现有 QuickJS HAR 增加二进制参数、字节返回及共享取消信号，不使用另一套持久脚本会话。每次独立 context，finally 释放；输入/输出各 20 MiB，heap 96 MiB、stack 1 MiB，计算 2 秒、总时长 10 秒、最多 32 个 pending jobs；仅开放加密、解密、摘要和 HMAC，最多 32 次宿主调用、累计 128 MiB。全局图片队列含运行项最多 4 项、串行执行、排队最多 30 秒。系统加密在 worker 同步执行，受调用数及字节预算限制；系统调用结束后检查取消及总时长。
+
+漫画缓存保留图片序号，支持 `params`、`processPlainImages`、前置 IV 和异步解密；缓存身份包含请求头、解码参数及函数库版本。按实际字节视图写文件并处理短写，取消或解码失败不生成成功缓存。原生源 244 项断言、图片选项/封面、图片脚本链路、简听引擎、漫画预取/网页等待和导入导出回归通过。Node 使用模拟平台 API 和 VM，不能替代设备 taskpool/NAPI 验证。Release SDK 26.0.0.105 双 ABI HAR 与增量 debug HAP 编译通过，元数据为 Release、最低 API 20、目标 API 26。手机 `62T0225B13006276` 恢复连接后已覆盖安装并成功启动，现场截图确认漫画页面正常显示；不能据此认定当前书源触发了新增图片脚本。独立 C++ 探针编译成功，但设备执行返回 Permission denied，未取得原生探针结果，图片脚本实源完整链路仍待验证。MCP 静态检查已修复新增 throw 类型错误，但仍用旧 TS 类型信息误报 `imageOperationSync` 不存在；实际源码、编译后模块和 SDK 构建均包含该方法。
+
+本轮读取在线 [Hvigor 指南](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[ArkTS 语法规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)及 [ArkUI 检索指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)。后续目录请求遇到 429，部分 V2 参考文档返回 403；组件兼容性以本机静态检查和 SDK 编译为准。
+
+图片宿主实现另参考已读取的 [ArkTS 检索指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/SKILL.md)及其 linter 约束摘要、[ArkTS 编译修复技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)和错误示例；执行结果以本机回归和 SDK 产物为准。
+
+### 原生脚本纯计算与目录分页（2026-10-22）
+
+`LightNativeScripts` 在沙箱内复用同步生成的 `NativeExprProgram` 执行白名单内的整数、字符串及字节转换。此前每次 `native.int()` 都产生一次宿主调用并从头回放整个阶段，长目录会耗尽 2 秒累计计算预算；HTTP、加密、状态、选择器及依赖作用域的函数仍通过原有宿主日志回放，256 次宿主调用、时间和数据量边界不变。没有修改公共包生成文件或添加站点适配。
+
+手机日志中《诸天从聊斋志异开始》两次目录加载在约 3.8 秒报 `tocFull: InternalError: interrupted`。修复版使用 Release SDK 26.0.0.105 构建并安装后，同书目录返回 100 条，详情耗时 1707ms。另行用真实网站与原始源定义核对，第二页因源中固定 AES 参数过期返回 HTTP 403，源脚本静默结束而留下前 100 条；这不是解析器缺少 AES。独立修正版源从页面引用的加密脚本提取当前参数，分页失败直接报错，避免缓存不完整目录。通过应用解析链路的 Node 实网检查得到 354 条、4 页目录；该检查的加密由 Node 实现，尚不等同于修正版源已导入手机并完成全目录/正文验证。没有核实轻页安装版本、源定义和目录缓存，不推断其当前成功原因。
+
+引擎回归通过，新增 3000 章/3 页用例仅执行 5 次沙箱任务，覆盖转换语义、受控加密及宿主动作不重复。实机发现页仍有独立的计算预算中断记录，本轮不宣称所有脚本阶段都已消除预算问题。在线参考：[ArkTS 检索指南](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/SKILL.md)及其 linter 语法约束摘要；实际验证以回归、Release 产物元数据和手机日志为准。
+
 同步输入分别固定版本：
 
 | 来源 | 仓库 | 固定提交 | 本地工作区 |
 | --- | --- | --- | --- |
-| 解析内核 | `wip3l/harmony-book-source-engine` 的本地分支 `codex/jianting-native-js-host` | `817b11ee7b0a4ba5b8587464499ae7af4b0441d6` | `D:\harmony-book-source-engine` |
-| 应用辅助代码 | `wip3l/legado-harmony` 的共同维护分支 `codex/sourceengine-host` | `67e5f2dc99b4fb62fe714b45d7d6acc56e7afad2` | `D:\legado-harmony-sourceengine-host` |
+| 解析内核 | `wip3l/harmony-book-source-engine` 的本地分支 `codex/jianting-native-js-host` | `5b3acba3b6d2d8368a2bc01c64a0301b83ee9ba0` | `D:\harmony-book-source-engine` |
+| 应用辅助代码 | `wip3l/legado-harmony` 的共同维护分支 `codex/sourceengine-host` | `c8263a501c2a9a4c4902182300fb4a529ffca7af` | `D:\legado-harmony-sourceengine-host` |
 
-应用辅助代码沿用迁移前的固定提交，其中末次网页等待修复仍是本地提交，不假定上游公开仓库已有该提交。精确版本、逐文件来源、原始路径和 SHA256 见 `third_party/light-source/upstream.json`（schemaVersion 2）。摘要统一按 LF 换行计算；生成文件的 upstreamSha256 对应抽取的方法或原始模板，generated 标记与 upstreamPath 共同记录出处。
+应用辅助代码包含本地网页等待修复和图片管线接入，不假定上游公开仓库已有这些提交。精确版本、逐文件来源、原始路径和 SHA256 见 `third_party/light-source/upstream.json`（schemaVersion 2）。摘要统一按 LF 换行计算；生成文件的 upstreamSha256 对应抽取的方法或原始模板，generated 标记与 upstreamPath 共同记录出处。
 
 - `light/upstream/`：递归迁入的规则、解析、网络、媒体和交互核心；导入方法从上游原方法抽取。勿直接修改生成文件；通用能力修改公共包，简听策略通过宿主端口注入。
 - `light/LightSource*.ts`、`LightSource*.ets`：简听 JSON 模型边界、平台接口和有界 QuickJS 桥接。
@@ -32,6 +52,8 @@
 node scripts/sync-light-source.cjs D:\harmony-book-source-engine D:\legado-harmony-sourceengine-host
 node scripts/sync-light-source.cjs D:\harmony-book-source-engine D:\legado-harmony-sourceengine-host --check
 node scripts/test-light-source-engine.cjs
+node scripts/test-image-scripts.cjs
+node scripts/test-comic-preload.cjs
 node scripts/test-comic-web-wait.cjs
 node scripts/test-rule-source-export.cjs
 ```

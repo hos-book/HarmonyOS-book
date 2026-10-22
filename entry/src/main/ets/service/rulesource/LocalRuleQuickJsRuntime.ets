@@ -1,5 +1,41 @@
 import { JSBoundedExecutionResult, JSContext, JSRuntimeOptions } from '@devzeng/quickjs';
 import { taskpool } from '@kit.ArkTS';
+import { NativeSourceCrypto } from './light/upstream/core/nativesource/NativeSourceCrypto';
+import { LocalRuleQuickJsHostChannel } from './LocalRuleQuickJsHostChannel';
+
+@Concurrent
+function runBoundedHostQuickJs(script: string, sourceUrl: string, timeoutMs: number,
+  control: Int32Array, response: Uint8Array): string {
+  const options = new JSRuntimeOptions();
+  options.memoryLimitBytes = 64 * 1024 * 1024;
+  options.stackLimitBytes = 1024 * 1024;
+  const context = new JSContext(options);
+  try {
+    const result = context.evaluateBounded(script, sourceUrl, timeoutMs, 32, undefined, undefined,
+      control.subarray(0, 1), (name: string, payload: string): string => {
+        return LocalRuleQuickJsHostChannel.call(control, response, name, payload);
+      });
+    if (result.value.length > 8 * 1024 * 1024) throw new Error('原生 JS 输出超过限制');
+    return JSON.stringify(result);
+  } finally { context.release(); }
+}
+
+@Concurrent
+function runBoundedImageQuickJs(script: string, input: Uint8Array, signal: Int32Array): ArrayBuffer {
+  const options = new JSRuntimeOptions();
+  options.memoryLimitBytes = 96 * 1024 * 1024;
+  options.stackLimitBytes = 1024 * 1024;
+  const context = new JSContext(options);
+  try {
+    const result = context.evaluateBounded(script, 'content.imageDecode.js', 2000, 32, input,
+      (name: string, data: Uint8Array, params: string): Uint8Array => {
+        return NativeSourceCrypto.imageOperationSync(name, data, params);
+      }, signal);
+    if (!result.success) throw new Error(result.error || '图片脚本执行失败');
+    if (!result.bytes.length || result.bytes.length > 20 * 1024 * 1024) throw new Error('图片脚本输出超过限制');
+    return result.bytes.slice().buffer;
+  } finally { context.release(); }
+}
 
 @Concurrent
 function runBoundedQuickJs(script: string, sourceUrl: string, timeoutMs: number,
@@ -31,6 +67,10 @@ export class LocalRuleQuickJsRequest {
   maxPendingJobs: number = 8;
   memoryLimitBytes: number = 64 * 1024 * 1024;
   stackLimitBytes: number = 256 * 1024;
+  binaryInput: Uint8Array | undefined = undefined;
+  cancelSignal: Int32Array | undefined = undefined;
+  hostHandler: ((name: string, payload: string) => Promise<string>) | undefined = undefined;
+  hostCheck: (() => void) | undefined = undefined;
 }
 
 /** 与 QuickJS 类型解耦的结果，业务层不会获得 context 或原生 value handle。 */
@@ -41,6 +81,7 @@ export class LocalRuleQuickJsResult {
   timedOut: boolean = false;
   elapsedMs: number = 0;
   pendingJobs: number = 0;
+  bytes: Uint8Array = new Uint8Array();
 
   static failed(message: string): LocalRuleQuickJsResult {
     const result = new LocalRuleQuickJsResult();
@@ -54,7 +95,7 @@ export class LocalRuleQuickJsResult {
  *
  * 每次调用在 taskpool 中创建独立 context，仅走原生 interrupt 支持的 evaluateBounded，
  * 并在 finally 中释放。
- * 此门面不提供 evaluateScript、JSValue、网络、Cookie、文件或数据库桥接能力。
+ * 原生阶段可传入 JSON 宿主处理器，由主线程通过独立有界邮箱响应；脚本不能取得平台对象。
  */
 export class LocalRuleQuickJsRuntime {
   private static readonly MAX_SCRIPT_CHARS: number = 12 * 1024 * 1024;
@@ -68,12 +109,14 @@ export class LocalRuleQuickJsRuntime {
   private static readonly MAX_STACK_BYTES: number = 1024 * 1024;
 
   static async execute(request: LocalRuleQuickJsRequest): Promise<LocalRuleQuickJsResult> {
+    if (request.binaryInput !== undefined) return LocalRuleQuickJsRuntime.executeBinary(request);
     if (request.script.trim().length === 0) {
       return LocalRuleQuickJsResult.failed('QuickJS 脚本不能为空');
     }
     if (request.script.length > LocalRuleQuickJsRuntime.MAX_SCRIPT_CHARS) {
       return LocalRuleQuickJsResult.failed('QuickJS 输入超过 12 MiB 执行预算');
     }
+    if (request.hostHandler) return LocalRuleQuickJsRuntime.executeHost(request);
 
     const options = new JSRuntimeOptions();
     options.memoryLimitBytes = LocalRuleQuickJsRuntime.clamp(request.memoryLimitBytes,
@@ -95,6 +138,59 @@ export class LocalRuleQuickJsRuntime {
         return LocalRuleQuickJsResult.failed(error.message || 'QuickJS 执行失败');
       }
       return LocalRuleQuickJsResult.failed(String(error || 'QuickJS 执行失败'));
+    }
+  }
+
+  private static async executeHost(request: LocalRuleQuickJsRequest): Promise<LocalRuleQuickJsResult> {
+    const handler = request.hostHandler;
+    const check = request.hostCheck;
+    if (!handler || !check) return LocalRuleQuickJsResult.failed('原生 JS 宿主参数无效');
+    const channel = new LocalRuleQuickJsHostChannel(handler, check);
+    const task = new taskpool.Task(runBoundedHostQuickJs, request.script,
+      LocalRuleQuickJsRuntime.normalizeSourceUrl(request.sourceUrl),
+      LocalRuleQuickJsRuntime.clamp(request.timeoutMs, 1, 2000), channel.control, channel.response);
+    task.setTransferList([]);
+    task.onReceiveData((sequence: number, name: string, payload: string): void => {
+      channel.answer(sequence, name, payload).catch((error: Error): void => {
+        channel.error = error.message || '原生 JS 宿主返回失败';
+        channel.close();
+      });
+    });
+    const timer = setInterval((): void => { channel.tick(); }, 25);
+    try {
+      channel.tick();
+      if (channel.error) return LocalRuleQuickJsResult.failed(channel.error);
+      const result = LocalRuleQuickJsRuntime.parseResult(String(await taskpool.execute(task)));
+      return channel.error ? LocalRuleQuickJsResult.failed(channel.error) : result;
+    } catch (error) {
+      return LocalRuleQuickJsResult.failed(channel.error ||
+        (error instanceof Error ? error.message : '原生 JS 执行失败'));
+    } finally {
+      clearInterval(timer);
+      channel.close();
+      task.onReceiveData();
+    }
+  }
+
+  private static async executeBinary(request: LocalRuleQuickJsRequest): Promise<LocalRuleQuickJsResult> {
+    const input = request.binaryInput;
+    const signal = request.cancelSignal;
+    if (!input || !input.length || input.length > 20 * 1024 * 1024 || !signal || signal.length !== 1 ||
+      !request.script.trim() || request.script.length > 384 * 1024) {
+      return LocalRuleQuickJsResult.failed('图片脚本参数超过执行预算');
+    }
+    try {
+      const task = new taskpool.Task(runBoundedImageQuickJs, request.script, input, signal);
+      task.setTransferList([]);
+      const output: Object = await taskpool.execute(task);
+      if (!(output instanceof ArrayBuffer)) return LocalRuleQuickJsResult.failed('图片脚本返回格式无效');
+      const result = new LocalRuleQuickJsResult();
+      result.bytes = new Uint8Array(output);
+      result.success = result.bytes.length > 0 && result.bytes.length <= 20 * 1024 * 1024;
+      if (!result.success) result.errorMessage = '图片脚本输出超过限制';
+      return result;
+    } catch (error) {
+      return LocalRuleQuickJsResult.failed(error instanceof Error ? error.message : '图片脚本执行失败');
     }
   }
 

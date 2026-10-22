@@ -4,6 +4,7 @@ export struct MembershipBadge {
   @Param productId: string = '';
   @Param badgeHeight: number = 28;
   @Param compact: boolean = false;
+  @Param showLabel: boolean = true;
 
   build() {
     if (this.productId === 'iconMonth' || this.productId === 'iconYear' || this.productId === 'lastVip') {
@@ -15,10 +16,14 @@ export struct MembershipBadge {
             .aspectRatio(this.productId === 'lastVip' ? 512 / 229 :
               this.productId === 'iconMonth' ? 220 / 256 : 259 / 256)
             .objectFit(ImageFit.Contain).flexShrink(0)
+            .accessibilityText(this.productId === 'lastVip' ? $r('app.string.membership_lifetime') :
+              this.productId === 'iconMonth' ? $r('app.string.membership_month') : $r('app.string.membership_year'))
+          if (this.showLabel) {
           Text(this.productId === 'lastVip' ? $r('app.string.membership_lifetime') :
             this.productId === 'iconMonth' ? $r('app.string.membership_month') : $r('app.string.membership_year'))
             .fontSize(12).fontColor($r('sys.color.font_secondary'))
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
         }
       } else {
       Image(this.productId === 'lastVip' ? $r('app.media.vip_life_badge') :

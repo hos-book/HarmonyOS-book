@@ -1,14 +1,8 @@
-// Invoked by the shared engine harness; real host/runner, VM stands in for native taskpool QuickJS.
+// Invoked by the shared engine harness; real host/mailbox, Node workers stand in for native taskpool QuickJS.
 const assert = require('node:assert/strict');
-const vm = require('node:vm');
 module.exports = async ({load,prefix,runtime,parser,codec,engine,fixtures,states}) => {
   let nativeCalls=0;
-  runtime.host.evaluateNative = async (script, _source, timeout) => {
-    nativeCalls++;
-    const start=Date.now();
-    const value=await vm.runInNewContext(script,{}, {timeout});
-    return JSON.stringify({value,elapsedMs:Date.now()-start});
-  };
+  runtime.host.evaluateNativeHost = require('./native-script-host-fixture.cjs')(()=>{nativeCalls++;});
   const {LightNativeScripts}=load(prefix+'LightNativeScripts');
   const {BookSource}=load(prefix+'upstream/model/data/Book');
   const source=new BookSource();source.bookSourceUrl='https://native-js.test';
@@ -31,6 +25,41 @@ module.exports = async ({load,prefix,runtime,parser,codec,engine,fixtures,states
   const caught=ports.scriptEngine('function go(){try{http.get("https://native-js.test/a")}catch(e){};return vars.get("x")}');
   assert.equal(await caught.run('go',{},(n)=>{calls.push(n);if(n==='@http')throw Error('network');return 'ok';},opts),'ok');
   assert.deepEqual(calls,['@http','@varsGet']);
+  // Paginated catalogs convert every chapter number. Pure conversions stay in the VM;
+  // all pages and host side effects continue in the same isolated task.
+  nativeCalls=0;calls=[];
+  const largeToc=ports.scriptEngine('function go(){var out=[];for(var p=1;p<=3;p++){'+
+    'var rows=http.get("https://native-js.test/toc/"+p).json();'+
+    'for(var i=0;i<rows.length;i++){var n=native.int(rows[i],0);'+
+    'out.push({title:native.str(n),url:"/chapter/"+n});}}'+
+    'vars.set("count",out.length);return out;}');
+  const largeChapters=await largeToc.run('go',{},(name,args)=>{
+    calls.push(name);
+    if(name==='@http') {const page=Number(args[0].url.split('/').pop());
+      return {ok:true,status:200,body:JSON.stringify(Array.from({length:1000},(_,i)=>String((page-1)*1000+i+1)))};}
+    return null;
+  },opts);
+  assert.equal(largeChapters.length,3000);assert.equal(largeChapters[2999].title,'3000');
+  assert.equal(nativeCalls,1,'all three pages and the state write continue in one bounded task');
+  assert.deepEqual(calls,['@http','@http','@http','@varsSet']);
+  nativeCalls=0;calls=[];
+  const manyReads=ports.scriptEngine('var loaded=1;function go(){var out=[];for(var i=0;i<600;i++){'+
+    'out.push(vars.get("host")+i);}vars.set("count",out.length);return {loaded:loaded,items:out};}');
+  const reads=await manyReads.run('go',{},(name)=>{calls.push(name);return name==='@varsGet'?'https://fixture.test/':null;},opts);
+  assert.equal(reads.items.length,600);assert.equal(nativeCalls,1);
+  assert.equal(calls.filter(n=>n==='@varsGet').length,600,'reads no longer spend the replay budget');
+  assert.equal(calls.filter(n=>n==='@varsSet').length,1,'side effects run once');
+  const {NativeExpr,NativeScope}=load(prefix+'upstream/core/nativesource/NativeExpr');
+  const canonical=new NativeExpr({});const scope=new NativeScope();
+  for(const args of [['12abc',0],['',7],[null,9],[{a:1},4],['-18.5',0]]) {
+    const conversion=ports.scriptEngine('function go(ctx){return native.int(ctx.value,ctx.fallback)}');
+    assert.equal(await conversion.run('go',{value:args[0],fallback:args[1]},()=>{throw Error('unexpected bridge')},opts),
+      canonical.callBuiltin('int',args,scope));
+  }
+  calls=[];
+  const cryptoStage=ports.scriptEngine('function go(){return native.bytesBase64(native.encrypt("AES/CBC/PKCS5Padding","x","key","iv"))}');
+  assert.equal(await cryptoStage.run('go',{},(name)=>{calls.push(name);return [65,66,67];},opts),'QUJD');
+  assert.deepEqual(calls,['encrypt'],'cryptography remains a controlled host operation');
   const isolated=ports.scriptEngine('var n=0;function go(){return ++n}');
   assert.equal(await isolated.run('go',{},()=>null,opts),1);
   assert.equal(await isolated.run('go',{},()=>null,opts),1);

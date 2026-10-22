@@ -1,6 +1,6 @@
 /**
  * 原生书源表达式里 hash / hmac / encrypt / decrypt / rsaEncrypt 的系统实现。
- * 全部走加密框架的同步接口，字节数据以 0-255 的数字列表进出。
+ * 表达式使用同步接口和数字列表；图片使用异步接口和 Uint8Array。
  */
 
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
@@ -85,6 +85,100 @@ function hexToBytes(hex: string): Uint8Array {
 }
 
 export class NativeSourceCrypto {
+  /** The only host operations exposed to image scripts; metadata is strictly validated. */
+  private static imageArguments(name: string, data: Uint8Array, options: string): Record<string, string> {
+    if (data.length > 20 * 1024 * 1024 || options.length > 16384) throw new Error('图片运算参数过大');
+    if (!['decrypt', 'encrypt', 'hash', 'hmac'].includes(name)) throw new Error('图片脚本不支持此宿主操作');
+    const args = JSON.parse(options) as Record<string, Object>;
+    if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('图片运算参数必须是对象');
+    const algorithm = args['algorithm'];
+    const key = args['keyHex'] === undefined ? '' : args['keyHex'];
+    const iv = args['ivHex'] === undefined ? '' : args['ivHex'];
+    if (typeof algorithm !== 'string' || algorithm.length > 80 || typeof key !== 'string' ||
+      typeof iv !== 'string' || !/^(?:[a-f0-9]{2})*$/i.test(key) || !/^(?:[a-f0-9]{2})*$/i.test(iv)) {
+      throw new Error('图片运算需要算法名称和完整的十六进制 keyHex/ivHex');
+    }
+    if (name === 'hash') return { algorithm, key, iv };
+    if (name === 'hmac') {
+      if (!key || key.length > 8192) throw new Error('HMAC 密钥须为 1 至 4096 字节');
+      return { algorithm, key, iv };
+    }
+    if (!/^(AES|3DES|DESEDE)\/(ECB|CBC|CTR|OFB|CFB)\/(NoPadding|PKCS5Padding|PKCS7Padding)$/i.test(algorithm)) {
+      throw new Error('图片运算算法必须明确指定 AES/3DES、模式和填充');
+    }
+    const blockSize = /^AES\//i.test(algorithm) ? 16 : 8;
+    if (/\/ECB\//i.test(algorithm) ? iv.length !== 0 : iv.length !== blockSize * 2) {
+      throw new Error('图片运算 IV 长度与模式不匹配');
+    }
+    return { algorithm, key, iv };
+  }
+
+  /** Only for an isolated taskpool worker, never the application UI thread. */
+  static imageOperationSync(name: string, data: Uint8Array, options: string): Uint8Array {
+    const { algorithm, key, iv } = this.imageArguments(name, data, options);
+    if (name === 'hash') {
+      const md = cryptoFramework.createMd(digestName(algorithm));
+      md.updateSync({ data });
+      return md.digestSync().data;
+    }
+    const keyBytes = hexToBytes(key);
+    try {
+      if (name !== 'hmac') return symmetricBytes(name === 'decrypt', algorithm, data, keyBytes, hexToBytes(iv));
+      const symKey = cryptoFramework.createSymKeyGenerator('HMAC').convertKeySync({ data: keyBytes });
+      try {
+        const mac = cryptoFramework.createMac(digestName(algorithm));
+        mac.initSync(symKey);
+        mac.updateSync({ data });
+        return mac.doFinalSync().data;
+      } finally { symKey.clearMem(); }
+    } finally { keyBytes.fill(0); }
+  }
+
+  static async imageOperation(name: string, data: Uint8Array, options: string): Promise<Uint8Array> {
+    const { algorithm, key, iv } = this.imageArguments(name, data, options);
+    if (name === 'hash') {
+      const md = cryptoFramework.createMd(digestName(algorithm));
+      await md.update({ data: data });
+      return (await md.digest()).data;
+    }
+    if (name === 'hmac') {
+      if (!key || key.length > 8192) throw new Error('HMAC 密钥须为 1 至 4096 字节');
+      const keyBytes = hexToBytes(key);
+      const symKey = await cryptoFramework.createSymKeyGenerator('HMAC').convertKey({ data: keyBytes });
+      try {
+        const mac = cryptoFramework.createMac(digestName(algorithm));
+        await mac.init(symKey);
+        await mac.update({ data: data });
+        return (await mac.doFinal()).data;
+      } finally { symKey.clearMem(); keyBytes.fill(0); }
+    }
+    return await this.transformBytesAsync(name === 'decrypt', algorithm, data, key, iv);
+  }
+
+  /** 图片使用异步系统加密接口，避免大块数据的同步解密阻塞 UI。 */
+  static async decryptBytesAsync(transformation: string, data: Uint8Array, keyHex: string,
+    ivHex: string): Promise<Uint8Array> {
+    return await this.transformBytesAsync(true, transformation, data, keyHex, ivHex);
+  }
+
+  private static async transformBytesAsync(decrypting: boolean, transformation: string, data: Uint8Array,
+    keyHex: string, ivHex: string): Promise<Uint8Array> {
+    const keyBytes = hexToBytes(keyHex);
+    const iv = hexToBytes(ivHex);
+    const spec = cipherSpec(transformation, keyBytes.length);
+    if (spec.needsIv && iv.length === 0) throw new Error(`${transformation} 需要提供 IV`);
+    const key = await cryptoFramework.createSymKeyGenerator(spec.keyAlgorithm).convertKey({ data: keyBytes });
+    try {
+      const cipher = cryptoFramework.createCipher(spec.transformation);
+      const params: cryptoFramework.IvParamsSpec | null = spec.needsIv ? { algName: 'IvParamsSpec', iv: { data: iv } } : null;
+      await cipher.init(decrypting ? cryptoFramework.CryptoMode.DECRYPT_MODE : cryptoFramework.CryptoMode.ENCRYPT_MODE, key, params);
+      return (await cipher.doFinal({ data: data })).data;
+    } finally {
+      key.clearMem();
+      keyBytes.fill(0);
+    }
+  }
+
   /** 解密整张图片这类大块数据：不经过表达式引擎，密钥与 IV 用十六进制传入。 */
   static decryptBytes(transformation: string, data: Uint8Array, keyHex: string, ivHex: string): Uint8Array {
     return symmetricBytes(true, transformation, data, hexToBytes(keyHex), hexToBytes(ivHex));

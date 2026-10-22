@@ -1040,11 +1040,11 @@ export class NativeExpr {
       case 'path':
         return this.readPath(scope.get('item'), node.v as string);
       case 'member':
-        return this.member(this.run(node.a as Node, scope), node.name as string);
+        return this.member(this.run(node.a as Node, scope), node.name as string, scope);
       case 'index': {
         const target = this.run(node.a as Node, scope);
         const key = this.run(node.b as Node, scope);
-        return this.member(target, typeof key === 'number' ? key : NativeExpr.toText(key));
+        return this.member(target, typeof key === 'number' ? key : NativeExpr.toText(key), scope);
       }
       case 'not':
         return !NativeExpr.isTruthy(this.run(node.a as Node, scope));
@@ -1098,7 +1098,7 @@ export class NativeExpr {
     return matches.length > 0 ? matches[0] : null;
   }
 
-  private member(target: NativeValue, key: string | number): NativeValue {
+  private member(target: NativeValue, key: string | number, scope?: NativeScope): NativeValue {
     if (target === null || target === undefined) return null;
     if (typeof target === 'string') {
       if (key === 'length') return target.length;
@@ -1114,7 +1114,14 @@ export class NativeExpr {
     }
     if (typeof target === 'object' && !(target instanceof Lambda)) {
       const name = String(key);
-      if (!Object.prototype.hasOwnProperty.call(target, name)) return null;
+      if (!Object.prototype.hasOwnProperty.call(target, name)) {
+        // Diagnose the mistaken book address without changing optional API/vars field semantics.
+        if (name === 'url' && scope && target === scope.get('book') &&
+          Object.prototype.hasOwnProperty.call(target, 'bookUrl')) {
+          throw new NativeExprError('book.url 不存在，请使用 book.bookUrl（书籍详情地址）；目录地址请使用 book.tocUrl');
+        }
+        return null;
+      }
       const value = (target as Record<string, NativeValue>)[name];
       return value === undefined ? null : value;
     }
@@ -1427,7 +1434,7 @@ export class NativeExpr {
           Object.keys(args[0]).map((key: string): NativeValue => ({ key: key, value: args[0][key] })) : [];
       case 'get':
       case 'lookup': {
-        const value = this.member(args[0], typeof args[1] === 'number' ? args[1] : text(1));
+        const value = this.member(args[0], typeof args[1] === 'number' ? args[1] : text(1), scope);
         return value === null && args.length > 2 ? args[2] : value;
       }
       case 'map':

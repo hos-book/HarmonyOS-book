@@ -7,6 +7,9 @@
 - 可配置 QuickJS heap 与 stack 上限；
 - 使用 `JS_SetInterruptHandler` 的 `evaluateBounded`；
 - pending-job 数量预算；
+- 单次 `evaluateBounded` 内的 JSON 宿主回调：后台 taskpool 暂停等待主线程有界邮箱，收到响应后继续当前调用栈，不保留跨任务会话；原生计算预算扣除宿主等待，取消信号仍触发 interrupt；最多 4096 次、输入 4 MiB、返回 8 MiB、累计 64 MiB，独立总时长硬上限 16 分钟（应用另限阶段 60 秒、表达式 10 秒并扣除人工验证等待）；
+- 可选的二进制输入/输出，正确处理字节视图偏移；图片任务通过共享 Int32Array 取消信号触发原生中断；
+- 图片原生桥只接受 encrypt/decrypt/hash/hmac，单次 20 MiB、最多 32 次调用和累计 128 MiB；系统调用返回后检查取消及 10 秒总预算；
 - 在同一超时与 pending-job 预算内取得返回 Promise 的完成值，未完成或拒绝的 Promise 返回失败；
 - `arm64-v8a` 与 `x86_64` 双 ABI 构建。
 

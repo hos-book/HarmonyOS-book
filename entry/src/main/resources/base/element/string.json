@@ -1,6 +1,63 @@
 {
   "string": [
     {
+      "name": "chapter_current_reading",
+      "value": "正在阅读"
+    },
+    {
+      "name": "settings_text_cache_title",
+      "value": "小说正文缓存"
+    },
+    {
+      "name": "settings_comic_cache_title",
+      "value": "漫画图片缓存"
+    },
+    {
+      "name": "settings_reader_cache_loading",
+      "value": "正在统计缓存占用…"
+    },
+    {
+      "name": "settings_reader_cache_unavailable",
+      "value": "暂时无法统计，点击重试"
+    },
+    {
+      "name": "settings_reader_cache_summary",
+      "value": "已用 %1$s · 上限 %2$s · 点击清理"
+    },
+    {
+      "name": "settings_reader_cache_confirm",
+      "value": "清理后，已清除的内容需联网重新加载。保留正在阅读或下载中的缓存，不影响书架、进度、本地导入和正式下载。超出上限时自动清理较久未使用的缓存至上限的 90%；使用中的内容释放后再回收。"
+    },
+    {
+      "name": "settings_reader_cache_clear",
+      "value": "清理缓存"
+    },
+    {
+      "name": "settings_reader_cache_result",
+      "value": "已释放 %1$s，使用中保留 %2$d 项，清理失败 %3$d 项"
+    },
+    {
+      "name": "settings_reader_cache_clear_failed",
+      "value": "缓存清理未完成，请重试"
+    },
+    { "name": "membership_offer_endpoint", "value": "" },
+    { "name": "membership_offer_unavailable", "value": "优惠暂时不可用，请稍后重试。本次未发起扣款。" },
+    { "name": "membership_offer_changed", "value": "套餐价格或优惠已更新，请确认后重新购买。" },
+    { "name": "membership_offer_invalid", "value": "当前优惠不可用或不符合参与条件，请刷新套餐后重试。" },
+    { "name": "membership_offer_signature_invalid", "value": "优惠验证失败，请稍后重试。本次未按原价重新下单。" },
+    { "name": "membership_offer_label", "value": "优惠价" },
+    { "name": "membership_offer_days", "value": "优惠期：%d 天" },
+    { "name": "membership_offer_weeks", "value": "优惠期：%d 周" },
+    { "name": "membership_offer_months", "value": "优惠期：%d 个月" },
+    { "name": "membership_offer_years", "value": "优惠期：%d 年" },
+    { "name": "membership_offer_period_cashier", "value": "优惠期限以华为收银台为准。" },
+    { "name": "membership_offer_trial", "value": "优惠期内免费试用。" },
+    { "name": "membership_offer_recurring", "value": "优惠期内每个订阅周期支付 %s。" },
+    { "name": "membership_offer_upfront", "value": "一次支付 %s，覆盖上述优惠期。" },
+    { "name": "membership_intro_label", "value": "首购优惠" },
+    { "name": "membership_offer_notice", "value": "优惠资格及实付金额以华为收银台确认为准。" },
+    { "name": "membership_offer_renewal", "value": "优惠结束后按 %s 续订。" },
+    {
       "name": "reader_tts_manage",
       "value": "导入与管理"
     },
@@ -222,7 +279,7 @@
     },
     {
       "name": "app_icon_hint",
-      "value": "点击喜欢的图标，更换桌面上的简听阅读图标"
+      "value": "默认图标免费，其他主题图标为 VIP 专享；点击喜欢的图标即可更换"
     },
     {
       "name": "app_icon_unsupported",
@@ -1071,6 +1128,14 @@
     {
       "name": "settings_search_concurrency",
       "value": "搜索并发数"
+    },
+    {
+      "name": "settings_search_concurrency_membership_hint",
+      "value": "非会员固定为 3，VIP 可自定义 1–12"
+    },
+    {
+      "name": "membership_vip_label",
+      "value": "VIP"
     },
     {
       "name": "settings_search_custom",
@@ -4122,7 +4187,7 @@
     },
     {
       "name": "medal_scope_hint",
-      "value": "按本机实际收听时长解锁，包含听书与朗读；勋章跟随本地数据及备份保存。"
+      "value": "按当前账号累计收听时长解锁，包含听书与朗读；删除记录或清除时长不收回已获得的勋章和等级。同账号可通过云备份恢复，未登录时仅展示本机游客成果。"
     },
     {
       "name": "ranking_all",
@@ -4557,6 +4622,14 @@
       "value": "主题"
     },
     {
+      "name": "theme_bundle_title",
+      "value": "主题套装"
+    },
+    {
+      "name": "theme_bundle_pending",
+      "value": "等待后续接入"
+    },
+    {
       "name": "membership_subscription_title",
       "value": "会员中心"
     },
@@ -4606,7 +4679,7 @@
     },
     {
       "name": "membership_benefit",
-      "value": "1. 自动云备份：可开启自动备份，选择每天、每 3 天或每周。非会员可手动云备份。\n2. 全量主题解锁：有效期内解锁全部会员桌面图标及后续新增官方皮肤。默认图标、原有界面配色和阅读器主题保持免费。\n3. 自定义源无限制：会员导入总数不限，非会员最多 8 个。\n4. 搜索并发自定义：默认 3，会员可设置 1–12。\n5. 专属客服：会员可享专属客服支持。"
+      "value": "1. 自动云备份：可开启自动备份，选择每天、每 3 天或每周。非会员可手动云备份。\n2. 全量主题解锁：有效期内解锁全部会员桌面图标及后续新增官方皮肤。默认图标、原有界面配色和阅读器主题保持免费。\n3. 自定义源无限制：会员导入总数不限，非会员最多 10 个。\n4. 搜索并发自定义：默认 3，会员可设置 1–12。\n5. 专属客服：会员可享专属客服支持。"
     },
     {
       "name": "membership_month",
@@ -4629,12 +4702,32 @@
       "value": "立即订阅"
     },
     {
+      "name": "membership_restore_short",
+      "value": "恢复/刷新"
+    },
+    {
       "name": "membership_restore",
       "value": "恢复购买 / 刷新"
     },
     {
       "name": "membership_manage",
       "value": "管理订阅"
+    },
+    {
+      "name": "membership_upgrade_year",
+      "value": "升级年度会员"
+    },
+    {
+      "name": "membership_upgrade_year_notice",
+      "value": "确认后将前往华为页面，将当前月度订阅切换为年度订阅。实际扣费、剩余权益处理及生效时间以华为确认页为准；若下期生效，当前月度权益继续保留。"
+    },
+    {
+      "name": "membership_upgrade_year_pending",
+      "value": "已预约年度会员，将按华为订阅计划生效；当前继续享有月度会员权益，无需重复购买。可在“管理订阅”中查看。"
+    },
+    {
+      "name": "membership_upgrade_unavailable",
+      "value": "年度升级暂不可用，请刷新套餐后重试，或前往“管理订阅”查看。"
     },
     {
       "name": "membership_price_hint",
@@ -4650,7 +4743,7 @@
     },
     {
       "name": "membership_terms",
-      "value": "会员购买与自动续费说明\n终身会员为一次性购买的非消耗型商品，权益长期有效，不自动续费；退款或撤销后权益终止。购买终身会员不会自动取消已有月度或年度订阅，请到“管理订阅”关闭原订阅续费。\n月度、年度会员：订阅费用由华为支付收取，按所选月度或年度周期自动续费。请在当前周期结束前通过“管理订阅”取消，以华为页面显示的取消截止时间和扣费规则为准。取消后，已支付周期内权益继续有效。\n会员权益包含自动云备份及周期设置、全部会员桌面图标及后续新增官方皮肤、自定义源导入总数不限及专属客服支持。图标切换需要支持该功能的系统；自动备份需登录华为账号并开通可用云空间，在应用使用期间执行，不提供实时双向同步。非会员可手动云备份，最多导入 8 个自定义源；已有超额书源保留并可使用和更新。默认图标、原有界面配色、阅读器主题和阅读听书功能保持免费。\n会员到期或退款导致权益失效后，停止自动备份和超额新增，联网核验时恢复默认图标。会员随购买时的系统华为账号恢复，重新安装或切换账号后请联网恢复购买。暂时无法联网时保留现有图标，新会员操作需核验有效权益。"
+      "value": "会员购买与自动续费说明\n终身会员为一次性购买的非消耗型商品，权益长期有效，不自动续费；退款或撤销后权益终止。购买终身会员不会自动取消已有月度或年度订阅，请到“管理订阅”关闭原订阅续费。\n月度、年度会员：订阅费用由华为支付收取，按所选月度或年度周期自动续费。请在当前周期结束前通过“管理订阅”取消，以华为页面显示的取消截止时间和扣费规则为准。取消后，已支付周期内权益继续有效。月度会员可选择年度套餐升级，由华为处理同组订阅变更；实际扣费、剩余权益处理和生效时间以华为确认页为准。若下期生效，当前月度权益继续有效，并显示年度预约提示，无需重复购买。\n会员权益包含自动云备份及周期设置、全部会员桌面图标及后续新增官方皮肤、自定义源导入总数不限及专属客服支持。图标切换需要支持该功能的系统；自动备份需登录华为账号并开通可用云空间，在应用使用期间执行，不提供实时双向同步。非会员可手动云备份，最多导入 10 个自定义源；已有超额书源保留并可使用和更新。默认图标、原有界面配色、阅读器主题和阅读听书功能保持免费。\n会员到期或退款导致权益失效后，停止自动备份和超额新增，联网核验时恢复默认图标。会员随购买时的系统华为账号恢复，重新安装或切换账号后请联网恢复购买。暂时无法联网时保留现有图标，新会员操作需核验有效权益。"
     },
     {
       "name": "membership_consent",
@@ -4702,11 +4795,11 @@
     },
     {
       "name": "rule_source_membership_limit",
-      "value": "非会员最多导入 8 个自定义源，超限批次未写入。可减少新增数量或开通会员；已有源仍可使用和更新。"
+      "value": "非会员自定义源总数最多 10 个，本批次新增后将超限，未写入；已有超额书源仍可使用和更新。"
     },
     {
       "name": "rule_source_membership_hint",
-      "value": "非会员最多 8 个自定义源，会员不限总数；已有源更新不占新名额。"
+      "value": "非会员最多 10 个自定义源，会员不限总数；已有源更新不占新名额。"
     },
     {
       "name": "rule_source_save_failed",
@@ -4943,6 +5036,22 @@
     {
       "name": "shelf_filter_comic_count",
       "value": "漫画 %d"
+    },
+    {
+      "name": "shelf_badge_text",
+      "value": "文"
+    },
+    {
+      "name": "profile_usage_level",
+      "value": "Lv.%d"
+    },
+    {
+      "name": "shelf_badge_comic",
+      "value": "漫"
+    },
+    {
+      "name": "shelf_badge_audio",
+      "value": "声"
     },
     {
       "name": "comic_back",
@@ -5354,6 +5463,31 @@
     {"name": "reader_brightness_failed", "value": "亮度调整失败，请重试"},
     {"name": "tts_enter_reader", "value": "进入阅读，继续朗读"},
     {"name": "settings_adaptive_handedness", "value": "智感握姿"},
-    {"name": "settings_adaptive_handedness_desc", "value": "根据左右手握持自动调整底栏、阅读亮度条和朗读小播控的位置"}
+    {"name": "settings_adaptive_handedness_desc", "value": "根据左右手握持自动调整底栏、阅读亮度条和朗读小播控的位置"},
+    {"name": "shelf_group_drag_hint", "value": "长按分组拖动排序，松开后自动保存"},
+    {"name": "reader_more", "value": "阅读菜单"},
+    {"name": "reader_bookmarks", "value": "书签"},
+    {"name": "reader_bookmark_add", "value": "添加书签"},
+    {"name": "reader_bookmark_saved", "value": "已保存当前阅读位置"},
+    {"name": "reader_bookmarks_empty", "value": "还没有书签，可在阅读菜单中添加"},
+    {"name": "reader_bookmark_position", "value": "第 %d 章"},
+    {"name": "reader_bookmark_missing", "value": "原书签章节已不存在"},
+    {"name": "reader_tools_storage_error", "value": "保存或读取失败，请重试"},
+    {"name": "reader_tools_limit", "value": "已达到保存数量上限"},
+    {"name": "reader_replace_rules", "value": "替换净化规则"},
+    {"name": "reader_replace_edit", "value": "编辑替换规则"},
+    {"name": "reader_replace_name", "value": "规则名称（选填）"},
+    {"name": "reader_replace_pattern", "value": "查找内容"},
+    {"name": "reader_replace_replacement", "value": "替换为（留空即删除匹配内容）"},
+    {"name": "reader_replace_regex", "value": "使用正则表达式"},
+    {"name": "reader_replace_all_books", "value": "应用于全部书籍"},
+    {"name": "reader_replace_this_book", "value": "仅当前书籍"},
+    {"name": "reader_replace_hint", "value": "默认仅用于本书正文，阅读和朗读同步生效。正则使用 JavaScript 语法，替换内容支持 $1 等捕获组。关闭规则即可恢复原文。"},
+    {"name": "reader_replace_preview", "value": "预览当前章节"},
+    {"name": "reader_replace_preview_empty", "value": "预览文字已全部被规则删除"},
+    {"name": "reader_replace_scope_hint", "value": "显示当前书籍及全局规则，按列表顺序依次生效。"},
+    {"name": "reader_replace_empty", "value": "暂无规则，点击添加可替换文字或清除广告"},
+    {"name": "reader_replace_invalid", "value": "规则无效或执行超限，请检查查找内容"},
+    {"name": "reader_replace_failed", "value": "替换规则执行失败，已显示原文"}
   ]
 }

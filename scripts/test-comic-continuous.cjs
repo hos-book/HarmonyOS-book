@@ -67,7 +67,7 @@ function reader(index = 2, descending = false) {
   const reverse = reader(10, true);
   await reverse.loadNeighbor(true);
   await reverse.loadNeighbor(false);
-  assert.deepEqual(reverse.requests, [9, 11], 'descending chapter order is honored');
+  assert.deepEqual(reverse.requests, [11, 9], 'descending TOC cannot reverse chapter progression');
 
   const pending = reader();
   let finish;
@@ -105,7 +105,7 @@ function reader(index = 2, descending = false) {
   let saves = 0, resets = 0;
   Object.assign(parent, { busy: false, mode: 0, alive: true, chapterIndex: 2, book: {}, generation: 1,
     preparedComicChapters: new Map([[0, []], [10, []]]), pages: { setPages: () => resets++ },
-    scheduleSave: () => saves++, preloadChapters() {},
+    scheduleSave: () => saves++, preloadChapters() {}, protectComicCache() {},
     restorePage: () => assert.fail('visible progress must not reposition'),
     loadChapter: () => assert.fail('visible progress must not replace the chapter'), scrollResetToken: 9 });
   parent.onScrollPosition(3, 2, pages(3));

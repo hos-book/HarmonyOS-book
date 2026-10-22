@@ -37,6 +37,54 @@
 
 ## 本地开发
 
+### 会员优惠签名核心
+
+`src/membership-offer.ts` 提供 `MembershipOfferSigner`，按华为 IAP 的 ES256 JWT 协议为
+本应用 `6917615941058168740` 的 `iconMonth`、`iconYear`、`lastVip` 生成 `cheaplist` 优惠签名。
+签名有效期为 5 分钟，`data` 为 `PurchaseReservedInfo` JSON 字符串，每次使用新的 UUID nonce。
+仅允许上述商品；不接受客户端传入应用 ID、优惠 ID 或任意待签名内容。
+
+构造参数为华为后台的 Issuer ID、Key ID 和对应 P-256 私钥（PKCS#8 PEM 或 Base64 DER）。
+这些参数只能放在服务端密钥配置中，不得打包进 App 或提交到仓库。
+`src/membership-offer-function.ts` 提供华为 FunctionGraph APIG 代理事件入口，校验请求和商品白名单，
+返回 `Cache-Control: no-store`，每个函数实例每分钟最多受理 120 个签名请求。
+App 展示华为返回的 `cheaplist.localPrice`，购买时向固定 HTTPS 入口获取签名，同时传入
+`promotionalOfferId` 和 `jwsRepresentation`；签名失败停止下单，不退回原价。
+普通商品和华为自动应用的推介促销不依赖此入口。
+
+当前代码尚未部署，App 的 `membership_offer_endpoint` 为空，因此促销购买会明确失败、不会按原价扣款。
+2026-10-22 已在登录控制台核验：应用内购买服务仍为沙盒，开通检查中的保密协议、商户服务签约、
+IAP 开关已完成，《华为数字商品及联运服务协议》待完成；服务端有效密钥为 0/10，云函数未开通。
+控制台链接的官方“服务与支持”文档要求该协议联系商务线下签署，应用类邮箱为
+`jointoperation.HarmonyOSNEXT@huawei.com`。完成正式激活之前不能将沙盒测试视为生产付款通过。
+本次后台已由用户确认：`lastVip` 常规价 CNY 69、`cheaplist` 早鸟价 CNY 39。
+活动需包含 2026-12-25 当天，后台结束时间应调整为 2026-12-26 00:00（核对后台时区）；
+截图原值为 2026-12-25 00:00。本地代码不写死价格或替代华为活动有效期判断。
+
+部署步骤（未执行云端部署）：
+1. 运行 `python scripts/package-membership-offer.py`，得到 `server/dist/membership-offer-function.zip`。
+   ZIP 只包含签名核心和入口，无第三方运行依赖、无密钥；在仓库根目录执行。
+2. 华为 FunctionGraph 创建支持 Node.js 22 的事件函数，上传 ZIP，执行入口设为 `index.handler`。
+3. 服务端安全配置 `IAP_ISSUER_ID`、`IAP_KEY_ID`、`IAP_PRIVATE_KEY`，对应 AGC 优惠签名密钥。
+   私钥支持 PKCS#8 PEM 或 Base64 DER，不是应用 HAP 签名证书；不得写进 App 或提交仓库。
+   `IAP_OFFER_PRODUCTS=lastVip`：目前仅确认终身会员活动，其他商品默认不开放签名。
+4. APIG 配置 HTTPS POST 路由并使用代理集成，向函数传递 `httpMethod/body/isBase64Encoded`；
+   启用网关客户端限流，建议每客户端每分钟 10 次。此入口按活动面向所有购买者设计；
+   如改为定向人群优惠，必须先增加身份核验和服务端资格判断，不能信任客户端传入的身份。
+5. 将正式 HTTPS 路由填入 App 资源 `membership_offer_endpoint`，重新构建安装。
+6. 真机刷新套餐，确认显示 39、划线价 69，进入华为收银台核对实付 39 后取消；
+   不把本地签名测试通过当作华为密钥、活动资格或真实付款通过。
+
+接口：`POST <配置的HTTPS路由>`，请求 `{"productId":"lastVip","offerId":"cheaplist"}`，
+成功返回 `{productId, offerId, jwsRepresentation, expiresAt}`。金额只从华为商品接口获取，
+接口不接受应用 ID、任意优惠 ID、价格或自定义 JWT 内容。
+
+协议依据：
+- [生成优惠签名购买参数](https://developer.huawei.com/consumer/cn/doc/harmonyos-references/iap-server-subscribe-offer-sign)
+- [PurchaseReservedInfo / OfferInfo](https://developer.huawei.com/consumer/cn/doc/harmonyos-references/iap-server-data-model)
+
+使用 Node 22+ 运行 `npm test -- --run test/membership-offer.test.ts` 验证签名、商品绑定、有效期及随机标识。
+
 ```bash
 npm install
 npm --prefix admin install

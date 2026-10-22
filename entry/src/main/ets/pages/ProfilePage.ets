@@ -9,6 +9,7 @@ import { CommunityGroupService } from '../service/CommunityGroupService';
 import { AccountAvatar } from '../components/AccountAvatar';
 import { MembershipSubscriptionPage } from './MembershipSubscriptionPage';
 import { MembershipState } from '../model/MembershipState';
+import { VipFeatureBadge } from '../components/VipFeatureBadge';
 import { MembershipBadge } from '../components/MembershipBadge';
 
 class ProfileItem {
@@ -229,9 +230,28 @@ export struct ProfilePage {
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .flexShrink(1)
+            if (this.membership.displayActive) {
+              MembershipBadge({ productId: this.membership.displayProductId, badgeHeight: 16, compact: true,
+                showLabel: false }).flexShrink(0)
+            }
           }.width('100%').alignItems(VerticalAlign.Center)
           if (this.membership.displayActive) {
-            MembershipBadge({ productId: this.membership.displayProductId, badgeHeight: 20, compact: true })
+            Row({ space: 4 }) {
+              if (this.auth.isLoggedIn && this.medalService.ready && this.medalService.accountId === this.auth.openID) {
+                Text($r('app.string.profile_usage_level', this.medalService.usageLevel()))
+                  .fontSize(12)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor('#B88935')
+                  .maxLines(1)
+                  .flexShrink(0)
+                Text(this.medalService.usageLevelName())
+                  .fontSize(12)
+                  .fontColor('#B88935')
+                  .maxLines(1)
+                  .textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .flexShrink(1)
+              }
+            }.alignItems(VerticalAlign.Center).constraintSize({ maxWidth: '100%' })
           }
           if (!this.auth.isLoggedIn) {
             Text($r('app.string.hw_auth_login_desc'))
@@ -340,6 +360,9 @@ export struct ProfilePage {
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .flexShrink(1)
+          if (item.id === 'membership' && MembershipState.featureEnabled) {
+            VipFeatureBadge()
+          }
           if (item.id === 'achievements' && this.auth.isLoggedIn && this.medalService.ready &&
             this.medalService.selectedMedalId !== '') {
             Image(this.medalService.selected()?.badge)

@@ -1,4 +1,3 @@
-import { PreferenceService } from './PreferenceService';
 import { ChapterRuleContext } from './rulesource/ChapterRuleContext';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { fileIo } from '@kit.CoreFileKit';
@@ -335,11 +334,10 @@ export class ChapterCacheService {
     if (currentIndex < 0 || currentIndex >= book.chapters.length) return;
     hilog.info(DOMAIN, TAG, 'preload trigger index=%{public}d count=%{public}d generation=%{public}d',
       currentIndex, PRE_DOWNLOAD_FORWARD, this.preloadGen);
-    const step = PreferenceService.chapterStep(book) < 0 ? -1 : 1;
-    // 正序与倒序都先下一章；反向回看窗口排在后面。
+    // 按正文顺序优先预取下一章；目录倒序不改变预取方向。
     for (let distance = 1; distance <= PRE_DOWNLOAD_FORWARD + PRE_DOWNLOAD_BACKWARD; distance++) {
-      const i = distance <= PRE_DOWNLOAD_FORWARD ? currentIndex + distance * step :
-        currentIndex - (distance - PRE_DOWNLOAD_FORWARD) * step;
+      const i = distance <= PRE_DOWNLOAD_FORWARD ? currentIndex + distance :
+        currentIndex - (distance - PRE_DOWNLOAD_FORWARD);
       if (i >= 0 && i < book.chapters.length) {
         const ch = book.chapters[i];
         const pageUrl = ch.originSourceValue || ch.source.value;

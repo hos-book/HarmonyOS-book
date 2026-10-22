@@ -26,6 +26,7 @@ import { LightCookieStore } from './LightSourceRuntime';
 import { LightLocalSource as LocalRuleSource } from './LightSourceHost';
 import { SourceCoverLoader } from './upstream/core/nativesource/SourceCoverLoader';
 import { LightSourceCoverCache } from './LightSourceCoverCache';
+import { ReaderCacheService } from '../../ReaderCacheService';
 
 
 /** JSON boundary prevents the upstream TypeScript model leaking into ArkTS pages. */
@@ -39,25 +40,27 @@ export class LightSourceCore {
     const source = this.source(local);
     LightSourceRequestPolicy.bind(source, request);
     const urls = JSON.parse(urlsJson) as string[];
-    return LightSourceRuntime.run(source, local, async () => {
+    ReaderCacheService.beginComicWrite();
+    try { return await LightSourceRuntime.run(source, local, async () => {
       const paths: string[] = [];
       for (let start = 0; start < urls.length; start += 4) {
         if (request?.isCancelled()) throw new Error('Comic image prefetch cancelled');
         const batch = urls.slice(start, start + 4);
         const result = await Promise.all(batch.map(async url => {
           if (!/^https?:\/\//i.test(url)) return url;
-          // An explicit image request also materializes ordinary URLs; protected
-          // URLs keep their own options. No upstream-managed file is modified.
-          const spec = ComicImagePipeline.parse(url);
-          const raw = spec.hasOptions ? url : `${url},{"headers":{}}`;
-          try { return await ComicImagePipeline.materialize(new HttpClient(), source, raw); }
-          catch (_) { return url; }
+          try { return await ComicImagePipeline.materialize(new HttpClient(), source, url, true); }
+          catch (error) {
+            if (request?.isCancelled()) throw error;
+            LightSourceRuntime.setError(source, error instanceof Error ? error.message : '漫画图片处理失败');
+            return url;
+          }
         }));
         paths.push(...result);
+        await ReaderCacheService.record(result);
       }
       if (request?.isCancelled()) throw new Error('Comic image prefetch cancelled');
       return JSON.stringify(paths);
-    });
+    }); } finally { ReaderCacheService.endComicWrite(); }
   }
 
   static async cover(localJson: string, raw: string, revision: number): Promise<string> {
@@ -444,7 +447,8 @@ export class LightSourceCore {
     LightSourceTiming.bind(source, timingId);
     LightSourceRequestPolicy.bind(source, request);
     LightSourceTiming.end(timingId, 'source-decode', sourceStartedAt);
-    return LightSourceRuntime.run(source, local, async () => {
+    ReaderCacheService.beginComicWrite();
+    try { return await LightSourceRuntime.run(source, local, async () => {
       const vars = JSON.parse(context) as Record<string, string>;
       const book = this.book(source, url, vars);
       const chapter = new BookChapter();
@@ -478,6 +482,7 @@ export class LightSourceCore {
         return '';
       });
       const media = ComicImagePipeline.parse(audio || video ? content : '');
+      if (imageUrls.length > 0) await ReaderCacheService.record(imageUrls);
       if (audio) {
         const support = new LightAudioSupport();
         media.url = support.resolveAudioUrl(content, chapter.url || book.bookUrl || source.bookSourceUrl);
@@ -491,6 +496,9 @@ export class LightSourceCore {
           (book.type & 64) !== 0 ? 'comic' : audio ? 'audio' : 'text' });
       LightSourceTiming.end(timingId, 'media-extract-encode', mediaStartedAt);
       return result;
-    });
+    }); } catch (error) {
+      ReaderCacheService.reconcile();
+      throw error;
+    } finally { ReaderCacheService.endComicWrite(); }
   }
 }

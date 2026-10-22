@@ -17,7 +17,7 @@
 
 `LocalRuleSourceImportParser → LocalRuleSourceRepository → BookSourceService / LocalRulePanelService → LocalRuleDispatcher / LightSourceBridge → LightSourceCore → 轻页原规则核心`
 
-规则组合、CSS、XPath、JSONPath、正则、URL选项、分页、登录脚本、原生源设置、图片、音频、视频和段评动作由上游核心处理，不再使用简听旧提取器、URL分析器或按站点的内容协议适配器。脚本经 `LightSourceSandbox → LocalRuleQuickJsRuntime.execute()` 在独立 taskpool 有界 QuickJS 中执行；网络动作通过受控宿主回放，网页渲染与嗅探使用轻页宿主协议。
+规则组合、CSS、XPath、JSONPath、正则、URL选项、分页、登录脚本、原生源设置、图片、音频、视频和段评动作由上游核心处理，不再使用简听旧提取器、URL分析器或按站点的内容协议适配器。脚本经 `LightSourceSandbox → LocalRuleQuickJsRuntime.execute()` 在独立 taskpool 有界 QuickJS 中执行；原生 JS 的宿主调用通过 JSON 邮箱暂停、响应后继续，兼容源仍沿用阶段回放，网页渲染与嗅探使用轻页宿主协议。
 
 内容结果提供正文 `content`、原始富文本 `richContent`、图片 `imageUrls`、音频地址/请求头、视频地址及段评 `interactions`；`BookSourceService.getSourceChapterContent()` 保留完整结果，既有阅读器与播放器继续消费各自字段。没有新增漫画、视频或段评页面。
 
@@ -27,7 +27,7 @@
 
 原生定义支持顶层 `js` 函数库、阶段 `script`、表达式/模板调用 JS 函数、变量 `optionsScript` 动态选项，以及脚本 `ui.toast`、`ui.refreshExplore` 和受控浏览器交互。动态选项点击时才运行对应脚本，打开面板不预先探测服务器，保存只验证已修改变量；浏览器仅允许 HTTPS，沿用隐私会话与 Cookie 隔离，完成后执行声明的 `login.check`。可参考离线样例 `scripts/fixtures/native-js-host-smoke.json`。
 
-简听在独立有界 QuickJS 上下文中重放宿主动作，JS 全局变量不跨阶段、任务或批次保留；需要跨调用保存的状态使用 `vars` / `cache`。书籍列表每最多 16 项的 JS 字段合并求值，详情的 JS 字段合并求值，同批次复用函数库，字段函数应保持纯计算。普通表达式无需进入 JS，JSONPath 在 JS 任务内本地解析。同次回放内已完成的宿主动作不重复执行，但重新计算消耗累计预算：阶段计算 2 秒/总时长 60 秒，表达式（含整批字段）计算 2 秒/总时长 10 秒，人工浏览器等待扣除。最多 256 次宿主调用；交换日志、单请求和输出字符串分别按 16×1024²、4×1024²、8×1024² 字符限制，源 JS 最多 512 Ki 字符；底层内存、栈和输入限制继续生效。依赖持久 JS 全局对象或高频宿主回调的源需调整，不能视为与轻页持久会话完全等价。导入只做同步结构检查，不执行 JS；语法和函数错误需通过运行测试发现。
+简听每次原生 JS 阶段使用独立有界 QuickJS 上下文；宿主调用保留当前调用栈，等待响应后继续执行，不再从头回放脚本。JS 全局变量不跨阶段、任务或批次保留；需要跨调用保存的状态使用 `vars` / `cache`。书籍列表每最多 16 项的 JS 字段合并求值，详情的 JS 字段合并求值，同批次复用函数库，字段函数应保持纯计算。普通表达式无需进入 JS，JSONPath 和纯转换在 JS 任务内本地执行。阶段计算 2 秒/总时长 60 秒，表达式（含整批字段）计算 2 秒/总时长 10 秒；宿主等待不计入原生计算预算，人工浏览器等待从活动总时长中扣除。每次任务最多 4096 次宿主调用，UTF-8 输入 4 MiB、返回邮箱 8 MiB、累计交换 64 MiB；原生独立硬上限 16 分钟，单次宿主等待上限 15 分钟。`scriptLimits.requests` 仍只控制网络请求（最多 100 次）。源 JS 最多 512 Ki 字符，输入 12 Mi 字符、输出 8 Mi 字符、堆 64 MiB、栈 1 MiB、pending jobs 32。任务完成、取消或失败均释放上下文和邮箱；不向脚本暴露平台对象。导入只做同步结构检查，不执行 JS；语法和函数错误需通过运行测试发现。
 
 书源定义、登录状态及按源+origin隔离的 Cookie 使用简听加密数据库。QuickJS保留时间、内存、栈与输入输出预算，不开放文件、数据库或无约束平台网络。网页运行使用隐私会话租约，任务结束释放；模式/筛选修改保存后通知首页刷新。
 
@@ -37,3 +37,9 @@
 `coverDecode` 的唯一字段说明与示例见[公共规范：加密封面](https://github.com/wip3l/harmony-book-source-engine/blob/main/docs/book-source-development.md#加密封面-coverdecode)。简听已接入公共加载器，网站参数只存在于用户导入定义。
 
 封面 URL 的 `#source-cover-v1=` 片段仅记录书源标识，不含密钥。应用按需通过已导入书源的隔离会话下载解密（单图最多 8 MiB），以 3 并发、64 待处理上限加载，并缓存到应用缓存目录（最多 64 MiB）。源定义或登录状态变化会隔离缓存；删除书源后不能继续解析加密封面。收藏和记录保留原始地址，缓存清理后可重新加载。列表、播放器、系统媒体封面共用该入口。
+
+## 漫画图片脚本
+
+`content.imageDecode` 已完整接入公共包的标准解密及 `script` 路径；字段语义以公共规范为准。函数从顶层 `js` 取得，收到 `Uint8Array` 和 `{url,index,params}`，其中 index 是原始图片列表的零基序号。支持字节数组、ArrayBuffer 和在 pending-job 预算内完成的 Promise；普通图片默认跳过脚本，`processPlainImages: true` 时也会处理。标准解密支持 `keyEncoding` 与每张图前 16 字节 IV。
+
+图片脚本在后台独立有界 QuickJS 中执行，仅有 `image.decrypt/encrypt/hash/hmac`；不开放网络、Cookie、文件或数据库。单图输入/输出各最多 20 MiB、内存 96 MiB、计算 2 秒、总时长 10 秒；最多 32 次加密宿主调用和累计 128 MiB 字节。运行与等待共最多 4 项、一次执行 1 项、排队最多 30 秒；取消会通知原生中断。系统加密调用无法在中途抢占，返回后检查取消及总时长。解码失败不写入图片缓存，变更请求头、参数、序号或函数库后使用不同缓存身份。

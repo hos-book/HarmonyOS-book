@@ -38,6 +38,7 @@ export struct ChapterSheet {
   /** 下载状态变化的重渲染哨兵：每次事件 +1，方法里读它建立依赖。 */
   @Local downloadTick: number = 0;
   private listScroller: Scroller = new Scroller();
+  private positionTimer: number = -1;
 
   private downloadHandler = (evt: emitter.EventData): void => {
     const data = evt.data as DownloadUpdatePayload;
@@ -54,16 +55,29 @@ export struct ChapterSheet {
 
   aboutToDisappear(): void {
     emitter.off(EVT_DOWNLOAD_UPDATED, this.downloadHandler);
+    if (this.positionTimer !== -1) clearTimeout(this.positionTimer);
+    this.positionTimer = -1;
   }
 
   @Monitor('book')
   private onBookChanged(): void {
     this.descending = this.book?.chaptersDescending ?? false;
     this.refresh();
+    this.scrollToCurrentChapter();
+  }
+
+  @Monitor('currentId')
+  private onCurrentChanged(): void {
+    this.offsetFromCurrent = 0;
+    this.scrollToCurrentChapter();
+  }
+
+  private isReadingBook(): boolean {
+    return this.book?.contentType === 'text' || this.book?.contentType === 'comic';
   }
 
   private unit(): string {
-    return this.book?.contentType === 'text' ? '章' : '集';
+    return this.isReadingBook() ? '章' : '集';
   }
 
   private total(): number {
@@ -120,11 +134,14 @@ export struct ChapterSheet {
   }
 
   private scrollToCurrentChapter(): void {
-    const current = this.currentId;
-    const idx = this.displayed.findIndex((chapter: Chapter): boolean => chapter.id === current);
-    if (idx < 0 || this.segmentMode) return;
-    setTimeout((): void => {
-      if (this.segmentMode) return;
+    if (this.positionTimer !== -1) clearTimeout(this.positionTimer);
+    this.positionTimer = -1;
+    if (this.segmentMode || this.query.trim().length > 0 || this.currentId.length === 0) return;
+    this.positionTimer = setTimeout((): void => {
+      this.positionTimer = -1;
+      if (this.segmentMode || this.query.trim().length > 0) return;
+      const idx = this.displayed.findIndex((chapter: Chapter): boolean => chapter.id === this.currentId);
+      if (idx < 0) return;
       try {
         this.listScroller.scrollToIndex(idx, false, ScrollAlign.CENTER);
       } catch (_e) { /* 未挂载时忽略 */ }
@@ -132,7 +149,8 @@ export struct ChapterSheet {
   }
 
   private shouldShowJumpButton(): boolean {
-    return this.query.trim().length === 0 && Math.abs(this.offsetFromCurrent) > 200;
+    return this.query.trim().length === 0 && this.currentIndex() >= 0 &&
+      (this.book?.contentType === 'comic' || Math.abs(this.offsetFromCurrent) > 200);
   }
 
   private chapterRecord(chapter: Chapter): DownloadChapterRecord | null {
@@ -210,18 +228,18 @@ export struct ChapterSheet {
       book: this.book,
       chapter: ri.item,
       title: ri.item.title,
-      isTextBook: this.book?.contentType === 'text',
+      isTextBook: this.isReadingBook(),
       isPlaying: ri.item.id === this.currentId,
-      durationText: this.book?.contentType === 'text' ? ''
+      durationText: this.isReadingBook() ? ''
         : (this.chapterDuration(ri.item) > 0 ? this.formatDuration(this.chapterDuration(ri.item)) : ''),
-      bytesText: this.book?.contentType === 'text' ? ''
+      bytesText: this.isReadingBook() ? ''
         : (this.isDownloaded(ri.item) && (this.chapterRecord(ri.item)?.bytes ?? 0) > 0
           ? this.formatBytes(this.chapterRecord(ri.item)?.bytes ?? 0)
           : ''),
-      progressText: this.book?.contentType === 'text' ? ''
+      progressText: this.isReadingBook() ? ''
         : (ri.item.id === this.currentId ? this.currentProgressText : ''),
       horizontalInset: AppSpace.Lg,
-      badge: this.book?.contentType === 'text' ? ChapterBadge.None
+      badge: this.isReadingBook() ? ChapterBadge.None
         : mapChapterBadge(this.isDownloaded(ri.item), this.isDownloading(ri.item), this.isDownloadFailed(ri.item)),
       onTap: (): void => this.onSelect(ri.item)
     })
@@ -233,7 +251,7 @@ export struct ChapterSheet {
         this.buildHeader()
 
         if (this.chapters().length > 0) {
-          Search({ value: this.query, placeholder: this.book?.contentType === 'text' ? '搜索章节' : '搜索节目' })
+          Search({ value: this.query, placeholder: this.isReadingBook() ? $r('app.string.reader_search_chapters') : '搜索节目' })
             .onChange((value: string): void => this.applyQuery(value))
             .fontColor($r('sys.color.font_primary'))
             .placeholderColor($r('sys.color.font_tertiary'))
@@ -247,7 +265,7 @@ export struct ChapterSheet {
         if (this.loading && this.chapters().length === 0) {
           ChapterLoadingSkeleton({
             horizontalInset: AppSpace.Lg,
-            isTextBook: this.book?.contentType === 'text',
+            isTextBook: this.isReadingBook(),
             rowCount: 8
           })
         } else if (this.chapters().length === 0) {
@@ -313,6 +331,7 @@ export struct ChapterSheet {
           .width('100%')
           .layoutWeight(1)
           .cachedCount(5)
+          .onAppear((): void => this.scrollToCurrentChapter())
           .scrollBar(BarState.Auto)
           .edgeEffect(EdgeEffect.Spring)
           .transition(
@@ -335,7 +354,7 @@ export struct ChapterSheet {
           SymbolGlyph($r('sys.symbol.scope'))
             .fontSize(16)
             .fontColor(['#FFFFFF'])
-          Text('回到当前章节')
+          Text($r('app.string.reader_back_to_current_chapter'))
             .fontSize(AppFont.Caption)
             .fontColor('#FFFFFF')
             .fontWeight(FontWeight.Medium)

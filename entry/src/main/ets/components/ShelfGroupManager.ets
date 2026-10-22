@@ -1,5 +1,6 @@
 import { BookPresentation } from '../model/BookPresentation';
 import { AppColor } from '../theme/Theme';
+import { ListDataSource } from '../utils/ListDataSource';
 
 @ComponentV2
 export struct ShelfGroupManager {
@@ -7,14 +8,36 @@ export struct ShelfGroupManager {
   @Event onSave: (previous: string, name: string) => Promise<void> = async (): Promise<void> => {};
   @Event onBusy: (busy: boolean) => void = (): void => {};
   @Event onDelete: (group: string) => Promise<void> = async (): Promise<void> => {};
+  @Event onReorder: (groups: string[]) => Promise<void> = async (): Promise<void> => {};
   @Local previous: string = '';
   @Local name: string = '';
   @Local saving: boolean = false;
   @Local failed: boolean = false;
   private alive: boolean = false;
+  private groupData: ListDataSource<string> = new ListDataSource<string>();
 
-  aboutToAppear(): void { this.alive = true; }
+  aboutToAppear(): void { this.alive = true; this.refreshGroups(); }
   aboutToDisappear(): void { this.alive = false; }
+
+  @Monitor('groups')
+  private refreshGroups(): void { this.groupData.setItems(this.groups); }
+
+  private async reorder(from: number, to: number): Promise<void> {
+    if (this.saving || from === to || from < 0 || to < 0 || from >= this.groups.length || to >= this.groups.length) return;
+    const next = this.groups.slice();
+    next.splice(to, 0, next.splice(from, 1)[0]);
+    this.groupData.setItems(next);
+    this.saving = true;
+    this.failed = false;
+    this.onBusy(true);
+    try { await this.onReorder(next); }
+    catch (_error) { this.failed = true; }
+    finally {
+      this.groupData.setItems(this.groups);
+      this.saving = false;
+      this.onBusy(false);
+    }
+  }
 
   private async deleteGroup(group: string): Promise<void> {
     if (this.saving || !this.groups.includes(group)) return;
@@ -68,10 +91,14 @@ export struct ShelfGroupManager {
     Column({ space: 16 }) {
       Text($r('app.string.shelf_group_manage')).fontSize(22).fontWeight(FontWeight.Bold)
         .width('100%').fontColor($r('sys.color.font_primary'))
+      Text($r('app.string.shelf_group_drag_hint')).fontSize(13).width('100%')
+        .fontColor($r('sys.color.font_secondary'))
       List({ space: 8 }) {
-        ForEach(this.groups, (group: string) => {
+        LazyForEach(this.groupData, (group: string) => {
           ListItem() {
             Row({ space: 12 }) {
+              SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(20)
+                .fontColor([$r('sys.color.font_tertiary')]).accessibilityText($r('app.string.shelf_group_drag_hint'))
               Text(group).layoutWeight(1).maxLines(2).fontColor($r('sys.color.font_primary'))
               Button($r('app.string.common_edit')).fontColor(AppColor.Brand)
                 .backgroundColor(Color.Transparent).enabled(!this.saving)
@@ -82,7 +109,8 @@ export struct ShelfGroupManager {
             }.width('100%').padding(8)
           }
         }, (group: string): string => group)
-      }.width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+          .onMove((from: number, to: number): void => { this.reorder(from, to); })
+      }.width('100%').layoutWeight(1).scrollBar(BarState.Auto).enabled(!this.saving)
       Text(this.previous ? $r('app.string.shelf_group_rename') : $r('app.string.shelf_group_new'))
         .width('100%').fontColor($r('sys.color.font_secondary'))
       TextInput({ text: this.name, placeholder: $r('app.string.shelf_group_new') })

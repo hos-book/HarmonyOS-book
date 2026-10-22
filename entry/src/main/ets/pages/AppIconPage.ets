@@ -3,6 +3,7 @@ import { AppIconOption, AppIconService } from '../service/AppIconService';
 import { sendableContextManager } from '@kit.AbilityKit';
 import { MembershipService } from '../service/MembershipService';
 import { MembershipState } from '../model/MembershipState';
+import { VipFeatureBadge } from '../components/VipFeatureBadge';
 
 /** 主题会员页内的图标选择区，保留原文件名，不再注册独立路由。 */
 @ComponentV2
@@ -76,12 +77,21 @@ export struct AppIconPage {
           .fontSize(AppFont.BodyL)
           .fontWeight(FontWeight.Bold)
           .fontColor($r('sys.color.font_primary'))
+        if (MembershipState.featureEnabled) {
+          VipFeatureBadge()
+        }
         Blank()
         if (this.loading || this.switching || (this.service.membershipRequired && this.membership.busy)) {
           LoadingProgress().width(24).height(24).color(AppColor.Brand)
         }
       }
       .width('100%')
+      if (MembershipState.featureEnabled) {
+        Text($r('app.string.app_icon_hint'))
+          .fontSize(AppFont.Caption)
+          .fontColor($r('sys.color.font_secondary'))
+          .width('100%')
+      }
       if (this.loadFailed) {
         Button($r('app.string.app_icon_retry'))
           .fontColor(AppColor.Brand)

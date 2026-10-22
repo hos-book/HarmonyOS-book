@@ -4,6 +4,7 @@ import { buffer } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { StorageMigrationService } from '../StorageMigrationService';
 import { BookIdentity } from '../../utils/BookIdentity';
+import { ReaderCacheService, ReaderCacheKind, ReaderCacheCleanup } from '../ReaderCacheService';
 
 class CachedTextChapter {
   version: number = 1;
@@ -25,6 +26,7 @@ export class OnlineTextContentCache {
   private static migrations: Map<string, Promise<void>> = new Map();
 
   static migrateStorage(context: common.Context): Promise<void> {
+    ReaderCacheService.configure(context);
     const existing = OnlineTextContentCache.migrations.get(context.filesDir);
     if (existing !== undefined) return existing;
     const task = StorageMigrationService.migrateDirectory(
@@ -45,6 +47,22 @@ export class OnlineTextContentCache {
     return `${context.filesDir}/online_text_content/${BookIdentity.onlineTextBookId(key, '')}.json`;
   }
 
+  static protect(context: common.Context, owner: string, keys: string[]): void {
+    ReaderCacheService.configure(context);
+    ReaderCacheService.protect(owner, keys.map((key: string): string => OnlineTextContentCache.path(context, key)));
+  }
+
+  static async clear(context: common.Context): Promise<ReaderCacheCleanup> {
+    let result = new ReaderCacheCleanup();
+    const task = OnlineTextContentCache.writeChain.then(async (): Promise<void> => {
+      await OnlineTextContentCache.migrateStorage(context);
+      result = await ReaderCacheService.clear(ReaderCacheKind.Text);
+    });
+    OnlineTextContentCache.writeChain = task.catch((): void => {});
+    await task;
+    return result;
+  }
+
   static async contains(context: common.Context, key: string): Promise<boolean> {
     await OnlineTextContentCache.migrateStorage(context);
     try {
@@ -55,17 +73,20 @@ export class OnlineTextContentCache {
 
   static async read(context: common.Context, key: string): Promise<string | undefined> {
     await OnlineTextContentCache.migrateStorage(context);
+    const path = OnlineTextContentCache.path(context, key);
+    ReaderCacheService.hold(path);
     try {
-      const path = OnlineTextContentCache.path(context, key);
       const stat = await fileIo.stat(path);
       if (stat.size <= 0 || stat.size > OnlineTextContentCache.MAX_FILE_BYTES) return undefined;
       const record: CachedTextChapter = JSON.parse(await fileIo.readText(path));
       // 校验完整身份，哈希碰撞也不能返回另一本书/另一个来源的正文。
       if (record !== null && record.version === 1 && record.key === key &&
         typeof record.content === 'string' && record.content.trim().length > 0) {
+        await ReaderCacheService.record([path]);
         return record.content;
       }
     } catch (_e) { /* 缺失、损坏或读取失败均回退在线获取 */ }
+    finally { ReaderCacheService.unhold(path); }
     return undefined;
   }
 
@@ -126,6 +147,7 @@ export class OnlineTextContentCache {
       const dir = `${context.filesDir}/online_text_content`;
       try { await fileIo.mkdir(dir); } catch (_e) { /* 已存在 */ }
       const path = OnlineTextContentCache.path(context, key);
+      ReaderCacheService.hold(path);
       const temp = path + '.tmp';
       let file: fileIo.File | null = null;
       try {
@@ -141,11 +163,13 @@ export class OnlineTextContentCache {
         await fileIo.close(file);
         file = null;
         await fileIo.moveFile(temp, path);
+        await ReaderCacheService.record([path]);
       } finally {
         if (file !== null) {
           try { await fileIo.close(file); } catch (_e) { /* ignore */ }
         }
         try { await fileIo.unlink(temp); } catch (_e) { /* 已移动或未创建 */ }
+        ReaderCacheService.unhold(path);
       }
     }).catch((): void => {
       hilog.warn(0x0000, 'OnlineTextContentCache', 'chapter cache write failed');
@@ -158,6 +182,7 @@ export class OnlineTextContentCache {
     const task = OnlineTextContentCache.writeChain.then(async (): Promise<void> => {
       await OnlineTextContentCache.migrateStorage(context);
       try { await fileIo.unlink(OnlineTextContentCache.path(context, key)); } catch (_error) { /* cache miss */ }
+      ReaderCacheService.forget(OnlineTextContentCache.path(context, key));
     });
     OnlineTextContentCache.writeChain = task.catch((): void => {});
     await task;
@@ -192,7 +217,10 @@ export class OnlineTextContentCache {
         } catch (_e) { continue; }
         if (Array.isArray(parts) && !protectedBooks.has(OnlineTextContentCache.key(parts[0], parts[1], '')) &&
           sourceUrls.has(parts[0]) &&
-          (bookUrl === undefined || parts[1] === bookUrl)) await fileIo.unlink(path);
+            (bookUrl === undefined || parts[1] === bookUrl)) {
+          await fileIo.unlink(path);
+          ReaderCacheService.forget(path);
+        }
       }
     });
     OnlineTextContentCache.writeChain = task.catch((): void => {});

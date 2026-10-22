@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>会员图标设计对比 · 简约版</title>
+<link rel="stylesheet" href="https://miaoda.feishu.cn/fonts/css2?family=Noto+Serif+SC:wght@500;700;900&family=Noto+Sans+SC:wght@300;400;500;700&display=swap">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text x='16' y='24' font-size='20' text-anchor='middle' fill='%23c9a24b' font-family='serif' font-weight='bold'>V</text></svg>">
+<style>
+  :root{
+    --bg:#0f0f0f;
+    --ink:#ececec;
+    --ink-dim:#9a9a9a;
+    --line:rgba(255,255,255,.1);
+    /* 棋盘格（透明底标识） */
+    --checker:
+      conic-gradient(#3a3a3a 25%, #2c2c2c 0 50%, #3a3a3a 0 75%, #2c2c2c 0)
+      0 0/28px 28px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:"Noto Sans SC", system-ui, sans-serif;
+    min-height:100vh; padding:56px 24px 72px;
+  }
+  .page-head{text-align:center; max-width:680px; margin:0 auto 52px;}
+  .page-head h1{
+    font-family:"Noto Serif SC", serif; font-weight:700;
+    font-size:30px; letter-spacing:4px; color:#f0f0f0;
+  }
+  .page-head p{margin-top:14px; color:var(--ink-dim); font-size:13px; letter-spacing:2px;}
+
+  .grid{
+    display:grid; grid-template-columns:repeat(3,1fr);
+    gap:24px; max-width:1000px; margin:0 auto;
+  }
+  .card{
+    border:1px solid var(--line); border-radius:16px;
+    padding:30px 24px 26px; background:#151515;
+    display:flex; flex-direction:column;
+  }
+  .stage{
+    border-radius:10px; overflow:hidden;
+    display:flex; align-items:center; justify-content:center;
+    padding:26px 16px;
+  }
+  .stage.checker{background:var(--checker);}
+  .stage.dark{background:#000;}
+  .stage.light{background:#fff;}
+  .stage + .stage{margin-top:12px;}
+  .stage svg{display:block; max-width:100%;}
+  .stage.checker svg{width:220px;}
+  .stage.dark svg,.stage.light svg{width:130px;}
+
+  .meta{margin-top:22px; text-align:center;}
+  .name{font-family:"Noto Serif SC",serif; font-size:19px; font-weight:700; letter-spacing:3px;}
+  .en{margin-top:5px; font-size:10px; letter-spacing:4px; color:var(--ink-dim); text-transform:uppercase;}
+  .row2{display:flex; gap:12px;}
+  .row2 .stage{flex:1; padding:18px 8px;}
+
+  .labels{max-width:1000px;margin:30px auto 0;display:flex;gap:24px;}
+  .labels > div{flex:1;display:flex;gap:12px;justify-content:center;font-size:11px;color:#777;letter-spacing:1px;}
+  .labels i{width:10px;height:10px;border-radius:2px;display:inline-block;}
+
+  @media (max-width:860px){
+    .grid{grid-template-columns:1fr; max-width:400px;}
+    .labels{display:none;}
+  }
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <h1>会员图标 · 简约版</h1>
+  <p>仅 VIP 字符 · 无装饰 · 透明背景 · 月度银 / 年度纯金 / 永久黑金描边</p>
+</header>
+
+<!-- 共用 SVG 渐变定义（仅文字，无任何底板） -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <!-- 月度：银 -->
+    <linearGradient id="gMonthly" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f7fb"/><stop offset=".5" stop-color="#c3cedd"/>
+      <stop offset="1" stop-color="#8d9bb0"/>
+    </linearGradient>
+    <!-- 年度：金 -->
+    <linearGradient id="gAnnual" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbe9ad"/><stop offset=".45" stop-color="#e3bd5e"/>
+      <stop offset="1" stop-color="#b0832d"/>
+    </linearGradient>
+    <!-- 永久：亮金（更饱满、高光更强） -->
+    <linearGradient id="gForever" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fff6d8"/><stop offset=".35" stop-color="#f5d67e"/>
+      <stop offset=".7" stop-color="#d9a93f"/><stop offset="1" stop-color="#f0d089"/>
+    </linearGradient>
+  </defs>
+</svg>
+
+<main class="grid">
+
+  <!-- ===== 月度 ===== -->
+  <section class="card">
+    <div class="stage checker">
+      <svg viewBox="0 0 400 190" role="img" aria-label="月度会员VIP">
+        <text x="200" y="132" text-anchor="middle" font-family="Noto Serif SC,serif"
+              font-size="120" font-weight="700" letter-spacing="4" fill="url(#gMonthly)">VIP</text>
+      </svg>
+    </div>
+    <div class="row2">
+      <div class="stage dark">
+        <svg viewBox="0 0 400 190"><text x="200" y="132" text-anchor="middle" font-family="Noto Serif SC,serif" font-size="120" font-weight="700" letter-spacing="4" fill="url(#gMonthly)">VIP</text></svg>
+      </div>
+      <div class="stage light">
+        <svg viewBox="0 0 400 190"><text x="200" y="132" text-anchor="middle" font-family="Noto Serif SC,serif" font-size="120" font-weight="700" letter-spacing="4" fill="url(#gMonthly)">VIP</text></svg>
+      </div>
+    </div>
+    <div class="meta"><div class="name">月度会员</div><div class="en">Monthly</div></div>
+  </section>
+
+  <!-- ===== 年度 ===== -->
+  <section class="card">
+    <div class="stage checker">
+      <svg viewBox="0 0 400 190" role="img" aria-label="年度会员VIP">
+        <text x="200" y="132" text-anchor="middle" font-family="Noto Serif SC,serif"
+              font-size="120" font-weight="700" letter-spacing="4" fill="url(#gAnnual)">VIP</text>
+      </svg>
+    </div>
+    <div class="row2">
+      <div class="stage dark">
+        <svg viewBox="0 0 400 190"><text x="200" y="132" text-anchor="middle" font-family="Noto Serif SC,serif" font-size="120" font-weight="700" letter-spacing="4" fill="url(#gAnnual)">VIP</text></svg>
+      </div>
+      <div class="stage light">
+        <svg viewBox="0 0 400 190"><text x="200" y="132" text-anchor="middle" font-family="Noto Serif SC,serif" font-size="120" font-weight="700" letter-spacing="4" fill="url(#gAnnual)">VIP</text></svg>
+      </div>
+    </div>
+    <div class="meta"><div class="name">年度会员</div><div class="en">Annual</div></div>
+  </section>
+
+  <!-- ===== 永久 ===== -->
+  <section class="card">
+    <div class="stage checker">
+      <svg viewBox="0 0 400 190" role="img" aria-label="永久会员VIP">
+        <text x="200" y="132" text-anchor="middle" font-family="Noto Serif SC,serif"
+              font-size="120" font-weight="900" letter-spacing="4" fill="#141414" stroke="url(#gForever)" stroke-width="4.5">VIP</text>
+      </svg>
+    </div>
+    <div class="row2">
+      <div class="stage dark">
+        <svg viewBox="0 0 400 190"><text x="200" y="132" text-anchor="middle" font-family="Noto Serif SC,serif" font-size="120" font-weight="900" letter-spacing="4" fill="#141414" stroke="url(#gForever)" stroke-width="4.5">VIP</text></svg>
+      </div>
+      <div class="stage light">
+        <svg viewBox="0 0 400 190"><text x="200" y="132" text-anchor="middle" font-family="Noto Serif SC,serif" font-size="120" font-weight="900" letter-spacing="4" fill="#141414" stroke="url(#gForever)" stroke-width="4.5">VIP</text></svg>
+      </div>
+    </div>
+    <div class="meta"><div class="name">永久会员</div><div class="en">Lifetime</div></div>
+  </section>
+
+</main>
+
+<div class="labels">
+  <div><i style="background:var(--checker)"></i>透明底（主展示）</div>
+  <div><i style="background:#000"></i>深色底效果</div>
+  <div><i style="background:#fff"></i>浅色底效果</div>
+</div>
+
+</body>
+</html>
