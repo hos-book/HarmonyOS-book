@@ -9,7 +9,8 @@ const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-l
 const etsRoot = path.join(__dirname, '../entry/src/main/ets');
 const themeKey = 'app_theme_preferences';
 const realModules = new Set([
-  'model/AppAppearance', 'model/AppThemeBundle', 'theme/ThemeBundles', 'service/PreferenceService'
+  'model/AppAppearance', 'model/AppThemeBundle', 'model/AppThemeVisual', 'theme/ThemeBundles',
+  'theme/bundles/DefaultTheme', 'theme/bundles/PaperTheme', 'theme/bundles/MistTheme', 'theme/bundles/InkTheme', 'service/PreferenceService'
 ]);
 const compiled = new Map();
 
@@ -178,6 +179,24 @@ function expectedSelection(id, accent, material) {
   await failedRestore.service.setDefaultTab(1);
   assert.deepEqual(appearanceOf(await launch(failedRestore.disk)), ['default', '#123ABC', 4],
     'failed restore must roll back legacy appearance keys before an unrelated flush');
+
+  // Every registered bundle participates in persistence and backup without special-case IDs.
+  const registry = restored.bundles.list();
+  assert.equal(registry.length, 4);
+  assert.equal(new Set(registry.map(bundle => bundle.id)).size, registry.length);
+  for (const bundle of registry) {
+    await restored.service.applyThemeBundle(bundle.id);
+    assert.deepEqual(appearanceOf(restored), [bundle.id, bundle.accent, bundle.material]);
+    assert.deepEqual(appearanceOf(await launch(restored.disk)), [bundle.id, bundle.accent, bundle.material]);
+    const saved = await restored.service.exportBackupSnapshot();
+    const fresh = await launch(createDisk());
+    await fresh.service.restoreBackupSnapshot(JSON.parse(JSON.stringify(saved)));
+    assert.deepEqual(appearanceOf(fresh), [bundle.id, bundle.accent, bundle.material]);
+    await fresh.service.setAccentColor('#123456');
+    await fresh.service.setMaterialStyle(4);
+    await fresh.service.resetThemeBundleOverrides();
+    assert.deepEqual(appearanceOf(fresh), [bundle.id, bundle.accent, bundle.material]);
+  }
 
   console.log('PASS: theme legacy migration, complete apply, queued overrides, flush rollback, restart, invalid records and backup compatibility');
 })().catch(error => { console.error(error); process.exitCode = 1; });

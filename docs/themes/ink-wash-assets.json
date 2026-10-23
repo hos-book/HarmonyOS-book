@@ -1,0 +1,57 @@
+{
+  "generator": "Dreamina CLI",
+  "model": "5.0 (CLI default at generation)",
+  "date": "2026-10-23",
+  "processing": "Resize to 900px background / 600px covers, WebP quality 86; no recoloring or cropping.",
+  "generationCredits": 27,
+  "assets": [
+    {
+      "resource": "entry/src/main/resources/base/media/theme_ink_background.webp",
+      "submitId": "f64bd15b-e1bd-4814-b569-a829a6c73044",
+      "width": 900,
+      "height": 1600,
+      "bytes": 45136,
+      "sha256": "2a30113ca07db5f736304f4a9552dcd682e7d99250039345fc1e4d0f1c13531b"
+    },
+    {
+      "resource": "entry/src/main/resources/base/media/theme_ink_cover.webp",
+      "submitId": "8789a264-5198-4750-b8ac-89e51d11e189",
+      "width": 600,
+      "height": 900,
+      "bytes": 57018,
+      "sha256": "90cd1c3a2ddf8f127925bb6a52e1172820ceda4d72764a86e933f18068233303"
+    },
+    {
+      "resource": "entry/src/main/resources/base/media/theme_ink_local_cover.webp",
+      "submitId": "b5e7851c-d381-47e7-80c7-015f3b05ad59",
+      "width": 600,
+      "height": 900,
+      "bytes": 69964,
+      "sha256": "da16fd01efaee9312f76d84e6f14b7b622a13e8c177d64529b9b384bfbd32feb"
+    },
+    {
+      "resource": "entry/src/main/resources/dark/media/theme_ink_background.webp",
+      "submitId": "5b5d86db-d3ba-471b-94b0-a75eef0d5cd1",
+      "width": 900,
+      "height": 1600,
+      "bytes": 244842,
+      "sha256": "d8551642cda3c7489d2f5a917246bf0c5b3428577712c1a8881c1ac05a969a3e"
+    },
+    {
+      "resource": "entry/src/main/resources/dark/media/theme_ink_cover.webp",
+      "submitId": "975e8837-e0b5-476f-a2a9-29a9f41c32a6",
+      "width": 600,
+      "height": 900,
+      "bytes": 51282,
+      "sha256": "5e1f0f5249a9eee84cf553e5e152445343a7d6dd4bb1a22b97be2d11b4025495"
+    },
+    {
+      "resource": "entry/src/main/resources/dark/media/theme_ink_local_cover.webp",
+      "submitId": "5f77cbb5-8346-4177-876b-fae65cfb1aff",
+      "width": 600,
+      "height": 900,
+      "bytes": 92832,
+      "sha256": "44e202c4564372bb9c8e3ccbbdcf5383f194aad6ebd8e9ad2a50ae75623436ca"
+    }
+  ]
+}

@@ -1389,7 +1389,7 @@ export struct HomePage {
 
   build() {
     Stack() {
-      if (AppTheme.isPaper) {
+      if (!AppTheme.ShowCoverBackdrop) {
         ThemeBackgroundComponent()
       }
       if (!this.homeResolved) {
@@ -1422,7 +1422,7 @@ export struct HomePage {
   buildSourceHome() {
     Stack({ alignContent: Alignment.TopStart }) {
       Stack({ alignContent: Alignment.TopStart }) {
-        if (!AppTheme.isPaper) {
+        if (AppTheme.ShowCoverBackdrop) {
           RankingPosterBackground({ cover: this.carouselCover,
             suspended: !this.visible || this.openingCarouselBook || this.coverState.detailBookId.length > 0,
             imageHeight: this.contentHeight + this.topSafeVp + this.bottomSafeVp })
@@ -1430,7 +1430,7 @@ export struct HomePage {
       }
         .width('100%')
         .height('100%')
-        .backgroundColor(AppTheme.isPaper ? Color.Transparent : HomeTheme.BgNeutral)
+        .backgroundColor(!AppTheme.ShowCoverBackdrop ? Color.Transparent : HomeTheme.BgNeutral)
         .clip(true)
         .hitTestBehavior(HitTestMode.None)
         .accessibilityLevel('no')

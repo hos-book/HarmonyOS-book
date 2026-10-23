@@ -2078,7 +2078,7 @@ export struct FavoritePage {
   // 透明明暗层沿用原封面的颜色，书脊随封面宽度缩放，不增加图片解码。
   @Builder
   buildBookSpine() {
-    if (AppTheme.isPaper) {
+    if (AppTheme.CoverDecorationEnabled) {
       CoverDecoration({ radius: 4 })
     } else {
       Row()

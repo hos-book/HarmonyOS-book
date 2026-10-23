@@ -293,8 +293,9 @@ export struct MainPage {
   }
 
   private buildTabBar(icon: Resource, label: string, role: ThemeIconRole): BottomTabBarStyle {
-    if (AppTheme.isPaper) {
-      return new BottomTabBarStyle(ThemeIcons.paper(role), label)
+    const themedIcon: Resource | undefined = ThemeIcons.resolve(role);
+    if (themedIcon !== undefined) {
+      return new BottomTabBarStyle(themedIcon, label)
         .iconStyle({ unselectedColor: AppTheme.TextSecondary, selectedColor: AppColor.Brand })
         .labelStyle({ unselectedColor: AppTheme.TextSecondary, selectedColor: AppColor.Brand });
     }

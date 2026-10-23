@@ -267,7 +267,7 @@ export struct BookPosterCarousel {
           ForEach(this.items, (item: BookPosterItem, index: number) => {
             Column() {
               Stack({ alignContent: Alignment.BottomEnd }) {
-              CoverImage({ url: item.coverUrl, title: AppTheme.isPaper ? item.title : '', author: item.author,
+              CoverImage({ url: item.coverUrl, title: AppTheme.IllustratedPlaceholders ? item.title : '', author: item.author,
                 imgWidth: BOOK_POSTER_COVER_WIDTH,
                 aspectRatioValue: item.aspectRatio,
                 useOriginalRatio: this.useOriginalCoverRatio, maxOriginalHeight: 160,

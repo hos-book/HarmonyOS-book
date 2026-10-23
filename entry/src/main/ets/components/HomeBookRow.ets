@@ -85,8 +85,8 @@ export struct HomeBookRow {
             })
           } else {
             CoverImage({
-              title: AppTheme.isPaper ? r.name : '',
-              author: AppTheme.isPaper ? r.author : '',
+              title: AppTheme.IllustratedPlaceholders ? r.name : '',
+              author: AppTheme.IllustratedPlaceholders ? r.author : '',
               imgWidth: this.coverWidth(),
               imgHeight: this.coverHeight(),
               useFixedHeight: true,
@@ -171,7 +171,7 @@ export struct HomeBookRow {
             onImageSize: (url: string, width: number, height: number): void =>
               this.rememberCoverSize(url, width, height)
           })
-        } else if (AppTheme.isPaper) {
+        } else if (AppTheme.IllustratedPlaceholders) {
           CoverImage({ title: r.name, author: r.author,
             imgWidth: this.coverWidth(), imgHeight: this.coverHeight(), useFixedHeight: true,
             radius: AppRadius.Sm })

@@ -1,37 +1,35 @@
 import { AppTheme } from './Theme';
+import { AppThemeCover, ThemeCoverDecoration } from '../model/AppThemeVisual';
 
-/** 仅解析封面呈现；真实图片地址、封面缓存和书籍身份始终由原链路管理。 */
+/** 只解析呈现；真实图片地址、缓存和书籍身份由原链路管理。 */
 export class CoverTheme {
-  static isPaper(themeBundleId: string = ''): boolean {
-    return themeBundleId.length > 0 ? themeBundleId === 'paper-study' : AppTheme.isPaper;
+  static resolve(themeBundleId: string = ''): AppThemeCover {
+    return AppTheme.resolve(themeBundleId).visual.cover;
   }
-
+  static decoration(themeBundleId: string = ''): ThemeCoverDecoration {
+    return CoverTheme.resolve(themeBundleId).decoration;
+  }
   static placeholder(themeBundleId: string = ''): Resource {
-    return CoverTheme.isPaper(themeBundleId) ? $r('app.media.theme_paper_cover') :
-      $r('app.media.book_cover_placeholder');
+    return CoverTheme.resolve(themeBundleId).placeholder;
   }
-
   static localPlaceholder(themeBundleId: string = ''): Resource {
-    return CoverTheme.isPaper(themeBundleId) ? $r('app.media.theme_paper_local_cover') :
-      $r('app.media.local_book_cover_placeholder');
+    return CoverTheme.resolve(themeBundleId).localPlaceholder;
   }
-
+  static playerPlaceholder(): Resource { return CoverTheme.resolve().playerPlaceholder; }
   static titleColor(local: boolean = false, themeBundleId: string = ''): ResourceColor {
-    if (CoverTheme.isPaper(themeBundleId)) {
-      return local ? $r('app.color.theme_paper_local_cover_text') : $r('app.color.theme_paper_cover_text');
-    }
-    return local ? '#493E35' : '#FFF4E6';
+    const cover = CoverTheme.resolve(themeBundleId);
+    return local ? cover.localTitle : cover.title;
   }
-
   static authorColor(themeBundleId: string = ''): ResourceColor {
-    return CoverTheme.isPaper(themeBundleId) ? $r('app.color.theme_paper_local_cover_author') : '#64584B';
+    return CoverTheme.resolve(themeBundleId).author;
   }
-
+  static authorBackground(themeBundleId: string = ''): ResourceColor {
+    return CoverTheme.resolve(themeBundleId).authorBackground;
+  }
   static titleBackground(themeBundleId: string = ''): ResourceColor {
-    return CoverTheme.isPaper(themeBundleId) ? $r('app.color.theme_paper_cover_label') : '#AA493E35';
+    return CoverTheme.resolve(themeBundleId).label;
   }
-
   static edgeColor(themeBundleId: string = ''): ResourceColor {
-    return CoverTheme.isPaper(themeBundleId) ? $r('app.color.theme_paper_text_secondary') : AppTheme.TextSecondary;
+    return CoverTheme.resolve(themeBundleId).edge;
   }
 }

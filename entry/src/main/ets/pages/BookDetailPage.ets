@@ -984,7 +984,7 @@ export struct BookDetailPage {
       .height(this.detailHeroHeight() / 2)
       .renderGroup(true)
       .scale({ x: 4, y: 4, centerX: 0, centerY: 0 })
-      .opacity(AppTheme.isPaper ? 0 : 0.36)
+      .opacity(AppTheme.ShowCoverBackdrop ? 0.36 : 0)
 
       Column()
         .width('100%')
@@ -992,9 +992,9 @@ export struct BookDetailPage {
         .linearGradient({
           angle: 180,
           colors: [
-            [AppTheme.isPaper ? AppTheme.Background : $r('app.color.detail_backdrop_scrim_top'), 0.0],
-            [AppTheme.isPaper ? AppTheme.Surface : $r('app.color.home_card_surface_soft'), 0.38],
-            [AppTheme.isPaper ? AppTheme.Surface : $r('sys.color.comp_background_primary'), 0.62],
+            [AppTheme.DetailTop, 0.0],
+            [AppTheme.DetailMid, 0.38],
+            [AppTheme.DetailBottom, 0.62],
             [AppTheme.Background, 0.86],
             [AppTheme.Background, 1.0]
           ]

@@ -32,7 +32,7 @@ class ProfileItem {
   }
 
   get iconBg(): ResourceColor {
-    if (AppTheme.isPaper || this.id === 'ruleSources' || this.id === 'membership' || this.id === 'community') {
+    if (AppTheme.BrandedProfileIcons || this.id === 'ruleSources' || this.id === 'membership' || this.id === 'community') {
       return AppColor.Brand;
     }
     return this.iconBackground;

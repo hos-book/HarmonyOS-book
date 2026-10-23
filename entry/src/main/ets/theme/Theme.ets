@@ -1,105 +1,91 @@
 import { curves } from '@kit.ArkUI';
 import lazy { uiMaterial } from '@kit.ArkUI';
 import { AppAppearance } from '../model/AppAppearance';
+import { AppThemeBundle } from '../model/AppThemeBundle';
+import { AppThemeColors, ThemeCoverDecoration } from '../model/AppThemeVisual';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { ThemeBundles } from './ThemeBundles';
 
-/** App 外观语义入口；深浅色由同名 base/dark 资源解析，阅读正文继续使用 ReaderTheme。 */
+/** 页面继续使用语义入口；显式 id 用于局部预览，空 id 始终读取响应式选择。 */
 export class AppTheme {
-  static get isPaper(): boolean { return AppAppearance.current.themeBundleId === ThemeBundles.PaperId; }
-  static get usesPaperAccent(): boolean {
-    return AppTheme.isPaper && AppAppearance.current.accent === ThemeBundles.PaperAccent;
+  static resolve(themeBundleId: string = ''): AppThemeBundle {
+    return ThemeBundles.resolve(themeBundleId.length > 0 ? themeBundleId : AppAppearance.current.themeBundleId);
   }
-  static get Background(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_background') : $r('sys.color.background_primary');
+  static get colors(): AppThemeColors { return AppTheme.resolve().visual.colors; }
+  static get usesRecommendedAccent(): boolean {
+    return AppAppearance.current.accent === AppTheme.resolve().accent;
   }
-  static get Surface(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_surface') : $r('sys.color.comp_background_primary');
+  static get Background(): Resource { return AppTheme.colors.background; }
+  static get Surface(): Resource { return AppTheme.colors.surface; }
+  static get TextPrimary(): Resource { return AppTheme.colors.textPrimary; }
+  static get TextSecondary(): Resource { return AppTheme.colors.textSecondary; }
+  static get TextTertiary(): Resource { return AppTheme.colors.textTertiary; }
+  static get IconPrimary(): Resource { return AppTheme.colors.iconPrimary; }
+  static get IconSecondary(): Resource { return AppTheme.colors.iconSecondary; }
+  static get Divider(): Resource { return AppTheme.colors.divider; }
+  static get BackgroundImage(): Resource | undefined { return AppTheme.resolve().visual.background.image; }
+  static get ShowCoverBackdrop(): boolean { return AppTheme.resolve().visual.background.showCoverBackdrop; }
+  static get CoverDecorationEnabled(): boolean {
+    return AppTheme.resolve().visual.cover.decoration !== ThemeCoverDecoration.None;
   }
-  static get TextPrimary(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_text_primary') : $r('sys.color.font_primary');
-  }
-  static get TextSecondary(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_text_secondary') : $r('sys.color.font_secondary');
-  }
-  static get TextTertiary(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_text_tertiary') : $r('sys.color.font_tertiary');
-  }
-  static get IconPrimary(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_text_primary') : $r('sys.color.icon_primary');
-  }
-  static get IconSecondary(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_text_secondary') : $r('sys.color.icon_secondary');
-  }
-  static get Divider(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_divider') : $r('sys.color.comp_divider');
-  }
-  static get BackgroundImage(): Resource | undefined {
-    return AppTheme.isPaper ? $r('app.media.theme_paper_background') : undefined;
-  }
+  static get IllustratedPlaceholders(): boolean { return AppTheme.resolve().visual.cover.illustratedPlaceholder; }
+  static get BrandedProfileIcons(): boolean { return AppTheme.resolve().visual.brandedProfileIcons; }
+  static get SettingsBackground(): Resource { return AppTheme.colors.settingsBackground; }
+  static get DetailTop(): Resource { return AppTheme.colors.detailTop; }
+  static get DetailMid(): Resource { return AppTheme.colors.detailMid; }
+  static get DetailBottom(): Resource { return AppTheme.colors.detailBottom; }
 }
 
 export class AppColor {
   static get Brand(): ResourceStr {
-    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_brand');
+    if (AppTheme.usesRecommendedAccent) return AppTheme.colors.brand;
     const accent: string = AppAppearance.current.accent;
-    return accent.length > 0 ? accent : $r('app.color.app_brand');
+    return accent.length > 0 ? accent : ThemeBundles.resolve(ThemeBundles.DefaultId).visual.colors.brand;
   }
   static get BrandHover(): ResourceStr {
-    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_brand_hover');
+    if (AppTheme.usesRecommendedAccent) return AppTheme.colors.brandHover;
     const accent: string = AppAppearance.current.accent;
-    return accent.length > 0 ? AppAppearance.shade(accent, 0.92) : $r('app.color.app_brand_hover');
+    return accent.length > 0 ? AppAppearance.shade(accent, 0.92) : ThemeBundles.resolve(ThemeBundles.DefaultId).visual.colors.brandHover;
   }
   static get BrandPressed(): ResourceStr {
-    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_brand_pressed');
+    if (AppTheme.usesRecommendedAccent) return AppTheme.colors.brandPressed;
     const accent: string = AppAppearance.current.accent;
-    return accent.length > 0 ? AppAppearance.shade(accent, 0.82) : $r('app.color.app_brand_pressed');
+    return accent.length > 0 ? AppAppearance.shade(accent, 0.82) : ThemeBundles.resolve(ThemeBundles.DefaultId).visual.colors.brandPressed;
   }
   static get BrandDisabled(): ResourceStr {
-    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_brand_disabled');
+    if (AppTheme.usesRecommendedAccent) return AppTheme.colors.brandDisabled;
     const accent: string = AppAppearance.current.accent;
-    return accent.length > 0 ? '#66' + accent.substring(1) : $r('app.color.app_brand_disabled');
+    return accent.length > 0 ? '#66' + accent.substring(1) : ThemeBundles.resolve(ThemeBundles.DefaultId).visual.colors.brandDisabled;
   }
   static get BrandSoft(): ResourceStr {
-    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_brand_soft');
+    if (AppTheme.usesRecommendedAccent) return AppTheme.colors.brandSoft;
     const accent: string = AppAppearance.current.accent;
-    return accent.length > 0 ? '#22' + accent.substring(1) : $r('app.color.app_brand_soft');
+    return accent.length > 0 ? '#22' + accent.substring(1) : ThemeBundles.resolve(ThemeBundles.DefaultId).visual.colors.brandSoft;
   }
   static get BrandDark(): ResourceStr {
-    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_brand_pressed');
+    if (AppTheme.usesRecommendedAccent) return AppTheme.colors.brandDark;
     const accent: string = AppAppearance.current.accent;
-    return accent.length > 0 ? AppAppearance.shade(accent, 0.78) : $r('app.color.app_brand_dark');
+    return accent.length > 0 ? AppAppearance.shade(accent, 0.78) : ThemeBundles.resolve(ThemeBundles.DefaultId).visual.colors.brandDark;
   }
   static get OnBrand(): ResourceStr {
-    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_on_brand');
+    if (AppTheme.usesRecommendedAccent) return AppTheme.colors.onBrand;
     const accent: string = AppAppearance.current.accent;
-    return accent.length > 0 ? AppAppearance.foreground(accent) : $r('app.color.app_on_brand');
+    return accent.length > 0 ? AppAppearance.foreground(accent) : ThemeBundles.resolve(ThemeBundles.DefaultId).visual.colors.onBrand;
   }
-  static get Divider(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_divider') : $r('app.color.app_divider');
-  }
-  static get Shadow(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_shadow') : $r('app.color.app_shadow');
-  }
-  static get GlassControlFallback(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_control') : $r('app.color.glass_control_fallback');
-  }
+  static get Divider(): Resource { return AppTheme.colors.appDivider; }
+  static get Shadow(): Resource { return AppTheme.colors.shadow; }
+  static get GlassControlFallback(): Resource { return AppTheme.colors.controlFallback; }
+  static get GlassControlTint(): Resource { return AppTheme.colors.controlTint; }
+  static get GlassStroke(): Resource { return AppTheme.colors.stroke; }
+  // 阅读与播放弹层保持系统中性配色，与套装分离。
   static readonly GlassSheetFallback: Resource = $r('app.color.glass_sheet_fallback');
-  static get GlassControlTint(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_control') : $r('app.color.glass_control_tint');
-  }
   static readonly GlassSheetControlTint: Resource = $r('app.color.glass_sheet_control_tint');
   static readonly GlassSheetStroke: Resource = $r('app.color.glass_sheet_stroke');
   static readonly GlassTextPrimary: Resource = $r('app.color.glass_text_primary');
   static readonly GlassTextSecondary: Resource = $r('app.color.glass_text_secondary');
   static readonly GlassTextTertiary: Resource = $r('app.color.glass_text_tertiary');
   static readonly GlassDivider: Resource = $r('app.color.glass_divider');
-  static get GlassStroke(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_divider') : $r('app.color.glass_stroke');
-  }
   static readonly GlassShadow: Resource = $r('app.color.glass_shadow');
-
-  // Legacy literal overlays retained for existing call sites.
   static readonly GlassBg: string = '#33FFFFFF';
   static readonly GlassBgDark: string = '#33000000';
 }
@@ -351,43 +337,25 @@ export class AppCurve {
   static readonly SpringSoft = curves.springMotion(0.6, 0.9);
 }
 
-/**
- * 首页与记录页共用的暖色主题。
- * 走 base/dark element/color.json 双份资源，自动深浅切换。
- */
+/** 首页与记录页共享语义色；不绑定套装名称。 */
 export class HomeTheme {
-  static get BgWarmTop(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_background') : $r('app.color.home_bg_warm_top');
-  }
-  static get BgWarmMid(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_background') : $r('app.color.home_bg_warm_mid');
-  }
-  static get BgNeutral(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_background') : $r('app.color.home_bg_neutral');
-  }
-  /** 状态栏窄条：与 BgNeutral 同色半透明，配合 backdropBlur */
-  static get StatusScrim(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_status_scrim') : $r('app.color.home_status_scrim');
-  }
-  static get FloatingBarMask(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_floating_mask') : $r('app.color.floating_bar_mask');
-  }
+  static get BgWarmTop(): Resource { return AppTheme.colors.homeTop; }
+  static get BgWarmMid(): Resource { return AppTheme.colors.homeMid; }
+  static get BgNeutral(): Resource { return AppTheme.colors.homeBottom; }
+  static get StatusScrim(): Resource { return AppTheme.colors.statusScrim; }
+  static get FloatingBarMask(): Resource { return AppTheme.colors.floatingMask; }
+  static get TopControlTint(): Resource { return AppTheme.colors.homeControl; }
+  static get CardSurface(): Resource { return AppTheme.colors.homeSurface; }
+  static get CardShadow(): Resource { return AppTheme.colors.homeShadow; }
+  static get ProgressTrack(): Resource { return AppTheme.colors.progressTrack; }
   static get Accent(): ResourceStr {
-    return AppAppearance.current.accent.length > 0 ? AppColor.Brand : $r('app.color.home_accent');
+    if (AppAppearance.current.accent.length > 0) return AppColor.Brand;
+    return AppTheme.usesRecommendedAccent ? AppTheme.colors.homeAccent :
+      ThemeBundles.resolve(ThemeBundles.DefaultId).visual.colors.homeAccent;
   }
   static get AccentSoft(): ResourceStr {
-    return AppAppearance.current.accent.length > 0 ? AppColor.BrandSoft : $r('app.color.home_accent_soft');
-  }
-  static get TopControlTint(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_control') : $r('app.color.home_top_control_tint');
-  }
-  static get CardSurface(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_surface') : $r('app.color.home_card_surface');
-  }
-  static get CardShadow(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_shadow') : $r('app.color.home_card_shadow');
-  }
-  static get ProgressTrack(): Resource {
-    return AppTheme.isPaper ? $r('app.color.theme_paper_divider') : $r('app.color.home_progress_track');
+    if (AppAppearance.current.accent.length > 0) return AppColor.BrandSoft;
+    return AppTheme.usesRecommendedAccent ? AppTheme.colors.homeAccentSoft :
+      ThemeBundles.resolve(ThemeBundles.DefaultId).visual.colors.homeAccentSoft;
   }
 }

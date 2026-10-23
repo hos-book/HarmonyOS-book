@@ -34,6 +34,8 @@ export struct LocalBookCover {
           .fontSize(Math.min(18, this.measuredWidth * 0.085))
           .fontColor(CoverTheme.authorColor(this.themeBundleId)).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
           .textAlign(TextAlign.Center).width('68%').height('14%')
+          .backgroundColor(this.author.length > 0 ? CoverTheme.authorBackground(this.themeBundleId) : Color.Transparent)
+          .borderRadius(4)
           .copyOption(CopyOptions.None).draggable(false)
       }.width('100%').height('100%')
       if (this.themedDecoration) {
