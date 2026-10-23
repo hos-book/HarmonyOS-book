@@ -1,3 +1,6 @@
+import { ThemeBackgroundComponent } from './ThemeBackgroundComponent';
+import { ThemeIconComponent } from './ThemeIconComponent';
+import { ThemeIconRole } from '../theme/ThemeIcons';
 import { AppAppearance } from '../model/AppAppearance';
 import { AppThemeBundle } from '../model/AppThemeBundle';
 import { PreferenceService } from '../service/PreferenceService';
@@ -61,18 +64,6 @@ export struct ThemeBundleComponent {
     }
   }
 
-  private previewAccent(bundle: AppThemeBundle): ResourceColor {
-    return bundle.id === 'paper-study' ? $r('app.color.theme_paper_brand') : $r('app.color.app_brand');
-  }
-
-  private previewText(bundle: AppThemeBundle): ResourceColor {
-    return bundle.id === 'paper-study' ? $r('app.color.theme_paper_text_primary') : $r('sys.color.font_primary');
-  }
-
-  private previewSecondary(bundle: AppThemeBundle): ResourceColor {
-    return bundle.id === 'paper-study' ? $r('app.color.theme_paper_text_secondary') : $r('sys.color.font_secondary');
-  }
-
   private previewTitle(resource: Resource): string {
     try {
       return this.getUIContext().getHostContext()?.resourceManager.getStringSync(resource.id) ?? '';
@@ -84,78 +75,54 @@ export struct ThemeBundleComponent {
   @Builder
   private preview(bundle: AppThemeBundle) {
     Stack({ alignContent: Alignment.TopStart }) {
-      if (bundle.id === 'paper-study') {
-        Image($r('app.media.theme_paper_background'))
-          .width('100%').height('100%').objectFit(ImageFit.Cover)
-      }
+      ThemeBackgroundComponent({ themeBundleId: bundle.id, preview: true })
       Column({ space: 12 }) {
         Row() {
           Text($r('app.string.theme_bundle_preview_label'))
-            .fontSize(10).fontColor(this.previewSecondary(bundle))
+            .fontSize(10).fontColor(bundle.visual.colors.textSecondary)
           Blank()
-          if (bundle.id === 'paper-study') {
-            Image($r('app.media.theme_paper_search')).width(17).height(17)
-              .fillColor(this.previewAccent(bundle))
-            Image($r('app.media.theme_paper_filter')).width(17).height(17)
-              .fillColor(this.previewAccent(bundle)).margin({ left: 12 })
-          } else {
-            SymbolGlyph($r('sys.symbol.magnifyingglass')).fontSize(17)
-              .fontColor([this.previewAccent(bundle)])
-            SymbolGlyph($r('sys.symbol.funnel')).fontSize(17)
-              .fontColor([this.previewAccent(bundle)]).margin({ left: 12 })
-          }
+          ThemeIconComponent({ role: ThemeIconRole.Search, symbol: $r('sys.symbol.magnifyingglass'),
+            iconSize: 17, tint: bundle.visual.colors.brand, themeBundleId: bundle.id })
+          ThemeIconComponent({ role: ThemeIconRole.Filter, symbol: $r('sys.symbol.funnel'),
+            iconSize: 17, tint: bundle.visual.colors.brand, themeBundleId: bundle.id }).margin({ left: 12 })
         }.width('100%')
         Column({ space: 4 }) {
           Text($r('app.string.theme_bundle_preview_title')).fontSize(17).fontWeight(FontWeight.Bold)
-            .fontColor(this.previewText(bundle)).width('100%')
+            .fontColor(bundle.visual.colors.textPrimary).width('100%')
           Text($r('app.string.theme_bundle_preview_subtitle')).fontSize(10)
-            .fontColor(this.previewSecondary(bundle)).width('100%')
+            .fontColor(bundle.visual.colors.textSecondary).width('100%')
         }.width('100%').alignItems(HorizontalAlign.Start)
         Row({ space: 16 }) {
           Column({ space: 6 }) {
             CoverImage({ title: this.previewTitle($r('app.string.theme_bundle_preview_book')),
               imgWidth: 66, imgHeight: 92, useFixedHeight: true, radius: 4, themeBundleId: bundle.id })
             Text($r('app.string.theme_bundle_preview_book')).fontSize(10)
-              .fontColor(this.previewText(bundle)).maxLines(1)
+              .fontColor(bundle.visual.colors.textPrimary).maxLines(1)
           }
           Column({ space: 6 }) {
             LocalBookCover({ title: this.previewTitle($r('app.string.theme_bundle_preview_local')),
               imgWidth: 66, imgHeight: 92, useFixedHeight: true, radius: 4, themeBundleId: bundle.id })
             Text($r('app.string.theme_bundle_preview_local')).fontSize(10)
-              .fontColor(this.previewText(bundle)).maxLines(1)
+              .fontColor(bundle.visual.colors.textPrimary).maxLines(1)
           }
           Blank()
         }.width('100%')
         Row({ space: 6 }) {
-          if (bundle.id === 'paper-study') {
-            Image($r('app.media.theme_paper_shelf')).width(14).height(14)
-              .fillColor(this.previewAccent(bundle))
-          } else {
-            SymbolGlyph($r('sys.symbol.bookshelf')).fontSize(14)
-              .fontColor([this.previewAccent(bundle)])
-          }
+          ThemeIconComponent({ role: ThemeIconRole.Shelf, symbol: $r('sys.symbol.bookshelf'),
+            iconSize: 14, tint: bundle.visual.colors.brand, themeBundleId: bundle.id })
           Text($r('app.string.theme_bundle_preview_collection')).fontSize(10)
-            .fontColor(this.previewAccent(bundle))
+            .fontColor(bundle.visual.colors.brand)
           Blank()
-          if (bundle.id === 'paper-study') {
-            Image($r('app.media.theme_paper_home')).width(14).height(14)
-              .fillColor(this.previewSecondary(bundle))
-            Image($r('app.media.theme_paper_record')).width(14).height(14)
-              .fillColor(this.previewSecondary(bundle)).margin({ left: 18 })
-            Image($r('app.media.theme_paper_profile')).width(14).height(14)
-              .fillColor(this.previewSecondary(bundle)).margin({ left: 18 })
-          } else {
-            SymbolGlyph($r('sys.symbol.house_fill')).fontSize(14).fontColor([this.previewSecondary(bundle)])
-            SymbolGlyph($r('sys.symbol.clock')).fontSize(14).fontColor([this.previewSecondary(bundle)])
-              .margin({ left: 18 })
-            SymbolGlyph($r('sys.symbol.person_fill')).fontSize(14).fontColor([this.previewSecondary(bundle)])
-              .margin({ left: 18 })
-          }
+          ThemeIconComponent({ role: ThemeIconRole.Home, symbol: $r('sys.symbol.house_fill'),
+            iconSize: 14, tint: bundle.visual.colors.textSecondary, themeBundleId: bundle.id })
+          ThemeIconComponent({ role: ThemeIconRole.Record, symbol: $r('sys.symbol.clock'),
+            iconSize: 14, tint: bundle.visual.colors.textSecondary, themeBundleId: bundle.id }).margin({ left: 18 })
+          ThemeIconComponent({ role: ThemeIconRole.Profile, symbol: $r('sys.symbol.person_fill'),
+            iconSize: 14, tint: bundle.visual.colors.textSecondary, themeBundleId: bundle.id }).margin({ left: 18 })
         }.width('100%').margin({ top: 2 })
       }.width('100%').padding(18).alignItems(HorizontalAlign.Start)
     }.width('100%').height(262).borderRadius(AppRadius.Md).clip(true)
-    .backgroundColor(bundle.id === 'paper-study' ? $r('app.color.theme_paper_background') :
-      $r('sys.color.background_primary'))
+    .backgroundColor(bundle.visual.colors.background)
     .accessibilityLevel('no-hide-descendants')
   }
 
@@ -184,10 +151,10 @@ export struct ThemeBundleComponent {
             this.isCurrent(bundle) ? $r('app.string.theme_bundle_applied') : $r('app.string.theme_bundle_apply'))
             .fontSize(AppFont.Body).fontWeight(FontWeight.Medium)
             .fontColor(this.isCurrent(bundle) ? AppTheme.TextSecondary :
-              bundle.id === 'paper-study' ? $r('app.color.theme_paper_on_brand') : $r('app.color.app_on_brand'))
+              bundle.visual.colors.onBrand)
         }.justifyContent(FlexAlign.Center)
       }.width('100%').height(44).borderRadius(AppRadius.Sm)
-      .backgroundColor(this.isCurrent(bundle) ? AppTheme.Background : this.previewAccent(bundle))
+      .backgroundColor(this.isCurrent(bundle) ? AppTheme.Background : bundle.visual.colors.brand)
       .enabled(!this.applying && !this.isCurrent(bundle))
       .onClick(() => this.applyBundle(bundle.id))
     }.width('100%').padding(AppSpace.Sm).borderRadius(AppRadius.Lg)

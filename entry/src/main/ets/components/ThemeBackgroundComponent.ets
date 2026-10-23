@@ -1,24 +1,32 @@
-import { AppTheme, HomeTheme } from '../theme/Theme';
+import { AppTheme } from '../theme/Theme';
+import { ThemeBackgroundKind } from '../model/AppThemeVisual';
 
-/** 一个页面只绘制一张装饰底图，内容与滚动容器保持透明。 */
+/** 同一背景解析用于页面与候选预览；显式 id 不会修改全局外观。 */
 @ComponentV2
 export struct ThemeBackgroundComponent {
   @Param warmMid: number = 0.35;
+  @Param themeBundleId: string = '';
+  @Param preview: boolean = false;
 
   build() {
     Stack() {
-      if (AppTheme.isPaper) {
-        Image(AppTheme.BackgroundImage)
+      if (AppTheme.resolve(this.themeBundleId).visual.background.kind === ThemeBackgroundKind.Image) {
+        Image(AppTheme.resolve(this.themeBundleId).visual.background.image ?? '')
           .width('100%').height('100%').objectFit(ImageFit.Cover)
-      } else {
+          .opacity(AppTheme.resolve(this.themeBundleId).visual.background.imageOpacity)
+      } else if (!this.preview &&
+        AppTheme.resolve(this.themeBundleId).visual.background.kind === ThemeBackgroundKind.Gradient) {
         Column().width('100%').height('100%')
           .linearGradient({ angle: 180, colors: [
-            [HomeTheme.BgWarmTop, 0], [HomeTheme.BgWarmMid, this.warmMid], [HomeTheme.BgNeutral, 1]
+            [AppTheme.resolve(this.themeBundleId).visual.colors.homeTop, 0],
+            [AppTheme.resolve(this.themeBundleId).visual.colors.homeMid, this.warmMid],
+            [AppTheme.resolve(this.themeBundleId).visual.colors.homeBottom, 1]
           ] })
       }
-    }.width('100%').height('100%').backgroundColor(AppTheme.Background)
+    }.width('100%').height('100%')
+      .backgroundColor(AppTheme.resolve(this.themeBundleId).visual.colors.background)
       .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
-      .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
-        [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
+      .expandSafeArea(this.preview ? [] : [SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+        this.preview ? [] : [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
   }
 }

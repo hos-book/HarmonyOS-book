@@ -975,7 +975,7 @@ export struct RankingHomePage {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      if (!AppTheme.isPaper) {
+      if (AppTheme.ShowCoverBackdrop) {
         Stack({ alignContent: Alignment.Top }) {
           RankingPosterBackground({ cover: this.posterCover, imageHeight: this.posterBackgroundHeight })
           Column().width('100%').height(this.posterBackgroundHeight)
@@ -1042,7 +1042,7 @@ export struct RankingHomePage {
             ? Math.max(0, this.headerRange - this.headerOffset) + 48 : RANKING_SEARCH_HEIGHT) })
           .hitTestBehavior(HitTestMode.None)
       }
-    }.width('100%').height('100%').backgroundColor(AppTheme.isPaper ? Color.Transparent : HomeTheme.BgNeutral)
+    }.width('100%').height('100%').backgroundColor(!AppTheme.ShowCoverBackdrop ? Color.Transparent : HomeTheme.BgNeutral)
     .enabled(!this.boardTransitioning)
     .clip(true)
     .onSizeChange((_old: SizeOptions, size: SizeOptions): void => {

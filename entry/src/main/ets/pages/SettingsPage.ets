@@ -649,7 +649,7 @@ export struct SettingsPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(AppTheme.isPaper ? AppTheme.Background : $r('sys.color.background_secondary'))
+    .backgroundColor(AppTheme.SettingsBackground)
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     .onSizeChange((_oldValue: SizeOptions, newValue: SizeOptions) => {
       this.handleViewportSizeChange(newValue);

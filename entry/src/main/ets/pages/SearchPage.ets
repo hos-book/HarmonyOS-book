@@ -1157,7 +1157,7 @@ export struct SearchPage {
             decodeH: 368,
             highPriority: false
           })
-        } else if (AppTheme.isPaper) {
+        } else if (AppTheme.IllustratedPlaceholders) {
           CoverImage({ url: book.cover, title: book.title, author: book.author,
             localPlaceholder: book.id.startsWith('import_'), imgWidth: 92,
             aspectRatioValue: SEARCH_COVER_ASPECT_RATIO, radius: AppRadius.Md })

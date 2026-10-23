@@ -4,6 +4,7 @@ import { ThemeIconRole, ThemeIcons } from '../theme/ThemeIcons';
 /** 保留系统符号回退，让已有按钮的点击区域与无障碍语义保持原位。 */
 @ComponentV2
 export struct ThemeIconComponent {
+  @Param themeBundleId: string = '';
   @Param role: ThemeIconRole = ThemeIconRole.None;
   @Param symbol: Resource = $r('sys.symbol.magnifyingglass');
   @Param iconSize: number = 24;
@@ -11,8 +12,8 @@ export struct ThemeIconComponent {
 
   build() {
     Stack() {
-      if (AppTheme.isPaper && this.role !== ThemeIconRole.None) {
-        Image(ThemeIcons.paper(this.role))
+      if (ThemeIcons.resolve(this.role, this.themeBundleId) !== undefined) {
+        Image(ThemeIcons.resolve(this.role, this.themeBundleId) ?? this.symbol)
           .width(this.iconSize).height(this.iconSize).objectFit(ImageFit.Contain)
           .fillColor(this.tint)
       } else {

@@ -210,7 +210,7 @@ struct DownloadBookItem {
   @Builder
   buildCover(record: DownloadBookRecord) {
     Stack() {
-      if (AppTheme.isPaper) {
+      if (AppTheme.IllustratedPlaceholders) {
         CoverImage({ title: record.title, author: record.author,
           localPlaceholder: record.bookId.startsWith('import_'), imgWidth: 52, imgHeight: 68,
           useFixedHeight: true, radius: AppRadius.Sm, themedDecoration: false })
@@ -227,7 +227,7 @@ struct DownloadBookItem {
           .height(68)
           .objectFit(ImageFit.Cover)
           .borderRadius(AppRadius.Sm)
-      } else if (!AppTheme.isPaper) {
+      } else if (!AppTheme.IllustratedPlaceholders) {
         Stack() {
           SymbolGlyph($r('sys.symbol.arrow_down_circle'))
             .fontSize(24)

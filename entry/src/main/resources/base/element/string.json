@@ -1,5 +1,7 @@
 {
   "string": [
+    {"name":"theme_bundle_mist_name","value":"雾蓝"},
+    {"name":"theme_bundle_mist_description","value":"冷灰蓝底色、简洁线条与平面书封，让书与声音清晰呈现。"},
     {"name":"theme_bundle_default_name","value":"默认套装"},
     {"name":"theme_bundle_default_description","value":"熟悉的简听外观，跟随系统深浅色。"},
     {"name":"theme_bundle_paper_name","value":"纸感书房"},
@@ -5507,6 +5509,8 @@
     {"name": "reader_replace_scope_hint", "value": "显示当前书籍及全局规则，按列表顺序依次生效。"},
     {"name": "reader_replace_empty", "value": "暂无规则，点击添加可替换文字或清除广告"},
     {"name": "reader_replace_invalid", "value": "规则无效或执行超限，请检查查找内容"},
-    {"name": "reader_replace_failed", "value": "替换规则执行失败，已显示原文"}
+    {"name": "reader_replace_failed", "value": "替换规则执行失败，已显示原文"},
+    {"name":"theme_bundle_ink_name","value":"墨山"},
+    {"name":"theme_bundle_ink_description","value":"宣纸留白，远山淡墨。朱砂点染交互，山水与墨竹书封相伴；浅深两色，静读有声。"}
   ]
 }

@@ -80,7 +80,7 @@ export struct PlayerCoverImage {
   }
 
   private source(url: string): ResourceStr {
-    if (!url) return CoverTheme.isPaper() ? CoverTheme.placeholder() : $r('app.media.app_icon_legacy');
+    if (!url) return CoverTheme.playerPlaceholder();
     if (url.startsWith('/')) return `file://${url}`;
     if (url.startsWith('http') || url.startsWith('file://')) return url;
     return $rawfile(url);
@@ -97,7 +97,7 @@ export struct PlayerCoverImage {
       Image(this.source(this.previewFailed ? this.resolvedUrl : (this.resolvedFallback || this.resolvedUrl)))
         .width('100%').height('100%').objectFit(ImageFit.Cover)
         .sourceSize({ width: 300, height: 300 })
-        .alt(CoverTheme.isPaper() ? CoverTheme.placeholder() : $r('app.media.app_icon_legacy'))
+        .alt(CoverTheme.playerPlaceholder())
         .onError((): void => { this.previewFailed = true; })
       if (this.highQuality && this.resolvedUrl) {
         ForEach([new PlayerCoverRequest(this.resolvedUrl, this.decodeSize)], (request: PlayerCoverRequest) => {

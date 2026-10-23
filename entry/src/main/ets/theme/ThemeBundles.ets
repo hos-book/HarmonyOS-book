@@ -1,25 +1,26 @@
 import { AppThemeBundle } from '../model/AppThemeBundle';
+import { createDefaultTheme } from './bundles/DefaultTheme';
+import { createPaperTheme } from './bundles/PaperTheme';
+import { createMistTheme } from './bundles/MistTheme';
+import { createInkTheme } from './bundles/InkTheme';
 
-/** 页面只消费主题角色；新增套装集中在此注册。 */
+/** 新套装只在注册表加入一次；校验、列表、解析共用同一数据源。 */
 export class ThemeBundles {
   static readonly DefaultId: string = 'default';
-  static readonly PaperId: string = 'paper-study';
-  static readonly PaperAccent: string = '#496D5C';
+  private static readonly bundles: AppThemeBundle[] = [
+    createDefaultTheme(), createPaperTheme(), createMistTheme(), createInkTheme()
+  ];
 
   static list(): AppThemeBundle[] {
-    return [ThemeBundles.resolve(ThemeBundles.DefaultId), ThemeBundles.resolve(ThemeBundles.PaperId)];
+    return ThemeBundles.bundles.slice();
   }
 
   static normalizeId(id: string): string {
-    return id === ThemeBundles.PaperId ? ThemeBundles.PaperId : ThemeBundles.DefaultId;
+    return ThemeBundles.resolve(id).id;
   }
 
   static resolve(id: string): AppThemeBundle {
-    if (id === ThemeBundles.PaperId) {
-      return new AppThemeBundle(ThemeBundles.PaperId, $r('app.string.theme_bundle_paper_name'),
-        $r('app.string.theme_bundle_paper_description'), ThemeBundles.PaperAccent, 3);
-    }
-    return new AppThemeBundle(ThemeBundles.DefaultId, $r('app.string.theme_bundle_default_name'),
-      $r('app.string.theme_bundle_default_description'), '', 3);
+    return ThemeBundles.bundles.find((bundle: AppThemeBundle): boolean => bundle.id === id) ??
+      ThemeBundles.bundles[0];
   }
 }
