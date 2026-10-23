@@ -10,7 +10,7 @@
 
 本次两个 `.ets` 文件静态检查无诊断，上述回归通过；Release SDK 26.0.0.105 增量构建通过，产物元数据为 `apiReleaseType=Release`、最低 API 20、目标 API 26，已覆盖安装手机 `62T0225B13006276` 并通过 `start_app` 启动。本次验证确认容量、串行排正和安装启动，尚未测量快速滑动的实机加载耗时。语法参考本次实际读取的 [lang-syntax](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md) 及其规则参考。
 
-公共内核固定到 `845b7f332ceefae9a00ca4fcd8c40d91f2109d5c`，应用辅助代码固定到 `b46ddd65d55d14d89093e965df9e8c82c03ae2d9`，通过既有脚本同步并核对 83 个文件。v0.1.67 发布时分别推送至 `wip3l/harmony-book-source-engine` 和 `hos-book/legado-harmony` 的 `main`，包含图片按需加载、宿主限制和原始页序号的公共规范修订；同一份规范同步到 `D:\QQ\book-source-development.md`。`SourceEngineHost.setReaderImagesDeferred(source, true)` 是可信宿主的单次请求策略，复制源对象时传递，不进入定义或脚本；默认关闭。漫画阅读通过 `getSourceChapterContent → LocalRuleDispatcher → LightSourceBridge → LightSourceCore.content` 的显式 `deferReaderImages` 参数开启此策略，保留原始 ReaderImageMarker 中的 headers、decode、params、imageIndex 和尺寸，下载/导出及其他默认调用仍完整物化。
+公共内核固定到 `845b7f332ceefae9a00ca4fcd8c40d91f2109d5c`，应用辅助代码固定到 `b46ddd65d55d14d89093e965df9e8c82c03ae2d9`，通过既有脚本同步并核对 83 个文件。v0.1.67 发布时分别推送至 `wip3l/harmony-book-source-engine` 和 `hos-book/legado-harmony` 的 `main`，包含图片按需加载、宿主限制和原始页序号的公共规范修订。`SourceEngineHost.setReaderImagesDeferred(source, true)` 是可信宿主的单次请求策略，复制源对象时传递，不进入定义或脚本；默认关闭。漫画阅读通过 `getSourceChapterContent → LocalRuleDispatcher → LightSourceBridge → LightSourceCore.content` 的显式 `deferReaderImages` 参数开启此策略，保留原始 ReaderImageMarker 中的 headers、decode、params、imageIndex 和尺寸，下载/导出及其他默认调用仍完整物化。
 
 手机旧日志显示正文接口为 109～4106ms，而整章 content-total 为 15927～89721ms；旧 WebBookService 每批四张处理全部图片后才返回。新阅读器先接收清单，再按页调用既有图片管线，最多六并发、后台最多二并发，可见页优先、同源同图合并、独立消费者取消。每页完成即展示并保存清单，失败只显示该页重试，不回退原图；整章文件齐全且非空才标记离线完成。同一进程的部分清单复用，缓存文件被清理后对应页回到原请求地址。
 
