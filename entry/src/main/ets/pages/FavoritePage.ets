@@ -27,6 +27,7 @@ import {
 } from '../theme/Theme';
 import { CoverDecoration } from '../components/CoverDecoration';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
+import { ThemeBackgroundScene } from '../model/AppThemeVisual';
 import { Book, Chapter } from '../model/Book';
 import { TocItem } from '../model/BookSource';
 import { BookSourceService } from '../service/BookSourceService';
@@ -1524,7 +1525,7 @@ export struct FavoritePage {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      ThemeBackgroundComponent()
+      ThemeBackgroundComponent({ scene: ThemeBackgroundScene.Shelf })
 
       HdsNavigation() {
         Refresh({ refreshing: $$this.isRefreshing, builder: this.refreshIndicator() }) {

@@ -492,14 +492,18 @@ export class NativeSourceRunner {
     return this;
   }
 
-  /** 合并默认值与已保存的值；已保存的值不在选项内时回退到默认值。 */
+  /**
+   * 合并默认值与已保存的值；已保存的值不在选项内时回退到默认值。
+   * 写了 optionsScript 的变量不按静态 options 校验：选项来自脚本（如测速得到的线路），保存的值以设置页为准。
+   */
   static resolveVars(definition: NativeSourceDefinition, stored: Record<string, NativeValue>): Record<string, string> {
     const values: Record<string, string> = {};
     for (const item of definition.vars || []) {
       const options = Array.isArray(item.options) ? item.options.map((option: string): string => String(option)) : [];
       const fallback = item.default !== undefined ? String(item.default) : (options.length > 0 ? options[0] : '');
       const saved = stored && stored[item.key] !== undefined && stored[item.key] !== null ? String(stored[item.key]) : '';
-      values[item.key] = saved && (item.optionsScript || options.length === 0 || options.indexOf(saved) >= 0) ? saved : fallback;
+      const open = options.length === 0 || !!item.optionsScript;
+      values[item.key] = saved && (open || options.indexOf(saved) >= 0) ? saved : fallback;
     }
     return values;
   }
@@ -1013,6 +1017,33 @@ export class NativeSourceRunner {
     return stage;
   }
 
+  /**
+   * 一次请求实际带的请求头：顶层 headers 按当前作用域求值，再叠上这次请求自己的请求头，同名（不分大小写）以后者为准。
+   * 值为空的不发送。lenient 时求值出错的顶层请求头直接略过（取 cache 时后面的缓存名还没有值）。
+   */
+  private async requestHeaders(own: Record<string, string>, scope: NativeScope, lenient: boolean = false): Promise<Record<string, string>> {
+    const merged: Record<string, string> = {};
+    const top: Record<string, string> = this.definition.headers || {};
+    for (const name of Object.keys(top)) {
+      let value: string;
+      try {
+        value = NativeExpr.toText(await this.template(top[name], scope));
+      } catch (e) {
+        if (lenient) continue;
+        throw this.fieldError(`headers.${name}`, top[name], e);
+      }
+      if (value) merged[name] = value;
+    }
+    for (const name of Object.keys(own)) {
+      const lower = name.toLowerCase();
+      for (const key of Object.keys(merged)) {
+        if (key.toLowerCase() === lower) delete merged[key];
+      }
+      merged[name] = own[name];
+    }
+    return merged;
+  }
+
   private async renderHeaders(headers: Record<string, string> | undefined, scope: NativeScope): Promise<Record<string, string>> {
     const rendered: Record<string, string> = {};
     for (const name of Object.keys(headers || {})) {
@@ -1036,7 +1067,8 @@ export class NativeSourceRunner {
         if (cached !== undefined && cached !== null) {
           value = cached;
         } else {
-          const request = (await this.buildRequest(spec, scope, ''));
+          // 后面的缓存还没取到，引用它们的顶层请求头这次先不带。
+          const request = await this.buildRequest(spec, scope, '', false, '', true);
           if (request.url) {
             try {
               const response = await this.host.fetch(request);
@@ -1149,7 +1181,8 @@ export class NativeSourceRunner {
       credential: (): NativeValue => ({ token: this.credential.token, user: this.credential.user }),
       saveCredential: async (token: string, user: string): Promise<void> => (await this.saveCredential(token, user)),
       keep: keep,
-      interactive: interactive
+      interactive: interactive,
+      requestHeaders: (own: Record<string, string>): Promise<Record<string, string>> => this.requestHeaders(own, scope)
     });
     const startedAt = Date.now();
     try {
@@ -1316,7 +1349,7 @@ export class NativeSourceRunner {
   }
 
   private async buildRequest(spec: NativeRequestSpec, scope: NativeScope, defaultUrl: string,
-    primary: boolean = false, urlField: string = ''): Promise<NativeRequest> {
+    primary: boolean = false, urlField: string = '', lenientSourceHeaders: boolean = false): Promise<NativeRequest> {
     let rawUrl: string;
     try {
       rawUrl = spec.url === undefined ? defaultUrl : NativeExpr.toText((await this.template(spec.url, scope)));
@@ -1340,7 +1373,8 @@ export class NativeSourceRunner {
     if (!/^[A-Z]+$/.test(method)) throw new NativeSourceError(`请求方法无效：${rendered}`);
     const web = spec.webView && typeof spec.webView === 'object' ? spec.webView : null;
     return {
-      url: url, method: method, headers: headers, body: body, webView: spec.webView === true || !!web,
+      url: url, method: method, headers: await this.requestHeaders(headers, scope, lenientSourceHeaders), body: body,
+      webView: spec.webView === true || !!web,
       webWaitFor: web && web.waitFor ? String(web.waitFor).trim() : '',
       webTimeout: Math.max(3, Math.min(Number(web && web.timeout) || 15, 60)),
       charset: String(spec.charset || '').trim(),

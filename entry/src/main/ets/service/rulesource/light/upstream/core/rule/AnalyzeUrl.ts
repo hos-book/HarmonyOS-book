@@ -32,6 +32,7 @@ export class AnalyzeUrl {
   private noTimeoutRetry: boolean = false;
   private cancelCheck?: () => boolean;
   private rateLimitMaxWaitMs: number = 0;
+  private staticSourceHeader: boolean = true;
 
   constructor(source: BookSource | null, client: HttpClient,
     runtimeSourceHeaders: Record<string, string> = {}) {
@@ -48,6 +49,16 @@ export class AnalyzeUrl {
   setCancelCheck(check: () => boolean, rateLimitMaxWaitMs: number = 0): AnalyzeUrl {
     this.cancelCheck = check;
     this.rateLimitMaxWaitMs = rateLimitMaxWaitMs;
+    return this;
+  }
+
+  /**
+   * Native sources evaluate their top-level headers per request and pass them as request headers, so the
+   * literal copy kept in `source.header` must not be merged again (it could carry a stale header the
+   * evaluated set dropped, or the same name in different case).
+   */
+  setStaticSourceHeader(enabled: boolean): AnalyzeUrl {
+    this.staticSourceHeader = enabled;
     return this;
   }
 
@@ -193,7 +204,7 @@ export class AnalyzeUrl {
   private loadSourceHeaders(requestUrl: string = ''): Record<string, string> {
     const headers: Record<string, string> = {};
     if (!this.source) return headers;
-    this.mergeSourceHeaderText(headers, this.source.header || '');
+    if (this.staticSourceHeader) this.mergeSourceHeaderText(headers, this.source.header || '');
     // Legado login scripts persist dynamic authentication headers separately from the source's
     // static header. They must participate in every normal AnalyzeUrl request; otherwise login
     // validation can succeed inside the script while the following AJAX request is anonymous.

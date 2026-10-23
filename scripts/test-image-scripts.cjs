@@ -10,6 +10,7 @@ const ts = require(path.join(process.env.DEVECO_HOME,
 const root = path.resolve(__dirname, '../entry/src/main/ets/service/rulesource/light/upstream');
 const files = new Map(), handles = new Map(), modules = new Map();
 let nextHandle = 0, cancelled = false, downloaded = 0, executions = 0, partialWrite = false;
+const stripCalls = [];
 const cryptoFramework = {
   CryptoMode: { DECRYPT_MODE: 0, ENCRYPT_MODE: 1 },
   createMd(algorithm) {
@@ -77,7 +78,10 @@ SourceEngineHost.install({ requests: { isCancelled: () => cancelled }, imageScri
   async run(program, input) {
     executions++;
     const result = await vm.runInNewContext(program, { __imageInput: input.slice().buffer,
-      __imageHost: (op, bytes, params) => NativeSourceCrypto.imageOperationSync(op, bytes, params).buffer
+      __imageHost: (op, bytes, params) => {
+        if (op === 'reorderStrips') { stripCalls.push(JSON.parse(params)); return bytes.slice().buffer; }
+        return NativeSourceCrypto.imageOperationSync(op, bytes, params).buffer;
+      }
     }, { timeout: 2000 });
     if (ArrayBuffer.isView(result)) return new Uint8Array(result.buffer, result.byteOffset, result.byteLength);
     if (Object.prototype.toString.call(result) === '[object ArrayBuffer]') return new Uint8Array(result);
@@ -136,9 +140,14 @@ async function materialize(options) { return ComicImagePipeline.materialize(http
     if(image.hash('SHA256',decoded).length!==32||image.hmac('SHA256',decoded,'${key}').length!==32)throw Error('hash');return decoded;}`;
   const result = await NativeImageScriptRunner.run(script, 'decode', image, { url: 'fixture', index: 0, params: {} });
   assert.deepEqual(Array.from(result), Array.from(image));
+  const reordered = await NativeImageScriptRunner.run(
+    'function decode(input){return image.reorderStrips(input,{count:3,order:[2,1,0],remainder:"last"});}',
+    'decode', image, { url: 'fixture', index: 0, params: {} });
+  assert.deepEqual(Array.from(reordered), Array.from(image));
+  assert.deepEqual(stripCalls, [{ count: 3, order: [2, 1, 0], remainder: 'last' }], 'strip options reach the binary host unchanged');
   for (const op of ['fetch', 'file', 'eval']) assert.throws(() => NativeSourceCrypto.imageOperationSync(op, image, '{}'), /不支持/);
   assert.throws(() => NativeSourceCrypto.imageOperationSync('decrypt', image,
     JSON.stringify({ algorithm, keyHex: key, ivHex: 'ff' })), /IV/);
   assert.throws(() => NativeImageScriptRunner.program(script, 'decode()', { url: '', index: 0, params: {} }), /函数名/);
-  console.log('image scripts: pipeline bytes, async/ArrayBuffer, params/index, cache identity, plain-image opt-in, cancellation, failed decode, prefix IV and four crypto operations passed');
+  console.log('image scripts: pipeline bytes, async/ArrayBuffer, params/index, cache identity, plain-image opt-in, cancellation, failed decode, prefix IV, strip host parameters and four crypto operations passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

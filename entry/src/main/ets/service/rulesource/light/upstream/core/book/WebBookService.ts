@@ -1531,6 +1531,9 @@ export class WebBookService {
   private async materializeReaderImageMarkers(source: BookSource, content: string,
     cancelled: () => boolean = (): boolean => false): Promise<string> {
     if (!content || !content.includes(ReaderImageMarker.PREFIX)) return content;
+    if (cancelled()) throw new Error(HttpClient.CANCELLED_ERROR);
+    // The host reader keeps source-bound URL options and resolves visible images through ComicImagePipeline.
+    if (SourceEngineHost.readerImagesDeferred(source)) return content;
     const pattern = new RegExp(`${this.escapeRegex(ReaderImageMarker.PREFIX)}([^\\]]+)` +
       `${this.escapeRegex(ReaderImageMarker.SUFFIX)}`, 'g');
     const values: string[] = [];

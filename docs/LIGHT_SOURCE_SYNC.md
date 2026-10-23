@@ -4,6 +4,48 @@
 
 ## 固定版本与维护边界
 
+### 漫画清单与图片按需加载（2026-10-23）
+
+快速滑动时的图片总并发由 4 调整为 6，后台预加载仍最多占 2 个名额，可见页优先；本地图片脚本运行与等待的总容量同步调整为 6，仍一次执行 1 项，避免六张同时下载完成时因旧的四项队列容量而失败。`test-comic-preload.cjs` 覆盖六张立即开始、第七张等待空位，以及六张进入真实沙箱队列并逐张处理。
+
+本次两个 `.ets` 文件静态检查无诊断，上述回归通过；Release SDK 26.0.0.105 增量构建通过，产物元数据为 `apiReleaseType=Release`、最低 API 20、目标 API 26，已覆盖安装手机 `62T0225B13006276` 并通过 `start_app` 启动。本次验证确认容量、串行排正和安装启动，尚未测量快速滑动的实机加载耗时。语法参考本次实际读取的 [lang-syntax](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md) 及其规则参考。
+
+公共内核固定到 `845b7f332ceefae9a00ca4fcd8c40d91f2109d5c`，应用辅助代码固定到 `b46ddd65d55d14d89093e965df9e8c82c03ae2d9`，通过既有脚本同步并核对 83 个文件。v0.1.67 发布时分别推送至 `wip3l/harmony-book-source-engine` 和 `hos-book/legado-harmony` 的 `main`，包含图片按需加载、宿主限制和原始页序号的公共规范修订；同一份规范同步到 `D:\QQ\book-source-development.md`。`SourceEngineHost.setReaderImagesDeferred(source, true)` 是可信宿主的单次请求策略，复制源对象时传递，不进入定义或脚本；默认关闭。漫画阅读通过 `getSourceChapterContent → LocalRuleDispatcher → LightSourceBridge → LightSourceCore.content` 的显式 `deferReaderImages` 参数开启此策略，保留原始 ReaderImageMarker 中的 headers、decode、params、imageIndex 和尺寸，下载/导出及其他默认调用仍完整物化。
+
+手机旧日志显示正文接口为 109～4106ms，而整章 content-total 为 15927～89721ms；旧 WebBookService 每批四张处理全部图片后才返回。新阅读器先接收清单，再按页调用既有图片管线，最多六并发、后台最多二并发，可见页优先、同源同图合并、独立消费者取消。每页完成即展示并保存清单，失败只显示该页重试，不回退原图；整章文件齐全且非空才标记离线完成。同一进程的部分清单复用，缓存文件被清理后对应页回到原请求地址。
+
+`ComicPageImage` 仅在进入可见区时请求远程图片；LazyForEach 预建的离屏节点保留占位，本地缓存图片可以直接显示。新增 `reader-image-policy` 和 `resolved ... local=...` 日志用于区分图片清单与整章本地物化。真实原生引擎回归验证显式开启时零图片下载并保留解码配置、默认调用仍完整物化；图片队列回归额外阻塞一张图片，验证另一张已完成图片可独立返回。
+
+已通过公共宿主回归、应用辅助的实际 materializeReaderImageMarkers 边界回归、简听真实图片管线/队列回归、图片脚本回归和同步检查。用例覆盖默认完整物化、开启后零图片请求、请求选项保留、取消、两个阻塞后台任务时可见页启动、去重、独立消费者取消、源隔离、失败重试和文件失效。后续的原生清单与逐图完成回归通过，Release SDK 26.0.0.105 的签名 debug HAP 再次构建通过，产物 apiReleaseType=Release、最低 API 20、目标 API 26，已核对包含 `reader-image-policy`、`imageRequested` 并覆盖安装手机启动。MCP 静态检查仍缓存旧依赖签名，实际 SDK 编译通过。
+
+早期设备刷新为 22:58:18.421～22:58:30.243，36 张清单 content-total=11762ms。后续日志还存在一次 46 张整章等待 29311ms，不能仅凭代码声明按需加载已在所有已装包中生效。导入源的更新需在 App 中重新导入后生效。
+
+最后一轮安装后的 PID 32534 实测：23:33:20.072 开始，23:33:21.323 返回 36 张，`content-total=1244ms`、`deferred=true`、`local=0`，23:33:21.367 显示恢复位置的第 4/5 页，随后第 6/7 页在 23:33:29.678、23:33:31.154 各自完成。当前页命中已有图片缓存，不能将其 27ms 当成冷下载首图耗时；日志已确认清单和逐页显示不再等待整章。另有 214/636 张清单分别为 580/1458ms 的现场日志，可用于核对逐页路径，不能与不同章节的旧记录计算加速倍数。未重新执行完整下载导出设备回归。
+
+`test-light-source-engine.cjs` 也已通过，涵盖导入、搜索/详情/目录/正文、原生脚本、音频、登录、Cookie、并发隔离、取消，以及漫画的部分清单复用、强制刷新、重复图片稳定键和缓存文件失效。
+
+实现参考本轮已读取的 [ArkTS 检索技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/SKILL.md)、[ArkUI 检索技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)和 [ArkTS 编译修复技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)。
+
+可见区加载与单独就绪显示另参考在线 [ArkUI 性能分析技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/arkui-performance-analysis/SKILL.md)、其[图片加载指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/arkui-performance-analysis/references/startup/image-loading.md)和[分阶段展示指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/arkui-performance-analysis/references/startup/staged-display.md)。技能用于核对机制，设备结论来自上述日志。
+
+### 图片本地条带重排（2026-10-23）
+
+在动态请求头版本基础上，公共内核固定到本地提交 `a542ea1c8a7f3c3e2b227496dad7cff34816bdd4`，应用辅助代码仍为 `ddc22f9`，已通过同步脚本迁入并核对 83 个文件。公共包新增通用 `image.reorderStrips(bytes, options)`，默认倒序、支持自定义排列和输入余数位置；网站的 ID 阈值、段数计算及中转选择仍由用户导入的图片脚本声明。公共提交尚未推送发布。
+
+简听在现有有界 QuickJS 二进制宿主内使用 ImageKit NDK 解码、按行重排并编码，像素不进入 JS，不增加独立运行时。保留输入/输出各 20 MiB、32 次宿主调用、累计 128 MiB、总时长 10 秒及共享取消信号；重排另限 4 Mi 像素、宽高各 16384、1～256 条，拒绝动图。系统操作前后检查取消和总时长，资源通过 RAII 释放。双 ABI QuickJS HAR 的 SHA256 为 `79583146FF57165D2D6C125C31ECC8451AA6560ED01B33E8F0AEA122E2E6A19A`。
+
+公共包像素定向测试、图片选项测试、简听图片脚本回归和新版源的导入/表达式/直连分支检查通过。Release SDK 26.0.0.105 编译公共 HAR、双 ABI QuickJS HAR 和 debug HAP 成功；HAP 内两种 ABI 的原生库摘要均与新版 HAR 一致，元数据为 Release、最低 API 20、目标 API 26。手机 `62T0225B13006276` 的 `ImageStripTransform` 专项测试通过，核对高度 11/分片 3 的两种余数位置、自定义排列、全部像素通道及原始尺寸。专项构建临时仅注册此套件，完成后恢复测试入口；完整设备测试集仍有已删除旧引擎的失效引用，不宣称全量测试通过。正常 App 已覆盖安装并启动。
+
+真实导入源探测曾成功得到 22 张图片清单，后续搜索和重复探测超时；本轮未完成新版源在手机上的整章阅读及下载导出验证。在线技术依据为已读取的 [ArkTS 检索技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/SKILL.md)、[ArkUI 检索技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)、[设备测试技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/03-test/hmos-instrument-test/SKILL.md)及官方 [ImageSource](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/image-source-c)、[PixelMap](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/pixelmap-c)、[ImagePacker](https://developer.huawei.com/consumer/cn/doc/harmonyos-guides/image-packer-c) 指南；可用版本以本机头文件和实际构建为准。
+
+### 动态请求头与动态选项更新（2026-10-23）
+
+解析内核合并公共 main `5bf8af7`，保留本地异步宿主适配后固定为 `2855b85375ec7cf0b50ecc12e907280939efb47f`；应用辅助代码仍为 `ddc22f9`。通过同步脚本生成并核对 83 个文件。顶层 headers 按请求作用域求值，阶段/脚本同名请求头不区分大小写覆盖，device.ua 读取求值后的 UA；导入记录仅保存字面请求头，原生请求不重复叠加旧记录。动态 optionsScript 保存值保留，发现筛选可显示当前动态选项。
+
+合并时将新增请求头求值、脚本 HTTP/批量请求及 UA 获取适配为异步调用，继续使用现有有界脚本宿主。原生源 250 项、原生脚本 77 项及导入导出回归通过；简听引擎回归通过，包含新增 JS 动态请求头、device.ua、批量请求覆盖与请求不重复检查。MCP 构建遇到本机 ohpm 批处理递归错误，改用 Release IDE CLI 增量 debug 构建成功；HAP 元数据为 Release、最低 API 20、目标 API 26。手机在覆盖安装时断开连接，未完成本轮实机导入→测试→搜索→详情→阅读/播放及下载导出验证。本地适配提交未推送。
+
+在线依据：已刷新目录并读取 [ArkTS 检索技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/SKILL.md)及其 [linter 约束摘要](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/docs/linter/ArkTS_Syntax_Knowledge_From_Linter.md)，编译结果以本机 Release SDK 26.0.0.105 为准。
+
 ### 公共包更新（2026-10-23）
 
 解析内核合并公共 main `5a3af77`，保留有界异步宿主后固定为 `a9fcf16`；应用辅助代码合并公共 main `8eec528`，固定为 `ddc22f9`。通过同步脚本迁入 83 个文件。新增动态分类脚本返回数组或“名称::地址”文本、图片脚本队列等待、内嵌图片缓存及图片解码配置一致性校验；保留简听取消、图片序号、20 MiB 限制与短写处理。适配提交仅保留在本地来源仓库，迁入源码随简听仓库提交。
@@ -34,8 +76,8 @@
 
 | 来源 | 仓库 | 固定提交 | 本地工作区 |
 | --- | --- | --- | --- |
-| 解析内核 | `wip3l/harmony-book-source-engine` 的本地分支 `codex/jianting-native-js-host` | `a9fcf16bacf7124891edaaaf30c40428035cd50b` | `D:\harmony-book-source-engine` |
-| 应用辅助代码 | `wip3l/legado-harmony` 的共同维护分支 `codex/sourceengine-host` | `ddc22f9fd8760ae08930b0c04b605eada5536ee6` | `D:\legado-harmony-sourceengine-host` |
+| 解析内核 | `wip3l/harmony-book-source-engine` 的本地分支 `codex/jianting-native-js-host` | `845b7f332ceefae9a00ca4fcd8c40d91f2109d5c` | `D:\harmony-book-source-engine` |
+| 应用辅助代码 | `wip3l/legado-harmony` 的共同维护分支 `codex/sourceengine-host` | `b46ddd65d55d14d89093e965df9e8c82c03ae2d9` | `D:\legado-harmony-sourceengine-host` |
 
 应用辅助代码包含本地网页等待修复和图片管线接入，不假定上游公开仓库已有这些提交。精确版本、逐文件来源、原始路径和 SHA256 见 `third_party/light-source/upstream.json`（schemaVersion 2）。摘要统一按 LF 换行计算；生成文件的 upstreamSha256 对应抽取的方法或原始模板，generated 标记与 upstreamPath 共同记录出处。
 

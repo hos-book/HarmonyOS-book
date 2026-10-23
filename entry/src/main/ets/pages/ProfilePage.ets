@@ -2,6 +2,7 @@ import { MedalService } from '../service/MedalService';
 import { HdsCompat } from '../utils/HdsCompat';
 import { AppColor, AppRadius, AppSpace, AppFont, AppTheme } from '../theme/Theme';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
+import { AppAppearance } from '../model/AppAppearance';
 import { ThemeIconComponent } from '../components/ThemeIconComponent';
 import { ThemeIconRole } from '../theme/ThemeIcons';
 import { HdsNavigation, HdsNavigationTitleMode } from '@kit.UIDesignKit';
@@ -10,7 +11,7 @@ import { AuthService } from '../service/AuthService';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { CommunityGroupService } from '../service/CommunityGroupService';
 import { AccountAvatar } from '../components/AccountAvatar';
-import { MembershipSubscriptionPage } from './MembershipSubscriptionPage';
+import { MembershipSubscriptionPage, MEMBERSHIP_BACKGROUND_TOP } from './MembershipSubscriptionPage';
 import { MembershipState } from '../model/MembershipState';
 import { VipFeatureBadge } from '../components/VipFeatureBadge';
 import { MembershipBadge } from '../components/MembershipBadge';
@@ -70,6 +71,7 @@ const MINI_TITLE_BAR_HEIGHT: number = 56;
 
 @ComponentV2
 export struct ProfilePage {
+  @Local appearance: AppAppearance = AppAppearance.current;
   @Param navStack: NavPathStack = new NavPathStack();
   @Event onScrollerReady: (scroller: Scroller) => void = () => {};
   @Local medalService: MedalService = MedalService.instance;
@@ -294,10 +296,14 @@ export struct ProfilePage {
           .fontWeight(FontWeight.Medium).onClick((): void => { this.showMembership = true; })
         }.width('100%').padding({ left: 20, right: 20, top: 14, bottom: 14 })
       }
-    }.width('100%').backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg)
+    }.width('100%').backgroundColor(AppTheme.Surface)
+    .backgroundImage(AppTheme.resolve(this.appearance.themeBundleId).visual.background.profileCardImage)
+    .backgroundImageSize(ImageSize.Cover)
+    .backgroundImagePosition(Alignment.Center)
+    .borderRadius(AppRadius.Lg).clip(true)
     .bindSheet($$this.showMembership, this.membershipSheet(), {
       height: '90%', detents: ['90%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, showClose: false, dragBar: true,
-      backgroundColor: '#EFEDE7'
+      backgroundColor: MEMBERSHIP_BACKGROUND_TOP
     })
   }
 
@@ -329,8 +335,9 @@ export struct ProfilePage {
         }, (item: ProfileItem) => item.id)
       }
       .width('100%')
-      .backgroundColor(AppTheme.Surface)
+      .backgroundColor(AppTheme.resolve(this.appearance.themeBundleId).visual.colors.profileMenuSurface ?? AppTheme.Surface)
       .borderRadius(AppRadius.Lg)
+      .clip(true)
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
@@ -342,7 +349,7 @@ export struct ProfilePage {
       Stack() {
         SymbolGlyph(item.icon)
           .fontSize(18)
-          .fontColor([Color.White])
+          .fontColor([AppTheme.BrandedProfileIcons ? AppColor.OnBrand : Color.White])
       }
       .width(28)
       .height(28)

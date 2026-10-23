@@ -66,6 +66,8 @@ export interface NativeScriptContext {
    * 搜索、发现是多个书源同时跑的，不弹网页，browser.verify 改走「去验证」。
    */
   interactive: boolean;
+  /** 脚本请求实际带的请求头：顶层 headers 按当前作用域求值，再叠上脚本给出的（同名以脚本为准）。 */
+  requestHeaders: (own: Record<string, string>) => Promise<Record<string, string>>;
 }
 
 const BATCH = 8;
@@ -174,7 +176,7 @@ export class NativeScriptHost {
         return this.render(this.url(args[0]), args[1]);
       case '@device': {
         const host = this.context.host;
-        if (this.text(args[0]) === 'ua') return host.userAgent ? host.userAgent() : '';
+        if (this.text(args[0]) === 'ua') return this.userAgent();
         return host.deviceId ? host.deviceId() : '';
       }
       default:
@@ -206,7 +208,7 @@ export class NativeScriptHost {
   private async render(url: string, raw: NativeValue): Promise<NativeValue> {
     const options: Record<string, NativeValue> = raw && typeof raw === 'object' && !Array.isArray(raw) ?
       raw as Record<string, NativeValue> : {};
-    const request = this.request({
+    const request = await this.request({
       url: url, headers: options['headers'],
       webView: { waitFor: options['waitFor'] || '', timeout: options['timeout'] }
     });
@@ -219,11 +221,12 @@ export class NativeScriptHost {
 
   private async http(raw: NativeValue): Promise<NativeValue> {
     this.count(1);
-    return await this.fetch(this.request(raw));
+    return await this.fetch(await this.request(raw));
   }
 
   private async httpAll(list: NativeValue[]): Promise<NativeValue> {
-    const requests = list.map((raw: NativeValue): NativeRequest => this.request(raw));
+    const requests: NativeRequest[] = [];
+    for (const raw of list) requests.push(await this.request(raw));
     this.count(requests.length);
     const results: NativeValue[] = [];
     for (let offset = 0; offset < requests.length; offset += BATCH) {
@@ -263,7 +266,7 @@ export class NativeScriptHost {
   }
 
   /** 脚本给出的请求（地址字符串或对象）整理成与声明式请求相同的 NativeRequest。 */
-  private request(raw: NativeValue): NativeRequest {
+  private async request(raw: NativeValue): Promise<NativeRequest> {
     const spec: Record<string, NativeValue> = raw && typeof raw === 'object' && !Array.isArray(raw) ?
       raw as Record<string, NativeValue> : { url: raw };
     const url = this.url(spec['url']);
@@ -282,13 +285,24 @@ export class NativeScriptHost {
     const web = spec['webView'];
     const webSpec: Record<string, NativeValue> | null = web && typeof web === 'object' ? web as Record<string, NativeValue> : null;
     return {
-      url: url, method: method, headers: headers, body: body, webView: web === true || !!webSpec,
+      url: url, method: method, headers: await this.context.requestHeaders(headers), body: body,
+      webView: web === true || !!webSpec,
       webWaitFor: webSpec && webSpec['waitFor'] ? String(webSpec['waitFor']).trim() : '',
       webTimeout: Math.max(3, Math.min(Number(webSpec ? webSpec['timeout'] : 0) || 15, 60)),
       charset: this.text(spec['charset']).trim(),
       retry: Math.max(0, Math.min(Math.floor(Number(spec['retry']) || 0), 3)),
       primary: false
     };
+  }
+
+  /** 书源请求用的 User-Agent：顶层 headers 里写了（可以是模板）就用求值后的值，否则用宿主默认的。 */
+  private async userAgent(): Promise<string> {
+    const headers = await this.context.requestHeaders({});
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === 'user-agent') return headers[name];
+    }
+    const host = this.context.host;
+    return host.userAgent ? host.userAgent() : '';
   }
 
   private cookieHost(action: string): NativeRunnerHost {

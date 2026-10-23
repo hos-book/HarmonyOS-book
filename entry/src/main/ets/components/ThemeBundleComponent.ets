@@ -1,4 +1,5 @@
 import { ThemeBackgroundComponent } from './ThemeBackgroundComponent';
+import { ThemeBackgroundScene } from '../model/AppThemeVisual';
 import { ThemeIconComponent } from './ThemeIconComponent';
 import { ThemeIconRole } from '../theme/ThemeIcons';
 import { AppAppearance } from '../model/AppAppearance';
@@ -15,6 +16,8 @@ export struct ThemeBundleComponent {
   @Local appearance: AppAppearance = AppAppearance.current;
   @Local applying: boolean = false;
   @Local applyingId: string = '';
+  @Local previewId: string = 'default';
+  @Local showPreview: boolean = false;
   private options: AppThemeBundle[] = ThemeBundles.list();
 
   private isCurrent(bundle: AppThemeBundle): boolean {
@@ -64,18 +67,10 @@ export struct ThemeBundleComponent {
     }
   }
 
-  private previewTitle(resource: Resource): string {
-    try {
-      return this.getUIContext().getHostContext()?.resourceManager.getStringSync(resource.id) ?? '';
-    } catch (_error) {
-      return '';
-    }
-  }
-
   @Builder
   private preview(bundle: AppThemeBundle) {
     Stack({ alignContent: Alignment.TopStart }) {
-      ThemeBackgroundComponent({ themeBundleId: bundle.id, preview: true })
+      ThemeBackgroundComponent({ themeBundleId: bundle.id, preview: true, scene: ThemeBackgroundScene.Shelf })
       Column({ space: 12 }) {
         Row() {
           Text($r('app.string.theme_bundle_preview_label'))
@@ -94,14 +89,12 @@ export struct ThemeBundleComponent {
         }.width('100%').alignItems(HorizontalAlign.Start)
         Row({ space: 16 }) {
           Column({ space: 6 }) {
-            CoverImage({ title: this.previewTitle($r('app.string.theme_bundle_preview_book')),
-              imgWidth: 66, imgHeight: 92, useFixedHeight: true, radius: 4, themeBundleId: bundle.id })
+            CoverImage({ imgWidth: 66, imgHeight: 92, useFixedHeight: true, radius: 4, themeBundleId: bundle.id })
             Text($r('app.string.theme_bundle_preview_book')).fontSize(10)
               .fontColor(bundle.visual.colors.textPrimary).maxLines(1)
           }
           Column({ space: 6 }) {
-            LocalBookCover({ title: this.previewTitle($r('app.string.theme_bundle_preview_local')),
-              imgWidth: 66, imgHeight: 92, useFixedHeight: true, radius: 4, themeBundleId: bundle.id })
+            LocalBookCover({ imgWidth: 66, imgHeight: 92, useFixedHeight: true, radius: 4, themeBundleId: bundle.id })
             Text($r('app.string.theme_bundle_preview_local')).fontSize(10)
               .fontColor(bundle.visual.colors.textPrimary).maxLines(1)
           }
@@ -128,6 +121,37 @@ export struct ThemeBundleComponent {
 
   @Builder
   private bundleCard(bundle: AppThemeBundle) {
+    Button({ type: ButtonType.Normal }) {
+      Column({ space: 8 }) {
+        Stack() {
+          ThemeBackgroundComponent({ themeBundleId: bundle.id, preview: true })
+          CoverImage({ imgWidth: 46, imgHeight: 64, useFixedHeight: true, radius: 4, themeBundleId: bundle.id })
+        }.width('100%').height(112).borderRadius(AppRadius.Sm).clip(true)
+        Text(bundle.name).fontSize(AppFont.Caption).fontWeight(FontWeight.Medium)
+          .fontColor(AppTheme.TextPrimary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(this.isCurrent(bundle) ? $r('app.string.theme_bundle_applied') :
+          $r('app.string.theme_bundle_preview_label')).fontSize(10)
+          .fontColor(this.isCurrent(bundle) ? AppColor.Brand : AppTheme.TextSecondary)
+      }.width('100%').padding(6)
+    }.width('100%').borderRadius(AppRadius.Md).backgroundColor(AppTheme.Surface)
+    .border({ width: this.isCurrent(bundle) ? 1.5 : 1,
+      color: this.isCurrent(bundle) ? AppColor.Brand : AppTheme.Divider })
+    .onClick(() => {
+      this.previewId = bundle.id;
+      this.showPreview = true;
+    })
+  }
+
+  @Builder
+  private previewSheet() {
+    Scroll() {
+      this.previewCard(ThemeBundles.resolve(this.previewId))
+    }.width('100%').height('100%').padding({ left: AppSpace.Md, right: AppSpace.Md, bottom: AppSpace.Lg })
+    .scrollBar(BarState.Off)
+  }
+
+  @Builder
+  private previewCard(bundle: AppThemeBundle) {
     Column({ space: AppSpace.Sm }) {
       this.preview(bundle)
       Row({ space: AppSpace.Xs }) {
@@ -148,14 +172,13 @@ export struct ThemeBundleComponent {
             LoadingProgress().width(18).height(18).color(AppColor.Brand)
           }
           Text(this.applying && this.applyingId === bundle.id ? $r('app.string.theme_bundle_applying') :
-            this.isCurrent(bundle) ? $r('app.string.theme_bundle_applied') : $r('app.string.theme_bundle_apply'))
+            $r('app.string.theme_bundle_apply'))
             .fontSize(AppFont.Body).fontWeight(FontWeight.Medium)
-            .fontColor(this.isCurrent(bundle) ? AppTheme.TextSecondary :
-              bundle.visual.colors.onBrand)
+            .fontColor(bundle.visual.colors.onBrand)
         }.justifyContent(FlexAlign.Center)
       }.width('100%').height(44).borderRadius(AppRadius.Sm)
-      .backgroundColor(this.isCurrent(bundle) ? AppTheme.Background : bundle.visual.colors.brand)
-      .enabled(!this.applying && !this.isCurrent(bundle))
+      .backgroundColor(bundle.visual.colors.brand)
+      .enabled(!this.applying)
       .onClick(() => this.applyBundle(bundle.id))
     }.width('100%').padding(AppSpace.Sm).borderRadius(AppRadius.Lg)
     .backgroundColor(AppTheme.Surface)
@@ -167,8 +190,7 @@ export struct ThemeBundleComponent {
     Column({ space: AppSpace.Md }) {
       Text($r('app.string.theme_bundle_hint')).fontSize(AppFont.Caption).lineHeight(20)
         .fontColor(AppTheme.TextSecondary).width('100%')
-      GridRow({ columns: { xs: 1, sm: 2, md: 2, lg: 2 }, gutter: { x: 16, y: 16 },
-        breakpoints: { value: ['600vp'], reference: BreakpointsReference.ComponentSize } }) {
+      GridRow({ columns: 3, gutter: { x: 10, y: 12 } }) {
         ForEach(this.options, (bundle: AppThemeBundle) => {
           GridCol() {
             this.bundleCard(bundle)
@@ -190,5 +212,10 @@ export struct ThemeBundleComponent {
           .enabled(!this.applying).onClick(() => this.applyBundle('default'))
       }
     }.width('100%')
+    .bindSheet($$this.showPreview, this.previewSheet(), {
+      height: '80%', preferType: SheetType.BOTTOM, dragBar: true, showClose: true,
+      backgroundColor: AppTheme.Background,
+      onDisappear: (): void => { this.showPreview = false; }
+    })
   }
 }

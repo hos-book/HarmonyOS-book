@@ -6,7 +6,7 @@
     {"name":"theme_bundle_default_description","value":"熟悉的简听外观，跟随系统深浅色。"},
     {"name":"theme_bundle_paper_name","value":"纸感书房"},
     {"name":"theme_bundle_paper_description","value":"暖纸底色、墨绿图标与细线书脊，让阅读回归安静。"},
-    {"name":"theme_bundle_hint","value":"切换默认封面、页面背景和首页图标，已有书封保留原图。"},
+    {"name":"theme_bundle_hint","value":"每次应用套装都会恢复该主题的主题色与材质，并切换默认封面、页面背景和首页图标；已有书封保留原图。"},
     {"name":"theme_bundle_apply","value":"应用套装"},
     {"name":"theme_bundle_applied","value":"正在使用"},
     {"name":"theme_bundle_applying","value":"正在应用…"},
@@ -1059,6 +1059,14 @@
       "value": "从当前页或上次位置开始，可调倍速和正文跟随。"
     },
     {
+      "name": "import_help_expand",
+      "value": "展开导入说明"
+    },
+    {
+      "name": "import_help_collapse",
+      "value": "收起导入说明"
+    },
+    {
       "name": "import_supported_formats",
       "value": "音频：MP3/M4A/FLAC/WAV/OGG/AAC；电子书：TXT/EPUB/MOBI/HTML/HTM；打包：ZIP。MOBI 支持未加密 MOBI6（未压缩或 PalmDOC 压缩），自动提取封面，不保留正文图片和原排版。"
     },
@@ -1217,6 +1225,14 @@
     {
       "name": "record_duration_short",
       "value": "%d 时 %d 分"
+    },
+    {
+      "name": "record_summary_duration",
+      "value": "%d时%d分"
+    },
+    {
+      "name": "record_streak_days_compact",
+      "value": "%d天"
     },
     {
       "name": "record_total_duration",
@@ -2689,6 +2705,10 @@
     {
       "name": "rule_source_load_failed",
       "value": "本地书源服务暂不可用"
+    },
+    {
+      "name": "rule_source_key_unavailable",
+      "value": "暂时无法解密书源数据库，原数据已保留"
     },
     {
       "name": "rule_source_empty",
@@ -5204,7 +5224,15 @@
     },
     {
       "name": "ranking_settings_title",
-      "value": "全网榜单分类"
+      "value": "全网榜单设置"
+    },
+    {
+      "name": "ranking_settings_expand",
+      "value": "点击展开"
+    },
+    {
+      "name": "ranking_settings_collapse",
+      "value": "点击收起"
     },
     {
       "name": "ranking_settings_desc",
@@ -5511,6 +5539,6 @@
     {"name": "reader_replace_invalid", "value": "规则无效或执行超限，请检查查找内容"},
     {"name": "reader_replace_failed", "value": "替换规则执行失败，已显示原文"},
     {"name":"theme_bundle_ink_name","value":"墨山"},
-    {"name":"theme_bundle_ink_description","value":"宣纸留白，远山淡墨。朱砂点染交互，山水与墨竹书封相伴；浅深两色，静读有声。"}
+    {"name":"theme_bundle_ink_description","value":"宣纸留白，远山淡墨。古朴黄点染交互，山水与墨竹书封相伴；浅深两色，静读有声。"}
   ]
 }

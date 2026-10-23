@@ -1,5 +1,5 @@
 import { AppTheme } from '../theme/Theme';
-import { ThemeBackgroundKind } from '../model/AppThemeVisual';
+import { ThemeBackgroundKind, ThemeBackgroundScene } from '../model/AppThemeVisual';
 
 /** 同一背景解析用于页面与候选预览；显式 id 不会修改全局外观。 */
 @ComponentV2
@@ -7,11 +7,12 @@ export struct ThemeBackgroundComponent {
   @Param warmMid: number = 0.35;
   @Param themeBundleId: string = '';
   @Param preview: boolean = false;
+  @Param scene: ThemeBackgroundScene = ThemeBackgroundScene.Home;
 
   build() {
     Stack() {
       if (AppTheme.resolve(this.themeBundleId).visual.background.kind === ThemeBackgroundKind.Image) {
-        Image(AppTheme.resolve(this.themeBundleId).visual.background.image ?? '')
+        Image(AppTheme.resolve(this.themeBundleId).visual.background.resolveImage(this.scene) ?? '')
           .width('100%').height('100%').objectFit(ImageFit.Cover)
           .opacity(AppTheme.resolve(this.themeBundleId).visual.background.imageOpacity)
       } else if (!this.preview &&

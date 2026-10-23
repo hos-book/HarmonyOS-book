@@ -8,6 +8,7 @@ import { emitter } from '@kit.BasicServicesKit';
 import { OnlineTextContentCache } from './text/OnlineTextContentCache';
 import { LightSourceRequest } from './rulesource/light/LightSourceRequestPolicy';
 import { ReaderCacheService } from './ReaderCacheService';
+import { ComicImageLoader } from './ComicImageLoader';
 
 export class ComicPage {
   key: string = '';
@@ -15,6 +16,10 @@ export class ComicPage {
   index: number = 0;
   width: number = 0;
   height: number = 0;
+  sourceUrl: string = '';
+  requestUrl: string = '';
+  cacheKey: string = '';
+  chapterId: string = '';
 }
 
 export class ComicPageDataSource implements IDataSource {
@@ -37,6 +42,29 @@ export class ComicReaderService {
   private static pending: Map<string, Promise<ComicPage[]>> = new Map();
   private static requests: Map<string, LightSourceRequest> = new Map();
   private static imagePending: Map<string, Promise<boolean>> = new Map();
+  private static chapterPages: Map<string, ComicPage[]> = new Map();
+  private static saves: Map<string, Promise<void>> = new Map();
+
+  static async imageReady(page: ComicPage, path: string, context: common.Context): Promise<string> {
+    const uri = path.startsWith('/') ? fileUri.getUriFromPath(path) : path;
+    if (page.url === uri) return uri;
+    page.url = uri;
+    const pages = ComicReaderService.chapterPages.get(page.cacheKey);
+    if (!pages || !pages.includes(page)) return page.url;
+    const key = page.cacheKey;
+    const previous = ComicReaderService.saves.get(key) || Promise.resolve();
+    const save = previous.catch((): void => {}).then(async (): Promise<void> => {
+      if (ComicReaderService.chapterPages.get(key) !== pages) return;
+      await OnlineTextContentCache.write(context, key, JSON.stringify(pages));
+      await ReaderCacheService.record([page.url]);
+      if (pages.every((item: ComicPage): boolean => item.url.startsWith('file://'))) {
+        emitter.emit('app.chapter.cache.updated', { data: { chapterId: page.chapterId } });
+      }
+    });
+    ComicReaderService.saves.set(key, save);
+    try { await save; } finally { if (ComicReaderService.saves.get(key) === save) ComicReaderService.saves.delete(key); }
+    return page.url;
+  }
 
   /** 图片预取独立于清单加载，进入该章无需等待整章图片下载完。 */
   static async preloadImages(book: Book, chapter: Chapter, pages: ComicPage[], context: common.Context,
@@ -49,7 +77,8 @@ export class ComicReaderService {
     const request = new LightSourceRequest(0);
     request.cancelCheck = cancelCheck;
     ComicReaderService.requests.set(imageKey, request);
-    const task = ComicReaderService.fillImages(book, chapter, pages, context, key, request);
+    if (!ComicReaderService.chapterPages.has(key)) ComicReaderService.registerPages(book, chapter, key, pages);
+    const task = ComicReaderService.fillImages(book, chapter, pages, context, request);
     ComicReaderService.imagePending.set(imageKey, task);
     try { return await task; } finally {
       if (ComicReaderService.imagePending.get(imageKey) === task) {
@@ -60,22 +89,17 @@ export class ComicReaderService {
   }
 
   private static async fillImages(book: Book, chapter: Chapter, pages: ComicPage[], context: common.Context,
-    key: string, request: LightSourceRequest): Promise<boolean> {
-    const paths = await BookSourceService.cacheComicImages(book, pages.map((page: ComicPage): string => page.url), request);
-    if (request.isCancelled() || paths.length !== pages.length) return false;
-    const saved: ComicPage[] = [];
-    for (let index = 0; index < pages.length; index++) {
-      const page = new ComicPage();
-      page.key = pages[index].key;
-      page.index = pages[index].index;
-      page.width = pages[index].width;
-      page.height = pages[index].height;
-      page.url = paths[index].startsWith('/') ? fileUri.getUriFromPath(paths[index]) : paths[index];
-      saved.push(page);
+    request: LightSourceRequest): Promise<boolean> {
+    for (const page of pages) {
+      if (request.isCancelled()) return false;
+      try {
+        const path = await ComicImageLoader.load(book.sourceUrl, page.url,
+          (): boolean => request.isCancelled());
+        if (request.isCancelled()) return false;
+        await ComicReaderService.imageReady(page, path, context);
+      } catch (_error) { return false; }
     }
-    await OnlineTextContentCache.write(context, key, JSON.stringify(saved));
     if (request.isCancelled()) return false;
-    for (let index = 0; index < saved.length; index++) pages[index].url = saved[index].url;
     const complete = (await ComicReaderService.cached(context, book, chapter)).length === pages.length;
     if (complete) emitter.emit('app.chapter.cache.updated', { data: { chapterId: chapter.id } });
     hilog.info(0x0001, 'ComicReader', 'image prefetch complete=%{public}s pages=%{public}d', String(complete), pages.length);
@@ -141,7 +165,10 @@ export class ComicReaderService {
     context?: common.Context, force: boolean = false): Promise<ComicPage[]> {
     if (context) {
       const cached = await ComicReaderService.cached(context, book, chapter);
-      if (!force && cached.length > 0) return cached;
+      if (!force && cached.length > 0) {
+        ComicReaderService.registerPages(book, chapter, key, cached);
+        return cached;
+      }
       if (force) {
         for (const page of cached) {
           try { await fileIo.unlink(new fileUri.FileUri(page.url).path); } catch (_error) { /* 已清理 */ }
@@ -149,9 +176,26 @@ export class ComicReaderService {
         await OnlineTextContentCache.removeChapter(context, key);
       }
     }
+    const prepared = ComicReaderService.chapterPages.get(key);
+    if (!force && prepared && prepared.length > 0) {
+      let reusable = true;
+      if (context) {
+        for (const page of prepared) {
+          if (!page.url.startsWith('file://')) continue;
+          try {
+            if ((await fileIo.stat(new fileUri.FileUri(page.url).path)).size > 0) continue;
+          } catch (_error) { /* 已被缓存清理，重新下载这一页。 */ }
+          if (page.requestUrl && !page.requestUrl.startsWith('file://')) page.url = page.requestUrl;
+          else reusable = false;
+        }
+      }
+      if (request.isCancelled()) throw new Error('Comic request cancelled');
+      if (reusable) return prepared;
+    }
     if (request.isCancelled()) throw new Error('Comic request cancelled');
     const pages = await ComicReaderService.fetch(book, chapter, request);
     if (request.isCancelled()) throw new Error('Comic request cancelled');
+    ComicReaderService.registerPages(book, chapter, key, pages);
     if (context && pages.length > 0) {
       await OnlineTextContentCache.write(context, key, JSON.stringify(pages));
       emitter.emit('app.chapter.cache.updated', { data: { chapterId: chapter.id } });
@@ -159,11 +203,25 @@ export class ComicReaderService {
     return pages;
   }
 
+  private static registerPages(book: Book, chapter: Chapter, key: string, pages: ComicPage[]): void {
+    for (const page of pages) {
+      page.sourceUrl = book.sourceUrl;
+      page.requestUrl = page.requestUrl || page.url;
+      page.cacheKey = key;
+      page.chapterId = chapter.id;
+    }
+    ComicReaderService.chapterPages.set(key, pages);
+    if (ComicReaderService.chapterPages.size > 8) ComicReaderService.chapterPages.delete(Array.from(ComicReaderService.chapterPages.keys())[0]);
+  }
+
   private static async fetch(book: Book, chapter: Chapter, request: LightSourceRequest): Promise<ComicPage[]> {
     const result = await BookSourceService.getSourceChapterContent(book,
-      chapter.originSourceValue || chapter.source.value, chapter.variables, request);
-    hilog.info(0x0001, 'ComicReader', 'resolved type=%{public}s images=%{public}d rich=%{public}d text=%{public}d',
-      result.mediaType, result.imageUrls?.length ?? -1, result.richContent?.length ?? -1, result.content?.length ?? -1);
+      chapter.originSourceValue || chapter.source.value, chapter.variables, request, true);
+    hilog.info(0x0001, 'ComicReader',
+      'resolved type=%{public}s images=%{public}d local=%{public}d deferred=%{public}s rich=%{public}d text=%{public}d',
+      result.mediaType, result.imageUrls?.length ?? -1,
+      result.imageUrls.filter((url: string): boolean => url.startsWith('/') || url.startsWith('file://')).length,
+      'true', result.richContent?.length ?? -1, result.content?.length ?? -1);
     const markers = result.richContent.match(/\[\[LEGADO_EPUB_IMAGE:[\s\S]*?\]\]/g) ?? [];
     const pages: ComicPage[] = [];
     const occurrences = new Map<string, number>();

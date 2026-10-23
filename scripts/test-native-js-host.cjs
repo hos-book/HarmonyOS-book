@@ -100,6 +100,26 @@ module.exports = async ({load,prefix,runtime,parser,codec,engine,fixtures,states
   assert.equal(nativeCalls,1,'only the selected optionsScript runs');
   await engine.panelAction(JSON.stringify(local),JSON.stringify({...select,action:'light-native-set:line',value:'b'}),'[]');
   assert.equal(JSON.parse(await engine.panel(JSON.stringify(local),true,'Save','Login')).controls.find(c=>c.id===select.id).value,'b');
+  // Dynamic headers must await the isolated expression host, including when a
+  // running stage asks for device.ua or sends a batch of HTTP requests.
+  const headerSource={...native,url:'https://native-headers.test',actions:[],
+    headers:{'User-Agent':'UA-{{upper(vars.line)}}','X-Line':'=upper(vars.line)',Accept:'text/html'},
+    js:native.js+' function headerSearch(){var ua=device.ua;'+
+      'var rows=http.all([{url:"/echo",headers:{accept:"application/json"}},{url:"/echo"}]);'+
+      'return [{name:ua,author:rows[0].json().accept,bookUrl:"/book"}];}',
+    search:{script:'headerSearch'}};
+  const headerRequests=[];
+  fixtures.set(headerSource.url+'/echo',request=>{
+    headerRequests.push(request.headers);return JSON.stringify(request.headers);
+  });
+  const headerLocal=parser.parse(JSON.stringify(headerSource)).sources[0];assert.ok(headerLocal);
+  headerLocal.definition=codec.stringify(headerLocal);
+  const headerBooks=JSON.parse(await engine.search(JSON.stringify(headerLocal),'UA-A',1));
+  assert.ok(headerBooks.length,'dynamic-header search returns the matching book');
+  assert.equal(headerBooks[0].name,'UA-A');assert.equal(headerBooks[0].author,'application/json');
+  assert.equal(headerRequests.length,2,'header expression evaluation must not duplicate HTTP side effects');
+  for(const headers of headerRequests){assert.equal(headers['User-Agent'],'UA-A');assert.equal(headers['X-Line'],'A');}
+  assert.equal(headerRequests[0].Accept,undefined);assert.equal(headerRequests[1].Accept,'text/html');
   let toast='',refresh='';runtime.host.toast=m=>{toast=m};runtime.host.refreshExplore=async u=>{refresh=u};
   await engine.panelAction(JSON.stringify(local),JSON.stringify({action:'light-native-action:0'}),'[]');
   assert.equal(toast,'hello');assert.equal(refresh,source.bookSourceUrl);

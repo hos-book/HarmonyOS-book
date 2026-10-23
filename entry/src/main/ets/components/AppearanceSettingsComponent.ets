@@ -37,12 +37,13 @@ const ACCENT_CHOICES: AccentChoice[] = [
   new AccentChoice('#557C36', $r('app.string.appearance_accent_green'))
 ];
 
-/** 仅由系统设置页使用；通过共享 V2 外观状态即时刷新控件。 */
+/** 主题色先编辑本地草稿，点击应用后才更新共享 V2 外观状态。 */
 @ComponentV2
 export struct AppearanceSettingsComponent {
   @Local appearance: AppAppearance = AppAppearance.current;
   @Local showAccent: boolean = false;
   @Local customHex: string = '';
+  @Local accentDraft: string = '';
   @Local colorInvalid: boolean = false;
   @Local saving: boolean = false;
 
@@ -72,10 +73,20 @@ export struct AppearanceSettingsComponent {
     }
   }
 
-  private applyCustomAccent(): void {
+  private selectAccent(value: string): void {
+    if (this.saving) return;
+    this.accentDraft = value;
+    this.customHex = value || AppAppearance.defaultAccent;
+    this.colorInvalid = false;
+  }
+
+  private async applyCustomAccent(): Promise<void> {
+    if (this.saving) return;
     const normalized: string = AppAppearance.normalizeAccent(this.customHex);
     this.colorInvalid = normalized.length === 0;
-    if (!this.colorInvalid) this.applyAccent(normalized);
+    if (!this.colorInvalid) {
+      await this.applyAccent(this.accentDraft === '' && normalized === AppAppearance.defaultAccent ? '' : normalized);
+    }
   }
 
   private showSaveError(): void {
@@ -101,7 +112,7 @@ export struct AppearanceSettingsComponent {
           Column({ space: AppSpace.Xs }) {
             Stack() {
               Row().width(42).height(42).borderRadius(21).backgroundColor(choice.color || AppAppearance.defaultAccent)
-              if ((this.appearance.accent || AppAppearance.defaultAccent) === (choice.color || AppAppearance.defaultAccent)) {
+              if ((this.accentDraft || AppAppearance.defaultAccent) === (choice.color || AppAppearance.defaultAccent)) {
                 SymbolGlyph($r('sys.symbol.checkmark'))
                   .fontSize(20)
                   .fontColor([AppAppearance.foreground(choice.color || AppAppearance.defaultAccent)])
@@ -114,21 +125,22 @@ export struct AppearanceSettingsComponent {
           .borderRadius(AppRadius.Lg)
           .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveThin))
           .enabled(!this.saving)
-          .onClick(() => this.applyAccent(choice.color))
+          .onClick(() => this.selectAccent(choice.color))
         }, (choice: AccentChoice) => choice.color || 'default')
       }
       Row({ space: AppSpace.Sm }) {
         TextInput({ text: this.customHex, placeholder: $r('app.string.appearance_accent_hex_hint') })
+          .enabled(!this.saving)
           .layoutWeight(1)
           .maxLength(7)
           .onChange((value: string) => {
             this.customHex = value;
+            this.accentDraft = value;
             this.colorInvalid = false;
           })
-          .onSubmit(() => this.applyCustomAccent())
         ImmersiveActionButton({
           textSize: AppFont.Body,
-          onPress: (): void => this.applyCustomAccent()
+          onPress: (): void => { this.applyCustomAccent(); }
         }).width(72).enabled(!this.saving)
       }
       .width('100%')
@@ -165,6 +177,8 @@ export struct AppearanceSettingsComponent {
       }
       .width('100%').padding(AppSpace.Md).constraintSize({ minHeight: 56 })
       .onClick(() => {
+        if (this.saving) return;
+        this.accentDraft = this.appearance.accent;
         this.customHex = this.appearance.accent || AppAppearance.defaultAccent;
         this.colorInvalid = false;
         this.showAccent = true;

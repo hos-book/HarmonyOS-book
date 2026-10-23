@@ -28,6 +28,7 @@ import { LightLocalSource as LocalRuleSource } from './LightSourceHost';
 import { SourceCoverLoader } from './upstream/core/nativesource/SourceCoverLoader';
 import { LightSourceCoverCache } from './LightSourceCoverCache';
 import { ReaderCacheService } from '../../ReaderCacheService';
+import { SourceEngineHost } from './upstream/core/host/SourceEngineHost';
 
 
 /** JSON boundary prevents the upstream TypeScript model leaking into ArkTS pages. */
@@ -48,7 +49,7 @@ export class LightSourceCore {
         if (request?.isCancelled()) throw new Error('Comic image prefetch cancelled');
         const batch = urls.slice(start, start + 4);
         const result = await Promise.all(batch.map(async url => {
-          if (!/^https?:\/\//i.test(url)) return url;
+          if (!/^(https?:\/\/|data:image\/)/i.test(url)) return url;
           try { return await ComicImagePipeline.materialize(new HttpClient(), source, url, true); }
           catch (error) {
             if (request?.isCancelled()) throw error;
@@ -442,12 +443,15 @@ export class LightSourceCore {
     });
   }
   static async content(localJson: string, url: string, context: string, timingId: number = 0,
-    request?: LightSourceRequest): Promise<string> {
+    request?: LightSourceRequest, deferReaderImages: boolean = false): Promise<string> {
     const sourceStartedAt = Date.now();
     const local = JSON.parse(localJson) as LocalRuleSource;
     const source = this.source(local);
     LightSourceTiming.bind(source, timingId);
     LightSourceRequestPolicy.bind(source, request);
+    SourceEngineHost.setReaderImagesDeferred(source, deferReaderImages);
+    LightSourceTiming.end(timingId, 'reader-image-policy', Date.now(),
+      `deferred=${SourceEngineHost.readerImagesDeferred(source)}`);
     LightSourceTiming.end(timingId, 'source-decode', sourceStartedAt);
     ReaderCacheService.beginComicWrite();
     try { return await LightSourceRuntime.run(source, local, async () => {

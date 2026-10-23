@@ -103,6 +103,12 @@ function expectedSelection(id, accent, material) {
   assert.equal(disk.values.has(themeKey), false, 'initialization does not overwrite legacy preferences');
 
   const paper = app.bundles.resolve('paper-study');
+  const migratedInk = await launch(createDisk([[themeKey,
+    JSON.stringify(new app.Selection('ink-wash', '#A34335', 3))]]));
+  assert.deepEqual(appearanceOf(migratedInk), ['ink-wash', '#80612E', 3], 'old ink recommendation follows the new palette');
+  const customizedInk = await launch(createDisk([[themeKey,
+    JSON.stringify(new app.Selection('ink-wash', '#2255AA', 4))]]));
+  assert.deepEqual(appearanceOf(customizedInk), ['ink-wash', '#2255AA', 4], 'custom ink accent and material survive upgrade');
   let startFlush;
   let finishFlush;
   const flushing = new Promise(resolve => { startFlush = resolve; });
@@ -192,6 +198,13 @@ function expectedSelection(id, accent, material) {
     const fresh = await launch(createDisk());
     await fresh.service.restoreBackupSnapshot(JSON.parse(JSON.stringify(saved)));
     assert.deepEqual(appearanceOf(fresh), [bundle.id, bundle.accent, bundle.material]);
+    await fresh.service.setAccentColor('#123456');
+    await fresh.service.setMaterialStyle(4);
+    await fresh.service.applyThemeBundle(bundle.id);
+    assert.deepEqual(appearanceOf(fresh), [bundle.id, bundle.accent, bundle.material],
+      'reapplying the current bundle restores its own accent and material');
+    assert.deepEqual(appearanceOf(await launch(fresh.disk)), [bundle.id, bundle.accent, bundle.material],
+      'reapplied bundle palette survives restart');
     await fresh.service.setAccentColor('#123456');
     await fresh.service.setMaterialStyle(4);
     await fresh.service.resetThemeBundleOverrides();

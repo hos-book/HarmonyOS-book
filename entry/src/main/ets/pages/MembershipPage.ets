@@ -1,4 +1,4 @@
-import { MembershipSubscriptionPage } from './MembershipSubscriptionPage';
+import { MembershipSubscriptionPage, MEMBERSHIP_BACKGROUND_TOP } from './MembershipSubscriptionPage';
 import { MembershipService } from '../service/MembershipService';
 import { AppColor, AppFont, AppSpace, AppTheme } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
@@ -64,7 +64,7 @@ export struct MembershipPage {
       }.width('100%').layoutWeight(1).barMode(BarMode.Fixed).barHeight('auto')
     }.width('100%').height('100%').backgroundColor(AppTheme.Background)
     .bindSheet($$this.showMembership, this.membershipSheet(), {
-      height: '90%', detents: ['90%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, showClose: false, dragBar: true, backgroundColor: '#EFEDE7'
+      height: '90%', detents: ['90%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, showClose: false, dragBar: true, backgroundColor: MEMBERSHIP_BACKGROUND_TOP
     })
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }

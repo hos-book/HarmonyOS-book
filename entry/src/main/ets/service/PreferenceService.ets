@@ -886,8 +886,13 @@ export class PreferenceService {
       if (decoded === null || typeof decoded !== 'object' || decoded.schemaVersion !== 1 ||
         typeof decoded.themeBundleId !== 'string' || typeof decoded.accentColor !== 'string' ||
         typeof decoded.materialStyle !== 'number') return fallback;
-      return new AppThemeSelection(ThemeBundles.normalizeId(decoded.themeBundleId),
-        AppAppearance.normalizeAccent(decoded.accentColor), AppAppearance.normalizeMaterial(decoded.materialStyle));
+      const bundle = ThemeBundles.resolve(decoded.themeBundleId);
+      const accent = AppAppearance.normalizeAccent(decoded.accentColor);
+      // 墨山旧套装推荐色跟随新版配色迁移，保留其他自定义强调色。
+      const resolvedAccent = bundle.id === 'ink-wash' &&
+        (accent === '#A34335' || accent === '#4F6558' || accent === '#356044' ||
+          accent === '#383838') ? bundle.accent : accent;
+      return new AppThemeSelection(bundle.id, resolvedAccent, AppAppearance.normalizeMaterial(decoded.materialStyle));
     } catch (_error) {
       return fallback;
     }

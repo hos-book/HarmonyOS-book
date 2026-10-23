@@ -1,4 +1,5 @@
 import { SourceTestTaskService } from '../service/rulesource/SourceTestTaskService';
+import { BusinessError } from '@kit.BasicServicesKit';
 import { MembershipState } from '../model/MembershipState';
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { RuleSourceImportQueue } from '../service/rulesource/RuleSourceImportQueue';
@@ -133,6 +134,7 @@ export struct RuleSourcePage {
   @Local bulkTestFailed: number = 0;
   @Local bulkTestRetained: number = 0;
   @Local loadFailed: boolean = false;
+  @Local sourceKeyUnavailable: boolean = false;
   @Local busySourceUrl: string = '';
   @Local managementView: string = '';
   @Local sourceGroups: string[] = [];
@@ -244,6 +246,8 @@ export struct RuleSourcePage {
       this.isLoading = true;
     }
     try {
+      const context = this.getUIContext().getHostContext();
+      if (context) await LocalRuleSourceRepository.init(context);
       const sources = await LocalRuleSourceRepository.list();
       const groups = await LocalRuleSourceRepository.listGroups();
       if (revision !== this.loadRevision) return;
@@ -253,10 +257,14 @@ export struct RuleSourcePage {
       this.applyFilters();
       if (this.managementView === 'order') this.refreshOrderSources();
       this.loadFailed = false;
+      this.sourceKeyUnavailable = false;
       this.lastInvalidationCounter = invalidationCounter;
       this.refreshLoginStatuses().catch((): void => {});
-    } catch (_error) {
+    } catch (error) {
       if (revision !== this.loadRevision) return;
+      const failure: BusinessError = error;
+      this.sourceKeyUnavailable = failure.code === 14800020;
+      console.error(`[RuleSourcePage] load failed: code=${failure.code}; message=${failure.message}`);
       this.sourceCount = 0;
       this.filteredSourceCount = 0;
       this.allSources = [];
@@ -2229,7 +2237,8 @@ export struct RuleSourcePage {
       SymbolGlyph($r('sys.symbol.exclamationmark_circle'))
         .fontSize(32)
         .fontColor([RULE_SOURCE_DANGER])
-      Text($r('app.string.rule_source_load_failed'))
+      Text(this.sourceKeyUnavailable ? $r('app.string.rule_source_key_unavailable') :
+        $r('app.string.rule_source_load_failed'))
         .fontSize(AppFont.Body)
         .fontColor($r('sys.color.font_secondary'))
         .textAlign(TextAlign.Center)

@@ -28,7 +28,8 @@ export class NativeImageScriptRunner {
         decrypt:(algorithm,data,keyHex,ivHex)=>invoke("decrypt",data,algorithm,keyHex,ivHex),
         encrypt:(algorithm,data,keyHex,ivHex)=>invoke("encrypt",data,algorithm,keyHex,ivHex),
         hash:(algorithm,data)=>invoke("hash",data,algorithm),
-        hmac:(algorithm,data,keyHex)=>invoke("hmac",data,algorithm,keyHex)
+        hmac:(algorithm,data,keyHex)=>invoke("hmac",data,algorithm,keyHex),
+        reorderStrips:(data,options)=>new Uint8Array(host("reorderStrips",data,JSON.stringify(options)))
       });
       ${js}
       if(typeof ${fn}!=="function") throw new Error("content.imageDecode.script: function missing");

@@ -243,13 +243,6 @@ export struct CoverImage {
       } else {
         this.placeholderImage()
       }
-      if (this.title && !this.imageReady && !(this.localPlaceholder && !this.url)) {
-        Text(this.title).fontSize(18).fontWeight(FontWeight.Medium)
-          .fontColor(CoverTheme.titleColor(false, this.themeBundleId))
-          .copyOption(CopyOptions.None).draggable(false)
-          .maxLines(5).textOverflow({ overflow: TextOverflow.Ellipsis }).textAlign(TextAlign.Center)
-          .width('86%').padding(8).backgroundColor(CoverTheme.titleBackground(this.themeBundleId)).borderRadius(6)
-      }
       if (this.url.startsWith('http') && this.resolvedUrl && this.showImage && !this.giveUp) {
         this.networkImage(this.url)
       } else if (this.url.startsWith('file://') || this.url.startsWith('/data/')) {

@@ -2525,7 +2525,7 @@ export struct ReaderPage {
     Row({ space: 4 }) {
       Button({ type: ButtonType.Circle }) {
         CoverImage({ url: this.speechState.cover, title: this.book?.title ?? '',
-          author: this.book?.author ?? '', localPlaceholder: true,
+          author: this.book?.author ?? '', localPlaceholder: this.book?.id.startsWith('import_') ?? false,
           imgWidth: 40, imgHeight: 40, useFixedHeight: true, radius: 20,
           decodeW: 120, decodeH: 120 })
       }.width(40).height(40).padding(0).backgroundColor(Color.Transparent)

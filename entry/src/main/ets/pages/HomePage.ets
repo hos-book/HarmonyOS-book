@@ -268,7 +268,7 @@ struct HomeLoadingSkeleton {
       })
     }
     .width('100%')
-    .backgroundColor(HomeTheme.BgNeutral)
+    .backgroundColor(Color.Transparent)
     .clip(true)
   }
 }

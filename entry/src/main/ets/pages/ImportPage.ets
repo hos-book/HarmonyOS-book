@@ -53,6 +53,7 @@ export struct ImportPage {
   @Local coverPath: string = '';
   @Local importing: boolean = false;
   @Local parsing: boolean = false;
+  @Local showImportHelp: boolean = false;
   private disposed: boolean = false;
   private autoTitle: string = '';
   private autoAuthor: string = '';
@@ -543,9 +544,38 @@ export struct ImportPage {
   @Builder
   buildFileSection() {
     Column({ space: AppSpace.Sm }) {
-      Text('选择文件')
-        .fontSize(AppFont.Body)
-        .fontColor($r('sys.color.font_tertiary'))
+      Row({ space: AppSpace.Xs }) {
+        Text('选择文件')
+          .fontSize(AppFont.Body)
+          .fontColor($r('sys.color.font_tertiary'))
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r('sys.symbol.exclamationmark_circle'))
+            .fontSize(20)
+            .fontColor([AppColor.Brand])
+        }
+        .width(40).height(40)
+        .backgroundColor(Color.Transparent)
+        .accessibilityText(this.showImportHelp ? $r('app.string.import_help_collapse') :
+          $r('app.string.import_help_expand'))
+        .onClick((): void => { this.showImportHelp = !this.showImportHelp; })
+      }
+
+      if (this.showImportHelp) {
+        Column({ space: AppSpace.Sm }) {
+          Text($r('app.string.import_supported_formats'))
+            .fontSize(AppFont.Caption)
+            .fontColor($r('sys.color.font_secondary'))
+            .width('100%')
+          Text($r('app.string.import_limits_hint'))
+            .fontSize(AppFont.Caption)
+            .fontColor($r('sys.color.font_secondary'))
+            .width('100%')
+        }
+        .width('100%')
+        .padding(AppSpace.Md)
+        .backgroundColor($r('sys.color.comp_background_primary'))
+        .borderRadius(AppRadius.Lg)
+      }
 
       Column() {
         if (this.pickedFiles.length === 0) {
@@ -556,16 +586,10 @@ export struct ImportPage {
             Text('点击选择文件')
               .fontSize(AppFont.BodyL)
               .fontColor($r('sys.color.font_secondary'))
-            Text($r('app.string.import_supported_formats'))
-              .fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_tertiary'))
-            Text($r('app.string.import_limits_hint'))
-              .fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_tertiary'))
           }
           .justifyContent(FlexAlign.Center)
           .width('100%')
-          .constraintSize({ minHeight: 180 })
+          .constraintSize({ minHeight: 132 })
         } else {
           Column({ space: 0 }) {
             List() {
@@ -630,13 +654,13 @@ export struct ImportPage {
             Image('file://' + this.coverPath)
               .width(80)
               .height(112)
-              .borderRadius(AppRadius.Md)
+              .borderRadius(0)
               .objectFit(ImageFit.Cover)
           } else {
             LocalBookCover({ title: this.bookTitle, author: this.bookAuthor,
-              imgWidth: 80, imgHeight: 112, useFixedHeight: true, themedDecoration: false })
+              imgWidth: 80, imgHeight: 112, useFixedHeight: true, radius: 0, themedDecoration: false })
           }
-          CoverDecoration({ radius: AppRadius.Md })
+          CoverDecoration({ radius: 0 })
         }
         .width(80).height(112)
         .onClick(() => this.pickCover())

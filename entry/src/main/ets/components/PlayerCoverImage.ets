@@ -118,7 +118,7 @@ export struct PlayerCoverImage {
         EnhancedPlayerCover({ url: this.failedKey === this.requestKey() ? (this.resolvedFallback || this.resolvedUrl) : this.resolvedUrl })
       }
       }
-      CoverDecoration({ radius: this.radius })
+      CoverDecoration({ radius: this.radius, compact: true })
     }
     .width('100%').height('100%')
     .onSizeChange((_oldValue, newValue) => {

@@ -293,12 +293,19 @@ export struct SettingsPage {
   }
 
   private submitPreload(): void {
+    if (!this.isLoaded || this.isSavingPreload) return;
     const count = Number(this.preloadDraft);
     if (!/^[0-9]+$/.test(this.preloadDraft) || !Number.isInteger(count) || count < 0 || count > 50) {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_preload_range') });
       return;
     }
-    this.setPreloadCount(count, true);
+    this.setPreloadCount(count, this.preloadCustom);
+  }
+
+  private choosePreload(index: number): void {
+    if (!this.isLoaded || this.isSavingPreload || index < 0 || index >= PRELOAD_OPTIONS.length) return;
+    this.preloadCustom = index === 4;
+    if (!this.preloadCustom) this.preloadDraft = PRELOAD_OPTIONS[index].count.toString();
   }
 
   private async setPreloadCount(count: number, custom: boolean = false): Promise<void> {
@@ -355,22 +362,21 @@ export struct SettingsPage {
   }
 
   private async submitSearchConcurrency(): Promise<void> {
-    if (!await this.requireSearchMembership()) return;
+    if (this.isSavingSearchConcurrency || this.checkingSearchMembership || !this.membership.hasAccess) return;
     const count = Number(this.searchConcurrencyDraft);
     if (!new RegExp('^[0-9]+$').test(this.searchConcurrencyDraft) ||
       !Number.isInteger(count) || count < 1 || count > 12) {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_search_concurrency_range') });
       return;
     }
-    this.setSearchConcurrency(count, true);
+    await this.setSearchConcurrency(count, this.searchConcurrencyCustom);
   }
 
   private async chooseSearchConcurrency(index: number): Promise<void> {
-    if (index === 4) {
-      if (await this.requireSearchMembership()) this.searchConcurrencyCustom = true;
-    } else {
-      await this.setSearchConcurrency(SEARCH_CONCURRENCY_OPTIONS[index], false);
-    }
+    if (this.isSavingSearchConcurrency || !this.membership.hasAccess || index < 0 || index > 4 ||
+      !await this.requireSearchMembership()) return;
+    this.searchConcurrencyCustom = index === 4;
+    if (!this.searchConcurrencyCustom) this.searchConcurrencyDraft = SEARCH_CONCURRENCY_OPTIONS[index].toString();
   }
 
   private async setSearchConcurrency(count: number, custom: boolean): Promise<void> {
@@ -883,19 +889,15 @@ export struct SettingsPage {
           ImmersiveOptionTabs({
             labels: PRELOAD_OPTIONS.map((opt: PreloadOption): ResourceStr => opt.count < 0 ? $r('app.string.settings_preload_custom_tab') : opt.label),
             fillWidth: true,
-            selected: this.preloadCustom ? 4 : PRELOAD_OPTIONS.findIndex((opt: PreloadOption): boolean => opt.count === this.preloadCount),
-            onSelect: (index: number): void => {
-              if (index === 4) this.preloadCustom = true;
-              else this.setPreloadCount(PRELOAD_OPTIONS[index].count);
-            }
+            selected: this.preloadCustom ? 4 : PRELOAD_OPTIONS.findIndex((opt: PreloadOption): boolean => opt.count === Number(this.preloadDraft)),
+            onSelect: (index: number): void => { this.choosePreload(index); }
           }).layoutWeight(1.5)
             TextInput({ text: this.preloadDraft, placeholder: $r('app.string.settings_preload_input_hint') })
               .type(InputType.Number).maxLength(2).layoutWeight(1).height(40)
-              .onChange((value: string): void => { this.preloadDraft = value; })
-              .onSubmit((): void => this.submitPreload())
+              .onChange((value: string): void => { this.preloadDraft = value; this.preloadCustom = true; })
             ImmersiveActionButton({ onPress: (): void => this.submitPreload() }).layoutWeight(0.8)
           }.width('100%').alignItems(VerticalAlign.Center)
-          .enabled(!this.isSavingPreload)
+          .enabled(this.isLoaded && !this.isSavingPreload)
         }.width('100%').padding(ROW_INDENT)
 
         this.buildDivider()
@@ -980,7 +982,7 @@ export struct SettingsPage {
           ImmersiveOptionTabs({
             labels: ['3', '6', '9', '12', $r('app.string.settings_search_custom')],
             fillWidth: true,
-            selected: this.searchConcurrencyCustom ? 4 : SEARCH_CONCURRENCY_OPTIONS.indexOf(this.searchConcurrency),
+            selected: this.searchConcurrencyCustom ? 4 : SEARCH_CONCURRENCY_OPTIONS.indexOf(Number(this.searchConcurrencyDraft)),
             onSelect: (index: number): void => {
               this.chooseSearchConcurrency(index);
             }
@@ -988,13 +990,16 @@ export struct SettingsPage {
           TextInput({ text: this.searchConcurrencyDraft, placeholder: $r('app.string.settings_search_concurrency_hint') })
             .enabled(this.membership.hasAccess)
             .type(InputType.Number).maxLength(2).layoutWeight(1).height(40)
-            .onChange((value: string): void => { this.searchConcurrencyDraft = value; })
-            .onSubmit((): void => { this.submitSearchConcurrency(); })
+            .onChange((value: string): void => {
+              if (!this.membership.hasAccess) return;
+              this.searchConcurrencyDraft = value;
+              this.searchConcurrencyCustom = true;
+            })
           ImmersiveActionButton({ onPress: (): void => { this.submitSearchConcurrency(); } }).layoutWeight(0.8)
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
-        .enabled(!this.isSavingSearchConcurrency && !this.searchConcurrencyLoading && !this.searchConcurrencyLoadFailed &&
+        .enabled(this.membership.hasAccess && !this.isSavingSearchConcurrency && !this.searchConcurrencyLoading && !this.searchConcurrencyLoadFailed &&
           !this.checkingSearchMembership && !this.membershipService.busy)
       }
       .width('100%')

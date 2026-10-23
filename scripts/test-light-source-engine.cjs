@@ -332,11 +332,34 @@ async function run() {
   const comicContent = JSON.parse(await engine.content(JSON.stringify(comic), 'https://engine.test/media', '{}'));
   assert.equal(comicContent.mediaType, 'comic');
   assert.equal(comicContent.imageUrls.length, 2);
+  const protectedDefinition = {sourceFormat:'native',version:1,name:'Streaming comic',url:'https://stream.test',type:'comic',
+    search:{url:'/search',list:'$.books',fields:{name:'$.name',bookUrl:'$.url'}},
+    content:{url:'/manifest',images:'= data.images',imageDecode:{script:'restore',processPlainImages:true,params:{mode:'local'}}},
+    js:'function restore(bytes){return bytes;}'};
+  const protectedLocal = parser.parse(JSON.stringify(protectedDefinition)).sources[0];
+  protectedLocal.definition = codec.stringify(protectedLocal);
+  fixtures.set('https://stream.test/manifest', JSON.stringify({images:['https://stream.test/1.jpg','https://stream.test/2.jpg']}));
+  const {ComicImagePipeline} = load(prefix+'upstream/core/book/ComicImagePipeline');
+  const materialize = ComicImagePipeline.materialize;
+  let imageDownloads = 0;
+  ComicImagePipeline.materialize = async () => '/cache/page-' + (++imageDownloads) + '.png';
+  try {
+    const deferred = JSON.parse(await engine.content(JSON.stringify(protectedLocal), 'https://stream.test/chapter', '{}',
+      0, new LightSourceRequest(2), true));
+    assert.equal(imageDownloads, 0, 'the real native engine returns its manifest without downloading any protected image');
+    assert.equal(deferred.imageUrls.length, 2);
+    assert.match(deferred.imageUrls[0], /restore/);
+    assert.match(deferred.imageUrls[0], /imageIndex/);
+    const complete = JSON.parse(await engine.content(JSON.stringify(protectedLocal), 'https://stream.test/chapter', '{}'));
+    assert.equal(imageDownloads, 2, 'default export/download calls still materialize every protected image');
+    assert.ok(complete.imageUrls.every(url => url.startsWith('/cache/')));
+  } finally { ComicImagePipeline.materialize = materialize; }
   const comicSearch = JSON.parse(await engine.search(JSON.stringify(comic), 'Second', 2));
   assert.equal(comicSearch[0].contentType, 'comic', 'comic source results must not enter the text reader');
   let requestedChapter;
   stubs['service/BookSourceService'] = { BookSourceService: {
-    getSourceChapterContent: async (_book, url, variables) => {
+    getSourceChapterContent: async (_book, url, variables, request, deferReaderImages) => {
+      assert.equal(deferReaderImages, true, 'comic reading explicitly opts into the deferred image boundary');
       requestedChapter = { url, variables };
       return comicContent;
     }
@@ -344,17 +367,20 @@ async function run() {
   const { ComicReaderService } = load('service/ComicReaderService');
   const comicChapter = { id: 'comic-c0', originSourceValue: 'https://engine.test/media',
     source: { value: 'stale-url' }, variables: { chapterName: 'First', chapterIndex: '0' } };
-  let comicPages = await ComicReaderService.load({ contentType: 'comic' }, comicChapter);
+  const comicBook = { contentType: 'comic', id: 'comic-book', bookUrl: 'https://engine.test/book', sourceUrl: 'https://engine.test' };
+  let comicPages = await ComicReaderService.load(comicBook, comicChapter);
   assert.equal(comicPages.length, 2);
   assert.equal(requestedChapter.url, comicChapter.originSourceValue);
   assert.equal(requestedChapter.variables, comicChapter.variables, 'chapter context reaches the shared dispatcher');
   assert.equal(comicPages[0].url, 'https://engine.test/1.jpg');
+  assert.equal(await ComicReaderService.load(comicBook, comicChapter), comicPages,
+    'reopening a partial in-memory list reuses its image work');
   comicContent.imageUrls.push(comicContent.imageUrls[0]);
-  comicPages = await ComicReaderService.load({}, comicChapter);
+  comicPages = await ComicReaderService.load(comicBook, comicChapter, undefined, true);
   assert.equal(new Set(comicPages.map(page => page.key)).size, 3, 'repeated images retain order and unique stable keys');
   comicContent.imageUrls = ['/data/storage/el2/base/haps/entry/cache/comic_images/page.webp',
     'file:///data/storage/el2/base/haps/entry/cache/comic_images/ready.webp'];
-  comicPages = await ComicReaderService.load({}, comicChapter);
+  comicPages = await ComicReaderService.load(comicBook, comicChapter, undefined, true);
   assert.equal(comicPages[0].url, 'file:///data/storage/el2/base/haps/entry/cache/comic_images/page.webp',
     'materialized engine files must be passed to ArkUI as file URIs, not application assets');
   assert.equal(comicPages[1].url, comicContent.imageUrls[1]);
@@ -362,19 +388,19 @@ async function run() {
   const localImage = comicContext.cacheDir + '/comic_images/page.webp';
   comicContent.imageUrls = [localImage];
   comicFiles.add(localImage);
-  await ComicReaderService.load({}, comicChapter, comicContext);
+  await ComicReaderService.load(comicBook, comicChapter, comicContext);
   comicContent.imageUrls = [];
-  assert.equal((await ComicReaderService.load({}, comicChapter, comicContext)).length, 1, 'reopen uses valid disk image cache');
+  assert.equal((await ComicReaderService.load(comicBook, comicChapter, comicContext)).length, 1, 'reopen uses valid disk image cache');
   comicFiles.clear();
-  assert.equal((await ComicReaderService.load({}, comicChapter, comicContext)).length, 0, 'deleted image must refetch, not claim offline availability');
+  assert.equal((await ComicReaderService.load(comicBook, comicChapter, comicContext)).length, 0, 'deleted image must refetch, not claim offline availability');
   comicFiles.add(localImage);
   comicContent.imageUrls = [localImage];
-  await ComicReaderService.load({}, comicChapter, comicContext);
+  await ComicReaderService.load(comicBook, comicChapter, comicContext);
   comicContent.imageUrls = [];
-  assert.equal((await ComicReaderService.load({}, comicChapter, comicContext, true)).length, 0, 'refresh bypasses chapter cache');
+  assert.equal((await ComicReaderService.load(comicBook, comicChapter, comicContext, true)).length, 0, 'refresh bypasses chapter cache');
   assert.equal(comicFiles.has(localImage), false, 'refresh invalidates owned image file');
   comicContent.imageUrls = [];
-  assert.equal((await ComicReaderService.load({}, comicChapter)).length, 0, 'empty image chapters remain empty');
+  assert.equal((await ComicReaderService.load(comicBook, comicChapter)).length, 0, 'empty image chapters remain empty');
   console.log('PASS: comic search typing, real image reader bridge, chapter context, duplicate pages and empty content');
   const audio = {...local,definition:JSON.stringify({...source,bookSourceType:1,ruleContent:{audioUrl:'$.url'}})};
   assert.equal(JSON.parse(await engine.content(JSON.stringify(audio), 'https://engine.test/media', '{}')).audioUrl, 'https://engine.test/audio.mp3');

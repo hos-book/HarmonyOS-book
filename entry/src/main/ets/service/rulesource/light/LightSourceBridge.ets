@@ -115,14 +115,14 @@ export class LightSourceBridge {
     return results;
   }
   static async content(source: LocalRuleSource, url: string, variables: Record<string, string>,
-    request?: LightSourceRequest): Promise<LocalRuleContentResult> {
+    request?: LightSourceRequest, deferReaderImages: boolean = false): Promise<LocalRuleContentResult> {
     const timingId = LightSourceTiming.next();
     const startedAt = Date.now();
     const localJson = LightSourceBridge.prepare(source);
     const context = JSON.stringify(variables);
     LightSourceTiming.end(timingId, 'bridge-serialize', startedAt);
     try {
-    const json = await LightSourceCore.content(localJson, url, context, timingId, request);
+    const json = await LightSourceCore.content(localJson, url, context, timingId, request, deferReaderImages);
     const decodeStartedAt = Date.now();
     const result: LocalRuleContentResult = JSON.parse(json);
     const payload: Record<string, Object> = JSON.parse(json);

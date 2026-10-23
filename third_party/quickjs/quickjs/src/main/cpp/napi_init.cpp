@@ -15,6 +15,7 @@
 
 #include "napi/native_api.h"
 #include "quickjs_headers.h"
+#include "bounded_image_transform.h"
 #include "handle_registry.h"
 #include <string>
 #include <vector>
@@ -1087,7 +1088,7 @@ static JSValue CallBoundedImageHost(JSContext* ctx, JSValueConst, int argc, JSVa
     const std::string options = bounded ? std::string(rawOptions, optionsLength) : "";
     JS_FreeCString(ctx, rawOperation);
     JS_FreeCString(ctx, rawOptions);
-    if (!bounded || (operation != "decrypt" && operation != "encrypt" && operation != "hash" && operation != "hmac")) {
+    if (!bounded || (operation != "decrypt" && operation != "encrypt" && operation != "hash" && operation != "hmac" && operation != "reorderStrips")) {
         return JS_ThrowTypeError(ctx, "Unsupported image operation");
     }
     uint8_t* input = nullptr;
@@ -1097,6 +1098,26 @@ static JSValue CallBoundedImageHost(JSContext* ctx, JSValueConst, int argc, JSVa
     if (host->totalBytes > 128 * 1024 * 1024) {
         host->exhausted = true;
         return JS_ThrowRangeError(ctx, "Image operation byte budget exceeded");
+    }
+    if (operation == "reorderStrips") {
+        const auto started = std::chrono::steady_clock::now();
+        std::vector<uint8_t> output;
+        std::string error;
+        const bool success = ReorderImageStrips(ctx, options, input, inputLength, [&]() {
+            return (host->execution->cancelSignal &&
+                __atomic_load_n(host->execution->cancelSignal, __ATOMIC_RELAXED) != 0) ||
+                std::chrono::steady_clock::now() >= host->execution->overallDeadline ||
+                std::chrono::steady_clock::now() - started >= std::chrono::seconds(10);
+        }, output, error);
+        host->execution->deadline += std::chrono::steady_clock::now() - started;
+        if (!success) return JS_ThrowInternalError(ctx, "%s", error.c_str());
+        if (BoundedInterruptHandler(JS_GetRuntime(ctx), host->execution)) return JS_ThrowInternalError(ctx, "Image execution stopped");
+        host->totalBytes += output.size();
+        if (host->totalBytes > 128 * 1024 * 1024) {
+            host->exhausted = true;
+            return JS_ThrowRangeError(ctx, "Image operation byte budget exceeded");
+        }
+        return JS_NewArrayBufferCopy(ctx, output.data(), output.size());
     }
     napi_handle_scope scope;
     if (napi_open_handle_scope(host->env, &scope) != napi_ok) return JS_ThrowOutOfMemory(ctx);

@@ -1,12 +1,13 @@
 import { RankingCategorySetting, RankingPreferences } from '../service/ranking/RankingPreferences';
 import { RankingPlatform } from '../model/Ranking';
-import { AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
+import { AppColor, AppFont, AppRadius, AppSpace, AppTheme } from '../theme/Theme';
 
 @ComponentV2
 export struct RankingSettingsComponent {
   @Local categories: RankingCategorySetting[] = [];
   @Local saving: boolean = false;
   @Local failed: boolean = false;
+  @Local expanded: boolean = false;
 
   aboutToAppear(): void { this.load(); }
 
@@ -38,17 +39,29 @@ export struct RankingSettingsComponent {
 
   build() {
     Column({ space: AppSpace.Xs }) {
-      Text($r('app.string.ranking_settings_title')).fontSize(AppFont.Body)
-        .fontColor($r('sys.color.font_tertiary')).padding({ left: AppSpace.Sm })
+      Button({ type: ButtonType.Normal }) {
+        Row({ space: AppSpace.Sm }) {
+          Text($r('app.string.ranking_settings_title')).fontSize(AppFont.BodyL)
+            .fontColor(AppTheme.TextPrimary).layoutWeight(1).textAlign(TextAlign.Start)
+          SymbolGlyph(this.expanded ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
+            .fontSize(16).fontColor([AppTheme.TextTertiary])
+        }.width('100%').padding(AppSpace.Md)
+      }.width('100%').constraintSize({ minHeight: 56 })
+      .backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg)
+      .accessibilityText($r('app.string.ranking_settings_title'))
+      .accessibilityDescription(this.expanded ? $r('app.string.ranking_settings_collapse') :
+        $r('app.string.ranking_settings_expand'))
+      .onClick((): void => { this.expanded = !this.expanded; })
+      if (this.expanded) {
       Column() {
         Text($r('app.string.ranking_settings_desc')).fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_secondary')).padding(AppSpace.Md).width('100%')
+          .fontColor(AppTheme.TextSecondary).padding(AppSpace.Md).width('100%')
         if (this.failed) {
           Button($r('app.string.ranking_settings_retry')).onClick((): void => { this.load(); })
         }
         ForEach(this.categories, (item: RankingCategorySetting, index: number) => {
           Row({ space: AppSpace.Xs }) {
-            Text(item.name).fontSize(AppFont.BodyL).fontColor($r('sys.color.font_primary')).layoutWeight(1)
+            Text(item.name).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).layoutWeight(1)
             Button($r('app.string.ranking_move_up'), { buttonStyle: ButtonStyleMode.TEXTUAL })
               .fontSize(AppFont.Caption).fontColor(AppColor.Brand).enabled(index > 0 && !this.saving)
               .onClick((): void => { this.change(item.id, -1); })
@@ -60,7 +73,8 @@ export struct RankingSettingsComponent {
               .onChange((value: boolean): void => { if (value !== item.enabled) this.change(item.id, 0, value); })
           }.width('100%').padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Xs, bottom: AppSpace.Xs })
         }, (item: RankingCategorySetting): string => `${item.id}:${item.enabled}`)
-      }.width('100%').backgroundColor($r('sys.color.comp_background_primary')).borderRadius(AppRadius.Lg)
+      }.width('100%').backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg)
+      }
     }.width('100%').alignItems(HorizontalAlign.Start).margin({ bottom: AppSpace.Lg })
   }
 }

@@ -9,6 +9,8 @@ import { AccountAvatar } from '../components/AccountAvatar';
 import { MembershipBadge } from '../components/MembershipBadge';
 import { iap } from '@kit.IAPKit';
 
+export const MEMBERSHIP_BACKGROUND_TOP: string = '#E3D1A9';
+
 @ComponentV2
 export struct MembershipSubscriptionPage {
   @Param navStack: NavPathStack = new NavPathStack();
@@ -290,6 +292,6 @@ export struct MembershipSubscriptionPage {
         }
       })
     }.width('100%').height('100%')
-    .linearGradient({ angle: 180, colors: [['#E3D1A9', 0], ['#EEE7D8', 0.55], ['#F3F4F5', 1]] })
+    .linearGradient({ angle: 180, colors: [[MEMBERSHIP_BACKGROUND_TOP, 0], ['#EEE7D8', 0.55], ['#F3F4F5', 1]] })
   }
 }

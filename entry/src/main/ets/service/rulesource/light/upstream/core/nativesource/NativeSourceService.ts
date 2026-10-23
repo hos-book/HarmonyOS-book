@@ -133,7 +133,8 @@ class NativeHost implements NativeRunnerHost {
     if (request.charset) options['charset'] = request.charset;
     if (request.retry > 0) options['retry'] = request.retry;
     const url = Object.keys(options).length > 0 ? `${request.url},${JSON.stringify(options)}` : request.url;
-    const analyzeUrl = new AnalyzeUrl(this.source, this.http).setCancelCheck(this.cancelled);
+    // 顶层 headers 已由运行器按作用域求值并放进 request.headers，书源记录里的字面值副本不再重复合并。
+    const analyzeUrl = new AnalyzeUrl(this.source, this.http).setCancelCheck(this.cancelled).setStaticSourceHeader(false);
     const response = request.webView && (request.webWaitFor || request.webJs) ?
       await this.fetchWaitingFor(analyzeUrl, url, request) :
       await analyzeUrl.fetch(url, this.maxResponseBytes > 0 ? this.maxResponseBytes : undefined, this.debugContext);
@@ -499,7 +500,10 @@ export class NativeSourceService {
     return await NativeSourceService.runner(source, http, (): boolean => false).checkLogin();
   }
 
-  /** 发现页的筛选项：定义里标了 filter 且带选项的变量。 */
+  /**
+   * 发现页的筛选项：定义里标了 filter 且带选项的变量。筛选栏不运行 optionsScript，只列静态 options；
+   * 设置页选了脚本给出的值时把它补在末尾，让筛选栏仍能高亮当前值。
+   */
   static filters(source: BookSource): NativeFilterGroup[] {
     const definition = NativeSourceSpec.unpack(source.jsLib || '');
     if (!definition) return [];
@@ -507,11 +511,12 @@ export class NativeSourceService {
     return (definition.vars || [])
       .filter((item: NativeVarSpec): boolean => item.filter === true && Array.isArray(item.options) &&
         item.options.length > 0)
-      .map((item: NativeVarSpec): NativeFilterGroup => ({
-        title: item.label || item.key,
-        options: (item.options as string[]).map((option: string): string => String(option)),
-        selected: current[item.key] || ''
-      }));
+      .map((item: NativeVarSpec): NativeFilterGroup => {
+        const options = (item.options as string[]).map((option: string): string => String(option));
+        const selected = current[item.key] || '';
+        if (item.optionsScript && selected && options.indexOf(selected) < 0) options.push(selected);
+        return { title: item.label || item.key, options: options, selected: selected };
+      });
   }
 
   /** 修改一个变量，返回新的书源变量 JSON；没有变化或选项不合法时返回空串。 */

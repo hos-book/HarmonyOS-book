@@ -18,7 +18,9 @@ set(SELF_LIB_NAME quickjs)
 set(SELF_SRC_FILES
     napi_init.cpp
     quickjs_ext.cpp
+    bounded_image_transform.cpp
 )
 add_library(${SELF_LIB_NAME} SHARED ${SELF_SRC_FILES})
 target_link_libraries(${SELF_LIB_NAME} PUBLIC libace_napi.z.so libhilog_ndk.z.so)
+target_link_libraries(${SELF_LIB_NAME} PUBLIC libimage_source.so libimage_packer.so libpixelmap.so)
 target_link_libraries(${SELF_LIB_NAME} PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../../../libs/${OHOS_ARCH}/libquickjs.a)

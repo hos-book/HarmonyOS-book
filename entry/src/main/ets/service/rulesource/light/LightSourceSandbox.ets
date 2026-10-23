@@ -25,6 +25,7 @@ class LightDecodeEnvelope {
 
 /** No platform objects cross into the imported source engine. */
 export class LightSourceSandbox {
+  private static readonly MAX_IMAGE_TASKS: number = 6;
   private static imageQueue: number[] = [];
   private static imageSequence: number = 0;
   private static imageActive: boolean = false;
@@ -33,7 +34,8 @@ export class LightSourceSandbox {
     if (!input.length || input.length > 20 * 1024 * 1024 || script.length > 384 * 1024) {
       throw new Error('图片脚本输入超过限制');
     }
-    if (LightSourceSandbox.imageQueue.length + (LightSourceSandbox.imageActive ? 1 : 0) >= 4) {
+    if (LightSourceSandbox.imageQueue.length + (LightSourceSandbox.imageActive ? 1 : 0) >=
+      LightSourceSandbox.MAX_IMAGE_TASKS) {
       throw new Error('图片脚本队列已满，请稍后重试');
     }
     const ticket = ++LightSourceSandbox.imageSequence;

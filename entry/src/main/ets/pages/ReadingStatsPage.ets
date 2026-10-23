@@ -1,5 +1,7 @@
 import { LocalBookCover } from '../components/LocalBookCover';
+import { CoverImage } from '../components/CoverImage';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
+import { ImmersiveSummaryTag } from '../components/ImmersiveSummaryTag';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { HdsCompat } from '../utils/HdsCompat';
 import { common } from '@kit.AbilityKit';
@@ -7,6 +9,7 @@ import { emitter } from '@kit.BasicServicesKit';
 import { HdsNavigation, HdsNavigationTitleMode } from '@kit.UIDesignKit';
 import { AppColor, AppMaterial, AppCurve, AppFont, AppRadius, AppSpace, HomeTheme, AppTheme } from '../theme/Theme';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
+import { ThemeBackgroundScene } from '../model/AppThemeVisual';
 import { ThemeIconRole } from '../theme/ThemeIcons';
 import { WindowUtils } from '../utils/WindowUtils';
 import {
@@ -43,6 +46,7 @@ class ListenRecordView {
   @Trace cover: string = '';
   chapterId: string = '';
   @Trace chapterTitle: string = '';
+  @Trace chapterIndex: number = -1;
   progressMs: number = 0;
   durationMs: number = 0;
   @Trace progressPercent: number = 0;
@@ -76,6 +80,7 @@ class ListeningRecordDataSource implements IDataSource {
       item.cover = record.cover;
       item.chapterId = record.chapterId;
       item.chapterTitle = record.chapterTitle;
+      item.chapterIndex = record.chapterIndex;
       item.progressMs = record.progressMs;
       item.durationMs = record.durationMs;
       item.progressPercent = record.progressPercent;
@@ -402,7 +407,8 @@ export struct ReadingStatsPage {
     view.author = book?.author || book?.narrator || item.author || '未知作者';
     view.cover = book?.cover || item.cover || '';
     view.chapterId = chapterId;
-    view.chapterTitle = item.chapterTitle;
+    view.chapterTitle = item.chapterTitle || (chapterIndex >= 0 ? book?.chapters[chapterIndex]?.title : '') || '';
+    view.chapterIndex = chapterIndex;
     view.progressMs = item.progressMs;
     view.durationMs = item.durationMs;
     view.progressPercent = Math.round(ratio * 100);
@@ -443,23 +449,6 @@ export struct ReadingStatsPage {
 
   private monthListenSeconds(): number {
     return this.monthSeconds;
-  }
-
-  private formatDuration(seconds: number): string {
-    const total = Math.max(0, Math.floor(seconds));
-    if (total < 60) return total > 0 ? '不足1分钟' : '0分钟';
-    const minutes = Math.floor(total / 60);
-    if (minutes < 60) return `${minutes}分钟`;
-    const hours = Math.floor(minutes / 60);
-    const rest = minutes % 60;
-    return rest > 0 ? `${hours}小时${rest}分钟` : `${hours}小时`;
-  }
-
-  private formatDurationText(item: ListenRecordView): string {
-    const total = item.listenSeconds;
-    if (total > 0) return this.formatDuration(total);
-    if (item.progressMs > 0) return this.formatDuration(Math.floor(item.progressMs / 1000));
-    return '刚刚开始';
   }
 
   private toggleSelect(bookId: string): void {
@@ -649,11 +638,11 @@ export struct ReadingStatsPage {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      ThemeBackgroundComponent({ warmMid: 0.42 })
+      ThemeBackgroundComponent({ warmMid: 0.42, scene: ThemeBackgroundScene.Record })
 
       HdsNavigation() {
         Refresh({ refreshing: $$this.refreshing, builder: this.refreshIndicator() }) {
-          List({ scroller: this.scroller, space: AppSpace.Md }) {
+          List({ scroller: this.scroller }) {
             if (!this.onlyUnfavorited) {
               ListItem() { this.buildSummaryCard() }
             }
@@ -662,9 +651,16 @@ export struct ReadingStatsPage {
             } else if (this.records.length === 0) {
               ListItem() { this.buildEmptyState() }
             } else {
-              ListItem() { this.buildHistoryHeader() }
+              if (this.selectMode) {
+                ListItem() {
+                  Row() {
+                    Blank()
+                    this.buildEditActions()
+                  }.width('100%')
+                }
+              }
               LazyForEach(this.recordDataSource, (item: ListenRecordView) => {
-                ListItem() { this.buildRecordItem(item) }
+                ListItem() { this.buildRecordItem(item) }.margin({ bottom: AppSpace.Md })
               }, (item: ListenRecordView): string => item.bookId)
             }
           }
@@ -761,47 +757,18 @@ export struct ReadingStatsPage {
   }
 
   @Builder
-  buildSummaryTag(icon: Resource, label: Resource, value: ResourceStr) {
-    Row({ space: 5 }) {
-      SymbolGlyph(icon).fontSize(13).fontColor([AppColor.Brand])
-      Text() {
-        Span(label).fontColor(AppTheme.TextSecondary)
-        Span(' ')
-        Span(value).fontColor(AppTheme.TextPrimary).fontWeight(FontWeight.Medium)
-      }.fontSize(12).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-    }
-    .padding({ left: 9, right: 9, top: 6, bottom: 6 })
-    .border({ width: 0.5, color: AppTheme.Divider })
-    .borderRadius(8)
-    .margin({ right: 8, bottom: 8 })
-    .constraintSize({ maxWidth: '100%' })
-  }
-
-  @Builder
   buildSummaryCard() {
     Column({ space: 12 }) {
-      Text() {
-        Span($r('app.string.record_total_inline')).fontColor(AppTheme.TextSecondary)
-        Span(' ')
-        Span(this.statsReady ? `${Math.floor(this.totalListenSeconds() / 3600)}` :
-          $r('app.string.record_stats_pending'))
-          .fontSize(18).fontWeight(FontWeight.Medium).fontColor(AppTheme.TextPrimary)
-        Span(' ')
-        Span($r('app.string.record_unit_hours')).fontColor(AppTheme.TextSecondary)
-        Span(' ')
-        Span(this.statsReady ? `${Math.floor((this.totalListenSeconds() % 3600) / 60)}` :
-          $r('app.string.record_stats_pending'))
-          .fontSize(18).fontWeight(FontWeight.Medium).fontColor(AppTheme.TextPrimary)
-        Span(' ')
-        Span($r('app.string.record_unit_minutes')).fontColor(AppTheme.TextSecondary)
-      }.fontSize(14).width('100%')
-      Flex({ wrap: FlexWrap.Wrap }) {
-        this.buildSummaryTag($r('sys.symbol.calendar'), $r('app.string.record_streak'),
-          this.statsReady ? $r('app.string.record_streak_days', this.streak) : $r('app.string.record_stats_pending'))
-        this.buildSummaryTag($r('sys.symbol.clock'), $r('app.string.record_month_inline'),
-          this.statsReady ? $r('app.string.record_duration_short', Math.floor(this.monthListenSeconds() / 3600),
-            Math.floor((this.monthListenSeconds() % 3600) / 60)) : $r('app.string.record_stats_pending'))
-      }.width('100%')
+      Scroll() {
+        Row({ space: 8 }) {
+          ImmersiveSummaryTag({ icon: $r('sys.symbol.clock'), label: $r('app.string.record_total_inline'),
+            value: this.statsReady ? $r('app.string.record_summary_duration', Math.floor(this.totalListenSeconds() / 3600),
+              Math.floor((this.totalListenSeconds() % 3600) / 60)) : $r('app.string.record_stats_pending') })
+          ImmersiveSummaryTag({ icon: $r('sys.symbol.calendar'), label: $r('app.string.record_streak'),
+            value: this.statsReady ? $r('app.string.record_streak_days_compact', this.streak) :
+              $r('app.string.record_stats_pending') })
+        }
+      }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).align(Alignment.Start)
       if (!this.statsReady || this.statsError) {
         Text(this.statsError ? $r('app.string.record_stats_read_failed') : $r('app.string.record_stats_loading'))
           .fontSize(AppFont.Caption).fontColor(AppTheme.TextTertiary).width('100%')
@@ -809,35 +776,11 @@ export struct ReadingStatsPage {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-    .padding({ top: 2, bottom: 8 })
-    .border({ width: { bottom: 0.5 }, color: AppTheme.Divider })
+    .padding({ top: 2, bottom: 16 })
     .opacity(this.appeared ? 1 : 0)
     .translate({ y: this.appeared ? 0 : 18 })
     .animation({ duration: 460, curve: AppCurve.Decelerate })
     .onClick(() => { if (this.statsError) this.loadStats(); })
-  }
-
-  @Builder
-  buildHistoryHeader() {
-    Row() {
-      Column({ space: 5 }) {
-        Text(this.pageTitle())
-          .fontSize(AppFont.Title)
-          .fontColor(AppTheme.TextPrimary)
-          .fontWeight(FontWeight.Bold)
-        Column()
-          .width(20)
-          .height(2)
-          .borderRadius(1)
-          .backgroundColor(HomeTheme.Accent)
-      }
-      .alignItems(HorizontalAlign.Start)
-
-      Blank()
-      this.buildEditActions()
-    }
-    .width('100%')
-    .alignItems(VerticalAlign.Top)
   }
 
   @Builder
@@ -914,7 +857,8 @@ export struct ReadingStatsPage {
           }
           .alignItems(VerticalAlign.Center)
 
-          Text(item.isText ? (item.chapterTitle || $r('app.string.record_read_started')) : this.formatDurationText(item))
+          Text(item.chapterTitle || (item.chapterIndex >= 0 ?
+            $r('app.string.reader_bookmark_position', item.chapterIndex + 1) : $r('app.string.record_read_started')))
             .layoutWeight(1)
             .fontSize(AppFont.Caption)
             .fontColor(AppTheme.TextTertiary)
@@ -969,33 +913,16 @@ export struct ReadingStatsPage {
   @Builder
   buildRecordActions(item: ListenRecordView) {
     Row({ space: 6 }) {
-        Button({ type: ButtonType.Circle }) {
-          SymbolGlyph($r('sys.symbol.clock'))
-            .fontSize(18)
-            .fontColor([AppTheme.TextPrimary])
-        }
-          .width(36)
-          .height(36)
-          .accessibilityText($r('app.string.session_history'))
-          .backgroundColor(HomeTheme.CardSurface)
-          .border({ width: 1, color: AppColor.Divider })
-          .onClick((): void => {
-            const params: Record<string, Object> = { 'bookIds': JSON.stringify([item.bookId, ...item.aliasBookIds]) };
-            this.navStack.pushPathByName('sessionHistory', params);
-          })
-        Stack() {
-          SymbolGlyph(item.isText ? $r('sys.symbol.book') : $r('sys.symbol.play_fill'))
-            .fontSize(16)
-            .fontColor([AppTheme.TextPrimary])
-        }
-        .width(36)
-        .height(36)
-        .borderRadius(18)
-        .backgroundColor(HomeTheme.CardSurface)
-        .border({ width: 1, color: AppColor.Divider })
-        .shadow({ radius: 8, color: HomeTheme.CardShadow, offsetY: 2 })
-        .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.95 })
-        .onClick(() => this.resumeRecord(item))
+      ImmersiveCircleButton({ icon: $r('sys.symbol.clock'), diameter: 36, iconSize: 18,
+        iconColor: AppTheme.TextPrimary, label: $r('app.string.session_history'),
+        onPress: (): void => {
+          const params: Record<string, Object> = { 'bookIds': JSON.stringify([item.bookId, ...item.aliasBookIds]) };
+          this.navStack.pushPathByName('sessionHistory', params);
+        } })
+      ImmersiveCircleButton({ icon: item.isText ? $r('sys.symbol.book') : $r('sys.symbol.play_fill'),
+        diameter: 36, iconSize: 16, iconColor: AppTheme.TextPrimary,
+        label: item.isText ? $r('app.string.book_detail_continue_read') : $r('app.string.book_detail_continue_listen'),
+        onPress: (): void => { this.resumeRecord(item); } })
     }.margin({ left: 8 })
   }
 
@@ -1028,16 +955,7 @@ export struct ReadingStatsPage {
       LocalBookCover({ title: item.title, author: item.author, imgWidth: 72,
         imgHeight: 72, useFixedHeight: true, radius: AppRadius.Sm })
     } else {
-      Stack() {
-        Text(item.title ? item.title.substring(0, 1) : '?')
-          .fontSize(24)
-          .fontColor(AppColor.OnBrand)
-          .fontWeight(FontWeight.Bold)
-      }
-      .width(72)
-      .height(72)
-      .borderRadius(AppRadius.Sm)
-      .backgroundColor(HomeTheme.Accent)
+      CoverImage({ imgWidth: 72, imgHeight: 72, useFixedHeight: true, radius: AppRadius.Sm })
     }
   }
 

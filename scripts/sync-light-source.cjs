@@ -77,7 +77,8 @@ const visit = name => {
   const text = readText(filename);
   files.set(name, text);
   const dependencies = name === 'core/nativesource/NativeImageScriptRunner.ts' ?
-    text.replace(/^import .* from '@devzeng\/quickjs';\n/m, '') : text;
+    text.replace(/^import .* from '@devzeng\/quickjs';\n/m, '')
+      .replace(/^import .* from '\.\/NativeImageTransform';\n/m, '') : text;
   for (const match of rewritePackageImports(name, dependencies).matchAll(/(?:from\s*|import\s*)['"]([^'"]+)['"]/g)) {
     if (match[1].startsWith('@legado/sourceengine')) throw new Error(`Unsupported package import: ${match[1]}`);
     if (!match[1].startsWith('.')) continue;
@@ -105,7 +106,8 @@ const replaceMethod = (text, signature, body) => {
 function adapt(name, text) {
   if (name === 'core/nativesource/NativeImageScriptRunner.ts') {
     text = text.replace(/^import .* from '@devzeng\/quickjs';\n/m, '')
-      .replace(/^import .* from '\.\/NativeSourceCrypto';\n/m, '');
+      .replace(/^import .* from '\.\/NativeSourceCrypto';\n/m, '')
+      .replace(/^import .* from '\.\/NativeImageTransform';\n/m, '');
     return replaceMethod(text, 'static async run\\(', `  static async run(js: string, fn: string, input: Uint8Array, context: NativeImageScriptContext,
     cancelled: () => boolean = (): boolean => false): Promise<Uint8Array> {
     const code = this.program(js, fn, context);

@@ -1,4 +1,7 @@
-import { ComicPage } from '../service/ComicReaderService';
+import { ComicPage, ComicReaderService } from '../service/ComicReaderService';
+import { ComicImageLoader } from '../service/ComicImageLoader';
+import { fileUri } from '@kit.CoreFileKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AppColor } from '../theme/Theme';
 import { ComicSuperResolutionService } from '../service/ComicSuperResolutionService';
 import { ReaderCacheService } from '../service/ReaderCacheService';
@@ -20,18 +23,67 @@ export struct ComicPageImage {
   @Local zoom: number = 1;
   @Local enhancedUrl: string = '';
   @Local enhancementFailed: boolean = false;
+  @Local resolvedUrl: string = '';
   private visible: boolean = false;
+  private alive: boolean = false;
+  private imageSerial: number = 0;
+  private pendingUrl: string = '';
+  private imageRequested: boolean = false;
+  private startedAt: number = 0;
+  private displayLogged: boolean = false;
   private enhancementSerial: number = 0;
   private cacheOwner: string = ReaderCacheService.owner();
 
-  aboutToDisappear(): void { this.visible = false; this.enhancementSerial++; ReaderCacheService.release(this.cacheOwner); }
+  aboutToAppear(): void { this.alive = true; this.loadImage(); }
+
+  aboutToDisappear(): void {
+    this.alive = false;
+    this.visible = false;
+    this.imageSerial++;
+    this.enhancementSerial++;
+    ReaderCacheService.release(this.cacheOwner);
+  }
+
+  @Monitor('page')
+  onPageChanged(): void {
+    this.ratio = 0;
+    this.zoom = 1;
+    if (this.alive) this.loadImage();
+  }
+
+  private loadImage(): void {
+    const page = this.page;
+    const ticket = ++this.imageSerial;
+    this.startedAt = Date.now();
+    this.displayLogged = false;
+    this.failed = false;
+    this.loaded = false;
+    this.resolvedUrl = '';
+    this.enhancedUrl = '';
+    this.enhancementFailed = false;
+    this.enhancementSerial++;
+    this.pendingUrl = page.url;
+    this.imageRequested = false;
+    // LazyForEach also creates offscreen cache nodes. They must not download ahead of the visible page.
+    if (!this.visible && !page.url.startsWith('file://') && !page.url.startsWith('/')) return;
+    this.imageRequested = true;
+    const cancelled = (): boolean => !this.alive || ticket !== this.imageSerial;
+    ComicImageLoader.load(page.sourceUrl, this.pendingUrl, cancelled, this.visible).then((path: string): void => {
+      if (cancelled()) return;
+      this.resolvedUrl = path.startsWith('/') ? fileUri.getUriFromPath(path) : path;
+      this.protectImage();
+      this.enhance();
+      const context = this.getUIContext().getHostContext();
+      if (context) ComicReaderService.imageReady(page, path, context).catch((): void => {});
+    }).catch((): void => { if (!cancelled()) this.failed = true; });
+  }
 
   private protectImage(): void {
-    if (this.visible) ReaderCacheService.protect(this.cacheOwner, [this.page.url, this.enhancedUrl]);
+    if (this.visible) ReaderCacheService.protect(this.cacheOwner, [this.resolvedUrl, this.enhancedUrl]);
     else ReaderCacheService.release(this.cacheOwner);
   }
 
-  @Monitor('superResolution', 'page')
+  @Monitor('superResolution')
   onEnhancementChanged(): void {
     this.enhancedUrl = '';
     this.enhancementFailed = false;
@@ -41,12 +93,12 @@ export struct ComicPageImage {
   }
 
   private enhance(): void {
-    if (!this.visible || !this.superResolution || this.enhancedUrl || this.enhancementFailed) return;
+    if (!this.visible || !this.resolvedUrl || !this.superResolution || this.enhancedUrl || this.enhancementFailed) return;
     const context = this.getUIContext().getHostContext();
     if (!context) return;
     const ticket = ++this.enhancementSerial;
     const active = (): boolean => this.visible && this.superResolution && ticket === this.enhancementSerial;
-    ComicSuperResolutionService.enhance(context, this.page.url, active).then((uri: string): void => {
+    ComicSuperResolutionService.enhance(context, this.resolvedUrl, active).then((uri: string): void => {
       if (!active()) return;
       this.enhancedUrl = uri;
       this.protectImage();
@@ -70,7 +122,7 @@ export struct ComicPageImage {
 
   @Builder
   imageContent(): void {
-        Image(this.enhancedUrl || this.page.url)
+        Image(this.enhancedUrl || this.resolvedUrl)
           .id(`${this.page.key}:${this.retry}`)
           .width(this.pageWidth).height(this.imageHeight())
           // 容器已按原图比例计算；Fill 消除解码宽高取整造成的亚像素留边。
@@ -86,6 +138,11 @@ export struct ComicPageImage {
               this.page.width = event.width;
               this.page.height = event.height;
               this.loaded = true;
+              if (!this.displayLogged) {
+                this.displayLogged = true;
+                hilog.info(0x0001, 'ComicReader', 'image displayed page=%{public}d ms=%{public}d',
+                  this.page.index + 1, Date.now() - this.startedAt);
+              }
             }
           })
           .onError(() => {
@@ -112,14 +169,14 @@ export struct ComicPageImage {
         Column({ space: 12 }) {
           Text($r('app.string.comic_image_failed', this.page.index + 1)).fontColor('#CCCCCC').fontSize(14)
           Button($r('app.string.comic_retry')).backgroundColor(AppColor.Brand).fontColor(Color.White)
-            .onClick(() => { this.failed = false; this.loaded = false; this.retry++; })
+            .onClick(() => { this.retry++; this.loadImage(); })
         }
-      } else if (this.paged) {
+      } else if (this.resolvedUrl && this.paged) {
         Scroll() {
           this.imageContent()
         }.width(this.pageWidth).height(this.pageHeight)
           .scrollable(ScrollDirection.Vertical).scrollBar(BarState.Off)
-      } else {
+      } else if (this.resolvedUrl) {
         // 连续模式由外层 List 统一滚动，不为每张长图创建一个禁用滚动的 Scroll。
         this.imageContent()
       }
@@ -132,7 +189,11 @@ export struct ComicPageImage {
       if (this.visible === visible) return;
       this.visible = visible;
       this.protectImage();
-      if (visible) this.enhance();
+      if (visible) {
+        if (!this.imageRequested) this.loadImage();
+        else ComicImageLoader.promote(this.page.sourceUrl, this.pendingUrl);
+        this.enhance();
+      }
       else this.enhancementSerial++;
     })
   }

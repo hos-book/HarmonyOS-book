@@ -115,6 +115,7 @@ export class SourceEngineHost {
   static readonly LAST_ERROR_KEY: string = 'bookSourceStageLastError';
 
   private static adapter: SourceEngineHostAdapter = {};
+  private static deferredReaderImages: WeakSet<BookSource> = new WeakSet<BookSource>();
   private static waiterOwners: WeakMap<SourceRateWaiter, SourceRequestScheduler> =
     new WeakMap<SourceRateWaiter, SourceRequestScheduler>();
 
@@ -156,8 +157,19 @@ export class SourceEngineHost {
   }
 
   static bindSource(source: BookSource, target: BookSource): void {
+    SourceEngineHost.setReaderImagesDeferred(target, SourceEngineHost.readerImagesDeferred(source));
     const state = SourceEngineHost.adapter.state;
     if (state) state.bindSource(source, target);
+  }
+
+  /** Trusted host opt-in for readers that materialize protected images on demand. Never exposed to rules. */
+  static setReaderImagesDeferred(source: BookSource, deferred: boolean): void {
+    if (deferred) SourceEngineHost.deferredReaderImages.add(source);
+    else SourceEngineHost.deferredReaderImages.delete(source);
+  }
+
+  static readerImagesDeferred(source: BookSource): boolean {
+    return SourceEngineHost.deferredReaderImages.has(source);
   }
 
   static setError(source: BookSource, message: string): void {

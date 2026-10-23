@@ -1,11 +1,13 @@
 /** 主题定义是随包发布的只读配置；运行时选择仍由 AppAppearance 持有。 */
 export enum ThemeBackgroundKind { Gradient, Solid, Image }
+export enum ThemeBackgroundScene { Home, Shelf, Record }
 export enum ThemeCoverDecoration { None, Border, Spine }
 export enum ThemeIconRole { None, Search, Filter, Grid, List, ChevronRight, Home, Shelf, Record, Profile, Category }
 
 export class AppThemeColors {
   background: Resource = $r('sys.color.background_primary');
   surface: Resource = $r('sys.color.comp_background_primary');
+  profileMenuSurface: Resource | undefined = undefined;
   textPrimary: Resource = $r('sys.color.font_primary');
   textSecondary: Resource = $r('sys.color.font_secondary');
   textTertiary: Resource = $r('sys.color.font_tertiary');
@@ -44,6 +46,15 @@ export class AppThemeColors {
 export class AppThemeBackground {
   kind: ThemeBackgroundKind = ThemeBackgroundKind.Gradient;
   image: Resource | undefined = undefined;
+  shelfImage: Resource | undefined = undefined;
+  recordImage: Resource | undefined = undefined;
+  profileCardImage: Resource | undefined = undefined;
+
+  resolveImage(scene: ThemeBackgroundScene): Resource | undefined {
+    if (scene === ThemeBackgroundScene.Shelf) return this.shelfImage ?? this.image;
+    if (scene === ThemeBackgroundScene.Record) return this.recordImage ?? this.image;
+    return this.image;
+  }
   /** 图片叠加在语义背景上；降低笔触对正文的干扰，默认保持原图。 */
   imageOpacity: number = 1;
   /** 首页/榜单/详情可否继续使用书封氛围背景。 */

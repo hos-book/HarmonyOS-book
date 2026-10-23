@@ -6,6 +6,8 @@ import { emitter } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AppColor, AppRadius, AppSpace, AppFont, AppMaterial, AppTheme } from '../theme/Theme';
 import { CoverDecoration } from '../components/CoverDecoration';
+import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
+import { ThemeBackgroundScene } from '../model/AppThemeVisual';
 import { Book, Chapter } from '../model/Book';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { PlayerState, PLAYER_STATE_KEY } from '../model/PlayerState';
@@ -1265,15 +1267,10 @@ export struct BookDetailPage {
       }
 
       Column() {
-        Divider()
-          .strokeWidth(0.5)
-          .color(AppColor.Divider)
-          .margin({ left: this.horizontalPadding(), right: this.horizontalPadding() })
         this.buildActionRow()
       }
       .width('100%')
-      // 这里原先挂 AppMaterial.SurfaceClean，但 NavDestination 页面里 systemMaterial 不绘制，
-      // 面板实际是透明的；直接落在氛围背景上，与参考稿的「分割线 + 图标行」一致。
+      // 快捷操作直接展示在页面背景上，不绘制分割线。
     }
     .width('100%')
   }
@@ -1593,106 +1590,113 @@ export struct BookDetailPage {
   // ==================== 页面骨架 ====================
 
   build() {
-    Column() {
-      if (this.loadingDetail) {
-        Column({ space: AppSpace.Sm }) {
-          LoadingProgress()
-            .width(40)
-            .height(40)
-            .color(AppColor.Brand)
-          Text($r('app.string.book_detail_loading'))
-            .fontSize(AppFont.Body)
-            .fontColor($r('sys.color.font_secondary'))
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
-      } else if (this.loadFailed) {
-        Column({ space: AppSpace.Md }) {
-          SymbolGlyph($r('sys.symbol.exclamationmark_circle'))
-            .fontSize(42)
-            .fontColor([AppColor.Brand])
-          Text($r('app.string.book_detail_load_failed'))
-            .fontSize(AppFont.Body)
-            .fontColor($r('sys.color.font_secondary'))
-          Text($r('app.string.common_retry'))
-            .fontSize(AppFont.Body)
-            .fontColor(AppColor.Brand)
-            .height(44)
-            .padding({ left: AppSpace.Lg, right: AppSpace.Lg })
-            .onClick(() => this.retryLoadBook())
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .justifyContent(FlexAlign.Center)
-      } else if (this.book) {
-        Stack({ alignContent: Alignment.BottomEnd }) {
-          // 内容层：氛围背景 + 固定顶栏 + 可滚动正文
-          Stack({ alignContent: Alignment.TopStart }) {
-            // 转场期间保留最终正文布局，封面模糊氛围层在交接后再绘制。
-            if (this.entryMaterialStage >= 1) {
-              this.buildAmbientBackdrop()
-            }
+    Stack() {
+      if (!AppTheme.ShowCoverBackdrop) {
+        ThemeBackgroundComponent({ scene: ThemeBackgroundScene.Shelf })
+      }
+      Column() {
+        if (this.loadingDetail) {
+          Column({ space: AppSpace.Sm }) {
+            LoadingProgress()
+              .width(40)
+              .height(40)
+              .color(AppColor.Brand)
+            Text($r('app.string.book_detail_loading'))
+              .fontSize(AppFont.Body)
+              .fontColor($r('sys.color.font_secondary'))
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+        } else if (this.loadFailed) {
+          Column({ space: AppSpace.Md }) {
+            SymbolGlyph($r('sys.symbol.exclamationmark_circle'))
+              .fontSize(42)
+              .fontColor([AppColor.Brand])
+            Text($r('app.string.book_detail_load_failed'))
+              .fontSize(AppFont.Body)
+              .fontColor($r('sys.color.font_secondary'))
+            Text($r('app.string.common_retry'))
+              .fontSize(AppFont.Body)
+              .fontColor(AppColor.Brand)
+              .height(44)
+              .padding({ left: AppSpace.Lg, right: AppSpace.Lg })
+              .onClick(() => this.retryLoadBook())
+          }
+          .width('100%')
+          .layoutWeight(1)
+          .justifyContent(FlexAlign.Center)
+        } else if (this.book) {
+          Stack({ alignContent: Alignment.BottomEnd }) {
+            // 内容层：氛围背景 + 固定顶栏 + 可滚动正文
+            Stack({ alignContent: Alignment.TopStart }) {
+              // 转场期间保留最终正文布局，封面模糊氛围层在交接后再绘制。
+              if (AppTheme.ShowCoverBackdrop && this.entryMaterialStage >= 1) {
+                this.buildAmbientBackdrop()
+              }
 
-            // 顶栏不再占用布局：返回/收藏按钮已经交给 HDS 标题栏（Index.ets），
-            // 正文从页面顶端开始铺，滚动时才能钻进标题栏底下被画成沉浸渐变模糊。
-            // 使用内容内边距避让顶栏；空 Column 占位会在长正文布局中被压缩。
-            Scroll(this.contentScroller) {
-              Column() {
-                this.buildHero()
-                this.buildInfoPanel()
-                this.buildBodyInfo()
-                this.buildTagsBlock()
-                this.buildIntroBlock()
-                // 给悬浮 CTA 留出呼吸空间，避免最后一段文字被压住
-                Column().width('100%').height(80 + WindowUtils.getBottomSafeVp()).flexShrink(0)
+              // 顶栏不再占用布局：返回/收藏按钮已经交给 HDS 标题栏（Index.ets），
+              // 正文从页面顶端开始铺，滚动时才能钻进标题栏底下被画成沉浸渐变模糊。
+              // 使用内容内边距避让顶栏；空 Column 占位会在长正文布局中被压缩。
+              Scroll(this.contentScroller) {
+                Column() {
+                  this.buildHero()
+                  this.buildInfoPanel()
+                  this.buildBodyInfo()
+                  this.buildTagsBlock()
+                  this.buildIntroBlock()
+                  // 给悬浮 CTA 留出呼吸空间，避免最后一段文字被压住
+                  Column().width('100%').height(80 + WindowUtils.getBottomSafeVp()).flexShrink(0)
+                }
+                .width('100%')
+                .padding({ top: DETAIL_TITLE_BAR_HEIGHT + 48 })
               }
               .width('100%')
-              .padding({ top: DETAIL_TITLE_BAR_HEIGHT + 48 })
+              .height('100%')
+              .scrollBar(BarState.Off)
+              .edgeEffect(EdgeEffect.Spring)
             }
             .width('100%')
             .height('100%')
-            .scrollBar(BarState.Off)
-            .edgeEffect(EdgeEffect.Spring)
+            .bindSheet($$this.showChapterSheet, this.buildChapterSheetContent(), {
+              height: '80%',
+              detents: ['80%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
+              showClose: false,
+              dragBar: true,
+              backgroundColor: AppMaterial.SheetBackground,
+              blurStyle: AppMaterial.PlayerSheetBlur,
+              systemMaterial: AppMaterial.PlayerSheet,
+              onDisappear: (): void => {
+                this.sheetDismissedAt = Date.now();
+                this.showChapterSheet = false;
+              }
+            })
+
+            this.buildPrimaryCta()
           }
           .width('100%')
           .height('100%')
-          .bindSheet($$this.showChapterSheet, this.buildChapterSheetContent(), {
-            height: '80%',
-            detents: ['80%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
-            showClose: false,
-            dragBar: true,
+          // 每个弹层使用独立宿主；同一节点连续 bindSheet 会覆盖前一个绑定。
+          .bindSheet($$this.showSourceSheet, this.buildSourceSheetContent(), {
+            height: '82%',
+            detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM,
+            showClose: true,
             backgroundColor: AppMaterial.SheetBackground,
             blurStyle: AppMaterial.PlayerSheetBlur,
             systemMaterial: AppMaterial.PlayerSheet,
             onDisappear: (): void => {
               this.sheetDismissedAt = Date.now();
-              this.showChapterSheet = false;
+              this.showSourceSheet = false;
             }
           })
-
-          this.buildPrimaryCta()
+        } else {
+          Column() {
+            LoadingProgress().width(40).height(40).color(AppColor.Brand)
+          }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         }
-        .width('100%')
-        .height('100%')
-        // 每个弹层使用独立宿主；同一节点连续 bindSheet 会覆盖前一个绑定。
-        .bindSheet($$this.showSourceSheet, this.buildSourceSheetContent(), {
-          height: '82%',
-          detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM,
-          showClose: true,
-          backgroundColor: AppMaterial.SheetBackground,
-          blurStyle: AppMaterial.PlayerSheetBlur,
-          systemMaterial: AppMaterial.PlayerSheet,
-          onDisappear: (): void => {
-            this.sheetDismissedAt = Date.now();
-            this.showSourceSheet = false;
-          }
-        })
-      } else {
-        Column() {
-          LoadingProgress().width(40).height(40).color(AppColor.Brand)
-        }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
       }
+      .width('100%')
+      .height('100%')
     }
     .width('100%')
     .height('100%')

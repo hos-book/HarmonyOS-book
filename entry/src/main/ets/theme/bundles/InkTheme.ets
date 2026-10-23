@@ -5,6 +5,7 @@ export function createInkTheme(): AppThemeBundle {
   const visual = new AppThemeVisual();
   visual.colors.background = $r('app.color.theme_ink_background');
   visual.colors.surface = $r('app.color.theme_ink_surface');
+  visual.colors.profileMenuSurface = $r('app.color.theme_ink_profile_menu_surface');
   visual.colors.textPrimary = $r('app.color.theme_ink_text_primary');
   visual.colors.textSecondary = $r('app.color.theme_ink_text_secondary');
   visual.colors.textTertiary = $r('app.color.theme_ink_text_tertiary');
@@ -40,6 +41,9 @@ export function createInkTheme(): AppThemeBundle {
   visual.colors.settingsBackground = $r('app.color.theme_ink_background');
   visual.background.kind = ThemeBackgroundKind.Image;
   visual.background.image = $r('app.media.theme_ink_background');
+  visual.background.shelfImage = $r('app.media.theme_ink_cover');
+  visual.background.recordImage = $r('app.media.theme_ink_local_cover');
+  visual.background.profileCardImage = $r('app.media.theme_ink_profile_card');
   visual.background.imageOpacity = 1;
   visual.background.showCoverBackdrop = false;
   visual.cover.placeholder = $r('app.media.theme_ink_cover');
@@ -65,5 +69,5 @@ export function createInkTheme(): AppThemeBundle {
   visual.icons.set(ThemeIconRole.Profile, $r('app.media.theme_ink_profile'));
   visual.icons.set(ThemeIconRole.Category, $r('app.media.theme_ink_category'));
   return new AppThemeBundle('ink-wash', $r('app.string.theme_bundle_ink_name'),
-    $r('app.string.theme_bundle_ink_description'), '#A34335', 3, visual);
+    $r('app.string.theme_bundle_ink_description'), '#80612E', 3, visual);
 }

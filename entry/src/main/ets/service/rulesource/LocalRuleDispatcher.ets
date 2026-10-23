@@ -84,9 +84,10 @@ export class LocalRuleDispatcher {
   }
 
   static async resolveContent(source: LocalRuleSource, chapterUrl: string,
-    variables: Record<string, string> = {}, request?: LightSourceRequest): Promise<LocalRuleContentResult> {
+    variables: Record<string, string> = {}, request?: LightSourceRequest,
+    deferReaderImages: boolean = false): Promise<LocalRuleContentResult> {
     LocalRuleDispatcher.requireSource(source);
-    return LightSourceBridge.content(source, chapterUrl, variables, request);
+    return LightSourceBridge.content(source, chapterUrl, variables, request, deferReaderImages);
   }
 
   static async getContent(source: LocalRuleSource, chapterUrl: string,

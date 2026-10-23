@@ -695,11 +695,13 @@ export class BookSourceService {
   }
 
   static async getSourceChapterContent(book: Book, chapterUrl: string,
-    chapterVariables?: Record<string, string>, request?: LightSourceRequest): Promise<LocalRuleContentResult> {
+    chapterVariables?: Record<string, string>, request?: LightSourceRequest,
+    deferReaderImages: boolean = false): Promise<LocalRuleContentResult> {
     const source = await LocalRuleSourceRepository.getByUrl(book.sourceUrl);
     if (source === undefined || !source.canExecute()) throw new Error('本地书源不可用或已被删除');
     return LocalRuleDispatcher.resolveContent(source,chapterUrl,
-      BookSourceService.mergeVariables(BookSourceService.copyVariables(book.variables),chapterVariables), request);
+      BookSourceService.mergeVariables(BookSourceService.copyVariables(book.variables),chapterVariables), request,
+      deferReaderImages);
   }
 
   static async getExploreBooksByUrl(source: BookSource, categoryUrl: string,

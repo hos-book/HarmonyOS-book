@@ -50,7 +50,7 @@ const { ThemeBundles } = load('theme/ThemeBundles');
 const { AppTheme, AppColor, HomeTheme, AppMaterial } = load('theme/Theme');
 const { ThemeIcons, ThemeIconRole } = load('theme/ThemeIcons');
 const { CoverTheme } = load('theme/CoverTheme');
-const { ThemeBackgroundKind, ThemeCoverDecoration } = load('model/AppThemeVisual');
+const { ThemeBackgroundKind, ThemeBackgroundScene, ThemeCoverDecoration } = load('model/AppThemeVisual');
 const state = AppAppearance.current;
 const select = bundle => {
   state.themeBundleId = bundle.id;
@@ -95,9 +95,21 @@ assert.equal(mist.visual.background.kind, ThemeBackgroundKind.Solid);
 assert.equal(id(CoverTheme.placeholder(mist.id)), 'app.media.theme_mist_cover');
 assert.equal(id(ThemeIcons.resolve(ThemeIconRole.Home, mist.id)), 'app.media.theme_mist_home');
 const ink = AppTheme.resolve('ink-wash');
+for (const bundle of ThemeBundles.list()) {
+  assert.equal(bundle.visual.background.profileCardImage?.id,
+    bundle.id === 'ink-wash' ? 'app.media.theme_ink_profile_card' : undefined,
+    `${bundle.id}: profile banner belongs only to ink theme`);
+}
 assert.equal(ink.id, 'ink-wash');
 assert.equal(ink.visual.background.kind, ThemeBackgroundKind.Image);
 assert.equal(id(ink.visual.background.image), 'app.media.theme_ink_background');
+assert.equal(id(ink.visual.background.resolveImage(ThemeBackgroundScene.Home)), 'app.media.theme_ink_background');
+assert.equal(id(ink.visual.background.resolveImage(ThemeBackgroundScene.Shelf)), 'app.media.theme_ink_cover');
+assert.equal(id(ink.visual.background.resolveImage(ThemeBackgroundScene.Record)), 'app.media.theme_ink_local_cover');
+const paperBackground = AppTheme.resolve('paper-study').visual.background;
+assert.equal(paperBackground.resolveImage(ThemeBackgroundScene.Shelf), paperBackground.image);
+assert.equal(paperBackground.resolveImage(ThemeBackgroundScene.Record), paperBackground.image);
+assert.equal(mist.visual.background.resolveImage(ThemeBackgroundScene.Record), undefined);
 assert.equal(ink.visual.background.showCoverBackdrop, false);
 assert.equal(ink.visual.background.imageOpacity, 1);
 assert.equal(id(CoverTheme.authorBackground(ink.id)), 'app.color.theme_ink_cover_label');
