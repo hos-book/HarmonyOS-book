@@ -144,9 +144,14 @@ export interface NativeMenuSpec {
 }
 
 export interface NativeDynamicMenuSpec extends NativeRequestSpec {
-  list: string;
-  title: string;
-  target: string;
+  /**
+   * js 里的函数名：由它代替请求返回分类（数组），不发 url 请求。脚本模式下 list 默认取返回的每一项，
+   * title 默认 $.title，target 默认 $.url（其中的 {{page}} 换成页码）。
+   */
+  script?: string;
+  list?: string;
+  title?: string;
+  target?: string;
 }
 
 export interface NativeExploreSpec extends NativeStageSpec {
@@ -292,7 +297,7 @@ export class NativeSourceSpec {
   /** 可以写 script 的阶段。 */
   static readonly SCRIPT_STAGES: string[] = ['search', 'explore', 'detail', 'toc', 'content'];
 
-  /** 定义里所有指向 js 函数的地方：阶段 script、动作按钮、动态选项、脚本登录。 */
+  /** 定义里所有指向 js 函数的地方：阶段 script、脚本分类、动作按钮、动态选项、脚本登录。 */
   static scriptRefs(definition: NativeSourceDefinition): Array<{ path: string, fn: NativeValue }> {
     const refs: Array<{ path: string, fn: NativeValue }> = [];
     if (definition.content?.imageDecode?.script !== undefined) {
@@ -308,6 +313,10 @@ export class NativeSourceSpec {
     });
     for (const item of Array.isArray(definition.vars) ? definition.vars : []) {
       if (item && item.optionsScript !== undefined) refs.push({ path: `vars.${item.key}.optionsScript`, fn: item.optionsScript });
+    }
+    const dynamicMenus = definition.explore ? definition.explore.dynamicMenus : undefined;
+    if (dynamicMenus && typeof dynamicMenus === 'object' && dynamicMenus.script !== undefined) {
+      refs.push({ path: 'explore.dynamicMenus.script', fn: dynamicMenus.script });
     }
     const login = definition.login;
     if (login && typeof login === 'object') {
@@ -574,9 +583,13 @@ export class NativeSourceSpec {
         errors.push('explore 需要 menus 或 dynamicMenus');
       }
       if (explore.menus !== undefined && !Array.isArray(explore.menus)) errors.push('explore.menus 必须是数组');
-      if (explore.dynamicMenus && (!explore.dynamicMenus.url || !explore.dynamicMenus.list ||
-        !explore.dynamicMenus.title || !explore.dynamicMenus.target)) {
-        errors.push('explore.dynamicMenus 需要 url、list、title 和 target');
+      const dynamic = explore.dynamicMenus;
+      if (dynamic && (typeof dynamic !== 'object' || Array.isArray(dynamic))) {
+        errors.push('explore.dynamicMenus 必须是对象');
+      } else if (dynamic && dynamic.script !== undefined) {
+        if (dynamic.url) errors.push('explore.dynamicMenus 写了 script 就不要写 url');
+      } else if (dynamic && (!dynamic.url || !dynamic.list || !dynamic.title || !dynamic.target)) {
+        errors.push('explore.dynamicMenus 需要 url、list、title 和 target，或者写 script');
       }
       if (explore.dynamicMenus || !Array.isArray(explore.menus) || explore.menus.length === 0) {
         NativeSourceSpec.requireBookFields(explore, 'explore', errors);

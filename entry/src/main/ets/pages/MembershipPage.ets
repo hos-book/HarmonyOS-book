@@ -61,7 +61,7 @@ export struct MembershipPage {
       }.width('100%').layoutWeight(1).barMode(BarMode.Fixed).barHeight('auto')
     }.width('100%').height('100%').backgroundColor($r('sys.color.background_primary'))
     .bindSheet($$this.showMembership, this.membershipSheet(), {
-      height: '90%', preferType: SheetType.BOTTOM, showClose: false, dragBar: false, backgroundColor: '#EFEDE7'
+      height: '90%', detents: ['90%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, showClose: false, dragBar: true, backgroundColor: '#EFEDE7'
     })
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }

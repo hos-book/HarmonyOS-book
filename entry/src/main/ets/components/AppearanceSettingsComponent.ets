@@ -171,7 +171,7 @@ export struct AppearanceSettingsComponent {
       })
       .bindSheet($$this.showAccent, this.accentSheet(), {
         height: SheetSize.FIT_CONTENT,
-        preferType: SheetType.BOTTOM,
+        detents: [SheetSize.FIT_CONTENT, '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM,
         title: { title: $r('app.string.appearance_accent') },
         backgroundColor: AppMaterial.SheetBackground,
         blurStyle: AppMaterial.SheetBlur,

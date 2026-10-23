@@ -515,7 +515,7 @@ export struct ImportPage {
             }.width('100%').padding(AppSpace.Md).borderRadius(AppRadius.Lg)
               .backgroundColor($r('sys.color.comp_background_secondary'))
               .enabled(!this.importing && !this.parsing).onClick((): void => { this.showGroupSheet = true; })
-              .bindSheet($$this.showGroupSheet, this.buildGroupSheet(), { height: '65%', showClose: true })
+              .bindSheet($$this.showGroupSheet, this.buildGroupSheet(), { height: '65%', detents: ['65%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, dragBar: true, showClose: true })
           }
           .width('100%')
           .padding({

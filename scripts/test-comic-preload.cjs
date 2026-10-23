@@ -21,13 +21,14 @@ const fileIo = { OpenMode: { CREATE: 1, WRITE_ONLY: 2, TRUNC: 4 }, mkdirSync() {
 const fileUri = { getUriFromPath: name => 'file://' + name,
   FileUri: class { constructor(url) { this.path = url.slice(7); } } };
 class HttpClient {
+  static CANCELLED_ERROR = 'cancelled';
   async executeBinary(options, limit) {
     assert.equal(options.cookieSource, 'https://source.test');
     assert.equal(limit, 20 * 1024 * 1024);
     calls.push(options.url); active++; maxActive = Math.max(active, maxActive);
     if (barrier) await barrier;
     await Promise.resolve(); active--;
-    const bytes = new Uint8Array(32); bytes[0] = 255; bytes[1] = 216;
+    const bytes = new Uint8Array(32); bytes[0] = 255; bytes[1] = 216; bytes[2] = 255;
     return { success: !options.url.includes('failed'), data: bytes };
   }
 }
@@ -39,6 +40,9 @@ function evaluate(relative, require, globals = {}) {
 }
 const { ComicImagePipeline } = evaluate('service/rulesource/light/upstream/core/book/ComicImagePipeline.ts',
   name => {
+    if (name.endsWith('HttpClient')) return { HttpClient };
+    if (name.endsWith('SourceImageDecoder')) return evaluate(
+      'service/rulesource/light/upstream/core/nativesource/SourceImageDecoder.ts', () => ({}));
     if (name === '@ohos.file.fs') return { default: fileIo };
     if (name.endsWith('SourceEngineHost')) return { SourceEngineHost: { isCancelled: () => false } };
     if (name === '@kit.ArkTS') return { util: { TextEncoder: class { encodeInto(text) { return new TextEncoder().encode(text); } } } };

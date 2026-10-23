@@ -1,4 +1,6 @@
 import { Book } from '../model/Book';
+import { BookRatingBadge } from './BookRatingBadge';
+import { BookMetadataPolicy } from '../utils/BookMetadataPolicy';
 import { AppRadius, AppSpace, AppFont, AppMotion, AppCurve } from '../theme/Theme';
 import { CoverImage } from './CoverImage';
 import { CoverAspectRatio } from '../utils/CoverAspectRatio';
@@ -22,11 +24,13 @@ export struct BookCard {
   @Param coverImageFit: ImageFit = ImageFit.Cover;
   @Param coverRadius: number = AppRadius.Md;
   @Param showSourceBadge: boolean = true;
+  @Param showRating: boolean = false;
   @Event onTap: (id: string) => void = () => {};
 
   @Local coverState: OneShotCoverState = OneShotTransitionCoordinator.getInstance().coverState;
   @Local imageLoadFailed: boolean = false;
   @Local appeared: boolean = false;
+  @Local ratingCoverWidth: number = 100;
   @Local originalCoverRatio: number = 0.75;
 
   private displayCoverRatio(): number {
@@ -165,11 +169,21 @@ export struct BookCard {
             .padding({ left: 6, right: 6, top: 2, bottom: 2 })
             .backgroundColor('#99000000')
             .borderRadius({ topRight: AppRadius.Sm, bottomLeft: this.coverRadius })
-            .constraintSize({ maxWidth: '80%' })
+            .constraintSize({ maxWidth: this.showRating && BookMetadataPolicy.rating(this.book.rating, this.book.category) > 0 ? '65%' : '80%' })
+        }
+        if (this.showRating) {
+          Row() {
+            Blank()
+            BookRatingBadge({ rating: BookMetadataPolicy.rating(this.book.rating, this.book.category), coverWidth: this.ratingCoverWidth })
+          }.width('100%').hitTestBehavior(HitTestMode.None)
         }
       }
       .width('100%')
       .aspectRatio(this.displayCoverRatio())
+      .onSizeChange((_oldSize: SizeOptions, newSize: SizeOptions): void => {
+        const width = Number(newSize.width);
+        if (width > 0) this.ratingCoverWidth = width;
+      })
       .borderRadius(this.coverRadius)
       .clip(true)
       .shadow({ radius: 12, color: '#33000000', offsetY: 4 })

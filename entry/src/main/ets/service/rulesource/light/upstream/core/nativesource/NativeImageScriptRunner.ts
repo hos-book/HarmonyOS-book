@@ -9,6 +9,7 @@ export interface NativeImageScriptContext {
 /** Image-only session: no stage host, cookies, network, storage or login APIs. */
 export class NativeImageScriptRunner {
   static readonly MAX_BYTES: number = 20 * 1024 * 1024;
+  private static readonly QUEUE_TIMEOUT_MS: number = 60000;
   private static sequence: number = 0;
   private static queue: number[] = [];
   private static active: boolean = false;

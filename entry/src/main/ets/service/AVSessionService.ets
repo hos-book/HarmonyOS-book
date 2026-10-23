@@ -14,6 +14,7 @@ const DOMAIN = 0xFF00;
 const TAG = 'ListenBook_AVSession';
 const MAX_COVER_CACHE_SIZE: number = 8;
 const MAX_COVER_BYTES: number = 4 * 1024 * 1024;
+const MEDIA_COVER_PLACEHOLDER: string = 'avsession://cover-placeholder';
 
 export interface AVSessionCallbacks {
   onPlay: () => void;
@@ -272,8 +273,11 @@ export class AVSessionService {
     const serial = ++this.metadataSerial;
     if (!await this.ensureReady() || !this.session) return;
     if (serial !== this.metadataSerial || speech !== PlaybackCoordinator.speechActive) return;
-    // 文字先发布，不让系统或应用的封面网络请求阻塞新书显示。
-    const mediaImage: image.PixelMap | undefined = this.coverCache.get(book.cover);
+    // 新书必须显式覆盖系统封面缓存；省略 mediaImage 不能保证旧图被清除。
+    // 占位图只读本地资源，不能等待书源网络请求后才发布新书。
+    const mediaImage: string | image.PixelMap = this.coverCache.get(book.cover)
+      ?? await this.loadCover(MEDIA_COVER_PLACEHOLDER) ?? '';
+    if (serial !== this.metadataSerial || speech !== PlaybackCoordinator.speechActive || !this.session) return;
     const previousAssetId = this.currentBook && this.currentChapter
       ? `${this.currentBook.id}_${this.currentChapter.id}` : '';
     const nextAssetId = `${book.id}_${chapter.id}`;
@@ -289,10 +293,9 @@ export class AVSessionService {
       title: chapter.title,
       artist: book.title,
       author: book.author,
-
+      mediaImage: mediaImage,
     };
     if (chapter.duration > 0) metadata.duration = chapter.duration * 1000;
-    if (mediaImage !== undefined) metadata.mediaImage = mediaImage;
     try {
       await this.session.setAVMetadata(metadata);
     } catch (err) {
@@ -305,6 +308,7 @@ export class AVSessionService {
           assetId: `${book.id}_${chapter.id}`,
           title: chapter.title,
           artist: book.title,
+          mediaImage: mediaImage,
         };
         await this.session.setAVMetadata(fallback);
       } catch (err2) {
@@ -462,7 +466,10 @@ export class AVSessionService {
   private async loadAndCacheCover(cover: string, generation: number): Promise<image.PixelMap | null> {
     try {
       let pixelMap: image.PixelMap | null = null;
-      if (cover.startsWith('http://') || cover.startsWith('https://')) {
+      if (cover === MEDIA_COVER_PLACEHOLDER && this.context) {
+        const bytes = await this.context.resourceManager.getMediaContent($r('app.media.book_cover_placeholder').id);
+        pixelMap = await this.decodeCover(image.createImageSource(bytes.buffer));
+      } else if (cover.startsWith('http://') || cover.startsWith('https://')) {
         pixelMap = await this.loadNetworkCover(cover);
       } else if (this.context) {
         pixelMap = await this.loadLocalCover(cover);
@@ -532,10 +539,12 @@ export class AVSessionService {
 
   private async loadLocalCover(path: string): Promise<image.PixelMap | null> {
     if (!this.context) return null;
+    // 书源缓存和自定义封面返回 file:// URI，与桌面小组件使用相同的本地路径。
+    const filePath = path.startsWith('file://') ? path.substring('file://'.length) : path;
     // 沙箱文件保持 fd 到解码结束，避免额外分配整张原图的 ArrayBuffer。
-    if (path.startsWith('/')) {
+    if (filePath.startsWith('/')) {
       try {
-        const f = await fileIo.open(path, fileIo.OpenMode.READ_ONLY);
+        const f = await fileIo.open(filePath, fileIo.OpenMode.READ_ONLY);
         try {
           const stat = await fileIo.stat(f.fd);
           if (stat.size <= 0 || stat.size > MAX_COVER_BYTES) {

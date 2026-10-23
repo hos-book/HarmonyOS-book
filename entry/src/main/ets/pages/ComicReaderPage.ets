@@ -3,6 +3,7 @@ import { GeneralSettings } from '../model/GeneralSettings';
 import { ReaderBrightnessBar } from '../components/ReaderBrightnessBar';
 import { ReaderBrightnessService } from '../service/text/ReaderBrightnessService';
 import { ReaderHoldingHandService } from '../service/text/ReaderHoldingHandService';
+import { ReaderVolumeKeyService } from '../service/text/ReaderVolumeKeyService';
 import { curves } from '@kit.ArkUI';
 import { ChapterSheetActions } from '../components/ChapterSheetActions';
 import { ChapterSegmentGrid } from '../components/ChapterSegmentGrid';
@@ -57,6 +58,10 @@ export struct ComicReaderPage {
   @Local rightSafe: number = WindowUtils.getRightSafeVp();
   @Local mode: number = 0;
   @Local superResolution: boolean = false;
+  @Local volumeKeyPageTurn: boolean = false;
+  @Local keyTurnRequest: number = 0;
+  @Local settingsSaving: boolean = false;
+  private volumeKeys: ReaderVolumeKeyService = new ReaderVolumeKeyService();
   private touchX: number = 0;
   private touchY: number = 0;
   private touchPageIndex: number = 0;
@@ -68,7 +73,7 @@ export struct ComicReaderPage {
   @Local readingBrightness: number = -1;
   @Local holdingHandLeft: boolean = false;
   @Local generalSettings: GeneralSettings = GeneralSettings.current;
-  private readerVisible: boolean = true;
+  @Local readerVisible: boolean = true;
   private brightnessControl: ReaderBrightnessService = new ReaderBrightnessService();
   private holdingHand: ReaderHoldingHandService = new ReaderHoldingHandService();
 
@@ -134,8 +139,10 @@ export struct ComicReaderPage {
   private generation: number = 0;
   private alive: boolean = false;
   private foreground: boolean = true;
-  private backgroundHandler = (): void => { this.savePosition(); this.foreground = false; ReadingSessionService.end('reading'); };
-  private foregroundHandler = (): void => { this.foreground = true; this.savePosition(); };
+  private backgroundHandler = (): void => {
+    this.savePosition(); this.foreground = false; this.volumeKeys.dispose(); ReadingSessionService.end('reading');
+  };
+  private foregroundHandler = (): void => { this.foreground = true; this.syncVolumeKeys(); this.savePosition(); };
   private saveTimer: number = -1;
   private restoreTimer: number = -1;
   private saveChain: Promise<void> = Promise.resolve();
@@ -198,6 +205,7 @@ export struct ComicReaderPage {
   }
 
   aboutToDisappear(): void {
+    this.volumeKeys.dispose();
     ReaderCacheService.release(this.diskCacheOwner);
     ReaderCacheService.release(`${this.diskCacheOwner}-lists`);
     this.readerVisible = false;
@@ -229,10 +237,15 @@ export struct ComicReaderPage {
       const position = await TextReadingProgressService.get(context, book.id);
       const superResolution = await PreferenceService.getComicSuperResolution();
       const settings = await TextReadingSettingsService.get(context);
-      this.showChapterBar = settings.showChapterBar;
+      // 首次沿用旧章节条偏好，此后漫画与小说分别保存。
+      const showChapterBar = await PreferenceService.getComicChapterBar(settings.showChapterBar);
+      const mode = await PreferenceService.getComicReadingMode();
+      const volumeKeyPageTurn = await PreferenceService.getComicVolumeKeyPageTurn();
       const showBrightnessBar = await PreferenceService.getComicBrightnessBar();
       const brightness = await PreferenceService.getComicBrightness();
       if (!this.alive) return;
+      this.showChapterBar = showChapterBar;
+      this.volumeKeyPageTurn = volumeKeyPageTurn;
       this.showBrightnessBar = showBrightnessBar;
       this.readingBrightness = brightness;
       this.brightnessControl.configure(brightness);
@@ -241,7 +254,7 @@ export struct ComicReaderPage {
       SearchCache.put(book);
       this.chapters.setChapters(book.chaptersDescending ? book.chapters.slice().reverse() : book.chapters);
       const explicit = this.params.resourceIndex >= 0;
-      this.mode = position?.domPos === 'comic:paged' || position?.domPos === 'comic:rtl' ? 1 : position?.domPos === 'comic:dissolve' ? 3 : 0;
+      this.mode = mode;
       await this.loadChapter(Math.max(0, Math.min(book.chapters.length - 1,
         explicit ? this.params.resourceIndex : position?.resourceIndex ?? 0)),
         explicit ? 0 : position?.pageOffset ?? 0);
@@ -356,7 +369,18 @@ export struct ComicReaderPage {
     return !this.busy && this.adjacent(direction) >= 0 && this.adjacent(direction) < (this.book?.chapters.length ?? 0);
   }
 
-  private changeMode(mode: number): void {
+  private async changeMode(mode: number): Promise<void> {
+    if (this.settingsSaving || mode === this.mode) return;
+    this.settingsSaving = true;
+    try {
+      await PreferenceService.setComicReadingMode(mode);
+      if (this.alive) this.applyMode(mode);
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    } finally { this.settingsSaving = false; }
+  }
+
+  private applyMode(mode: number): void {
     this.turning = false;
     if (mode === 0) {
       this.scrollInitialPages = this.activeChapterPages;
@@ -397,6 +421,27 @@ export struct ComicReaderPage {
       this.pageIndex = target;
     });
     this.scheduleSave();
+  }
+
+  private canUseVolumeKeys(): boolean {
+    return this.alive && this.foreground && this.readerVisible && this.volumeKeyPageTurn &&
+      !this.busy && !this.failed && this.pageCount > 0 && !this.showChapters && !this.showSettings &&
+      !this.showSourceSwitch && !this.sheetPresented && !this.chapterSliderDragging && !this.chapterSliderConfirming;
+  }
+
+  @Monitor('volumeKeyPageTurn', 'readerVisible', 'busy', 'failed', 'pageCount', 'showChapters',
+    'showSettings', 'showSourceSwitch', 'sheetPresented', 'chapterSliderDragging', 'chapterSliderConfirming')
+  private syncVolumeKeys(): void {
+    this.volumeKeys.setEnabled(this.canUseVolumeKeys(), (forward: boolean): void => this.handleVolumePageTurn(forward));
+  }
+
+  private handleVolumePageTurn(forward: boolean): void {
+    if (!this.canUseVolumeKeys() || this.turning || this.restoreTimer >= 0) return;
+    if (this.mode === 0) {
+      this.keyTurnRequest = (Math.abs(this.keyTurnRequest) + 1) * (forward ? 1 : -1);
+    } else {
+      this.turnPage(forward ? 1 : -1);
+    }
   }
 
   private contentTouch(event: TouchEvent): void {
@@ -483,6 +528,7 @@ export struct ComicReaderPage {
           }.layoutWeight(1).width('100%').justifyContent(FlexAlign.Center).padding(32)
         } else if (this.mode === 0) {
           ComicContinuousComponent({ book: this.book ?? null, resetToken: this.scrollResetToken,
+            keyTurnRequest: this.keyTurnRequest,
             initialChapterIndex: this.chapterIndex, initialPageIndex: this.pageIndex,
             initialPages: this.scrollInitialPages, pageWidth: this.imageWidth(), superResolution: this.superResolution,
             onToggle: (event: ClickEvent): void => this.onContentTap(event),
@@ -521,6 +567,9 @@ export struct ComicReaderPage {
         }
       }.width('100%').height('100%')
       .padding({ left: this.leftSafe, right: this.rightSafe })
+      // 弹框动画仅采样一个视口大小的正文层；关闭后释放缓存，正常滚动不缓存长列表。
+      .clip(true)
+      .renderGroup(this.mode === 0 && this.sheetPresented && !this.busy)
       .onClick((event: ClickEvent) => this.onContentTap(event))
       .onTouch((event: TouchEvent) => this.contentTouch(event))
       if (this.busy && this.pageCount > 0) {
@@ -546,13 +595,13 @@ export struct ComicReaderPage {
       }
       // Each sheet needs its own stable host; repeated bindSheet on one node overrides earlier bindings.
       Column().width(0).height(0).hitTestBehavior(HitTestMode.None)
-        .bindSheet($$this.showSettings, this.settingsSheet(), { height: '70%', preferType: SheetType.BOTTOM,
+        .bindSheet($$this.showSettings, this.settingsSheet(), { height: '70%', detents: ['70%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM,
           showClose: true, backgroundColor: AppMaterial.SheetBackground, blurStyle: AppMaterial.ReaderSheetBlur,
           systemMaterial: AppMaterial.ReaderSheetThick, title: { title: $r('app.string.comic_reading_mode') },
           onWillAppear: (): void => { this.sheetPresented = true; },
           onDisappear: (): void => { this.sheetPresented = false; } })
       Column().width(0).height(0).hitTestBehavior(HitTestMode.None)
-        .bindSheet($$this.showSourceSwitch, this.sourceSwitchSheet(), { height: '82%', preferType: SheetType.BOTTOM,
+        .bindSheet($$this.showSourceSwitch, this.sourceSwitchSheet(), { height: '82%', detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM,
           showClose: true, backgroundColor: AppMaterial.SheetBackground,
           blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick,
           onWillAppear: (): void => { this.sheetPresented = true; },
@@ -573,10 +622,13 @@ export struct ComicReaderPage {
             y: Math.max(this.topSafe + 48, this.topSafe + 48 +
               (this.heightVp - this.topSafe - 48 - this.bottomSafe - 140 - this.brightnessBarHeight()) / 2) })
           .id('comic-brightness-bar')
+          // 与底栏一致，弹框期间停止被遮挡亮度条的实时材质采样；保留节点及亮度状态。
+          .visibility(this.sheetPresented ? Visibility.Hidden : Visibility.Visible)
       }
     }.width('100%').height('100%').backgroundColor('#121212')
     .onVisibleAreaChange([0, 1], (visible: boolean): void => {
       this.readerVisible = visible;
+      this.syncVolumeKeys();
       this.brightnessControl.setVisible(visible);
       this.syncHoldingHand();
     })
@@ -588,7 +640,7 @@ export struct ComicReaderPage {
       this.widthVp = width; this.heightVp = height;
       if (!this.busy) this.restorePage();
     })
-    .bindSheet($$this.showChapters, this.chapterSheet(), { height: SheetSize.LARGE, preferType: SheetType.BOTTOM,
+    .bindSheet($$this.showChapters, this.chapterSheet(), { height: SheetSize.LARGE, detents: [SheetSize.LARGE, '45%', '70%'], dragBar: true, preferType: SheetType.BOTTOM,
       showClose: false, maskColor: Color.Transparent, backgroundColor: AppMaterial.SheetBackground,
       blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick,
       onWillAppear: (): void => { this.sheetPresented = true; },
@@ -710,7 +762,7 @@ export struct ComicReaderPage {
   chapterArrow(direction: number, icon: Resource) {
     Row() {
       SymbolGlyph(icon).fontSize(20).fontColor([$r('sys.color.font_primary')])
-    }.width(44).height(48).justifyContent(FlexAlign.Center)
+    }.width(44).height(44).justifyContent(FlexAlign.Center)
       .enabled(this.canChange(direction) && !this.chapterSliderConfirming)
       .opacity(this.canChange(direction) ? 1 : 0.35)
       .onClick(() => { this.chapterPreview = -1; this.loadChapter(this.adjacent(direction)); })
@@ -722,7 +774,7 @@ export struct ComicReaderPage {
     return {
       barWidth: { smallWidth: width, mediumWidth: width, largeWidth: width },
       barSideMargin: 0, barBottomMargin: 0,
-      gradientMask: { maskColor: Color.Transparent, maskHeight: 56 },
+      gradientMask: { maskColor: Color.Transparent, maskHeight: 44 },
       systemMaterialEffect: HdsCompat.material,
       adaptToHandedness: false
     };
@@ -730,7 +782,7 @@ export struct ComicReaderPage {
 
   @Builder
   chapterMaterialContent() {
-    Row().width('100%').height(56)
+    Row().width('100%').height(44)
   }
 
   @Builder
@@ -739,7 +791,7 @@ export struct ComicReaderPage {
           this.chapterArrow(-1, $r('sys.symbol.chevron_left'))
             Slider({ value: this.chapterOrdinal(), min: 0, max: Math.max(1, (this.book?.chapters.length ?? 0) - 1),
               step: 1, style: SliderStyle.OutSet })
-              .layoutWeight(1).height(48).trackThickness(6).blockSize({ width: 16, height: 16 }).selectedColor(AppColor.Brand).showSteps(false)
+              .layoutWeight(1).height(44).trackThickness(6).blockSize({ width: 16, height: 16 }).selectedColor(AppColor.Brand).showSteps(false)
               .accessibilityText($r('app.string.comic_chapters'))
                .enabled((this.book?.chapters.length ?? 0) > 1 && !this.busy && !this.chapterSliderConfirming)
               .onChange((value: number, mode: SliderChangeMode) => {
@@ -752,7 +804,7 @@ export struct ComicReaderPage {
                 }
               })
           this.chapterArrow(1, $r('sys.symbol.chevron_right'))
-        }.width(Math.max(1, (this.widthVp - this.leftSafe - this.rightSafe) * 0.84)).height(56).borderRadius(28)
+        }.width(Math.max(1, (this.widthVp - this.leftSafe - this.rightSafe) * 0.84)).height(44).borderRadius(22)
 
   }
 
@@ -775,14 +827,14 @@ export struct ComicReaderPage {
         if (PlatformCompat.floatingTabs) {
           HdsTabs() {
             TabContent() {}.tabBar(this.chapterMaterialContent())
-          }.width('100%').height(56).barPosition(BarPosition.End).barMode(BarMode.Fixed)
-            .barHeight(56).barOverlap(true).scrollable(false)
-            .attributeModifier(new CompatibleTabsModifier(this.chapterFloatingStyle(), 56))
+          }.width('100%').height(44).barPosition(BarPosition.End).barMode(BarMode.Fixed)
+            .barHeight(44).barOverlap(true).scrollable(false)
+            .attributeModifier(new CompatibleTabsModifier(this.chapterFloatingStyle(), 44))
             .barBackgroundColor(Color.Transparent)
-            .backgroundColor(Color.Transparent).borderRadius(28, RenderStrategy.OFFSCREEN).clip(true)
+            .backgroundColor(Color.Transparent).borderRadius(22, RenderStrategy.OFFSCREEN).clip(true)
             .onContentWillChange((): boolean => false).hitTestBehavior(HitTestMode.None)
         } else {
-          Row() {}.width('100%').height(56).borderRadius(28)
+          Row() {}.width('100%').height(44).borderRadius(22)
             .backgroundColor($r('sys.color.comp_background_tertiary')).backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
         }
         this.chapterBarContent()
@@ -797,7 +849,7 @@ export struct ComicReaderPage {
             .justifyContent(FlexAlign.Center).backgroundColor('#E63A3C40')
             .translate({ y: -52 }).hitTestBehavior(HitTestMode.None)
         }
-        }.width(Math.max(1, (this.widthVp - this.leftSafe - this.rightSafe) * 0.84)).height(56)
+        }.width(Math.max(1, (this.widthVp - this.leftSafe - this.rightSafe) * 0.84)).height(44)
         }
       }.width('100%').padding({ left: 16 + this.leftSafe, right: 16 + this.rightSafe })
         .margin({ bottom: 76 + this.bottomSafe })
@@ -1044,16 +1096,26 @@ export struct ComicReaderPage {
     }
   }
 
-  private async saveControls(): Promise<void> {
-    const context = this.getUIContext().getHostContext();
-    if (!context) return;
+  private async setChapterBar(enabled: boolean): Promise<void> {
+    if (this.settingsSaving) return;
+    this.settingsSaving = true;
     try {
-      const settings = await TextReadingSettingsService.get(context);
-      settings.showChapterBar = this.showChapterBar;
-      await TextReadingSettingsService.save(context, settings);
+      await PreferenceService.setComicChapterBar(enabled);
+      if (this.alive) this.showChapterBar = enabled;
     } catch (_error) {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
-    }
+    } finally { this.settingsSaving = false; }
+  }
+
+  private async setVolumeKeyPageTurn(enabled: boolean): Promise<void> {
+    if (this.settingsSaving) return;
+    this.settingsSaving = true;
+    try {
+      await PreferenceService.setComicVolumeKeyPageTurn(enabled);
+      if (this.alive) { this.volumeKeyPageTurn = enabled; this.syncVolumeKeys(); }
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    } finally { this.settingsSaving = false; }
   }
 
   @Builder
@@ -1063,11 +1125,18 @@ export struct ComicReaderPage {
       ReaderSettingCard({ title: $r('app.string.reader_turn_title'), inline: true }) {
         ImmersiveOptionTabs({ labels: [$r('app.string.comic_scroll'), $r('app.string.comic_paged'),
           $r('app.string.comic_dissolve')], selected: [0, 1, 3].indexOf(this.mode),
-          onSelect: (index: number): void => this.changeMode([0, 1, 3][index]) })
+          onSelect: (index: number): void => { this.changeMode([0, 1, 3][index]); } }).enabled(!this.settingsSaving)
+      }
+      ReaderSettingCard({ title: $r('app.string.reader_volume_key_turn'), inline: true,
+        description: $r('app.string.reader_volume_key_hint') }) {
+        Toggle({ type: ToggleType.Switch, isOn: this.volumeKeyPageTurn }).selectedColor(AppColor.Brand)
+          .enabled(!this.settingsSaving)
+          .onChange((enabled: boolean): void => { this.setVolumeKeyPageTurn(enabled); })
       }
       ReaderSettingCard({ title: $r('app.string.reader_show_chapter_bar'), inline: true }) {
         Toggle({ type: ToggleType.Switch, isOn: this.showChapterBar }).selectedColor(AppColor.Brand)
-          .onChange((enabled: boolean): void => { this.showChapterBar = enabled; this.saveControls(); })
+          .enabled(!this.settingsSaving)
+          .onChange((enabled: boolean): void => { this.setChapterBar(enabled); })
       }
       ReaderSettingCard({ title: $r('app.string.reader_show_brightness_bar'), inline: true }) {
         Toggle({ type: ToggleType.Switch, isOn: this.showBrightnessBar }).selectedColor(AppColor.Brand)

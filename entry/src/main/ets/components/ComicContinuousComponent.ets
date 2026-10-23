@@ -22,6 +22,7 @@ export struct ComicContinuousComponent {
   @Param initialPages: ComicPage[] = [];
   @Param pageWidth: number = 360;
   @Param superResolution: boolean = false;
+  @Param keyTurnRequest: number = 0;
   @Event onToggle: (event: ClickEvent) => void = () => {};
   @Event onPosition: (chapterIndex: number, pageIndex: number, pages: ComicPage[]) => void = () => {};
   @Event loadPages: (index: number, preload: boolean) => Promise<ComicPage[]> = async (): Promise<ComicPage[]> => [];
@@ -37,6 +38,7 @@ export struct ComicContinuousComponent {
   private serial: number = 0;
   private disposed: boolean = false;
   private restoring: boolean = true;
+  private keyTurning: boolean = false;
 
   aboutToAppear(): void { this.disposed = false; this.reset(); }
   aboutToDisappear(): void { this.disposed = true; this.serial++; }
@@ -46,6 +48,29 @@ export struct ComicContinuousComponent {
 
   @Monitor('pageWidth')
   onWidthChanged(): void { if (!this.disposed) this.restoreVisible(); }
+
+  @Monitor('keyTurnRequest')
+  private onKeyTurnRequest(): void { this.turnFromKey(this.keyTurnRequest > 0).catch((): void => {}); }
+
+  private async turnFromKey(forward: boolean): Promise<void> {
+    if (this.disposed || this.restoring || this.keyTurning || this.source.totalCount() === 0) return;
+    this.keyTurning = true;
+    const ticket = this.serial;
+    try {
+      const atEdge = forward ? this.scroller.isAtEnd() : this.scroller.currentOffset().yOffset <= 0;
+      if (atEdge) await this.loadNeighbor(forward);
+      if (this.disposed || this.restoring || ticket !== this.serial) return;
+      // 一屏一翻，长图不会因跳到下一张而漏读；沿用列表的边界续章。
+      if (atEdge) {
+        this.getUIContext().postFrameCallback(new ComicScrollLayoutFrame((): void => {
+          if (this.disposed || this.restoring || ticket !== this.serial) return;
+          try { this.scroller.scrollPage({ next: forward, animation: true }); } catch (_error) { }
+        }));
+      } else {
+        this.scroller.scrollPage({ next: forward, animation: true });
+      }
+    } finally { this.keyTurning = false; }
+  }
 
   private reset(): void {
     this.serial++;

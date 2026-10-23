@@ -134,7 +134,7 @@ export struct BlockMorePage {
       updateTime: r.updateTime,
       totalDuration: 0,
       chapterCount: 0,
-      rating: 0,
+      rating: r.rating ?? 0,
       tags: [r.sourceName],
       chapters: emptyChapters,
       bookUrl: r.bookUrl,
@@ -302,6 +302,7 @@ export struct BlockMorePage {
           BookCard({
             book: book,
             indexHint: idx,
+            showRating: true,
             onTap: () => this.handleBookTap(book.id)
           })
         }

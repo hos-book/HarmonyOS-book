@@ -1,4 +1,6 @@
 import { SearchResult } from '../model/BookSource';
+import { BookRatingBadge } from './BookRatingBadge';
+import { BookMetadataPolicy } from '../utils/BookMetadataPolicy';
 import { AppColor, AppRadius, AppSpace, AppFont } from '../theme/Theme';
 import { CoverImage } from './CoverImage';
 import { BOOK_COVER_ASPECT_RATIO, CoverAspectRatio } from '../utils/CoverAspectRatio';
@@ -58,6 +60,11 @@ export struct HomeBookRow {
   }
 
   @Builder
+  ratingBadge(result: SearchResult) {
+    BookRatingBadge({ rating: BookMetadataPolicy.rating(result.rating, result.kind), coverWidth: this.coverWidth() })
+  }
+
+  @Builder
   buildFeaturedRow(r: SearchResult, showDivider: boolean) {
     Column() {
       Row({ space: AppSpace.Sm }) {
@@ -86,6 +93,7 @@ export struct HomeBookRow {
           }
         }
         .width(this.coverWidth()).height(this.coverHeight())
+        .overlay(this.ratingBadge(r), { align: Alignment.BottomEnd })
         .id(this.nodeId)
         .opacity(this.coverState.hiddenSourceId === this.nodeId ? 0 : 1)
 
@@ -171,6 +179,7 @@ export struct HomeBookRow {
         }
       }
       .width(this.coverWidth()).height(this.coverHeight())
+      .overlay(this.ratingBadge(r), { align: Alignment.BottomEnd })
       .id(this.nodeId)
       .opacity(this.coverState.hiddenSourceId === this.nodeId ? 0 : 1)
 

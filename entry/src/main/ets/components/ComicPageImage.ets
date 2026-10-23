@@ -68,19 +68,8 @@ export struct ComicPageImage {
       Math.sqrt(4 * 1024 * 1024 / ratio))));
   }
 
-  build() {
-    Stack() {
-      if (!this.loaded && !this.failed) {
-        LoadingProgress().width(28).height(28).color(AppColor.Brand)
-      }
-      if (this.failed) {
-        Column({ space: 12 }) {
-          Text($r('app.string.comic_image_failed', this.page.index + 1)).fontColor('#CCCCCC').fontSize(14)
-          Button($r('app.string.comic_retry')).backgroundColor(AppColor.Brand).fontColor(Color.White)
-            .onClick(() => { this.failed = false; this.loaded = false; this.retry++; })
-        }
-      } else {
-        Scroll() {
+  @Builder
+  imageContent(): void {
         Image(this.enhancedUrl || this.page.url)
           .id(`${this.page.key}:${this.retry}`)
           .width(this.pageWidth).height(this.imageHeight())
@@ -112,9 +101,27 @@ export struct ComicPageImage {
             }
           }))
           .accessibilityText($r('app.string.comic_page_number', this.page.index + 1))
-        }.width(this.pageWidth).height(this.paged ? this.pageHeight : this.imageHeight())
-          .scrollable(this.paged ? ScrollDirection.Vertical : ScrollDirection.None)
-          .scrollBar(BarState.Off)
+  }
+
+  build() {
+    Stack() {
+      if (!this.loaded && !this.failed) {
+        LoadingProgress().width(28).height(28).color(AppColor.Brand)
+      }
+      if (this.failed) {
+        Column({ space: 12 }) {
+          Text($r('app.string.comic_image_failed', this.page.index + 1)).fontColor('#CCCCCC').fontSize(14)
+          Button($r('app.string.comic_retry')).backgroundColor(AppColor.Brand).fontColor(Color.White)
+            .onClick(() => { this.failed = false; this.loaded = false; this.retry++; })
+        }
+      } else if (this.paged) {
+        Scroll() {
+          this.imageContent()
+        }.width(this.pageWidth).height(this.pageHeight)
+          .scrollable(ScrollDirection.Vertical).scrollBar(BarState.Off)
+      } else {
+        // 连续模式由外层 List 统一滚动，不为每张长图创建一个禁用滚动的 Scroll。
+        this.imageContent()
       }
 
     }

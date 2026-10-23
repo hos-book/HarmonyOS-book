@@ -10,6 +10,7 @@ export class RankingBook {
   originalUrl: string = '';
   intro: string = '';
   rank: number = 0;
+  rating: number = 0;
 }
 
 export class RankingBoard {

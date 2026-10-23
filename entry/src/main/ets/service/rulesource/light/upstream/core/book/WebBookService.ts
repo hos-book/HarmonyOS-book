@@ -23,6 +23,7 @@ import { RuleExecutionTarget, RuleValue } from '../rule/RuleValue';
 import { BookSourceDebugContext } from './BookSourceDebugModels';
 import { LogText } from '../../utils/LogText';
 import { NativeSourceService } from '../nativesource/NativeSourceService';
+import { NetworkErrorText } from '../http/NetworkErrorText';
 import { util } from '@kit.ArkTS';
 import { BookSourceDataUrlSupport } from './BookSourceDataUrlSupport';
 import { ReaderImageMarker } from './ReaderImageMarker';
@@ -81,10 +82,14 @@ export class WebBookService {
     const resp = EncodedSourceUrl.canHandle(book.bookUrl) ?
       await this.fetchEncodedDataUrl(book.bookUrl, source) : await au.fetch(book.bookUrl, undefined, debugContext);
     console.log('[WS] getBookInfo resp:', resp.success, 'len:', resp.body.length);
-    if (this.requestVerificationIfNeeded(source, book.bookUrl, resp.body, resp.statusCode, source.bookInfoRule.init)) {
+    if (this.requestVerificationIfNeeded(source, book.bookUrl, resp.body, resp.statusCode, source.bookInfoRule.init,
+      resp.error || '')) {
       return book;
     }
-    if (!resp.success || !resp.body) { SourceEngineHost.setError(source, resp.error || '详情请求失败或空响应'); return book; }
+    if (!resp.success || !resp.body) {
+      SourceEngineHost.setError(source, resp.error || '详情请求失败或空响应');
+      return book;
+    }
     const baseUrl = BookUrlResolver.effectiveBase(resp, book.bookUrl, source.bookSourceUrl);
 
     const ctx = new RuleContext();
@@ -101,7 +106,8 @@ export class WebBookService {
       let initResult = await this.runStageRule(source, book, infoRule.init, content, stageBaseUrl,
         SourceRuntimeStage.BOOK_INFO, null, {}, debugContext);
       if (!initResult && !this.stageRuleCode(infoRule.init)) {
-        const ir = new AnalyzeRule(content, baseUrl, ctx);
+        const ir = new AnalyzeRule(content, baseUrl, ctx)
+          .setNoticeScope(SourceRuntimeStage.BOOK_INFO, source.bookSourceName);
         this.seedSourceVariables(ctx, source);
         initResult = ir.getString(infoRule.init);
       }
@@ -358,7 +364,8 @@ export class WebBookService {
     // Chapters of one catalog page. The chapterList rule runs on every page, scripts included, as Legado's
     // BookChapterList does; null means the source asked for browser verification and paging must stop.
     const parsePage = async (pageResp: HttpResponse, pageUrl: string, first: boolean): Promise<BookChapter[] | null> => {
-      if (this.requestVerificationIfNeeded(source, pageUrl, pageResp.body, pageResp.statusCode, tocRule.chapterList)) {
+      if (this.requestVerificationIfNeeded(source, pageUrl, pageResp.body, pageResp.statusCode, tocRule.chapterList,
+        pageResp.error || '')) {
         return null;
       }
       const baseUrl = BookUrlResolver.effectiveBase(pageResp, pageUrl, book.bookUrl || source.bookSourceUrl);
@@ -521,7 +528,7 @@ export class WebBookService {
     // A complete list script has already been attempted through ArkWeb by getChapterList. Never
     // retry it synchronously when it returned no usable chapters.
     if (this.stageRuleCode(tocRule.chapterList || '')) return [];
-    const rule = new AnalyzeRule(body, baseUrl, ctx);
+    const rule = new AnalyzeRule(body, baseUrl, ctx).setNoticeScope(SourceRuntimeStage.TOC, source.bookSourceName);
     const matchedValues = rule.execute(tocRule.chapterList || '', RuleExecutionTarget.ELEMENTS);
     const itemValues = maxItems > 0 ? matchedValues.slice(0, maxItems) : matchedValues;
     const items = itemValues.map((item: RuleValue): string => item.asString());
@@ -642,15 +649,18 @@ export class WebBookService {
       if (result.kind === 'images' && result.images.length > 0) {
         // 漫画图片按显式图片列表处理，地址后附带的请求头选项会在取图时生效。
         return await this.normalizeReaderContent(source, '',
-          result.baseUrl || chapter.url || book.bookUrl || source.bookSourceUrl, result.images);
+          result.baseUrl || chapter.url || book.bookUrl || source.bookSourceUrl, result.images,
+          (): boolean => this.contentRequestCanceled(shouldCancel));
       }
       if (!result.text.trim()) {
         SourceEngineHost.setError(source, '正文规则没有取到内容');
         return '';
       }
       return await this.normalizeReaderContent(source, result.text,
-        result.baseUrl || chapter.url || book.bookUrl || source.bookSourceUrl);
+        result.baseUrl || chapter.url || book.bookUrl || source.bookSourceUrl, [],
+        (): boolean => this.contentRequestCanceled(shouldCancel));
     } catch (e) {
+      if (this.contentRequestCanceled(shouldCancel)) return '';
       console.warn('[WS] native content failed:', source.bookSourceName, (e as Error).message);
       SourceEngineHost.setError(source, (e as Error).message || '正文解析失败');
       return '';
@@ -663,7 +673,7 @@ export class WebBookService {
 
   private sourceWithContentRule(source: BookSource, contentRule: string): BookSource {
     const copy = Object.assign(new BookSource(), source);
-    SourceEngineHost.bindSource(source,copy);
+    SourceEngineHost.bindSource(source, copy);
     copy.contentRule = Object.assign(new ContentRule(), source.contentRule);
     copy.contentRule.content = contentRule;
     copy.contentRule.audioUrl = '';
@@ -764,7 +774,8 @@ export class WebBookService {
       const pageKey = this.urlWithoutFragment(currentResp.url || currentUrl);
       if (seenPageUrls.has(pageKey)) break;
       seenPageUrls.add(pageKey);
-      if (this.requestVerificationIfNeeded(source, currentUrl, currentResp.body, currentResp.statusCode, contentRule.content)) {
+      if (this.requestVerificationIfNeeded(source, currentUrl, currentResp.body, currentResp.statusCode, contentRule.content,
+        currentResp.error || '')) {
         break;
       }
       const baseUrl = BookUrlResolver.effectiveBase(currentResp,
@@ -895,7 +906,8 @@ export class WebBookService {
     const plan = AjaxRuleCompat.directResultPlan(contentRule);
     if (!plan) return '';
 
-    const urlAnalyze = new AnalyzeRule(body, baseUrl, ctx);
+    const urlAnalyze = new AnalyzeRule(body, baseUrl, ctx)
+      .setNoticeScope(SourceRuntimeStage.CONTENT, source.bookSourceName);
     const requestUrl = urlAnalyze.getString(plan.urlRule, true);
     if (!requestUrl || !/^https?:\/\//.test(requestUrl)) return '';
 
@@ -913,8 +925,13 @@ export class WebBookService {
     return { url: url, statusCode: 200, headers: {}, body: JSON.stringify(root), success: true };
   }
 
-  private requestVerificationIfNeeded(source: BookSource, requestUrl: string, body: string, statusCode: number, rule: string): boolean {
-    if (!VerificationSupport.shouldRequestBrowserVerification(source, body, statusCode, rule)) {
+  private requestVerificationIfNeeded(source: BookSource, requestUrl: string, body: string, statusCode: number, rule: string,
+    error: string = ''): boolean {
+    if (!VerificationSupport.shouldRequestBrowserVerification(source, body, statusCode, rule, error)) {
+      if (statusCode === 0 && error) {
+        const reason = NetworkErrorText.describe(error, requestUrl);
+        if (reason) console.warn('[WS] network request failed:', source.bookSourceName, reason);
+      }
       return false;
     }
     const verifyUrl = VerificationSupport.pickVerificationUrl(source, requestUrl, rule);
@@ -1342,11 +1359,11 @@ export class WebBookService {
   }
 
   private async normalizeReaderContent(source: BookSource, content: string, baseUrl: string,
-    imageRuleValues: string[] = []): Promise<string> {
+    imageRuleValues: string[] = [], cancelled: () => boolean = (): boolean => false): Promise<string> {
     const explicitImages = this.collectReaderImageUrls(imageRuleValues, baseUrl, true);
     if (explicitImages.length > 0) {
       return await this.materializeReaderImageMarkers(source,
-        explicitImages.map((url: string): string => ReaderImageMarker.create(url)).join('\n\n'));
+        explicitImages.map((url: string): string => ReaderImageMarker.create(url)).join('\n\n'), cancelled);
     }
 
     let value = content || '';
@@ -1383,7 +1400,7 @@ export class WebBookService {
       .replace(/&amp;/g, '&')
       .replace(/\n{3,}/g, '\n\n')
       .trim();
-    return await this.materializeReaderImageMarkers(source, ReaderActionMarker.limit(normalized));
+    return await this.materializeReaderImageMarkers(source, ReaderActionMarker.limit(normalized), cancelled);
   }
 
   private convertReaderNativeActions(_source: BookSource, content: string, _baseUrl: string): string {
@@ -1511,7 +1528,8 @@ export class WebBookService {
     return ReaderActionMarker.create(label, url, title);
   }
 
-  private async materializeReaderImageMarkers(source: BookSource, content: string): Promise<string> {
+  private async materializeReaderImageMarkers(source: BookSource, content: string,
+    cancelled: () => boolean = (): boolean => false): Promise<string> {
     if (!content || !content.includes(ReaderImageMarker.PREFIX)) return content;
     const pattern = new RegExp(`${this.escapeRegex(ReaderImageMarker.PREFIX)}([^\\]]+)` +
       `${this.escapeRegex(ReaderImageMarker.SUFFIX)}`, 'g');
@@ -1526,14 +1544,27 @@ export class WebBookService {
     }
     if (values.length === 0) return content;
     const resolved: Record<string, string> = {};
+    let failed = 0;
     for (let start = 0; start < values.length; start += 4) {
+      if (cancelled()) throw new Error(HttpClient.CANCELLED_ERROR);
       const batch = values.slice(start, start + 4);
-      const paths = await Promise.all(batch.map((value: string): Promise<string> =>
-        ComicImagePipeline.materialize(this.http, source, value)));
+      // 一张图下载或解密失败只影响这一张：原因写进它的标记由阅读器显示，其余图片照常显示。
+      const paths = await Promise.all(batch.map(async (value: string, index: number): Promise<string> => {
+        try {
+          return await ComicImagePipeline.materialize(this.http, source, value, true, cancelled, start + index);
+        } catch (e) {
+          const message = (e as Error)?.message || String(e);
+          if (cancelled() || message === HttpClient.CANCELLED_ERROR) throw e as Error;
+          failed++;
+          console.warn(`[ReaderImage] 第 ${start + index + 1} 张图片处理失败: ${message}`);
+          return ReaderImageMarker.failureSource(message);
+        }
+      }));
       for (let index = 0; index < batch.length; index++) {
         resolved[batch[index]] = paths[index] || batch[index];
       }
     }
+    if (failed > 0) console.warn(`[ReaderImage] 本章 ${values.length} 张图片中 ${failed} 张未能显示`);
     return content.replace(pattern, (_all: string, encoded: string): string => {
       try {
         const raw = decodeURIComponent(encoded);
@@ -2074,17 +2105,17 @@ export class WebBookService {
     // Without `sourceRegex` the sniffer accepts known media extensions only. That is the whole
     // resolution for a rule-less chapter; with a content rule the rule itself reads the page.
     if (!this.audioChapterUsesWebView(source, chapter) || (!sourceRegex && !directRule)) return '';
-    return SourceEngineHost.withWeb(source.bookSourceUrl, async () => {
-    const runtime = BookSourceAudioWebRuntime.get();
-    if (!await runtime.waitUntilAvailable()) return '';
-    try {
-      return await runtime.resolveAudioUrl(resolvedChapterUrl, sourceRegex,
-        this.audioSourceUserAgent(source), 15000);
-    } catch (error) {
-      console.warn('[WS] audio WebView source interception failed, fallback HTTP:',
-        source.bookSourceName, chapter.title, error);
-      return '';
-    }
+    return SourceEngineHost.withWeb(source.bookSourceUrl, async (): Promise<string> => {
+      const runtime = BookSourceAudioWebRuntime.get();
+      if (!await runtime.waitUntilAvailable()) return '';
+      try {
+        return await runtime.resolveAudioUrl(resolvedChapterUrl, sourceRegex,
+          this.audioSourceUserAgent(source), 15000);
+      } catch (error) {
+        console.warn('[WS] audio WebView source interception failed, fallback HTTP:',
+          source.bookSourceName, chapter.title, error);
+        return '';
+      }
     });
   }
 

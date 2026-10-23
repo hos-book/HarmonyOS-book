@@ -21,6 +21,7 @@ import { QuickJsObservationContext } from '../script/QuickJsRuntimeStatus';
 import { RuleExecutionTarget, RuleValue } from '../rule/RuleValue';
 import { BookSourceDebugContext } from './BookSourceDebugModels';
 import { LogText } from '../../utils/LogText';
+import { NetworkErrorText } from '../http/NetworkErrorText';
 import { appDb } from '../../model/data/AppDatabase';
 import { BookSourceDataUrlSupport } from './BookSourceDataUrlSupport';
 import { BookSourceMetadataSupport } from './BookSourceMetadataSupport';
@@ -39,6 +40,7 @@ export interface ExploreSourceOption {
   sourceUrl: string;
   sourceGroup: string;
   platforms: string[];
+  isNative?: boolean;
 }
 
 export interface ExploreFilterGroup {
@@ -123,7 +125,8 @@ export class ExploreCoordinator {
           sourceName: source.bookSourceName,
           sourceUrl: source.bookSourceUrl,
           sourceGroup: (source.bookSourceGroup || '').trim(),
-          platforms: []
+          platforms: [],
+          isNative: true
         });
         continue;
       }
@@ -205,7 +208,8 @@ export class ExploreCoordinator {
         }
       }
       console.info('[ExploreCoordinator] response:', resp.statusCode, 'len:', resp.body?.length || 0, 'url:', LogText.url(resp.url));
-      if (VerificationSupport.shouldRequestBrowserVerification(source, resp.body, resp.statusCode, entry.url)) {
+      if (VerificationSupport.shouldRequestBrowserVerification(source, resp.body, resp.statusCode, entry.url,
+        resp.error)) {
         const verifyUrl = VerificationSupport.pickVerificationUrl(source, reqUrl, entry.url);
         VerificationSupport.requestVerification(verifyUrl, `${source.bookSourceName} 验证`, source);
         console.warn('[ExploreCoordinator] source needs browser verification:', source.bookSourceName, LogText.url(verifyUrl));
@@ -214,7 +218,8 @@ export class ExploreCoordinator {
       if (!resp.success || !resp.body) {
         console.warn('[ExploreCoordinator] empty response:', resp.statusCode, resp.error || '');
         this.noticeMessage = !resp.success ? (resp.statusCode > 0 ?
-          `发现接口请求失败（HTTP ${resp.statusCode}）` : `发现接口请求失败：${resp.error || '网络异常'}`) :
+          `发现接口请求失败（HTTP ${resp.statusCode}）` :
+          `发现接口请求失败：${NetworkErrorText.describe(resp.error || '', reqUrl) || resp.error || '网络异常'}`) :
           '发现接口返回空响应';
         return [];
       }

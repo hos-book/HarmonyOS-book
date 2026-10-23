@@ -212,6 +212,50 @@ export class PreferenceService {
     }
   }
 
+  static async getComicVolumeKeyPageTurn(): Promise<boolean> {
+    const store = await PreferenceService.ensureStore();
+    return store.getSync('comic_volume_key_page_turn', false) === true;
+  }
+
+  static async setComicVolumeKeyPageTurn(enabled: boolean): Promise<void> {
+    await PreferenceService.saveComicPreference('comic_volume_key_page_turn', enabled, false);
+  }
+
+  static async getComicReadingMode(): Promise<number> {
+    const store = await PreferenceService.ensureStore();
+    const value = store.getSync('comic_reading_mode', 0);
+    return value === 1 || value === 3 ? value : 0;
+  }
+
+  static async setComicReadingMode(mode: number): Promise<void> {
+    await PreferenceService.saveComicPreference('comic_reading_mode', mode === 1 || mode === 3 ? mode : 0, 0);
+  }
+
+  static async getComicChapterBar(fallback: boolean = true): Promise<boolean> {
+    const store = await PreferenceService.ensureStore();
+    const value = store.getSync('comic_chapter_bar', '');
+    if (typeof value === 'boolean') return value;
+    await PreferenceService.saveComicPreference('comic_chapter_bar', fallback, fallback);
+    return fallback;
+  }
+
+  static async setComicChapterBar(enabled: boolean): Promise<void> {
+    await PreferenceService.saveComicPreference('comic_chapter_bar', enabled, true);
+  }
+
+  private static async saveComicPreference(key: string, value: boolean | number,
+    fallback: boolean | number): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const previous = store.getSync(key, fallback);
+    try {
+      await store.put(key, value);
+      await store.flush();
+    } catch (error) {
+      await store.put(key, previous);
+      throw new Error(`Failed to save comic preference: ${String(error)}`);
+    }
+  }
+
   static async getComicBrightnessBar(): Promise<boolean> {
     const store = await PreferenceService.ensureStore();
     return store.getSync('comic_brightness_bar', true) !== false;

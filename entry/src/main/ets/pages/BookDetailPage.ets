@@ -1,4 +1,5 @@
 import { BookCoverPolicy } from '../utils/BookCoverPolicy';
+import { BookMetadataPolicy } from '../utils/BookMetadataPolicy';
 import { common } from '@kit.AbilityKit';
 import { AppStorageV2 } from '@kit.ArkUI';
 import { emitter } from '@kit.BasicServicesKit';
@@ -397,24 +398,13 @@ export struct BookDetailPage {
     this.coverRatio = CoverAspectRatio.get(url);
   }
 
-  /** 将历史缓存或源端的内部类型值转换为详情页可见文案。 */
-  private displayCategory(): string {
-    if (!this.book) return '有声书';
-    if (this.book.contentType === 'comic') return this.getUIContext().getHostContext()?.resourceManager.getStringSync($r('app.string.comic_type').id) ?? '';
-    const category = this.book.category.trim();
-    const normalized = category.toLowerCase();
-    const isStatus = normalized.includes('完结') || normalized.includes('完本') ||
-      normalized.includes('连载') || normalized.includes('更新中');
-    if (normalized.length === 0 || normalized === 'audio' || isStatus) {
-      return this.book.contentType === 'text' ? '电子书' : '有声书';
-    }
-    if (normalized === 'text') return '电子书';
-    return category;
+  private displayCategories(): string[] {
+    return BookMetadataPolicy.categories(LocalRuleMetadataText.intro(this.book?.category ?? ''));
   }
 
-  /** 状态缺失时按默认完结处理，只有明确的 false 才是连载中。 */
-  private displayStatus(): string {
-    return this.book?.completed === false ? '连载中' : '已完结';
+  private displayStatus(): ResourceStr {
+    if (this.book?.completed === undefined) return '';
+    return this.book.completed ? $r('app.string.shelf_status_completed') : $r('app.string.shelf_status_ongoing');
   }
 
   private async loadBook(): Promise<void> {
@@ -1130,29 +1120,33 @@ export struct BookDetailPage {
 
   // ==================== 数据 + 操作面板（沉浸光感表面） ====================
 
-  /** 分数：无评分时显示占位，避免出现「0.0分」。 */
+  private displayRating(): number {
+    return BookMetadataPolicy.rating(this.book?.rating, this.book?.category ?? '');
+  }
+
+  /** 无评分不显示胶囊，不用「暂无」或 0.0 分占位。 */
   private scoreText(): ResourceStr {
-    const rating = this.book?.rating ?? 0;
-    if (rating <= 0) return $r('app.string.book_detail_score_none');
+    const rating = this.displayRating();
+    if (rating <= 0) return '';
     return $r('app.string.book_detail_score', rating.toFixed(1));
   }
 
   /** 更新时间只保留日期段，避免被时间戳撑爆。 */
   private displayUpdateShort(): string {
-    const value = this.displayUpdateTime.trim();
-    if (value.length === 0) return '—';
+    const value = BookMetadataPolicy.text(this.displayUpdateTime);
+    if (value.length === 0) return '';
     const datePart = value.split(' ')[0].split('T')[0];
     return datePart.length > 0 ? datePart : value;
   }
 
   /** 体量：优先字数/播放量，其次总时长，最后章节数。 */
   private displayScale(): string {
-    const wordCount = (this.book?.wordCount ?? '').trim();
+    const wordCount = BookMetadataPolicy.text(this.book?.wordCount);
     if (wordCount.length > 0) return wordCount;
     const total = this.book?.totalDuration ?? 0;
     if (total > 0) return this.formatTotalDuration(total);
     const count = Math.max(this.book?.chapterCount ?? 0, this.book?.chapters.length ?? 0);
-    if (count <= 0) return '—';
+    if (count <= 0) return '';
     return `${count}${(this.book?.contentType === 'text' || this.book?.contentType === 'comic') ? '章' : '集'}`;
   }
 
@@ -1168,10 +1162,21 @@ export struct BookDetailPage {
   buildStatsRow() {
     Scroll(this.statsScroller) {
       Row({ space: AppSpace.Sm }) {
-        HdsImmersiveTab({ label: this.displayCategory(), scroller: this.statsScroller, materialEnabled: this.entryMaterialStage >= 2 })
-        HdsImmersiveTab({ label: this.displayStatus(), scroller: this.statsScroller, materialEnabled: this.entryMaterialStage >= 3 })
-        HdsImmersiveTab({ label: this.displayUpdateShort(), scroller: this.statsScroller, materialEnabled: this.entryMaterialStage >= 4 })
-        HdsImmersiveTab({ label: this.displayScale(), scroller: this.statsScroller, materialEnabled: this.entryMaterialStage >= 5 })
+        ForEach(this.displayCategories(), (category: string) => {
+          HdsImmersiveTab({ label: category, scroller: this.statsScroller, materialEnabled: this.entryMaterialStage >= 2 })
+        }, (category: string): string => category)
+        if (this.displayRating() > 0) {
+          HdsImmersiveTab({ label: this.scoreText(), scroller: this.statsScroller, materialEnabled: this.entryMaterialStage >= 2 })
+        }
+        if (this.book?.completed !== undefined) {
+          HdsImmersiveTab({ label: this.displayStatus(), scroller: this.statsScroller, materialEnabled: this.entryMaterialStage >= 3 })
+        }
+        if (this.displayUpdateShort().length > 0) {
+          HdsImmersiveTab({ label: this.displayUpdateShort(), scroller: this.statsScroller, materialEnabled: this.entryMaterialStage >= 4 })
+        }
+        if (this.displayScale().length > 0) {
+          HdsImmersiveTab({ label: this.displayScale(), scroller: this.statsScroller, materialEnabled: this.entryMaterialStage >= 5 })
+        }
       }
       .height(58)
       .alignItems(VerticalAlign.Center)
@@ -1249,7 +1254,10 @@ export struct BookDetailPage {
   @Builder
   buildInfoPanel() {
     Column() {
-      this.buildStatsRow()
+      if (this.displayCategories().length > 0 || this.displayRating() > 0 || this.book?.completed !== undefined
+        || this.displayUpdateShort().length > 0 || this.displayScale().length > 0) {
+        this.buildStatsRow()
+      }
 
       Column() {
         Divider()
@@ -1646,7 +1654,7 @@ export struct BookDetailPage {
           .height('100%')
           .bindSheet($$this.showChapterSheet, this.buildChapterSheetContent(), {
             height: '80%',
-            preferType: SheetType.BOTTOM,
+            detents: ['80%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
             showClose: false,
             dragBar: true,
             backgroundColor: AppMaterial.SheetBackground,
@@ -1665,7 +1673,7 @@ export struct BookDetailPage {
         // 每个弹层使用独立宿主；同一节点连续 bindSheet 会覆盖前一个绑定。
         .bindSheet($$this.showSourceSheet, this.buildSourceSheetContent(), {
           height: '82%',
-          preferType: SheetType.BOTTOM,
+          detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM,
           showClose: true,
           backgroundColor: AppMaterial.SheetBackground,
           blurStyle: AppMaterial.PlayerSheetBlur,
@@ -1685,7 +1693,7 @@ export struct BookDetailPage {
     .height('100%')
     .backgroundColor($r('sys.color.background_primary'))
     .bindSheet($$this.showGroupSheet, this.buildGroupSheet(), {
-      height: '65%', showClose: true, backgroundColor: AppMaterial.SheetBackground,
+      height: '65%', detents: ['65%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, dragBar: true, showClose: true, backgroundColor: AppMaterial.SheetBackground,
       blurStyle: AppMaterial.SheetBlur, systemMaterial: AppMaterial.Sheet,
       onWillDismiss: (action: DismissSheetAction): void => { if (!this.savingGroup) action.dismiss(); },
       onDisappear: (): void => { this.sheetDismissedAt = Date.now(); }

@@ -73,7 +73,7 @@ export class BookMatchService {
         : BookIdentity.onlineAudioBookId(result.sourceUrl, result.bookUrl),
       title: result.name, author: result.author, narrator: '', cover: result.coverUrl,
       category: result.kind, contentType: type, intro: result.intro, totalDuration: 0,
-      chapterCount: 0, rating: 0, tags: [result.sourceName], chapters: chapters,
+      chapterCount: 0, rating: result.rating ?? 0, tags: [result.sourceName], chapters: chapters,
       bookUrl: result.bookUrl, sourceUrl: result.sourceUrl, variables: result.variables,
       wordCount: result.wordCount, latestChapterTitle: result.lastChapter,
       updateTime: result.updateTime, completed: result.completed

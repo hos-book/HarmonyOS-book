@@ -21,6 +21,7 @@ import { QuickJsObservationContext } from '../script/QuickJsRuntimeStatus';
 import { RuleExecutionTarget, RuleValue } from '../rule/RuleValue';
 import { BookSourceDebugContext } from './BookSourceDebugModels';
 import { LogText } from '../../utils/LogText';
+import { NetworkErrorText } from '../http/NetworkErrorText';
 import { appDb } from '../../model/data/AppDatabase';
 import { BookSourceDataUrlSupport } from './BookSourceDataUrlSupport';
 import { BookSourceMetadataSupport } from './BookSourceMetadataSupport';
@@ -390,7 +391,8 @@ export class SearchCoordinator {
       if (ENABLE_SEARCH_DEBUG_LOG) {
         console.log('[SC] response:', source.bookSourceName, resp.statusCode, 'len:', resp.body?.length || 0);
       }
-      if (VerificationSupport.shouldRequestBrowserVerification(source, resp.body, resp.statusCode, source.searchUrl)) {
+      if (VerificationSupport.shouldRequestBrowserVerification(source, resp.body, resp.statusCode, source.searchUrl,
+        resp.error)) {
         const verifyUrl = VerificationSupport.pickVerificationUrl(source, urlTemplate, source.searchUrl);
         VerificationSupport.requestVerification(verifyUrl, `${source.bookSourceName} 验证`, source);
         if (ENABLE_SEARCH_DEBUG_LOG) {
@@ -681,7 +683,7 @@ export class SearchCoordinator {
     if (statusCode === 408 || statusCode === 425 || statusCode === 429 || statusCode >= 500 ||
       statusCode === 0 || (response.error || '').includes('response too large')) {
       const reason = statusCode > 0 ? `服务器暂时异常（HTTP ${statusCode}）` :
-        (response.error || '网络请求失败');
+        (NetworkErrorText.describe(response.error || '', response.url || '') || response.error || '网络请求失败');
       return this.sourceResult([], BookSource.VALIDATION_TEMPORARY_ERROR, reason);
     }
     if ((statusCode >= 300 && statusCode < 400) || (statusCode >= 400 && statusCode < 500)) {
@@ -1177,7 +1179,8 @@ export class SearchCoordinator {
     if (stageUrl) return stageUrl;
     const scriptedFormUrl = await this.tryBuildScriptedFormSearchUrl(source, keyword, maxResponseBytes);
     if (scriptedFormUrl) return scriptedFormUrl;
-    const buildRequestUrl = BookSourceDataUrlSupport.buildRequestUrl(source, searchUrl, String(this.currentPage), keyword);
+    const buildRequestUrl = BookSourceDataUrlSupport.buildRequestUrl(source, searchUrl, String(this.currentPage),
+      keyword);
     if (buildRequestUrl) return buildRequestUrl;
     // Complete or complex JavaScript URLs are never retried in the synchronous compatibility
     // interpreter. A failed ArkWeb execution should fail this source, not freeze the UI thread.

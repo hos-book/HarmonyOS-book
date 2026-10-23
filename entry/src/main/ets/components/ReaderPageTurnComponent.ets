@@ -1,9 +1,16 @@
 import { ReaderTapPolicy, ReaderTouchTracker } from '../utils/ReaderTapPolicy';
 import { emitter } from '@kit.BasicServicesKit';
-import { AnimatorResult } from '@kit.ArkUI';
+import { AnimatorResult, FrameCallback } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { PageTurnMode } from '../model/TextReading';
+import { ReaderCurlGeometry } from '../utils/ReaderCurlGeometry';
+
+class ReaderTurnFrame extends FrameCallback {
+  private draw: () => void;
+  constructor(draw: () => void) { super(); this.draw = draw; }
+  onFrame(_time: number): void { this.draw(); }
+}
 
 /** 只预览目标页；动画完成才通知阅读页提交进度，回弹不改变阅读位置。 */
 @ComponentV2
@@ -42,6 +49,10 @@ export struct ReaderPageTurnComponent {
   private forward: boolean = true;
   private progress: number = 0;
   private anchor: number = 0.5;
+  private verticalDrag: number = 0;
+  private releaseVertical: number = 0;
+  private settleStart: number = 0;
+  private frameQueued: boolean = false;
   private released: boolean = false;
   private commitOnRelease: boolean = false;
   private touchBlocked: boolean = false;
@@ -83,6 +94,7 @@ export struct ReaderPageTurnComponent {
   private cancelTurn(commit: boolean = false): void {
     const wasActive = this.phase !== 'idle';
     this.serial++;
+    this.frameQueued = false;
     this.phase = 'idle';
     const running = this.animator;
     this.animator = null;
@@ -98,6 +110,7 @@ export struct ReaderPageTurnComponent {
     this.phase = 'preparing';
     this.forward = forward;
     this.progress = 0;
+    this.verticalDrag = 0;
     this.anchor = Math.max(0, Math.min(1, anchorY / Math.max(1, this.pageHeight)));
     this.released = tap;
     this.commitOnRelease = tap;
@@ -174,7 +187,8 @@ export struct ReaderPageTurnComponent {
     const distance = this.forward ? -offset : offset;
     const size = this.mode === PageTurnMode.Vertical ? this.pageHeight : this.pageWidth;
     this.progress = Math.max(0, Math.min(1, distance / Math.max(1, size)));
-    if (this.phase === 'dragging') this.drawFrame(this.progress);
+    this.verticalDrag = event.offsetY;
+    if (this.phase === 'dragging') this.scheduleFrame();
   }
 
   private handlePanEnd(event: GestureEvent): void {
@@ -215,6 +229,8 @@ export struct ReaderPageTurnComponent {
     }
     const ticket = this.serial;
     const end = commit ? 1 : 0;
+    this.releaseVertical = this.verticalDrag;
+    this.settleStart = this.progress;
     this.phase = 'settling';
     const animation = this.getUIContext().createAnimator({
       duration: Math.max(140, Math.round(380 * Math.abs(end - this.progress))),
@@ -225,7 +241,9 @@ export struct ReaderPageTurnComponent {
     animation.onFrame = (value: number): void => {
       if (ticket !== this.serial) return;
       this.progress = value;
-      this.drawFrame(value);
+      const remaining = Math.abs(end - this.settleStart);
+      this.verticalDrag = this.releaseVertical * (remaining > 0.001 ? Math.abs(end - value) / remaining : 0);
+      this.scheduleFrame();
     };
     animation.onFinish = (): void => {
       if (ticket !== this.serial) return;
@@ -236,6 +254,18 @@ export struct ReaderPageTurnComponent {
       this.releaseSnapshot();
     };
     animation.play();
+  }
+
+  /** 同一显示帧只画最新手势位置，不把高频触摸事件逐个堆入 Canvas。 */
+  private scheduleFrame(): void {
+    if (this.frameQueued) return;
+    this.frameQueued = true;
+    const ticket = this.serial;
+    this.getUIContext().postFrameCallback(new ReaderTurnFrame((): void => {
+      if (ticket !== this.serial) return;
+      this.frameQueued = false;
+      if (this.phase === 'dragging' || this.phase === 'settling') this.drawFrame(this.progress);
+    }));
   }
 
   /** 前一页的几何方向反转，但正文位图保持正常阅读方向。 */
@@ -280,61 +310,96 @@ export struct ReaderPageTurnComponent {
       ctx.restore();
       return;
     }
-    const edge = w * (1 - p);
-    const wave = Math.sin(Math.PI * p);
-    const curl = w * 0.22 * wave;
-    const bend = curl * 0.28;
-    const skew = (this.anchor - 0.5) * curl * 0.65;
-    const top = edge + skew;
-    const bottom = edge - skew;
-
-    // 原页正面沿弯曲折线裁切，逐渐露出底层目标页。
-    ctx.save();
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(top, 0);
-    ctx.bezierCurveTo(top - bend, h * 0.3, bottom - bend, h * 0.7, bottom, h);
-    ctx.lineTo(0, h);
-    ctx.closePath();
-    ctx.clip();
-    this.drawPaper();
+    if (p <= 0.0001) {
+      this.drawPaper();
+    } else if (p < 0.9999) {
+      this.drawCurl(new ReaderCurlGeometry(w, h, p, this.anchor, this.verticalDrag));
+    }
     ctx.restore();
+  }
 
-    if (curl > 0.1) {
-      // 卷起纸张在下一页上的投影。
-      const shadow = ctx.createLinearGradient(edge, 0, edge + curl + 22 * wave, 0);
-      shadow.addColorStop(0, 'rgba(0,0,0,0.24)');
-      shadow.addColorStop(0.7, 'rgba(0,0,0,0.12)');
-      shadow.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = shadow;
-      ctx.fillRect(edge, 0, curl + 22 * wave, h);
-
-      // 弯曲纸背：反射原页文字，再覆盖纸色和明暗渐变。
+  private drawCurl(shape: ReaderCurlGeometry): void {
+    const ctx = this.canvas;
+    const outline = shape.shadowOutline(this.pageWidth, this.pageHeight);
+    if (outline.length > 2) {
       ctx.save();
       ctx.beginPath();
-      ctx.moveTo(top, 0);
-      ctx.bezierCurveTo(top - bend, h * 0.3, bottom - bend, h * 0.7, bottom, h);
-      ctx.lineTo(bottom + curl * 0.65, h);
-      ctx.bezierCurveTo(bottom + curl, h * 0.7, top + curl, h * 0.3, top + curl * 0.65, 0);
+      ctx.moveTo(outline[0].x, outline[0].y);
+      for (let i = 1; i < outline.length; i++) ctx.lineTo(outline[i].x, outline[i].y);
       ctx.closePath();
-      ctx.clip();
-      ctx.fillStyle = this.paperColor;
-      ctx.fillRect(edge - curl, 0, curl * 3, h);
-      ctx.save();
-      ctx.translate(edge * 2 + curl * 0.65, 0);
-      ctx.scale(-1, 1);
-      ctx.globalAlpha = 0.16;
-      this.drawPaper();
-      ctx.restore();
-      const fold = ctx.createLinearGradient(edge - bend, 0, edge + curl, 0);
-      fold.addColorStop(0, 'rgba(0,0,0,0.22)');
-      fold.addColorStop(0.22, 'rgba(255,255,255,0.18)');
-      fold.addColorStop(0.65, 'rgba(255,255,255,0.06)');
-      fold.addColorStop(1, 'rgba(0,0,0,0.18)');
-      ctx.fillStyle = fold;
-      ctx.fillRect(edge - curl, 0, curl * 3, h);
+      // 不对整页做逐帧高斯模糊；用投影轮廓绘制接触阴影。
+      ctx.fillStyle = 'rgba(0,0,0,0.12)';
+      ctx.fill();
       ctx.restore();
     }
+
+    // 曲面最多 8 条，源位图按条带包围盒裁取；平直区域各一次。
+    ctx.save();
+    ctx.transform(shape.nx, shape.ny, -shape.ny, shape.nx, 0, 0);
+    this.drawCurlStrip(shape, shape.min, Math.min(shape.fold, shape.max), false, 0);
+    const arc = Math.PI * shape.radius;
+    for (let i = 0; i < 8; i++) {
+      const start = shape.fold + arc * i / 8;
+      const end = Math.min(shape.max, shape.fold + arc * (i + 1) / 8);
+      const angle = Math.PI * (i + 0.5) / 8;
+      this.drawCurlStrip(shape, Math.max(shape.min, start), end, i >= 4,
+        0.22 * Math.pow(Math.sin(angle), 3));
+    }
+    this.drawCurlStrip(shape, Math.max(shape.min, shape.fold + arc), shape.max, true, 0.025);
+    ctx.restore();
+  }
+
+  private drawCurlStrip(shape: ReaderCurlGeometry, start: number, end: number,
+    back: boolean, shade: number): void {
+    if (end <= start) return;
+    const left = shape.project(start);
+    const right = shape.project(end);
+    const scale = (right - left) / (end - start);
+    if (Math.abs(scale) < 0.0001) return;
+    const ctx = this.canvas;
+    ctx.save();
+    ctx.beginPath();
+    // 少量重叠消除抗锯齿接缝，正文与纸背都限制在原页边界内。
+    ctx.rect(Math.min(left, right) - 0.2, -shape.extent, Math.abs(right - left) + 0.4, shape.extent * 2);
+    ctx.clip();
+    ctx.translate(left, 0);
+    ctx.scale(scale, 1);
+    ctx.translate(-start, 0);
+    ctx.transform(shape.nx, -shape.ny, shape.ny, shape.nx, 0, 0);
+    this.drawPaperStrip(shape, start, end);
+    if (back) {
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = this.paperColor;
+      ctx.fillRect(0, 0, this.pageWidth, this.pageHeight);
+      ctx.globalAlpha = 1;
+    }
+    if (shade > 0) {
+      ctx.fillStyle = `rgba(0,0,0,${shade})`;
+      ctx.fillRect(0, 0, this.pageWidth, this.pageHeight);
+      // 深色纸面也保留卷曲高光，不让暗色主题的折痕消失。
+      ctx.fillStyle = `rgba(255,255,255,${shade * 0.32})`;
+      ctx.fillRect(0, 0, this.pageWidth, this.pageHeight);
+    }
+    ctx.restore();
+  }
+
+  private drawPaperStrip(shape: ReaderCurlGeometry, start: number, end: number): void {
+    const bitmap = this.snapshotImage;
+    if (bitmap === null) return;
+    const w = this.pageWidth;
+    const h = this.pageHeight;
+    // nx 始终为正；斜条带在页面顶/底的交点给出保守且有界的源矩形。
+    const x0 = Math.max(0, Math.min(start / shape.nx, (start - shape.ny * h) / shape.nx));
+    const x1 = Math.min(w, Math.max(end / shape.nx, (end - shape.ny * h) / shape.nx));
+    if (x1 <= x0) return;
+    const ctx = this.canvas;
+    ctx.save();
+    const x = this.forward ? x0 : w - x1;
+    if (!this.forward) { ctx.translate(w, 0); ctx.scale(-1, 1); }
+    ctx.fillStyle = this.paperColor;
+    ctx.fillRect(x, 0, x1 - x0, h);
+    ctx.drawImage(bitmap, x / w * bitmap.width, 0, (x1 - x0) / w * bitmap.width, bitmap.height,
+      x, 0, x1 - x0, h);
     ctx.restore();
   }
 

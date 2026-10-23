@@ -1,4 +1,5 @@
 import { CoverImage } from './CoverImage';
+import { BookRatingBadge } from './BookRatingBadge';
 import { AppColor, AppRadius } from '../theme/Theme';
 import { OneShotCoverState, OneShotTransitionCoordinator, OneShotTransitionIds } from '../utils/OneShotTransition';
 
@@ -14,14 +15,17 @@ export class BookPosterItem {
   intro: string;
   coverUrl: string;
   aspectRatio: number;
+  rating: number;
 
-  constructor(id: string, title: string, author: string, intro: string, coverUrl: string, aspectRatio: number) {
+  constructor(id: string, title: string, author: string, intro: string, coverUrl: string, aspectRatio: number,
+    rating: number = 0) {
     this.id = id;
     this.title = title;
     this.author = author;
     this.intro = intro;
     this.coverUrl = coverUrl;
     this.aspectRatio = aspectRatio;
+    this.rating = rating;
   }
 }
 /** 两种首页轮播共用占位，加载前后不改变分类栏位置。 */
@@ -262,11 +266,15 @@ export struct BookPosterCarousel {
         Stack({ alignContent: Alignment.Center }) {
           ForEach(this.items, (item: BookPosterItem, index: number) => {
             Column() {
+              Stack({ alignContent: Alignment.BottomEnd }) {
               CoverImage({ url: item.coverUrl, imgWidth: BOOK_POSTER_COVER_WIDTH,
                 aspectRatioValue: item.aspectRatio,
                 useOriginalRatio: this.useOriginalCoverRatio, maxOriginalHeight: 160,
                 radius: AppRadius.Sm, compositeEdges: true,
                 imageFit: ImageFit.Contain, decodeW: 480, decodeH: 640 })
+                BookRatingBadge({ rating: item.rating,
+                  coverWidth: this.useOriginalCoverRatio ? Math.min(BOOK_POSTER_COVER_WIDTH, 160 * item.aspectRatio) : BOOK_POSTER_COVER_WIDTH })
+              }
             }
             // 为离屏纹理留下透明采样边，避免旋转时纹理边界直接形成硬锯齿。
             // 封面本身尺寸不变，留白随卡片一起合成，不对合成层再次裁剪。

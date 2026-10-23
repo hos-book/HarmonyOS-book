@@ -13,6 +13,7 @@ export interface BookSource {
 }
 
 export interface SearchResult {
+  rating?: number;
   name: string;
   author: string;
   coverUrl: string;
@@ -44,6 +45,7 @@ export interface TocItem {
 }
 
 export interface BookInfo {
+  rating?: number;
   name: string;
   author: string;
   coverUrl: string;

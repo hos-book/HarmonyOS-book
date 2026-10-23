@@ -80,6 +80,11 @@ export class LightAudioSupport {
   }
 
   invalidAudioAddressMessage(raw: string): string {
+    // 取正文失败时内容为空，原因记在书源阶段错误里（例如接口返回的 code/message、书源给的说明）。
+    if (!(raw || '').trim()) {
+      const stageError = (AppStorage.get<string>('bookSourceStageLastError') || '').trim();
+      if (stageError) return stageError;
+    }
     try {
       const root = JSON.parse(raw || '{}') as Record<string, Object>;
       let data: Record<string, Object> = root;

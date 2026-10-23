@@ -694,7 +694,7 @@ export struct ReaderPage {
         })
           .enabled(!this.reloadingChapter && !this.onlineTextLoading)
           .bindSheet($$this.showSourceSwitch, this.buildSourceSwitchSheet(), {
-            height: '82%', preferType: SheetType.BOTTOM, showClose: true,
+            height: '82%', detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM, showClose: true,
             backgroundColor: AppMaterial.SheetBackground,
             blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick
           })
@@ -1861,7 +1861,7 @@ export struct ReaderPage {
   @Builder
   readerTabStyle(icon: Resource, label: Resource) {
     Column() {
-      SymbolGlyph(icon).fontSize(24).fontColor([this.palette.primary])
+      SymbolGlyph(icon).fontSize(24).fontColor([$r('sys.color.font_primary')])
         .accessibilityText(label)
     }.width('100%').height(48).justifyContent(FlexAlign.Center)
   }
@@ -1926,7 +1926,7 @@ export struct ReaderPage {
       barWidth: { smallWidth: width, mediumWidth: width, largeWidth: width },
       barSideMargin: 0,
       barBottomMargin: 0,
-      gradientMask: { maskColor: Color.Transparent, maskHeight: 56 },
+      gradientMask: { maskColor: Color.Transparent, maskHeight: 44 },
       systemMaterialEffect: HdsCompat.adaptiveMaterial,
       adaptToHandedness: false
     };
@@ -1936,15 +1936,15 @@ export struct ReaderPage {
   buildChapterBarContent(): void {
     Row() {
       Row() {
-        SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(20).fontColor([this.palette.primary])
-      }.width(44).height(48).justifyContent(FlexAlign.Center)
+        SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(20).fontColor([$r('sys.color.font_primary')])
+      }.width(44).height(44).justifyContent(FlexAlign.Center)
         .accessibilityText($r('app.string.reader_previous_chapter'))
         .opacity(this.canSwitchChapter(false) ? 1 : 0.35).enabled(this.canSwitchChapter(false))
         .onClick((): void => { this.jumpToResourceIndex(this.adjacentChapterIndex(false), true); })
       Slider({ value: this.chapterSliderIndex(), min: 0,
         max: Math.max(1, (this.book?.chapters.length ?? 0) - 1), step: 1, style: SliderStyle.OutSet })
-        .layoutWeight(1).height(48).trackThickness(6).blockSize({ width: 16, height: 16 })
-        .selectedColor(AppColor.Brand).trackColor(this.palette.divider).blockColor(this.palette.background)
+        .layoutWeight(1).height(44).trackThickness(6).blockSize({ width: 16, height: 16 })
+        .selectedColor(AppColor.Brand).trackColor($r('sys.color.comp_divider')).blockColor($r('sys.color.font_primary'))
         .showSteps(false).enabled(this.canSwitchChapter(false) || this.canSwitchChapter(true))
         .accessibilityText($r('app.string.reader_chapters'))
         .onChange((value: number, mode: SliderChangeMode): void => { this.changeChapterSlider(value, mode); })
@@ -1955,18 +1955,18 @@ export struct ReaderPage {
           }
         })
       Row() {
-        SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([this.palette.primary])
-      }.width(44).height(48).justifyContent(FlexAlign.Center)
+        SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([$r('sys.color.font_primary')])
+      }.width(44).height(44).justifyContent(FlexAlign.Center)
         .accessibilityText($r('app.string.reader_next_chapter'))
         .opacity(this.canSwitchChapter(true) ? 1 : 0.35).enabled(this.canSwitchChapter(true))
         .onClick((): void => { this.jumpToResourceIndex(this.adjacentChapterIndex(true), true); })
     }.width(Math.max(1, (this.readerViewportWidthVp - this.leftSafeVp - this.rightSafeVp) * 0.84))
-      .height(48).padding({ left: 4, right: 4 })
+      .height(44).padding({ left: 4, right: 4 })
   }
 
   @Builder
   chapterMaterialContent() {
-    Row().width('100%').height(56)
+    Row().width('100%').height(44)
   }
 
   @Builder
@@ -1975,15 +1975,15 @@ export struct ReaderPage {
       if (PlatformCompat.floatingTabs) {
         HdsTabs() {
           TabContent() {}.tabBar(this.chapterMaterialContent())
-        }.width(this.readerControlWidthVp()).height(56).barPosition(BarPosition.End).barMode(BarMode.Fixed)
-          .barOverlap(true).scrollable(false)
-          .attributeModifier(new CompatibleTabsModifier(this.chapterBarFloatingStyle(), 48))
+        }.width(this.readerControlWidthVp()).height(44).barPosition(BarPosition.End).barMode(BarMode.Fixed)
+          .barHeight(44).barOverlap(true).scrollable(false)
+          .attributeModifier(new CompatibleTabsModifier(this.chapterBarFloatingStyle(), 44))
           .barBackgroundColor(Color.Transparent)
-          .backgroundColor(Color.Transparent).borderRadius(28, RenderStrategy.OFFSCREEN).clip(true)
+          .backgroundColor(Color.Transparent).borderRadius(22, RenderStrategy.OFFSCREEN).clip(true)
           .onContentWillChange((): boolean => false).hitTestBehavior(HitTestMode.None)
       } else {
         Row() {}
-          .width(this.readerControlWidthVp()).height(56).borderRadius(28).backgroundColor(this.palette.scrim)
+          .width(this.readerControlWidthVp()).height(44).borderRadius(22).backgroundColor($r('sys.color.comp_background_primary'))
           .padding({ left: this.leftSafeVp + 12, right: this.rightSafeVp + 12 })
       }
       this.buildChapterBarContent()
@@ -1998,7 +1998,7 @@ export struct ReaderPage {
           .justifyContent(FlexAlign.Center).backgroundColor(this.palette.isDark ? '#E63A3C40' : '#D94B4D52')
           .translate({ y: -52 }).hitTestBehavior(HitTestMode.None)
       }
-    }.width('100%').height(56)
+    }.width('100%').height(44)
       .margin({ bottom: READER_BAR_HEIGHT + Math.max(this.bottomSafeVp, READER_MIN_SAFE_BOTTOM) + 8 })
   }
 
@@ -2331,14 +2331,14 @@ export struct ReaderPage {
     Stack({ alignContent: Alignment.Bottom }) {
       Column().width(0).height(0)
         .bindSheet($$this.showBookmarkSheet, this.buildBookmarkSheet(), {
-          height: '82%', preferType: SheetType.BOTTOM, showClose: true,
+          height: '82%', detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM, showClose: true,
           backgroundColor: AppMaterial.SheetBackground,
           blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick,
           onDisappear: (): void => { this.showBookmarkSheet = false; if (!this.leaving) this.showReaderBar(); }
         })
       Column().width(0).height(0)
         .bindSheet($$this.showReplaceSheet, this.buildReplaceSheet(), {
-          height: '90%', preferType: SheetType.BOTTOM, showClose: true,
+          height: '90%', detents: ['90%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM, showClose: true,
           backgroundColor: AppMaterial.SheetBackground,
           blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick,
           onDisappear: (): void => { this.showReplaceSheet = false; if (!this.leaving) this.showReaderBar(); }
@@ -2353,7 +2353,7 @@ export struct ReaderPage {
       })
         // 每个弹层使用独立宿主；同一节点连续 bindSheet 会覆盖前一个绑定。
         .bindSheet($$this.showSpeechSheet, this.buildSpeechSheet(), {
-          height: '82%', preferType: SheetType.BOTTOM, showClose: false,
+          height: '82%', detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM, showClose: false,
           backgroundColor: AppMaterial.SheetBackground,
           maskColor: Color.Transparent,
           blurStyle: AppMaterial.ReaderSheetBlur,
@@ -2415,7 +2415,7 @@ export struct ReaderPage {
         .height('100%')
         .bindSheet($$this.showSettingsSheet, this.buildSettingsSheet(), {
           height: '82%',
-          preferType: SheetType.BOTTOM,
+          detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM,
           showClose: false,
           backgroundColor: AppMaterial.SheetBackground,
           maskColor: Color.Transparent,
@@ -2445,7 +2445,7 @@ export struct ReaderPage {
     .height('100%')
     .bindSheet($$this.showChapterSheet, this.buildChapterSheet(), {
       height: SheetSize.LARGE,
-      preferType: SheetType.BOTTOM,
+      detents: [SheetSize.LARGE, '45%', '70%'], dragBar: true, preferType: SheetType.BOTTOM,
       showClose: false,
       backgroundColor: AppMaterial.SheetBackground,
       maskColor: Color.Transparent,

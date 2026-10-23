@@ -9,7 +9,8 @@ const root = path.resolve(__dirname, '../entry/src/main/ets');
 const compile = code => ts.transpileModule(code, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
 }).outputText;
-const scope = { exports: {}, ComicPage: class {}, PreferenceService: { getPreloadChapters: async () => 1 } };
+const scope = { exports: {}, ComicPage: class {}, PreferenceService: { getPreloadChapters: async () => 1 },
+  ComicScrollLayoutFrame: class { constructor(callback) { this.callback = callback; } } };
 const data = fs.readFileSync(path.join(root, 'service/ComicScrollDataSource.ets'), 'utf8').replace(/^import .*;\r?\n/gm, '');
 vm.runInNewContext(compile(data), scope);
 Object.assign(scope, scope.exports);
@@ -26,7 +27,7 @@ function method(name, text = source) {
   }
   return text.slice(start, end);
 }
-vm.runInNewContext(compile(`class Continuous { ${['loadNeighbor', 'reportPosition', 'visibleChanged', 'trimChapters']
+vm.runInNewContext(compile(`class Continuous { ${['loadNeighbor', 'reportPosition', 'visibleChanged', 'trimChapters', 'turnFromKey']
   .map(name => method(name)).join('\n')} }\nglobalThis.Continuous = Continuous;`), scope);
 const parentSource = fs.readFileSync(path.join(root, 'pages/ComicReaderPage.ets'), 'utf8');
 vm.runInNewContext(compile(`class Parent { ${method('onScrollPosition', parentSource)} }
@@ -125,5 +126,25 @@ function reader(index = 2, descending = false) {
   noPreload.scroller.isAtEnd = () => true;
   await noPreload.loadNeighbor(true);
   assert.equal(noPreload.source.totalCount(), 12, 'disabled prefetch still permits boundary continuation');
+  const keyReader = reader();
+  const turns = [], frames = [];
+  keyReader.getUIContext = () => ({ postFrameCallback: frame => frames.push(frame) });
+  keyReader.scroller.scrollPage = options => turns.push(options.next);
+  await keyReader.turnFromKey(true);
+  await keyReader.turnFromKey(false);
+  assert.deepEqual(turns, [true, false], 'long images move by viewport, without skipping to another image');
+  keyReader.scroller.isAtEnd = () => true;
+  await keyReader.turnFromKey(true);
+  assert.equal(keyReader.source.totalCount(), 12, 'volume down appends next chapter even with prefetch off');
+  assert.equal(turns.length, 2, 'wait for layout before scrolling appended content');
+  frames.shift().callback();
+  assert.deepEqual(turns, [true, false, true]);
+  await keyReader.turnFromKey(true);
+  keyReader.serial++;
+  frames.shift().callback();
+  assert.equal(turns.length, 3, 'stale layout callback cannot scroll after reset');
+  keyReader.disposed = true;
+  await keyReader.turnFromKey(false);
+  assert.equal(turns.length, 3, 'leaving reader stops key scrolling');
   console.log('comic continuous: append/prepend anchors, chapter progress/order, request isolation, retry, trimming and disabled prefetch passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

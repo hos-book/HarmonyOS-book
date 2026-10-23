@@ -19,8 +19,10 @@ function load(relative, modules = {}) {
 const model = load('model/Ranking.ets');
 const json = load('service/builtin/JsonValue.ets');
 const fanqieText = load('service/ranking/FanqieRankingText.ets');
+const metadataPolicy = load('utils/BookMetadataPolicy.ts');
 const parser = load('service/ranking/RankingParser.ets', {
-  '../../model/Ranking': model, '../builtin/JsonValue': json, './FanqieRankingText': fanqieText
+  '../../model/Ranking': model, '../builtin/JsonValue': json, './FanqieRankingText': fanqieText,
+  '../../utils/BookMetadataPolicy': metadataPolicy
 });
 const { RankingParser } = parser;
 const identity = load('utils/BookIdentity.ets');
@@ -54,12 +56,27 @@ function result(source, name = '夜无疆', type = 'text') {
 }
 const qidian = '<a href="//m.qidian.com/book/123/" class="_bookItem_x"><img data-src="//bookcover.yuewen.com/qdbimg/349573/123/180"><h2 class="_title_x">夜无疆</h2><p class="_bookDesc_x">风起&amp;云涌</p><p class="_subTitle_x">辰东 <em>·</em> 玄幻</p></a>';
 (async () => {
+  const { BookMetadataPolicy: metadata } = metadataPolicy;
+  for (const value of [undefined, '', '暂无', 'NaN', NaN, Infinity, -1, 0, 11, '9.5万人']) {
+    assert.equal(metadata.rating(value), 0, `missing/invalid rating: ${value}`);
+  }
+  assert.equal(metadata.rating('9.5分'), 9.5);
+  assert.equal(metadata.rating(undefined, '玄幻 | 评分：9.8 | 连载中'), 9.8);
+  assert.equal(metadata.rating(undefined, '悬疑,9.2分'), 9.2);
+  assert.equal(metadata.rating(undefined, '19.8分'), 0);
+  assert.equal(metadata.rating(undefined, '热度9.8万'), 0);
+  assert.equal(metadata.completed(''), undefined);
+  assert.equal(metadata.completed('未知'), undefined);
+  assert.equal(metadata.completed('未完结'), false);
+  assert.equal(metadata.completed('已完结'), true);
+  assert.deepEqual(Array.from(metadata.categories('玄幻|暂无|audio|连载中|玄幻|评分：9.8|热血')), ['玄幻', '热血']);
   const qd = RankingParser.parse('qidian', 'qd-month', qidian + qidian);
   assert.equal(qd.length, 1, 'duplicate entries are removed without changing ranks');
   assert.equal(qd[0].author, '辰东');
   assert.equal(qd[0].intro, '风起&云涌');
   assert.equal(qd[0].contentType, 'text');
   assert.equal(qd[0].coverUrl, 'https://bookcover.yuewen.com/qdbimg/349573/123/600');
+  assert.equal(qd[0].rating, 0, 'no rating stays absent rather than using rank');
   assert.equal(RankingParser.parse('qidian', 'qd-month', '<script>challenge()</script>').length, 0);
   const page = records => '<script id="vite-plugin-ssr_pageContext" type="application/json">' +
     JSON.stringify({ pageContext: { pageProps: { pageData: { records } } } }) + '</script>';
@@ -71,6 +88,7 @@ const qidian = '<a href="//m.qidian.com/book/123/" class="_bookItem_x"><img data
     { bid: 'javascript:bad', bName: '非法', state: '完本' }
   ];
   const finished = RankingParser.parse('qidian', 'qd-finished', page(completeRecords) + qidian);
+  assert.equal(RankingParser.parse('qidian', 'qd-month', page([{ bid: 88, bName: '评分书', score: '9.2' }]))[0].rating, 9.2);
   assert.deepEqual(Array.from(finished, book => book.id), ['qidian:100', 'qidian:102']);
   assert.deepEqual(Array.from(finished, book => book.rank), [1, 3], 'keep source order when filtering records');
   assert.equal(finished[0].author, '作者甲');
@@ -85,14 +103,18 @@ const qidian = '<a href="//m.qidian.com/book/123/" class="_bookItem_x"><img data
   assert.equal(RankingParser.parse('qidian', 'qd-month', 'x'.repeat(2 * 1024 * 1024 + 1)).length, 0);
   const lr = RankingParser.parse('lrts', 'lr-hot', '<li class="book-item"><a href="/book/42"><img src="https://bookpic.lrts.me/42.png"></a><a class="book-item-name">夜无疆|多人有声剧</a><a class="author">辰东</a>主播：<a>演播甲</a><p class="book-item-desc weaken">简介</p></li>');
   assert.equal(lr[0].narrator, '演播甲');
+  const ratedAudio = RankingParser.parse('lrts', 'lr-hot',
+    '<li class="book-item"><a href="/book/43"></a><a class="book-item-name">评分有声书</a><span class="score">8.6</span></li>');
+  assert.equal(ratedAudio[0].rating, 8.6);
   assert.equal(BookMatchService.keyword(lr[0]), '夜无疆');
   assert.equal(BookMatchService.score(qd[0], { ...result({ bookSourceUrl: 'a' }), name: '另一本书' }), 0,
     'same author must not cause an unrelated book to match');
   const xm = JSON.stringify({ ret: 200, data: { freeAlbumRank: { rankListInfo: [
-    { id: 1, albumTitle: '夜无疆', anchorName: '主播乙', cover: '//imagev2.xmcdn.com/1.jpg' },
+    { id: 1, albumTitle: '夜无疆', anchorName: '主播乙', cover: '//imagev2.xmcdn.com/1.jpg', albumScore: 9.6 },
     { id: 1, albumTitle: 'duplicate' }, { id: 'bad' }
   ] } } });
   assert.equal(RankingParser.parse('ximalaya', 'xm-free', xm).length, 1);
+  assert.equal(RankingParser.parse('ximalaya', 'xm-free', xm)[0].rating, 9.6);
   assert.equal(RankingParser.parse('ximalaya', 'xm-free', '{"ret":400}').length, 0);
 
   const v3 = albums => JSON.stringify({ ret: 200, data: { rankList: [
@@ -135,6 +157,7 @@ const qidian = '<a href="//m.qidian.com/book/123/" class="_bookItem_x"><img data
   ] }));
   assert.equal(fqHot[0].title, '我不是戏神', 'the existing plain-text hot endpoint stays supported');
   assert.equal(fqHot[0].intro, '都市高武');
+  assert.equal(BookMatchService.toBook({ ...result({bookSourceUrl:'source'}), rating: 8.7 }, 'text').rating, 8.7);
 
   const vip = RankingParser.parse('jjwxc', 'jj-vip', '<tr><td><a href="onebook.php?novelid=123">强推书</a></td><td><a href="oneauthor.php?authorid=45">作者</a></td></tr>');
   assert.equal(vip[0].title, '强推书');

@@ -26,6 +26,27 @@ function load() {
 }
 (async () => {
   const service = load();
+  assert.equal(await service.getComicVolumeKeyPageTurn(), false, 'volume keys default off');
+  assert.equal(await service.getComicReadingMode(), 0);
+  assert.equal(await service.getComicChapterBar(false), false, 'migrate the former shared chapter bar once');
+  assert.equal(await load().getComicChapterBar(true), false, 'later novel changes cannot alter comic controls');
+  await service.setComicVolumeKeyPageTurn(true);
+  await service.setComicReadingMode(3);
+  await service.setComicChapterBar(true);
+  const otherComic = load();
+  assert.equal(await otherComic.getComicVolumeKeyPageTurn(), true, 'reopen and other comics share volume preference');
+  assert.equal(await otherComic.getComicReadingMode(), 3, 'reading mode is global across comics');
+  assert.equal(await otherComic.getComicChapterBar(), true);
+  await otherComic.setComicVolumeKeyPageTurn(false);
+  assert.equal(await load().getComicVolumeKeyPageTurn(), false, 'disabling is persisted too');
+  failFlush = true;
+  await assert.rejects(service.setComicVolumeKeyPageTurn(true));
+  await assert.rejects(service.setComicReadingMode(1));
+  await assert.rejects(service.setComicChapterBar(false));
+  assert.equal(await load().getComicVolumeKeyPageTurn(), false);
+  assert.equal(await load().getComicReadingMode(), 3);
+  assert.equal(await load().getComicChapterBar(), true);
+  failFlush = false;
   assert.equal(await service.getComicBrightnessBar(), true);
   assert.equal(await service.getComicBrightness(), -1);
   await service.setComicBrightnessBar(false);
@@ -51,5 +72,5 @@ function load() {
   failFlush = false;
   await service.setAdaptiveHandedness(true);
   assert.equal(state.adaptiveHandedness, true);
-  console.log('PASS: comic brightness defaults, reload, isolation, normalization and handedness save/rollback');
+  console.log('PASS: comic global mode/volume/controls, defaults, migration, reload, isolation and save rollback; brightness and handedness');
 })().catch(error => { console.error(error); process.exitCode = 1; });

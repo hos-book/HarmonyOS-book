@@ -1669,25 +1669,25 @@ export struct FavoritePage {
 
       Column().width(0).height(0)
         .bindSheet($$this.showBookEditor, this.buildBookEditor(), {
-          height: '85%', showClose: true, backgroundColor: AppMaterial.SheetBackground,
+          height: '85%', detents: ['85%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, dragBar: true, showClose: true, backgroundColor: AppMaterial.SheetBackground,
           blurStyle: AppMaterial.SheetBlur, systemMaterial: AppMaterial.Sheet
         })
       Column().width(0).height(0)
         .bindSheet($$this.showBatchGroup, this.buildBatchGroupSheet(), {
-          height: '65%', showClose: true, backgroundColor: AppMaterial.SheetBackground,
+          height: '65%', detents: ['65%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, dragBar: true, showClose: true, backgroundColor: AppMaterial.SheetBackground,
           blurStyle: AppMaterial.SheetBlur, systemMaterial: AppMaterial.Sheet,
           onWillDismiss: (action: DismissSheetAction): void => { if (!this.removingBook) action.dismiss(); }
         })
       Column().width(0).height(0)
         .bindSheet($$this.groupManagerVisible, this.buildGroupManager(), {
-          height: '65%', showClose: true, backgroundColor: AppMaterial.SheetBackground,
+          height: '65%', detents: ['65%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, dragBar: true, showClose: true, backgroundColor: AppMaterial.SheetBackground,
           blurStyle: AppMaterial.SheetBlur,
           systemMaterial: PlatformCompat.immersiveMaterial ? AppMaterial.Sheet : undefined,
           onWillDismiss: (action: DismissSheetAction): void => { if (!this.savingGroups) action.dismiss(); }
         })
       Column().width(0).height(0)
         .bindSheet($$this.showUpdates, this.buildUpdatesSheet(), {
-          height: '72%', preferType: SheetType.BOTTOM, showClose: true, dragBar: true,
+          height: '72%', detents: ['72%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, showClose: true, dragBar: true,
           backgroundColor: AppMaterial.SheetBackground, blurStyle: AppMaterial.SheetBlur,
           systemMaterial: AppMaterial.Sheet,
           onDisappear: (): void => {
@@ -1711,7 +1711,7 @@ export struct FavoritePage {
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     .bindSheet($$this.showBatchDelete, this.buildBatchDeleteSheet(), {
       height: SheetSize.FIT_CONTENT,
-      preferType: SheetType.BOTTOM,
+      detents: [SheetSize.FIT_CONTENT, '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
       showClose: false,
       dragBar: true,
       backgroundColor: AppMaterial.SheetBackground,

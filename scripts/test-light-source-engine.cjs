@@ -157,8 +157,8 @@ async function run() {
     evaluate: async script => vm.runInNewContext(script, {}, {timeout:5000})
   };
   const source = { bookSourceUrl: 'https://engine.test', bookSourceName: 'Engine', bookSourceType: 0,
-    searchUrl: '/search', ruleSearch: { bookList: '$.books', name: '$.name', bookUrl: '$.url' },
-    ruleBookInfo: { name: '$.name', author: '$.author', tocUrl: '$.toc' },
+    searchUrl: '/search', ruleSearch: { bookList: '$.books', name: '$.name', bookUrl: '$.url', kind: '$.kind' },
+    ruleBookInfo: { name: '$.name', author: '$.author', tocUrl: '$.toc', kind: '$.kind' },
     ruleToc: { chapterList: '$.chapters', chapterName: '$.name', chapterUrl: '$.url' },
     ruleContent: { content: '$.text' } };
   const { LocalRuleSourceImportParser: parser } = load('service/rulesource/LocalRuleSourceImportParser');
@@ -171,14 +171,18 @@ async function run() {
   assert.equal(new AnalyzeRule('<div id="x"><b>Hi</b></div>').getString('#x@html'), '<div id="x"><b>Hi</b></div>');
   assert.equal(new AnalyzeRule('{"items":[{"n":"a"},{"n":"b"}]}').getString('$.items[*].n'), 'a\nb');
   assert.equal(new LightSourceImport().parseBookSource({ ...source, ruleContent: { ...source.ruleContent, images: '$.images' } }).contentRule.images, '$.images');
-  fixtures.set('https://engine.test/search', '{"books":[{"name":"Book","url":"/book"}]}');
-  fixtures.set('https://engine.test/book', '{"name":"Book","author":"Author","toc":"/toc"}');
+  fixtures.set('https://engine.test/search', '{"books":[{"name":"Book","url":"/book","kind":"玄幻|评分：9.2"}]}');
+  fixtures.set('https://engine.test/book', '{"name":"Book","author":"Author","toc":"/toc","kind":"玄幻|评分：9.6"}');
   fixtures.set('https://engine.test/toc', '{"chapters":[{"name":"One","url":"/chapter"}]}');
   fixtures.set('https://engine.test/chapter', '{"text":"chapter text"}');
   const search = JSON.parse(await engine.search(JSON.stringify(local), 'Book', 1));
   assert.equal(search[0].bookUrl, 'https://engine.test/book');
+  assert.equal(search[0].rating, 9.2);
+  assert.equal(search[0].completed, undefined, 'unknown status must remain absent');
   const detail = JSON.parse(await engine.detail(JSON.stringify(local), search[0].bookUrl, '{}'));
   assert.equal(detail.author, 'Author');
+  assert.equal(detail.rating, 9.6);
+  assert.equal(detail.completed, undefined, 'detail must not invent completion status');
   const toc = JSON.parse(await engine.toc(JSON.stringify(local), detail.tocUrl, JSON.stringify({ bookUrl: search[0].bookUrl })));
   assert.equal(toc[0].url, 'https://engine.test/chapter');
   assert.equal(toc[0].variables.chapterName, 'One');

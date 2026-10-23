@@ -13,7 +13,8 @@ import type { NativeScriptEngine } from './NativeScriptHost';
 import type { NativeBrowserResult } from './NativeSourceInteraction';
 import type { NativeExprHost, NativeScriptLibrary, NativeValue } from './NativeExpr';
 import type {
-  NativeActionSpec, NativeVarSpec, NativeCommentsSpec, NativeContentSpec, NativeFetchSpec, NativeMenuSpec, NativeRequestSpec,
+  NativeActionSpec, NativeVarSpec, NativeCommentsSpec, NativeContentSpec, NativeDynamicMenuSpec, NativeFetchSpec, NativeMenuSpec,
+  NativeRequestSpec,
   NativeSourceDefinition, NativeStageSpec, NativeTocSpec
 } from './NativeSourceSpec';
 
@@ -248,7 +249,7 @@ const BOOK_FIELD_NAMES = ['name', 'author', 'kind', 'intro', 'coverUrl', 'wordCo
   'status', 'bookUrl', 'tocUrl', 'type'];
 const CHAPTER_FIELD_NAMES = ['title', 'url', 'isVip', 'isPay', 'isVolume', 'tag'];
 const STAGE_NAMES: Record<string, string> = {
-  '搜索': 'search', '发现': 'explore', '详情': 'detail', '目录': 'toc', '正文': 'content'
+  '搜索': 'search', '发现': 'explore', '详情': 'detail', '目录': 'toc', '正文': 'content', '发现分类': 'menus'
 };
 const MENU_ITEM = 'native:item:';
 const MAX_TOC_PAGES = 1000;
@@ -541,29 +542,73 @@ export class NativeSourceRunner {
       if (!title) continue;
       entries.push({ title: title, target: menu.url ? `${MENU_STATIC}${i}` : '' });
     }
-    const dynamic = explore.dynamicMenus;
-    if (dynamic) {
-      const request = (await this.buildRequest(dynamic, scope, ''));
+    const dynamic = explore.dynamicMenus ? NativeSourceRunner.scriptedMenus(explore.dynamicMenus) : undefined;
+    if (dynamic && dynamic.script) {
+      // 脚本分类：函数的返回值当作页面，之后的 list、title、target 照常求值。
+      let page: StagePage | null = null;
+      try {
+        page = await this.loadScriptStage(dynamic, scope, '发现分类');
+      } catch (e) {
+        if (entries.length === 0) throw e;
+      }
+      if (page) {
+        // 返回的是“名称::地址”文本（与兼容书源的 exploreUrl 相同）时，拆成分类数组。
+        if (!(explore.dynamicMenus && explore.dynamicMenus.list) && page.scope.get('data') === null) {
+          page.scope.set('__items', NativeSourceRunner.menuTextItems(NativeExpr.toText(page.scope.get('body'))));
+        }
+        await this.readMenuItems(dynamic, page.scope, page.baseUrl, entries);
+      }
+    } else if (dynamic) {
+      const request = await this.buildRequest(dynamic, scope, '');
       if (request.url) {
         const response = await this.host.fetch(request);
         if (!response.ok || !response.body) {
           if (entries.length === 0) throw new NativeSourceError(this.describeFailure('发现分类', response));
         } else {
           const baseUrl = response.url || request.url;
-          const pageScope = this.responseScope(scope, response.body, baseUrl);
-          const items = (await this.listItems(dynamic.list, pageScope, baseUrl));
-          for (const item of items) {
-            const itemScope = pageScope.child().set('item', item);
-            const title = NativeExpr.toText((await this.value(dynamic.title, itemScope))).trim();
-            if (!title) continue;
-            // 目标地址里通常带页码，到真正打开分类时再渲染，这里只记下条目本身。
-            const hasTarget = NativeExpr.isTruthy((await this.value(dynamic.target, itemScope.child().set('page', 1))));
-            entries.push({ title: title, target: hasTarget ? MENU_ITEM + JSON.stringify(item) : '' });
-          }
+          await this.readMenuItems(dynamic, this.responseScope(scope, response.body, baseUrl), baseUrl, entries);
         }
       }
     }
     return entries;
+  }
+
+  private async readMenuItems(dynamic: NativeDynamicMenuSpec, pageScope: NativeScope, baseUrl: string,
+    entries: NativeMenuEntry[]): Promise<void> {
+    const items = await this.listItems(dynamic.list || '', pageScope, baseUrl);
+    for (const item of items) {
+      const itemScope = pageScope.child().set('item', item);
+      const title = NativeExpr.toText(await this.value(dynamic.title || '', itemScope)).trim();
+      if (!title) continue;
+      // 目标地址里通常带页码，到真正打开分类时再渲染，这里只记下条目本身。
+      const hasTarget = NativeExpr.isTruthy(await this.value(dynamic.target || '', itemScope.child().set('page', 1)));
+      entries.push({ title: title, target: hasTarget ? MENU_ITEM + JSON.stringify(item) : '' });
+    }
+  }
+
+  /** “名称::地址”文本按行或 && 分成分类；没有 :: 的是分组标题。 */
+  private static menuTextItems(text: string): NativeValue[] {
+    const items: NativeValue[] = [];
+    for (const part of text.split(/&&|\r?\n/)) {
+      const line = part.trim();
+      if (!line) continue;
+      const at = line.indexOf('::');
+      const title = (at < 0 ? line : line.substring(0, at)).trim();
+      const url = at < 0 ? '' : line.substring(at + 2).trim();
+      if (!title) continue;
+      items.push(url ? { title: title, url: url } : { title: title });
+    }
+    return items;
+  }
+
+  /** 脚本分类没写 list、title、target 时：返回数组的每项一条，按 title、url 取，url 里的 {{page}} 换成页码。 */
+  private static scriptedMenus(dynamic: NativeDynamicMenuSpec): NativeDynamicMenuSpec {
+    if (!dynamic.script) return dynamic;
+    return Object.assign({}, dynamic, {
+      list: dynamic.list || '= __items',
+      title: dynamic.title || '$.title',
+      target: dynamic.target || "= replaceText(str($.url ?? ''), '{{page}}', str(page))"
+    });
   }
 
   async explore(target: string, page: number = 1): Promise<NativeBookRecord[]> {
@@ -584,7 +629,8 @@ export class NativeSourceRunner {
       } catch (e) {
         item = null;
       }
-      url = NativeExpr.toText((await this.value(explore.dynamicMenus.target, scope.child().set('item', item))));
+      const dynamic = NativeSourceRunner.scriptedMenus(explore.dynamicMenus);
+      url = NativeExpr.toText(await this.value(dynamic.target || '', scope.child().set('item', item)));
       menuItem = item;
     }
     if (!url) throw new NativeSourceError('发现分类没有可用的地址');

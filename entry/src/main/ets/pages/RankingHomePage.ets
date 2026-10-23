@@ -3,6 +3,7 @@ import { RankingBoard, RankingBook, RankingPlatform } from '../model/Ranking';
 import { ImmersiveTabComponent } from '../components/ImmersiveTabComponent';
 import { FrameCallback, LengthMetrics } from '@kit.ArkUI';
 import { CoverImage } from '../components/CoverImage';
+import { BookRatingBadge } from '../components/BookRatingBadge';
 import { RankingPosterBackground } from '../components/RankingPosterBackground';
 import { AppColor, AppMaterial, HomeTheme, AppSpace, AppRadius } from '../theme/Theme';
 import { HdsCompat } from '../utils/HdsCompat';
@@ -47,6 +48,7 @@ const RANKING_SECTION_PEEK: number = 28;
 
 @ComponentV2
 struct RankingBookRow {
+  @Local ratingCoverWidth: number = 58;
   @Param book: RankingBook = new RankingBook();
   @Event onChoose: (book: RankingBook) => void = () => {};
 
@@ -55,10 +57,17 @@ struct RankingBookRow {
       Text(this.book.rank.toString().padStart(2, '0'))
         .fontSize(26).fontWeight(FontWeight.Medium).fontStyle(FontStyle.Italic)
         .fontColor(this.book.rank <= 3 ? AppColor.Brand : $r('sys.color.font_tertiary')).width(34)
+      Stack({ alignContent: Alignment.BottomEnd }) {
       CoverImage({ url: this.book.coverUrl, imgWidth: 58,
         aspectRatioValue: this.book.contentType === 'text' ? 0.75 : 1,
         useOriginalRatio: true, maxOriginalHeight: 78,
         radius: AppRadius.Sm, imageFit: ImageFit.Contain, decodeW: 174, decodeH: 234 })
+        BookRatingBadge({ rating: this.book.rating, coverWidth: this.ratingCoverWidth })
+      }
+      .onSizeChange((_oldSize: SizeOptions, newSize: SizeOptions): void => {
+        const width = Number(newSize.width);
+        if (width > 0) this.ratingCoverWidth = width;
+      })
       Column({ space: 7 }) {
         Text(this.book.title).fontSize(16).fontWeight(FontWeight.Medium)
           .fontColor($r('sys.color.font_primary')).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -152,6 +161,10 @@ struct RankingSection {
                   Text(book.rank.toString().padStart(2, '0')).fontSize(30).fontWeight(FontWeight.Bold)
                     .fontColor(Color.White).textShadow({ radius: 10, color: '#66000000', offsetY: 2 })
                     .margin({ left: 10, bottom: 7 })
+                  Row() {
+                    Blank()
+                    BookRatingBadge({ rating: book.rating, coverWidth: 152 })
+                  }.width(152).hitTestBehavior(HitTestMode.None)
                 }
                 Text(book.title).fontSize(14).fontWeight(FontWeight.Medium)
                   .fontColor($r('sys.color.font_primary')).maxLines(2).height(40)
@@ -264,7 +277,7 @@ export struct RankingHomePage {
   get posterDeckItems(): BookPosterItem[] {
     return this.posterItems.map((item: RankingPosterItem): BookPosterItem => new BookPosterItem(
       item.book.id, item.book.title, item.book.author || item.book.narrator, item.book.intro,
-      item.book.coverUrl, item.book.contentType === 'text' ? 0.75 : 1));
+      item.book.coverUrl, item.book.contentType === 'text' ? 0.75 : 1, item.book.rating));
   }
 
   private categoryScroller: Scroller = new Scroller();
@@ -1033,7 +1046,7 @@ export struct RankingHomePage {
       if (Number.isFinite(height) && height > 0) this.contentHeight = height;
     })
     .bindSheet($$this.showSheet, this.sheetContent(), {
-      height: '92%', preferType: SheetType.BOTTOM, showClose: true, dragBar: true,
+      height: '92%', detents: ['92%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, showClose: true, dragBar: true,
       backgroundColor: AppMaterial.SheetBackground, blurStyle: AppMaterial.SheetBlur, systemMaterial: AppMaterial.Sheet,
       onAppear: (): void => {
         const restoreOffset: number = this.matchOffset;

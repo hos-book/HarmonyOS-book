@@ -120,7 +120,7 @@ export class SourceSwitchSearch {
         BookIdentity.onlineAudioBookId(sourceUrl, result.bookUrl),
       contentType: kind, title: result.name, author: result.author, narrator: source.bookSourceName,
       cover: result.coverUrl, category: result.kind, intro: result.intro, totalDuration: 0,
-      chapterCount: 0, rating: 0, tags: [source.bookSourceName], chapters: [],
+      chapterCount: 0, rating: result.rating ?? 0, tags: [source.bookSourceName], chapters: [],
       bookUrl: result.bookUrl, sourceUrl, variables: result.variables
     };
     return book;

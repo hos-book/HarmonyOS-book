@@ -299,7 +299,7 @@ export struct ProfilePage {
       }
     }.width('100%').backgroundColor($r('sys.color.comp_background_primary')).borderRadius(AppRadius.Lg)
     .bindSheet($$this.showMembership, this.membershipSheet(), {
-      height: '90%', preferType: SheetType.BOTTOM, showClose: false, dragBar: false,
+      height: '90%', detents: ['90%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, showClose: false, dragBar: true,
       backgroundColor: '#EFEDE7'
     })
   }

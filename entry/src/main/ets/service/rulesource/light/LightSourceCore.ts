@@ -1,4 +1,5 @@
 import { BookSourceScriptRunner } from './upstream/core/book/BookSourceScriptRunner';
+import { BookMetadataPolicy } from '../../../utils/BookMetadataPolicy';
 import { BookSourceLoginWebRuntime } from './upstream/core/book/BookSourceLoginWebRuntime';
 import { LightSourceLogin } from './LightSourceLogin';
 import { BookSourceStageWebRuntime, StageWebRuntimeRequest } from './upstream/core/book/BookSourceStageWebRuntime';
@@ -153,7 +154,8 @@ export class LightSourceCore {
   private static result(item: SearchBook, source: BookSource): Object {
     const snapshot = this.snapshot(item);
     return { name: item.name, author: item.author, coverUrl: item.coverUrl, bookUrl: item.bookUrl,
-      intro: item.intro, kind: item.kind, lastChapter: item.latestChapterTitle, completed: /完结|完本|已完成|completed|finished/i.test(item.status || ''), wordCount: item.wordCount,
+      intro: item.intro, kind: item.kind, rating: BookMetadataPolicy.rating(undefined, item.kind),
+      lastChapter: item.latestChapterTitle, completed: BookMetadataPolicy.completed(item.status || ''), wordCount: item.wordCount,
       updateTime: item.updateTime, sourceName: source.bookSourceName, sourceUrl: source.bookSourceUrl,
       contentType: BookTypeSupport.isImage(item) ? 'comic' : BookTypeSupport.isAudio(item) ? 'audio' : 'text', mediaType: BookTypeSupport.isVideo(item) ? 'video' : BookTypeSupport.isImage(item) ? 'comic' : BookTypeSupport.isAudio(item) ? 'audio' : 'text', variables: {...JSON.parse(item.variable || '{}'), __lightBook:snapshot, __lightBookType:String(item.type || 0)} };
   }
@@ -415,8 +417,8 @@ export class LightSourceCore {
       const failure = LightSourceRuntime.getError(source);
       if (failure) throw new Error(failure);
       return JSON.stringify({ name: book.name, author: book.author, coverUrl: book.coverUrl, intro: book.intro,
-        kind: book.kind, wordCount: book.wordCount, lastChapter: book.latestChapterTitle,
-        tocUrl: book.tocUrl, completed: /完结|完本|已完成|completed|finished/i.test(book.status || ''), updateTime: book.updateTime, variables: {...JSON.parse(book.variable || '{}'),bookUrl:book.bookUrl,tocUrl:book.tocUrl,__lightBook:this.snapshot(book),__lightBookType:String(book.type || 0)} });
+        kind: book.kind, rating: BookMetadataPolicy.rating(undefined, book.kind), wordCount: book.wordCount, lastChapter: book.latestChapterTitle,
+        tocUrl: book.tocUrl, completed: BookMetadataPolicy.completed(book.status || ''), updateTime: book.updateTime, variables: {...JSON.parse(book.variable || '{}'),bookUrl:book.bookUrl,tocUrl:book.tocUrl,__lightBook:this.snapshot(book),__lightBookType:String(book.type || 0)} });
     });
   }
   static async toc(localJson: string, url: string, context: string): Promise<string> {

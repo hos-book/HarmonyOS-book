@@ -196,7 +196,8 @@ export class BookSourceService {
       if (info.intro.trim()) book.intro = info.intro;
       else if (['=.=','==', '暂无', '暂无简介', '暂无介绍', '无'].includes(book.intro.replace(/\s+/g, ''))) book.intro = '';
       if (info.kind.trim()) book.category = info.kind;
-      if (info.completed !== undefined) book.completed = info.completed;
+      if (info.rating !== undefined && info.rating > 0) book.rating = info.rating;
+      book.completed = info.completed;
       if (info.wordCount.trim()) book.wordCount = info.wordCount;
       if (info.lastChapter.trim()) book.latestChapterTitle = info.lastChapter;
       if (info.updateTime?.trim()) book.updateTime = info.updateTime;
@@ -630,7 +631,8 @@ export class BookSourceService {
       BookCoverPolicy.setDetail(value, info.coverUrl);
       if (info.intro.length > 0) value.intro = info.intro;
       if (info.kind.length > 0) value.category = info.kind;
-      if (info.completed !== undefined) value.completed = info.completed;
+      if (info.rating !== undefined && info.rating > 0) value.rating = info.rating;
+      value.completed = info.completed;
       if (info.wordCount.trim()) value.wordCount = info.wordCount;
       if (info.lastChapter.trim()) value.latestChapterTitle = info.lastChapter;
       if (info.updateTime?.trim()) value.updateTime = info.updateTime;

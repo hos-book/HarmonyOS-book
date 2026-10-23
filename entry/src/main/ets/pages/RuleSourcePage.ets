@@ -1324,7 +1324,7 @@ export struct RuleSourcePage {
       }.width('100%').height('100%')
       .bindSheet($$this.showImportPanel, this.buildImportSheet(), {
         height: SheetSize.LARGE,
-        showClose: true,
+        detents: [SheetSize.LARGE, '45%', '70%'], preferType: SheetType.BOTTOM, dragBar: true, showClose: true,
         onWillDismiss: (action: DismissSheetAction): void => {
           if (!this.isImporting) action.dismiss();
         }
@@ -1419,7 +1419,7 @@ export struct RuleSourcePage {
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     .bindSheet($$this.showTalebook, this.buildTalebookConnection(), {
       height: SheetSize.LARGE,
-      showClose: true,
+      detents: [SheetSize.LARGE, '45%', '70%'], preferType: SheetType.BOTTOM, dragBar: true, showClose: true,
       onWillDismiss: (action: DismissSheetAction): void => {
         if (!this.isImporting) action.dismiss();
       }

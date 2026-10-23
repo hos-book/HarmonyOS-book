@@ -28,7 +28,8 @@ function method(name) {
 }
 let now = 1000;
 const scope = { ...policyExports, TouchType, Date: { now: () => now }, Curve: { EaseInOut: 0 } };
-const handlers = ['onContentTap', 'contentTouch', 'turnPage', 'adjacent', 'canChange'].map(method).join('\n');
+const handlers = ['onContentTap', 'contentTouch', 'turnPage', 'adjacent', 'canChange',
+  'canUseVolumeKeys', 'syncVolumeKeys', 'handleVolumePageTurn'].map(method).join('\n');
 vm.runInNewContext(compile(`class ComicInput { ${handlers} }\nglobalThis.ComicInput = ComicInput;`), scope);
 function reader(mode = 1) {
   const r = new scope.ComicInput();
@@ -69,3 +70,44 @@ const dissolve = reader(3);
 touch(dissolve, TouchType.Down); now += 100; touch(dissolve, TouchType.Up);
 assert.equal(dissolve.pageIndex, 2, 'dissolve also starts on release');
 console.log('comic page input: immediate turn, no duplicate, center toolbar, hold/move/cancel and animation lock passed');
+
+const keys = reader();
+Object.assign(keys, { alive: true, foreground: true, readerVisible: true, volumeKeyPageTurn: false,
+  keyTurnRequest: 0, volumeKeys: { setEnabled(enabled, callback) { keys.subscribed = enabled; keys.keyCallback = callback; } } });
+keys.syncVolumeKeys();
+assert.equal(keys.subscribed, false);
+keys.volumeKeyPageTurn = true;
+keys.syncVolumeKeys();
+assert.equal(keys.subscribed, true);
+keys.keyCallback(true);
+assert.equal(keys.pageIndex, 2);
+keys.keyCallback(false);
+assert.equal(keys.pageIndex, 1);
+keys.chrome = true;
+assert.equal(keys.canUseVolumeKeys(), true, 'toolbar alone does not disable volume page turns');
+for (const field of ['busy', 'failed', 'showChapters', 'showSettings', 'showSourceSwitch',
+  'sheetPresented', 'chapterSliderDragging', 'chapterSliderConfirming']) {
+  keys[field] = true; keys.syncVolumeKeys();
+  assert.equal(keys.subscribed, false, field);
+  const count = keys.turns.length;
+  keys.keyCallback(true);
+  assert.equal(keys.turns.length, count, 'late callbacks must not turn behind overlays');
+  keys[field] = false;
+}
+for (const field of ['alive', 'foreground', 'readerVisible', 'volumeKeyPageTurn']) {
+  keys[field] = false; keys.syncVolumeKeys();
+  assert.equal(keys.subscribed, false, field);
+  keys[field] = true;
+}
+keys.mode = 0;
+keys.handleVolumePageTurn(true);
+assert.equal(keys.keyTurnRequest, 1);
+keys.handleVolumePageTurn(false);
+assert.equal(keys.keyTurnRequest, -2);
+keys.mode = 3;
+keys.handleVolumePageTurn(true);
+assert.equal(keys.pageIndex, 2, 'dissolve mode supports volume turns');
+keys.pageIndex = 3;
+keys.handleVolumePageTurn(true);
+assert.deepEqual(keys.chapters, [1], 'last image advances to the next chapter');
+console.log('PASS: comic volume keys default off, both directions/modes, chapter crossing and lifecycle/overlay subscription guards');

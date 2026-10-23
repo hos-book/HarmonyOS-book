@@ -786,7 +786,7 @@ export struct SearchPage {
       author: result.author || '未知',
       narrator: result.sourceName,
       cover: result.coverUrl || '',
-      category: result.kind || (contentType === 'comic' ? '漫画' : contentType === 'text' ? '电子书' : '有声书'),
+      category: result.kind || '',
       contentType,
       intro: result.intro || '',
       wordCount: result.wordCount,
@@ -794,7 +794,7 @@ export struct SearchPage {
       updateTime: result.updateTime,
       totalDuration: 0,
       chapterCount: 0,
-      rating: 0,
+      rating: result.rating ?? 0,
       tags: [result.sourceName],
       chapters: emptyChapters,
       bookUrl: result.bookUrl,
@@ -1432,7 +1432,7 @@ export struct SearchPage {
   build() {
     HdsNavDestination() {
       Column().width(0).height(0).bindSheet($$this.resultGroupVisible, this.buildResultGroup(), {
-        height: '82%', showClose: true, backgroundColor: AppMaterial.SheetBackground,
+        height: '82%', detents: ['82%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, dragBar: true, showClose: true, backgroundColor: AppMaterial.SheetBackground,
         blurStyle: AppMaterial.SheetBlur, systemMaterial: AppMaterial.Sheet,
         title: { title: $r('app.string.search_group_title') } })
 
@@ -1488,7 +1488,7 @@ export struct SearchPage {
     )
     .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
     .backgroundColor(HomeTheme.BgNeutral)
-    .bindSheet($$this.sourcePickerVisible, this.buildSourcePicker(), { height: '82%', showClose: true,
+    .bindSheet($$this.sourcePickerVisible, this.buildSourcePicker(), { height: '82%', detents: ['82%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, dragBar: true, showClose: true,
       backgroundColor: AppMaterial.SheetBackground, blurStyle: AppMaterial.SheetBlur,
       systemMaterial: AppMaterial.Sheet, title: { title: $r('app.string.search_selected_sources') } })
     .onShown(() => this.handlePageShown())

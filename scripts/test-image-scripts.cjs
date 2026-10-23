@@ -49,6 +49,7 @@ const fileIo = { OpenMode: { CREATE: 1, WRITE_ONLY: 2, TRUNC: 4 }, mkdirSync() {
     files.set(filename, Buffer.concat([files.get(filename), data.subarray(0, count)])); return count;
   }, closeSync(file) { handles.delete(file.fd); } };
 const stubs = {
+  'core/http/HttpClient': { HttpClient: { CANCELLED_ERROR: 'cancelled' } },
   '@ohos.file.fs': { default: fileIo }, '@kit.CryptoArchitectureKit': { cryptoFramework },
   '@kit.ArkTS': { util: { TextEncoder: class { encodeInto(text) { return new TextEncoder().encode(text); } } } }
 };
@@ -90,7 +91,8 @@ const http = { async executeBinary(request, limit) {
   downloaded++; afterDownload(); return { success: true, data: body };
 } };
 const source = { bookSourceUrl: 'fixture', jsLib: NativeSourceSpec.pack({
-  sourceFormat: 'native', js: 'function decode(input,ctx){if(ctx.index!==ctx.params.expected)throw Error("index");return input.subarray(2);}'
+  sourceFormat: 'native', name: 'fixture', url: 'https://fixture.test', search: { url: 'https://fixture.test', list: 'a', fields: { name: 'text', bookUrl: 'href' } }, content: { images: 'img', imageDecode: { script: 'decode' } },
+  js: 'function decode(input,ctx){if(ctx.index!==ctx.params.expected)throw Error("index");return input.subarray(2);}'
 }) };
 const url = options => 'https://images.test/page,' + JSON.stringify(options);
 async function materialize(options) { return ComicImagePipeline.materialize(http, source, url(options)); }
@@ -108,17 +110,18 @@ async function materialize(options) { return ComicImagePipeline.materialize(http
   body = image; options.decode.processPlainImages = false;
   options.headers.Referer += 'plain';
   await materialize(options); assert.equal(executions, before, 'ordinary image bypasses script by default');
-  source.jsLib = NativeSourceSpec.pack({ sourceFormat: 'native',
+  source.jsLib = NativeSourceSpec.pack({ sourceFormat: 'native', name: 'fixture', url: 'https://fixture.test', search: { url: 'https://fixture.test', list: 'a', fields: { name: 'text', bookUrl: 'href' } },
+    content: { images: 'img', imageDecode: { script: 'decode', processPlainImages: true } },
     js: 'async function decode(input,ctx){await Promise.resolve();input[31]=ctx.index;return input.buffer;}' });
   options.decode.processPlainImages = true;
   const plain = await materialize(options);
   assert.equal(files.get(plain)[31], 4); assert.equal(executions, before + 1);
-  source.jsLib = NativeSourceSpec.pack({ sourceFormat: 'native', js: 'function decode(){throw Error("decode failed")}' });
+  source.jsLib = NativeSourceSpec.pack({ sourceFormat: 'native', name: 'fixture', url: 'https://fixture.test', search: { url: 'https://fixture.test', list: 'a', fields: { name: 'text', bookUrl: 'href' } }, content: { images: 'img', imageDecode: { script: 'decode', processPlainImages: true } }, js: 'function decode(){throw Error("decode failed")}' });
   const count = files.size;
   await assert.rejects(materialize(options), /decode failed/); assert.equal(files.size, count);
-  source.jsLib = NativeSourceSpec.pack({ sourceFormat: 'native', js: 'function decode(){return new Uint8Array([1,2,3]);}' });
-  await assert.rejects(materialize(options), /有效图片/); assert.equal(files.size, count);
-  source.jsLib = NativeSourceSpec.pack({ sourceFormat: 'native', js: 'function decode(input){return input;}' });
+  source.jsLib = NativeSourceSpec.pack({ sourceFormat: 'native', name: 'fixture', url: 'https://fixture.test', search: { url: 'https://fixture.test', list: 'a', fields: { name: 'text', bookUrl: 'href' } }, content: { images: 'img', imageDecode: { script: 'decode', processPlainImages: true } }, js: 'function decode(){return new Uint8Array([1,2,3]);}' });
+  await assert.rejects(materialize(options), /图片格式/); assert.equal(files.size, count);
+  source.jsLib = NativeSourceSpec.pack({ sourceFormat: 'native', name: 'fixture', url: 'https://fixture.test', search: { url: 'https://fixture.test', list: 'a', fields: { name: 'text', bookUrl: 'href' } }, content: { images: 'img', imageDecode: { script: 'decode', processPlainImages: true } }, js: 'function decode(input){return input;}' });
   afterDownload = () => { cancelled = true; };
   await assert.rejects(materialize(options), /cancelled/); assert.equal(files.size, count);
   cancelled = false; afterDownload = () => {};
@@ -127,7 +130,7 @@ async function materialize(options) { return ComicImagePipeline.materialize(http
   body = Uint8Array.from([...Buffer.from(iv, 'hex'), ...encrypted]);
   const decoded = await materialize({ decode: { algorithm, key, ivPrefixBytes: 16 } });
   assert.deepEqual(files.get(decoded), Buffer.from(image));
-  await assert.rejects(materialize({ decode: { algorithm, key, iv, ivPrefixBytes: 16 } }), /前置 IV/);
+  await assert.rejects(materialize({ decode: { algorithm, key, iv, ivPrefixBytes: 16 } }), /不能同时设置 iv/);
   const script = `function decode(input){const encrypted=image.encrypt('${algorithm}',input,'${key}','${iv}');
     const decoded=image.decrypt('${algorithm}',encrypted,'${key}','${iv}');
     if(image.hash('SHA256',decoded).length!==32||image.hmac('SHA256',decoded,'${key}').length!==32)throw Error('hash');return decoded;}`;

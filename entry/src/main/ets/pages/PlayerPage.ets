@@ -1645,7 +1645,7 @@ export struct PlayerPage {
           .margin({ right: 8 })
           .enabled(!this.reloadingChapter && !this.playerState.isLoading)
           .bindSheet($$this.showSourceSwitch, this.buildSourceSwitchSheet(), {
-            height: '82%', preferType: SheetType.BOTTOM, showClose: true,
+            height: '82%', detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM, showClose: true,
             backgroundColor: AppMaterial.SheetBackground,
             blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick
           })
@@ -1990,7 +1990,7 @@ export struct PlayerPage {
       })
       .bindSheet($$this.showSpeedSheet, this.buildSpeedSheet(), {
         height: '55%',
-        preferType: SheetType.BOTTOM,
+        detents: ['55%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
         showClose: false,
         dragBar: true,
         backgroundColor: AppMaterial.SheetBackground,
@@ -2034,7 +2034,7 @@ export struct PlayerPage {
       .onClick(() => this.openSleepSheet())
       .bindSheet($$this.showSleepSheet, this.buildPlaybackSleepSheet(), {
         height: SheetSize.FIT_CONTENT,
-        preferType: SheetType.BOTTOM,
+        detents: [SheetSize.FIT_CONTENT, '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
         showClose: false,
         dragBar: true,
         backgroundColor: AppMaterial.SheetBackground,
@@ -2086,7 +2086,7 @@ export struct PlayerPage {
       })
       .bindSheet($$this.showSkipSheet, this.buildSkipSheet(), {
         height: '55%',
-        preferType: SheetType.BOTTOM,
+        detents: ['55%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
         showClose: false,
         dragBar: true,
         backgroundColor: AppMaterial.SheetBackground,
@@ -2117,7 +2117,7 @@ export struct PlayerPage {
       .onClick(() => this.openChapterList())
       .bindSheet($$this.showChapterList, this.buildChapterSheet(), {
         height: '80%',
-        preferType: SheetType.BOTTOM,
+        detents: ['80%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
         showClose: false,
         dragBar: true,
         backgroundColor: AppMaterial.SheetBackground,

@@ -133,17 +133,20 @@ test('API 20 polling and watchdogs are cleared when a download finishes', () => 
 function sessionFixture() {
   const sources = [];
   const pixels = [];
+  const opened = [];
+  const closed = [];
   let reads = 0;
   let gate = Promise.resolve();
   let failDecode = false;
   const read = async () => { reads++; await gate; return new ArrayBuffer(16); };
   const image = {
-    createImageSource() {
+    createImageSource(data) {
       const source = {
         released: 0,
         async createPixelMap() {
           if (failDecode) throw new Error('bad image');
-          const pixel = { released: 0, async release() { this.released++; } };
+          const pixel = { kind: new Uint8Array(data)[0] === 1 ? 'placeholder' : 'cover',
+            released: 0, async release() { this.released++; } };
           pixels.push(pixel); return pixel;
         },
         async release() { this.released++; }
@@ -159,6 +162,12 @@ function sessionFixture() {
     } },
     './SourceCoverService': { SourceCoverService: { isEncoded: () => false } },
     '@kit.PerformanceAnalysisKit': { hilog }, '@kit.ImageKit': { image },
+    '@kit.CoreFileKit': { fileIo: {
+      OpenMode: { READ_ONLY: 0 },
+      async open(path) { opened.push(path); return { fd: 7 }; },
+      async stat() { return { size: 16 }; },
+      async close(file) { closed.push(file.fd); }
+    } },
     '@kit.AVSessionKit': { avSession: { LoopMode: { LOOP_MODE_SEQUENCE: 0, LOOP_MODE_LIST: 1, LOOP_MODE_SINGLE: 2 } } },
     '@kit.NetworkKit': { http: {
       RequestMethod: { GET: 'GET' }, HttpDataType: { ARRAY_BUFFER: 2 },
@@ -166,8 +175,20 @@ function sessionFixture() {
     } },
     './CoverPrefetcher': { CoverPrefetcher: { loadOriginal: read } },
     './PlaybackCoordinator': { PlaybackCoordinator: { speechActive: false } }
-  });
-  return { service: Service.getInstance(), sources, pixels, reads: () => reads,
+  }, { $r: name => ({ id: name }) });
+  const service = Service.getInstance();
+  const displayed = {};
+  service.context = { resourceManager: { async getMediaContent() { return new Uint8Array([1]); } } };
+  service.session = {
+    async setAVMetadata(value) {
+      // The system artwork cache is independent of the title: omitted/undefined artwork
+      // does not prove that an old rendered image has been replaced.
+      for (const [key, field] of Object.entries(value)) {
+        if (field !== undefined) displayed[key] = field;
+      }
+    }
+  };
+  return { service, displayed, sources, pixels, opened, closed, reads: () => reads,
     block() { let resolve; gate = new Promise(done => { resolve = done; }); return resolve; },
     fail() { failDecode = true; } };
 }
@@ -186,10 +207,67 @@ test('overlapping metadata updates share one decoded cover', async () => {
   assert.equal(f.pixels[0].released, 1);
 });
 
+test('switching away from a failed source replaces stale system artwork before the next cover loads', async () => {
+  const f = sessionFixture();
+  const chapter = { id: 'chapter', title: 'chapter', duration: 0 };
+  const book = id => ({ id, title: id, author: 'author', cover: `https://cover.test/${id}.jpg` });
+  await f.service.updateMetadata(book('failed-source'), chapter);
+  const previous = f.displayed.mediaImage;
+  const unblock = f.block();
+  const switching = f.service.updateMetadata(book('next'), chapter);
+  await flush();
+  assert.equal(f.displayed.artist, 'next');
+  assert.notEqual(f.displayed.mediaImage, previous, 'the new title must never retain the previous book artwork');
+  assert.equal(f.displayed.mediaImage.kind, 'placeholder');
+  await f.service.updateMetadataDuration(120000);
+  assert.equal(f.displayed.mediaImage.kind, 'placeholder');
+  unblock();
+  await switching;
+  assert.equal(f.displayed.mediaImage.kind, 'cover');
+  assert.equal(f.displayed.duration, 120000);
+});
+
+test('a missing or broken next cover keeps explicit placeholder artwork, including metadata retry', async () => {
+  const f = sessionFixture();
+  const chapter = { id: 'chapter', title: 'chapter', duration: 0 };
+  const book = { id: 'first', title: 'first', author: 'author', cover: 'https://cover.test/first.jpg' };
+  await f.service.updateMetadata(book, chapter);
+  await f.service.updateMetadata({ ...book, id: 'missing', title: 'missing', cover: '' }, chapter);
+  assert.equal(f.displayed.mediaImage.kind, 'placeholder');
+  await f.service.updateMetadata(book, chapter);
+  const publish = f.service.session.setAVMetadata;
+  let failFirstPublish = true;
+  f.service.session.setAVMetadata = async value => {
+    if (failFirstPublish) { failFirstPublish = false; throw new Error('system update failed'); }
+    await publish(value);
+  };
+  f.fail();
+  await f.service.updateMetadata({ ...book, id: 'broken', title: 'broken', cover: 'https://cover.test/broken.jpg' }, chapter);
+  assert.equal(f.displayed.artist, 'broken');
+  assert.equal(f.displayed.mediaImage.kind, 'placeholder', 'failed image decode and retry must not retain old artwork');
+  await f.service.destroy();
+  assert.ok(f.pixels.every(pixel => pixel.released === 1));
+});
+
 test('failed image decoding releases its native ImageSource', async () => {
   const f = sessionFixture(); f.fail();
   assert.equal(await f.service.loadCover('https://cover.test/broken.jpg'), null);
   assert.equal(f.sources[0].released, 1);
+});
+
+test('source cache file URIs publish the new cover instead of going through rawfile resources', async () => {
+  const f = sessionFixture();
+  const chapter = { id: 'chapter', title: 'chapter', duration: 0 };
+  const book = { id: 'source-book', title: 'source book', author: 'author',
+    cover: 'file:///data/storage/el2/base/cache/source_covers/cover.img' };
+  await f.service.updateMetadata(book, chapter);
+  assert.equal(f.displayed.mediaImage.kind, 'cover');
+  assert.deepEqual(f.opened, ['/data/storage/el2/base/cache/source_covers/cover.img']);
+  assert.deepEqual(f.closed, [7]);
+  assert.equal(f.reads(), 0, 'the source has already downloaded the image');
+  f.fail();
+  assert.equal(await f.service.loadCover('file:///data/storage/el2/base/cache/source_covers/broken.img'), null);
+  assert.deepEqual(f.closed, [7, 7], 'failed decoding must also close the cover file');
 });
 
 test('a cover finishing after session destruction is released and not cached', async () => {
@@ -223,7 +301,8 @@ test('local placeholder reaches system metadata and a late image cannot replace 
   f.service.context = {};
   f.service.ensureReady = async () => true;
   f.service.session = { async setAVMetadata(value) { metadata.push({ ...value }); } };
-  f.service.loadCover = path => new Promise(resolve => loads.push({ path, resolve }));
+  f.service.loadCover = path => path === 'avsession://cover-placeholder'
+    ? Promise.resolve({ name: 'default placeholder' }) : new Promise(resolve => loads.push({ path, resolve }));
   const chapter = { id: 'chapter', title: 'chapter', duration: 0 };
   const book = { id: 'import_a', title: 'local title', author: 'local author', cover: '' };
   const first = f.service.updateMetadata(book, chapter);

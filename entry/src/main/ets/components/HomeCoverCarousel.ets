@@ -1,4 +1,5 @@
 import { SearchResult } from '../model/BookSource';
+import { BookMetadataPolicy } from '../utils/BookMetadataPolicy';
 import { BOOK_COVER_ASPECT_RATIO } from '../utils/CoverAspectRatio';
 import { BookPosterCarousel, BookPosterItem, BOOK_POSTER_HEIGHT } from './BookPosterCarousel';
 
@@ -17,7 +18,7 @@ export struct HomeCoverCarousel {
   get posterItems(): BookPosterItem[] {
     return this.books.map((book: SearchResult): BookPosterItem => new BookPosterItem(
       book.sourceUrl + '#' + book.bookUrl, book.name, book.author, book.intro, book.coverUrl,
-      BOOK_COVER_ASPECT_RATIO));
+      BOOK_COVER_ASPECT_RATIO, BookMetadataPolicy.rating(book.rating, book.kind)));
   }
 
   build() {

@@ -4,6 +4,12 @@
 
 ## 固定版本与维护边界
 
+### 公共包更新（2026-10-23）
+
+解析内核合并公共 main `5a3af77`，保留有界异步宿主后固定为 `a9fcf16`；应用辅助代码合并公共 main `8eec528`，固定为 `ddc22f9`。通过同步脚本迁入 83 个文件。新增动态分类脚本返回数组或“名称::地址”文本、图片脚本队列等待、内嵌图片缓存及图片解码配置一致性校验；保留简听取消、图片序号、20 MiB 限制与短写处理。适配提交仅保留在本地来源仓库，迁入源码随简听仓库提交。
+
+同步一致性检查、原生源 244 项断言、原生脚本 74 项断言、宿主端口、图片选项、简听引擎、图片脚本、漫画预取及网页等待回归通过。图片测试补齐有效书源定义与 JPEG 文件头，沿用真实图片解码器。Release SDK 26.0.0.105 增量 debug HAP 构建通过，产物为 Release、最低 API 20、目标 API 26；本次同步未重新执行实源导入、搜索、阅读和下载导出全链路实机验证。
+
 ### 公共包更新（2026-10-22）
 
 公共包 `main` 更新至 `2f60664`，保留已有异步宿主适配并增加图片二进制宿主端口，固定为本地 `5b3acba`；应用辅助代码更新至本地 `c8263a5`。通过既有脚本同步 83 个文件，分类独立列表/字段、封面请求头、图片密钥编码与前置 IV、图片脚本和地址字段诊断均已接入。本地适配提交未推送。
@@ -28,8 +34,8 @@
 
 | 来源 | 仓库 | 固定提交 | 本地工作区 |
 | --- | --- | --- | --- |
-| 解析内核 | `wip3l/harmony-book-source-engine` 的本地分支 `codex/jianting-native-js-host` | `5b3acba3b6d2d8368a2bc01c64a0301b83ee9ba0` | `D:\harmony-book-source-engine` |
-| 应用辅助代码 | `wip3l/legado-harmony` 的共同维护分支 `codex/sourceengine-host` | `c8263a501c2a9a4c4902182300fb4a529ffca7af` | `D:\legado-harmony-sourceengine-host` |
+| 解析内核 | `wip3l/harmony-book-source-engine` 的本地分支 `codex/jianting-native-js-host` | `a9fcf16bacf7124891edaaaf30c40428035cd50b` | `D:\harmony-book-source-engine` |
+| 应用辅助代码 | `wip3l/legado-harmony` 的共同维护分支 `codex/sourceengine-host` | `ddc22f9fd8760ae08930b0c04b605eada5536ee6` | `D:\legado-harmony-sourceengine-host` |
 
 应用辅助代码包含本地网页等待修复和图片管线接入，不假定上游公开仓库已有这些提交。精确版本、逐文件来源、原始路径和 SHA256 见 `third_party/light-source/upstream.json`（schemaVersion 2）。摘要统一按 LF 换行计算；生成文件的 upstreamSha256 对应抽取的方法或原始模板，generated 标记与 upstreamPath 共同记录出处。
 

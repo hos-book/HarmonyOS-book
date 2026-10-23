@@ -1,9 +1,24 @@
 import { RankingBook } from '../../model/Ranking';
+import { BookMetadataPolicy } from '../../utils/BookMetadataPolicy';
 import { JsonObj } from '../builtin/JsonValue';
 import { FanqieRankingText } from './FanqieRankingText';
 
 /** 只解析已经下载的公开榜单文本，不执行页面脚本。 */
 export class RankingParser {
+  private static rating(item: JsonObj): number {
+    return BookMetadataPolicy.rating(item.getString('rating')) ||
+      BookMetadataPolicy.rating(item.getString('score')) ||
+      BookMetadataPolicy.rating(item.getString('bookScore')) ||
+      BookMetadataPolicy.rating(item.getString('albumScore'));
+  }
+
+  private static htmlRating(html: string): number {
+    const value = /\bitemprop=["']ratingValue["'][^>]*\bcontent=["']([^"']+)["']/i.exec(html)?.[1]
+      ?? /\bitemprop=["']ratingValue["'][^>]*>([^<]+)/i.exec(html)?.[1]
+      ?? RankingParser.capture(html, /<(?:span|em|div)\b[^>]*class=["'][^"']*\b(?:score|rating|book-score)\b[^"']*["'][^>]*>([\s\S]*?)<\//i);
+    return BookMetadataPolicy.rating(value);
+  }
+
   static text(html: string): string {
     return html.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<')
       .replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
@@ -46,6 +61,7 @@ export class RankingParser {
       book.id = `${platform}:${platformBookId}`;
       book.platformId = platform;
       book.rank = books.length + 1;
+      book.rating = RankingParser.htmlRating(html);
       if (platform === 'qidian') {
         book.contentType = 'text';
         book.title = RankingParser.capture(html, /<h2\b[^>]*>([\s\S]*?)<\/h2>/);
@@ -92,6 +108,7 @@ export class RankingParser {
       book.coverUrl = RankingParser.imageUrl(item.getString(category ? 'thumbUri' : 'thumb_url'));
       book.originalUrl = `https://fanqienovel.com/page/${id}`;
       book.intro = RankingParser.fanqieText(item.getString(category ? 'abstract' : 'category'), category);
+      book.rating = RankingParser.rating(item);
       const rank = category ? item.getInt('currentPos') : 0;
       book.rank = rank > 0 ? rank : index + 1;
       seen.add(id);
@@ -123,6 +140,7 @@ export class RankingParser {
       book.coverUrl = RankingParser.imageUrl(image.replace(/^http:\/\/img\.faloo\.com\//, 'https://img.faloo.com/'));
       book.originalUrl = `https://b.faloo.com/${id}.html`;
       book.intro = RankingParser.capture(row, /<div class="TwoBox02_06">([\s\S]*?)<\/div>/);
+      book.rating = RankingParser.htmlRating(row);
       book.rank = books.length + 1;
       seen.add(id);
       books.push(book);
@@ -151,6 +169,7 @@ export class RankingParser {
         if (!book.title) continue;
         book.author = RankingParser.text(item.getString('bAuth'));
         book.intro = RankingParser.text(item.getString('desc'));
+        book.rating = RankingParser.rating(item);
         book.coverUrl = `https://bookcover.yuewen.com/qdbimg/349573/${id}/600`;
         book.originalUrl = `https://m.qidian.com/book/${id}/`;
         book.contentType = 'text';
@@ -202,6 +221,7 @@ export class RankingParser {
       book.originalUrl = `https://www.ximalaya.com/album/${id}`;
       book.contentType = 'audio';
       book.intro = RankingParser.text(item.getString('description'));
+      book.rating = RankingParser.rating(item);
       book.rank = index + 1;
       if (!book.title) continue;
       seen.add(id);
@@ -225,6 +245,7 @@ export class RankingParser {
       book.coverUrl = RankingParser.imageUrl(/<img\b[^>]*\bsrc="([^\"]+)"/.exec(row)?.[1] ?? '');
       book.intro = RankingParser.capture(row, /<span\b[^>]*class="s-book-intro"[^>]*>([\s\S]*?)<\/span>/);
       book.originalUrl = `https://www.qimao.com/shuku/${id}/`;
+      book.rating = RankingParser.htmlRating(row);
       book.rank = books.length + 1;
       if (!book.title) continue;
       seen.add(id);
