@@ -5,7 +5,9 @@ import { FrameCallback, LengthMetrics } from '@kit.ArkUI';
 import { CoverImage } from '../components/CoverImage';
 import { BookRatingBadge } from '../components/BookRatingBadge';
 import { RankingPosterBackground } from '../components/RankingPosterBackground';
-import { AppColor, AppMaterial, HomeTheme, AppSpace, AppRadius } from '../theme/Theme';
+import { AppColor, AppMaterial, HomeTheme, AppSpace, AppRadius, AppTheme } from '../theme/Theme';
+import { ThemeIconRole } from '../theme/ThemeIcons';
+import { ThemeIconComponent } from '../components/ThemeIconComponent';
 import { HdsCompat } from '../utils/HdsCompat';
 import { WindowUtils } from '../utils/WindowUtils';
 import { PlatformCompat } from '../utils/PlatformCompat';
@@ -56,7 +58,7 @@ struct RankingBookRow {
     Row({ space: 14 }) {
       Text(this.book.rank.toString().padStart(2, '0'))
         .fontSize(26).fontWeight(FontWeight.Medium).fontStyle(FontStyle.Italic)
-        .fontColor(this.book.rank <= 3 ? AppColor.Brand : $r('sys.color.font_tertiary')).width(34)
+        .fontColor(this.book.rank <= 3 ? AppColor.Brand : AppTheme.TextTertiary).width(34)
       Stack({ alignContent: Alignment.BottomEnd }) {
       CoverImage({ url: this.book.coverUrl, imgWidth: 58,
         aspectRatioValue: this.book.contentType === 'text' ? 0.75 : 1,
@@ -70,9 +72,9 @@ struct RankingBookRow {
       })
       Column({ space: 7 }) {
         Text(this.book.title).fontSize(16).fontWeight(FontWeight.Medium)
-          .fontColor($r('sys.color.font_primary')).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .fontColor(AppTheme.TextPrimary).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
         Text(this.book.author || this.book.narrator).fontSize(12)
-          .fontColor($r('sys.color.font_secondary')).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .fontColor(AppTheme.TextSecondary).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
     }.width('100%').padding({ top: 8, bottom: 8 })
     .constraintSize({ minHeight: RANKING_SECTION_ROW_HEIGHT })
@@ -123,19 +125,19 @@ struct RankingSection {
             Span(this.board.title).fontSize(23).fontWeight(FontWeight.Bold)
             Span($r('app.string.ranking_label_separator')).fontSize(16)
             Span(this.board.platformName).fontSize(16).fontWeight(FontWeight.Medium)
-          }.fontColor($r('sys.color.font_primary')).maxLines(2)
+          }.fontColor(AppTheme.TextPrimary).maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
           if (this.board.fetchedAt > 0) {
-            Text(rankingUpdateTime(this.board.fetchedAt)).fontSize(11).fontColor($r('sys.color.font_secondary'))
+            Text(rankingUpdateTime(this.board.fetchedAt)).fontSize(11).fontColor(AppTheme.TextSecondary)
           }
         }.alignItems(HorizontalAlign.Start).layoutWeight(1)
         Button($r('app.string.ranking_more'), { buttonStyle: ButtonStyleMode.TEXTUAL })
-          .fontSize(12).fontColor($r('sys.color.font_secondary')).height(44)
+          .fontSize(12).fontColor(AppTheme.TextSecondary).height(44)
           .onClick(() => this.onMore(this.board))
       }.width('100%').padding({ left: 24, right: 18 })
       if (this.board.books.length === 0) {
         Text(this.board.unavailable ? $r('app.string.ranking_unavailable') : $r('app.string.ranking_loading'))
-          .fontSize(13).fontColor($r('sys.color.font_tertiary')).width('100%').height(90)
+          .fontSize(13).fontColor(AppTheme.TextTertiary).width('100%').height(90)
       } else if (this.board.books[0]?.contentType === 'text') {
         // 一屏一列（上下两本），prevMargin 提供左侧内边距，nextMargin 露出下一列。
         Swiper() {
@@ -167,9 +169,9 @@ struct RankingSection {
                   }.width(152).hitTestBehavior(HitTestMode.None)
                 }
                 Text(book.title).fontSize(14).fontWeight(FontWeight.Medium)
-                  .fontColor($r('sys.color.font_primary')).maxLines(2).height(40)
+                  .fontColor(AppTheme.TextPrimary).maxLines(2).height(40)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
-                Text(book.narrator || book.author).fontSize(11).fontColor($r('sys.color.font_secondary'))
+                Text(book.narrator || book.author).fontSize(11).fontColor(AppTheme.TextSecondary)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
               }.width(152).alignItems(HorizontalAlign.Start).onClick(() => this.onChoose(book))
             }
@@ -178,7 +180,7 @@ struct RankingSection {
         .contentStartOffset(24).contentEndOffset(24).cachedCount(1)
       }
       if (this.board.stale) {
-        Text($r('app.string.ranking_cached')).fontSize(11).fontColor($r('sys.color.font_tertiary'))
+        Text($r('app.string.ranking_cached')).fontSize(11).fontColor(AppTheme.TextTertiary)
           .width('100%').padding({ left: 24, right: 24 })
       }
       Divider().color(AppColor.Divider).margin({ left: 24, right: 24, top: 8 })
@@ -611,8 +613,8 @@ export struct RankingHomePage {
       if (this.isSearchCollapsed) {
         Stack() {
           Stack({ alignContent: Alignment.Center }) {
-            SymbolGlyph($r('sys.symbol.magnifyingglass'))
-              .fontSize(21).fontColor([$r('sys.color.icon_primary')])
+            ThemeIconComponent({ role: ThemeIconRole.Search, symbol: $r('sys.symbol.magnifyingglass'),
+              iconSize: 21, tint: AppTheme.IconPrimary })
           }.width(42).height(42).borderRadius(AppRadius.Pill)
             .backgroundColor(Color.Transparent)
             .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveThin))
@@ -629,11 +631,11 @@ export struct RankingHomePage {
       ForEach(this.platforms.filter((platform: RankingPlatform): boolean => platform.id.length > 0),
         (platform: RankingPlatform) => {
           Column({ space: 12 }) {
-            Text(platform.name).fontSize(19).fontWeight(FontWeight.Bold).fontColor($r('sys.color.font_primary'))
+            Text(platform.name).fontSize(19).fontWeight(FontWeight.Bold).fontColor(AppTheme.TextPrimary)
             Flex({ wrap: FlexWrap.Wrap, space: { main: LengthMetrics.vp(10), cross: LengthMetrics.vp(10) } }) {
               ForEach(this.boards.filter((board: RankingBoard): boolean => board.platformId === platform.id),
                 (board: RankingBoard) => {
-                  Button(board.title, { buttonStyle: ButtonStyleMode.TEXTUAL }).fontColor($r('sys.color.font_primary'))
+                  Button(board.title, { buttonStyle: ButtonStyleMode.TEXTUAL }).fontColor(AppTheme.TextPrimary)
                     .height(44).backgroundColor(AppColor.Divider).onClick(() => this.openBoard(board))
                 }, (board: RankingBoard): string => board.id)
             }.width('100%')
@@ -672,15 +674,15 @@ export struct RankingHomePage {
             radius: AppRadius.Sm, imageFit: ImageFit.Contain })
           Column({ space: 7 }) {
             Text(this.selectedBook.title).fontSize(18).fontWeight(FontWeight.Bold).maxLines(2)
-              .width('100%').fontColor($r('sys.color.font_primary'))
+              .width('100%').fontColor(AppTheme.TextPrimary)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
             Text(this.selectedBook.author || this.selectedBook.narrator).fontSize(12).maxLines(1)
-              .width('100%').fontColor($r('sys.color.font_secondary'))
+              .width('100%').fontColor(AppTheme.TextSecondary)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         }.width('100%').padding({ right: 40 })
         Search({ value: this.keyword, placeholder: $r('app.string.ranking_search_keyword') })
-          .height(44).searchButton($r('app.string.ranking_search'), { fontColor: $r('sys.color.font_primary') })
+          .height(44).searchButton($r('app.string.ranking_search'), { fontColor: AppTheme.TextPrimary })
           .onChange((text: string): void => { this.keyword = text; })
           .onSubmit(() => this.searchMatches())
         Row({ space: 8 }) {
@@ -700,33 +702,33 @@ export struct RankingHomePage {
           Row({ space: 8 }) {
             LoadingProgress().width(18).height(18).color(AppColor.Brand)
             Text($r('app.string.ranking_matching', this.completed, Math.max(0, this.sourceTotal)))
-              .fontSize(12).fontColor($r('sys.color.font_secondary'))
+              .fontSize(12).fontColor(AppTheme.TextSecondary)
           }.width('100%')
         } else if (this.sourceTotal === 0) {
-          Text($r('app.string.ranking_no_sources')).fontSize(14).fontColor($r('sys.color.font_secondary'))
+          Text($r('app.string.ranking_no_sources')).fontSize(14).fontColor(AppTheme.TextSecondary)
             .width('100%').padding({ top: 14, bottom: 14 })
         } else if (this.matchesCount === 0) {
           Text(this.matchError || this.failed > 0 ? $r('app.string.ranking_match_failed') : $r('app.string.ranking_no_match'))
-            .fontSize(14).fontColor($r('sys.color.font_secondary')).width('100%')
+            .fontSize(14).fontColor(AppTheme.TextSecondary).width('100%')
         } else {
-          Text($r('app.string.ranking_choose_version')).fontSize(12).fontColor($r('sys.color.font_secondary')).width('100%')
+          Text($r('app.string.ranking_choose_version')).fontSize(12).fontColor(AppTheme.TextSecondary).width('100%')
         }
         List({ space: 8, scroller: this.matchScroller }) {
           LazyForEach(this.matchData, (match: RankingMatch) => {
             ListItem() {
               Column({ space: 7 }) {
                 Row() {
-                  Text(match.sourceName).fontSize(12).fontColor($r('sys.color.font_secondary')).layoutWeight(1).maxLines(1)
+                  Text(match.sourceName).fontSize(12).fontColor(AppTheme.TextSecondary).layoutWeight(1).maxLines(1)
                   Text(match.book.contentType === 'comic' ? $r('app.string.comic_type') : match.book.contentType === 'text' ? $r('app.string.search_type_text') : $r('app.string.search_type_audio'))
-                    .fontSize(10).fontColor($r('sys.color.font_secondary')).margin({ right: 8 })
+                    .fontSize(10).fontColor(AppTheme.TextSecondary).margin({ right: 8 })
                   if (match.remembered) {
-                    Text($r('app.string.ranking_last_choice')).fontSize(10).fontColor($r('sys.color.font_secondary'))
+                    Text($r('app.string.ranking_last_choice')).fontSize(10).fontColor(AppTheme.TextSecondary)
                   }
                 }.width('100%')
                 Text(match.book.title).fontSize(16).fontWeight(FontWeight.Medium).maxLines(2)
-                  .fontColor($r('sys.color.font_primary')).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .fontColor(AppTheme.TextPrimary).textOverflow({ overflow: TextOverflow.Ellipsis })
                 Text(match.book.author || match.book.intro).fontSize(12).maxLines(2)
-                  .fontColor($r('sys.color.font_secondary')).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .fontColor(AppTheme.TextSecondary).textOverflow({ overflow: TextOverflow.Ellipsis })
               }.width('100%').padding(14).alignItems(HorizontalAlign.Start).borderRadius(14)
               .backgroundColor($r('app.color.ranking_match_surface'))
               .border({ width: 1, color: $r('app.color.ranking_match_border') })
@@ -739,7 +741,7 @@ export struct RankingHomePage {
         .onScrollStop((): void => this.finishMatchScroll())
         if (!this.searching && this.matchesCount === 0) {
           Button($r('app.string.ranking_manage_sources'), { buttonStyle: ButtonStyleMode.TEXTUAL })
-            .fontColor($r('sys.color.font_primary')).height(44).onClick(() => this.manageSources())
+            .fontColor(AppTheme.TextPrimary).height(44).onClick(() => this.manageSources())
         }
     }.width('100%').height('100%').padding({ left: 24, right: 24, top: 14, bottom: 24 })
     .alignItems(HorizontalAlign.Start)
@@ -881,7 +883,7 @@ export struct RankingHomePage {
         } else if (!this.loading && this.boards.length === 0) {
           ListItem() {
             Text($r('app.string.ranking_categories_empty')).fontSize(14)
-              .fontColor($r('sys.color.font_secondary')).textAlign(TextAlign.Center)
+              .fontColor(AppTheme.TextSecondary).textAlign(TextAlign.Center)
               .width('100%').padding(32)
           }
         } else {
@@ -894,7 +896,7 @@ export struct RankingHomePage {
         }
       }
       ListItem() {
-        Text($r('app.string.ranking_footer')).fontSize(11).fontColor($r('sys.color.font_tertiary'))
+        Text($r('app.string.ranking_footer')).fontSize(11).fontColor(AppTheme.TextTertiary)
           .textAlign(TextAlign.Center).width('100%').padding({ top: 30, bottom: 120, left: 24, right: 24 })
       }
     }.width('100%').height(Math.max(1, this.contentHeight - this.topSafe - 48))
@@ -918,16 +920,16 @@ export struct RankingHomePage {
                 Span(board.title).fontSize(34).fontWeight(FontWeight.Bold)
                 Span($r('app.string.ranking_label_separator')).fontSize(22)
                 Span(board.platformName).fontSize(22).fontWeight(FontWeight.Medium)
-              }.fontColor($r('sys.color.font_primary')).maxLines(2)
+              }.fontColor(AppTheme.TextPrimary).maxLines(2)
                 .textOverflow({ overflow: TextOverflow.Ellipsis })
               Text(board.fetchedAt > 0
                 ? rankingUpdateTime(board.fetchedAt)
-                : $r('app.string.ranking_unavailable')).fontSize(11).fontColor($r('sys.color.font_secondary'))
+                : $r('app.string.ranking_unavailable')).fontSize(11).fontColor(AppTheme.TextSecondary)
               if (board.stale) {
-                Text($r('app.string.ranking_cached')).fontSize(11).fontColor($r('sys.color.font_tertiary'))
+                Text($r('app.string.ranking_cached')).fontSize(11).fontColor(AppTheme.TextTertiary)
               }
               Text($r('app.string.ranking_top_count', board.books.length))
-                .fontSize(11).fontColor($r('sys.color.font_tertiary'))
+                .fontSize(11).fontColor(AppTheme.TextTertiary)
             }.padding(24).width('100%').alignItems(HorizontalAlign.Start)
           }
           LazyForEach(this.fullData, (book: RankingBook) => {
@@ -938,7 +940,7 @@ export struct RankingHomePage {
             }
           }, (book: RankingBook): string => book.id)
           ListItem() {
-            Text($r('app.string.ranking_footer')).fontSize(11).fontColor($r('sys.color.font_tertiary'))
+            Text($r('app.string.ranking_footer')).fontSize(11).fontColor(AppTheme.TextTertiary)
               .textAlign(TextAlign.Center).width('100%').padding({ top: 30, bottom: 120, left: 24, right: 24 })
           }
         }.width('100%').height('100%').contentStartOffset(this.topSafe + 56)
@@ -955,10 +957,10 @@ export struct RankingHomePage {
       } },
       style: { scrollEffectOpts: { scrollEffectType: HdsCompat.scrollEffect },
         originalStyle: {
-          contentStyle: { backIconStyle: { iconColor: $r('sys.color.icon_primary') } }
+          contentStyle: { backIconStyle: { iconColor: AppTheme.IconPrimary } }
         },
         scrollEffectStyle: {
-          contentStyle: { backIconStyle: { iconColor: $r('sys.color.icon_primary') } }
+          contentStyle: { backIconStyle: { iconColor: AppTheme.IconPrimary } }
         },
         thermoCtrl: true, systemMaterialEffect: HdsCompat.material }
     })
@@ -973,6 +975,7 @@ export struct RankingHomePage {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
+      if (!AppTheme.isPaper) {
         Stack({ alignContent: Alignment.Top }) {
           RankingPosterBackground({ cover: this.posterCover, imageHeight: this.posterBackgroundHeight })
           Column().width('100%').height(this.posterBackgroundHeight)
@@ -982,6 +985,7 @@ export struct RankingHomePage {
           .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
             [SafeAreaEdge.TOP, SafeAreaEdge.START, SafeAreaEdge.END])
           .accessibilityLevel('no')
+      }
       HdsNavigation() {
         Refresh({ refreshing: $$this.refreshing, builder: this.emptyRefreshIndicator() }) {
           Scroll(this.headerScroller) {
@@ -1005,12 +1009,12 @@ export struct RankingHomePage {
           originalStyle: {
             backgroundStyle: { backgroundColor: Color.Transparent,
               maskExtraHeight: 0 },
-            contentStyle: { backIconStyle: { iconColor: $r('sys.color.icon_primary') } }
+            contentStyle: { backIconStyle: { iconColor: AppTheme.IconPrimary } }
           },
           scrollEffectStyle: {
             backgroundStyle: { backgroundColor: Color.Transparent,
               maskExtraHeight: 0 },
-            contentStyle: { backIconStyle: { iconColor: $r('sys.color.icon_primary') } }
+            contentStyle: { backIconStyle: { iconColor: AppTheme.IconPrimary } }
           },
           thermoCtrl: true
         }
@@ -1038,7 +1042,7 @@ export struct RankingHomePage {
             ? Math.max(0, this.headerRange - this.headerOffset) + 48 : RANKING_SEARCH_HEIGHT) })
           .hitTestBehavior(HitTestMode.None)
       }
-    }.width('100%').height('100%').backgroundColor(HomeTheme.BgNeutral)
+    }.width('100%').height('100%').backgroundColor(AppTheme.isPaper ? Color.Transparent : HomeTheme.BgNeutral)
     .enabled(!this.boardTransitioning)
     .clip(true)
     .onSizeChange((_old: SizeOptions, size: SizeOptions): void => {

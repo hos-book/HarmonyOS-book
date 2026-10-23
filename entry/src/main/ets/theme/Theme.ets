@@ -2,48 +2,101 @@ import { curves } from '@kit.ArkUI';
 import lazy { uiMaterial } from '@kit.ArkUI';
 import { AppAppearance } from '../model/AppAppearance';
 import { PlatformCompat } from '../utils/PlatformCompat';
+import { ThemeBundles } from './ThemeBundles';
+
+/** App 外观语义入口；深浅色由同名 base/dark 资源解析，阅读正文继续使用 ReaderTheme。 */
+export class AppTheme {
+  static get isPaper(): boolean { return AppAppearance.current.themeBundleId === ThemeBundles.PaperId; }
+  static get usesPaperAccent(): boolean {
+    return AppTheme.isPaper && AppAppearance.current.accent === ThemeBundles.PaperAccent;
+  }
+  static get Background(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_background') : $r('sys.color.background_primary');
+  }
+  static get Surface(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_surface') : $r('sys.color.comp_background_primary');
+  }
+  static get TextPrimary(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_text_primary') : $r('sys.color.font_primary');
+  }
+  static get TextSecondary(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_text_secondary') : $r('sys.color.font_secondary');
+  }
+  static get TextTertiary(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_text_tertiary') : $r('sys.color.font_tertiary');
+  }
+  static get IconPrimary(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_text_primary') : $r('sys.color.icon_primary');
+  }
+  static get IconSecondary(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_text_secondary') : $r('sys.color.icon_secondary');
+  }
+  static get Divider(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_divider') : $r('sys.color.comp_divider');
+  }
+  static get BackgroundImage(): Resource | undefined {
+    return AppTheme.isPaper ? $r('app.media.theme_paper_background') : undefined;
+  }
+}
 
 export class AppColor {
   static get Brand(): ResourceStr {
+    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_brand');
     const accent: string = AppAppearance.current.accent;
     return accent.length > 0 ? accent : $r('app.color.app_brand');
   }
   static get BrandHover(): ResourceStr {
+    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_brand_hover');
     const accent: string = AppAppearance.current.accent;
     return accent.length > 0 ? AppAppearance.shade(accent, 0.92) : $r('app.color.app_brand_hover');
   }
   static get BrandPressed(): ResourceStr {
+    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_brand_pressed');
     const accent: string = AppAppearance.current.accent;
     return accent.length > 0 ? AppAppearance.shade(accent, 0.82) : $r('app.color.app_brand_pressed');
   }
   static get BrandDisabled(): ResourceStr {
+    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_brand_disabled');
     const accent: string = AppAppearance.current.accent;
     return accent.length > 0 ? '#66' + accent.substring(1) : $r('app.color.app_brand_disabled');
   }
   static get BrandSoft(): ResourceStr {
+    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_brand_soft');
     const accent: string = AppAppearance.current.accent;
     return accent.length > 0 ? '#22' + accent.substring(1) : $r('app.color.app_brand_soft');
   }
   static get BrandDark(): ResourceStr {
+    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_brand_pressed');
     const accent: string = AppAppearance.current.accent;
     return accent.length > 0 ? AppAppearance.shade(accent, 0.78) : $r('app.color.app_brand_dark');
   }
   static get OnBrand(): ResourceStr {
+    if (AppTheme.usesPaperAccent) return $r('app.color.theme_paper_on_brand');
     const accent: string = AppAppearance.current.accent;
     return accent.length > 0 ? AppAppearance.foreground(accent) : $r('app.color.app_on_brand');
   }
-  static readonly Divider: Resource = $r('app.color.app_divider');
-  static readonly Shadow: Resource = $r('app.color.app_shadow');
-  static readonly GlassControlFallback: Resource = $r('app.color.glass_control_fallback');
+  static get Divider(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_divider') : $r('app.color.app_divider');
+  }
+  static get Shadow(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_shadow') : $r('app.color.app_shadow');
+  }
+  static get GlassControlFallback(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_control') : $r('app.color.glass_control_fallback');
+  }
   static readonly GlassSheetFallback: Resource = $r('app.color.glass_sheet_fallback');
-  static readonly GlassControlTint: Resource = $r('app.color.glass_control_tint');
+  static get GlassControlTint(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_control') : $r('app.color.glass_control_tint');
+  }
   static readonly GlassSheetControlTint: Resource = $r('app.color.glass_sheet_control_tint');
   static readonly GlassSheetStroke: Resource = $r('app.color.glass_sheet_stroke');
   static readonly GlassTextPrimary: Resource = $r('app.color.glass_text_primary');
   static readonly GlassTextSecondary: Resource = $r('app.color.glass_text_secondary');
   static readonly GlassTextTertiary: Resource = $r('app.color.glass_text_tertiary');
   static readonly GlassDivider: Resource = $r('app.color.glass_divider');
-  static readonly GlassStroke: Resource = $r('app.color.glass_stroke');
+  static get GlassStroke(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_divider') : $r('app.color.glass_stroke');
+  }
   static readonly GlassShadow: Resource = $r('app.color.glass_shadow');
 
   // Legacy literal overlays retained for existing call sites.
@@ -70,7 +123,8 @@ export class AppMaterial {
   private static material(key: string, fallback: uiMaterial.ImmersiveStyle,
     shadow: boolean, interactive: boolean, invert: boolean = false,
     fixedStyle: boolean = false): uiMaterial.Material {
-    const appearanceKey: string = AppAppearance.current.material.toString() + ':' + AppAppearance.current.accent;
+    const appearanceKey: string = AppAppearance.current.themeBundleId + ':' +
+      AppAppearance.current.material.toString() + ':' + AppAppearance.current.accent;
     if (appearanceKey !== AppMaterial.appearanceKey) {
       AppMaterial.cache.clear();
       AppMaterial.appearanceKey = appearanceKey;
@@ -302,19 +356,38 @@ export class AppCurve {
  * 走 base/dark element/color.json 双份资源，自动深浅切换。
  */
 export class HomeTheme {
-  static readonly BgWarmTop: Resource = $r('app.color.home_bg_warm_top');
-  static readonly BgWarmMid: Resource = $r('app.color.home_bg_warm_mid');
-  static readonly BgNeutral: Resource = $r('app.color.home_bg_neutral');
+  static get BgWarmTop(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_background') : $r('app.color.home_bg_warm_top');
+  }
+  static get BgWarmMid(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_background') : $r('app.color.home_bg_warm_mid');
+  }
+  static get BgNeutral(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_background') : $r('app.color.home_bg_neutral');
+  }
   /** 状态栏窄条：与 BgNeutral 同色半透明，配合 backdropBlur */
-  static readonly StatusScrim: Resource = $r('app.color.home_status_scrim');
+  static get StatusScrim(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_status_scrim') : $r('app.color.home_status_scrim');
+  }
+  static get FloatingBarMask(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_floating_mask') : $r('app.color.floating_bar_mask');
+  }
   static get Accent(): ResourceStr {
     return AppAppearance.current.accent.length > 0 ? AppColor.Brand : $r('app.color.home_accent');
   }
   static get AccentSoft(): ResourceStr {
     return AppAppearance.current.accent.length > 0 ? AppColor.BrandSoft : $r('app.color.home_accent_soft');
   }
-  static readonly TopControlTint: Resource = $r('app.color.home_top_control_tint');
-  static readonly CardSurface: Resource = $r('app.color.home_card_surface');
-  static readonly CardShadow: Resource = $r('app.color.home_card_shadow');
-  static readonly ProgressTrack: Resource = $r('app.color.home_progress_track');
+  static get TopControlTint(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_control') : $r('app.color.home_top_control_tint');
+  }
+  static get CardSurface(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_surface') : $r('app.color.home_card_surface');
+  }
+  static get CardShadow(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_shadow') : $r('app.color.home_card_shadow');
+  }
+  static get ProgressTrack(): Resource {
+    return AppTheme.isPaper ? $r('app.color.theme_paper_divider') : $r('app.color.home_progress_track');
+  }
 }

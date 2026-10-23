@@ -48,6 +48,7 @@ export struct ReaderPageTurnComponent {
   private serial: number = 0;
   private forward: boolean = true;
   private progress: number = 0;
+  private renderedProgress: number = 0;
   private anchor: number = 0.5;
   private verticalDrag: number = 0;
   private releaseVertical: number = 0;
@@ -110,6 +111,7 @@ export struct ReaderPageTurnComponent {
     this.phase = 'preparing';
     this.forward = forward;
     this.progress = 0;
+    this.renderedProgress = 0;
     this.verticalDrag = 0;
     this.anchor = Math.max(0, Math.min(1, anchorY / Math.max(1, this.pageHeight)));
     this.released = tap;
@@ -138,8 +140,9 @@ export struct ReaderPageTurnComponent {
         return;
       }
       this.phase = 'dragging';
-      this.drawFrame(this.progress);
+      // 快划可能在截图/目标页准备期间已结束，从已显示的纸面接续，不跳过卷起阶段。
       if (this.released) this.settle(this.commitOnRelease);
+      else this.drawFrame(this.progress);
     } catch (e) {
       if (ticket === this.serial) {
         hilog.warn(0, 'ReaderPageTurn', 'page capture/animation failed: %{public}s',
@@ -186,7 +189,9 @@ export struct ReaderPageTurnComponent {
     const offset = this.mode === PageTurnMode.Vertical ? event.offsetY : event.offsetX;
     const distance = this.forward ? -offset : offset;
     const size = this.mode === PageTurnMode.Vertical ? this.pageHeight : this.pageWidth;
-    this.progress = Math.max(0, Math.min(1, distance / Math.max(1, size)));
+    // 折线移动一份，反折纸边移动两份；仿真进度以两倍页宽为完整行程。
+    const travel = this.mode === PageTurnMode.Simulation ? size * 2 : size;
+    this.progress = Math.max(0, Math.min(1, distance / Math.max(1, travel)));
     this.verticalDrag = event.offsetY;
     if (this.phase === 'dragging') this.scheduleFrame();
   }
@@ -197,7 +202,8 @@ export struct ReaderPageTurnComponent {
     const speed = this.mode === PageTurnMode.Vertical ? event.velocityY : event.velocityX;
     const velocity = this.forward ? -speed : speed;
     this.released = true;
-    this.commitOnRelease = velocity > 650 || (velocity > -650 && this.progress >= 0.28);
+    const threshold = this.mode === PageTurnMode.Simulation ? 0.14 : 0.28;
+    this.commitOnRelease = velocity > 650 || (velocity > -650 && this.progress >= threshold);
     if (this.phase === 'dragging') this.settle(this.commitOnRelease);
   }
 
@@ -229,12 +235,17 @@ export struct ReaderPageTurnComponent {
     }
     const ticket = this.serial;
     const end = commit ? 1 : 0;
+    const simulation = this.mode === PageTurnMode.Simulation;
+    if (simulation) this.progress = this.renderedProgress;
     this.releaseVertical = this.verticalDrag;
     this.settleStart = this.progress;
     this.phase = 'settling';
     const animation = this.getUIContext().createAnimator({
-      duration: Math.max(140, Math.round(380 * Math.abs(end - this.progress))),
-      easing: 'ease-out', delay: 0, fill: 'forwards', direction: 'normal',
+      duration: simulation ? (commit ? Math.max(300, Math.round(520 * Math.sqrt(1 - this.progress))) :
+        Math.max(180, Math.round(320 * Math.sqrt(this.progress)))) :
+        Math.max(140, Math.round(380 * Math.abs(end - this.progress))),
+      easing: simulation && commit ? 'ease-in-out' : 'ease-out',
+      delay: 0, fill: 'forwards', direction: 'normal',
       iterations: 1, begin: this.progress, end: end
     });
     this.animator = animation;
@@ -289,6 +300,7 @@ export struct ReaderPageTurnComponent {
     const w = this.pageWidth;
     const h = this.pageHeight;
     const p = this.mode === PageTurnMode.None ? 0 : Math.max(0, Math.min(1, value));
+    this.renderedProgress = p;
     ctx.globalAlpha = 1;
     ctx.clearRect(0, 0, w, h);
     ctx.save();

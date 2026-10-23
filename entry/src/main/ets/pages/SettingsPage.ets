@@ -8,7 +8,7 @@ import { ConfigurationConstant } from '@kit.AbilityKit';
 import { common } from '@kit.AbilityKit';
 import { Binding, UIUtils } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { AppRadius, AppSpace, AppFont, AppColor } from '../theme/Theme';
+import { AppTheme, AppRadius, AppSpace, AppFont, AppColor } from '../theme/Theme';
 import { PreferenceService } from '../service/PreferenceService';
 import { AudioService } from '../service/AudioService';
 import { ChapterCacheService } from '../service/ChapterCacheService';
@@ -591,7 +591,7 @@ export struct SettingsPage {
       const choice = await prompt.showDialog({
         title: kind === ReaderCacheKind.Text ? $r('app.string.settings_text_cache_title') : $r('app.string.settings_comic_cache_title'),
         message: $r('app.string.settings_reader_cache_confirm'),
-        buttons: [{ text: $r('app.string.common_cancel'), color: $r('sys.color.font_secondary') },
+        buttons: [{ text: $r('app.string.common_cancel'), color: AppTheme.TextSecondary },
           { text: $r('app.string.settings_reader_cache_clear'), color: AppColor.Brand }]
       });
       if (choice.index !== 1 || !this.alive) return;
@@ -618,7 +618,7 @@ export struct SettingsPage {
             LoadingProgress().width(20).height(20).color(AppColor.Brand)
           }
           Text(this.preferencesLoadFailed ? $r('app.string.settings_load_failed') : $r('app.string.settings_loading'))
-            .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary')).layoutWeight(1)
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).layoutWeight(1)
           if (this.preferencesLoadFailed) {
             Button($r('app.string.common_retry'), { buttonStyle: ButtonStyleMode.TEXTUAL })
               .fontColor(AppColor.Brand).onClick((): void => { this.loadPrefs(); })
@@ -649,7 +649,7 @@ export struct SettingsPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor($r('sys.color.background_secondary'))
+    .backgroundColor(AppTheme.isPaper ? AppTheme.Background : $r('sys.color.background_secondary'))
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     .onSizeChange((_oldValue: SizeOptions, newValue: SizeOptions) => {
       this.handleViewportSizeChange(newValue);
@@ -692,7 +692,7 @@ export struct SettingsPage {
           UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral)
         )
       }.width('100%')
-        .backgroundColor($r('sys.color.comp_background_primary')).borderRadius(AppRadius.Lg)
+        .backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg)
     }.width('100%').alignItems(HorizontalAlign.Start)
   }
 
@@ -701,11 +701,11 @@ export struct SettingsPage {
     Row() {
       SymbolGlyph($r('sys.symbol.chevron_left'))
         .fontSize(24)
-        .fontColor([$r('sys.color.font_primary')])
+        .fontColor([AppTheme.TextPrimary])
         .onClick(() => this.navStack.pop())
       Text('设置')
         .fontSize(AppFont.TitleL)
-        .fontColor($r('sys.color.font_primary'))
+        .fontColor(AppTheme.TextPrimary)
         .fontWeight(FontWeight.Bold)
         .margin({ left: AppSpace.Sm })
     }
@@ -722,7 +722,7 @@ export struct SettingsPage {
   buildGroupTitle(title: ResourceStr) {
     Text(title)
       .fontSize(AppFont.Body)
-      .fontColor($r('sys.color.font_tertiary'))
+      .fontColor(AppTheme.TextTertiary)
       .padding({ left: AppSpace.Sm, bottom: AppSpace.Xs })
   }
 
@@ -730,7 +730,7 @@ export struct SettingsPage {
   buildDivider() {
     Divider()
       .strokeWidth(0.5)
-      .color($r('sys.color.comp_divider'))
+      .color(AppTheme.Divider)
       .margin({ left: ROW_INDENT })
   }
 
@@ -744,7 +744,7 @@ export struct SettingsPage {
           Column({ space: 2 }) {
             Text('主题模式')
               .fontSize(AppFont.BodyL)
-              .fontColor($r('sys.color.font_primary'))
+              .fontColor(AppTheme.TextPrimary)
           }
           .alignItems(HorizontalAlign.Start)
           .layoutWeight(1)
@@ -786,7 +786,7 @@ export struct SettingsPage {
         )
       }
       .width('100%')
-      .backgroundColor($r('sys.color.comp_background_primary'))
+      .backgroundColor(AppTheme.Surface)
       .borderRadius(AppRadius.Lg)
     }
     .width('100%')
@@ -819,7 +819,7 @@ export struct SettingsPage {
         )
       }
       .width('100%')
-      .backgroundColor($r('sys.color.comp_background_primary'))
+      .backgroundColor(AppTheme.Surface)
       .borderRadius(AppRadius.Lg)
     }
     .width('100%')
@@ -835,12 +835,12 @@ export struct SettingsPage {
         Column({ space: AppSpace.Sm }) {
           Row({ space: AppSpace.Sm }) {
             Text($r('app.string.settings_default_playback_speed')).fontSize(AppFont.BodyL)
-              .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+              .fontColor(AppTheme.TextPrimary).layoutWeight(1)
             Text(this.defaultPlaybackSpeedDraft.toFixed(2) + 'x')
               .fontSize(AppFont.BodyL).fontColor(AppColor.Brand)
           }.width('100%')
           Text($r('app.string.settings_default_playback_speed_desc'))
-            .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary')).width('100%')
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).width('100%')
           Slider({ value: this.defaultPlaybackSpeedDraft, min: 0.5, max: 3, step: 0.05 })
             .selectedColor(AppColor.Brand).width('100%')
             .accessibilityText($r('app.string.settings_default_playback_speed'))
@@ -878,7 +878,7 @@ export struct SettingsPage {
 
         Column({ space: AppSpace.Sm }) {
           Text($r('app.string.settings_preload_custom')).fontSize(AppFont.BodyL)
-            .fontColor($r('sys.color.font_primary')).width('100%')
+            .fontColor(AppTheme.TextPrimary).width('100%')
           Row({ space: AppSpace.Sm }) {
           ImmersiveOptionTabs({
             labels: PRELOAD_OPTIONS.map((opt: PreloadOption): ResourceStr => opt.count < 0 ? $r('app.string.settings_preload_custom_tab') : opt.label),
@@ -933,7 +933,7 @@ export struct SettingsPage {
           (): void => this.confirmResetListeningTime(), this.isClearingListeningTime)
       }
       .width('100%')
-      .backgroundColor($r('sys.color.comp_background_primary'))
+      .backgroundColor(AppTheme.Surface)
       .borderRadius(AppRadius.Lg)
     }
     .width('100%')
@@ -949,7 +949,7 @@ export struct SettingsPage {
         Row({ space: AppSpace.Sm }) {
           Text($r('app.string.settings_search_concurrency'))
             .fontSize(AppFont.BodyL)
-            .fontColor($r('sys.color.font_primary'))
+            .fontColor(AppTheme.TextPrimary)
             .flexShrink(1)
           if (MembershipState.featureEnabled) {
             VipFeatureBadge()
@@ -958,19 +958,19 @@ export struct SettingsPage {
         if (MembershipState.featureEnabled) {
           Text($r('app.string.settings_search_concurrency_membership_hint'))
             .fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_secondary'))
+            .fontColor(AppTheme.TextSecondary)
             .width('100%')
         }
         if (this.searchConcurrencyLoading || this.checkingSearchMembership || this.membershipService.busy) {
           Row({ space: AppSpace.Sm }) {
             LoadingProgress().width(18).height(18).color(AppColor.Brand)
             Text($r('app.string.settings_search_loading')).fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_secondary')).layoutWeight(1)
+              .fontColor(AppTheme.TextSecondary).layoutWeight(1)
           }.width('100%')
         } else if (this.searchConcurrencyLoadFailed) {
           Row({ space: AppSpace.Sm }) {
             Text($r('app.string.settings_search_load_failed')).fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_secondary')).layoutWeight(1)
+              .fontColor(AppTheme.TextSecondary).layoutWeight(1)
             Button($r('app.string.common_retry'), { buttonStyle: ButtonStyleMode.TEXTUAL })
               .fontColor(AppColor.Brand)
               .onClick((): void => { this.loadSearchConcurrency(this.preferencesLoadSerial); })
@@ -999,7 +999,7 @@ export struct SettingsPage {
       }
       .width('100%')
       .padding(ROW_INDENT)
-      .backgroundColor($r('sys.color.comp_background_primary'))
+      .backgroundColor(AppTheme.Surface)
       .borderRadius(AppRadius.Lg)
     }
     .width('100%')
@@ -1017,9 +1017,9 @@ export struct SettingsPage {
   ) {
     Row({ space: AppSpace.Sm }) {
       Column({ space: 2 }) {
-      Text(title).fontSize(AppFont.BodyL).fontColor($r('sys.color.font_primary')).width('100%')
+      Text(title).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).width('100%')
       if (subtitle.value.length > 0) {
-        Text(subtitle.value).fontSize(AppFont.Caption).fontColor($r('sys.color.font_tertiary')).width('100%')
+        Text(subtitle.value).fontSize(AppFont.Caption).fontColor(AppTheme.TextTertiary).width('100%')
       }
       }.alignItems(HorizontalAlign.Start).layoutWeight(1)
       ImmersiveOptionTabs({
@@ -1044,11 +1044,11 @@ export struct SettingsPage {
       Column({ space: 2 }) {
         Text(title)
           .fontSize(AppFont.BodyL)
-          .fontColor($r('sys.color.font_primary'))
+          .fontColor(AppTheme.TextPrimary)
         if (typeof subtitle !== 'string' || subtitle.length > 0) {
           Text(subtitle)
             .fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_tertiary'))
+            .fontColor(AppTheme.TextTertiary)
         }
       }
       .alignItems(HorizontalAlign.Start)
@@ -1075,15 +1075,15 @@ export struct SettingsPage {
       Column({ space: 2 }) {
         Text(kind === ReaderCacheKind.Text ? $r('app.string.settings_text_cache_title') : $r('app.string.settings_comic_cache_title'))
           .fontSize(AppFont.BodyL)
-          .fontColor($r('sys.color.font_primary'))
+          .fontColor(AppTheme.TextPrimary)
         Text(this.readerCacheSummary(kind))
           .fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_tertiary'))
+          .fontColor(AppTheme.TextTertiary)
       }.alignItems(HorizontalAlign.Start).layoutWeight(1)
       if (this.clearingReaderCache || this.readerCacheLoading) {
         LoadingProgress().width(18).height(18).color(AppColor.Brand)
       } else {
-        SymbolGlyph($r('sys.symbol.trash')).fontSize(18).fontColor([$r('sys.color.font_tertiary')])
+        SymbolGlyph($r('sys.symbol.trash')).fontSize(18).fontColor([AppTheme.TextTertiary])
       }
     }
     .width('100%')
@@ -1099,10 +1099,10 @@ export struct SettingsPage {
       Column({ space: 2 }) {
         Text(title)
           .fontSize(AppFont.BodyL)
-          .fontColor($r('sys.color.font_primary'))
+          .fontColor(AppTheme.TextPrimary)
         Text(subtitle)
           .fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_tertiary'))
+          .fontColor(AppTheme.TextTertiary)
       }
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
@@ -1115,7 +1115,7 @@ export struct SettingsPage {
       } else {
         SymbolGlyph($r('sys.symbol.trash'))
           .fontSize(18)
-          .fontColor([$r('sys.color.font_tertiary')])
+          .fontColor([AppTheme.TextTertiary])
       }
     }
     .width('100%')

@@ -7,7 +7,7 @@ import {
   HdsNavDestination, HdsNavDestinationTitleMode, HideMode, BottomBuilderParams, BuilderOptions, TitleBarContentOptions
 } from '@kit.UIDesignKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { AppColor, AppCurve, AppFont, AppMaterial, AppMotion, AppRadius, AppSpace, HomeTheme } from '../theme/Theme';
+import { AppColor, AppCurve, AppFont, AppMaterial, AppMotion, AppRadius, AppSpace, HomeTheme, AppTheme } from '../theme/Theme';
 import { Book, Chapter } from '../model/Book';
 import { BookSource, HomeBlockSection, SearchResult } from '../model/BookSource';
 import { LocalRuleSource, LocalRuleSourceStatus } from '../model/LocalRuleSource';
@@ -1157,12 +1157,13 @@ export struct SearchPage {
             decodeH: 368,
             highPriority: false
           })
+        } else if (AppTheme.isPaper) {
+          CoverImage({ url: book.cover, title: book.title, author: book.author,
+            localPlaceholder: book.id.startsWith('import_'), imgWidth: 92,
+            aspectRatioValue: SEARCH_COVER_ASPECT_RATIO, radius: AppRadius.Md })
         } else {
-          Image($r('app.media.app_icon_legacy'))
-            .width(92)
-            .aspectRatio(SEARCH_COVER_ASPECT_RATIO)
-            .borderRadius(AppRadius.Md)
-            .objectFit(ImageFit.Cover)
+          Image($r('app.media.app_icon_legacy')).width(92).aspectRatio(SEARCH_COVER_ASPECT_RATIO)
+            .borderRadius(AppRadius.Md).objectFit(ImageFit.Cover)
         }
         this.buildGroupBadge(book)
         if (book.narrator) {

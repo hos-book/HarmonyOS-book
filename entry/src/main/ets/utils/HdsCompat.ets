@@ -1,6 +1,7 @@
 import { HdsTabsAttribute, HdsTabsFloatingStyle, ScrollEffectType, SystemMaterialParams } from '@kit.UIDesignKit';
 import lazy { hdsMaterial } from '@kit.UIDesignKit';
 import { PlatformCompat } from './PlatformCompat';
+import { AppTheme } from '../theme/Theme';
 
 export class HdsCompat {
   static get scrollEffect(): ScrollEffectType {
@@ -39,7 +40,7 @@ export class CompatibleTabsModifier implements AttributeModifier<HdsTabsAttribut
       instance.barFloatingStyle(this.style);
     } else {
       instance.barHeight(this.fallbackHeight)
-        .barBackgroundColor($r('sys.color.comp_background_primary'));
+        .barBackgroundColor(AppTheme.Surface);
     }
   }
 }

@@ -4,7 +4,8 @@ import { common } from '@kit.AbilityKit';
 import { AppStorageV2 } from '@kit.ArkUI';
 import { emitter } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { AppColor, AppRadius, AppSpace, AppFont, AppMaterial } from '../theme/Theme';
+import { AppColor, AppRadius, AppSpace, AppFont, AppMaterial, AppTheme } from '../theme/Theme';
+import { CoverDecoration } from '../components/CoverDecoration';
 import { Book, Chapter } from '../model/Book';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { PlayerState, PLAYER_STATE_KEY } from '../model/PlayerState';
@@ -983,7 +984,7 @@ export struct BookDetailPage {
       .height(this.detailHeroHeight() / 2)
       .renderGroup(true)
       .scale({ x: 4, y: 4, centerX: 0, centerY: 0 })
-      .opacity(0.36)
+      .opacity(AppTheme.isPaper ? 0 : 0.36)
 
       Column()
         .width('100%')
@@ -991,11 +992,11 @@ export struct BookDetailPage {
         .linearGradient({
           angle: 180,
           colors: [
-            [$r('app.color.detail_backdrop_scrim_top'), 0.0],
-            [$r('app.color.home_card_surface_soft'), 0.38],
-            [$r('sys.color.comp_background_primary'), 0.62],
-            [$r('sys.color.background_primary'), 0.86],
-            [$r('sys.color.background_primary'), 1.0]
+            [AppTheme.isPaper ? AppTheme.Background : $r('app.color.detail_backdrop_scrim_top'), 0.0],
+            [AppTheme.isPaper ? AppTheme.Surface : $r('app.color.home_card_surface_soft'), 0.38],
+            [AppTheme.isPaper ? AppTheme.Surface : $r('sys.color.comp_background_primary'), 0.62],
+            [AppTheme.Background, 0.86],
+            [AppTheme.Background, 1.0]
           ]
         })
     }
@@ -1032,6 +1033,7 @@ export struct BookDetailPage {
             imgHeight: this.detailCoverHeight(),
             useFixedHeight: true,
             radius: AppRadius.Sm,
+            themedDecoration: false,
             imageFit: ImageFit.Contain,
             decodeW: 300,
             decodeH: 400,
@@ -1068,12 +1070,15 @@ export struct BookDetailPage {
             })
             .shadow({ radius: 8, color: '#33000000', offsetY: 2 })
         } else {
-          CoverImage({ title: this.book!.title, imgWidth: this.detailCoverWidth(),
-            imgHeight: this.detailCoverHeight(), useFixedHeight: true, radius: AppRadius.Sm })
+          CoverImage({ title: this.book!.title, author: this.book!.author,
+            localPlaceholder: this.book!.id.startsWith('import_'), imgWidth: this.detailCoverWidth(),
+            imgHeight: this.detailCoverHeight(), useFixedHeight: true, radius: AppRadius.Sm,
+            themedDecoration: false })
             .width(this.detailCoverWidth()).height(this.detailCoverHeight())
             .borderRadius(AppRadius.Sm)
             .shadow({ radius: 8, color: '#33000000', offsetY: 2 })
         }
+        CoverDecoration({ radius: AppRadius.Sm })
         // 封面上不再压来源角标：右侧标题区已展示来源名，重复且遮挡封面。
       }
       .width(this.detailCoverWidth())
@@ -1691,7 +1696,7 @@ export struct BookDetailPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor($r('sys.color.background_primary'))
+    .backgroundColor(AppTheme.Background)
     .bindSheet($$this.showGroupSheet, this.buildGroupSheet(), {
       height: '65%', detents: ['65%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, dragBar: true, showClose: true, backgroundColor: AppMaterial.SheetBackground,
       blurStyle: AppMaterial.SheetBlur, systemMaterial: AppMaterial.Sheet,

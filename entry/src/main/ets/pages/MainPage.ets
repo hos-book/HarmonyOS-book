@@ -24,7 +24,8 @@ import { WindowUtils } from '../utils/WindowUtils';
 import { EVT_SWITCH_TAB } from './ImportPage';
 import { WebViewAudioExtractorHost } from '../service/builtin/WebViewAudioExtractor';
 import { WebEngineGate } from '../service/WebEngineGate';
-import { AppColor, HomeTheme } from '../theme/Theme';
+import { AppColor, HomeTheme, AppTheme } from '../theme/Theme';
+import { ThemeIcons, ThemeIconRole } from '../theme/ThemeIcons';
 import { BookSourceAudioWebRuntimeHost } from '../service/rulesource/light/BookSourceAudioWebRuntimeHost';
 import { RuleSourceImportWebHost } from '../service/rulesource/light/RuleSourceImportWebHost';
 
@@ -291,7 +292,12 @@ export struct MainPage {
     );
   }
 
-  private buildTabBar(icon: Resource, label: string): BottomTabBarStyle {
+  private buildTabBar(icon: Resource, label: string, role: ThemeIconRole): BottomTabBarStyle {
+    if (AppTheme.isPaper) {
+      return new BottomTabBarStyle(ThemeIcons.paper(role), label)
+        .iconStyle({ unselectedColor: AppTheme.TextSecondary, selectedColor: AppColor.Brand })
+        .labelStyle({ unselectedColor: AppTheme.TextSecondary, selectedColor: AppColor.Brand });
+    }
     return new BottomTabBarStyle(
       {
         normal: new SymbolGlyphModifier(icon).fontColor([$r('sys.color.font_primary')]).fontSize(24),
@@ -353,7 +359,7 @@ export struct MainPage {
       // 宽窗口保留底部导航习惯，避免四个入口和迷你播放条横跨整块屏幕。
       barSideMargin: Math.max(16, (this.viewportWidth - 720) / 2),
       barBottomMargin: Math.max(this.bottomSafeVp, FLOATING_MIN_SAFE_BOTTOM) + FLOATING_BOTTOM,
-      gradientMask: { maskColor: $r('app.color.floating_bar_mask'), maskHeight: 92 },
+      gradientMask: { maskColor: HomeTheme.FloatingBarMask, maskHeight: 92 },
       systemMaterialEffect: HdsCompat.adaptiveMaterial,
       // 保留随主题色变化的沉浸光感。
       lightColor: AppColor.Brand,
@@ -405,7 +411,7 @@ export struct MainPage {
           })
           .opacity(this.tabContentOpacity)
         }
-        .tabBar(this.buildTabBar($r('sys.symbol.house_fill'), '首页'))
+        .tabBar(this.buildTabBar($r('sys.symbol.house_fill'), '首页', ThemeIconRole.Home))
 
         TabContent() {
           FavoritePage({
@@ -419,7 +425,7 @@ export struct MainPage {
           })
           .opacity(this.tabContentOpacity)
         }
-        .tabBar(this.buildTabBar($r('sys.symbol.bookshelf'), '书架'))
+        .tabBar(this.buildTabBar($r('sys.symbol.bookshelf'), '书架', ThemeIconRole.Shelf))
 
         if (this.generalSettings.historyEnabled) {
         TabContent() {
@@ -433,7 +439,7 @@ export struct MainPage {
           })
           .opacity(this.tabContentOpacity)
         }
-        .tabBar(this.buildTabBar($r('sys.symbol.calendar_fill'), '记录'))
+        .tabBar(this.buildTabBar($r('sys.symbol.calendar_fill'), '记录', ThemeIconRole.Record))
         }
 
         TabContent() {
@@ -443,7 +449,7 @@ export struct MainPage {
           })
           .opacity(this.tabContentOpacity)
         }
-        .tabBar(this.buildTabBar($r('sys.symbol.person_fill'), '我的'))
+        .tabBar(this.buildTabBar($r('sys.symbol.person_fill'), '我的', ThemeIconRole.Profile))
       }
       .barOverlap(true)
       .barPosition(BarPosition.End)
@@ -490,7 +496,7 @@ export struct MainPage {
         .height(64)
         .width('92%')
         .constraintSize({ maxWidth: 720 })
-        .backgroundColor($r('sys.color.comp_background_primary'))
+        .backgroundColor(AppTheme.Surface)
         .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR)
         .borderRadius(24)
         .clip(true)

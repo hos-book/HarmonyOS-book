@@ -4,7 +4,9 @@ import { DownloadService, DownloadUpdatePayload, EVT_DOWNLOAD_UPDATED } from '..
 import { DownloadExportResult, DownloadExportService } from '../service/DownloadExportService';
 import { DownloadBookRecord, DownloadBookStatus } from '../service/DownloadStore';
 import { DownloadPolicy } from '../service/DownloadPolicy';
-import { AppCurve, AppFont, AppMotion, AppRadius, AppSpace } from '../theme/Theme';
+import { AppCurve, AppFont, AppMotion, AppRadius, AppSpace, AppTheme } from '../theme/Theme';
+import { CoverImage } from '../components/CoverImage';
+import { CoverDecoration } from '../components/CoverDecoration';
 import { WindowUtils } from '../utils/WindowUtils';
 
 function formatBytes(bytes: number): string {
@@ -207,29 +209,37 @@ struct DownloadBookItem {
 
   @Builder
   buildCover(record: DownloadBookRecord) {
-    if (record.cover && record.cover.startsWith('http')) {
-      Image(record.cover)
-        .width(52)
-        .height(68)
-        .objectFit(ImageFit.Cover)
-        .borderRadius(AppRadius.Sm)
-    } else if (record.cover && (record.cover.startsWith('/') || record.cover.startsWith('file://'))) {
-      Image('file://' + record.cover.replace(/^file:\/\//, ''))
-        .width(52)
-        .height(68)
-        .objectFit(ImageFit.Cover)
-        .borderRadius(AppRadius.Sm)
-    } else {
-      Stack() {
-        SymbolGlyph($r('sys.symbol.arrow_down_circle'))
-          .fontSize(24)
-          .fontColor([$r('sys.color.font_tertiary')])
+    Stack() {
+      if (AppTheme.isPaper) {
+        CoverImage({ title: record.title, author: record.author,
+          localPlaceholder: record.bookId.startsWith('import_'), imgWidth: 52, imgHeight: 68,
+          useFixedHeight: true, radius: AppRadius.Sm, themedDecoration: false })
       }
-      .width(52)
-      .height(68)
-      .backgroundColor($r('sys.color.comp_background_tertiary'))
-      .borderRadius(AppRadius.Sm)
-    }
+      if (record.cover && record.cover.startsWith('http')) {
+        Image(record.cover)
+          .width(52)
+          .height(68)
+          .objectFit(ImageFit.Cover)
+          .borderRadius(AppRadius.Sm)
+      } else if (record.cover && (record.cover.startsWith('/') || record.cover.startsWith('file://'))) {
+        Image('file://' + record.cover.replace(/^file:\/\//, ''))
+          .width(52)
+          .height(68)
+          .objectFit(ImageFit.Cover)
+          .borderRadius(AppRadius.Sm)
+      } else if (!AppTheme.isPaper) {
+        Stack() {
+          SymbolGlyph($r('sys.symbol.arrow_down_circle'))
+            .fontSize(24)
+            .fontColor([$r('sys.color.font_tertiary')])
+        }
+        .width(52)
+        .height(68)
+        .backgroundColor($r('sys.color.comp_background_tertiary'))
+        .borderRadius(AppRadius.Sm)
+      }
+      CoverDecoration({ radius: AppRadius.Sm })
+    }.width(52).height(68)
   }
 
   @Builder

@@ -8,6 +8,8 @@ import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { Book, Chapter } from '../model/Book';
 import { AppAppearance } from '../model/AppAppearance';
+import { AppThemeSelection } from '../model/AppThemeBundle';
+import { ThemeBundles } from '../theme/ThemeBundles';
 
 /** 书架收藏变化事件：加入、移出或最近阅听顺序变化后触发。 */
 export const EVT_FAVORITES_CHANGED = 'app.favorites.changed';
@@ -26,6 +28,7 @@ const KEY_LAST_PLAYED = 'last_played';
 const KEY_COLOR_MODE = 'color_mode';
 const KEY_MATERIAL_STYLE = 'material_style';
 const KEY_ACCENT_COLOR = 'accent_color';
+const KEY_THEME_SELECTION = 'app_theme_preferences';
 const KEY_IMPORTED_BOOKS = 'imported_books';
 const KEY_DEFAULT_TAB = 'default_tab';
 const KEY_AUTO_PLAY_ON_LAUNCH = 'auto_play_on_launch';
@@ -105,6 +108,7 @@ export class PreferenceBackupSnapshot {
   colorMode: number = ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET;
   materialStyle: number = 0;
   accentColor: string = '';
+  themeSelection: AppThemeSelection | undefined = undefined;
   defaultTab: number = 0;
   autoPlayOnLaunch: boolean = false;
   audioInterruptMode: number = 0;
@@ -297,6 +301,7 @@ export class PreferenceService {
 
   private static store: preferences.Preferences | null = null;
   private static initPromise: Promise<void> | null = null;
+  private static appearanceSave: Promise<void> = Promise.resolve();
   private static favoriteListener: (() => void) | null = null;
   private static historyListener: (() => void) | null = null;
 
@@ -337,8 +342,11 @@ export class PreferenceService {
         GeneralSettings.current.adaptiveHandedness = s.getSync('adaptive_handedness', true) !== false;
         const material = await s.get(KEY_MATERIAL_STYLE, 0);
         const accent = await s.get(KEY_ACCENT_COLOR, '');
-        AppAppearance.current.material = AppAppearance.normalizeMaterial(typeof material === 'number' ? material : 0);
-        AppAppearance.current.accent = AppAppearance.normalizeAccent(typeof accent === 'string' ? accent : '');
+        const rawTheme = await s.get(KEY_THEME_SELECTION, '');
+        const selection: AppThemeSelection = PreferenceService.decodeThemeSelection(
+          typeof rawTheme === 'string' ? rawTheme : '',
+          typeof accent === 'string' ? accent : '', typeof material === 'number' ? material : 0);
+        PreferenceService.publishThemeSelection(selection);
       });
     }
     await PreferenceService.initPromise;
@@ -843,19 +851,72 @@ export class PreferenceService {
   }
 
   static async setMaterialStyle(value: number): Promise<void> {
-    const material: number = AppAppearance.normalizeMaterial(value);
-    const s = await PreferenceService.ensureStore();
-    await s.put(KEY_MATERIAL_STYLE, material);
-    await s.flush();
-    AppAppearance.current.material = material;
+    return PreferenceService.enqueueAppearanceSave((): AppThemeSelection =>
+      new AppThemeSelection(AppAppearance.current.themeBundleId, AppAppearance.current.accent,
+        AppAppearance.normalizeMaterial(value)));
   }
 
   static async setAccentColor(value: string): Promise<void> {
-    const accent: string = AppAppearance.normalizeAccent(value);
-    const s = await PreferenceService.ensureStore();
-    await s.put(KEY_ACCENT_COLOR, accent);
-    await s.flush();
-    AppAppearance.current.accent = accent;
+    return PreferenceService.enqueueAppearanceSave((): AppThemeSelection =>
+      new AppThemeSelection(AppAppearance.current.themeBundleId, AppAppearance.normalizeAccent(value),
+        AppAppearance.current.material));
+  }
+
+  static async applyThemeBundle(id: string): Promise<void> {
+    if (ThemeBundles.normalizeId(id) !== id) throw new Error('Unknown theme bundle');
+    return PreferenceService.enqueueAppearanceSave((): AppThemeSelection => {
+      const bundle = ThemeBundles.resolve(id);
+      return new AppThemeSelection(bundle.id, bundle.accent, bundle.material);
+    });
+  }
+
+  static async resetThemeBundleOverrides(): Promise<void> {
+    return PreferenceService.enqueueAppearanceSave((): AppThemeSelection => {
+      const bundle = ThemeBundles.resolve(AppAppearance.current.themeBundleId);
+      return new AppThemeSelection(bundle.id, bundle.accent, bundle.material);
+    });
+  }
+
+  private static decodeThemeSelection(raw: string, legacyAccent: string, legacyMaterial: number): AppThemeSelection {
+    const fallback = new AppThemeSelection(ThemeBundles.DefaultId,
+      AppAppearance.normalizeAccent(legacyAccent), AppAppearance.normalizeMaterial(legacyMaterial));
+    if (raw.length === 0 || raw.length > 2048) return fallback;
+    try {
+      const decoded: AppThemeSelection | null = JSON.parse(raw);
+      if (decoded === null || typeof decoded !== 'object' || decoded.schemaVersion !== 1 ||
+        typeof decoded.themeBundleId !== 'string' || typeof decoded.accentColor !== 'string' ||
+        typeof decoded.materialStyle !== 'number') return fallback;
+      return new AppThemeSelection(ThemeBundles.normalizeId(decoded.themeBundleId),
+        AppAppearance.normalizeAccent(decoded.accentColor), AppAppearance.normalizeMaterial(decoded.materialStyle));
+    } catch (_error) {
+      return fallback;
+    }
+  }
+
+  private static publishThemeSelection(selection: AppThemeSelection): void {
+    AppAppearance.current.themeBundleId = selection.themeBundleId;
+    AppAppearance.current.accent = selection.accentColor;
+    AppAppearance.current.material = selection.materialStyle;
+  }
+
+  /** 在队列内读取当前外观，避免连续调色/切套装覆盖刚保存的其他字段。 */
+  private static enqueueAppearanceSave(create: () => AppThemeSelection): Promise<void> {
+    const task: Promise<void> = PreferenceService.appearanceSave.then(async (): Promise<void> => {
+      const store = await PreferenceService.ensureStore();
+      const selection: AppThemeSelection = create();
+      const previous = await store.get(KEY_THEME_SELECTION, '');
+      try {
+        await store.put(KEY_THEME_SELECTION, JSON.stringify(selection));
+        await store.flush();
+      } catch (error) {
+        // 同时回滚 Preferences 内存值，后续其他设置 flush 也不会提交失败的主题。
+        await store.put(KEY_THEME_SELECTION, previous);
+        throw new Error(error instanceof Error ? error.message : 'Theme preferences save failed');
+      }
+      PreferenceService.publishThemeSelection(selection);
+    });
+    PreferenceService.appearanceSave = task.catch((): void => {});
+    return task;
   }
 
   static async getImportedBooks(): Promise<string> {
@@ -1386,6 +1447,7 @@ export class PreferenceService {
 
   /** 导出允许跨设备迁移的白名单偏好，不包含账号、卡片和本地导入数据。 */
   static async exportBackupSnapshot(): Promise<PreferenceBackupSnapshot> {
+    await PreferenceService.appearanceSave;
     const snapshot = new PreferenceBackupSnapshot();
     snapshot.descendingBookIds = [];
     snapshot.favorites = (await PreferenceService.getFavorites())
@@ -1401,6 +1463,8 @@ export class PreferenceService {
     snapshot.colorMode = await PreferenceService.getColorMode();
     snapshot.materialStyle = AppAppearance.current.material;
     snapshot.accentColor = AppAppearance.current.accent;
+    snapshot.themeSelection = new AppThemeSelection(AppAppearance.current.themeBundleId,
+      AppAppearance.current.accent, AppAppearance.current.material);
     snapshot.defaultTab = await PreferenceService.getDefaultTab();
     snapshot.autoPlayOnLaunch = await PreferenceService.getAutoPlayOnLaunch();
     snapshot.audioInterruptMode = await PreferenceService.getAudioInterruptMode();
@@ -1440,6 +1504,7 @@ export class PreferenceService {
 
   /** 恢复跨设备偏好，保留目标设备已有的本地导入书数据。 */
   static async restoreBackupSnapshot(snapshot: PreferenceBackupSnapshot): Promise<void> {
+    await PreferenceService.appearanceSave;
     const s = await PreferenceService.ensureStore();
     const localFavorites = (await PreferenceService.getFavorites())
       .filter((id: string) => id.startsWith('import_'));
@@ -1503,8 +1568,9 @@ export class PreferenceService {
 
     const material: number = AppAppearance.normalizeMaterial(snapshot.materialStyle ?? 0);
     const accent: string = AppAppearance.normalizeAccent(snapshot.accentColor ?? '');
-    await s.put(KEY_MATERIAL_STYLE, material);
-    await s.put(KEY_ACCENT_COLOR, accent);
+    const selection: AppThemeSelection = PreferenceService.decodeThemeSelection(
+      snapshot.themeSelection === undefined ? '' : JSON.stringify(snapshot.themeSelection), accent, material);
+    const previousTheme = await s.get(KEY_THEME_SELECTION, '');
     await s.put(KEY_COLOR_MODE, snapshot.colorMode);
     await s.put(KEY_DEFAULT_TAB, snapshot.defaultTab);
     await s.put(KEY_AUTO_PLAY_ON_LAUNCH, snapshot.autoPlayOnLaunch === true);
@@ -1518,9 +1584,14 @@ export class PreferenceService {
     await s.put(KEY_SEARCH_CONCURRENCY, MembershipState.current.hasAccess && typeof snapshot.searchConcurrency === 'number' &&
       Number.isInteger(snapshot.searchConcurrency) && snapshot.searchConcurrency >= 1 &&
       snapshot.searchConcurrency <= 12 ? snapshot.searchConcurrency : 3);
-    await s.flush();
-    AppAppearance.current.material = material;
-    AppAppearance.current.accent = accent;
+    try {
+      await s.put(KEY_THEME_SELECTION, JSON.stringify(selection));
+      await s.flush();
+    } catch (error) {
+      await s.put(KEY_THEME_SELECTION, previousTheme);
+      throw new Error(error instanceof Error ? error.message : 'Theme preferences restore failed');
+    }
+    PreferenceService.publishThemeSelection(selection);
     PreferenceService.notifyFavoriteChanged();
     PreferenceService.notifyHistoryChanged();
     emitter.emit(EVT_FAVORITES_CHANGED, { data: { bookId: '' } });

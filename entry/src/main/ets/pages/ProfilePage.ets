@@ -1,6 +1,9 @@
 import { MedalService } from '../service/MedalService';
 import { HdsCompat } from '../utils/HdsCompat';
-import { AppColor, AppRadius, AppSpace, AppFont, HomeTheme } from '../theme/Theme';
+import { AppColor, AppRadius, AppSpace, AppFont, AppTheme } from '../theme/Theme';
+import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
+import { ThemeIconComponent } from '../components/ThemeIconComponent';
+import { ThemeIconRole } from '../theme/ThemeIcons';
 import { HdsNavigation, HdsNavigationTitleMode } from '@kit.UIDesignKit';
 import { WindowUtils } from '../utils/WindowUtils';
 import { AuthService } from '../service/AuthService';
@@ -16,7 +19,7 @@ class ProfileItem {
   icon: Resource;
   label: ResourceStr;
   id: string;
-  iconBg: ResourceColor;
+  private iconBackground: ResourceColor;
   /** 副标题,如公众号说明、群号;空时不占位 */
   subtitle: ResourceStr;
 
@@ -24,20 +27,27 @@ class ProfileItem {
     this.icon = icon;
     this.label = label;
     this.id = id;
-    this.iconBg = iconBg;
+    this.iconBackground = iconBg;
     this.subtitle = subtitle;
+  }
+
+  get iconBg(): ResourceColor {
+    if (AppTheme.isPaper || this.id === 'ruleSources' || this.id === 'membership' || this.id === 'community') {
+      return AppColor.Brand;
+    }
+    return this.iconBackground;
   }
 }
 
 const SOURCE_ITEMS: ProfileItem[] = [
   new ProfileItem($r('sys.symbol.bookshelf'), $r('app.string.rule_source_title'), 'ruleSources',
-    AppColor.Brand),
+    $r('app.color.app_brand')),
   new ProfileItem($r('sys.symbol.arrow_down_circle'), $r('app.string.profile_local_import'), 'import', '#34C759')
 ];
 
 const CONTENT_ITEMS: ProfileItem[] = [
   new ProfileItem($r('sys.symbol.star_fill'), $r('app.string.achievement_title'), 'achievements', '#E6A23C'),
-  new ProfileItem($r('sys.symbol.star_fill'), $r('app.string.membership_title'), 'membership', AppColor.Brand)
+  new ProfileItem($r('sys.symbol.star_fill'), $r('app.string.membership_title'), 'membership', $r('app.color.app_brand'))
 ];
 
 const SETTINGS_ITEMS: ProfileItem[] = [
@@ -53,7 +63,7 @@ const SUPPORT_ITEMS: ProfileItem[] = [
   new ProfileItem($r('sys.symbol.qrcode'), $r('app.string.profile_wechat_title'), 'wechat',
     '#07C160', $r('app.string.profile_wechat_desc')),
   new ProfileItem($r('sys.symbol.person_2'), $r('app.string.profile_community_group'), 'community',
-    AppColor.Brand, $r('app.string.about_community_group_number'))
+    $r('app.color.app_brand'), $r('app.string.about_community_group_number'))
 ];
 const ROW_INDENT: number = AppSpace.Md;
 const MINI_TITLE_BAR_HEIGHT: number = 56;
@@ -131,17 +141,7 @@ export struct ProfilePage {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .linearGradient({
-          angle: 180,
-          colors: [
-            [HomeTheme.BgWarmTop, 0.0],
-            [HomeTheme.BgWarmMid, 0.35],
-            [HomeTheme.BgNeutral, 1.0]
-          ]
-        })
+      ThemeBackgroundComponent()
 
       HdsNavigation() {
         Scroll(this.scrollScroller) {
@@ -186,7 +186,7 @@ export struct ProfilePage {
             },
             contentStyle: {
               titleStyle: {
-                mainTitleColor: $r('sys.color.font_primary')
+                mainTitleColor: AppTheme.TextPrimary
               }
             }
           },
@@ -196,7 +196,7 @@ export struct ProfilePage {
             },
             contentStyle: {
               titleStyle: {
-                mainTitleColor: $r('sys.color.font_primary')
+                mainTitleColor: AppTheme.TextPrimary
               }
             }
           },
@@ -226,7 +226,7 @@ export struct ProfilePage {
               $r('app.string.hw_auth_login_title'))
               .fontSize(20)
               .fontWeight(FontWeight.Medium)
-              .fontColor(this.auth.isLoggedIn ? this.membership.nameColor : $r('sys.color.font_primary'))
+              .fontColor(this.auth.isLoggedIn ? this.membership.nameColor : AppTheme.TextPrimary)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .flexShrink(1)
@@ -256,7 +256,7 @@ export struct ProfilePage {
           if (!this.auth.isLoggedIn) {
             Text($r('app.string.hw_auth_login_desc'))
               .fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_tertiary'))
+              .fontColor(AppTheme.TextTertiary)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
           }
@@ -273,11 +273,8 @@ export struct ProfilePage {
             .color(AppColor.Brand)
             .accessibilityText($r('app.string.hw_auth_processing'))
         } else {
-          SymbolGlyph($r('sys.symbol.chevron_right'))
-            .fontSize(24)
-            .width(24)
-            .height(24)
-            .fontColor([$r('sys.color.font_tertiary')])
+          ThemeIconComponent({ role: ThemeIconRole.ChevronRight, symbol: $r('sys.symbol.chevron_right'),
+            iconSize: 24, tint: AppTheme.TextTertiary })
         }
       }
       .width('100%')
@@ -288,16 +285,16 @@ export struct ProfilePage {
         this.navStack.pushPathByName('account', '');
       })
       if (MembershipState.featureEnabled) {
-        Divider().strokeWidth(0.5).color($r('sys.color.comp_divider')).margin({ left: 20, right: 20 })
+        Divider().strokeWidth(0.5).color(AppTheme.Divider).margin({ left: 20, right: 20 })
         Row({ space: 12 }) {
         Text($r('app.string.membership_entry_desc')).fontSize(AppFont.Body)
-          .fontColor($r('sys.color.font_secondary')).layoutWeight(1).maxLines(2)
+          .fontColor(AppTheme.TextSecondary).layoutWeight(1).maxLines(2)
         Button($r('app.string.membership_subscription_title'))
           .height(32).fontSize(13).padding({ left: 14, right: 14 }).flexShrink(0).backgroundColor('#D5B887').fontColor('#55432C')
           .fontWeight(FontWeight.Medium).onClick((): void => { this.showMembership = true; })
         }.width('100%').padding({ left: 20, right: 20, top: 14, bottom: 14 })
       }
-    }.width('100%').backgroundColor($r('sys.color.comp_background_primary')).borderRadius(AppRadius.Lg)
+    }.width('100%').backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg)
     .bindSheet($$this.showMembership, this.membershipSheet(), {
       height: '90%', detents: ['90%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, showClose: false, dragBar: true,
       backgroundColor: '#EFEDE7'
@@ -316,7 +313,7 @@ export struct ProfilePage {
       if (title.length > 0) {
         Text(title)
           .fontSize(AppFont.Body)
-          .fontColor($r('sys.color.font_tertiary'))
+          .fontColor(AppTheme.TextTertiary)
           .padding({ left: AppSpace.Sm, bottom: AppSpace.Xs })
       }
 
@@ -326,13 +323,13 @@ export struct ProfilePage {
           if (index < items.length - 1) {
             Divider()
               .strokeWidth(0.5)
-              .color($r('sys.color.comp_divider'))
+              .color(AppTheme.Divider)
               .margin({ left: ROW_INDENT + 28 + AppSpace.Sm })
           }
         }, (item: ProfileItem) => item.id)
       }
       .width('100%')
-      .backgroundColor($r('sys.color.comp_background_primary'))
+      .backgroundColor(AppTheme.Surface)
       .borderRadius(AppRadius.Lg)
     }
     .width('100%')
@@ -356,7 +353,7 @@ export struct ProfilePage {
         Row({ space: 6 }) {
           Text(item.label)
             .fontSize(AppFont.BodyL)
-            .fontColor($r('sys.color.font_primary'))
+            .fontColor(AppTheme.TextPrimary)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .flexShrink(1)
@@ -373,7 +370,7 @@ export struct ProfilePage {
         if (typeof item.subtitle !== 'string' || item.subtitle.length > 0) {
           Text(item.subtitle)
             .fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_tertiary'))
+            .fontColor(AppTheme.TextTertiary)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
@@ -381,11 +378,8 @@ export struct ProfilePage {
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
 
-      SymbolGlyph($r('sys.symbol.chevron_right'))
-        .fontSize(24)
-        .width(24)
-        .height(24)
-        .fontColor([$r('sys.color.font_tertiary')])
+      ThemeIconComponent({ role: ThemeIconRole.ChevronRight, symbol: $r('sys.symbol.chevron_right'),
+        iconSize: 24, tint: AppTheme.TextTertiary })
     }
     .width('100%')
     .padding({

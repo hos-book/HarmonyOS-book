@@ -58,8 +58,9 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     '@kit.ArkUI': { FrameCallback: class {} },
     '../utils/ReaderTapPolicy': compile(fs.readFileSync(path.join(root, 'utils/ReaderTapPolicy.ets'), 'utf8'), {}),
     '@kit.BasicServicesKit': { emitter: events },
-    '../model/TextReading': { PageTurnMode: { Cover: 'cover', None: 'none', Vertical: 'vertical' } }
-  }, { CanvasRenderingContext2D: class { clearRect() {} }, RenderingContextSettings: class {} });
+    '../model/TextReading': { PageTurnMode: { Cover: 'cover', None: 'none', Vertical: 'vertical', Simulation: 'simulation' } }
+  }, { CanvasRenderingContext2D: class { clearRect() {} }, RenderingContextSettings: class {},
+    ImageBitmap: class { close() {} } });
   ReaderPageTurnComponent.prototype.getUniqueId = () => 1;
   const turn = new ReaderPageTurnComponent();
   const commits = [];
@@ -106,5 +107,40 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   turn.cancelTurn(false);
   frames.shift().onFrame(0);
   assert.deepEqual(rendered, [1], 'pending frame must not draw released snapshots after cancellation');
+  const animations = [];
+  let finishPrepare;
+  turn.getUIContext = () => ({
+    postFrameCallback: callback => frames.push(callback),
+    getComponentSnapshot: () => ({ get: async () => ({ release: async () => {} }) }),
+    createAnimator: options => {
+      const animation = { options, play() {}, cancel() {} };
+      animations.push(animation); return animation;
+    }
+  });
+  turn.drawFrame = value => { turn.renderedProgress = value; };
+  turn.mode = 'simulation'; turn.canvasReady = true; turn.pageWidth = 400; turn.pageHeight = 800;
+  turn.onPrepare = () => new Promise(resolve => { finishPrepare = resolve; });
+  const preparation = turn.beginTurn(true, false, 600);
+  await tick();
+  turn.handlePanEnd({ offsetX: -360, offsetY: 0, velocityX: -1200 });
+  assert.equal(turn.progress, 0.45, 'paper fold travels half the finger displacement');
+  finishPrepare(true); await preparation;
+  assert.equal(animations.at(-1).options.begin, 0, 'quick flick during loading must animate from the visible original page');
+  assert.equal(animations.at(-1).options.end, 1);
+  assert.ok(animations.at(-1).options.duration >= 500, 'quick flick must retain a visible curl phase');
+  animations.at(-1).onFinish();
+  for (const forward of [true, false]) {
+    turn.phase = 'dragging'; turn.forward = forward; turn.renderedProgress = 0.2;
+    turn.handlePanEnd({ offsetX: forward ? -180 : 180, offsetY: 0, velocityX: 0 });
+    assert.equal(animations.at(-1).options.begin, 0.2, 'release continues from last displayed position');
+    assert.equal(animations.at(-1).options.end, 1, 'distance threshold works in both directions');
+    assert.ok(animations.at(-1).options.duration >= 400);
+    animations.at(-1).onFinish();
+    turn.phase = 'dragging'; turn.renderedProgress = 0.05;
+    turn.handlePanEnd({ offsetX: forward ? -40 : 40, offsetY: 0, velocityX: 0 });
+    assert.equal(animations.at(-1).options.end, 0, 'short slow drag still rolls back');
+    animations.at(-1).onFinish();
+    assert.equal(commits.at(-1), false);
+  }
   console.log('PASS: delayed/stale covers, coverless metadata, duration preservation, Home during page turn, unfinished drag, no-effect tap');
 })().catch(error => { console.error(error); process.exitCode = 1; });

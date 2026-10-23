@@ -1,6 +1,6 @@
 import { CoverImage } from './CoverImage';
 import { BookRatingBadge } from './BookRatingBadge';
-import { AppColor, AppRadius } from '../theme/Theme';
+import { AppColor, AppRadius, AppTheme } from '../theme/Theme';
 import { OneShotCoverState, OneShotTransitionCoordinator, OneShotTransitionIds } from '../utils/OneShotTransition';
 
 export const BOOK_POSTER_HEIGHT: number = 232;
@@ -267,7 +267,8 @@ export struct BookPosterCarousel {
           ForEach(this.items, (item: BookPosterItem, index: number) => {
             Column() {
               Stack({ alignContent: Alignment.BottomEnd }) {
-              CoverImage({ url: item.coverUrl, imgWidth: BOOK_POSTER_COVER_WIDTH,
+              CoverImage({ url: item.coverUrl, title: AppTheme.isPaper ? item.title : '', author: item.author,
+                imgWidth: BOOK_POSTER_COVER_WIDTH,
                 aspectRatioValue: item.aspectRatio,
                 useOriginalRatio: this.useOriginalCoverRatio, maxOriginalHeight: 160,
                 radius: AppRadius.Sm, compositeEdges: true,

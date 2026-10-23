@@ -3,6 +3,7 @@ import { BookRatingBadge } from './BookRatingBadge';
 import { BookMetadataPolicy } from '../utils/BookMetadataPolicy';
 import { AppRadius, AppSpace, AppFont, AppMotion, AppCurve } from '../theme/Theme';
 import { CoverImage } from './CoverImage';
+import { CoverDecoration } from './CoverDecoration';
 import { CoverAspectRatio } from '../utils/CoverAspectRatio';
 import {
   OneShotCoverState,
@@ -120,6 +121,7 @@ export struct BookCard {
             aspectRatioValue: this.displayCoverRatio(),
             imageFit: this.coverImageFit,
             radius: this.coverRadius,
+            themedDecoration: false,
             decodeW: 300,
             decodeH: this.coverAspectRatio < 1 ? 400 : 300,
             highPriority: this.indexHint < 24,
@@ -156,9 +158,12 @@ export struct BookCard {
             imgWidth: '100%',
             aspectRatioValue: this.displayCoverRatio(),
             radius: this.coverRadius,
+            themedDecoration: false,
             imageFit: this.coverImageFit
           })
         }
+
+        CoverDecoration({ radius: this.coverRadius })
 
         if (this.showSourceBadge && this.sourceName()) {
           Text(this.sourceName())

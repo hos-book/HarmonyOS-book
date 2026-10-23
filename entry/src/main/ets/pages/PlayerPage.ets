@@ -1496,7 +1496,8 @@ export struct PlayerPage {
     Stack() {
       if (this.book && this.book.cover) {
         if (this.book.cover.startsWith('http')) {
-          CoverImage({ url: this.book.cover, useFixedHeight: true, imgHeight: '100%', radius: 0, decodeW: 120, decodeH: 120 })
+          CoverImage({ url: this.book.cover, useFixedHeight: true, imgHeight: '100%', radius: 0,
+            themedDecoration: false, decodeW: 120, decodeH: 120 })
             .width('100%')
             .height('100%')
             .blur(40)
@@ -1666,7 +1667,7 @@ export struct PlayerPage {
     Row({ space: AppSpace.Lg }) {
       PlayerCoverImage({ title: this.book!.title, url: this.book!.cover,
         author: this.book!.author, localPlaceholder: this.book!.id.startsWith('import_'),
-        fallback: this.book!.coverFallback ?? '', highQuality: this.highQualityCover })
+        fallback: this.book!.coverFallback ?? '', highQuality: this.highQualityCover, radius: 12 })
         .width(this.isCompactPlayer() ? 88 : 104).aspectRatio(1).borderRadius(12).clip(true)
         .id('player-page-cover').opacity(this.dragState.active ? 0 : 1)
       Column({ space: AppSpace.Sm }) {

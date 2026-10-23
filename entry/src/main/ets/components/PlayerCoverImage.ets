@@ -2,6 +2,8 @@ import { CoverPrefetcher } from '../service/CoverPrefetcher';
 import { EnhancedPlayerCover } from './EnhancedPlayerCover';
 import { SourceCoverService } from '../service/SourceCoverService';
 import { CoverImage } from './CoverImage';
+import { CoverDecoration } from './CoverDecoration';
+import { CoverTheme } from '../theme/CoverTheme';
 
 class PlayerCoverRequest {
   url: string;
@@ -23,6 +25,7 @@ export struct PlayerCoverImage {
   @Param localPlaceholder: boolean = false;
   @Param fallback: string = '';
   @Param highQuality: boolean = false;
+  @Param radius: number = 16;
   @Local decodeSize: number = 300;
   @Local loadedKey: string = '';
   @Local failedKey: string = '';
@@ -77,7 +80,7 @@ export struct PlayerCoverImage {
   }
 
   private source(url: string): ResourceStr {
-    if (!url) return $r('app.media.app_icon_legacy');
+    if (!url) return CoverTheme.isPaper() ? CoverTheme.placeholder() : $r('app.media.app_icon_legacy');
     if (url.startsWith('/')) return `file://${url}`;
     if (url.startsWith('http') || url.startsWith('file://')) return url;
     return $rawfile(url);
@@ -89,12 +92,12 @@ export struct PlayerCoverImage {
     Stack() {
       if (!this.resolvedUrl && !this.resolvedFallback) {
         CoverImage({ title: this.title, author: this.author, localPlaceholder: this.localPlaceholder,
-          useFixedHeight: true, imgHeight: '100%', imageFit: ImageFit.Contain })
+          useFixedHeight: true, imgHeight: '100%', imageFit: ImageFit.Contain, themedDecoration: false })
       } else {
       Image(this.source(this.previewFailed ? this.resolvedUrl : (this.resolvedFallback || this.resolvedUrl)))
         .width('100%').height('100%').objectFit(ImageFit.Cover)
         .sourceSize({ width: 300, height: 300 })
-        .alt($r('app.media.app_icon_legacy'))
+        .alt(CoverTheme.isPaper() ? CoverTheme.placeholder() : $r('app.media.app_icon_legacy'))
         .onError((): void => { this.previewFailed = true; })
       if (this.highQuality && this.resolvedUrl) {
         ForEach([new PlayerCoverRequest(this.resolvedUrl, this.decodeSize)], (request: PlayerCoverRequest) => {
@@ -115,6 +118,7 @@ export struct PlayerCoverImage {
         EnhancedPlayerCover({ url: this.failedKey === this.requestKey() ? (this.resolvedFallback || this.resolvedUrl) : this.resolvedUrl })
       }
       }
+      CoverDecoration({ radius: this.radius })
     }
     .width('100%').height('100%')
     .onSizeChange((_oldValue, newValue) => {

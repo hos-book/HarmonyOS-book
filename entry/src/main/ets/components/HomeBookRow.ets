@@ -1,7 +1,7 @@
 import { SearchResult } from '../model/BookSource';
 import { BookRatingBadge } from './BookRatingBadge';
 import { BookMetadataPolicy } from '../utils/BookMetadataPolicy';
-import { AppColor, AppRadius, AppSpace, AppFont } from '../theme/Theme';
+import { AppColor, AppRadius, AppSpace, AppFont, AppTheme } from '../theme/Theme';
 import { CoverImage } from './CoverImage';
 import { BOOK_COVER_ASPECT_RATIO, CoverAspectRatio } from '../utils/CoverAspectRatio';
 import { OneShotCoverState, OneShotTransitionCoordinator, OneShotTransitionIds } from '../utils/OneShotTransition';
@@ -85,6 +85,8 @@ export struct HomeBookRow {
             })
           } else {
             CoverImage({
+              title: AppTheme.isPaper ? r.name : '',
+              author: AppTheme.isPaper ? r.author : '',
               imgWidth: this.coverWidth(),
               imgHeight: this.coverHeight(),
               useFixedHeight: true,
@@ -169,6 +171,10 @@ export struct HomeBookRow {
             onImageSize: (url: string, width: number, height: number): void =>
               this.rememberCoverSize(url, width, height)
           })
+        } else if (AppTheme.isPaper) {
+          CoverImage({ title: r.name, author: r.author,
+            imgWidth: this.coverWidth(), imgHeight: this.coverHeight(), useFixedHeight: true,
+            radius: AppRadius.Sm })
         } else {
           Stack() {
             Column().width('100%').height('100%').backgroundColor($r('sys.color.brand'))

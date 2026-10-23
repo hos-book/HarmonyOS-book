@@ -5,7 +5,9 @@ import { HdsCompat } from '../utils/HdsCompat';
 import { common } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { HdsNavigation, HdsNavigationTitleMode } from '@kit.UIDesignKit';
-import { AppColor, AppMaterial, AppCurve, AppFont, AppRadius, AppSpace, HomeTheme } from '../theme/Theme';
+import { AppColor, AppMaterial, AppCurve, AppFont, AppRadius, AppSpace, HomeTheme, AppTheme } from '../theme/Theme';
+import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
+import { ThemeIconRole } from '../theme/ThemeIcons';
 import { WindowUtils } from '../utils/WindowUtils';
 import {
   BookUsageStats,
@@ -503,7 +505,7 @@ export struct ReadingStatsPage {
         title: $r('app.string.record_delete_title'),
         message: $r('app.string.record_delete_confirm', count),
         buttons: [
-          { text: $r('app.string.common_cancel'), color: $r('sys.color.font_primary') },
+          { text: $r('app.string.common_cancel'), color: AppTheme.TextPrimary },
           { text: $r('app.string.common_delete'), color: AppColor.BrandDark }
         ]
       });
@@ -591,7 +593,7 @@ export struct ReadingStatsPage {
     Column({ space: 2 }) {
       ForEach([0, 1, 2, 3], (index: number) => {
         Text(this.contentFilterLabel(index)).fontSize(16)
-          .fontColor(index === this.contentFilter ? AppColor.Brand : $r('sys.color.font_primary'))
+          .fontColor(index === this.contentFilter ? AppColor.Brand : AppTheme.TextPrimary)
           .width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
           .borderRadius(AppRadius.Xl - AppSpace.Xs)
           .backgroundColor(index === this.contentFilter ? AppColor.BrandSoft : Color.Transparent)
@@ -613,10 +615,11 @@ export struct ReadingStatsPage {
           onPress: (): void => { if (!this.handleBack()) this.navStack.pop(); } })
       }
       Text(this.pageTitle()).fontSize(26).fontWeight(FontWeight.Bold)
-        .fontColor($r('sys.color.font_primary')).maxLines(1)
+        .fontColor(AppTheme.TextPrimary).maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-      ImmersiveCircleButton({ icon: $r('sys.symbol.funnel'), label: $r('app.string.record_content_filter'),
-        iconColor: this.contentFilter > 0 ? AppColor.Brand : $r('sys.color.icon_primary'),
+      ImmersiveCircleButton({ icon: $r('sys.symbol.funnel'), themeIconRole: ThemeIconRole.Filter,
+        label: $r('app.string.record_content_filter'),
+        iconColor: this.contentFilter > 0 ? AppColor.Brand : AppTheme.IconPrimary,
         onPress: (): void => { this.contentFilterVisible = !this.contentFilterVisible; } })
         .bindPopup(this.contentFilterVisible, this.contentFilterOptions())
       ImmersiveCircleButton({ icon: $r('sys.symbol.clock'),
@@ -628,7 +631,7 @@ export struct ReadingStatsPage {
         } })
       ImmersiveCircleButton({ icon: this.selectMode ? $r('sys.symbol.checkmark') : $r('sys.symbol.square_and_pencil'),
         label: this.selectMode ? $r('app.string.record_edit_done') : $r('app.string.record_edit'),
-        iconColor: this.selectMode ? AppColor.Brand : $r('sys.color.icon_primary'),
+        iconColor: this.selectMode ? AppColor.Brand : AppTheme.IconPrimary,
         onPress: (): void => {
           this.contentFilterVisible = false;
           if (this.selectMode) this.clearSelection();
@@ -646,17 +649,7 @@ export struct ReadingStatsPage {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      Column()
-        .width('100%')
-        .height('100%')
-        .linearGradient({
-          angle: 180,
-          colors: [
-            [HomeTheme.BgWarmTop, 0.0],
-            [HomeTheme.BgWarmMid, 0.42],
-            [HomeTheme.BgNeutral, 1.0]
-          ]
-        })
+      ThemeBackgroundComponent({ warmMid: 0.42 })
 
       HdsNavigation() {
         Refresh({ refreshing: $$this.refreshing, builder: this.refreshIndicator() }) {
@@ -709,13 +702,13 @@ export struct ReadingStatsPage {
             },
             contentStyle: {
               titleStyle: {
-                mainTitleColor: $r('sys.color.font_primary')
+                mainTitleColor: AppTheme.TextPrimary
               },
               backIconStyle: {
-                iconColor: $r('sys.color.icon_primary')
+                iconColor: AppTheme.IconPrimary
               },
               menuStyle: {
-                iconColor: $r('sys.color.icon_primary')
+                iconColor: AppTheme.IconPrimary
               }
             }
           },
@@ -725,13 +718,13 @@ export struct ReadingStatsPage {
             },
             contentStyle: {
               titleStyle: {
-                mainTitleColor: $r('sys.color.font_primary')
+                mainTitleColor: AppTheme.TextPrimary
               },
               backIconStyle: {
-                iconColor: $r('sys.color.icon_primary')
+                iconColor: AppTheme.IconPrimary
               },
               menuStyle: {
-                iconColor: $r('sys.color.icon_primary')
+                iconColor: AppTheme.IconPrimary
               }
             }
           },
@@ -772,13 +765,13 @@ export struct ReadingStatsPage {
     Row({ space: 5 }) {
       SymbolGlyph(icon).fontSize(13).fontColor([AppColor.Brand])
       Text() {
-        Span(label).fontColor($r('sys.color.font_secondary'))
+        Span(label).fontColor(AppTheme.TextSecondary)
         Span(' ')
-        Span(value).fontColor($r('sys.color.font_primary')).fontWeight(FontWeight.Medium)
+        Span(value).fontColor(AppTheme.TextPrimary).fontWeight(FontWeight.Medium)
       }.fontSize(12).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
     }
     .padding({ left: 9, right: 9, top: 6, bottom: 6 })
-    .border({ width: 0.5, color: $r('sys.color.comp_divider') })
+    .border({ width: 0.5, color: AppTheme.Divider })
     .borderRadius(8)
     .margin({ right: 8, bottom: 8 })
     .constraintSize({ maxWidth: '100%' })
@@ -788,19 +781,19 @@ export struct ReadingStatsPage {
   buildSummaryCard() {
     Column({ space: 12 }) {
       Text() {
-        Span($r('app.string.record_total_inline')).fontColor($r('sys.color.font_secondary'))
+        Span($r('app.string.record_total_inline')).fontColor(AppTheme.TextSecondary)
         Span(' ')
         Span(this.statsReady ? `${Math.floor(this.totalListenSeconds() / 3600)}` :
           $r('app.string.record_stats_pending'))
-          .fontSize(18).fontWeight(FontWeight.Medium).fontColor($r('sys.color.font_primary'))
+          .fontSize(18).fontWeight(FontWeight.Medium).fontColor(AppTheme.TextPrimary)
         Span(' ')
-        Span($r('app.string.record_unit_hours')).fontColor($r('sys.color.font_secondary'))
+        Span($r('app.string.record_unit_hours')).fontColor(AppTheme.TextSecondary)
         Span(' ')
         Span(this.statsReady ? `${Math.floor((this.totalListenSeconds() % 3600) / 60)}` :
           $r('app.string.record_stats_pending'))
-          .fontSize(18).fontWeight(FontWeight.Medium).fontColor($r('sys.color.font_primary'))
+          .fontSize(18).fontWeight(FontWeight.Medium).fontColor(AppTheme.TextPrimary)
         Span(' ')
-        Span($r('app.string.record_unit_minutes')).fontColor($r('sys.color.font_secondary'))
+        Span($r('app.string.record_unit_minutes')).fontColor(AppTheme.TextSecondary)
       }.fontSize(14).width('100%')
       Flex({ wrap: FlexWrap.Wrap }) {
         this.buildSummaryTag($r('sys.symbol.calendar'), $r('app.string.record_streak'),
@@ -811,13 +804,13 @@ export struct ReadingStatsPage {
       }.width('100%')
       if (!this.statsReady || this.statsError) {
         Text(this.statsError ? $r('app.string.record_stats_read_failed') : $r('app.string.record_stats_loading'))
-          .fontSize(AppFont.Caption).fontColor($r('sys.color.font_tertiary')).width('100%')
+          .fontSize(AppFont.Caption).fontColor(AppTheme.TextTertiary).width('100%')
       }
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .padding({ top: 2, bottom: 8 })
-    .border({ width: { bottom: 0.5 }, color: $r('sys.color.comp_divider') })
+    .border({ width: { bottom: 0.5 }, color: AppTheme.Divider })
     .opacity(this.appeared ? 1 : 0)
     .translate({ y: this.appeared ? 0 : 18 })
     .animation({ duration: 460, curve: AppCurve.Decelerate })
@@ -830,7 +823,7 @@ export struct ReadingStatsPage {
       Column({ space: 5 }) {
         Text(this.pageTitle())
           .fontSize(AppFont.Title)
-          .fontColor($r('sys.color.font_primary'))
+          .fontColor(AppTheme.TextPrimary)
           .fontWeight(FontWeight.Bold)
         Column()
           .width(20)
@@ -862,7 +855,7 @@ export struct ReadingStatsPage {
           .onClick(() => this.confirmDeleteSelected())
         Text($r('app.string.common_cancel'))
           .fontSize(AppFont.Body)
-          .fontColor($r('sys.color.font_tertiary'))
+          .fontColor(AppTheme.TextTertiary)
           .onClick(() => this.clearSelection())
       }
       .alignItems(VerticalAlign.Center)
@@ -888,14 +881,14 @@ export struct ReadingStatsPage {
           Column({ space: AppSpace.Xs }) {
             Text(item.title)
               .fontSize(AppFont.Body)
-              .fontColor($r('sys.color.font_primary'))
+              .fontColor(AppTheme.TextPrimary)
               .fontWeight(FontWeight.Medium)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .width('100%')
             Text(item.author)
               .fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_tertiary'))
+              .fontColor(AppTheme.TextTertiary)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .width('100%')
@@ -917,14 +910,14 @@ export struct ReadingStatsPage {
             Text(item.isText ? $r('app.string.record_read_progress', item.progressPercent) :
               $r('app.string.record_listen_progress', item.progressPercent))
               .fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_secondary'))
+              .fontColor(AppTheme.TextSecondary)
           }
           .alignItems(VerticalAlign.Center)
 
           Text(item.isText ? (item.chapterTitle || $r('app.string.record_read_started')) : this.formatDurationText(item))
             .layoutWeight(1)
             .fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_tertiary'))
+            .fontColor(AppTheme.TextTertiary)
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
@@ -979,7 +972,7 @@ export struct ReadingStatsPage {
         Button({ type: ButtonType.Circle }) {
           SymbolGlyph($r('sys.symbol.clock'))
             .fontSize(18)
-            .fontColor([$r('sys.color.font_primary')])
+            .fontColor([AppTheme.TextPrimary])
         }
           .width(36)
           .height(36)
@@ -993,7 +986,7 @@ export struct ReadingStatsPage {
         Stack() {
           SymbolGlyph(item.isText ? $r('sys.symbol.book') : $r('sys.symbol.play_fill'))
             .fontSize(16)
-            .fontColor([$r('sys.color.font_primary')])
+            .fontColor([AppTheme.TextPrimary])
         }
         .width(36)
         .height(36)
@@ -1088,11 +1081,11 @@ export struct ReadingStatsPage {
       .backgroundColor(AppColor.BrandSoft)
       Text(this.onlyUnfavorited ? $r('app.string.record_unfavorited_empty') : $r('app.string.record_empty'))
         .fontSize(AppFont.BodyL)
-        .fontColor($r('sys.color.font_primary'))
+        .fontColor(AppTheme.TextPrimary)
         .fontWeight(FontWeight.Medium)
       Text(this.onlyUnfavorited ? $r('app.string.record_unfavorited_hint') : $r('app.string.record_empty_hint'))
         .fontSize(AppFont.Body)
-        .fontColor($r('sys.color.font_tertiary'))
+        .fontColor(AppTheme.TextTertiary)
     }
     .width('100%')
     .height(190)

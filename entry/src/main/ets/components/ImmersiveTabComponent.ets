@@ -1,4 +1,4 @@
-import { AppRadius, AppSpace, AppMotion, AppCurve, AppMaterial, HomeTheme } from '../theme/Theme';
+import { AppRadius, AppSpace, AppMotion, AppCurve, AppMaterial, HomeTheme, AppTheme } from '../theme/Theme';
 
 /** 首页与搜索历史共用的原生沉浸材质标签。 */
 @ComponentV2
@@ -15,7 +15,7 @@ export struct ImmersiveTabComponent {
       Row() {
         Text(this.label)
           .fontSize(13)
-          .fontColor(this.selected ? HomeTheme.Accent : $r('sys.color.font_secondary'))
+          .fontColor(this.selected ? HomeTheme.Accent : AppTheme.TextSecondary)
           .animation(this.fitContent ? null : { duration: AppMotion.Fast, curve: AppCurve.Standard })
           .fontWeight(this.selected ? FontWeight.Medium : FontWeight.Regular)
           .maxLines(1)

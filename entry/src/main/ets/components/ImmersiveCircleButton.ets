@@ -2,6 +2,8 @@ import { HdsTabs } from '@kit.UIDesignKit';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { HdsCompat } from '../utils/HdsCompat';
 import { AppColor } from '../theme/Theme';
+import { ThemeIconRole } from '../theme/ThemeIcons';
+import { ThemeIconComponent } from './ThemeIconComponent';
 
 class ImmersiveCircleClip implements AttributeModifier<CommonAttribute> {
   private radius: number;
@@ -20,6 +22,7 @@ class ImmersiveCircleClip implements AttributeModifier<CommonAttribute> {
 @ComponentV2
 export struct ImmersiveCircleButton {
   @Param icon: Resource = $r('sys.symbol.arrow_clockwise');
+  @Param themeIconRole: ThemeIconRole = ThemeIconRole.None;
   @Param label: Resource = $r('app.string.content_reload');
   @Param diameter: number = 40;
   @Param iconSize: number = 24;
@@ -49,9 +52,8 @@ export struct ImmersiveCircleButton {
 
   @Builder
   iconContent() {
-    SymbolGlyph(this.icon)
-      .fontSize(this.iconSize)
-      .fontColor([this.iconColor]).hitTestBehavior(HitTestMode.None)
+    ThemeIconComponent({ role: this.themeIconRole, symbol: this.icon,
+      iconSize: this.iconSize, tint: this.iconColor })
   }
 
   build() {

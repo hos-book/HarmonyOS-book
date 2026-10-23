@@ -22,8 +22,10 @@ import {
   AppSpace,
   AppFont,
   AppMaterial,
-  HomeTheme
+  HomeTheme,
+  AppTheme
 } from '../theme/Theme';
+import { CoverDecoration } from '../components/CoverDecoration';
 import { Book, Chapter } from '../model/Book';
 import { TocItem } from '../model/BookSource';
 import { BookSourceService } from '../service/BookSourceService';
@@ -2076,23 +2078,27 @@ export struct FavoritePage {
   // 透明明暗层沿用原封面的颜色，书脊随封面宽度缩放，不增加图片解码。
   @Builder
   buildBookSpine() {
-    Row()
-      .width('14%')
-      .height('100%')
-      .linearGradient({
-        direction: GradientDirection.Right,
-        colors: [
-          ['#66000000', 0],
-          ['#16000000', 0.18],
-          ['#38FFFFFF', 0.36],
-          ['#10FFFFFF', 0.5],
-          ['#30000000', 0.6],
-          ['#08000000', 0.78],
-          ['#00000000', 1]
-        ]
-      })
-      .hitTestBehavior(HitTestMode.None)
-      .accessibilityLevel('no')
+    if (AppTheme.isPaper) {
+      CoverDecoration({ radius: 4 })
+    } else {
+      Row()
+        .width('14%')
+        .height('100%')
+        .linearGradient({
+          direction: GradientDirection.Right,
+          colors: [
+            ['#66000000', 0],
+            ['#16000000', 0.18],
+            ['#38FFFFFF', 0.36],
+            ['#10FFFFFF', 0.5],
+            ['#30000000', 0.6],
+            ['#08000000', 0.78],
+            ['#00000000', 1]
+          ]
+        })
+        .hitTestBehavior(HitTestMode.None)
+        .accessibilityLevel('no')
+    }
   }
 
   @Builder
@@ -2121,7 +2127,7 @@ export struct FavoritePage {
           .clip(true)
         } else if (book.cover && book.cover.startsWith('http')) {
           CoverImage({ url: book.cover, imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO,
-            radius: 0, decodeW: 300, decodeH: 400 })
+            radius: 0, themedDecoration: false, decodeW: 300, decodeH: 400 })
             .hitTestBehavior(HitTestMode.Transparent)
         } else if (book.cover && (book.cover.startsWith('/data/') || book.cover.startsWith('file://'))) {
           Image('file://' + book.cover.replace(/^file:\/\//, ''))
@@ -2142,7 +2148,7 @@ export struct FavoritePage {
             .hitTestBehavior(HitTestMode.Transparent)
         } else {
           CoverImage({ title: book.title, author: book.author, localPlaceholder: book.id.startsWith('import_'),
-            imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO, radius: 0 })
+            imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO, radius: 0, themedDecoration: false })
         }
         this.buildBookSpine()
         this.buildTypeBadge(false, book.contentType ?? 'audio')
@@ -2243,7 +2249,7 @@ export struct FavoritePage {
       top: small ? 2 : 3,
       bottom: small ? 2 : 3
     })
-    .backgroundColor(contentType !== 'audio' ? '#CC4E7FA8' : '#CCFF8800')
+    .backgroundColor(contentType === 'comic' ? '#CC8E5BB7' : contentType !== 'audio' ? '#CC4E7FA8' : '#CCFF8800')
     .borderRadius(AppRadius.Sm)
     .margin({ top: small ? 5 : 6, left: small ? 10 : 14 })
   }
@@ -2255,7 +2261,7 @@ export struct FavoritePage {
       Stack({ alignContent: Alignment.TopStart }) {
         if (book.cover && book.cover.startsWith('http')) {
           CoverImage({ url: book.cover, imgWidth: 72, imgHeight: 100, useFixedHeight: true,
-            radius: 0, decodeW: 300, decodeH: 400 })
+            radius: 0, themedDecoration: false, decodeW: 300, decodeH: 400 })
             .hitTestBehavior(HitTestMode.Transparent)
         } else if (book.cover && (book.cover.startsWith('/data/') || book.cover.startsWith('file://'))) {
           Image('file://' + book.cover.replace(/^file:\/\//, ''))
@@ -2266,9 +2272,12 @@ export struct FavoritePage {
             .sourceSize({ width: 300, height: 400 })
             .draggable(false)
             .hitTestBehavior(HitTestMode.Transparent)
+        } else if (book.cover) {
+          Image($rawfile(book.cover)).width(72).height(100).borderRadius(0)
+            .objectFit(ImageFit.Cover).draggable(false).hitTestBehavior(HitTestMode.Transparent)
         } else {
           CoverImage({ title: book.title, author: book.author, localPlaceholder: book.id.startsWith('import_'),
-            imgWidth: 72, imgHeight: 100, useFixedHeight: true, radius: 0 })
+            imgWidth: 72, imgHeight: 100, useFixedHeight: true, radius: 0, themedDecoration: false })
         }
         this.buildBookSpine()
         this.buildTypeBadge(true, book.contentType ?? 'audio')

@@ -1,4 +1,6 @@
 import { AppRadius } from '../theme/Theme';
+import { CoverTheme } from '../theme/CoverTheme';
+import { CoverDecoration } from './CoverDecoration';
 import { LocalBookCover } from './LocalBookCover';
 import { CoverPrefetcher } from '../service/CoverPrefetcher';
 import { CoverAspectRatio } from '../utils/CoverAspectRatio';
@@ -41,6 +43,8 @@ export struct CoverImage {
   @Param useOriginalRatio: boolean = false;
   @Param maxOriginalHeight: number = 0;
   @Param radius: number = AppRadius.Md;
+  @Param themedDecoration: boolean = true;
+  @Param themeBundleId: string = '';
   // 旋转封面先统一裁剪再合成，避免图片与占位的裁剪边缘叠加。
   @Param compositeEdges: boolean = false;
   @Param imageFit: ImageFit = ImageFit.Cover;
@@ -211,7 +215,7 @@ export struct CoverImage {
   private placeholderImage() {
     // 占位素材是方图，必须填满封面框；不能跟随真实封面的 Contain 留白。
     if (this.useFixedHeight) {
-      Image($r('app.media.book_cover_placeholder'))
+      Image(CoverTheme.placeholder(this.themeBundleId))
         .draggable(false)
         .width(this.imgWidth)
         .height(this.imgHeight)
@@ -219,7 +223,7 @@ export struct CoverImage {
         .clip(!this.compositeEdges)
         .objectFit(ImageFit.Cover)
     } else {
-      Image($r('app.media.book_cover_placeholder'))
+      Image(CoverTheme.placeholder(this.themeBundleId))
         .draggable(false)
         .width(this.displayWidth())
         .aspectRatio(this.displayRatio())
@@ -234,15 +238,17 @@ export struct CoverImage {
       if (this.localPlaceholder && !this.url) {
         LocalBookCover({ title: this.title, author: this.author, imgWidth: this.displayWidth(),
           imgHeight: this.imgHeight, useFixedHeight: this.useFixedHeight,
-          aspectRatioValue: this.displayRatio(), radius: this.radius })
+          aspectRatioValue: this.displayRatio(), radius: this.radius,
+          themedDecoration: false, themeBundleId: this.themeBundleId })
       } else {
         this.placeholderImage()
       }
       if (this.title && !this.imageReady && !(this.localPlaceholder && !this.url)) {
-        Text(this.title).fontSize(18).fontWeight(FontWeight.Medium).fontColor('#FFF4E6')
+        Text(this.title).fontSize(18).fontWeight(FontWeight.Medium)
+          .fontColor(CoverTheme.titleColor(false, this.themeBundleId))
           .copyOption(CopyOptions.None).draggable(false)
           .maxLines(5).textOverflow({ overflow: TextOverflow.Ellipsis }).textAlign(TextAlign.Center)
-          .width('86%').padding(8).backgroundColor('#AA493E35').borderRadius(6)
+          .width('86%').padding(8).backgroundColor(CoverTheme.titleBackground(this.themeBundleId)).borderRadius(6)
       }
       if (this.url.startsWith('http') && this.resolvedUrl && this.showImage && !this.giveUp) {
         this.networkImage(this.url)
@@ -255,6 +261,16 @@ export struct CoverImage {
       }
     }
     .width(this.displayWidth())
+    .height(this.useFixedHeight ? this.imgHeight : undefined)
+    .aspectRatio(this.useFixedHeight ? undefined : this.displayRatio())
     .attributeModifier(new CoverCompositeClip(this.compositeEdges, this.radius))
+    .overlay(this.coverDecoration(), { align: Alignment.Center })
+  }
+
+  @Builder
+  private coverDecoration() {
+    if (this.themedDecoration) {
+      CoverDecoration({ radius: this.radius, themeBundleId: this.themeBundleId })
+    }
   }
 }

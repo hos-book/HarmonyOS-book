@@ -15,6 +15,8 @@ export class AppAppearance {
   @Trace material: number = 3;
   /** 空字符串表示使用默认玫瑰红。 */
   @Trace accent: string = '';
+  /** 当前套装；继续与阅读纸张和桌面应用图标独立保存。 */
+  @Trace themeBundleId: string = 'default';
 
   static normalizeMaterial(value: number): number {
     if (value === 1 || value === 2) return 2;

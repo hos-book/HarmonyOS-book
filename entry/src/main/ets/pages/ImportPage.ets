@@ -7,7 +7,8 @@ import { picker } from '@kit.CoreFileKit';
 import { zlib, emitter, BusinessError } from '@kit.BasicServicesKit';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { media } from '@kit.MediaKit';
-import { AppColor, AppRadius, AppSpace, AppFont } from '../theme/Theme';
+import { AppColor, AppRadius, AppSpace, AppFont, AppTheme } from '../theme/Theme';
+import { CoverDecoration } from '../components/CoverDecoration';
 import { Book } from '../model/Book';
 import { DataService } from '../service/DataService';
 import { PreferenceService } from '../service/PreferenceService';
@@ -535,7 +536,7 @@ export struct ImportPage {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor($r('sys.color.background_primary'))
+    .backgroundColor(AppTheme.Background)
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 
@@ -633,9 +634,11 @@ export struct ImportPage {
               .objectFit(ImageFit.Cover)
           } else {
             LocalBookCover({ title: this.bookTitle, author: this.bookAuthor,
-              imgWidth: 80, imgHeight: 112, useFixedHeight: true })
+              imgWidth: 80, imgHeight: 112, useFixedHeight: true, themedDecoration: false })
           }
+          CoverDecoration({ radius: AppRadius.Md })
         }
+        .width(80).height(112)
         .onClick(() => this.pickCover())
 
         Column({ space: AppSpace.Xs }) {
@@ -738,7 +741,7 @@ export struct ImportPage {
       top: AppSpace.Sm,
       bottom: AppSpace.Sm + WindowUtils.getBottomSafeVp()
     })
-    .backgroundColor($r('sys.color.background_primary'))
+    .backgroundColor(AppTheme.Background)
     .border({ width: { top: 0.5 }, color: $r('sys.color.comp_divider') })
   }
 

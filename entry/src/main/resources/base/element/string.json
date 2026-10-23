@@ -1,5 +1,24 @@
 {
   "string": [
+    {"name":"theme_bundle_default_name","value":"默认套装"},
+    {"name":"theme_bundle_default_description","value":"熟悉的简听外观，跟随系统深浅色。"},
+    {"name":"theme_bundle_paper_name","value":"纸感书房"},
+    {"name":"theme_bundle_paper_description","value":"暖纸底色、墨绿图标与细线书脊，让阅读回归安静。"},
+    {"name":"theme_bundle_hint","value":"切换默认封面、页面背景和首页图标，已有书封保留原图。"},
+    {"name":"theme_bundle_apply","value":"应用套装"},
+    {"name":"theme_bundle_applied","value":"正在使用"},
+    {"name":"theme_bundle_applying","value":"正在应用…"},
+    {"name":"theme_bundle_changed","value":"主题套装已应用"},
+    {"name":"theme_bundle_failed","value":"主题应用失败，请重试"},
+    {"name":"theme_bundle_restore","value":"恢复默认套装"},
+    {"name":"theme_bundle_reset_overrides","value":"恢复套装推荐外观"},
+    {"name":"theme_bundle_customized","value":"已自定义主题色或材质"},
+    {"name":"theme_bundle_preview_label","value":"效果预览"},
+    {"name":"theme_bundle_preview_title","value":"留一段时间，给阅读"},
+    {"name":"theme_bundle_preview_subtitle","value":"书页与声音 · 每日相伴"},
+    {"name":"theme_bundle_preview_book","value":"山间来信"},
+    {"name":"theme_bundle_preview_local","value":"我的书摘"},
+    {"name":"theme_bundle_preview_collection","value":"书架"},
     {
       "name": "chapter_current_reading",
       "value": "正在阅读"

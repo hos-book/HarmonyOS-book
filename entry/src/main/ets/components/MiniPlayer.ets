@@ -2,6 +2,7 @@ import { AppColor, AppSpace, AppFont, HomeTheme } from '../theme/Theme';
 import { Book } from '../model/Book';
 import { PlaybackLoadingIndicator } from './PlaybackLoadingIndicator';
 import { CoverImage } from './CoverImage';
+import { CoverDecoration } from './CoverDecoration';
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
 
 @ComponentV2
@@ -27,7 +28,8 @@ export struct MiniPlayer {
   coverImageBuilder(): void {
     if (this.book) {
       if (this.book.cover && this.book.cover.startsWith('http')) {
-        CoverImage({ url: this.book.cover, useFixedHeight: true, imgHeight: '100%', radius: 0 })
+        CoverImage({ url: this.book.cover, useFixedHeight: true, imgHeight: '100%', radius: 0,
+          themedDecoration: false })
           .width('100%')
           .height('100%')
           .id('mini-player-cover-image')
@@ -49,7 +51,7 @@ export struct MiniPlayer {
           .id('mini-player-cover-image')
       } else {
         CoverImage({ title: this.book.title, author: this.book.author,
-          localPlaceholder: this.book.id.startsWith('import_'), radius: 0,
+          localPlaceholder: this.book.id.startsWith('import_'), radius: 0, themedDecoration: false,
           useFixedHeight: true, imgHeight: '100%' })
           .width('100%')
           .height('100%')
@@ -76,6 +78,7 @@ export struct MiniPlayer {
 
           Stack() {
             this.coverImageBuilder()
+            CoverDecoration({ radius: this.collapsed ? 999 : 22, compact: true })
           }
           .width('92%')
           .height('92%')

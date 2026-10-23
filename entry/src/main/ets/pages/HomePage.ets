@@ -5,7 +5,10 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   HdsNavigation, HdsNavigationTitleMode, HideMode, BottomBuilderParams, BuilderOptions, TitleBarContentOptions
 } from '@kit.UIDesignKit';
-import { AppColor, AppRadius, AppSpace, AppFont, AppMaterial, AppCurve, HomeTheme } from '../theme/Theme';
+import { AppColor, AppRadius, AppSpace, AppFont, AppMaterial, AppCurve, HomeTheme, AppTheme } from '../theme/Theme';
+import { ThemeIconRole } from '../theme/ThemeIcons';
+import { ThemeIconComponent } from '../components/ThemeIconComponent';
+import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
 import { WindowUtils } from '../utils/WindowUtils';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { Book, Chapter } from '../model/Book';
@@ -1112,7 +1115,7 @@ export struct HomePage {
     Column({ space: 2 }) {
       ForEach([0, 1, 2, 3], (index: number) => {
         Text(this.homeSourceKindLabel(index)).fontSize(16)
-          .fontColor(index === this.homeSourceKind ? AppColor.Brand : $r('sys.color.font_primary'))
+          .fontColor(index === this.homeSourceKind ? AppColor.Brand : AppTheme.TextPrimary)
           .width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
           .borderRadius(AppRadius.Xl - AppSpace.Xs)
           .backgroundColor(index === this.homeSourceKind ? AppColor.BrandSoft : Color.Transparent)
@@ -1204,7 +1207,7 @@ export struct HomePage {
     Column({ space: AppSpace.Xs }) {
       Row({ space: 0 }) {
         Text($r('app.string.ranking_home')).fontSize(16)
-          .fontColor(this.rankingMode ? AppColor.Brand : $r('sys.color.font_primary'))
+          .fontColor(this.rankingMode ? AppColor.Brand : AppTheme.TextPrimary)
           .layoutWeight(1).height(48).padding({ left: 12, right: 12 })
           .borderRadius(AppRadius.Xl - AppSpace.Xs)
           .backgroundColor(this.rankingMode ? AppColor.BrandSoft : Color.Transparent)
@@ -1215,9 +1218,9 @@ export struct HomePage {
             });
           })
         Button({ type: ButtonType.Circle }) {
-          SymbolGlyph(this.homeSourceMenuColumns === 1 ?
-            $r('sys.symbol.square_grid_2x2') : $r('sys.symbol.list_bullet'))
-            .fontSize(22).fontColor([$r('sys.color.icon_primary')])
+          ThemeIconComponent({ role: this.homeSourceMenuColumns === 1 ? ThemeIconRole.Grid : ThemeIconRole.List,
+            symbol: this.homeSourceMenuColumns === 1 ? $r('sys.symbol.square_grid_2x2') : $r('sys.symbol.list_bullet'),
+            iconSize: 22, tint: AppTheme.IconPrimary })
         }
           .width(40).height(48)
           .backgroundColor(Color.Transparent)
@@ -1230,8 +1233,8 @@ export struct HomePage {
             this.changeHomeSourceMenuColumns(this.homeSourceMenuColumns === 1 ? 2 : 1);
           })
         Button({ type: ButtonType.Circle }) {
-          SymbolGlyph($r('sys.symbol.funnel')).fontSize(22)
-            .fontColor([this.homeSourceKind > 0 ? AppColor.Brand : $r('sys.color.icon_primary')])
+          ThemeIconComponent({ role: ThemeIconRole.Filter, symbol: $r('sys.symbol.funnel'), iconSize: 22,
+            tint: this.homeSourceKind > 0 ? AppColor.Brand : AppTheme.IconPrimary })
         }.width(40).height(48).backgroundColor(Color.Transparent)
           .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
           .accessibilityText($r('app.string.record_content_filter'))
@@ -1242,8 +1245,8 @@ export struct HomePage {
       Search({ value: this.homeSourceKeyword, placeholder: $r('app.string.rule_source_search_placeholder') })
         .width('100%').height(40).margin(0)
         .borderRadius(AppRadius.Xl - AppSpace.Xs)
-        .fontColor($r('sys.color.font_primary'))
-        .placeholderColor($r('sys.color.font_tertiary'))
+        .fontColor(AppTheme.TextPrimary)
+        .placeholderColor(AppTheme.TextTertiary)
         .onChange((value: string): void => this.filterHomeSources(value))
       if (this.loadingHomeSources) {
         Row() {
@@ -1251,7 +1254,7 @@ export struct HomePage {
         }.width('100%').height(64).justifyContent(FlexAlign.Center)
       } else if (this.homeSourceMatchCount === 0) {
         Text($r('app.string.rule_source_no_match'))
-          .fontSize(14).fontColor($r('sys.color.font_secondary'))
+          .fontSize(14).fontColor(AppTheme.TextSecondary)
           .width('100%').height(64).textAlign(TextAlign.Center)
       } else {
         List({ space: AppSpace.Xxs, scroller: this.homeSourceMenuScroller,
@@ -1262,7 +1265,7 @@ export struct HomePage {
                 Text(source.bookSourceName)
                   .fontSize(16).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                   .fontColor(source.bookSourceUrl === this.homeSources[this.homeSourceIndex]?.bookSourceUrl ?
-                    AppColor.Brand : $r('sys.color.font_primary'))
+                    AppColor.Brand : AppTheme.TextPrimary)
                   .layoutWeight(1).height(48).padding({ left: AppSpace.Sm, right: AppSpace.Xs })
                   .enabled(!this.savingHomeSource)
                   .onClick((): void => {
@@ -1271,8 +1274,8 @@ export struct HomePage {
                       item.bookSourceUrl === source.bookSourceUrl));
                   })
                 Button({ type: ButtonType.Circle }) {
-                  SymbolGlyph($r('sys.symbol.chevron_right'))
-                    .fontSize(24).fontColor([AppColor.Brand])
+                  ThemeIconComponent({ role: ThemeIconRole.ChevronRight, symbol: $r('sys.symbol.chevron_right'),
+                    iconSize: 24, tint: AppColor.Brand })
                 }
                 .width(48).height(48).margin({ right: AppSpace.Xxs })
                 .backgroundColor(Color.Transparent)
@@ -1300,12 +1303,11 @@ export struct HomePage {
   buildSearchTitleBar() {
     Row({ space: AppSpace.Sm }) {
       Row({ space: AppSpace.Xs }) {
-        SymbolGlyph($r('sys.symbol.magnifyingglass'))
-          .fontSize(17)
-          .fontColor([$r('sys.color.icon_secondary')])
+        ThemeIconComponent({ role: ThemeIconRole.Search, symbol: $r('sys.symbol.magnifyingglass'),
+          iconSize: 17, tint: AppTheme.IconSecondary })
         Text($r('app.string.search_placeholder'))
           .fontSize(AppFont.Body)
-          .fontColor($r('sys.color.font_tertiary'))
+          .fontColor(AppTheme.TextTertiary)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .layoutWeight(1)
@@ -1387,6 +1389,9 @@ export struct HomePage {
 
   build() {
     Stack() {
+      if (AppTheme.isPaper) {
+        ThemeBackgroundComponent()
+      }
       if (!this.homeResolved) {
         LoadingProgress().width(28).height(28).color(AppColor.Brand)
       } else if (this.rankingMode) {
@@ -1417,13 +1422,15 @@ export struct HomePage {
   buildSourceHome() {
     Stack({ alignContent: Alignment.TopStart }) {
       Stack({ alignContent: Alignment.TopStart }) {
-        RankingPosterBackground({ cover: this.carouselCover,
-          suspended: !this.visible || this.openingCarouselBook || this.coverState.detailBookId.length > 0,
-          imageHeight: this.contentHeight + this.topSafeVp + this.bottomSafeVp })
+        if (!AppTheme.isPaper) {
+          RankingPosterBackground({ cover: this.carouselCover,
+            suspended: !this.visible || this.openingCarouselBook || this.coverState.detailBookId.length > 0,
+            imageHeight: this.contentHeight + this.topSafeVp + this.bottomSafeVp })
+        }
       }
         .width('100%')
         .height('100%')
-        .backgroundColor(HomeTheme.BgNeutral)
+        .backgroundColor(AppTheme.isPaper ? Color.Transparent : HomeTheme.BgNeutral)
         .clip(true)
         .hitTestBehavior(HitTestMode.None)
         .accessibilityLevel('no')
@@ -1591,16 +1598,15 @@ export struct HomePage {
           } else {
             ListItem() {
               Column() {
-                SymbolGlyph($r('sys.symbol.magnifyingglass'))
-                  .fontSize(48)
-                  .fontColor([$r('sys.color.font_tertiary')])
+                ThemeIconComponent({ role: ThemeIconRole.Search, symbol: $r('sys.symbol.magnifyingglass'),
+                  iconSize: 48, tint: AppTheme.TextTertiary })
                 Text($r('app.string.search_placeholder'))
                   .fontSize(AppFont.Body)
-                  .fontColor($r('sys.color.font_tertiary'))
+                  .fontColor(AppTheme.TextTertiary)
                   .margin({ top: AppSpace.Md })
                 Text(this.homeError || $r('app.string.home_source_empty'))
                   .fontSize(AppFont.Caption)
-                  .fontColor($r('sys.color.font_tertiary'))
+                  .fontColor(AppTheme.TextTertiary)
                   .margin({ top: AppSpace.Xs })
               }
               .width('100%')
@@ -1614,10 +1620,10 @@ export struct HomePage {
             Row() {
               Text($r('app.string.home_categories_all'))
                 .fontSize(AppFont.Title).fontWeight(FontWeight.Bold)
-                .fontColor($r('sys.color.font_primary'))
+                .fontColor(AppTheme.TextPrimary)
               Blank()
               Text($r('app.string.home_categories_count', this.homeCategories.length))
-                .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+                .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
             }
             .width('100%').padding({ left: AppSpace.Md, right: AppSpace.Md,
               top: AppSpace.Sm, bottom: AppSpace.Md })
@@ -1629,7 +1635,7 @@ export struct HomePage {
                   LoadingProgress().width(32).height(32).color(AppColor.Brand)
                 } else {
                   Text(this.homeError || $r('app.string.home_categories_empty'))
-                    .fontSize(AppFont.Body).fontColor($r('sys.color.font_secondary'))
+                    .fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
                     .textAlign(TextAlign.Center)
                 }
               }
@@ -1660,7 +1666,7 @@ export struct HomePage {
               LoadingProgress().width(40).height(40).color(AppColor.Brand)
               Text('加载中...')
                 .fontSize(AppFont.Body)
-                .fontColor($r('sys.color.font_tertiary'))
+                .fontColor(AppTheme.TextTertiary)
                 .margin({ top: AppSpace.Sm })
             }
             .width('100%')
@@ -1672,10 +1678,10 @@ export struct HomePage {
             Column() {
               SymbolGlyph($r('sys.symbol.exclamationmark_circle'))
                 .fontSize(48)
-                .fontColor([$r('sys.color.font_tertiary')])
+                .fontColor([AppTheme.TextTertiary])
               Text(this.categoryError)
                 .fontSize(AppFont.Body)
-                .fontColor($r('sys.color.font_tertiary'))
+                .fontColor(AppTheme.TextTertiary)
                 .margin({ top: AppSpace.Md })
             }
             .width('100%')
@@ -1724,7 +1730,7 @@ export struct HomePage {
                 Text(this.categoryError || (this.categoryLoading ?
                   $r('app.string.home_category_loading_more') : $r('app.string.home_category_load_more')))
                   .fontSize(AppFont.Caption)
-                  .fontColor($r('sys.color.font_secondary'))
+                  .fontColor(AppTheme.TextSecondary)
               }
               .width('100%').height(48).justifyContent(FlexAlign.Center)
               .onClick(() => this.loadCategoryPage(this.categoryNextPage !== 1))
@@ -1778,16 +1784,15 @@ export struct HomePage {
         Text(block.title)
           .fontSize(AppFont.Title)
           .fontWeight(FontWeight.Bold)
-          .fontColor($r('sys.color.font_primary'))
+          .fontColor(AppTheme.TextPrimary)
         Blank()
         if (block.moreUrl && block.moreUrl.length > 0) {
           Row({ space: AppSpace.Xxs }) {
             Text('更多')
               .fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_secondary'))
-            SymbolGlyph($r('sys.symbol.chevron_right'))
-              .fontSize(12)
-              .fontColor([$r('sys.color.font_secondary')])
+              .fontColor(AppTheme.TextSecondary)
+            ThemeIconComponent({ role: ThemeIconRole.ChevronRight, symbol: $r('sys.symbol.chevron_right'),
+              iconSize: 12, tint: AppTheme.TextSecondary })
           }
           .padding({ left: AppSpace.Xs, right: AppSpace.Xs, top: 6, bottom: 6 })
           .onClick(() => this.onBlockMore(block))
@@ -1982,9 +1987,8 @@ export struct HomePage {
       if (this.isSearchCollapsed) {
         Stack() {
           Stack({ alignContent: Alignment.Center }) {
-            SymbolGlyph($r('sys.symbol.magnifyingglass'))
-              .fontSize(21)
-              .fontColor([$r('sys.color.icon_primary')])
+            ThemeIconComponent({ role: ThemeIconRole.Search, symbol: $r('sys.symbol.magnifyingglass'),
+              iconSize: 21, tint: AppTheme.IconPrimary })
           }
           .width(COLLAPSED_SEARCH_SIZE)
           .height(COLLAPSED_SEARCH_SIZE)
