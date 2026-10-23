@@ -3,11 +3,11 @@
   "sources": {
     "engine": {
       "repository": "https://github.com/wip3l/harmony-book-source-engine",
-      "commit": "845b7f332ceefae9a00ca4fcd8c40d91f2109d5c"
+      "commit": "d9ed121a33caec54905540a553fe5e5127007c73"
     },
     "application": {
       "repository": "https://github.com/wip3l/legado-harmony",
-      "commit": "b46ddd65d55d14d89093e965df9e8c82c03ae2d9"
+      "commit": "7cd12b8632e49aedfc353d52d769bde8e61a74a8"
     }
   },
   "license": "GPL-3.0",

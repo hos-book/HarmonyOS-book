@@ -4,6 +4,10 @@
 
 ## 固定版本与维护边界
 
+### 公共文档校正（2026-10-24）
+
+公共规范已按 `NativeImageScriptRunner.run` 修正执行器说明：优先使用宿主安装的 `SourceEngineHost.imageScripts`，未安装时回退内核自带的 `JSScriptSession`。公共文档说明内核默认执行器的队列与超时，不再列出简听专属的下载和预加载参数；简听的总并发 6、后台最多 2 及图片脚本队列限制继续在 `docs/BOOK_SOURCE_RULES.md` 维护。两个来源仅修改文档，重新固定版本后，83 个迁入源码文件内容一致。
+
 ### 漫画清单与图片按需加载（2026-10-23）
 
 快速滑动时的图片总并发由 4 调整为 6，后台预加载仍最多占 2 个名额，可见页优先；本地图片脚本运行与等待的总容量同步调整为 6，仍一次执行 1 项，避免六张同时下载完成时因旧的四项队列容量而失败。`test-comic-preload.cjs` 覆盖六张立即开始、第七张等待空位，以及六张进入真实沙箱队列并逐张处理。
@@ -76,8 +80,8 @@
 
 | 来源 | 仓库 | 固定提交 | 本地工作区 |
 | --- | --- | --- | --- |
-| 解析内核 | `wip3l/harmony-book-source-engine` 的本地分支 `codex/jianting-native-js-host` | `845b7f332ceefae9a00ca4fcd8c40d91f2109d5c` | `D:\harmony-book-source-engine` |
-| 应用辅助代码 | `wip3l/legado-harmony` 的共同维护分支 `codex/sourceengine-host` | `b46ddd65d55d14d89093e965df9e8c82c03ae2d9` | `D:\legado-harmony-sourceengine-host` |
+| 解析内核 | `wip3l/harmony-book-source-engine` 的本地分支 `codex/jianting-native-js-host` | `d9ed121a33caec54905540a553fe5e5127007c73` | `D:\harmony-book-source-engine` |
+| 应用辅助代码 | `wip3l/legado-harmony` 的共同维护分支 `codex/sourceengine-host` | `7cd12b8632e49aedfc353d52d769bde8e61a74a8` | `D:\legado-harmony-sourceengine-host` |
 
 应用辅助代码包含本地网页等待修复和图片管线接入，不假定上游公开仓库已有这些提交。精确版本、逐文件来源、原始路径和 SHA256 见 `third_party/light-source/upstream.json`（schemaVersion 2）。摘要统一按 LF 换行计算；生成文件的 upstreamSha256 对应抽取的方法或原始模板，generated 标记与 upstreamPath 共同记录出处。
 
