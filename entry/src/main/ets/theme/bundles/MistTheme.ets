@@ -48,7 +48,7 @@ export function createMistTheme(): AppThemeBundle {
   visual.cover.author = $r('app.color.theme_mist_local_cover_author');
   visual.cover.label = $r('app.color.theme_mist_cover_label');
   visual.cover.edge = visual.colors.textSecondary;
-  visual.cover.decoration = ThemeCoverDecoration.Border;
+  visual.cover.decoration = ThemeCoverDecoration.Spine;
   visual.cover.illustratedPlaceholder = true;
   visual.brandedProfileIcons = true;
   visual.icons.set(ThemeIconRole.Search, $r('app.media.theme_mist_search'));

@@ -26,6 +26,7 @@ import {
   AppTheme
 } from '../theme/Theme';
 import { CoverDecoration } from '../components/CoverDecoration';
+import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
 import { Book, Chapter } from '../model/Book';
 import { TocItem } from '../model/BookSource';
 import { BookSourceService } from '../service/BookSourceService';
@@ -1523,18 +1524,7 @@ export struct FavoritePage {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      // L0 暖色渐变背景（满屏，与首页一致）
-      Column()
-        .width('100%')
-        .height('100%')
-        .linearGradient({
-          angle: 180,
-          colors: [
-            [HomeTheme.BgWarmTop, 0.0],
-            [HomeTheme.BgWarmMid, 0.35],
-            [HomeTheme.BgNeutral, 1.0]
-          ]
-        })
+      ThemeBackgroundComponent()
 
       HdsNavigation() {
         Refresh({ refreshing: $$this.isRefreshing, builder: this.refreshIndicator() }) {

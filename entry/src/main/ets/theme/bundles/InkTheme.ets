@@ -40,7 +40,7 @@ export function createInkTheme(): AppThemeBundle {
   visual.colors.settingsBackground = $r('app.color.theme_ink_background');
   visual.background.kind = ThemeBackgroundKind.Image;
   visual.background.image = $r('app.media.theme_ink_background');
-  visual.background.imageOpacity = 0.12;
+  visual.background.imageOpacity = 1;
   visual.background.showCoverBackdrop = false;
   visual.cover.placeholder = $r('app.media.theme_ink_cover');
   visual.cover.localPlaceholder = $r('app.media.theme_ink_local_cover');
@@ -51,7 +51,7 @@ export function createInkTheme(): AppThemeBundle {
   visual.cover.authorBackground = $r('app.color.theme_ink_cover_label');
   visual.cover.label = $r('app.color.theme_ink_cover_label');
   visual.cover.edge = visual.colors.textSecondary;
-  visual.cover.decoration = ThemeCoverDecoration.Border;
+  visual.cover.decoration = ThemeCoverDecoration.Spine;
   visual.cover.illustratedPlaceholder = true;
   visual.brandedProfileIcons = true;
   visual.icons.set(ThemeIconRole.Search, $r('app.media.theme_ink_search'));

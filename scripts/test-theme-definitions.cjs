@@ -99,10 +99,10 @@ assert.equal(ink.id, 'ink-wash');
 assert.equal(ink.visual.background.kind, ThemeBackgroundKind.Image);
 assert.equal(id(ink.visual.background.image), 'app.media.theme_ink_background');
 assert.equal(ink.visual.background.showCoverBackdrop, false);
-assert.equal(ink.visual.background.imageOpacity, 0.12);
+assert.equal(ink.visual.background.imageOpacity, 1);
 assert.equal(id(CoverTheme.authorBackground(ink.id)), 'app.color.theme_ink_cover_label');
 assert.equal(id(CoverTheme.localPlaceholder(ink.id)), 'app.media.theme_ink_local_cover');
-assert.equal(CoverTheme.decoration(ink.id), ThemeCoverDecoration.Border);
+assert.equal(CoverTheme.decoration(ink.id), ThemeCoverDecoration.Spine);
 for (const role of Object.values(ThemeIconRole).filter(value => typeof value === 'number' && value !== ThemeIconRole.None)) {
   assert.ok(ThemeIcons.resolve(role, ink.id), `ink icon role ${role}`);
 }
