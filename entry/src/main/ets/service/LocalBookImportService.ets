@@ -15,6 +15,7 @@ import { image } from '@kit.ImageKit';
 import { LocalBookCatalog } from './text/LocalBookCatalog';
 import { LocalBookHtmlText } from './text/LocalBookHtmlText';
 import { cleanLocalBookHtmlBatch } from './text/LocalBookHtmlWorker';
+import { EpubContentProfile, EpubImportMode } from './text/EpubContentProfile';
 
 class EpubReadStats {
   file: number = 0;
@@ -30,6 +31,8 @@ class EpubReadStats {
   reusedPreview: boolean = false;
   imageBytes: number = 0;
   imageCount: number = 0;
+  imageFailures: number = 0;
+  profile: EpubContentProfile = new EpubContentProfile();
 }
 
 class PreparedEpub {
@@ -85,6 +88,7 @@ export class LocalBookImportService {
 
   private static async epubBody(context: common.Context, handler: bookParser.BookParserHandler,
     index: number, html: string, directory: string, stats: EpubReadStats): Promise<string> {
+    html = EpubContentProfile.body(html);
     const tags = /<(?:img|image)\b[^>]*>/gi;
     const images: string[] = [];
     const placeholders: string[] = [];
@@ -93,18 +97,21 @@ export class LocalBookImportService {
     let match = tags.exec(html);
     while (match !== null) {
       marked += html.substring(start, match.index);
-      const attr = /(?:src|(?:xlink:)?href)\s*=\s*["']([^"']+)["']/i.exec(match[0]);
+      const attr = /\s(?:src|(?:xlink:)?href)\s*=\s*["']([^"']+)["']/i.exec(match[0]);
       let token = '';
       if (attr !== null && !/^(?:[a-z]+:|\/\/)/i.test(attr[1])) {
         try {
-          const bytes = handler.getResourceContent(index, attr[1].split('#')[0]);
-          if (bytes.byteLength > 0 && bytes.byteLength <= 20 * 1024 * 1024 &&
-            stats.imageBytes + bytes.byteLength <= 128 * 1024 * 1024) {
+          const bytes = handler.getResourceContent(index, KkBiqugeHtmlParser.cleanContent(attr[1]).split('#')[0]);
+          if (stats.imageBytes + bytes.byteLength > 2 * 1024 * 1024 * 1024) {
+            throw new Error('import_epub_images_limit');
+          }
+          if (bytes.byteLength > 0 && bytes.byteLength <= 20 * 1024 * 1024) {
             const source = image.createImageSource(bytes);
             try {
               const info = await source.getImageInfo();
               if (info.size.width > 0 && info.size.height > 0 && info.size.width * info.size.height <= 32 * 1024 * 1024) {
                 const path = `${directory}/image_${index}_${stats.imageCount ?? 0}.img`;
+                await LocalBookImportService.requireSpace(context, bytes.byteLength);
                 stats.imageCount = (stats.imageCount ?? 0) + 1;
                 const file = await fileIo.open(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
                 try {
@@ -122,8 +129,14 @@ export class LocalBookImportService {
               }
             } finally { await source.release(); }
           }
-        } catch (_error) { /* 单张无效图片不影响正文阅读 */ }
+        } catch (error) {
+          if (error instanceof Error && error.message === 'import_epub_images_limit') {
+            throw new Error(context.resourceManager.getStringByNameSync(error.message));
+          }
+          // 普通小说可保留正文；漫画必须在结束前报告缺页，不能保存残缺书籍。
+        }
       }
+      if (!token) stats.imageFailures = (stats.imageFailures ?? 0) + 1;
       marked += token ? `\n${token}\n` : '\n';
       start = tags.lastIndex;
       match = tags.exec(html);
@@ -522,7 +535,8 @@ export class LocalBookImportService {
   }
 
   static async importBook(context: common.Context, file: LocalImportFile, id: string,
-    title: string, author: string, cover: string, progress: (text: string) => void): Promise<Book> {
+    title: string, author: string, cover: string, progress: (text: string) => void,
+    epubMode: EpubImportMode = 'auto'): Promise<Book> {
     const started = Date.now();
     const writes = new LocalImportTaskQueue();
     const epubStats = new EpubReadStats();
@@ -605,6 +619,7 @@ export class LocalBookImportService {
           for (const part of LocalBookCatalog.epub(html, spine[index],
             catalogIndex.get(LocalBookCatalog.spineKey(spine[index])) ?? [], `${book.title} ${index + 1}`)) {
             const section = html.substring(part.start, part.end);
+            if (epubMode === 'auto') epubStats.profile.observe(section);
             if (/<(?:img|image)\b/i.test(section) || section.length > 512 * 1024) {
               await LocalBookImportService.flushEpubText(book, directory, batch, writes);
               await LocalBookImportService.appendText(book, directory, part.title,
@@ -634,6 +649,14 @@ export class LocalBookImportService {
       }
       stage = 'write';
       await writes.finish();
+      if (file.ext === '.epub' && (epubMode === 'comic' ||
+        (epubMode === 'auto' && epubStats.profile.isComic()))) {
+        if (epubStats.imageFailures > 0) {
+          throw new Error(context.resourceManager.getStringSync($r('app.string.import_epub_images_failed').id,
+            epubStats.imageFailures));
+        }
+        await LocalBookImportService.finishComic(context, book);
+      }
       if (book.chapters.length === 0) throw new Error('没有可读取的文字章节');
       if (latestProgress && latestProgress !== shownProgress) progress(latestProgress);
       book.chapterCount = book.chapters.length;
@@ -653,5 +676,23 @@ export class LocalBookImportService {
       try { await fileIo.rmdir(directory); } catch (_cleanup) { /* 保留原始错误 */ }
       throw new Error(error instanceof Error ? error.message : String(error));
     }
+  }
+
+  private static async finishComic(context: common.Context, book: Book): Promise<void> {
+    const chapters: Chapter[] = [];
+    for (const chapter of book.chapters) {
+      const content = await fileIo.readText(chapter.source.value);
+      const pages = content.match(LocalTextImage.pattern()) ?? [];
+      if (pages.length === 0) { await fileIo.unlink(chapter.source.value); continue; }
+      await LocalBookImportService.writeText(chapter.source.value, pages.join('\n'));
+      chapter.index = chapters.length + 1;
+      chapters.push(chapter);
+    }
+    if (chapters.length === 0) {
+      throw new Error(context.resourceManager.getStringSync($r('app.string.import_epub_no_images').id));
+    }
+    book.contentType = 'comic';
+    book.intro = context.resourceManager.getStringSync($r('app.string.import_local_comic').id);
+    book.chapters = chapters;
   }
 }

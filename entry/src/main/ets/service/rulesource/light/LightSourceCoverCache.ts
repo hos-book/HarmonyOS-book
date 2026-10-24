@@ -4,18 +4,16 @@ import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 
 /** Host-owned cache. Imported source rules never receive file access. */
 export class LightSourceCoverCache {
-  private static readonly session = String(Date.now());
-
   static async materialize(identity: string, load: () => Promise<Uint8Array>): Promise<string> {
     const root = AppStorage.get<string>('appCacheDir');
     if (!root) throw new Error('Cover cache unavailable');
     const dir = `${root}/source_covers`;
     if (!fs.accessSync(dir)) fs.mkdirSync(dir, true);
     const digest = cryptoFramework.createMd('SHA256');
-    await digest.update({ data: new util.TextEncoder().encodeInto(this.session + '\n' + identity) });
+    await digest.update({ data: new util.TextEncoder().encodeInto('source-cover-v2\n' + identity) });
     const hash = Array.from((await digest.digest()).data).map(value => value.toString(16).padStart(2, '0')).join('');
     const path = `${dir}/${hash}.img`;
-    if (fs.accessSync(path)) return `file://${path}`;
+    if (fs.accessSync(path) && fs.statSync(path).size > 0) return `file://${path}`;
     const bytes = await load();
     // Bound disk usage; oldest files are disposable and can be recreated from the original URL.
     const entries = fs.listFileSync(dir).map(name => {

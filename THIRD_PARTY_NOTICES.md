@@ -1,5 +1,12 @@
 # 第三方软件声明
 
+## Harmony Book AI Engine
+
+- 上游：https://github.com/wip3l/harmony-book-ai-engine ，固定提交 `e4592264e70402fa6396fd7860b1cb90fd349802`，包名 `@legado/aiengine`，版本 1.0.0。
+- 许可证：GPL-3.0。通过独立 HAR 子包提供漫画本地着色，主工程不复制引擎源码。包构建补充公开 Worker 入口的导出声明，并在项目外应用可复现补丁 `scripts/comic_ai_calibration_patch.py`：仅原 CPU FP16 画质校验失败时增加 FP32 复核，速度比较和回退仍使用原 CPU FP16 路径，模型、推理参数及误差阈值不变。持久化校验标识包含补丁版本，以便规则更新后重新校验。补丁版本见 `scripts/comic-ai-package.json`。
+- AlacGAN / Manga-Colorizer 模型沿用上游 MIT 声明；HAR 内的 OpenCC 字典使用 Apache-2.0。完整资源来源、散列及许可证随 HAR 保留。
+- 引擎 LICENSE、NOTICE、THIRD_PARTY_NOTICES 随应用保存在 `rawfile/comic_ai_engine/`；准备脚本与版本清单见 `scripts/prepare-comic-ai.py` 和 `scripts/comic-ai-package.json`。
+
 ## 漫画端侧翻译
 
 - 基础模型：Helsinki-NLP 的 `opus-mt-zh-en`、`opus-mt-en-zh`、`opus-mt-ja-en`、`opus-mt-ko-en`，作者为 University of Helsinki Language Technology Research Group。各模型许可证及来源见随包的 `comic_offline/NOTICE.txt`。

@@ -1,12 +1,14 @@
 import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { taskpool } from '@kit.ArkTS';
+import { emitter } from '@kit.BasicServicesKit';
 import { Book, Chapter } from '../model/Book';
 import { BookPresentation } from '../model/BookPresentation';
 import { LocalTextImage } from './text/LocalTextImage';
 import { BookStorageCompat } from '../utils/BookStorageCompat';
 import { BookCoverPolicy } from '../utils/BookCoverPolicy';
-import { PreferenceService } from './PreferenceService';
+import { PreferenceService, EVT_FAVORITES_CHANGED } from './PreferenceService';
+import { SearchCache } from '../utils/SearchCache';
 import { TextReadingProgressService } from './text/TextReadingProgressService';
 import { StorageMigrationService } from './StorageMigrationService';
 import { OnlineTextContentCache } from './text/OnlineTextContentCache';
@@ -520,6 +522,27 @@ export class DataService {
       }
       try { await fileIo.unlink(`${DataService.ctx.filesDir}/imported_toc/${bookId}.json`); } catch (_error) { /* 旧书无独立目录 */ }
     }
+  }
+
+  /** 原书原地切换类型，不重建书籍、目录、正文或阅读记录。 */
+  static async switchImportedBookToComic(bookId: string): Promise<Book> {
+    // 切换属于写操作，读取失败必须保留原始错误，不能用空书单掩盖。
+    const list = DataService.parseBookList(await PreferenceService.getImportedBooks());
+    const book = list.find((item: Book): boolean => item.id === bookId);
+    if (!book || !/^import_[A-Za-z0-9_]+$/.test(bookId) ||
+      (book.contentType !== 'text' && book.contentType !== 'comic') || book.sourceUrl) {
+      throw new Error('Invalid local text book');
+    }
+    // 旧阅读页/书架残留文字快照时，重复操作也应成功并刷新显示。
+    if (book.contentType !== 'comic') {
+      book.contentType = 'comic';
+      await PreferenceService.saveImportedBooks(JSON.stringify(list));
+    }
+    DataService.cache = list;
+    SearchCache.remove(bookId);
+    // 状态与缓存先提交，再通知书架重读，不能依赖阅读进度是否刚好改变收藏顺序。
+    try { emitter.emit(EVT_FAVORITES_CHANGED, { data: { bookId: bookId } }); } catch (_event) { /* 类型已保存 */ }
+    return book;
   }
 
   static async readImportedText(book: Book, chapterUrl: string): Promise<string> {

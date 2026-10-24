@@ -66,10 +66,10 @@ export class LightSourceCore {
     }); } finally { ReaderCacheService.endComicWrite(); }
   }
 
-  static async cover(localJson: string, raw: string, revision: number): Promise<string> {
+  static async cover(localJson: string, raw: string, sessionKey: string): Promise<string> {
     const local = JSON.parse(localJson) as LocalRuleSource;
     const source = this.source(local);
-    return LightSourceCoverCache.materialize(`${revision}\n${source.jsLib}\n${raw}`,
+    return LightSourceCoverCache.materialize(`${sessionKey}\n${source.jsLib}\n${raw}`,
       () => LightSourceRuntime.run(source, local, () => SourceCoverLoader.load(new HttpClient(), source, raw)));
   }
   static async voices(localJson: string): Promise<string> {

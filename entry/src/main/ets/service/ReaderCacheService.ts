@@ -212,6 +212,11 @@ export class ReaderCacheService {
     if (!context || path.includes('..') || path.includes('\\')) return undefined;
     const textRoot = `${context.filesDir}/online_text_content/`;
     if (path.startsWith(textRoot) && /^search_text_[a-z0-9]+\.json$/.test(path.substring(textRoot.length))) return ReaderCacheKind.Text;
+    const engineRoot = `${context.cacheDir}/comic_images/`;
+    // 固定 HAR 使用版本号 + SHA256 命名；仅接纳该目录中的完整 JPEG，不接纳 .part。
+    if (path.startsWith(engineRoot) && /^color_alac-fp16-v\d+_[a-f0-9]{64}\.jpg$/.test(path.substring(engineRoot.length))) {
+      return ReaderCacheKind.Comic;
+    }
     for (const root of [`${context.cacheDir}/comic_images/`, `${context.cacheDir}/comic_super_resolution_v1/`,
       `${context.cacheDir}/comic_colorization_v1/`]) {
       if (path.startsWith(root) && /^[a-f0-9]+\.(jpg|jpeg|png|webp|gif|bmp|avif)$/.test(path.substring(root.length))) return ReaderCacheKind.Comic;

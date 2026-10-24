@@ -92,8 +92,25 @@ export class LocalRuleSourceRepository {
   }
 
   private static loginRevision: number = 0;
+  private static definitionRevision: number = 0;
 
   static getLoginRevision(): number { return LocalRuleSourceRepository.loginRevision; }
+
+  static getCoverRevision(): number {
+    return LocalRuleSourceRepository.loginRevision + LocalRuleSourceRepository.definitionRevision;
+  }
+
+  /** 持久会话身份：重启可复用封面，登录变更或删除后重导仍隔离旧缓存。 */
+  static async getCoverSessionKey(sourceUrl: string): Promise<string> {
+    const store = await LocalRuleSourceRepository.ensureStore();
+    const rows = await store.querySql(`SELECT s.created_at, l.status, l.updated_at FROM ${TABLE_NAME} s ` +
+      `LEFT JOIN ${LOGIN_TABLE_NAME} l ON s.source_url = l.source_url WHERE s.source_url = ?`, [sourceUrl]);
+    try {
+      if (!rows.goToFirstRow()) throw new Error('Cover source no longer installed');
+      return `${rows.getLong(0)}:${rows.isColumnNull(1) ? '' : rows.getString(1)}:` +
+        `${rows.isColumnNull(2) ? 0 : rows.getLong(2)}`;
+    } finally { rows.close(); }
+  }
 
   static async getLoginStatus(sourceUrl: string): Promise<string> {
     const store = await LocalRuleSourceRepository.ensureStore();
@@ -455,6 +472,7 @@ export class LocalRuleSourceRepository {
         writtenCount++;
       }
       await transaction.commit();
+      if (writtenCount > 0) LocalRuleSourceRepository.definitionRevision++;
       return writtenCount;
     } catch (error) {
       try {
@@ -711,6 +729,7 @@ export class LocalRuleSourceRepository {
       }
       if (deletedCount !== normalizedUrls.length) throw new Error('部分书源不存在，批量删除已取消');
       await transaction.commit();
+      if (deletedCount > 0) LocalRuleSourceRepository.definitionRevision++;
       return deletedCount;
     } catch (error) {
       try {

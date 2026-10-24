@@ -14,8 +14,9 @@ const enhancedRoot = context.cacheDir + '/comic_super_resolution_v1';
 let failingPath = '';
 let accessFails = false;
 let pendingTimer;
+let directoryReads = 0;
 const fileIo = {
-  listFile: p => fs.promises.readdir(p),
+  listFile: p => { directoryReads++; return fs.promises.readdir(p); },
   stat: async p => { const s = await fs.promises.stat(p); return { size: s.size, mtime: s.mtimeMs / 1000, isFile: () => s.isFile() }; },
   access: async p => { if (accessFails && p === failingPath) throw Error('access denied'); return fs.existsSync(p); },
   unlink: async p => { if (p === failingPath) throw Error('busy'); await fs.promises.unlink(p); },
@@ -36,6 +37,18 @@ function processCache() {
   manager.COMIC_LIMIT = 100;
   manager.configure(context);
   return manager;
+}
+function colorHost(cache) {
+  const exports = {};
+  const source = fs.readFileSync(path.join(__dirname, '../entry/src/main/ets/service/ComicAiHost.ets'), 'utf8');
+  vm.runInNewContext(ts.transpileModule(source.replace(/import lazy /g, 'import '), {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
+  }).outputText, { exports, require: name => {
+    if (name.endsWith('ReaderCacheService')) return { ReaderCacheService: cache };
+    if (['@kit.AbilityKit', '@kit.ArkTS', '@kit.CryptoArchitectureKit', '@legado/aiengine'].includes(name) || name.endsWith('MembershipState')) return {};
+    throw Error(name);
+  } });
+  return new exports.ComicAiHost(context);
 }
 function write(p, size = 40, age = 100) {
   fs.mkdirSync(path.dirname(p), { recursive: true });
@@ -117,4 +130,29 @@ function reset() {
   fs.unlinkSync(image); await cache.record([image]);
   assert.equal(cache.comicBytes,0,'missing files release their accounted bytes');
   console.log('PASS constant-time below-budget trim and byte totals after replacement/deletion');
+
+  reset(); cache = processCache();
+  await cache.initialize(context);
+  const host = colorHost(cache);
+  const scansBefore = directoryReads;
+  const colorA = write(comicRoot + '/color_alac-fp16-v4_' + 'a'.repeat(64) + '.jpg', 40, 300);
+  host.noteComicWrite();
+  await cache.record(['file://' + colorA]);
+  const colorB = write(comicRoot + '/color_alac-fp16-v4_' + 'b'.repeat(64) + '.jpg', 40, 200);
+  host.noteComicWrite();
+  await cache.record(['file://' + colorB]);
+  assert.equal(directoryReads, scansBefore, 'successive HAR writes register only their returned paths, without rescanning all caches');
+  assert.equal(cache.comicBytes, 80, 'engine output filenames count toward the shared comic budget');
+  const ignored = [write(colorA + '.part'), write(comicRoot + '/color_alac-fp16-v4_short.jpg'),
+    write(enhancedRoot + '/color_alac-fp16-v4_' + 'c'.repeat(64) + '.jpg')];
+  cache.protect('color-reader', ['file://' + colorA]); cache.hold(colorB);
+  assert.equal((await cache.clear(1)).protectedCount, 2, 'visible and in-flight engine results are protected');
+  cache.release('color-reader'); cache.unhold(colorB);
+  cache = processCache();
+  assert.equal((await cache.usage()).comicBytes, 80, 'a fresh process discovers versioned engine outputs');
+  const colorsCleared = await cache.clear(1);
+  assert.equal(colorsCleared.removed, 2);
+  assert.equal(colorsCleared.releasedBytes, 80);
+  for (const p of ignored) assert.ok(fs.existsSync(p), 'incomplete and unrelated files are excluded');
+  console.log('PASS incremental HAR output registration, restart discovery, pins and cache cleanup');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => fs.rmSync(root, { recursive: true, force: true }));

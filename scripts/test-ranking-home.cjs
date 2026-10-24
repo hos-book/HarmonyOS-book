@@ -70,6 +70,28 @@ const qidian = '<a href="//m.qidian.com/book/123/" class="_bookItem_x"><img data
   assert.equal(metadata.completed('未完结'), false);
   assert.equal(metadata.completed('已完结'), true);
   assert.deepEqual(Array.from(metadata.categories('玄幻|暂无|audio|连载中|玄幻|评分：9.8|热血')), ['玄幻', '热血']);
+  const mixedRatingTags = '评分 9.2 · 玄幻奇幻|东方玄幻|剑道';
+  assert.equal(metadata.rating(undefined, mixedRatingTags), 9.2);
+  assert.deepEqual(Array.from(metadata.categories(mixedRatingTags)), ['玄幻奇幻', '东方玄幻', '剑道']);
+  for (const separator of [' ', '\t', '\n', '\u00a0', '·', '•', '・', '●', '▪', ':', '：']) {
+    const tags = `玄幻${separator}9.2分${separator}热血|玄幻`;
+    assert.equal(metadata.rating(undefined, tags), 9.2);
+    assert.deepEqual(Array.from(metadata.categories(tags)), ['玄幻', '热血']);
+    assert.equal(metadata.rating(undefined, `玄幻${separator}19.8分`), 0);
+  }
+  assert.deepEqual(Array.from(metadata.categories('2.5次元·轻小说')), ['2.5次元', '轻小说']);
+  assert.equal(metadata.rating(undefined, '热度9.8万·玄幻'), 0);
+  const deviceTags = '9.9分 科幻 已完结';
+  assert.equal(metadata.rating(undefined, deviceTags), 9.9);
+  assert.deepEqual(Array.from(metadata.categories(deviceTags)), ['科幻']);
+  assert.deepEqual(Array.from(metadata.categories('390.1万字 9.5分 都市 已完结')), ['都市']);
+  assert.deepEqual(Array.from(metadata.categories('评分 9.2 分 玄幻奇幻 东方玄幻 剑道')), ['玄幻奇幻', '东方玄幻', '剑道']);
+  const htmlTags = '<span>评分&nbsp;9.2</span><span>玄幻</span>&middot;热血';
+  assert.equal(metadata.rating(undefined, htmlTags), 9.2);
+  assert.deepEqual(Array.from(metadata.categories(htmlTags)), ['玄幻', '热血']);
+  assert.deepEqual(Array.from(metadata.categories('评分：9.2\u00a0玄幻\t已完结\n玄幻')), ['玄幻']);
+  assert.deepEqual(Array.from(metadata.categories('科幻 已完结2026-04-02 更新：2026/04/02 12:30:00')), ['科幻']);
+  assert.deepEqual(Array.from(metadata.categories('科幻 更新时间：2026年4月2日 12：30')), ['科幻']);
   const qd = RankingParser.parse('qidian', 'qd-month', qidian + qidian);
   assert.equal(qd.length, 1, 'duplicate entries are removed without changing ranks');
   assert.equal(qd[0].author, '辰东');

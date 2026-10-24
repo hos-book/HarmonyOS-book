@@ -6,6 +6,7 @@
   "author": "ylwang",
   "license": "GPL-3.0",
   "dependencies": {
+    "@legado/aiengine": "file:./libs/aiengine.har",
     "libnative_rulecore.so": "file:./src/main/cpp/types/libnative_rulecore",
     "@devzeng/quickjs": "file:./libs/quickjs.har"
   }

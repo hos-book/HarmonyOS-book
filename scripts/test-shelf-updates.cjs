@@ -97,12 +97,12 @@ function restart() {
         await new Promise(resolve => setImmediate(resolve));
         active--;
         if (url === 'fail') throw Error('source failure');
-        return { lastChapter: '第二章' };
+        return { lastChapter: '第二章', coverUrl: 'https://fixture/new-cover.jpg' };
       },
       getBookToc: async () => [{ name: '第一章', url: '/1' }, { name: '第二章', url: '/2' }]
     },
     DataService: { upsertCachedBook: async book => saved.push(book) },
-    SearchCache: { put() {} }, BookCoverPolicy: { setDetail() {} }
+    SearchCache: { put() {} }, BookCoverPolicy: { setDetail(book, url) { book.cover = url; } }
   });
   const harness = new Harness();
   harness.alive = true;
@@ -121,5 +121,10 @@ function restart() {
   assert.equal(report.entries[0].oldCount, 1);
   assert.equal(report.entries[0].newCount, 2);
   assert.equal(report.entries[0].latestChapter, '第二章');
+  const unchanged = { ...saved.find(book => book.id === 'b0'), cover: 'https://fixture/existing-cover.jpg' };
+  saved.length = 0;
+  const noChange = await harness.checkOnlineBooks([unchanged]);
+  assert.equal(noChange.updatedCount, 0, 'a different returned cover alone is not a shelf update');
+  assert.equal(saved.length, 0, 'existing covers do not trigger unnecessary persistence or UI reload');
   console.log('PASS shelf daily gate, restart, manual retry, persistence, concurrency and failure isolation');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -35,8 +35,8 @@ export class LightSourceBridge {
     return JSON.parse(await LightSourceCore.cacheComicImages(LightSourceBridge.prepare(source), JSON.stringify(urls), request));
   }
 
-  static async cover(source: LocalRuleSource, raw: string, revision: number): Promise<string> {
-    return LightSourceCore.cover(LightSourceBridge.prepare(source), raw, revision);
+  static async cover(source: LocalRuleSource, raw: string, sessionKey: string): Promise<string> {
+    return LightSourceCore.cover(LightSourceBridge.prepare(source), raw, sessionKey);
   }
   static async voices(source: LocalRuleSource): Promise<LocalRuleVoice[]> {
     return JSON.parse(await LightSourceCore.voices(LightSourceBridge.prepare(source)));

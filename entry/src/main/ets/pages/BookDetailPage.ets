@@ -971,10 +971,10 @@ export struct BookDetailPage {
   @Builder
   buildAmbientCover() {
     if (this.book!.cover && this.book!.cover.startsWith('http')) {
-      Image(this.book!.cover)
+      CoverImage({ url: this.book!.cover, imgWidth: '100%',
+        imgHeight: this.detailHeroHeight() / 2, useFixedHeight: true,
+        radius: 0, themedDecoration: false, decodeW: 100, decodeH: 140 })
         .width('100%').height(this.detailHeroHeight() / 2)
-        .objectFit(ImageFit.Cover)
-        .sourceSize({ width: 100, height: 140 })
         .blur(55 / 4)
     } else if (this.book!.cover && this.book!.cover.startsWith('file://')) {
       Image(this.book!.cover)

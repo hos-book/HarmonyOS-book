@@ -99,14 +99,17 @@ export struct CoverImage {
     this.cancelRetry();
     this.originalRatio = CoverAspectRatio.get(this.url, this.aspectRatioValue);
     this.showImage = true;
-    this.imageReady = false;
+    const cached = SourceCoverService.isEncoded(this.url) ? SourceCoverService.cached(this.url) : '';
+    this.imageReady = cached.length > 0;
     this.giveUp = (CoverImage.failedUntil.get(this.url) ?? 0) > Date.now();
     this.retryCount = 0;
-    this.resolvedUrl = SourceCoverService.isEncoded(this.url) ? '' : this.url;
+    this.resolvedUrl = SourceCoverService.isEncoded(this.url) ? cached : this.url;
     this.resolveGeneration++;
     if (this.url.startsWith('http') && !this.giveUp) {
       CoverImage.failedUntil.delete(this.url);
-      if (SourceCoverService.isEncoded(this.url)) this.resolveCover();
+      if (SourceCoverService.isEncoded(this.url)) {
+        if (!cached) this.resolveCover();
+      }
       else CoverPrefetcher.prefetch(this.url, this.highPriority);
     }
   }
@@ -141,6 +144,7 @@ export struct CoverImage {
       return;
     }
     this.retryCount = this.retryCount + 1;
+    if (SourceCoverService.isEncoded(this.url)) SourceCoverService.invalidate(this.url);
     this.showImage = false;
     this.imageReady = false;
     CoverPrefetcher.retry(this.url);

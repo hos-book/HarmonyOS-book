@@ -54,12 +54,15 @@ export class ComicOfflineTranslationService {
         await new Promise<void>((resolve): void => { setTimeout(resolve, 100); });
       }
       if (!active()) throw new Error('comic_ai_cancelled');
-      if (controller === null) throw new Error('comic_offline_unavailable');
+      if (controller === null || ComicOfflineTranslationService.controller !== controller) {
+        throw new Error('comic_offline_unavailable');
+      }
       const accepted = await controller.runJavaScript(`window.comicOffline.start(${id},${JSON.stringify(items)},${JSON.stringify(direction)})`);
       if (accepted !== 'true') throw new Error('comic_offline_unavailable');
       const deadline = Date.now() + 180000;
       while (Date.now() < deadline && active() && ComicOfflineTranslationService.controller === controller) {
         const raw = await controller.runJavaScript('window.comicOffline.snapshot()');
+        if (!active() || ComicOfflineTranslationService.controller !== controller) throw new Error('comic_ai_cancelled');
         if (raw.length > 256 * 1024) throw new Error('comic_ai_translate_invalid_response');
         // ArkWeb 返回 JS 字符串的 JSON 表示；部分系统直接返回字符串内容。
         const payload: string = raw.startsWith('"') ? JSON.parse(raw) : raw;
@@ -81,7 +84,8 @@ export class ComicOfflineTranslationService {
       throw new Error(active() && ComicOfflineTranslationService.controller === controller ?
         'comic_offline_timeout' : 'comic_ai_cancelled');
     } finally {
-      if (!completed && controller !== null) {
+      // 宿主解绑后由 Web 销毁终止 Worker，不再调用已失效的 controller。
+      if (!completed && controller !== null && ComicOfflineTranslationService.controller === controller) {
         try { await controller.runJavaScript(`window.comicOffline?.cancel(${id})`); } catch (_error) { }
       }
       ComicOfflineTranslationService.busy = false;

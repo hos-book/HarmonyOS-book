@@ -15,7 +15,11 @@ function compile(file, dependencies = {}) {
     require:name => dependencies[name] || {}});
   return exports;
 }
-const {BookCoverPolicy} = compile('utils/BookCoverPolicy.ets');
+const {BookCoverPolicy} = compile('utils/BookCoverPolicy.ets', {
+  '../model/BookPresentation': {BookPresentation: {get() {}}},
+  '../service/rulesource/light/upstream/core/nativesource/SourceCoverUrl':
+    compile('service/rulesource/light/upstream/core/nativesource/SourceCoverUrl.ts')
+});
 const {ChapterTitleFormatter} = compile('utils/ChapterTitleFormatter.ets');
 const source = {rawSourceJson:'fixture',variable:'{}'};
 const saved = [];
@@ -76,7 +80,7 @@ async function run() {
   assert.equal(unnamed.title,'原著名称','detail still fills missing titles');
   const text = {...preview,contentType:'text',cover:'https://fixture/search.jpg'};
   BookCoverPolicy.merge(text,cached);
-  assert.equal(text.cover,cached.cover,'text detail cover priority is preserved');
+  assert.equal(text.cover,'https://fixture/search.jpg','text covers also reuse the selected image');
   service.resolveLocalSource = async () => source;
   const chapter = {id:'old-chapter',index:1,title:'第一章',duration:90,
     source:{type:'url',value:'https://fixture/old-page.html'},

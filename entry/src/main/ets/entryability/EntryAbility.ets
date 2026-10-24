@@ -31,6 +31,7 @@ import { LocalRuleTlsTrustStore } from '../service/rulesource/LocalRuleTlsTrustS
 import { EVT_READER_TYPOGRAPHY_CHANGED } from '../model/TextReading';
 import { FileOpenRouting } from '../utils/FileOpenRouting';
 import { DiagnosticLogService } from '../service/DiagnosticLogService';
+import lazy { ComicAiHost } from '../service/ComicAiHost';
 
 const DOMAIN = 0x0000;
 const TAG = 'ListenBook';
@@ -111,6 +112,7 @@ export default class EntryAbility extends UIAbility {
       `foreground=${this.isInForeground}`;
     hilog.warn(DOMAIN, TAG, 'Memory pressure: %{public}s', detail);
     DiagnosticLogService.info('app.memory', detail);
+    if (!PlatformCompat.wearable) ComicAiHost.onMemoryPressure(level);
   }
 
   /**
@@ -479,6 +481,7 @@ export default class EntryAbility extends UIAbility {
       await WearableRuntime.instance.destroy();
       return;
     }
+    ComicAiHost.setAppForeground(false);
     AutoBackupService.instance.setForeground(this.context, false);
     TextToSpeechService.getInstance().stop();
     this.isInForeground = false;
@@ -608,6 +611,7 @@ export default class EntryAbility extends UIAbility {
       return;
     }
     // 系统颜色可能在后台改变，阅读器独立跟随系统时也需要重新取值。
+    ComicAiHost.setAppForeground(true);
     if (this.context.config.colorMode !== undefined) WindowUtils.updateColorMode(this.context.config.colorMode);
     emitter.emit(EVT_READER_TYPOGRAPHY_CHANGED);
     AudioService.getInstance().setForeground(true);

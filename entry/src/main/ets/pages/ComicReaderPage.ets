@@ -33,8 +33,6 @@ import { MembershipState } from '../model/MembershipState';
 import { MembershipService } from '../service/MembershipService';
 import { VipFeatureBadge } from '../components/VipFeatureBadge';
 import { ComicPageImage } from '../components/ComicPageImage';
-import { ComicAiSettingsComponent } from '../components/ComicAiSettingsComponent';
-import { ComicAiConfigService } from '../service/ComicAiConfigService';
 import { ComicColorizationService } from '../service/ComicColorizationService';
 import { ComicOfflineTranslationHost } from '../components/ComicOfflineTranslationHost';
 import { ComicOfflineTranslationService } from '../service/ComicOfflineTranslationService';
@@ -76,7 +74,6 @@ export struct ComicReaderPage {
   @Local translationDownloadPercent: number = 0;
   private translationIntent: number = 0;
   @Local translationDirection: string = 'ja-zh';
-  @Local aiConfigured: boolean = false;
   @Local translationConfigured: boolean = false;
   @Local volumeKeyPageTurn: boolean = false;
   @Local keyTurnRequest: number = 0;
@@ -174,6 +171,7 @@ export struct ComicReaderPage {
   @Local foreground: boolean = true;
   private backgroundHandler = (): void => {
     this.translationIntent++;
+    ComicColorizationService.release();
     this.imagePreloadGeneration++;
     this.savePosition(); this.foreground = false; this.volumeKeys.dispose(); ReadingSessionService.end('reading');
   };
@@ -239,11 +237,12 @@ export struct ComicReaderPage {
     WindowUtils.setReaderStatusBarLight(true);
     WindowUtils.setReaderStatusBarVisible(false);
     this.initialize();
-    this.refreshAiConfig();
+    this.translationConfigured = ComicOfflineTranslationService.supported();
   }
 
   aboutToDisappear(): void {
     this.translationIntent++;
+    ComicColorizationService.release();
     this.volumeKeys.dispose();
     ReaderCacheService.release(this.diskCacheOwner);
     ReaderCacheService.release(`${this.diskCacheOwner}-lists`);
@@ -298,9 +297,12 @@ export struct ComicReaderPage {
       this.chapters.setChapters(book.chaptersDescending ? book.chapters.slice().reverse() : book.chapters);
       const explicit = this.params.resourceIndex >= 0;
       this.mode = mode;
-      await this.loadChapter(Math.max(0, Math.min(book.chapters.length - 1,
-        explicit ? this.params.resourceIndex : position?.resourceIndex ?? 0)),
-        explicit ? 0 : position?.pageOffset ?? 0);
+      const initialIndex = Math.max(0, Math.min(book.chapters.length - 1,
+        explicit ? this.params.resourceIndex : position?.resourceIndex ?? 0));
+      const initialPage = !explicit && position && !position.domPos.startsWith('comic:') && book.id.startsWith('import_') ?
+        await ComicReaderService.localPageOffset(book, book.chapters[initialIndex], position.charOffset) :
+        explicit ? 0 : position?.pageOffset ?? 0;
+      await this.loadChapter(initialIndex, initialPage);
     } catch (error) {
       if (this.alive) { this.reportError(error); this.failed = true; this.busy = false; }
     }
@@ -322,8 +324,25 @@ export struct ComicReaderPage {
     this.failed = false;
     hilog.info(0x0001, 'ComicReader', 'load start chapter=%{public}d force=%{public}s', index, String(force));
     try {
-      const pages = !force && this.preparedComicChapters.has(index) ? this.preparedComicChapters.get(index)! :
+      let pages = !force && this.preparedComicChapters.has(index) ? this.preparedComicChapters.get(index)! :
         await ComicReaderService.load(book, book.chapters[index], this.getUIContext().getHostContext(), force);
+      // 切换类型保留原目录；漫画模式跳过版权/前言等纯文字章节。
+      if (book.id.startsWith('import_') && pages.length === 0) {
+        const start = index;
+        let direction = retainCurrent && index < this.chapterIndex ? -1 : 1;
+        for (let tried = 1; tried < book.chapters.length && pages.length === 0; tried++) {
+          index += direction;
+          if (index < 0 || index >= book.chapters.length) {
+            if (retainCurrent) break;
+            direction = -1;
+            index = start - 1;
+            if (index < 0) break;
+          }
+          pages = await ComicReaderService.load(book, book.chapters[index], this.getUIContext().getHostContext());
+          if (!this.alive || generation !== this.generation) return;
+        }
+        page = 0;
+      }
       if (!this.alive || generation !== this.generation) return;
       if (pages.length === 0) throw new Error('No comic images');
       this.chapterIndex = index;
@@ -687,6 +706,10 @@ export struct ComicReaderPage {
                 .hitTestBehavior(HitTestMode.None)
             }
           }
+          ImmersiveCircleButton({ icon: $r('sys.symbol.paintpalette'), label: $r('app.string.comic_ai_color'),
+            iconColor: this.colorization ? AppColor.Brand : $r('sys.color.font_primary'),
+            onPress: (): void => { this.setColorization(!this.colorization); } })
+            .id('comic-colorization-toggle').enabled(ComicColorizationService.supported())
           ImmersiveCircleButton({ icon: $r('sys.symbol.arrow_left_arrow_right'), label: $r('app.string.source_switch_title'),
             onPress: (): void => { this.showSourceSwitch = true; } }).enabled(!this.busy && this.book !== undefined)
           ImmersiveCircleButton({ icon: $r('sys.symbol.info_circle'), label: $r('app.string.reader_details'),
@@ -808,9 +831,8 @@ export struct ComicReaderPage {
 
   @Builder
   tabStyle(icon: Resource, label: Resource, index: number, direction: number = 0) {
-    Column({ space: 2 }) {
+    Column() {
       SymbolGlyph(icon).fontSize(22).fontColor([$r('sys.color.font_primary')])
-      Text(label).fontSize(12).fontColor($r('sys.color.font_primary')).maxLines(1)
     }.width('100%').height(48).justifyContent(FlexAlign.Center)
     .opacity(direction === 0 || this.canChange(direction) ? 1 : 0.35)
     .accessibilityText(label)
@@ -1219,15 +1241,16 @@ export struct ComicReaderPage {
     } finally { this.settingsSaving = false; }
   }
 
-  private async refreshAiConfig(): Promise<void> {
-    this.colorization = false;
-    this.translationConfigured = ComicOfflineTranslationService.supported();
+  private setColorization(enabled: boolean): void {
+    if (enabled && !ComicColorizationService.supported()) return;
+    ComicColorizationService.release();
+    this.showTranslationMenu = false;
+    this.colorization = enabled;
     const context = this.getUIContext().getHostContext();
-    if (!context) return;
-    try {
-      const config = await ComicAiConfigService.load(context);
-      if (this.alive) this.aiConfigured = !!config.baseUrl && !!config.apiKey && !!config.model;
-    } catch (_error) { if (this.alive) this.aiConfigured = false; }
+    if (enabled && context) {
+      ComicColorizationService.prepare(context, (): boolean =>
+        this.alive && this.foreground && this.readerVisible && this.colorization);
+    }
   }
 
   private colorizationFailed(message: string): void {
@@ -1235,15 +1258,11 @@ export struct ComicReaderPage {
     this.colorization = false;
     this.translation = false;
     let text: ResourceStr = $r('app.string.comic_ai_request_failed');
-    if (message === 'comic_ai_unauthorized') text = $r('app.string.comic_ai_unauthorized');
+    if (message === 'comic_ai_color_unsupported') text = $r('app.string.comic_ai_color_unsupported');
+    else if (message === 'comic_ai_color_failed') text = $r('app.string.comic_ai_color_failed');
     else if (message.startsWith('comic_offline_')) text = $r('app.string.comic_offline_failed');
-    else if (message === 'comic_ai_forbidden') text = $r('app.string.comic_ai_edit_forbidden');
-    else if (message === 'comic_ai_rate_limited') text = $r('app.string.comic_ai_rate_limited');
-    else if (message === 'comic_ai_model_unavailable') text = $r('app.string.comic_ai_model_unavailable');
-    else if (message === 'comic_ai_edit_unsupported' || message === 'comic_ai_not_found') text = $r('app.string.comic_ai_edit_unsupported');
     else if (message === 'comic_ai_invalid_image') text = $r('app.string.comic_ai_invalid_image');
     else if (message === 'comic_ai_image_too_large') text = $r('app.string.comic_ai_image_too_large');
-    else if (message === 'comic_ai_need_config') text = $r('app.string.comic_ai_need_config');
     else if (message === 'comic_ai_ocr_unsupported') text = $r('app.string.comic_ai_ocr_unsupported');
     else if (message === 'comic_ai_ocr_failed') text = $r('app.string.comic_ai_ocr_failed');
     else if (message === 'comic_ai_translate_invalid_response') text = $r('app.string.comic_ai_translate_invalid_response');
@@ -1315,7 +1334,6 @@ export struct ComicReaderPage {
       });
       if (!active()) return;
       ComicColorizationService.resetFailure();
-      this.colorization = false;
       this.translation = true;
     } catch (_error) {
       if (active()) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_translation_download_failed') });
@@ -1416,19 +1434,10 @@ export struct ComicReaderPage {
           .onChange((enabled: boolean) => { this.setSuperResolution(enabled); })
       }
       ReaderSettingCard({ title: $r('app.string.comic_ai_color'), inline: true,
-        description: this.aiConfigured ? $r('app.string.comic_ai_color_hint') : $r('app.string.comic_ai_need_config') }) {
-        if (MembershipState.featureEnabled) { VipFeatureBadge() }
-        Row() {
-          ComicAiSettingsComponent({ onSaved: (): void => { this.refreshAiConfig(); } })
-            .enabled(this.membership.hasAccess)
-          Toggle({ type: ToggleType.Switch, isOn: this.colorization && this.membership.hasAccess }).selectedColor(AppColor.Brand)
-            .enabled(this.aiConfigured && this.membership.hasAccess).onChange((enabled: boolean): void => {
-              if (!this.aiConfigured || !this.membership.hasAccess) return;
-              ComicColorizationService.resetFailure();
-              if (enabled) { this.translationIntent++; this.translation = false; }
-              this.colorization = enabled;
-            })
-        }
+        description: ComicColorizationService.supported() ? $r('app.string.comic_ai_color_hint') : $r('app.string.comic_ai_color_unsupported') }) {
+        Toggle({ type: ToggleType.Switch, isOn: this.colorization }).selectedColor(AppColor.Brand)
+          .enabled(ComicColorizationService.supported())
+          .onChange((enabled: boolean): void => { this.setColorization(enabled); })
       }
       ReaderSettingCard({ title: $r('app.string.comic_ai_translate'), inline: true,
         description: $r('app.string.comic_offline_hint') }) {

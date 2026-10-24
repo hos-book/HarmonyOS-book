@@ -705,8 +705,8 @@ export struct FavoritePage {
         const oldCount = this.getChapterCount(book);
         let newCount = oldCount;
         if (bookInfo) {
-          // 更新封面/简介/作者等元数据
-          if (bookInfo.coverUrl && (bookInfo.coverUrl !== nextBook.cover || !nextBook.coverFromDetail)) {
+          // 封面仅补缺失；检查更新不能换图或把相同封面误报为数据变化。
+          if (!nextBook.cover.trim() && bookInfo.coverUrl.trim()) {
             BookCoverPolicy.setDetail(nextBook, bookInfo.coverUrl);
             hasChange = true;
           }
@@ -1558,11 +1558,9 @@ export struct FavoritePage {
                   ListItem() {
                     this.buildBookTile(book)
                   }
-                  // key 带上"总章数 + 当前章索引":LazyForEach 对相同 key 的项会复用旧节点、
-                  // 不重跑 buildBookTile。刷新后章数 742→758 但 book.id 不变 → 贴片卡在旧值。
-                  // 把会变的展示量编进 key,值一变 key 变 → 强制重建贴片。
-                }, (book: Book) => JSON.stringify([book.id, book.title, book.cover, this.showShelfSource,
-                  this.getChapterCount(book), this.chapterIdxMap[book.id] ?? -1]))
+                  // 元数据变化时更新书卡；阅读进度由 @Local 映射驱动文本，不能重建封面。
+                }, (book: Book) => JSON.stringify([book.id, book.contentType, book.title, book.cover, this.showShelfSource,
+                  this.getChapterCount(book)]))
               }
             }
             .lanes(this.bookColumns, AppSpace.Sm)
@@ -1585,8 +1583,8 @@ export struct FavoritePage {
                   ListItem() {
                     this.buildListItem(book)
                   }
-                }, (book: Book) => JSON.stringify([book.id, book.title, book.cover, this.showShelfSource,
-                  this.getChapterCount(book), this.chapterIdxMap[book.id] ?? -1]))
+                }, (book: Book) => JSON.stringify([book.id, book.contentType, book.title, book.cover, this.showShelfSource,
+                  this.getChapterCount(book)]))
               }
               .divider({
                 strokeWidth: 1,

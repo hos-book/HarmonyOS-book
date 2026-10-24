@@ -1,5 +1,18 @@
 {
   "string": [
+    { "name": "import_epub_mode", "value": "EPUB 阅读类型" },
+    { "name": "import_epub_auto", "value": "自动识别" },
+    { "name": "import_epub_text", "value": "电子书" },
+    { "name": "import_epub_comic", "value": "漫画" },
+    { "name": "import_epub_mode_hint", "value": "自动识别以图片为主的 EPUB；识别不准时可手动选择。此设置适用于本批 EPUB（含 ZIP 内的 EPUB）。" },
+    { "name": "import_epub_images_limit", "value": "EPUB 正文图片累计超过 2 GiB，请拆分后导入。" },
+    { "name": "import_epub_images_failed", "value": "有 %d 张漫画图片无法提取，未保存本书。请检查原文件；单张图片需不超过 20 MiB、3200 万像素。" },
+    { "name": "import_epub_no_images", "value": "未找到可读取的漫画图片，请选择电子书类型或检查 EPUB 原文件。" },
+    { "name": "import_local_comic", "value": "本地漫画" },
+    { "name": "reader_switch_comic", "value": "切换为漫画阅读" },
+    { "name": "reader_switch_comic_no_images", "value": "这本书没有已保存的可读图片，暂时无法切换为漫画阅读。" },
+    { "name": "reader_switch_comic_failed", "value": "切换阅读类型失败，请重试。" },
+    { "name": "reader_switch_comic_open_failed", "value": "已切换为漫画，请返回书架重新打开。" },
     {
       "name": "theme_bundle_mist_name",
       "value": "雾蓝"
@@ -5309,124 +5322,8 @@
       "value": "会员专享：本机处理已缓存图片，不上传；超大长图或设备不支持时保留原图。"
     },
     {
-      "name": "comic_ai_settings_title",
-      "value": "漫画 AI 上色接口"
-    },
-    {
-      "name": "comic_ai_api_address",
-      "value": "API 地址"
-    },
-    {
-      "name": "comic_ai_url_placeholder",
-      "value": "填写服务商提供的 Base URL"
-    },
-    {
-      "name": "comic_ai_api_key",
-      "value": "API Key"
-    },
-    {
-      "name": "comic_ai_key_placeholder",
-      "value": "填写密钥，仅加密保存在本机"
-    },
-    {
-      "name": "comic_ai_model",
-      "value": "模型"
-    },
-    {
       "name": "comic_ai_model_placeholder",
       "value": "从列表选择，或手动填写模型名称"
-    },
-    {
-      "name": "comic_ai_fetch_models",
-      "value": "获取模型"
-    },
-    {
-      "name": "comic_ai_select_model",
-      "value": "选择模型"
-    },
-    {
-      "name": "comic_ai_search_model",
-      "value": "搜索模型名称"
-    },
-    {
-      "name": "comic_ai_candidate",
-      "value": "图片编辑候选 · 尚未验证"
-    },
-    {
-      "name": "comic_ai_candidate_hint",
-      "value": "展示接口返回的全部模型。图片编辑候选仅根据名称提示，不代表已验证支持上色。"
-    },
-    {
-      "name": "comic_ai_config_hint",
-      "value": "获取后在下拉选择框中选择模型，再保存。模型需支持图片编辑；上色和翻译分别配置，密钥及模型列表仅保存在本机，不随备份导出。"
-    },
-    {
-      "name": "comic_ai_http_hint",
-      "value": "此地址使用 HTTP，密钥会通过未加密的连接发送；建议使用服务商的 HTTPS 地址。"
-    },
-    {
-      "name": "comic_ai_no_image_models",
-      "value": "列表中没有明确的图片编辑候选，仍可自行选择；实际能否上色取决于服务商支持。"
-    },
-    {
-      "name": "comic_ai_save",
-      "value": "保存配置"
-    },
-    {
-      "name": "comic_ai_clear",
-      "value": "清除配置"
-    },
-    {
-      "name": "comic_ai_saved",
-      "value": "配置已保存，可开启对应的 AI 功能。实际支持情况以请求结果为准。"
-    },
-    {
-      "name": "comic_ai_cleared",
-      "value": "接口配置已清除"
-    },
-    {
-      "name": "comic_ai_models_loaded",
-      "value": "连接成功，获取到 %d 个模型；选择后点击保存配置。"
-    },
-    {
-      "name": "comic_ai_no_matches",
-      "value": "没有匹配的模型"
-    },
-    {
-      "name": "comic_ai_invalid_url",
-      "value": "请填写有效的 HTTP 或 HTTPS 接口地址，不要包含密钥、查询参数或片段。"
-    },
-    {
-      "name": "comic_ai_invalid_key",
-      "value": "请填写有效的 API Key，密钥不能包含换行。"
-    },
-    {
-      "name": "comic_ai_invalid_model",
-      "value": "模型名称无效，请检查长度或换行。"
-    },
-    {
-      "name": "comic_ai_unauthorized",
-      "value": "认证失败（401），请检查 API Key。"
-    },
-    {
-      "name": "comic_ai_forbidden",
-      "value": "访问被拒绝（403），请检查密钥权限或服务商访问限制。"
-    },
-    {
-      "name": "comic_ai_not_found",
-      "value": "未找到模型接口（404），请检查 API 地址。"
-    },
-    {
-      "name": "comic_ai_rate_limited",
-      "value": "请求过于频繁或额度受限（429），请稍后再试。"
-    },
-    {
-      "name": "comic_ai_invalid_response",
-      "value": "服务未返回有效的模型列表，请确认支持 /v1/models。"
-    },
-    {
-      "name": "comic_ai_models_too_large",
-      "value": "模型列表超出安全读取范围，未展示不完整列表。"
     },
     {
       "name": "comic_ai_storage_failed",
@@ -5438,7 +5335,7 @@
     },
     {
       "name": "comic_ai_color",
-      "value": "AI 上色"
+      "value": "着色"
     },
     {
       "name": "comic_ai_color_unavailable",
@@ -5921,12 +5818,16 @@
       "value": "宣纸留白，远山淡墨。古朴黄点染交互，山水与墨竹书封相伴；浅深两色，静读有声。"
     },
     {
-      "name": "comic_ai_configure",
-      "value": "模型配置"
+      "name": "comic_ai_color_hint",
+      "value": "免费在本机为可见漫画页面着色，无需配置 API。首次处理可能较慢；关闭恢复原图，退出阅读后需重新开启。"
     },
     {
-      "name": "comic_ai_color_hint",
-      "value": "会员专享：开启后将可见图片发送到你配置的服务，可能产生费用。关闭恢复原图；退出阅读后需重新开启。"
+      "name": "comic_ai_color_unsupported",
+      "value": "当前设备不支持本地着色引擎，可继续阅读原图。"
+    },
+    {
+      "name": "comic_ai_color_failed",
+      "value": "本机着色未完成，已保留原图。可重新开启着色后重试。"
     },
     {
       "name": "comic_ai_need_config",
@@ -5934,23 +5835,15 @@
     },
     {
       "name": "comic_ai_color_working",
-      "value": "AI 上色中"
+      "value": "着色中"
     },
     {
       "name": "comic_ai_edit_forbidden",
       "value": "图片编辑被服务拒绝（403），请检查密钥权限及图片生成是否已开启。已保留原图。"
     },
     {
-      "name": "comic_ai_edit_unsupported",
-      "value": "该接口或模型不支持当前图片编辑请求，请更换支持图片编辑的模型。"
-    },
-    {
-      "name": "comic_ai_model_unavailable",
-      "value": "该模型没有可用的图片编辑通道（503），请向服务商确认。已保留原图。"
-    },
-    {
       "name": "comic_ai_invalid_image",
-      "value": "服务未返回有效图片，或改变了页面比例。已保留原图。"
+      "value": "处理结果不是有效图片，已保留原图。"
     },
     {
       "name": "comic_ai_image_too_large",
@@ -5963,6 +5856,10 @@
     {
       "name": "comic_ai_translate_working",
       "value": "AI 翻译中"
+    },
+    {
+      "name": "comic_ai_color_translate_working",
+      "value": "AI 上色与翻译中"
     },
     {
       "name": "comic_ai_ocr_unsupported",

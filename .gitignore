@@ -72,3 +72,9 @@ reader_shot.png
 /.workbuddy-ai/
 /.tmp-build*/
 /artifacts/
+
+# 独立 AI 子包及其模型通过固定版本脚本准备，源码不并入主工程。
+/entry/libs/aiengine.har
+/entry/libs/aiengine.har.json
+/entry/libs/aiengine.har.pending
+__pycache__/

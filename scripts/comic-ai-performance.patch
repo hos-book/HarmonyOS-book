@@ -1,0 +1,237 @@
+diff --git a/aiengine/src/main/cpp/comic_pixels.cpp b/aiengine/src/main/cpp/comic_pixels.cpp
+index eacdf8e..652b4f0 100644
+--- a/aiengine/src/main/cpp/comic_pixels.cpp
++++ b/aiengine/src/main/cpp/comic_pixels.cpp
+@@ -137,10 +137,84 @@ napi_value Blend(napi_env env, napi_callback_info info)
+     } catch (const std::bad_alloc&) { return Fail(env, "Insufficient memory for comic blend"); }
+     return output;
+ }
++napi_value Input(napi_env env, napi_callback_info info)
++{
++    size_t argc = 7;
++    napi_value args[7];
++    if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok || argc != 6)
++        return Fail(env, "Invalid comic input arguments");
++    View pixels;
++    int width, height, stride, mw, mh;
++    if (!Typed(env, args[0], napi_uint8_array, pixels) ||
++        !Integer(env, args[1], width, 768) || !Integer(env, args[2], height, 768) ||
++        !Integer(env, args[3], stride, 65536) || !Integer(env, args[4], mw, 768) ||
++        !Integer(env, args[5], mh, 768) || width > mw || height > mh || stride < width * 4 ||
++        pixels.length < static_cast<size_t>(stride) * height) return Fail(env, "Invalid comic input dimensions");
++    const size_t count = static_cast<size_t>(mw) * mh * 5;
++    napi_value buffer, output;
++    void* data = nullptr;
++    if (napi_create_arraybuffer(env, count * sizeof(float), &data, &buffer) != napi_ok || !data ||
++        napi_create_typedarray(env, napi_float32_array, count, buffer, 0, &output) != napi_ok) return nullptr;
++    float* result = static_cast<float*>(data);
++    std::fill_n(result, count, 0.0f);
++    const auto* rgba = static_cast<const uint8_t*>(pixels.data);
++    // Preserve the reference's double arithmetic and one final Float32 rounding. Four hint
++    // channels stay zero; padded pixels are white. No second pass over valid gray pixels.
++    for (int y = 0; y < mh; ++y) {
++        for (int x = 0; x < mw; ++x) {
++            double gray = 1;
++            if (y < height && x < width) {
++                const auto* pixel = rgba + static_cast<size_t>(y) * stride + x * 4;
++                const double alpha = pixel[3] / 255.0;
++                gray = ((pixel[0] * 0.299 + pixel[1] * 0.587 + pixel[2] * 0.114) * alpha +
++                    255 * (1 - alpha)) / 255;
++            }
++            result[(static_cast<size_t>(y) * mw + x) * 5] = static_cast<float>(gray);
++        }
++    }
++    return output;
++}
++
++napi_value Output(napi_env env, napi_callback_info info)
++{
++    size_t argc = 5;
++    napi_value args[5];
++    if (napi_get_cb_info(env, info, &argc, args, nullptr, nullptr) != napi_ok || argc != 4)
++        return Fail(env, "Invalid comic output arguments");
++    View values;
++    int width, height;
++    bool planar;
++    if (!Typed(env, args[0], napi_float32_array, values) ||
++        !Integer(env, args[1], width, 768) || !Integer(env, args[2], height, 768) ||
++        napi_get_value_bool(env, args[3], &planar) != napi_ok ||
++        values.length != static_cast<size_t>(width) * height * 3) return Fail(env, "Invalid comic output dimensions");
++    napi_value buffer, output;
++    void* data = nullptr;
++    if (napi_create_arraybuffer(env, values.length * sizeof(float), &data, &buffer) != napi_ok || !data ||
++        napi_create_typedarray(env, napi_float32_array, values.length, buffer, 0, &output) != napi_ok) return nullptr;
++    const float* source = static_cast<const float*>(values.data);
++    float* result = static_cast<float*>(data);
++    const size_t count = static_cast<size_t>(width) * height;
++    // Validate and copy/reorder together. Return owned storage, never a view into model memory.
++    for (size_t i = 0; i < count; ++i) {
++        for (size_t c = 0; c < 3; ++c) {
++            const float value = source[planar ? c * count + i : i * 3 + c];
++            if (!std::isfinite(value) || std::abs(static_cast<double>(value)) > 1.01)
++                return Fail(env, "Invalid comic color output");
++            result[i * 3 + c] = value;
++        }
++    }
++    return output;
++}
++
+ napi_value Init(napi_env env, napi_value exports)
+ {
+-    napi_property_descriptor method = {"blend", nullptr, Blend, nullptr, nullptr, nullptr, napi_default, nullptr};
+-    if (napi_define_properties(env, exports, 1, &method) != napi_ok) return nullptr;
++    napi_property_descriptor methods[] = {
++        {"blend", nullptr, Blend, nullptr, nullptr, nullptr, napi_default, nullptr},
++        {"input", nullptr, Input, nullptr, nullptr, nullptr, napi_default, nullptr},
++        {"output", nullptr, Output, nullptr, nullptr, nullptr, napi_default, nullptr}
++    };
++    if (napi_define_properties(env, exports, 3, methods) != napi_ok) return nullptr;
+     return exports;
+ }
+ napi_module module = {1, 0, nullptr, Init, "comic_pixels", nullptr, {0}};
+diff --git a/aiengine/src/main/cpp/types/libcomic_pixels/Index.d.ts b/aiengine/src/main/cpp/types/libcomic_pixels/Index.d.ts
+index 82cd214..0127789 100644
+--- a/aiengine/src/main/cpp/types/libcomic_pixels/Index.d.ts
++++ b/aiengine/src/main/cpp/types/libcomic_pixels/Index.d.ts
+@@ -1,3 +1,6 @@
+ export const blend: (pixels: Uint8Array, width: number, height: number, stride: number,
+   colors: Float32Array, grayHint: Float32Array, smallWidth: number, smallHeight: number,
+   modelWidth: number, modelHeight: number) => Uint8Array;
++export const input: (pixels: Uint8Array, width: number, height: number, stride: number,
++  modelWidth: number, modelHeight: number) => Float32Array;
++export const output: (values: Float32Array, width: number, height: number, planar: boolean) => Float32Array;
+diff --git a/aiengine/src/main/ets/core/reader/ComicColorComposite.ets b/aiengine/src/main/ets/core/reader/ComicColorComposite.ets
+index 1ecc078..46a2b84 100644
+--- a/aiengine/src/main/ets/core/reader/ComicColorComposite.ets
++++ b/aiengine/src/main/ets/core/reader/ComicColorComposite.ets
+@@ -3,6 +3,27 @@ import { ComicColorPixels } from './ComicColorPixels';
+ 
+ /** Synchronous native work stays inside the color Worker, never the UI thread. */
+ export class ComicColorComposite {
++  static input(pixels: Uint8Array, width: number, height: number, stride: number,
++    modelWidth: number, modelHeight: number): Float32Array {
++    try {
++      return pixelNative.input(pixels, width, height, stride, modelWidth, modelHeight);
++    } catch (error) {
++      console.warn('[ComicColorComposite] native input fallback');
++      return ComicColorPixels.input(pixels, width, height, stride, modelWidth, modelHeight);
++    }
++  }
++
++  static output(values: Float32Array, width: number, height: number, planar: boolean): Float32Array {
++    try {
++      return pixelNative.output(values, width, height, planar);
++    } catch (error) {
++      console.warn('[ComicColorComposite] native output fallback');
++      if (planar) return ComicColorPixels.interleave(values, width, height);
++      ComicColorPixels.validateOutput(values, width, height);
++      return values.slice();
++    }
++  }
++
+   static nativeBlend(pixels: Uint8Array, width: number, height: number, stride: number,
+     colors: Float32Array, grayHint: Float32Array, smallWidth: number, smallHeight: number,
+     modelWidth: number, modelHeight: number): Uint8Array {
+diff --git a/aiengine/src/main/ets/core/reader/ComicColorInference.ets b/aiengine/src/main/ets/core/reader/ComicColorInference.ets
+index c567908..6f129af 100644
+--- a/aiengine/src/main/ets/core/reader/ComicColorInference.ets
++++ b/aiengine/src/main/ets/core/reader/ComicColorInference.ets
+@@ -1,5 +1,5 @@
+ import { mindSporeLite } from '@kit.MindSporeLiteKit';
+-import { ComicColorPixels } from './ComicColorPixels';
++import { ComicColorComposite } from './ComicColorComposite';
+ import { ComicColorNpuPixels } from './ComicColorNpuPixels';
+ import { ComicColorBackendProfile, ComicColorJob, ComicColorMessage } from './ComicColorTypes';
+ 
+@@ -140,6 +140,9 @@ export class ComicColorInference {
+     const cached = accelerated && ComicColorInference.cachedPath === path ? ComicColorInference.cachedModel : null;
+     const model = cached || await mindSporeLite.loadModelFromFile(path, context);
+     const loaded = Date.now();
++    // Loading is complete: keep the compiled model even if this page was cancelled during load.
++    // Errors still discard the worker; every reuse validates input/output contracts below.
++    if (accelerated) { ComicColorInference.cachedModel = model; ComicColorInference.cachedPath = path; }
+     check();
+     const initial = model.getInputs();
+     if (!initial || initial.length !== 1) throw new Error('着色模型没有有效输入');
+@@ -160,12 +163,10 @@ export class ComicColorInference {
+     }
+     const values = new Float32Array(outputs[0].getData());
+     if (outputs[0].shape.join(',') === `1,3,${height},${width}`) {
+-      result.colors = ComicColorPixels.interleave(values, width, height);
++      result.colors = ComicColorComposite.output(values, width, height, true);
+     } else if (outputs[0].shape.join(',') === `1,${height},${width},3`) {
+-      ComicColorPixels.validateOutput(values, width, height);
+-      result.colors = values.slice();
++      result.colors = ComicColorComposite.output(values, width, height, false);
+     } else throw new Error('着色模型输出不匹配');
+-    if (accelerated) { ComicColorInference.cachedModel = model; ComicColorInference.cachedPath = path; }
+     result.totalMs = Date.now() - started;
+     console.info(`[ComicColorInference] backend=${accelerated ? 'nnrt' : 'cpu'} reused=${!!cached} ` +
+       `load=${loaded-started}ms prepare=${predicting-loaded}ms predict=${result.inferenceMs}ms ` +
+diff --git a/aiengine/src/main/ets/core/reader/ComicColorizer.ets b/aiengine/src/main/ets/core/reader/ComicColorizer.ets
+index 1664464..cacb0a4 100644
+--- a/aiengine/src/main/ets/core/reader/ComicColorizer.ets
++++ b/aiengine/src/main/ets/core/reader/ComicColorizer.ets
+@@ -332,23 +332,22 @@ export class ComicColorizer {
+         cancellation.cancel = true;
+         try { thread.postMessage(cancellation); } catch (_) {}
+       };
+-      const finish = (message: ComicColorMessage | null, error: string): void => {
++      const finish = (message: ComicColorMessage | null, error: string, cancelledSafely: boolean = false): void => {
+         if (settled) return;
+         settled = true;
+         clearInterval(timer);
+-        if (message) {
+-          // Preserve the compiled NPU model across adjacent pages. Never terminate an active native call.
+-          if (retainEpoch === ComicColorizer.releaseEpoch && ComicColorizer.foreground &&
+-            ComicColorizer.memberAllowed() && Date.now() >= ComicColorizer.warmBlockedUntil) {
+-            ComicColorizer.idleWorker = thread;
+-            ComicColorizer.idleTimer = setTimeout((): void => ComicColorizer.releaseIdleWorker(), ComicColorizer.IDLE_MS);
+-            ReaderComicComputeQueue.registerIdleRelease('color', async (): Promise<void> => ComicColorizer.releaseIdleWorker());
+-          } else { try { thread.terminate(); } catch (_) {} }
+-          resolve(message);
+-        } else {
+-          try { thread.terminate(); } catch (_) {}
+-          reject(new Error(error));
+-        }
++        // A viewport cancellation discards this result, not the compiled model. Retain only after
++        // a terminal acknowledgement; explicit release, background, pressure and errors still evict.
++        const retain = (message !== null || cancelledSafely) && retainEpoch === ComicColorizer.releaseEpoch &&
++          ComicColorizer.foreground && ComicColorizer.memberAllowed() && Date.now() >= ComicColorizer.warmBlockedUntil;
++        if (retain) {
++          ComicColorizer.idleWorker = thread;
++          ComicColorizer.idleTimer = setTimeout((): void => ComicColorizer.releaseIdleWorker(), ComicColorizer.IDLE_MS);
++          ReaderComicComputeQueue.registerIdleRelease('color', async (): Promise<void> => ComicColorizer.releaseIdleWorker());
++        } else { try { thread.terminate(); } catch (_) {} }
++        console.info(`[ComicColorWorkerReuse] retained=${retain} cancelled=${cancelledSafely}`);
++        if (message) resolve(message);
++        else reject(new Error(error));
+       };
+       const timer = setInterval((): void => {
+         if (!active() || !ComicColorizer.foreground) requestCancel(ComicColorizer.CANCELLED);
+@@ -376,9 +375,10 @@ export class ComicColorizer {
+           ComicColorizer.backendProfiles.push(profile);
+         }
+         if (message.backendReason) console.info(`[ComicColorBackend] ${message.backendReason}`);
+-        if (message.error) finish(null, cancelReason || message.error);
++        if (message.error) finish(null, cancelReason || message.error,
++          cancelReason === ComicColorizer.CANCELLED && message.error === ComicColorizer.CANCELLED);
+         else if (message.prepared || (message.jpeg && message.jpeg.byteLength > 0)) {
+-          if (cancelReason) finish(null, cancelReason);
++          if (cancelReason) finish(null, cancelReason, cancelReason === ComicColorizer.CANCELLED);
+           else finish(message, '');
+         } else if (message.status && !cancelReason) progress(message.status);
+       };
+diff --git a/aiengine/src/main/ets/workers/ComicColorWorker.ets b/aiengine/src/main/ets/workers/ComicColorWorker.ets
+index ea1f82f..852fc70 100644
+--- a/aiengine/src/main/ets/workers/ComicColorWorker.ets
++++ b/aiengine/src/main/ets/workers/ComicColorWorker.ets
+@@ -42,7 +42,7 @@ async function run(job: ComicColorJob): Promise<ComicColorMessage> {
+     await small.readPixelsToBuffer(bytes);
+     checkCancelled();
+     const inputStart = Date.now();
+-    const tensor = ComicColorPixels.input(new Uint8Array(bytes), decoded.size.width, decoded.size.height,
++    const tensor = ComicColorComposite.input(new Uint8Array(bytes), decoded.size.width, decoded.size.height,
+       small.getBytesNumberPerRow(), modelSize.width, modelSize.height);
+     const inferenceStart = Date.now();
+     progress('正在本机着色…');

@@ -30,6 +30,7 @@ const fileIo = { OpenMode: { CREATE: 1, WRITE_ONLY: 2, TRUNC: 4 }, mkdirSync() {
   openSync(name) { handles.set(++openId, name); return { fd: openId }; },
   writeSync(fd, bytes) { files.set(handles.get(fd), bytes); return bytes.byteLength; }, closeSync() {},
   stat: async name => { if (!files.has(name)) throw Error('missing'); return { size: files.get(name).byteLength }; },
+  readText: async name => Buffer.from(files.get(name)).toString('utf8'),
   unlink: async name => files.delete(name) };
 const fileUri = { getUriFromPath: name => 'file://' + name,
   FileUri: class { constructor(url) { this.path = url.slice(7); } } };
@@ -103,6 +104,7 @@ const { ComicImageLoader: loader } = evaluate('service/ComicImageLoader.ets', na
 });
 let manifestWrites = 0;
 const { ComicReaderService: reader } = evaluate('service/ComicReaderService.ets', name => {
+  if (name.endsWith('LocalTextImage')) return evaluate('service/text/LocalTextImage.ets', () => ({}));
   if (name === './BookSourceService') return { BookSourceService: service };
   if (name === './ComicImageLoader') return { ComicImageLoader: loader };
   if (name === '@kit.CoreFileKit') return { fileUri, fileIo };
@@ -119,6 +121,26 @@ const { ComicReaderService: reader } = evaluate('service/ComicReaderService.ets'
 }, {setTimeout});
 const context = { cacheDir: '/cache' };
 (async () => {
+  const localContext = { filesDir: '/files', cacheDir: '/cache' };
+  const localBook = { id: 'import_comic', contentType: 'comic', sourceUrl: '', bookUrl: 'local-text://import_comic' };
+  const localChapter = { id: 'import_comic-c0', source: { type: 'file', value: '/files/ebooks/import_comic/0.txt' } };
+  const localPaths = ['/files/ebooks/import_comic/image_0_1.img', '/files/ebooks/import_comic/image_0_0.img'];
+  for (const local of localPaths) files.set(local, new Uint8Array([1, 2, 3]));
+  files.set(localChapter.source.value, Buffer.from(localPaths.map(p => `\uFFF9${p}\uFFFB`).join('\n')));
+  const localPages = await reader.load(localBook, localChapter, localContext, true);
+  assert.equal(localPages.map(p => p.url).join('|'), localPaths.map(p => 'file://' + p).join('|'), 'preserve manifest order instead of filename sorting');
+  assert.equal((await reader.cached(localContext, localBook, localChapter)).length, 2);
+  assert.equal(calls.length, 0, 'local reading never needs an imported network source');
+  assert.equal(records.size, 0, 'local originals are not disposable reader caches');
+  assert.ok(localPaths.every(p => files.has(p)), 'force reload must not delete original images');
+  assert.equal(await reader.localPageOffset(localBook, localChapter, 0), 0);
+  assert.equal(await reader.localPageOffset(localBook, localChapter, 10000), 1);
+  files.set(localChapter.source.value, Buffer.from('\uFFF9/files/ebooks/another/image_0_0.img\uFFFB'));
+  await assert.rejects(reader.load(localBook, localChapter, localContext), /Local comic image missing/);
+  files.set(localChapter.source.value, Buffer.from(`\uFFF9${localPaths[0]}\uFFFB`));
+  files.delete(localPaths[0]);
+  await assert.rejects(reader.load(localBook, localChapter, localContext), /missing/);
+  console.log('PASS local comic order, offline load, refresh protection and path confinement');
   const pages = await reader.load(book, chapter(1), context, false, true);
   assert.equal((await reader.cached(context, book, chapter(1))).length, 0, 'URL lists are not offline cache');
   assert.equal(calls.length, 0, 'opening a chapter does not wait for background image downloads');

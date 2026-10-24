@@ -1,3 +1,5 @@
+import comicColorBackendTest from './ComicColorBackend.test';
+import { abilityDelegatorRegistry } from '@kit.TestKit';
 import localBookImportTest from './LocalBookImport.test';
 import comicTranslationTest from './ComicTranslation.test';
 import comicOfflineTranslationTest from './ComicOfflineTranslation.test';
@@ -16,6 +18,10 @@ import localRuleManagementIntegrationTest from './LocalRuleManagementIntegration
 import localRuleBrowserLoginCoordinatorTests from '../../../test/LocalRuleBrowserLoginCoordinator.test';
 
 export default function testsuite() {
+  const selectedSuite = abilityDelegatorRegistry.getArguments().parameters.class;
+  if (selectedSuite === 'ComicColorBackendDevice') {
+    comicColorBackendTest();
+  }
   comicTranslationTest();
   comicOfflineTranslationTest();
   imageStripTransformTest();

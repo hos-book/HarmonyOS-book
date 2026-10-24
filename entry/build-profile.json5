@@ -1,6 +1,9 @@
 {
   "apiType": "stageMode",
   "buildOption": {
+    "sourceOption": {
+      "workers": ["./src/main/ets/workers/ComicColorWorker.ets"]
+    },
     "resOptions": {
       "copyCodeResource": {
         "enable": false

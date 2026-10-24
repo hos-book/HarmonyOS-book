@@ -10,6 +10,7 @@ import { LightSourceRequest } from './rulesource/light/LightSourceRequestPolicy'
 import { ReaderCacheService } from './ReaderCacheService';
 import { ComicImageLoader } from './ComicImageLoader';
 import { image } from '@kit.ImageKit';
+import { LocalTextImage } from './text/LocalTextImage';
 
 export class ComicPage {
   key: string = '';
@@ -193,6 +194,9 @@ export class ComicReaderService {
   }
 
   static async cached(context: common.Context, book: Book, chapter: Chapter): Promise<ComicPage[]> {
+    if (book.id.startsWith('import_') && chapter.source.type === 'file') {
+      try { return await ComicReaderService.localPages(context, book, chapter); } catch (_error) { return []; }
+    }
     ReaderCacheService.configure(context);
     const key = OnlineTextContentCache.key(book.sourceUrl, book.bookUrl || book.id,
       chapter.originSourceValue || chapter.source.value);
@@ -213,6 +217,11 @@ export class ComicReaderService {
 
   static async load(book: Book, chapter: Chapter, context?: common.Context,
     force: boolean = false, preload: boolean = false): Promise<ComicPage[]> {
+    // 本地图片是书籍原件；强制刷新也不得进入在线缓存删除/重新下载流程。
+    if (book.id.startsWith('import_') && chapter.source.type === 'file') {
+      if (!context) throw new Error('Local comic context missing');
+      return ComicReaderService.localPages(context, book, chapter);
+    }
     if (context) ReaderCacheService.configure(context);
     const key = OnlineTextContentCache.key(book.sourceUrl, book.bookUrl || book.id,
       chapter.originSourceValue || chapter.source.value);
@@ -325,5 +334,41 @@ export class ComicReaderService {
       pages.push(page);
     }
     return pages;
+  }
+
+  private static async localPages(context: common.Context, book: Book, chapter: Chapter): Promise<ComicPage[]> {
+    if (!/^import_[A-Za-z0-9_]+$/.test(book.id)) throw new Error('Invalid local comic');
+    const directory = `${context.filesDir}/ebooks/${book.id}/`;
+    const path = chapter.source.value;
+    if (!path.startsWith(directory) || !/^\d+\.txt$/.test(path.substring(directory.length)) ||
+      (await fileIo.stat(path)).size > 256 * 1024) throw new Error('Invalid local comic chapter');
+    const content = await fileIo.readText(path);
+    const pattern = LocalTextImage.pattern();
+    const pages: ComicPage[] = [];
+    let match = pattern.exec(content);
+    while (match !== null) {
+      const imagePath = match[1];
+      if (!imagePath.startsWith(directory) || !/^image_\d+_\d+\.img$/.test(imagePath.substring(directory.length)) ||
+        (await fileIo.stat(imagePath)).size <= 0) throw new Error('Local comic image missing');
+      const page = new ComicPage();
+      page.index = pages.length;
+      page.key = `${chapter.id}:${imagePath}:${pages.length}`;
+      page.url = fileUri.getUriFromPath(imagePath);
+      page.requestUrl = page.url;
+      page.chapterId = chapter.id;
+      pages.push(page);
+      match = pattern.exec(content);
+    }
+    return pages;
+  }
+
+  static async localPageOffset(book: Book, chapter: Chapter, charOffset: number): Promise<number> {
+    if (!/^import_[A-Za-z0-9_]+$/.test(book.id) || chapter.source.type !== 'file') return 0;
+    const content = await fileIo.readText(chapter.source.value);
+    const pattern = LocalTextImage.pattern();
+    let index = -1;
+    let match = pattern.exec(content);
+    while (match !== null && match.index <= charOffset) { index++; match = pattern.exec(content); }
+    return Math.max(0, index);
   }
 }

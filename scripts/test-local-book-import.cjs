@@ -21,6 +21,8 @@ let parserLoads = 0;
 let parserOpens = 0;
 let epubCount = 2;
 let epubRaw = false;
+let epubBodies = null;
+let epubMissingImage = false;
 let layoutCalls = 0;
 let writeDelay = 0;
 let failingWrite = '';
@@ -80,6 +82,9 @@ const fileIo = {
   fsync: fd => handles.get(fd).sync()
 };
 const values = new Map();
+const typeEvents = [];
+let importedSaveFails = false;
+let importedWrites = 0;
 const diagnosticSettings = new Map();
 let diagnosticFlushFails = false;
 let diagnosticOutputCount = 0;
@@ -91,7 +96,11 @@ const preference = {
   async getHistory() { return [...historyIds].map(bookId => ({ bookId })); },
   async getCachedBooks() { return '[]'; },
   async getImportedBooks() { return values.get('books') || '[]'; },
-  async saveImportedBooks(json) { values.set('books', json); }
+  async saveImportedBooks(json) {
+    if (importedSaveFails) throw new Error('injected imported metadata failure');
+    importedWrites++;
+    values.set('books', json);
+  }
 };
 const modules = new Map();
 const decodedImages = [];
@@ -149,6 +158,8 @@ function load(relative) {
       return { decodeToString: (bytes, opts) => decoder.decode(bytes, opts) };
     } } } };
     if (name === '@kit.BasicServicesKit') return {
+      emitter: { emit: (event, payload) => typeEvents.push({ event, payload,
+        saved: JSON.parse(values.get('books') || '[]') }) },
       deviceInfo: { sdkApiVersion: 20, deviceType: 'phone' },
       zlib: { getOriginalSize: async () => 1024 }
     };
@@ -158,11 +169,15 @@ function load(relative) {
       return { bookParser: {
       getDefaultHandler: async () => { parserOpens++; return ({
         getBookInfo: () => ({ bookTitle: 'EPUB 标题', bookCreator: '作者' }),
-        getSpineList: () => Array.from({ length: epubCount }, (_, index) => ({ idRef: String(index), href: `text/${index}.html` })),
+        getSpineList: () => Array.from({ length: epubBodies?.length ?? epubCount }, (_, index) => ({ idRef: String(index), href: `text/${index}.html` })),
         getCatalogList: () => [{ idRef: '0', catalogName: '第一章' }, { idRef: '1', catalogName: '第二章' },
           { idRef: '1', catalogName: '同章内的二级目录，不应覆盖' }],
-        getSpineItemContent: async index => { layoutCalls++; return `<body><p>章节 ${index + 1}</p><script>bad()</script></body>`; },
-        getResourceContent: index => {
+        getSpineItemContent: async index => { layoutCalls++; return epubBodies?.[index] ?? `<body><p>章节 ${index + 1}</p><script>bad()</script></body>`; },
+        getResourceContent: (index, resource) => {
+          if (epubBodies && resource.endsWith('.png')) {
+            if (epubMissingImage) throw new Error('image missing');
+            return Uint8Array.from(MOBI_COVER_PNG).buffer;
+          }
           if (!epubRaw) throw new Error('resource unavailable');
           return Uint8Array.from(Buffer.from(`<body><p>章节 ${index + 1}</p><script>bad()</script></body>`)).buffer;
         }
@@ -172,7 +187,7 @@ function load(relative) {
     if (name.endsWith('/TextReadingProgressService')) return { TextReadingProgressService: {
       async getAll() { return [...readingIds].map(bookId => ({ bookId })); }
     } };
-    if (name.endsWith('/PreferenceService')) return { PreferenceService: preference };
+    if (name.endsWith('/PreferenceService')) return { PreferenceService: preference, EVT_FAVORITES_CHANGED: 'app.favorites.changed' };
     if (name.startsWith('@')) return {};
     return load(path.resolve(path.dirname(filename), name));
   } }, { filename });
@@ -211,6 +226,23 @@ function load(relative) {
   assert.ok(!images.speechContent(body).includes('image_0_0'));
   assert.equal(liveImages, 0, 'EPUB extraction releases decoder without decoding full bitmap');
   console.log('PASS EPUB body image extraction, local path confinement, remote rejection and speech offsets');
+  const { EpubContentProfile: Profile } = load('service/text/EpubContentProfile');
+  const pictureBook = new Profile();
+  ['<img src="1.png"/>', '<svg><image xlink:href="2.png"/></svg>', '<img src="3.png"/>'].forEach(html => pictureBook.observe(html));
+  assert.equal(pictureBook.isComic(), true);
+  const illustratedNovel = new Profile();
+  illustratedNovel.observe('<img src="cover.png"/>' + '<p>小说正文</p>'.repeat(1000));
+  illustratedNovel.observe('<img src="2.png"/><img src="3.png"/>');
+  assert.equal(illustratedNovel.isComic(), false);
+  const fakeImages = new Profile();
+  fakeImages.observe('<!--<img src="1.png"/><img src="2.png"/><img src="3.png"/>--><p>正文</p>');
+  assert.equal(fakeImages.isComic(), false);
+  const aboveOldLimit = { imageBytes: 128 * 1024 * 1024, imageCount: 20 };
+  const aboveBody = await service.epubBody(context, { getResourceContent: () => Uint8Array.from(MOBI_COVER_PNG).buffer },
+    1, '<img src="page.png"/>', imageDirectory, aboveOldLimit);
+  assert.ok(images.pattern().test(aboveBody), 'comic images beyond the old 128 MiB limit must be retained');
+  await assert.rejects(service.epubBody(context, { getResourceContent: () => Uint8Array.from(MOBI_COVER_PNG).buffer },
+    1, '<img src="page.png"/>', imageDirectory, { imageBytes: 2 * 1024 ** 3, imageCount: 21 }), /2 GiB/);
   assert.equal(parserLoads, 0, 'loading import service at startup must not load ReaderKit');
   parserAvailable = false;
   await assert.rejects(service.openEpub(context, '/unavailable.epub'), /当前设备不支持 EPUB 解析/);
@@ -306,6 +338,34 @@ function load(relative) {
     getResourceContent: () => { throw new Error('Not found'); }
   }, 29, 'missing.html'), /Invalid request/);
   const { DataService: data } = load('service/DataService');
+  const comicFile = { uri: path.join(temp, 'comic.epub'), name: '漫画', ext: '.epub' };
+  await fsp.writeFile(comicFile.uri, 'epub fixture');
+  epubBodies = ['<body><img src="z.png"/><svg><image xlink:href="a.png"/></svg></body>',
+    '<body><img src="c.png"/></body>', '<body><img src="b.png"/></body>'];
+  const comicPreview = await service.preview(context, comicFile);
+  const comic = await service.importBook(context, comicFile, 'import_comic_auto', '', '', '', () => {});
+  assert.equal(comic.contentType, 'comic');
+  assert.equal(comic.chapters.length, 3);
+  assert.equal([...((await fsp.readFile(comic.chapters[0].source.value, 'utf8')).matchAll(images.pattern()))].length, 2);
+  assert.equal(comic.chapters.map(ch => ch.index).join(','), '1,2,3');
+  await service.releasePreview(comicPreview);
+  const forcedText = await service.importBook(context, comicFile, 'import_comic_text', '', '', '', () => {}, 'text');
+  assert.equal(forcedText.contentType, 'text');
+  epubBodies = ['<body>版权页</body>', '<body><img src="one.png"/></body>'];
+  const forcedComic = await service.importBook(context, comicFile, 'import_comic_forced', '', '', '', () => {}, 'comic');
+  assert.equal(forcedComic.contentType, 'comic');
+  assert.equal(forcedComic.chapters.length, 1, 'text-only front matter must not create an empty comic chapter');
+  assert.equal(forcedComic.chapters[0].index, 1);
+  epubMissingImage = true;
+  await assert.rejects(service.importBook(context, comicFile, 'import_comic_missing', '', '', '', () => {}, 'comic'), /漫画图片无法提取/);
+  assert.equal(fs.existsSync(path.join(temp, 'ebooks/import_comic_missing')), false);
+  epubMissingImage = false;
+  epubBodies = ['<body>只有文字</body>'];
+  await assert.rejects(service.importBook(context, comicFile, 'import_comic_empty', '', '', '', () => {}, 'comic'), /未找到可读取的漫画图片/);
+  epubBodies = null;
+  assert.equal(liveImages, 0);
+  assert.equal(handles.size, 0);
+  console.log('PASS EPUB comic auto/manual modes, SVG, limits and failure cleanup');
   // A real release-cache fixture: preserve false, prefer canonical fields, tolerate malformed entries.
   const oldMetadata = { id: 'release_metadata', title: 'Release book', i36: 'Chapter 90', b40: false,
     i40: true, j40: 'https://example.test/search.jpg', chapters: [] };
@@ -345,6 +405,36 @@ function load(relative) {
   data.migrationPromise = null;
   assert.equal(await data.getBookById(context, legacyBook.id), undefined, 'explicit clear cannot resurrect old metadata');
   console.log('PASS metadata/TOC upgrade prefers current cache, survives system cleanup and respects explicit clear');
+  await data.addImportedBook(forcedText);
+  const beforeComicToc = await fsp.readFile(path.join(context.filesDir, 'imported_toc', forcedText.id + '.json'), 'utf8');
+  const beforeComicBody = await fsp.readFile(forcedText.chapters[0].source.value, 'utf8');
+  const beforeSwitchCount = (await data.getImportedBooks()).length;
+  const { SearchCache: searchCache } = load('utils/SearchCache');
+  searchCache.put(forcedText);
+  importedSaveFails = true;
+  const eventsBeforeFailure = typeEvents.length;
+  await assert.rejects(data.switchImportedBookToComic(forcedText.id), /injected imported metadata failure/);
+  importedSaveFails = false;
+  assert.equal((await data.getImportedBooks()).find(b => b.id === forcedText.id).contentType, 'text');
+  assert.equal(searchCache.get(forcedText.id).contentType, 'text');
+  assert.equal(typeEvents.length, eventsBeforeFailure, 'failed persistence must not publish a successful type change');
+  const switched = await data.switchImportedBookToComic(forcedText.id);
+  assert.equal(switched.id, forcedText.id);
+  assert.equal(switched.contentType, 'comic');
+  assert.equal(searchCache.get(forcedText.id), null, 'stale reader snapshot must be invalidated');
+  assert.equal(typeEvents.at(-1).event, 'app.favorites.changed');
+  assert.equal(typeEvents.at(-1).payload.data.bookId, forcedText.id);
+  assert.equal(typeEvents.at(-1).saved.find(b => b.id === forcedText.id).contentType, 'comic', 'notify only after storage commit');
+  const writesAfterSwitch = importedWrites;
+  assert.equal((await data.switchImportedBookToComic(forcedText.id)).contentType, 'comic', 'retry from stale text UI is successful');
+  assert.equal(importedWrites, writesAfterSwitch, 'already-comic retry does not rewrite metadata');
+  assert.equal((await data.getImportedBooks()).length, beforeSwitchCount, 'type switch must not create another book');
+  assert.equal(await fsp.readFile(path.join(context.filesDir, 'imported_toc', forcedText.id + '.json'), 'utf8'), beforeComicToc);
+  assert.equal(await fsp.readFile(forcedText.chapters[0].source.value, 'utf8'), beforeComicBody);
+  data.cache = null;
+  assert.equal((await data.getBookById(context, forcedText.id)).contentType, 'comic');
+  await data.removeImportedBook(forcedText.id);
+  console.log('PASS in-place comic type switch preserves ID, TOC and body, creates no duplicate and survives restart');
   const file = { uri: path.join(temp, 'novel.txt'), name: '小说', ext: '.txt' };
   const source = '第一章 初见\n你好世界\n第二章 重逢\n' + '文字😀'.repeat(20000);
   await fsp.writeFile(file.uri, source);

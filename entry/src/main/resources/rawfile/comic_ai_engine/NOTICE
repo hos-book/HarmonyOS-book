@@ -1,0 +1,11 @@
+Harmony Book AI Engine
+Copyright (c) 2026 李其健
+
+Extracted from https://github.com/wip3l/qingye-reader at
+8a78319 (2026-10-24 extraction baseline).
+Source: https://github.com/wip3l/harmony-book-ai-engine
+License: GNU General Public License version 3 (GPL-3.0).
+
+OpenCC dictionaries and the Manga-Colorizer model retain their respective
+Apache-2.0 and upstream MIT notices. See THIRD_PARTY_NOTICES.md and the
+complete notices distributed beside the resources in aiengine/src/main/resources/rawfile/.

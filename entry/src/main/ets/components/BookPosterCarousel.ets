@@ -314,10 +314,11 @@ export struct BookPosterCarousel {
     }.height(BOOK_POSTER_HEIGHT).width('100%').clip(true)
     .onTouch((event: TouchEvent): void => this.handleTouch(event))
     .onTouchTestDone((_event: BaseGestureEvent, recognizers: GestureRecognizer[]): void => {
-      // 在本次触摸识别前排除外层 Tabs 横滑；不能只停止 Touch 冒泡。
+      // 在本次触摸识别前排除外层横滑，包括 MainPage 自定义的切页手势。
+      // 不能仅筛选内置手势或停止 Touch 冒泡，否则翻牌时仍会切到书架。
       // 作用域是整个轮播区，右侧切牌仍由 handleTouch 驱动，纵向滚动不拦截。
       for (const recognizer of recognizers) {
-        if (recognizer instanceof PanRecognizer && recognizer.isBuiltIn() &&
+        if (recognizer instanceof PanRecognizer &&
           recognizer.getDirection() === PanDirection.Horizontal) {
           recognizer.preventBegin();
         }

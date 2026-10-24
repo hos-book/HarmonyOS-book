@@ -24,8 +24,12 @@ export struct ComicPageImage {
   @Param colorizationActive: boolean = true;
   @Event onColorError: (message: string) => void = () => {};
   @Local coloredUrl: string = '';
+  @Local coloredWithTranslation: boolean = false;
   @Local colorBusy: boolean = false;
   private colorSerial: number = 0;
+  private colorStartedAt: number = 0;
+  private colorReadyAt: number = 0;
+  private colorTrace: string = '';
   @Event onToggle: (event: ClickEvent) => void = () => {};
   @Local ratio: number = 0;
   @Local failed: boolean = false;
@@ -88,6 +92,7 @@ export struct ComicPageImage {
     this.colorSerial++;
     this.coloredUrl = '';
     this.colorBusy = false;
+    this.colorReadyAt = 0;
     this.pendingUrl = page.url;
     this.imageRequested = false;
     // LazyForEach also creates offscreen cache nodes. They must not download ahead of the visible page.
@@ -141,6 +146,7 @@ export struct ComicPageImage {
     this.colorSerial++;
     this.colorBusy = false;
     this.coloredUrl = '';
+    this.colorReadyAt = 0;
     if (this.colorization || this.translation) { this.enhancementSerial++; this.enhancedUrl = ''; }
     this.protectImage();
     this.colorize();
@@ -154,18 +160,35 @@ export struct ComicPageImage {
     this.colorize();
   }
 
+  @Monitor('membership.developerAccess', 'membership.revalidating', 'membership.expiresAt',
+    'membership.productId', 'membership.verifiedAt')
+  private onAiMembershipChanged(): void {
+    // 翻译权益变化时丢弃旧译图，仍可按当前开关继续免费着色。
+    if (this.translation) this.onColorizationChanged();
+  }
+
   private colorize(): void {
-    if (!this.alive || !this.visible || !this.membership.hasAccess || (!this.colorization && !this.translation) || !this.colorizationActive ||
+    const translate = this.translation && this.membership.hasAccess;
+    if (!this.alive || !this.visible || (!this.colorization && !translate) || !this.colorizationActive ||
       !this.resolvedUrl || this.coloredUrl || this.colorBusy) return;
     const context = this.getUIContext().getHostContext();
     if (!context) return;
     const ticket = ++this.colorSerial;
+    const trace = `${this.cacheOwner}-${ticket}`;
+    const started = Date.now();
+    this.colorStartedAt = started;
+    this.colorTrace = trace;
+    this.colorReadyAt = 0;
+    this.coloredWithTranslation = translate;
     this.colorBusy = true;
-    const active = (): boolean => this.alive && this.visible && this.membership.hasAccess && (this.colorization || this.translation) && this.colorizationActive &&
+    const active = (): boolean => this.alive && this.visible && (!translate || this.membership.hasAccess) &&
+      (this.colorization || translate) && this.colorizationActive &&
       ticket === this.colorSerial;
     ComicColorizationService.transform(context, this.resolvedUrl, active,
-      this.translation ? this.translationDirection : '').then((path: string): void => {
+      translate ? this.translationDirection : '', this.colorization, trace).then((path: string): void => {
       if (!active()) return;
+      this.colorReadyAt = path ? Date.now() : 0;
+      console.info(`[ComicAiView] trace=${trace} stage=result ready=${path.length > 0} total=${Date.now() - started}ms`);
       this.coloredUrl = path;
       this.protectImage();
     }).catch((error: Error): void => {
@@ -197,7 +220,9 @@ export struct ComicPageImage {
 
   @Builder
   imageContent(): void {
-        Image((this.membership.hasAccess ? this.coloredUrl || this.enhancedUrl : '') || this.resolvedUrl)
+    Stack({ alignContent: Alignment.TopStart }) {
+        Image((!this.coloredWithTranslation || this.membership.hasAccess ? this.coloredUrl : '') ||
+          (this.membership.hasAccess ? this.enhancedUrl : '') || this.resolvedUrl)
           .id(`${this.page.key}:${this.retry}`)
           .width(this.pageWidth).height(this.imageHeight())
           // 容器已按原图比例计算；Fill 消除解码宽高取整造成的亚像素留边。
@@ -208,6 +233,11 @@ export struct ComicPageImage {
           .scale({ x: this.zoom, y: this.zoom })
           .onComplete((event) => {
             if (event && event.width > 0 && event.height > 0) {
+              if (this.coloredUrl && this.colorReadyAt > 0 && event.loadingStatus === 1) {
+                console.info(`[ComicAiView] trace=${this.colorTrace} stage=image-complete ` +
+                  `display=${Date.now() - this.colorReadyAt}ms total=${Date.now() - this.colorStartedAt}ms`);
+                this.colorReadyAt = 0;
+              }
               if (!this.coloredUrl && this.ratio <= 0) this.ratio = event.height / event.width;
               // 懒加载节点回收后仍保留已知比例，避免回滚时先按占位高度再跳一次。
               if (!this.coloredUrl) { this.page.width = event.width; this.page.height = event.height; }
@@ -233,6 +263,16 @@ export struct ComicPageImage {
             }
           }))
           .accessibilityText($r('app.string.comic_page_number', this.page.index + 1))
+      if (this.colorBusy) {
+        Row({ space: 6 }) {
+          LoadingProgress().width(18).height(18).color(AppColor.Brand)
+          Text(this.coloredWithTranslation && this.colorization ? $r('app.string.comic_ai_color_translate_working') :
+            this.coloredWithTranslation ? $r('app.string.comic_ai_translate_working') : $r('app.string.comic_ai_color_working'))
+            .fontSize(12).fontColor(Color.White)
+        }.padding(8).backgroundColor('#99000000').borderRadius(12).margin({ top: 8, left: 8 })
+          .hitTestBehavior(HitTestMode.None)
+      }
+    }.width(this.pageWidth).height(this.imageHeight())
   }
 
   build() {
@@ -256,15 +296,6 @@ export struct ComicPageImage {
         this.imageContent()
       }
 
-      if (this.colorBusy) {
-        Row({ space: 6 }) {
-          LoadingProgress().width(18).height(18).color(AppColor.Brand)
-          Text(this.translation ? $r('app.string.comic_ai_translate_working') : $r('app.string.comic_ai_color_working'))
-            .fontSize(12).fontColor(Color.White)
-        }.padding(8).backgroundColor('#99000000').borderRadius(12).align(Alignment.TopEnd)
-          .hitTestBehavior(HitTestMode.None)
-      }
-
     }
     .width(this.pageWidth).height(this.paged ? this.pageHeight : this.imageHeight()).clip(true)
     .backgroundColor('#121212')
@@ -272,6 +303,9 @@ export struct ComicPageImage {
       const visible = ratio > 0;
       if (this.visible === visible) return;
       this.visible = visible;
+      if (this.colorization || this.translation) {
+        console.info(`[ComicAiView] owner=${this.cacheOwner} stage=visibility visible=${visible} resolved=${this.resolvedUrl.length > 0}`);
+      }
       this.protectImage();
       if (visible) {
         if (!this.imageRequested) this.loadImage();

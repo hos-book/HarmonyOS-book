@@ -6,14 +6,17 @@ const ide = process.env.DEVECO_HOME || process.env.DEVECO_PATH;
 if (!ide) throw new Error('Set DEVECO_HOME to the installed Release IDE');
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = path.resolve(__dirname, '../entry/src/main/ets');
-const mocks = {};
+const mocks = { '../model/BookPresentation': { BookPresentation: { get() {}, apply() {} } } };
 function load(relative) {
   const exports = {};
-  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root, relative + '.ets'), 'utf8'), {
+  const file = path.join(root, relative + (relative.endsWith('SourceCoverUrl') ? '.ts' : '.ets'));
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
   }).outputText, { exports, require: name => mocks[name] || {}, console });
   return exports;
 }
+mocks['../service/rulesource/light/upstream/core/nativesource/SourceCoverUrl'] =
+  load('service/rulesource/light/upstream/core/nativesource/SourceCoverUrl');
 const { BookCoverPolicy: policy } = load('utils/BookCoverPolicy');
 mocks['./BookCoverPolicy'] = mocks['../utils/BookCoverPolicy'] = { BookCoverPolicy: policy };
 const { SearchCache: cache } = load('utils/SearchCache');
@@ -21,30 +24,30 @@ const { DataService: data } = load('service/DataService');
 const create = (cover = 'thumb.jpg') => ({ id: 'book', sourceUrl: 'source', bookUrl: '/book',
   cover, title: 'Book', author: '', narrator: '', category: '', intro: '', totalDuration: 0,
   chapterCount: 0, rating: 0, tags: [], chapters: [] });
-const detail = create();
+const detail = create('');
 policy.setDetail(detail, 'detail.jpg');
 detail.chapters = [{ id: 'book-c0' }];
 detail.chapterCount = 1;
 cache.put(detail);
 const freshSearch = create('new-thumb.jpg');
 cache.put(freshSearch);
-assert.equal(freshSearch.cover, 'detail.jpg', 'search must not downgrade a known detail cover');
-assert.equal(freshSearch.coverFromDetail, true);
-assert.equal(freshSearch.coverFallback, 'new-thumb.jpg');
+assert.equal(freshSearch.cover, 'new-thumb.jpg', 'fresh results keep their existing cover');
+assert.equal(freshSearch.coverFromDetail, undefined);
+assert.equal(freshSearch.coverFallback, undefined);
 assert.equal(freshSearch.chapters.length, 1, 'existing chapter preservation remains intact');
-const stored = JSON.parse(JSON.stringify(data.slimBook(freshSearch)));
+const stored = JSON.parse(JSON.stringify(data.slimBook(detail)));
 assert.equal(stored.coverFromDetail, true, 'metadata shell retains provenance across restart');
-assert.equal(stored.coverFallback, 'new-thumb.jpg');
+assert.equal(stored.coverFallback, undefined);
 cache.clear();
 const afterRestart = create('cold-thumb.jpg');
 policy.merge(afterRestart, stored);
-assert.equal(afterRestart.cover, 'detail.jpg', 'disk restore preserves detail cover priority');
-assert.equal(afterRestart.coverFallback, 'cold-thumb.jpg');
-const updated = create('new-detail.jpg');
+assert.equal(afterRestart.cover, 'cold-thumb.jpg', 'disk restore must not replace an existing cover');
+assert.equal(afterRestart.coverFallback, undefined);
+const updated = create('');
 policy.setDetail(updated, 'new-detail.jpg');
 policy.merge(updated, stored);
 assert.equal(updated.cover, 'new-detail.jpg', 'new detail URL may replace old signed/expired URL');
-assert.equal(updated.coverFallback, 'new-thumb.jpg');
+assert.equal(updated.coverFallback, undefined);
 policy.setDetail(updated, '');
 assert.equal(updated.cover, 'new-detail.jpg', 'missing detail cover does not erase usable cover');
 const otherSource = create('other.jpg');
@@ -58,9 +61,39 @@ assert.equal(fresh.cover, 'fresh.jpg', 'unclassified legacy cover does not lock 
 const missing = create('');
 policy.merge(missing, stored);
 assert.equal(missing.cover, 'detail.jpg');
-assert.equal(missing.coverFallback, 'new-thumb.jpg');
-const equal = create('same.jpg');
+assert.equal(missing.coverFallback, undefined);
+const equal = create('');
 policy.setDetail(equal, 'same.jpg');
 assert.equal(equal.coverFromDetail, true);
 assert.equal(equal.coverFallback, undefined, 'same URL is not a useful fallback');
+policy.setDetail(equal, 'replacement.jpg');
+assert.equal(equal.cover, 'same.jpg', 'ordinary covers are also filled only when missing');
 console.log('Cover priority regression passed: search, persistence, restore, updates, source isolation, legacy data');
+
+const raw = 'https://cover.test/book.jpg';
+const { SourceCoverUrl } = mocks['../service/rulesource/light/upstream/core/nativesource/SourceCoverUrl'];
+const encoded = SourceCoverUrl.wrap(raw, 'https://source.test', { Referer: 'https://source.test/' });
+const home = create(encoded);
+policy.setDetail(home, raw);
+assert.equal(home.cover, encoded, 'detail must reuse the home decryption/cache identity for the same image');
+const oldDetail = { ...create(raw), coverFromDetail: true };
+const freshHome = create(encoded);
+policy.merge(freshHome, oldDetail);
+assert.equal(freshHome.cover, encoded, 'legacy detail cache must not strip source decoding metadata');
+const bareDetail = { ...create(raw), coverFromDetail: true };
+policy.merge(bareDetail, create(encoded));
+assert.equal(bareDetail.cover, encoded, 'same-image decoding metadata survives reverse cache merge');
+const changed = 'https://cover.test/new.jpg';
+policy.setDetail(home, changed);
+assert.equal(home.cover, encoded, 'detail cannot replace the selected source cover with a different image');
+const advertisement = SourceCoverUrl.wrap(changed, 'https://source.test');
+policy.setDetail(home, advertisement);
+assert.equal(home.cover, encoded, 'an encoded detail image also cannot replace the selected home image');
+policy.merge(home, { ...create(advertisement), coverFromDetail: true });
+assert.equal(home.cover, encoded, 'an old encoded detail cache cannot replace a fresh home cover');
+const other = create(encoded);
+other.sourceUrl = 'different-source';
+const isolated = { ...create(raw), coverFromDetail: true };
+policy.merge(isolated, other);
+assert.equal(isolated.cover, raw, 'decoding context cannot cross source boundaries');
+console.log('Source cover regression passed: detail refresh, legacy cache, reverse merge, new image, source isolation');

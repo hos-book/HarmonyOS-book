@@ -7,7 +7,6 @@ import { ComicOfflineTranslationService } from '../service/ComicOfflineTranslati
 @ComponentV2
 export struct ComicOfflineTranslationHost {
   private controller: webview.WebviewController = new webview.WebviewController();
-  private handles: fileIo.File[] = [];
   private readonly files: string[] = ['index.html', 'host.js', 'engine.js', 'transformers.min.js',
     'ort-wasm.wasm', 'ort-wasm-simd.wasm'];
   private readonly modelFiles: string[] = ['config.json', 'generation_config.json', 'tokenizer.json',
@@ -15,8 +14,6 @@ export struct ComicOfflineTranslationHost {
 
   aboutToDisappear(): void {
     ComicOfflineTranslationService.detach(this.controller);
-    for (const file of this.handles) { try { fileIo.closeSync(file); } catch (_error) {} }
-    this.handles = [];
   }
 
   private response(url: string): WebResourceResponse {
@@ -41,8 +38,15 @@ export struct ComicOfflineTranslationHost {
         const local = context ? ComicTranslationModelService.localPath(context, path) : '';
         if (!local) throw new Error('comic_offline_model_missing');
         const file = fileIo.openSync(local, fileIo.OpenMode.READ_ONLY);
-        this.handles.push(file);
-        response.setResponseData(file.fd);
+        try {
+          // setResponseData(number) 将句柄交由 Web 关闭。页面不能保存后再关闭：
+          // Web 释放后的 fd 可能已被复用，重复关闭会破坏 Web 的 IPC 管道并触发 SIGABRT。
+          response.setResponseData(file.fd);
+        } catch (_error) {
+          // 只有移交失败时，句柄仍由应用负责释放。
+          fileIo.closeSync(file);
+          throw new Error('comic_offline_model_response_failed');
+        }
       } catch (_error) {
         response.setResponseCode(404); response.setReasonMessage('Not Found'); response.setResponseData('');
       }

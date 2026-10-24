@@ -1,4 +1,5 @@
 import { ReaderBrightnessService } from '../service/text/ReaderBrightnessService';
+import { ComicReaderService } from '../service/ComicReaderService';
 import { ReaderBookmark, ReaderTextDocument } from '../model/ReaderTools';
 import { ReaderToolsService } from '../service/text/ReaderToolsService';
 import { ReaderBookmarkSheet } from '../components/ReaderBookmarkSheet';
@@ -122,6 +123,7 @@ export struct ReaderPage {
   @Local showReplaceSheet: boolean = false;
   @Local bookmarks: ReaderBookmark[] = [];
   @Local bookmarkBusy: boolean = false;
+  @Local switchingComic: boolean = false;
   @Local replaceSample: string = '';
   private textDocuments: Map<number, ReaderTextDocument> = new Map();
   private textRulesGeneration: number = 0;
@@ -755,7 +757,49 @@ export struct ReaderPage {
           .enabled(!this.onlineTextLoading)
           .onClick((): void => { this.showReaderMenu = false; this.openReplaceRules(); })
       }
+      if (this.book?.id.startsWith('import_') && this.book?.contentType === 'text') {
+        MenuItem({ content: $r('app.string.reader_switch_comic'),
+          symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.arrow_left_arrow_right')) })
+          .enabled(!this.loading && !this.onlineTextLoading && !this.switchingComic)
+          .onClick((): void => { this.showReaderMenu = false; this.switchToComic(); })
+      }
     }
+  }
+
+  private async switchToComic(): Promise<void> {
+    const book = this.book;
+    const context = this.context;
+    if (!book || !context || this.switchingComic) return;
+    this.switchingComic = true;
+    let typeSaved = false;
+    try {
+      let hasImages = false;
+      for (const chapter of book.chapters) {
+        if (this.leaving) return;
+        if ((await ComicReaderService.cached(context, book, chapter)).length > 0) { hasImages = true; break; }
+      }
+      if (!hasImages) { this.showToast($r('app.string.reader_switch_comic_no_images')); return; }
+      if (this.leaving) return;
+      if (this.speechState.active && this.speechState.bookId === book.id) TextToSpeechService.getInstance().stop();
+      const position = this.persistedPosition();
+      if (position) {
+        try { await TextReadingProgressService.save(context, position); }
+        catch (error) {
+          hilog.warn(READER_LOG_DOMAIN, READER_LOG_TAG, 'comic switch progress save failed: %{public}s',
+            error instanceof Error ? error.message : String(error));
+        }
+      }
+      const changed = await DataService.switchImportedBookToComic(book.id);
+      typeSaved = true;
+      changed.chapters = book.chapters;
+      SearchCache.put(changed);
+      this.navStack.replacePath({ name: 'comicReader', param: TextReaderRouteParams.of(book.id) }, false);
+    } catch (error) {
+      hilog.error(READER_LOG_DOMAIN, READER_LOG_TAG, 'comic switch failed saved=%{public}s: %{public}s',
+        String(typeSaved), error instanceof Error ? error.message : String(error));
+      this.showToast(typeSaved ? $r('app.string.reader_switch_comic_open_failed') : $r('app.string.reader_switch_comic_failed'));
+    }
+    finally { this.switchingComic = false; }
   }
 
   private async addBookmark(): Promise<void> {

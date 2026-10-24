@@ -15,6 +15,8 @@ import { PreferenceService } from '../service/PreferenceService';
 import { WindowUtils } from '../utils/WindowUtils';
 import { FileOpenRouting } from '../utils/FileOpenRouting';
 import { DiagnosticLogService } from '../service/DiagnosticLogService';
+import { ImmersiveOptionTabs } from '../components/ImmersiveOptionTabs';
+import { EpubImportMode } from '../service/text/EpubContentProfile';
 
 export const EVT_SWITCH_TAB = 'app.nav.switchTab';
 const TAB_INDEX_FAVORITE = 1;
@@ -43,6 +45,7 @@ export struct ImportPage {
   @Param navStack: NavPathStack = new NavPathStack();
   @Param importFileUri: string = '';
   @Param importFileType: string = '';
+  @Local epubMode: EpubImportMode = 'auto';
   private externalImportConsumed: boolean = false;
   @Local bookTitle: string = '';
   @Local shelfGroup: string = '';
@@ -368,7 +371,7 @@ export struct ImportPage {
         const book = await LocalBookImportService.importBook(this.context!, file, `${batchId}_text_${index}`,
           files.length === 1 ? title : file.preview?.title || '',
           this.bookAuthor || file.preview?.author || '', this.coverPath || file.preview?.cover || '',
-          (progress: string): void => { this.progressText = progress; });
+          (progress: string): void => { this.progressText = progress; }, this.epubMode);
         await this.saveImported(book);
         imported++;
       } catch (error) {
@@ -507,6 +510,10 @@ export struct ImportPage {
         Scroll() {
           Column({ space: AppSpace.Lg }) {
             this.buildFileSection()
+            if (this.pickedFiles.some((file: PickedFile): boolean =>
+              file.ext === '.epub' || file.ext === '.zip')) {
+              this.buildEpubModeSection()
+            }
             this.buildCoverSection()
             this.buildInfoSection()
             Row({ space: AppSpace.Sm }) {
@@ -641,6 +648,21 @@ export struct ImportPage {
   }
 
   // PLACEHOLDER_BUILDERS
+  @Builder
+  buildEpubModeSection() {
+    Column({ space: AppSpace.Sm }) {
+      Text($r('app.string.import_epub_mode')).fontSize(AppFont.Body)
+        .fontColor($r('sys.color.font_tertiary'))
+      ImmersiveOptionTabs({
+        labels: [$r('app.string.import_epub_auto'), $r('app.string.import_epub_text'), $r('app.string.import_epub_comic')],
+        selected: this.epubMode === 'auto' ? 0 : this.epubMode === 'text' ? 1 : 2,
+        onSelect: (index: number): void => { this.epubMode = index === 0 ? 'auto' : index === 1 ? 'text' : 'comic'; }
+      }).enabled(!this.importing && !this.parsing)
+      Text($r('app.string.import_epub_mode_hint'))
+        .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+    }.width('100%').alignItems(HorizontalAlign.Start)
+  }
+
   @Builder
   buildCoverSection() {
     Column({ space: AppSpace.Sm }) {
