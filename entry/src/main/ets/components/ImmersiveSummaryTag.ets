@@ -3,6 +3,19 @@ import { AppColor, AppTheme } from '../theme/Theme';
 import { HdsCompat } from '../utils/HdsCompat';
 import { PlatformCompat } from '../utils/PlatformCompat';
 
+/** HDS 内部阴影必须在最终合成层按胶囊裁剪；普通圆角或 shadow(0) 不能代替。 */
+class ImmersiveSummaryClip implements AttributeModifier<CommonAttribute> {
+  private radius: number;
+
+  constructor(radius: number) { this.radius = radius; }
+
+  applyNormalAttribute(node: CommonAttribute): void {
+    if (PlatformCompat.floatingTabs) node.borderRadius(this.radius, RenderStrategy.OFFSCREEN);
+    else node.borderRadius(this.radius);
+    node.clip(true);
+  }
+}
+
 /** 与顶部圆形按钮共用 HDS 浮动栏材质，仅展示统计，不接管触摸。 */
 @ComponentV2
 export struct ImmersiveSummaryTag {
@@ -67,6 +80,7 @@ export struct ImmersiveSummaryTag {
         }.fontSize(12).maxLines(1)
       }.width('100%').padding({ left: 10, right: 10 })
     }.width(this.contentWidth()).height(this.contentHeight())
+      .attributeModifier(new ImmersiveSummaryClip(this.contentHeight() / 2))
       .hitTestBehavior(HitTestMode.None)
   }
 }

@@ -709,14 +709,22 @@ export struct ReaderPage {
         label: $r('app.string.reader_more'),
         onPress: (): void => { this.showReaderMenu = !this.showReaderMenu; }
       })
-        .bindMenu(this.showReaderMenu, this.buildReaderMenu(), {
-          placement: Placement.BottomLeft,
-          onDisappear: (): void => { this.showReaderMenu = false; }
-        })
+        .bindMenu(this.showReaderMenu, this.buildReaderMenu(), this.readerMenuOptions())
     }.width('100%').justifyContent(FlexAlign.End)
       .padding({ left: this.leftSafeVp + 16, right: this.rightSafeVp + 12 })
       .hitTestBehavior(HitTestMode.Transparent)
       .position({ x: 0, y: this.topSafeVp + 4 })
+  }
+
+  private readerMenuOptions(): MenuOptions {
+    const options: MenuOptions = {
+      placement: Placement.BottomLeft,
+      backgroundColor: AppMaterial.SheetBackground,
+      onDisappear: (): void => { this.showReaderMenu = false; }
+    };
+    if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
+    else options.backgroundBlurStyle = AppMaterial.SheetBlur;
+    return options;
   }
 
   @Builder

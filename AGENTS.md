@@ -66,6 +66,8 @@ Pages hold `@Local` state + Service singletons. No V1 viewmodel layer exists.
 
 ## Critical Coding Rules
 
+- **沉浸光感阴影（重复问题记忆）**：阅听记录的“累计阅听 / 连续阅听”统计胶囊必须保留沉浸材质且无外溢阴影。`HdsTabs.barFloatingStyle` 的内部阴影不能靠宿主 `.shadow(0)` 消除；参照 `ImmersiveSummaryTag`、`ImmersiveCircleButton`，在最外层按实际高度一半设置 `borderRadius(radius, RenderStrategy.OFFSCREEN)` 并 `clip(true)`（经 `PlatformCompat.floatingTabs` 守卫，旧 API 普通圆角裁剪）。不要再次删除此裁剪，也不要用不透明底色遮阴影；修改后须在实机查看胶囊下缘，构建通过不等于视觉验证。
+
 - **Loading indicators**: always set `.color(AppColor.Brand)` — never rely on HarmonyOS default brand blue
 - **Long lists**: `LazyForEach` + stable keys (e.g. `bookUrl`). Never use index as key
 - **UI copy**: change resource strings only; do not rename `.ets` files to match label text
