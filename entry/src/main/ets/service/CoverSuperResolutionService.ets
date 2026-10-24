@@ -7,6 +7,7 @@ import lazy { imageSuperResolution, visionBase } from '@kit.CoreVisionKit';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { PreferenceService } from './PreferenceService';
 import { CoverPrefetcher } from './CoverPrefetcher';
+import { MembershipState } from '../model/MembershipState';
 
 /** 仅为当前播放封面运行系统超分；串行处理、小图输入、有界派生缓存。 */
 export class CoverSuperResolutionService {
@@ -22,7 +23,10 @@ export class CoverSuperResolutionService {
     const job = CoverSuperResolutionService.queue.then(async (): Promise<string> => {
       try {
         if (!active() || !await PreferenceService.getCoverSuperResolution()) return '';
-        return await CoverSuperResolutionService.process(context, url, active);
+        const allowed = (): boolean => active() && MembershipState.current.hasAccess;
+        if (!allowed()) return '';
+        const result = await CoverSuperResolutionService.process(context, url, allowed);
+        return allowed() ? result : '';
       } catch (_error) {
         console.warn('[CoverSuperResolution] Enhancement unavailable; using original cover');
         return '';

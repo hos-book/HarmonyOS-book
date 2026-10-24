@@ -1,5 +1,6 @@
 /** Primitive JSON boundary: upstream TypeScript never imports application ArkTS. */
 export interface LightSourceHost {
+  parseNative?(input: string, cancelled: () => boolean, priority: number): Promise<string>;
   keepWebSession?: boolean;
   release?(): void;
   acquireWeb?(): Promise<number>;

@@ -2,9 +2,12 @@ import { ComicPage, ComicReaderService } from '../service/ComicReaderService';
 import { ComicImageLoader } from '../service/ComicImageLoader';
 import { fileUri } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { emitter } from '@kit.BasicServicesKit';
 import { AppColor } from '../theme/Theme';
 import { ComicSuperResolutionService } from '../service/ComicSuperResolutionService';
+import { MembershipState } from '../model/MembershipState';
 import { ReaderCacheService } from '../service/ReaderCacheService';
+import { ComicColorizationService } from '../service/ComicColorizationService';
 
 @ComponentV2
 export struct ComicPageImage {
@@ -15,6 +18,14 @@ export struct ComicPageImage {
   @Param zoomRegionLeft: number = 33;
   @Param zoomRegionRight: number = 33;
   @Param superResolution: boolean = false;
+  @Param colorization: boolean = false;
+  @Param translation: boolean = false;
+  @Param translationDirection: string = 'ja-zh';
+  @Param colorizationActive: boolean = true;
+  @Event onColorError: (message: string) => void = () => {};
+  @Local coloredUrl: string = '';
+  @Local colorBusy: boolean = false;
+  private colorSerial: number = 0;
   @Event onToggle: (event: ClickEvent) => void = () => {};
   @Local ratio: number = 0;
   @Local failed: boolean = false;
@@ -22,6 +33,7 @@ export struct ComicPageImage {
   @Local retry: number = 0;
   @Local zoom: number = 1;
   @Local enhancedUrl: string = '';
+  @Local membership: MembershipState = MembershipState.current;
   @Local enhancementFailed: boolean = false;
   @Local resolvedUrl: string = '';
   private visible: boolean = false;
@@ -34,13 +46,24 @@ export struct ComicPageImage {
   private enhancementSerial: number = 0;
   private cacheOwner: string = ReaderCacheService.owner();
 
-  aboutToAppear(): void { this.alive = true; this.loadImage(); }
+  private imageReadyHandler = (): void => {
+    if (this.alive && !this.imageRequested &&
+      (this.page.url.startsWith('file://') || this.page.url.startsWith('/'))) this.loadImage();
+  };
+
+  aboutToAppear(): void {
+    this.alive = true;
+    emitter.on('app.comic.image.ready', this.imageReadyHandler);
+    this.loadImage();
+  }
 
   aboutToDisappear(): void {
     this.alive = false;
+    emitter.off('app.comic.image.ready', this.imageReadyHandler);
     this.visible = false;
     this.imageSerial++;
     this.enhancementSerial++;
+    this.colorSerial++;
     ReaderCacheService.release(this.cacheOwner);
   }
 
@@ -62,24 +85,31 @@ export struct ComicPageImage {
     this.enhancedUrl = '';
     this.enhancementFailed = false;
     this.enhancementSerial++;
+    this.colorSerial++;
+    this.coloredUrl = '';
+    this.colorBusy = false;
     this.pendingUrl = page.url;
     this.imageRequested = false;
     // LazyForEach also creates offscreen cache nodes. They must not download ahead of the visible page.
     if (!this.visible && !page.url.startsWith('file://') && !page.url.startsWith('/')) return;
     this.imageRequested = true;
     const cancelled = (): boolean => !this.alive || ticket !== this.imageSerial;
-    ComicImageLoader.load(page.sourceUrl, this.pendingUrl, cancelled, this.visible).then((path: string): void => {
+    ComicImageLoader.load(page.sourceUrl, this.pendingUrl, cancelled, this.visible).then(async (path: string): Promise<void> => {
       if (cancelled()) return;
+      await ComicReaderService.prepareImage(page, path);
+      if (cancelled()) return;
+      if (page.width > 0 && page.height > 0) this.ratio = page.height / page.width;
       this.resolvedUrl = path.startsWith('/') ? fileUri.getUriFromPath(path) : path;
       this.protectImage();
       this.enhance();
+      this.colorize();
       const context = this.getUIContext().getHostContext();
       if (context) ComicReaderService.imageReady(page, path, context).catch((): void => {});
     }).catch((): void => { if (!cancelled()) this.failed = true; });
   }
 
   private protectImage(): void {
-    if (this.visible) ReaderCacheService.protect(this.cacheOwner, [this.resolvedUrl, this.enhancedUrl]);
+    if (this.visible) ReaderCacheService.protect(this.cacheOwner, [this.resolvedUrl, this.enhancedUrl, this.coloredUrl]);
     else ReaderCacheService.release(this.cacheOwner);
   }
 
@@ -93,7 +123,7 @@ export struct ComicPageImage {
   }
 
   private enhance(): void {
-    if (!this.visible || !this.resolvedUrl || !this.superResolution || this.enhancedUrl || this.enhancementFailed) return;
+    if (this.colorization || this.translation || !this.visible || !this.resolvedUrl || !this.superResolution || this.enhancedUrl || this.enhancementFailed) return;
     const context = this.getUIContext().getHostContext();
     if (!context) return;
     const ticket = ++this.enhancementSerial;
@@ -104,6 +134,43 @@ export struct ComicPageImage {
       this.protectImage();
       this.enhancementFailed = !uri;
     }).catch((): void => { if (active()) this.enhancementFailed = true; });
+  }
+
+  @Monitor('colorization', 'translation', 'translationDirection')
+  private onColorizationChanged(): void {
+    this.colorSerial++;
+    this.colorBusy = false;
+    this.coloredUrl = '';
+    if (this.colorization || this.translation) { this.enhancementSerial++; this.enhancedUrl = ''; }
+    this.protectImage();
+    this.colorize();
+    if (!this.colorization && !this.translation) this.enhance();
+  }
+
+  @Monitor('colorizationActive')
+  private onAiActiveChanged(): void {
+    this.colorSerial++;
+    this.colorBusy = false;
+    this.colorize();
+  }
+
+  private colorize(): void {
+    if (!this.alive || !this.visible || !this.membership.hasAccess || (!this.colorization && !this.translation) || !this.colorizationActive ||
+      !this.resolvedUrl || this.coloredUrl || this.colorBusy) return;
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
+    const ticket = ++this.colorSerial;
+    this.colorBusy = true;
+    const active = (): boolean => this.alive && this.visible && this.membership.hasAccess && (this.colorization || this.translation) && this.colorizationActive &&
+      ticket === this.colorSerial;
+    ComicColorizationService.transform(context, this.resolvedUrl, active,
+      this.translation ? this.translationDirection : '').then((path: string): void => {
+      if (!active()) return;
+      this.coloredUrl = path;
+      this.protectImage();
+    }).catch((error: Error): void => {
+      if (active()) this.onColorError(error.message);
+    }).finally((): void => { if (ticket === this.colorSerial) this.colorBusy = false; });
   }
 
   private imageHeight(): number {
@@ -117,26 +184,33 @@ export struct ComicPageImage {
   private decodeWidth(): number {
     const ratio = this.imageHeight() / Math.max(1, this.pageWidth);
     return Math.max(1, Math.floor(Math.min(this.getUIContext().vp2px(this.pageWidth) * this.zoom, 1536, 4096 / ratio,
-      Math.sqrt(4 * 1024 * 1024 / ratio))));
+      Math.sqrt(4 * 1024 * 1024 / ratio), this.page.width > 0 ? this.page.width : 1536)));
+  }
+
+  private decodeSize(): ImageSourceSize {
+    const widthPx = this.decodeWidth();
+    const heightPx = Math.max(1, Math.floor(widthPx * this.imageHeight() / Math.max(1, this.pageWidth)));
+    const ui = this.getUIContext();
+    // Image.sourceSize numbers are vp, while decoder budgets and native image dimensions are pixels.
+    return { width: ui.px2vp(widthPx), height: ui.px2vp(heightPx) };
   }
 
   @Builder
   imageContent(): void {
-        Image(this.enhancedUrl || this.resolvedUrl)
+        Image((this.membership.hasAccess ? this.coloredUrl || this.enhancedUrl : '') || this.resolvedUrl)
           .id(`${this.page.key}:${this.retry}`)
           .width(this.pageWidth).height(this.imageHeight())
           // 容器已按原图比例计算；Fill 消除解码宽高取整造成的亚像素留边。
           .objectFit(ImageFit.Fill)
           .syncLoad(false)
           .autoResize(true)
-          .sourceSize({ width: this.decodeWidth(), height: Math.max(1, Math.floor(this.decodeWidth() * this.imageHeight() / Math.max(1, this.pageWidth))) })
+          .sourceSize(this.decodeSize())
           .scale({ x: this.zoom, y: this.zoom })
           .onComplete((event) => {
             if (event && event.width > 0 && event.height > 0) {
-              this.ratio = event.height / event.width;
+              if (!this.coloredUrl && this.ratio <= 0) this.ratio = event.height / event.width;
               // 懒加载节点回收后仍保留已知比例，避免回滚时先按占位高度再跳一次。
-              this.page.width = event.width;
-              this.page.height = event.height;
+              if (!this.coloredUrl) { this.page.width = event.width; this.page.height = event.height; }
               this.loaded = true;
               if (!this.displayLogged) {
                 this.displayLogged = true;
@@ -146,7 +220,8 @@ export struct ComicPageImage {
             }
           })
           .onError(() => {
-            if (this.enhancedUrl) { this.enhancedUrl = ''; this.enhancementFailed = true; }
+            if (this.coloredUrl) { this.coloredUrl = ''; this.onColorError('comic_ai_invalid_image'); }
+            else if (this.enhancedUrl) { this.enhancedUrl = ''; this.enhancementFailed = true; }
             else this.failed = true;
           })
           .gesture(TapGesture({ count: 2 }).onAction((event: GestureEvent): void => {
@@ -181,6 +256,15 @@ export struct ComicPageImage {
         this.imageContent()
       }
 
+      if (this.colorBusy) {
+        Row({ space: 6 }) {
+          LoadingProgress().width(18).height(18).color(AppColor.Brand)
+          Text(this.translation ? $r('app.string.comic_ai_translate_working') : $r('app.string.comic_ai_color_working'))
+            .fontSize(12).fontColor(Color.White)
+        }.padding(8).backgroundColor('#99000000').borderRadius(12).align(Alignment.TopEnd)
+          .hitTestBehavior(HitTestMode.None)
+      }
+
     }
     .width(this.pageWidth).height(this.paged ? this.pageHeight : this.imageHeight()).clip(true)
     .backgroundColor('#121212')
@@ -193,8 +277,9 @@ export struct ComicPageImage {
         if (!this.imageRequested) this.loadImage();
         else ComicImageLoader.promote(this.page.sourceUrl, this.pendingUrl);
         this.enhance();
+        this.colorize();
       }
-      else this.enhancementSerial++;
+      else { this.enhancementSerial++; this.colorSerial++; this.colorBusy = false; }
     })
   }
 }

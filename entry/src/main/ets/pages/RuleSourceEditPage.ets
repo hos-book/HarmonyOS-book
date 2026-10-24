@@ -1,6 +1,6 @@
 import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
 import { LocalRuleSource, LocalRuleSearchRule, LocalRuleBookInfoRule, LocalRuleTocRule, LocalRuleContentRule } from '../model/LocalRuleSource';
-import { LocalRuleSourceRepository, SourceLimitError } from '../service/rulesource/LocalRuleSourceRepository';
+import { LocalRuleSourceRepository } from '../service/rulesource/LocalRuleSourceRepository';
 import { LocalRuleSourceCodec } from '../service/rulesource/LocalRuleSourceCodec';
 import { LocalRuleSourceImportParser } from '../service/rulesource/LocalRuleSourceImportParser';
 import { SourceDataService } from '../service/SourceDataService';
@@ -182,8 +182,7 @@ export struct RuleSourceEditPage {
       promptAction.showToast({ message: '保存成功' });
       this.navStack.pop();
     } catch (error) {
-      promptAction.showToast({ message: error instanceof SourceLimitError ?
-        $r('app.string.rule_source_membership_limit') : $r('app.string.rule_source_save_failed') });
+      promptAction.showToast({ message: $r('app.string.rule_source_save_failed') });
     } finally {
       this.isSaving = false;
     }

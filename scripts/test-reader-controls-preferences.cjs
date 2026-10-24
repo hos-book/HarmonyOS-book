@@ -28,6 +28,13 @@ function load() {
   const service = load();
   assert.equal(await service.getComicVolumeKeyPageTurn(), false, 'volume keys default off');
   assert.equal(await service.getComicReadingMode(), 0);
+  assert.equal(await service.getComicTranslationDirection(), 'ja-zh');
+  for (const direction of ['ja-zh','ko-zh','en-zh','zh-en']) {
+    await service.setComicTranslationDirection(direction);
+    assert.equal(await load().getComicTranslationDirection(), direction, 'translation direction survives reopening');
+  }
+  await assert.rejects(service.setComicTranslationDirection('invalid'));
+  assert.equal(await load().getComicTranslationDirection(), 'zh-en');
   assert.equal(await service.getComicChapterBar(false), false, 'migrate the former shared chapter bar once');
   assert.equal(await load().getComicChapterBar(true), false, 'later novel changes cannot alter comic controls');
   await service.setComicVolumeKeyPageTurn(true);
@@ -40,6 +47,8 @@ function load() {
   await otherComic.setComicVolumeKeyPageTurn(false);
   assert.equal(await load().getComicVolumeKeyPageTurn(), false, 'disabling is persisted too');
   failFlush = true;
+  await assert.rejects(service.setComicTranslationDirection('en-zh'));
+  assert.equal(await load().getComicTranslationDirection(), 'zh-en', 'failed direction save rolls back');
   await assert.rejects(service.setComicVolumeKeyPageTurn(true));
   await assert.rejects(service.setComicReadingMode(1));
   await assert.rejects(service.setComicChapterBar(false));
@@ -47,6 +56,8 @@ function load() {
   assert.equal(await load().getComicReadingMode(), 3);
   assert.equal(await load().getComicChapterBar(), true);
   failFlush = false;
+  values.set('comic_translation_direction', 'unsupported');
+  assert.equal(await service.getComicTranslationDirection(), 'ja-zh', 'invalid persisted direction falls back');
   assert.equal(await service.getComicBrightnessBar(), true);
   assert.equal(await service.getComicBrightness(), -1);
   await service.setComicBrightnessBar(false);

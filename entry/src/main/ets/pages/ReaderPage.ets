@@ -332,11 +332,23 @@ export struct ReaderPage {
   @Monitor('generalSettings.adaptiveHandedness')
   private syncHoldingHand(): void {
     this.holdingHand.setVisible(this.readerVisible && !this.leaving && this.generalSettings.adaptiveHandedness);
-    if (!this.generalSettings.adaptiveHandedness) this.holdingHandSide = 0;
+    if (!this.generalSettings.adaptiveHandedness) this.updateHoldingHand(0);
+  }
+
+  private updateHoldingHand(side: number): void {
+    if (this.holdingHandSide === side) return;
+    if (!this.readerVisible || this.leaving) {
+      this.holdingHandSide = side;
+      return;
+    }
+    // 仅换手时对位置做动画，保留悬浮播放器纵向拖动的实时响应。
+    this.getUIContext().animateTo({ curve: curves.springMotion(0.4, 1) }, (): void => {
+      this.holdingHandSide = side;
+    });
   }
 
   aboutToAppear(): void {
-    this.holdingHand.onChange = (left: boolean): void => { this.holdingHandSide = left ? 1 : 2; };
+    this.holdingHand.onChange = (left: boolean): void => { this.updateHoldingHand(left ? 1 : 2); };
     this.holdingHand.setVisible(this.generalSettings.adaptiveHandedness);
     emitter.on('app.reader.background', this.backgroundHandler);
     emitter.on('app.reader.foreground', this.foregroundHandler);

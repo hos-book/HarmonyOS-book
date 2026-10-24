@@ -35,6 +35,8 @@ export class ReaderCacheService {
   private static comicWriters: number = 0;
   private static timer: number = -1;
   private static sequence: number = 0;
+  private static textBytes: number = 0;
+  private static comicBytes: number = 0;
 
   static owner(): string { return `reader-cache-${++ReaderCacheService.sequence}`; }
 
@@ -101,18 +103,27 @@ export class ReaderCacheService {
           entry.path = path;
           entry.bytes = stat.size;
           entry.usedAt = Date.now();
+          ReaderCacheService.forget(path);
           ReaderCacheService.entries.set(path, entry);
+          if (ReaderCacheService.kind(path) === ReaderCacheKind.Text) ReaderCacheService.textBytes += entry.bytes;
+          else ReaderCacheService.comicBytes += entry.bytes;
           // Persist recency across process restarts; this API takes milliseconds.
           if (entry.usedAt - stat.mtime * 1000 >= 60000) {
             try { fileIo.utimes(path, entry.usedAt); } catch (_error) { /* In-memory recency remains valid. */ }
           }
-        } catch (_error) { ReaderCacheService.entries.delete(path); }
+        } catch (_error) { ReaderCacheService.forget(path); }
       }
     });
     ReaderCacheService.scheduleTrim();
   }
 
-  static forget(path: string): void { ReaderCacheService.entries.delete(path); }
+  static forget(path: string): void {
+    const previous = ReaderCacheService.entries.get(path);
+    if (!previous) return;
+    if (ReaderCacheService.kind(path) === ReaderCacheKind.Text) ReaderCacheService.textBytes -= previous.bytes;
+    else ReaderCacheService.comicBytes -= previous.bytes;
+    ReaderCacheService.entries.delete(path);
+  }
 
   static async usage(): Promise<ReaderCacheUsage> {
     const usage = new ReaderCacheUsage();
@@ -163,7 +174,7 @@ export class ReaderCacheService {
     if (!context) return;
     const next = new Map<string, ReaderCacheEntry>();
     const roots = [`${context.filesDir}/online_text_content`, `${context.cacheDir}/comic_images`,
-      `${context.cacheDir}/comic_super_resolution_v1`];
+      `${context.cacheDir}/comic_super_resolution_v1`, `${context.cacheDir}/comic_colorization_v1`];
     for (const root of roots) {
       let names: string[];
       try { names = await fileIo.listFile(root); } catch (_error) { continue; }
@@ -182,6 +193,12 @@ export class ReaderCacheService {
       }
     }
     ReaderCacheService.entries = next;
+    ReaderCacheService.textBytes = 0;
+    ReaderCacheService.comicBytes = 0;
+    for (const entry of next.values()) {
+      if (ReaderCacheService.kind(entry.path) === ReaderCacheKind.Text) ReaderCacheService.textBytes += entry.bytes;
+      else ReaderCacheService.comicBytes += entry.bytes;
+    }
     ReaderCacheService.initialized = true;
   }
 
@@ -195,7 +212,8 @@ export class ReaderCacheService {
     if (!context || path.includes('..') || path.includes('\\')) return undefined;
     const textRoot = `${context.filesDir}/online_text_content/`;
     if (path.startsWith(textRoot) && /^search_text_[a-z0-9]+\.json$/.test(path.substring(textRoot.length))) return ReaderCacheKind.Text;
-    for (const root of [`${context.cacheDir}/comic_images/`, `${context.cacheDir}/comic_super_resolution_v1/`]) {
+    for (const root of [`${context.cacheDir}/comic_images/`, `${context.cacheDir}/comic_super_resolution_v1/`,
+      `${context.cacheDir}/comic_colorization_v1/`]) {
       if (path.startsWith(root) && /^[a-f0-9]+\.(jpg|jpeg|png|webp|gif|bmp|avif)$/.test(path.substring(root.length))) return ReaderCacheKind.Comic;
     }
     return undefined;
@@ -210,10 +228,13 @@ export class ReaderCacheService {
 
   private static async trim(kind: ReaderCacheKind, clear: boolean): Promise<ReaderCacheCleanup> {
     const result = new ReaderCacheCleanup();
+    const limit = kind === ReaderCacheKind.Text ? ReaderCacheService.TEXT_LIMIT : ReaderCacheService.COMIC_LIMIT;
+    const knownBytes = kind === ReaderCacheKind.Text ? ReaderCacheService.textBytes : ReaderCacheService.comicBytes;
+    // Reads and releases schedule this every second. A cache below its limit needs no full map traversal.
+    if (!clear && knownBytes <= limit) return result;
     const entries = Array.from(ReaderCacheService.entries.values()).filter((entry: ReaderCacheEntry): boolean =>
       ReaderCacheService.kind(entry.path) === kind);
     let total = entries.reduce((sum: number, entry: ReaderCacheEntry): number => sum + entry.bytes, 0);
-    const limit = kind === ReaderCacheKind.Text ? ReaderCacheService.TEXT_LIMIT : ReaderCacheService.COMIC_LIMIT;
     if (!clear && total <= limit) return result;
     const target = clear ? 0 : Math.floor(limit * 0.9);
     entries.sort((left: ReaderCacheEntry, right: ReaderCacheEntry): number => left.usedAt - right.usedAt);
@@ -226,13 +247,13 @@ export class ReaderCacheService {
         total -= entry.bytes;
         result.releasedBytes += entry.bytes;
         result.removed++;
-        ReaderCacheService.entries.delete(entry.path);
+        ReaderCacheService.forget(entry.path);
       } catch (_error) {
         let exists: boolean = true;
         try { exists = await fileIo.access(entry.path); } catch (_accessError) { /* Report unreadable files as failures. */ }
         if (!exists) {
           total -= entry.bytes;
-          ReaderCacheService.entries.delete(entry.path);
+          ReaderCacheService.forget(entry.path);
         } else result.failed++;
       }
     }

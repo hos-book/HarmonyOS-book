@@ -33,6 +33,7 @@ import { SourceEngineHost } from './upstream/core/host/SourceEngineHost';
 
 /** JSON boundary prevents the upstream TypeScript model leaking into ArkTS pages. */
 import { LightSourceTiming } from './LightSourceTiming';
+import { LightSourceDefinition } from './LightSourceDefinition';
 import { LightSourceRequest, LightSourceRequestPolicy } from './LightSourceRequestPolicy';
 
 export class LightSourceCore {
@@ -120,12 +121,13 @@ export class LightSourceCore {
     return JSON.stringify(source);
   }
   private static source(local: LocalRuleSource): BookSource {
+    const startedAt = Date.now();
     LightSourceRuntime.parseDefinition = value => NativeSourceSpec.isDefinitionObject(value) ?
       NativeSourceImport.importObject(value) : new LightSourceImport().parseBookSource(value);
     const raw = local.definition || local.rawSourceJson;
-    const value = JSON.parse(raw) as Record<string, Object>;
-    return NativeSourceSpec.isDefinitionObject(value) ? NativeSourceImport.importObject(value) :
-      new LightSourceImport().parseBookSource(value);
+    const source = Object.assign(new BookSource(), JSON.parse(LightSourceDefinition.normalizeDefinition(raw)));
+    if (Date.now() - startedAt >= 8) console.info(`[ComicPerf] engine-source ms=${Date.now() - startedAt}`);
+    return source;
   }
   private static book(source: BookSource, url: string, vars: Record<string, string>): Book {
     const book = new Book();

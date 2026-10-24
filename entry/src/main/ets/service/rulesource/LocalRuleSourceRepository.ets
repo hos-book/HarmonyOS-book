@@ -1,6 +1,4 @@
 import { common } from '@kit.AbilityKit';
-import lazy { MembershipService } from '../MembershipService';
-import { MembershipState } from '../../model/MembershipState';
 import { buffer } from '@kit.ArkTS';
 import { relationalStore } from '@kit.ArkData';
 import {
@@ -82,10 +80,6 @@ class PreparedRuleSource {
     this.source = source;
     this.sourceJson = sourceJson;
   }
-}
-
-export class SourceLimitError extends Error {
-  constructor() { super('SOURCE_LIMIT_REACHED'); }
 }
 
 /** 本地规则书源持久化；错误交由上层提示，不删除或重建损坏数据库。 */
@@ -400,9 +394,6 @@ export class LocalRuleSourceRepository {
   private static async writeBatch(sources: LocalRuleSource[], importing: boolean): Promise<number> {
     if (sources.length === 0) return 0;
 
-    // 导入不能复用退款/撤销前的短期权益缓存；在开启数据库事务前完成重新核验。
-    const unlimitedSources = await MembershipService.instance.hasCurrentEntitlement(importing);
-
     const prepared: PreparedRuleSource[] = [];
     for (const source of sources) {
       prepared.push(LocalRuleSourceRepository.prepare(source));
@@ -413,14 +404,12 @@ export class LocalRuleSourceRepository {
     const now = Date.now();
     let writtenCount = 0;
     try {
-      const orderRows = await transaction.querySql(`SELECT MAX(custom_order), MIN(custom_order), COUNT(*) FROM ${TABLE_NAME}`);
+      const orderRows = await transaction.querySql(`SELECT MAX(custom_order), MIN(custom_order) FROM ${TABLE_NAME}`);
       let nextOrder = 0;
-      let sourceCount = 0;
       let importOrder = -prepared.length;
       try {
         if (orderRows.goToFirstRow()) {
           nextOrder = orderRows.getLong(0) + 1;
-          sourceCount = orderRows.getLong(2);
           importOrder = orderRows.getLong(1) - prepared.length;
         }
       } finally {
@@ -450,10 +439,6 @@ export class LocalRuleSourceRepository {
           item.source.isPinned = previous.isPinned;
           item.source.customOrder = previous.customOrder;
         } else {
-          if ((!unlimitedSources || !MembershipState.current.hasAccess) && sourceCount >= 10) {
-            throw new SourceLimitError();
-          }
-          sourceCount++;
           if (item.source.customOrder === 0) item.source.customOrder = nextOrder++;
         }
         if (importing && !item.source.isPinned) {
@@ -1044,6 +1029,7 @@ export class LocalRuleSourceRepository {
   }
 
   private static readSource(resultSet: relationalStore.ResultSet): LocalRuleSource {
+    const startedAt = Date.now();
     const sourceUrl = resultSet.getString(0);
     const sourceName = resultSet.getString(1);
     const sourceType = resultSet.getLong(2);
@@ -1087,6 +1073,7 @@ export class LocalRuleSourceRepository {
     source.isPinned = resultSet.getLong(10) !== 0;
     source.customOrder = resultSet.getLong(11);
     source.rawSourceJson = sourceJson;
+    if (Date.now() - startedAt >= 8) console.info(`[ComicPerf] source-row ms=${Date.now() - startedAt}`);
     return source;
   }
 

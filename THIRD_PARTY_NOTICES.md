@@ -1,5 +1,13 @@
 # 第三方软件声明
 
+## 漫画端侧翻译
+
+- 基础模型：Helsinki-NLP 的 `opus-mt-zh-en`、`opus-mt-en-zh`、`opus-mt-ja-en`、`opus-mt-ko-en`，作者为 University of Helsinki Language Technology Research Group。各模型许可证及来源见随包的 `comic_offline/NOTICE.txt`。
+- ONNX 转换与量化来自 Xenova 对应模型，固定 ModelScope 镜像版本和 SHA256 见 `scripts/comic-offline-assets.json`；应用未再训练权重，日/韩译中文使用英文中转。
+- Transformers.js 2.17.2（Apache-2.0）、ONNX Runtime Web 1.14.0（MIT）。
+
+声明与许可证随 HAP 保存在 `entry/src/main/resources/rawfile/comic_offline/NOTICE.txt`、`LICENSE`、`onnxruntime-LICENSE`、`onnxruntime-ThirdPartyNotices.txt`。模型和运行时大文件不加入 Git，由 `scripts/prepare-comic-offline.py` 按固定版本和散列校验下载。
+
 ## @devzeng/quickjs / ohos_quickjs
 
 - 上游项目：https://github.com/hhtczengjing/ohos_quickjs
@@ -65,3 +73,5 @@ Apache License 2.0 全文见 `third_party/quickjs/LICENSE-APACHE-2.0`。
 ## LLVM libc++ runtime
 
 仓颉 NAPI 薄层及同版本源码重编的运行时共同使用 HarmonyOS Release SDK 26.0.0.105 提供的 `libc++_shared.so`，遵循 Apache License 2.0 with LLVM Exceptions。SDK 原始声明见 `third_party/rulecore/licenses/LLVM-NOTICE`；仓颉与 LLVM 许可材料同时保存在 `entry/src/main/resources/rawfile/third_party/cangjie/` 随 HAP 打包。
+
+漫画翻译 OPUS-MT 权重采用固定版本按需下载，不随 HAP 打包；许可声明仍随应用提供。下载清单及 SHA256 见 `scripts/comic-offline-assets.json`，运行时只允许读取已校验的本地资源。

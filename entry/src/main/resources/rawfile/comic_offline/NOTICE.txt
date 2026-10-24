@@ -1,0 +1,39 @@
+Comic translation models and runtime
+
+Base models by the Language Technology Research Group, University of Helsinki.
+Jörg Tiedemann and Santhosh Thottingal: OPUS-MT — Building open translation
+services for the World, EAMT 2020.
+ONNX conversion/quantization by Xenova. The application does not retrain weights.
+Japanese/Korean-to-Chinese use English as an intermediate language.
+No endorsement by the model authors is implied.
+
+Model: Helsinki-NLP/opus-mt-zh-en
+Source: https://huggingface.co/Helsinki-NLP/opus-mt-zh-en
+License: license: cc-by-4.0
+ONNX model: https://huggingface.co/Xenova/opus-mt-zh-en
+Mirror revision: 6a8d79753303914f92e4c189b292ba428b53912c
+
+Model: Helsinki-NLP/opus-mt-en-zh
+Source: https://huggingface.co/Helsinki-NLP/opus-mt-en-zh
+License: license: apache-2.0
+ONNX model: https://huggingface.co/Xenova/opus-mt-en-zh
+Mirror revision: 563922a09e0e294a0f5785bffdaa758732da3714
+
+Model: Helsinki-NLP/opus-mt-ja-en
+Source: https://huggingface.co/Helsinki-NLP/opus-mt-ja-en
+License: license: apache-2.0
+ONNX model: https://huggingface.co/Xenova/opus-mt-ja-en
+Mirror revision: 977993fddbdc1c2276248819b5bc8497b514b753
+
+Model: Helsinki-NLP/opus-mt-ko-en
+Source: https://huggingface.co/Helsinki-NLP/opus-mt-ko-en
+License: license: apache-2.0
+ONNX model: https://huggingface.co/Xenova/opus-mt-ko-en
+Mirror revision: 5e6ea445816f5679a3a242832dd23826062d8804
+
+CC BY 4.0 terms: https://creativecommons.org/licenses/by/4.0/legalcode
+Apache-2.0 terms: see LICENSE.
+Runtime: Transformers.js 2.17.2, Apache-2.0, see LICENSE.
+ONNX Runtime Web 1.14.0, MIT, see onnxruntime-LICENSE and
+onnxruntime-ThirdPartyNotices.txt.
+Assets are pinned and verified by scripts/comic-offline-assets.json.

@@ -3,7 +3,7 @@
   "sources": {
     "engine": {
       "repository": "https://github.com/wip3l/harmony-book-source-engine",
-      "commit": "d9ed121a33caec54905540a553fe5e5127007c73"
+      "commit": "107a116fa5c8391e043e36578e6649e82979e73e"
     },
     "application": {
       "repository": "https://github.com/wip3l/legado-harmony",
@@ -25,8 +25,8 @@
       "path": "core/host/SourceEngineHost.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/host/SourceEngineHost.ts",
-      "upstreamSha256": "b0bfac836f6e26fac918ae672d76496bfdcacdd63dbbbaf47c6e3500de53ef7e",
-      "sha256": "b0bfac836f6e26fac918ae672d76496bfdcacdd63dbbbaf47c6e3500de53ef7e"
+      "upstreamSha256": "dfe4496cfa6caa56c2eefa40821e66cd7bc30f87ad02282074c3901d00cdeaeb",
+      "sha256": "dfe4496cfa6caa56c2eefa40821e66cd7bc30f87ad02282074c3901d00cdeaeb"
     },
     {
       "path": "model/data/Book.ts",
@@ -46,8 +46,8 @@
       "path": "core/nativesource/NativeSourceRunner.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceRunner.ts",
-      "upstreamSha256": "b376a546e5c0ce0ba5a13729a88643388471bfbe9ee89906970a7fb42dba39c0",
-      "sha256": "b376a546e5c0ce0ba5a13729a88643388471bfbe9ee89906970a7fb42dba39c0"
+      "upstreamSha256": "f4ea956e8e5b404a0919a83bbb24399483fac6181d57981da2a7c69db084279b",
+      "sha256": "f4ea956e8e5b404a0919a83bbb24399483fac6181d57981da2a7c69db084279b"
     },
     {
       "path": "core/concurrency/CooperativeScheduler.ts",
@@ -382,8 +382,8 @@
       "path": "core/nativesource/NativeSourceService.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceService.ts",
-      "upstreamSha256": "2a77221feb50bf63009410c302402d005cf311c8265f9d3f67e374bed933f6a7",
-      "sha256": "2a77221feb50bf63009410c302402d005cf311c8265f9d3f67e374bed933f6a7"
+      "upstreamSha256": "4e3ff3bb58f9da12370ba773aeb425621782e24449de57953196ba74550b9d8d",
+      "sha256": "4e3ff3bb58f9da12370ba773aeb425621782e24449de57953196ba74550b9d8d"
     },
     {
       "path": "core/http/DigestHash.ts",

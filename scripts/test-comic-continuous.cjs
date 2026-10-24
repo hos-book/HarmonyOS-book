@@ -9,7 +9,7 @@ const root = path.resolve(__dirname, '../entry/src/main/ets');
 const compile = code => ts.transpileModule(code, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
 }).outputText;
-const scope = { exports: {}, ComicPage: class {}, PreferenceService: { getPreloadChapters: async () => 1 },
+const scope = { exports: {}, DataOperationType: {ADD:'add',DELETE:'delete',RELOAD:'reload'}, ComicPage: class {}, PreferenceService: { getPreloadChapters: async () => 1 },
   ComicScrollLayoutFrame: class { constructor(callback) { this.callback = callback; } } };
 const data = fs.readFileSync(path.join(root, 'service/ComicScrollDataSource.ets'), 'utf8').replace(/^import .*;\r?\n/gm, '');
 vm.runInNewContext(compile(data), scope);
@@ -45,8 +45,10 @@ function reader(index = 2, descending = false) {
     loadPages: async i => { requests.push(i); return pages(i); },
     onPosition: (i, p, list) => positions.push([i, p, list.length]), events, requests, positions });
   r.source.reset(chapter.rows);
-  r.source.registerDataChangeListener({ onDataAdd: i => events.push(['add', i]),
-    onDataDelete: i => events.push(['delete', i]), onDataReloaded: () => assert.fail('unexpected full reload') });
+  r.source.registerDataChangeListener({ onDatasetChange: operations => {
+    for (const op of operations) { assert.notEqual(op.type,'reload'); events.push([op.type,op.index,op.count]); }
+  }, onDataAdd: () => assert.fail('per-row notifications are forbidden'),
+    onDataDelete: () => assert.fail('per-row notifications are forbidden'), onDataReloaded: () => assert.fail('unexpected full reload') });
   return r;
 }
 (async () => {
@@ -55,9 +57,16 @@ function reader(index = 2, descending = false) {
   await r.loadNeighbor(true);
   assert.equal(r.source.getData(0), first, 'append retains original row identity');
   assert.equal(r.source.totalCount(), 12);
-  assert.equal(r.events.filter(e => e[0] === 'add').length, 6);
+  assert.deepEqual(r.events, [['add',6,6]], 'one batch notification preserves the full appended range');
+  const large = reader();
+  large.loadPages = async i => Array.from({length:193},(_,n)=>({key:`large:${i}:${n}`,index:n}));
+  await large.loadNeighbor(true);
+  assert.deepEqual(large.events,[['add',6,193]],'a long chapter does not send 193 layout notifications');
   r.firstVisible = 7; r.reportPosition();
   assert.deepEqual(r.positions.at(-1), [3, 1, 6], 'progress is chapter-local');
+  const reported = r.positions.length;
+  r.reportPosition();
+  assert.equal(r.positions.length, reported, 'same first-visible page does not repeat parent updates');
   r.firstVisible = 2; r.lastVisible = 4;
   const visible = r.source.getData(2);
   await r.loadNeighbor(false);
@@ -117,6 +126,8 @@ function reader(index = 2, descending = false) {
   parent.onScrollPosition(3, 3, pages(3));
   assert.equal(resets, 1, 'paged datasource only switches when chapter actually changes');
   assert.equal(saves, 2);
+  parent.onScrollPosition(3, 3, pages(3));
+  assert.equal(saves, 2, 'unchanged visible position does not schedule another progress write');
   assert.equal(parent.preparedComicChapters.has(10), false);
 
   scope.PreferenceService.getPreloadChapters = async () => 0;

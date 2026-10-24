@@ -1,4 +1,5 @@
 import { WebEngineGate } from '../../WebEngineGate';
+import { LightNativeParserService } from './LightNativeParserService';
 import { LocalRuleWebSession } from '../LocalRuleWebSession';
 import { LightSourceHost, LightLocalSource } from './LightSourceHost';
 import { LightSourceSandbox } from './LightSourceSandbox';
@@ -21,6 +22,9 @@ class NativeBrowserDefinition {
 }
 
 export class LightSourceAppHost implements LightSourceHost {
+  parseNative(input: string, cancelled: () => boolean, priority: number): Promise<string> {
+    return LightNativeParserService.run(input, cancelled, priority);
+  }
   keepWebSession: boolean = false;
   constructor(keepWebSession: boolean = false) { this.keepWebSession = keepWebSession; }
   async acquireWeb(): Promise<number> {

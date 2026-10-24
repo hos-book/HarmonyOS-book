@@ -231,6 +231,28 @@ export class PreferenceService {
     return value === 1 || value === 3 ? value : 0;
   }
 
+  static async getComicImagePreloadCount(): Promise<number> {
+    const store = await PreferenceService.ensureStore();
+    const value = store.getSync('comic_image_preload_count', 5);
+    return typeof value === 'number' && [0, 2, 5, 10, 20].includes(value) ? value : 5;
+  }
+
+  static async getComicTranslationDirection(): Promise<string> {
+    const store = await PreferenceService.ensureStore();
+    const value = store.getSync('comic_translation_direction', 'ja-zh');
+    return typeof value === 'string' && ['ja-zh', 'ko-zh', 'en-zh', 'zh-en'].includes(value) ? value : 'ja-zh';
+  }
+
+  static async setComicTranslationDirection(direction: string): Promise<void> {
+    if (!['ja-zh', 'ko-zh', 'en-zh', 'zh-en'].includes(direction)) throw new Error('comic_offline_language');
+    await PreferenceService.saveComicPreference('comic_translation_direction', direction, 'ja-zh');
+  }
+
+  static async setComicImagePreloadCount(count: number): Promise<void> {
+    if (![0, 2, 5, 10, 20].includes(count)) throw new Error('Invalid comic image preload count');
+    await PreferenceService.saveComicPreference('comic_image_preload_count', count, 5);
+  }
+
   static async setComicReadingMode(mode: number): Promise<void> {
     await PreferenceService.saveComicPreference('comic_reading_mode', mode === 1 || mode === 3 ? mode : 0, 0);
   }
@@ -247,8 +269,8 @@ export class PreferenceService {
     await PreferenceService.saveComicPreference('comic_chapter_bar', enabled, true);
   }
 
-  private static async saveComicPreference(key: string, value: boolean | number,
-    fallback: boolean | number): Promise<void> {
+  private static async saveComicPreference(key: string, value: boolean | number | string,
+    fallback: boolean | number | string): Promise<void> {
     const store = await PreferenceService.ensureStore();
     const previous = store.getSync(key, fallback);
     try {
@@ -1084,15 +1106,20 @@ export class PreferenceService {
 
   static async getCoverSuperResolution(): Promise<boolean> {
     const store = await PreferenceService.ensureStore();
-    return (await store.get(KEY_COVER_SUPER_RESOLUTION, false)) === true;
+    return (await store.get(KEY_COVER_SUPER_RESOLUTION, false)) === true &&
+      await MembershipService.instance.hasCurrentEntitlement();
   }
 
   static async getComicSuperResolution(): Promise<boolean> {
     const store = await PreferenceService.ensureStore();
-    return (await store.get('comicSuperResolution', false)) === true;
+    return (await store.get('comicSuperResolution', false)) === true &&
+      await MembershipService.instance.hasCurrentEntitlement();
   }
 
   static async setComicSuperResolution(enabled: boolean): Promise<void> {
+    if (enabled && !await MembershipService.instance.hasCurrentEntitlement()) {
+      throw new Error('MEMBERSHIP_REQUIRED');
+    }
     const store = await PreferenceService.ensureStore();
     const previous = await store.get('comicSuperResolution', false);
     try {
@@ -1105,6 +1132,9 @@ export class PreferenceService {
   }
 
   static async setCoverSuperResolution(enabled: boolean): Promise<void> {
+    if (enabled && !await MembershipService.instance.hasCurrentEntitlement()) {
+      throw new Error('MEMBERSHIP_REQUIRED');
+    }
     const store = await PreferenceService.ensureStore();
     const previous = await store.get(KEY_COVER_SUPER_RESOLUTION, false);
     try {

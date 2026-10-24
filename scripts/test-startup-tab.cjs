@@ -21,6 +21,7 @@ function page(read, historyEnabled = true) {
   }).outputText, { exports, PreferenceService: { getDefaultTab: read }, Curve: { EaseOut: 'ease-out' } });
   const value = new exports.Page();
   Object.assign(value, { tabsReady: false, defaultTabRequest: 0, pendingInitialTab: -1,
+    tabFadeRunning: false, tabFadeCommitIndex: -1, tabFadeGeneration: 0, tabContentOpacity: 1,
     currentTab: 0, generalSettings: { historyEnabled }, switches: [] });
   value.tabController = { changeIndex: i => value.switches.push(i) };
   value.getUIContext = () => ({ animateTo: (_options, update) => update() });
@@ -90,5 +91,59 @@ function page(read, historyEnabled = true) {
   hidden.onHistoryVisibilityChanged();
   assert.equal(hidden.currentTab, 0);
   assert.equal(hidden.renderTabs().index, 0, 'hiding the active history tab must fall back to home');
+  const fade = page(async () => 1);
+  await fade.restoreDefaultTab();
+  const finishes = [];
+  fade.getUIContext = () => ({ animateTo: (options, update) => {
+    update();
+    if (options.onFinish) finishes.push(options.onFinish);
+  } });
+  fade.tabController = { changeIndex: index => {
+    if (fade.allowTabContentChange(index)) {
+      fade.switches.push(index);
+      fade.tabChanged(index);
+    }
+  } };
+  fade.changeTab(2);
+  assert.equal(fade.currentTab, 1, 'outgoing page stays selected until fade-out finishes');
+  assert.equal(fade.tabContentOpacity, 0);
+  assert.deepEqual(fade.switches, []);
+  fade.changeTab(3);
+  assert.equal(finishes.length, 1, 'rapid taps must not enqueue competing fade-outs');
+  finishes.shift()();
+  assert.equal(fade.currentTab, 2);
+  assert.equal(fade.tabContentOpacity, 1);
+  assert.equal(fade.tabFadeRunning, true, 'keep the transition locked until fade-in completes');
+  finishes.shift()();
+  assert.equal(fade.tabFadeRunning, false);
+  for (const event of [{ offsetX: -20, offsetY: 0 }, { offsetX: 60, offsetY: 100 }]) {
+    fade.handleTabSwipe(event);
+    assert.equal(finishes.length, 0, 'short and vertical gestures must not switch tabs');
+  }
+  fade.handleTabSwipe({ offsetX: -100, offsetY: 5 });
+  finishes.shift()();
+  finishes.shift()();
+  assert.equal(fade.currentTab, 3);
+  fade.handleTabSwipe({ offsetX: -100, offsetY: 0 });
+  assert.equal(finishes.length, 0, 'last tab must not wrap around');
+  fade.handleTabSwipe({ offsetX: 100, offsetY: 0 });
+  const obsoleteFinish = finishes.shift();
+  fade.generalSettings.historyEnabled = false;
+  fade.onHistoryVisibilityChanged();
+  obsoleteFinish();
+  assert.equal(fade.currentTab, 3, 'history visibility changes cancel stale transition commits');
+  assert.equal(fade.nativeTabIndex, 2);
+  assert.equal(fade.tabContentOpacity, 1);
+  fade.handleTabSwipe({ offsetX: 100, offsetY: 0 });
+  finishes.shift()();
+  finishes.shift()();
+  assert.equal(fade.currentTab, 1, 'swipe skips hidden history');
+  fade.handleTabSwipe({ offsetX: 100, offsetY: 0 });
+  const disposedFinish = finishes.shift();
+  fade.resetTabFade();
+  disposedFinish();
+  assert.equal(fade.currentTab, 1, 'disposed transitions cannot navigate later');
+  assert.equal(fade.tabContentOpacity, 1);
+  console.log('PASS: fade ordering, repeated input, short/vertical swipes, boundaries, hidden history and stale callbacks');
   console.log('PASS: cold-start defaults, current tab across playback/return/refresh, hidden history mapping, pending navigation, disposal and storage fallback');
 })().catch(error => { console.error(error); process.exitCode = 1; });

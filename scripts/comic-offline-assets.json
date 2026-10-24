@@ -1,0 +1,199 @@
+{
+  "models": [
+    {
+      "id": "zh-en",
+      "model": "Xenova/opus-mt-zh-en",
+      "revision": "6a8d79753303914f92e4c189b292ba428b53912c",
+      "files": [
+        {
+          "path": "config.json",
+          "size": 1389,
+          "sha256": "293d318fce41dbf04114eac45037bb88a32d7c4ee21011a75e24a8b98ca45ad1"
+        },
+        {
+          "path": "generation_config.json",
+          "size": 293,
+          "sha256": "8dc29fef0fe82109f94ef3c2e6ea6bded3215d357b226c34cf7b4630726766c9"
+        },
+        {
+          "path": "onnx/decoder_model_merged_quantized.onnx",
+          "size": 60212804,
+          "sha256": "c6b7f04ff1ba0fbd1bf6852599b4c0cad6fe512d57cd887f44ef36cf705424cb"
+        },
+        {
+          "path": "onnx/encoder_model_quantized.onnx",
+          "size": 52899742,
+          "sha256": "84d5e171b626bc8b6b220d022ac58696e9528c25deeacca62b5cbf4364547a99"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size": 74,
+          "sha256": "5e4d1f5e759d74cb1c2fe1d165cfc62b5237aa904de759380cd6f43042eec723"
+        },
+        {
+          "path": "tokenizer.json",
+          "size": 6381339,
+          "sha256": "b306d0301cf280bfd647d7067b5ade2a97b987e6d678df110703c002433643ff"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size": 282,
+          "sha256": "08849acc0a539c4749d8665e9d6217735503a97871ccebeea8a762d5fba1acf7"
+        }
+      ]
+    },
+    {
+      "id": "en-zh",
+      "model": "Xenova/opus-mt-en-zh",
+      "revision": "563922a09e0e294a0f5785bffdaa758732da3714",
+      "files": [
+        {
+          "path": "config.json",
+          "size": 1503,
+          "sha256": "4727d1229a04f95bf6f39abf949d8080615433d99d6ebd85f81c09edd247d5fa"
+        },
+        {
+          "path": "generation_config.json",
+          "size": 293,
+          "sha256": "b743baabb7da4c1a2f19fe558bd6b4c0c7c3b0762fcb5ca7a48fe5a2c2219803"
+        },
+        {
+          "path": "onnx/decoder_model_merged_quantized.onnx",
+          "size": 60212804,
+          "sha256": "023be4f841f4c47cd65fffcbaa81c0d99d7f7e0138f7ba0e03fa220a4e688aff"
+        },
+        {
+          "path": "onnx/encoder_model_quantized.onnx",
+          "size": 52899742,
+          "sha256": "d3b7912bf6a9bd27e4c074c2df91d4ff3d5b4bc5f7f6c8d7cc9c805c98fbafee"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size": 74,
+          "sha256": "5e4d1f5e759d74cb1c2fe1d165cfc62b5237aa904de759380cd6f43042eec723"
+        },
+        {
+          "path": "tokenizer.json",
+          "size": 6380952,
+          "sha256": "d0c7da27056e8f42adce9e76d8e792e5daa64e15f5acd2e7aabf0121877dd4c1"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size": 282,
+          "sha256": "a914596e6bff113a8428d4793b586da87cd0b95697a0e72aba90cc1d95858481"
+        }
+      ]
+    },
+    {
+      "id": "ja-en",
+      "model": "Xenova/opus-mt-ja-en",
+      "revision": "977993fddbdc1c2276248819b5bc8497b514b753",
+      "files": [
+        {
+          "path": "config.json",
+          "size": 1376,
+          "sha256": "d35476f1d3858883feec67e5a63ddc387452a70fda9c8e26db99c71aa2ad6a34"
+        },
+        {
+          "path": "generation_config.json",
+          "size": 293,
+          "sha256": "ed1bc2193210ca2a6dc9c144ea789936fed8a27113e01010d8e591f45f238912"
+        },
+        {
+          "path": "onnx/decoder_model_merged_quantized.onnx",
+          "size": 58001744,
+          "sha256": "b304d0014e4e1575437b6af95467b6cb54405d923732d8359113bd6dbbee93c0"
+        },
+        {
+          "path": "onnx/encoder_model_quantized.onnx",
+          "size": 50705822,
+          "sha256": "345262b16bcdda1468b0f3380c112b7ce79f731176b4b1d21f6edd5b2ae0d25c"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size": 74,
+          "sha256": "5e4d1f5e759d74cb1c2fe1d165cfc62b5237aa904de759380cd6f43042eec723"
+        },
+        {
+          "path": "tokenizer.json",
+          "size": 5991485,
+          "sha256": "770ff2855437cf44f1f110550c5a9dca773253a167aeac36076b2073d259aa3b"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size": 280,
+          "sha256": "414e9e7e2492b95fa80f24ccb295645d35c4dd0a74d7ef8b89820c0c7e8ec356"
+        }
+      ]
+    },
+    {
+      "id": "ko-en",
+      "model": "Xenova/opus-mt-ko-en",
+      "revision": "5e6ea445816f5679a3a242832dd23826062d8804",
+      "files": [
+        {
+          "path": "config.json",
+          "size": 1389,
+          "sha256": "8260080db48141328ae198ede2b25483fa4a6f46dc2859784d6e21c188865e43"
+        },
+        {
+          "path": "generation_config.json",
+          "size": 293,
+          "sha256": "8dc29fef0fe82109f94ef3c2e6ea6bded3215d357b226c34cf7b4630726766c9"
+        },
+        {
+          "path": "onnx/decoder_model_merged_quantized.onnx",
+          "size": 60212803,
+          "sha256": "e131732653a6d3cec42a8b65f8844980042b036bdaca931446bc4b3530bc3506"
+        },
+        {
+          "path": "onnx/encoder_model_quantized.onnx",
+          "size": 52899741,
+          "sha256": "210e1d2cb5b457cdeeffe288099cc9d1df9f13c35dc3d39fde4ba252af877380"
+        },
+        {
+          "path": "special_tokens_map.json",
+          "size": 74,
+          "sha256": "5e4d1f5e759d74cb1c2fe1d165cfc62b5237aa904de759380cd6f43042eec723"
+        },
+        {
+          "path": "tokenizer.json",
+          "size": 6487044,
+          "sha256": "147a41edd62b08c79be8cfe6d3102ad19d8a964ac061b4bd6840ac45d0112011"
+        },
+        {
+          "path": "tokenizer_config.json",
+          "size": 282,
+          "sha256": "3df327b013e1fd1a7c7423a3c521d325cb0e641044f5ced6d2ec44ab811b4f0e"
+        }
+      ]
+    }
+  ],
+  "runtime": {
+    "version": "2.17.2",
+    "url": "https://registry.npmjs.org/@xenova/transformers/-/transformers-2.17.2.tgz",
+    "sha512": "lZmHqzrVIkSvZdKZEx7IYY51TK0WDrC8eR0c5IMnBsO8di8are1zzw8BlLhyO2TklZKLN5UffNGs1IJwT6oOqQ==",
+    "files": [
+      {
+        "path": "transformers.min.js",
+        "source": "dist/transformers.min.js",
+        "sha256": "bcf7cf304e51f470ed59409622b9d6ffbad80dfcf5baf6a40c919e4b9c4ff812"
+      },
+      {
+        "path": "ort-wasm-simd.wasm",
+        "source": "dist/ort-wasm-simd.wasm",
+        "sha256": "9bd07bababc65f53d061f457233eeae501be7ceb8a2adb9eef52d87fe776d865"
+      },
+      {
+        "path": "ort-wasm.wasm",
+        "source": "dist/ort-wasm.wasm",
+        "sha256": "bbdcb6b3c7d294577d806077630460be4e13ca35a345acb5e81188e9649fa74a"
+      },
+      {
+        "path": "LICENSE",
+        "source": "LICENSE",
+        "sha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+      }
+    ]
+  }
+}

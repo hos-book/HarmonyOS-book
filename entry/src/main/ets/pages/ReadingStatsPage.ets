@@ -7,7 +7,7 @@ import { HdsCompat } from '../utils/HdsCompat';
 import { common } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { HdsNavigation, HdsNavigationTitleMode } from '@kit.UIDesignKit';
-import { AppColor, AppMaterial, AppCurve, AppFont, AppRadius, AppSpace, HomeTheme, AppTheme } from '../theme/Theme';
+import { AppColor, AppMaterial, AppFont, AppRadius, AppSpace, HomeTheme, AppTheme } from '../theme/Theme';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
 import { ThemeBackgroundScene } from '../model/AppThemeVisual';
 import { ThemeIconRole } from '../theme/ThemeIcons';
@@ -68,6 +68,8 @@ class ListeningRecordDataSource implements IDataSource {
     this.listeners = this.listeners.filter((item: DataChangeListener): boolean => item !== listener);
   }
   setRecords(records: ListenRecordView[]): void {
+    const structureChanged: boolean = records.length !== this.items.length ||
+      records.some((record: ListenRecordView, index: number): boolean => record.bookId !== this.items[index]?.bookId);
     // 保留同一本书的可观察对象，稳定 key 下进度、标题仍能即时刷新。
     const existing = new Map<string, ListenRecordView>();
     for (const item of this.items) existing.set(item.bookId, item);
@@ -91,7 +93,10 @@ class ListeningRecordDataSource implements IDataSource {
       item.readingPosition = record.readingPosition;
       return item;
     });
-    for (const listener of this.listeners) listener.onDataReloaded();
+    // 同序记录的展示字段由 @Trace 刷新，避免进度更新触发整张列表重布局。
+    if (structureChanged) {
+      for (const listener of this.listeners) listener.onDataReloaded();
+    }
   }
 }
 
@@ -117,7 +122,6 @@ export struct ReadingStatsPage {
   private readonly recordTitleBuilder: CustomBuilder = (): void => this.buildRecordTitleBar();
   @Local loading: boolean = true;
   @Local refreshing: boolean = false;
-  @Local appeared: boolean = false;
   @Local selectMode: boolean = false;
   @Local selectedIds: Set<string> = new Set();
   @Local deletingRecords: boolean = false;
@@ -129,8 +133,16 @@ export struct ReadingStatsPage {
   private recoveryAttempted: Set<string> = new Set();
   private loadingStats: boolean = false;
   private reloadPending: boolean = false;
+  private listScrolling: boolean = false;
   private dayTimer: number = -1;
+  private visibleRefreshTimer: number = -1;
+  private pageVisible: boolean = false;
   private statsHandler = (_evt: emitter.EventData): void => {
+    if (!this.pageVisible || !this.recoveryActive) return;
+    if (this.listScrolling) {
+      this.reloadPending = true;
+      return;
+    }
     // 书籍明细可能还在异步加载；已提交的顶部累计不能等它完成才刷新。
     const cached = StatsService.getCachedStatsBundle(1);
     if (cached !== undefined) this.applyStatsBundle(cached);
@@ -148,17 +160,16 @@ export struct ReadingStatsPage {
     const cached = StatsService.getCachedStatsBundle(1);
     if (cached !== undefined) this.applyStatsBundle(cached);
     this.onScrollerReady(this.scroller);
-    this.loadStats();
-    this.scheduleDayRefresh();
     emitter.on(EVT_USAGE_STATS_UPDATED, this.statsHandler);
     emitter.on(EVT_FAVORITES_CHANGED, this.favoritesHandler);
     emitter.on(EVT_TEXT_READING_PROGRESS_CHANGED, this.statsHandler);
-    setTimeout(() => { this.appeared = true; }, 24);
   }
 
   aboutToDisappear(): void {
     this.onBackHandlerChange(undefined);
     this.recoveryActive = false;
+    this.pageVisible = false;
+    this.cancelVisibleRefresh();
     if (this.dayTimer !== -1) clearTimeout(this.dayTimer);
     this.dayTimer = -1;
     try {
@@ -178,6 +189,28 @@ export struct ReadingStatsPage {
     this.statsError = false;
   }
 
+  private cancelVisibleRefresh(): void {
+    if (this.visibleRefreshTimer !== -1) clearTimeout(this.visibleRefreshTimer);
+    this.visibleRefreshTimer = -1;
+  }
+
+  private handleRecordVisibility(visible: boolean, ratio: number): void {
+    this.cancelVisibleRefresh();
+    this.pageVisible = false;
+    this.listScrolling = false;
+    if (this.dayTimer !== -1) clearTimeout(this.dayTimer);
+    this.dayTimer = -1;
+    if (!visible || ratio < 0.99 || !this.recoveryActive) return;
+    // 横滑露出一角不取数；完整显示稳定后再刷新，避免取数与滑动争抢 UI 线程。
+    this.visibleRefreshTimer = setTimeout((): void => {
+      this.visibleRefreshTimer = -1;
+      if (!this.recoveryActive) return;
+      this.pageVisible = true;
+      this.loadStats();
+      this.scheduleDayRefresh();
+    }, 220);
+  }
+
   private scheduleDayRefresh(): void {
     if (this.dayTimer !== -1) clearTimeout(this.dayTimer);
     const now = new Date();
@@ -191,16 +224,21 @@ export struct ReadingStatsPage {
   }
 
   private async loadStats(): Promise<void> {
-    if (this.loadingStats) {
+    // 缓存 Tab 的事件只在重新显示时统一读取，避免后台记录页争抢切换帧。
+    if (!this.recoveryActive || !this.pageVisible) return;
+    if (this.loadingStats || this.listScrolling) {
       this.reloadPending = true;
       return;
     }
+    this.reloadPending = false;
     this.loadingStats = true;
     const ctx = this.getUIContext().getHostContext();
     if (!ctx) { this.loadingStats = false; this.refreshing = false; return; }
     try {
       await StatsService.init(ctx);
       const bundle: StatsBundle = await StatsService.getStatsBundle(1);
+      if (!this.recoveryActive || !this.pageVisible) return;
+      if (this.listScrolling) { this.reloadPending = true; return; }
       // 顶部统计独立于书籍明细；离线或某本书读取失败时仍显示持久化累计值。
       this.applyStatsBundle(StatsService.getCachedStatsBundle(1) ?? bundle);
       await PreferenceService.ensureReady(ctx);
@@ -212,7 +250,10 @@ export struct ReadingStatsPage {
         Promise.resolve().then(() => PreferenceService.getFavorites()).then((items: string[]): void => { favoriteIds = new Set(items); }),
         Promise.resolve().then(() => TextReadingProgressService.getAll(ctx, true)).then((items: TextReadingPosition[]): void => { reading = items; })
       ]);
+      if (this.listScrolling) { this.reloadPending = true; return; }
       const allRecords = await this.buildRecordViews(ctx, bundle.records, history, reading);
+      if (!this.recoveryActive || !this.pageVisible) return;
+      if (this.listScrolling) { this.reloadPending = true; return; }
       this.records = allRecords.filter((item: ListenRecordView): boolean =>
         this.shouldShowRecord(item, favoriteIds));
       this.applyContentFilter();
@@ -228,14 +269,20 @@ export struct ReadingStatsPage {
         (e instanceof Error ? `${e.message}; ${e.stack ?? ''}` : String(e)));
       console.error(`[ReadingStatsPage] load stats failed: ${JSON.stringify(e)}`);
     } finally {
-      this.loading = false;
+      if (this.recoveryActive && this.pageVisible && !this.listScrolling) this.loading = false;
       this.refreshing = false;
       this.loadingStats = false;
-      if (this.reloadPending) {
+      if (this.reloadPending && !this.listScrolling) {
         this.reloadPending = false;
         this.loadStats();
       }
     }
+  }
+
+  private finishRecordScroll(): void {
+    this.listScrolling = false;
+    // 播放进度、统计和收藏变更在滚动停止后合并刷新，避免惯性滚动中重排列表。
+    if (this.reloadPending) this.loadStats();
   }
 
   /** 先展示历史，后台修复旧版本未保存的书籍，网络失败不阻塞记录页。 */
@@ -667,6 +714,8 @@ export struct ReadingStatsPage {
           .width('100%')
           .height('100%')
           .cachedCount(5)
+          .onScrollStart((): void => { this.listScrolling = true; })
+          .onScrollStop((): void => this.finishRecordScroll())
           .scrollBar(BarState.Off)
           .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
           .padding({
@@ -737,11 +786,8 @@ export struct ReadingStatsPage {
     .width('100%')
     .height('100%')
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
-    .onVisibleAreaChange([0], (visible: boolean): void => {
-      if (visible && this.recoveryActive) {
-        this.loadStats();
-        this.scheduleDayRefresh();
-      }
+    .onVisibleAreaChange([0, 0.99], (visible: boolean, ratio: number): void => {
+      this.handleRecordVisibility(visible, ratio);
     })
   }
 
@@ -777,9 +823,6 @@ export struct ReadingStatsPage {
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .padding({ top: 2, bottom: 16 })
-    .opacity(this.appeared ? 1 : 0)
-    .translate({ y: this.appeared ? 0 : 18 })
-    .animation({ duration: 460, curve: AppCurve.Decelerate })
     .onClick(() => { if (this.statsError) this.loadStats(); })
   }
 
@@ -913,14 +956,14 @@ export struct ReadingStatsPage {
   @Builder
   buildRecordActions(item: ListenRecordView) {
     Row({ space: 6 }) {
-      ImmersiveCircleButton({ icon: $r('sys.symbol.clock'), diameter: 36, iconSize: 18,
+      ImmersiveCircleButton({ icon: $r('sys.symbol.clock'), diameter: 36, iconSize: 18, useMaterial: false,
         iconColor: AppTheme.TextPrimary, label: $r('app.string.session_history'),
         onPress: (): void => {
           const params: Record<string, Object> = { 'bookIds': JSON.stringify([item.bookId, ...item.aliasBookIds]) };
           this.navStack.pushPathByName('sessionHistory', params);
         } })
       ImmersiveCircleButton({ icon: item.isText ? $r('sys.symbol.book') : $r('sys.symbol.play_fill'),
-        diameter: 36, iconSize: 16, iconColor: AppTheme.TextPrimary,
+        diameter: 36, iconSize: 16, useMaterial: false, iconColor: AppTheme.TextPrimary,
         label: item.isText ? $r('app.string.book_detail_continue_read') : $r('app.string.book_detail_continue_listen'),
         onPress: (): void => { this.resumeRecord(item); } })
     }.margin({ left: 8 })
@@ -943,7 +986,7 @@ export struct ReadingStatsPage {
         .borderRadius(AppRadius.Sm)
         .objectFit(ImageFit.Cover)
         .sourceSize({ width: 300, height: 400 })
-        .syncLoad(true)
+        .syncLoad(false)
     } else if (item.cover) {
       Image($rawfile(item.cover))
         .width(72)
@@ -1011,7 +1054,5 @@ export struct ReadingStatsPage {
     .backgroundColor(HomeTheme.CardSurface)
     .borderRadius(AppRadius.Lg)
     .border({ width: 0.5, color: AppColor.Divider })
-    .opacity(this.appeared ? 1 : 0)
-    .animation({ duration: 460, delay: 160, curve: AppCurve.Decelerate })
   }
 }

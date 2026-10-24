@@ -9,7 +9,7 @@ if (!ide) throw new Error('Set DEVECO_HOME to the installed Release IDE');
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = path.resolve(__dirname, '../entry/src/main/ets');
 function setup() {
-  const state = { enabled: false, api: 26, capable: true, downloads: 0, created: 0,
+  const state = { member: true, membershipFails: false, enabled: false, api: 26, capable: true, downloads: 0, created: 0,
     destroyed: 0, releasedInput: 0, releasedOutput: 0, releasedSource: 0,
     size: 300, frames: 1, fail: false, active: true, duringProcess: () => {} };
   const files = new Map();
@@ -23,6 +23,12 @@ function setup() {
     size: { width: state.size * 2, height: state.size * 2 }
   }) };
   const mocks = {
+    '../model/MembershipState': { MembershipState: { current: { get hasAccess() { return state.member; } } } },
+    './MembershipService': { MembershipService: { instance: { hasCurrentEntitlement: async () => {
+      if (state.membershipFails) throw new Error('verification unavailable');
+      return state.member;
+    } } } },
+    './ReaderCacheService': { ReaderCacheService: { configure() {}, beginComicWrite() {}, endComicWrite() {}, record: async () => {} } },
     '@kit.AbilityKit': { ConfigurationConstant: { ColorMode: { COLOR_MODE_NOT_SET: -1 } } },
     '@kit.BasicServicesKit': { emitter: { emit: () => {} } },
     '@kit.ArkData': { preferences: {} },
@@ -77,6 +83,30 @@ function setup() {
   return { state, files, preference, service, run };
 }
 (async () => {
+  const gate = setup();
+  gate.state.member = false;
+  await assert.rejects(gate.preference.setCoverSuperResolution(true), /MEMBERSHIP_REQUIRED/);
+  assert.equal(await gate.run(), '');
+  assert.equal(gate.state.created, 0);
+  gate.state.member = true;
+  await gate.preference.setCoverSuperResolution(true);
+  assert.match(await gate.run(), /^file:/);
+  const created = gate.state.created;
+  gate.state.member = false;
+  assert.equal(await gate.preference.getCoverSuperResolution(), false, 'saved switch cannot bypass membership');
+  assert.equal(await gate.run(), '', 'cached enhanced image is blocked without membership');
+  assert.equal(gate.state.created, created);
+  await gate.preference.setCoverSuperResolution(false);
+  gate.state.member = true;
+  await gate.preference.setCoverSuperResolution(true);
+  gate.state.membershipFails = true;
+  assert.equal(await gate.run(), '', 'verification failure falls back to original');
+  gate.state.membershipFails = false;
+  gate.state.duringProcess = () => { gate.state.member = false; };
+  assert.equal(await gate.run('https://source/revoked.jpg'), '', 'revoked membership discards in-flight output');
+  assert.equal(gate.state.destroyed, gate.state.created);
+  assert.equal(gate.state.releasedOutput, gate.state.created);
+
   const h = setup();
   assert.equal(await h.preference.getCoverSuperResolution(), false);
   assert.equal(await h.run(), '');

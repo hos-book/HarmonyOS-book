@@ -29,7 +29,16 @@ import { ComicPage, ComicPageDataSource, ComicReaderService } from '../service/C
 import { ReaderCacheService } from '../service/ReaderCacheService';
 import { OnlineTextContentCache } from '../service/text/OnlineTextContentCache';
 import { ComicSuperResolutionService } from '../service/ComicSuperResolutionService';
+import { MembershipState } from '../model/MembershipState';
+import { MembershipService } from '../service/MembershipService';
+import { VipFeatureBadge } from '../components/VipFeatureBadge';
 import { ComicPageImage } from '../components/ComicPageImage';
+import { ComicAiSettingsComponent } from '../components/ComicAiSettingsComponent';
+import { ComicAiConfigService } from '../service/ComicAiConfigService';
+import { ComicColorizationService } from '../service/ComicColorizationService';
+import { ComicOfflineTranslationHost } from '../components/ComicOfflineTranslationHost';
+import { ComicOfflineTranslationService } from '../service/ComicOfflineTranslationService';
+import { ComicTranslationModelService } from '../service/ComicTranslationModelService';
 import { ComicContinuousComponent } from '../components/ComicContinuousComponent';
 import { ChapterCacheIndicator } from '../components/ChapterCacheIndicator';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
@@ -58,9 +67,22 @@ export struct ComicReaderPage {
   @Local rightSafe: number = WindowUtils.getRightSafeVp();
   @Local mode: number = 0;
   @Local superResolution: boolean = false;
+  @Local membership: MembershipState = MembershipState.current;
+  @Local savingSuperResolution: boolean = false;
+  @Local colorization: boolean = false;
+  @Local translation: boolean = false;
+  @Local translationDownloading: boolean = false;
+  @Local showTranslationMenu: boolean = false;
+  @Local translationDownloadPercent: number = 0;
+  private translationIntent: number = 0;
+  @Local translationDirection: string = 'ja-zh';
+  @Local aiConfigured: boolean = false;
+  @Local translationConfigured: boolean = false;
   @Local volumeKeyPageTurn: boolean = false;
   @Local keyTurnRequest: number = 0;
   @Local settingsSaving: boolean = false;
+  @Local imagePreloadCount: number = 5;
+  private imagePreloadGeneration: number = 0;
   private volumeKeys: ReaderVolumeKeyService = new ReaderVolumeKeyService();
   private touchX: number = 0;
   private touchY: number = 0;
@@ -80,7 +102,18 @@ export struct ComicReaderPage {
   @Monitor('generalSettings.adaptiveHandedness')
   private syncHoldingHand(): void {
     this.holdingHand.setVisible(this.alive && this.readerVisible && this.generalSettings.adaptiveHandedness);
-    if (!this.generalSettings.adaptiveHandedness) this.holdingHandLeft = false;
+    if (!this.generalSettings.adaptiveHandedness) this.updateHoldingHand(false);
+  }
+
+  private updateHoldingHand(left: boolean): void {
+    if (this.holdingHandLeft === left) return;
+    if (!this.alive || !this.readerVisible) {
+      this.holdingHandLeft = left;
+      return;
+    }
+    this.getUIContext().animateTo({ curve: curves.springMotion(0.4, 1) }, (): void => {
+      this.holdingHandLeft = left;
+    });
   }
   private readonly tapLeftPercent: number = 100 / 3;
   private readonly tapRightPercent: number = 100 / 3;
@@ -138,11 +171,15 @@ export struct ComicReaderPage {
   private swiper: SwiperController = new SwiperController();
   private generation: number = 0;
   private alive: boolean = false;
-  private foreground: boolean = true;
+  @Local foreground: boolean = true;
   private backgroundHandler = (): void => {
+    this.translationIntent++;
+    this.imagePreloadGeneration++;
     this.savePosition(); this.foreground = false; this.volumeKeys.dispose(); ReadingSessionService.end('reading');
   };
-  private foregroundHandler = (): void => { this.foreground = true; this.syncVolumeKeys(); this.savePosition(); };
+  private foregroundHandler = (): void => {
+    this.foreground = true; this.syncVolumeKeys(); this.savePosition(); this.updateImagePreload();
+  };
   private saveTimer: number = -1;
   private restoreTimer: number = -1;
   private saveChain: Promise<void> = Promise.resolve();
@@ -182,7 +219,7 @@ export struct ComicReaderPage {
   aboutToAppear(): void {
     this.alive = true;
     this.readerVisible = true;
-    this.holdingHand.onChange = (left: boolean): void => { this.holdingHandLeft = left; };
+    this.holdingHand.onChange = (left: boolean): void => { this.updateHoldingHand(left); };
     this.syncHoldingHand();
     const context = this.getUIContext().getHostContext();
     if (context) {
@@ -202,9 +239,11 @@ export struct ComicReaderPage {
     WindowUtils.setReaderStatusBarLight(true);
     WindowUtils.setReaderStatusBarVisible(false);
     this.initialize();
+    this.refreshAiConfig();
   }
 
   aboutToDisappear(): void {
+    this.translationIntent++;
     this.volumeKeys.dispose();
     ReaderCacheService.release(this.diskCacheOwner);
     ReaderCacheService.release(`${this.diskCacheOwner}-lists`);
@@ -243,7 +282,11 @@ export struct ComicReaderPage {
       const volumeKeyPageTurn = await PreferenceService.getComicVolumeKeyPageTurn();
       const showBrightnessBar = await PreferenceService.getComicBrightnessBar();
       const brightness = await PreferenceService.getComicBrightness();
+      const imagePreloadCount = await PreferenceService.getComicImagePreloadCount();
+      const translationDirection = await PreferenceService.getComicTranslationDirection();
       if (!this.alive) return;
+      this.translationDirection = translationDirection;
+      this.imagePreloadCount = imagePreloadCount;
       this.showChapterBar = showChapterBar;
       this.volumeKeyPageTurn = volumeKeyPageTurn;
       this.showBrightnessBar = showBrightnessBar;
@@ -323,12 +366,29 @@ export struct ComicReaderPage {
         this.protectComicCache();
         const complete = await ComicReaderService.preloadImages(book, book.chapters[target], pages, context,
           (): boolean => !this.alive || !this.foreground || generation !== this.generation ||
-            (ticket !== this.preloadGeneration && target !== this.chapterIndex));
+            target === this.chapterIndex || ticket !== this.preloadGeneration);
         this.protectComicCache();
         if (!complete) return;
       }
       catch (_error) { return; }
     }
+  }
+
+  @Monitor('pageIndex', 'chapterIndex', 'busy', 'imagePreloadCount')
+  private updateImagePreload(): void {
+    const ticket = this.imagePreloadGeneration;
+    if (!this.alive || !this.foreground || this.busy || this.failed || this.imagePreloadCount === 0) return;
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
+    const generation = this.generation;
+    const pages = this.activeChapterPages;
+    const count = this.imagePreloadCount;
+    ComicReaderService.preloadNearbyImages(pages, this.pageIndex, count, context,
+      (): boolean => !this.alive || !this.foreground || this.busy || generation !== this.generation ||
+        ticket !== this.imagePreloadGeneration || pages !== this.activeChapterPages || count !== this.imagePreloadCount,
+      // Keep an in-flight image when it becomes the current page, so the visible consumer can join it.
+      (index: number): boolean => index >= this.pageIndex && index <= this.pageIndex + this.imagePreloadCount
+    ).catch((): void => {});
   }
 
   private restorePage(): void {
@@ -348,12 +408,14 @@ export struct ComicReaderPage {
   }
 
   private savePosition(): void {
+    const startedAt = Date.now();
     const context = this.getUIContext().getHostContext();
     if (!context || !this.book || this.busy || this.failed || this.pageCount === 0) return;
     const mode = this.mode === 0 ? 'comic:scroll' : this.mode === 1 ? 'comic:paged' : this.mode === 2 ? 'comic:rtl' : 'comic:dissolve';
     const position = TextReadingPosition.of(this.book.id, this.chapterIndex, mode,
       this.pageIndex, this.book.chapters[this.chapterIndex].title);
     ReadingSessionService.checkpoint('reading', SessionLocation.text(this.book, position), this.foreground);
+    if (Date.now() - startedAt >= 8) console.info(`[ComicPerf] progress-checkpoint ms=${Date.now() - startedAt}`);
     const book = this.book;
     this.saveChain = this.saveChain.then((): Promise<void> => TextReadingProgressService.save(context, position))
       .then((): void => { ReaderWidgetService.update(context, book, position); })
@@ -396,11 +458,26 @@ export struct ComicReaderPage {
   }
 
   private async setSuperResolution(enabled: boolean): Promise<void> {
+    if (this.savingSuperResolution || !ComicSuperResolutionService.supported()) return;
+    if (enabled && !this.membership.hasAccess) return;
+    const previous = this.superResolution;
+    this.savingSuperResolution = true;
+    this.superResolution = enabled;
     try {
+      if (enabled && !await MembershipService.instance.hasCurrentEntitlement()) {
+        this.superResolution = previous;
+        if (!this.alive) return;
+        this.getUIContext().getPromptAction().showToast({ message: MembershipService.instance.message });
+        return;
+      }
+      if (!this.alive) return;
       await PreferenceService.setComicSuperResolution(enabled);
       if (this.alive) this.superResolution = enabled;
     } catch (_error) {
+      this.superResolution = previous;
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    } finally {
+      this.savingSuperResolution = false;
     }
   }
 
@@ -491,6 +568,7 @@ export struct ComicReaderPage {
 
   private onScrollPosition(index: number, page: number, pages: ComicPage[]): void {
     if (this.busy || this.mode !== 0 || !this.alive) return;
+    if (index === this.chapterIndex && page === this.pageIndex) return;
     const changed = index !== this.chapterIndex;
     if (changed) {
       this.chapterIndex = index;
@@ -511,6 +589,9 @@ export struct ComicReaderPage {
 
   build() {
     Stack({ alignContent: Alignment.Top }) {
+      if (this.translation && this.foreground && this.readerVisible) {
+        ComicOfflineTranslationHost()
+      }
       Column() {
         if (this.busy && this.pageCount === 0) {
           Column({ space: 16 }) {
@@ -531,6 +612,9 @@ export struct ComicReaderPage {
             keyTurnRequest: this.keyTurnRequest,
             initialChapterIndex: this.chapterIndex, initialPageIndex: this.pageIndex,
             initialPages: this.scrollInitialPages, pageWidth: this.imageWidth(), superResolution: this.superResolution,
+            colorization: this.colorization, translation: this.translation, translationDirection: this.translationDirection,
+            colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
+            onColorError: (message: string): void => this.colorizationFailed(message),
             onToggle: (event: ClickEvent): void => this.onContentTap(event),
             loadPages: (index: number, preload: boolean): Promise<ComicPage[]> => this.loadScrollPages(index, preload),
             onPosition: (index: number, page: number, pages: ComicPage[]): void => this.onScrollPosition(index, page, pages)
@@ -540,6 +624,9 @@ export struct ComicReaderPage {
             ForEach(this.currentPages(), (page: ComicPage) => {
               Column() {
                 ComicPageImage({ page: page, superResolution: this.superResolution,
+                  colorization: this.colorization, translation: this.translation, translationDirection: this.translationDirection,
+                  colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
+                  onColorError: (message: string): void => this.colorizationFailed(message),
                   pageWidth: this.imageWidth(), pageHeight: this.heightVp, paged: true,
                   zoomRegionLeft: this.tapLeftPercent, zoomRegionRight: this.tapRightPercent,
                   onToggle: (event: ClickEvent): void => { this.onContentTap(event); } })
@@ -551,6 +638,9 @@ export struct ComicReaderPage {
             LazyForEach(this.pages, (page: ComicPage) => {
               Column() {
                 ComicPageImage({ page: page, superResolution: this.superResolution, pageWidth: this.imageWidth(), pageHeight: this.heightVp,
+                   colorization: this.colorization, translation: this.translation, translationDirection: this.translationDirection,
+                   colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
+                   onColorError: (message: string): void => this.colorizationFailed(message),
                    paged: true, zoomRegionLeft: this.tapLeftPercent, zoomRegionRight: this.tapRightPercent,
                    onToggle: (event: ClickEvent): void => { this.onContentTap(event); } })
               }.width('100%').height('100%').justifyContent(FlexAlign.Center)
@@ -586,6 +676,17 @@ export struct ComicReaderPage {
           Blank()
           ImmersiveCircleButton({ icon: $r('sys.symbol.arrow_clockwise'), label: $r('app.string.content_reload'),
             onPress: (): void => { this.loadChapter(this.chapterIndex, this.pageIndex, true); } }).enabled(!this.busy)
+          Stack({ alignContent: Alignment.Bottom }) {
+            ImmersiveCircleButton({ icon: $r('sys.symbol.translate'), label: $r('app.string.comic_ai_translate'),
+              iconColor: this.translation && this.membership.hasAccess ? AppColor.Brand : $r('sys.color.font_primary'),
+              onPress: (): void => { this.showTranslationMenu = !this.showTranslationMenu; } }).id('comic-translation-toggle')
+              .bindMenu(this.showTranslationMenu, this.translationMenu(), this.translationMenuOptions())
+            if (this.translationDownloading) {
+              Text(`${this.translationDownloadPercent}%`).fontSize(10).fontColor(AppColor.Brand)
+                .backgroundColor($r('sys.color.comp_background_primary')).borderRadius(4)
+                .hitTestBehavior(HitTestMode.None)
+            }
+          }
           ImmersiveCircleButton({ icon: $r('sys.symbol.arrow_left_arrow_right'), label: $r('app.string.source_switch_title'),
             onPress: (): void => { this.showSourceSwitch = true; } }).enabled(!this.busy && this.book !== undefined)
           ImmersiveCircleButton({ icon: $r('sys.symbol.info_circle'), label: $r('app.string.reader_details'),
@@ -1118,6 +1219,162 @@ export struct ComicReaderPage {
     } finally { this.settingsSaving = false; }
   }
 
+  private async refreshAiConfig(): Promise<void> {
+    this.colorization = false;
+    this.translationConfigured = ComicOfflineTranslationService.supported();
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
+    try {
+      const config = await ComicAiConfigService.load(context);
+      if (this.alive) this.aiConfigured = !!config.baseUrl && !!config.apiKey && !!config.model;
+    } catch (_error) { if (this.alive) this.aiConfigured = false; }
+  }
+
+  private colorizationFailed(message: string): void {
+    if (!this.alive || (!this.colorization && !this.translation)) return;
+    this.colorization = false;
+    this.translation = false;
+    let text: ResourceStr = $r('app.string.comic_ai_request_failed');
+    if (message === 'comic_ai_unauthorized') text = $r('app.string.comic_ai_unauthorized');
+    else if (message.startsWith('comic_offline_')) text = $r('app.string.comic_offline_failed');
+    else if (message === 'comic_ai_forbidden') text = $r('app.string.comic_ai_edit_forbidden');
+    else if (message === 'comic_ai_rate_limited') text = $r('app.string.comic_ai_rate_limited');
+    else if (message === 'comic_ai_model_unavailable') text = $r('app.string.comic_ai_model_unavailable');
+    else if (message === 'comic_ai_edit_unsupported' || message === 'comic_ai_not_found') text = $r('app.string.comic_ai_edit_unsupported');
+    else if (message === 'comic_ai_invalid_image') text = $r('app.string.comic_ai_invalid_image');
+    else if (message === 'comic_ai_image_too_large') text = $r('app.string.comic_ai_image_too_large');
+    else if (message === 'comic_ai_need_config') text = $r('app.string.comic_ai_need_config');
+    else if (message === 'comic_ai_ocr_unsupported') text = $r('app.string.comic_ai_ocr_unsupported');
+    else if (message === 'comic_ai_ocr_failed') text = $r('app.string.comic_ai_ocr_failed');
+    else if (message === 'comic_ai_translate_invalid_response') text = $r('app.string.comic_ai_translate_invalid_response');
+    else if (message === 'comic_ai_translate_too_large') text = $r('app.string.comic_ai_translate_too_large');
+    else if (message === 'comic_ai_translate_layout_failed') text = $r('app.string.comic_ai_translate_layout_failed');
+    else if (message === 'comic_ai_translate_render_failed') text = $r('app.string.comic_ai_translate_render_failed');
+    this.getUIContext().getPromptAction().showToast({ message: text, duration: 4000 });
+  }
+
+  private async setImagePreloadCount(count: number): Promise<void> {
+    if (this.settingsSaving || count === this.imagePreloadCount) return;
+    this.settingsSaving = true;
+    try {
+      await PreferenceService.setComicImagePreloadCount(count);
+      if (this.alive) this.imagePreloadCount = count;
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    } finally { this.settingsSaving = false; }
+  }
+
+  private async setTranslationDirection(direction: string): Promise<void> {
+    if (this.settingsSaving || direction === this.translationDirection) return;
+    this.settingsSaving = true;
+    this.translationIntent++;
+    this.translation = false;
+    try {
+      await PreferenceService.setComicTranslationDirection(direction);
+      ComicColorizationService.resetFailure();
+      if (this.alive) this.translationDirection = direction;
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    } finally { this.settingsSaving = false; }
+  }
+
+  private async toggleTranslation(): Promise<void> {
+    if (!this.membership.hasAccess) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_translation_membership') });
+      return;
+    }
+    if (this.translationDownloading) { this.translationIntent++; return; }
+    if (this.translation) { this.translationIntent++; this.translation = false; return; }
+    if (this.settingsSaving) return;
+    if (!this.translationConfigured) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_offline_failed') });
+      return;
+    }
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
+    const intent = ++this.translationIntent;
+    const direction = this.translationDirection;
+    const active = (): boolean => this.alive && this.foreground && this.readerVisible && this.membership.hasAccess &&
+      intent === this.translationIntent && direction === this.translationDirection;
+    this.translationDownloading = true;
+    this.translationDownloadPercent = 0;
+    try {
+      const bytes = await ComicTranslationModelService.missingBytes(context, direction, active);
+      if (!active()) return;
+      if (bytes > 0) {
+        const choice = await this.getUIContext().getPromptAction().showDialog({
+          title: $r('app.string.comic_translation_download_title'),
+          message: $r('app.string.comic_translation_download_message', Math.ceil(bytes / 1024 / 1024)),
+          buttons: [{ text: $r('app.string.common_cancel'), color: $r('sys.color.font_secondary') },
+            { text: $r('app.string.comic_translation_download_action'), color: AppColor.Brand }]
+        });
+        if (choice.index !== 1 || !active()) return;
+      }
+      await ComicTranslationModelService.ensure(context, direction, active, (percent: number): void => {
+        if (active()) this.translationDownloadPercent = percent;
+      });
+      if (!active()) return;
+      ComicColorizationService.resetFailure();
+      this.colorization = false;
+      this.translation = true;
+    } catch (_error) {
+      if (active()) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_translation_download_failed') });
+    } finally { this.translationDownloading = false; }
+  }
+
+  private translationMenuOptions(): MenuOptions {
+    const options: MenuOptions = {
+      placement: Placement.BottomLeft,
+      backgroundColor: AppMaterial.SheetBackground,
+      onDisappear: (): void => { this.showTranslationMenu = false; }
+    };
+    if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
+    else options.backgroundBlurStyle = AppMaterial.SheetBlur;
+    return options;
+  }
+
+  private async chooseTranslation(direction: string): Promise<void> {
+    this.showTranslationMenu = false;
+    if (!this.membership.hasAccess) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_translation_membership') });
+      return;
+    }
+    if (this.translation && this.translationDirection === direction) return;
+    const intent = ++this.translationIntent;
+    this.translation = false;
+    while (this.translationDownloading && this.alive && intent === this.translationIntent) {
+      await new Promise<void>(resolve => setTimeout(resolve, 50));
+    }
+    if (!this.alive || intent !== this.translationIntent) return;
+    await this.setTranslationDirection(direction);
+    if (this.alive && this.translationDirection === direction) await this.toggleTranslation();
+  }
+
+  @Builder
+  translationMenuItem(label: Resource, direction: string) {
+    MenuItem({ content: label })
+      .selected(this.translation && this.membership.hasAccess && this.translationDirection === direction)
+      .selectIcon(false)
+      .contentFontColor(this.translation && this.membership.hasAccess && this.translationDirection === direction ?
+        AppColor.Brand : $r('sys.color.font_primary'))
+      .enabled(!this.settingsSaving)
+      .onClick((): void => { this.chooseTranslation(direction); })
+  }
+
+  @Builder
+  translationMenu() {
+    Menu() {
+      this.translationMenuItem($r('app.string.comic_translation_ja_zh'), 'ja-zh')
+      this.translationMenuItem($r('app.string.comic_translation_ko_zh'), 'ko-zh')
+      this.translationMenuItem($r('app.string.comic_translation_en_zh'), 'en-zh')
+      this.translationMenuItem($r('app.string.comic_translation_zh_en'), 'zh-en')
+      MenuItem({ content: this.translationDownloading ? $r('app.string.common_cancel') : $r('app.string.comic_translation_off') })
+        .onClick((): void => {
+          this.showTranslationMenu = false; this.translationIntent++; this.translation = false;
+        })
+    }
+  }
+
   @Builder
   settingsSheet() {
     Scroll() {
@@ -1126,6 +1383,15 @@ export struct ComicReaderPage {
         ImmersiveOptionTabs({ labels: [$r('app.string.comic_scroll'), $r('app.string.comic_paged'),
           $r('app.string.comic_dissolve')], selected: [0, 1, 3].indexOf(this.mode),
           onSelect: (index: number): void => { this.changeMode([0, 1, 3][index]); } }).enabled(!this.settingsSaving)
+      }
+      ReaderSettingCard({ title: $r('app.string.comic_image_preload_title'), inline: true,
+        description: $r('app.string.comic_image_preload_hint') }) {
+        ImmersiveOptionTabs({ labels: [$r('app.string.comic_image_preload_off'),
+          $r('app.string.comic_image_preload_count', 2), $r('app.string.comic_image_preload_count', 5),
+          $r('app.string.comic_image_preload_count', 10), $r('app.string.comic_image_preload_count', 20)],
+          selected: [0, 2, 5, 10, 20].indexOf(this.imagePreloadCount),
+          onSelect: (index: number): void => { this.setImagePreloadCount([0, 2, 5, 10, 20][index]); }
+        }).enabled(!this.settingsSaving)
       }
       ReaderSettingCard({ title: $r('app.string.reader_volume_key_turn'), inline: true,
         description: $r('app.string.reader_volume_key_hint') }) {
@@ -1144,13 +1410,53 @@ export struct ComicReaderPage {
       }
       ReaderSettingCard({ title: $r('app.string.comic_ai_sr'), inline: true,
         description: $r('app.string.comic_ai_sr_hint') }) {
-        Toggle({ type: ToggleType.Switch, isOn: this.superResolution })
-          .selectedColor(AppColor.Brand).enabled(ComicSuperResolutionService.supported())
+        if (MembershipState.featureEnabled) { VipFeatureBadge() }
+        Toggle({ type: ToggleType.Switch, isOn: this.superResolution && this.membership.hasAccess })
+          .selectedColor(AppColor.Brand).enabled(this.membership.hasAccess && ComicSuperResolutionService.supported() && !this.savingSuperResolution)
           .onChange((enabled: boolean) => { this.setSuperResolution(enabled); })
       }
       ReaderSettingCard({ title: $r('app.string.comic_ai_color'), inline: true,
-        description: $r('app.string.comic_ai_color_unavailable') }) {
-        Toggle({ type: ToggleType.Switch, isOn: false }).enabled(false)
+        description: this.aiConfigured ? $r('app.string.comic_ai_color_hint') : $r('app.string.comic_ai_need_config') }) {
+        if (MembershipState.featureEnabled) { VipFeatureBadge() }
+        Row() {
+          ComicAiSettingsComponent({ onSaved: (): void => { this.refreshAiConfig(); } })
+            .enabled(this.membership.hasAccess)
+          Toggle({ type: ToggleType.Switch, isOn: this.colorization && this.membership.hasAccess }).selectedColor(AppColor.Brand)
+            .enabled(this.aiConfigured && this.membership.hasAccess).onChange((enabled: boolean): void => {
+              if (!this.aiConfigured || !this.membership.hasAccess) return;
+              ComicColorizationService.resetFailure();
+              if (enabled) { this.translationIntent++; this.translation = false; }
+              this.colorization = enabled;
+            })
+        }
+      }
+      ReaderSettingCard({ title: $r('app.string.comic_ai_translate'), inline: true,
+        description: $r('app.string.comic_offline_hint') }) {
+        if (MembershipState.featureEnabled) { VipFeatureBadge() }
+        Toggle({ type: ToggleType.Switch, isOn: this.translation && this.membership.hasAccess })
+          .selectedColor(AppColor.Brand).enabled(!this.settingsSaving)
+          .onChange((_enabled: boolean): void => { this.toggleTranslation(); })
+      }
+      if (this.translationDownloading) {
+        Row({ space: 8 }) {
+          LoadingProgress().width(20).height(20).color(AppColor.Brand)
+          Text($r('app.string.comic_translation_downloading', this.translationDownloadPercent)).fontSize(13).layoutWeight(1)
+          Button($r('app.string.common_cancel')).onClick((): void => { this.translationIntent++; })
+        }.width('100%')
+      }
+      ReaderSettingCard({ title: $r('app.string.comic_translation_engine'), inline: true }) {
+        Select([{ value: $r('app.string.comic_translation_ja_zh') }, { value: $r('app.string.comic_translation_ko_zh') },
+          { value: $r('app.string.comic_translation_en_zh') }, { value: $r('app.string.comic_translation_zh_en') }])
+          .id('comic-translation-direction')
+          .selected(['ja-zh', 'ko-zh', 'en-zh', 'zh-en'].indexOf(this.translationDirection))
+          .value(this.translationDirection === 'ko-zh' ? $r('app.string.comic_translation_ko_zh') :
+            this.translationDirection === 'en-zh' ? $r('app.string.comic_translation_en_zh') :
+            this.translationDirection === 'zh-en' ? $r('app.string.comic_translation_zh_en') : $r('app.string.comic_translation_ja_zh'))
+          .selectedOptionFontColor(AppColor.Brand).enabled(!this.settingsSaving && this.membership.hasAccess)
+          .onSelect((index: number): void => {
+            const direction = ['ja-zh', 'ko-zh', 'en-zh', 'zh-en'][index];
+            if (direction) this.setTranslationDirection(direction);
+          })
       }
       Text($r('app.string.comic_gesture_hint')).fontSize(12).fontColor($r('sys.color.font_secondary'))
     }.width('100%').padding(24)

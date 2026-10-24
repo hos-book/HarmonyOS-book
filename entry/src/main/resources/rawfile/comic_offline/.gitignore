@@ -1,0 +1,6 @@
+# Reproducible model/runtime outputs from scripts/prepare-comic-offline.py.
+models/
+transformers.min.js
+ort-wasm*.wasm
+model-manifest.json
+*.tmp

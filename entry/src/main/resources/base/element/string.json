@@ -1,26 +1,89 @@
 {
   "string": [
-    {"name":"theme_bundle_mist_name","value":"雾蓝"},
-    {"name":"theme_bundle_mist_description","value":"冷灰蓝底色、简洁线条与细线书脊，让书与声音清晰呈现。"},
-    {"name":"theme_bundle_default_name","value":"默认套装"},
-    {"name":"theme_bundle_default_description","value":"熟悉的简听外观，跟随系统深浅色。"},
-    {"name":"theme_bundle_paper_name","value":"纸感书房"},
-    {"name":"theme_bundle_paper_description","value":"暖纸底色、墨绿图标与细线书脊，让阅读回归安静。"},
-    {"name":"theme_bundle_hint","value":"每次应用套装都会恢复该主题的主题色与材质，并切换默认封面、页面背景和首页图标；已有书封保留原图。"},
-    {"name":"theme_bundle_apply","value":"应用套装"},
-    {"name":"theme_bundle_applied","value":"正在使用"},
-    {"name":"theme_bundle_applying","value":"正在应用…"},
-    {"name":"theme_bundle_changed","value":"主题套装已应用"},
-    {"name":"theme_bundle_failed","value":"主题应用失败，请重试"},
-    {"name":"theme_bundle_restore","value":"恢复默认套装"},
-    {"name":"theme_bundle_reset_overrides","value":"恢复套装推荐外观"},
-    {"name":"theme_bundle_customized","value":"已自定义主题色或材质"},
-    {"name":"theme_bundle_preview_label","value":"效果预览"},
-    {"name":"theme_bundle_preview_title","value":"留一段时间，给阅读"},
-    {"name":"theme_bundle_preview_subtitle","value":"书页与声音 · 每日相伴"},
-    {"name":"theme_bundle_preview_book","value":"山间来信"},
-    {"name":"theme_bundle_preview_local","value":"我的书摘"},
-    {"name":"theme_bundle_preview_collection","value":"书架"},
+    {
+      "name": "theme_bundle_mist_name",
+      "value": "雾蓝"
+    },
+    {
+      "name": "theme_bundle_mist_description",
+      "value": "冷灰蓝底色、简洁线条与细线书脊，让书与声音清晰呈现。"
+    },
+    {
+      "name": "theme_bundle_default_name",
+      "value": "默认套装"
+    },
+    {
+      "name": "theme_bundle_default_description",
+      "value": "熟悉的简听外观，跟随系统深浅色。"
+    },
+    {
+      "name": "theme_bundle_paper_name",
+      "value": "纸感书房"
+    },
+    {
+      "name": "theme_bundle_paper_description",
+      "value": "暖纸底色、墨绿图标与细线书脊，让阅读回归安静。"
+    },
+    {
+      "name": "theme_bundle_hint",
+      "value": "每次应用套装都会恢复该主题的主题色与材质，并切换默认封面、页面背景和首页图标；已有书封保留原图。"
+    },
+    {
+      "name": "theme_bundle_apply",
+      "value": "应用套装"
+    },
+    {
+      "name": "theme_bundle_applied",
+      "value": "正在使用"
+    },
+    {
+      "name": "theme_bundle_applying",
+      "value": "正在应用…"
+    },
+    {
+      "name": "theme_bundle_changed",
+      "value": "主题套装已应用"
+    },
+    {
+      "name": "theme_bundle_failed",
+      "value": "主题应用失败，请重试"
+    },
+    {
+      "name": "theme_bundle_restore",
+      "value": "恢复默认套装"
+    },
+    {
+      "name": "theme_bundle_reset_overrides",
+      "value": "恢复套装推荐外观"
+    },
+    {
+      "name": "theme_bundle_customized",
+      "value": "已自定义主题色或材质"
+    },
+    {
+      "name": "theme_bundle_preview_label",
+      "value": "效果预览"
+    },
+    {
+      "name": "theme_bundle_preview_title",
+      "value": "留一段时间，给阅读"
+    },
+    {
+      "name": "theme_bundle_preview_subtitle",
+      "value": "书页与声音 · 每日相伴"
+    },
+    {
+      "name": "theme_bundle_preview_book",
+      "value": "山间来信"
+    },
+    {
+      "name": "theme_bundle_preview_local",
+      "value": "我的书摘"
+    },
+    {
+      "name": "theme_bundle_preview_collection",
+      "value": "书架"
+    },
     {
       "name": "chapter_current_reading",
       "value": "正在阅读"
@@ -61,23 +124,74 @@
       "name": "settings_reader_cache_clear_failed",
       "value": "缓存清理未完成，请重试"
     },
-    { "name": "membership_offer_endpoint", "value": "" },
-    { "name": "membership_offer_unavailable", "value": "优惠暂时不可用，请稍后重试。本次未发起扣款。" },
-    { "name": "membership_offer_changed", "value": "套餐价格或优惠已更新，请确认后重新购买。" },
-    { "name": "membership_offer_invalid", "value": "当前优惠不可用或不符合参与条件，请刷新套餐后重试。" },
-    { "name": "membership_offer_signature_invalid", "value": "优惠验证失败，请稍后重试。本次未按原价重新下单。" },
-    { "name": "membership_offer_label", "value": "优惠价" },
-    { "name": "membership_offer_days", "value": "优惠期：%d 天" },
-    { "name": "membership_offer_weeks", "value": "优惠期：%d 周" },
-    { "name": "membership_offer_months", "value": "优惠期：%d 个月" },
-    { "name": "membership_offer_years", "value": "优惠期：%d 年" },
-    { "name": "membership_offer_period_cashier", "value": "优惠期限以华为收银台为准。" },
-    { "name": "membership_offer_trial", "value": "优惠期内免费试用。" },
-    { "name": "membership_offer_recurring", "value": "优惠期内每个订阅周期支付 %s。" },
-    { "name": "membership_offer_upfront", "value": "一次支付 %s，覆盖上述优惠期。" },
-    { "name": "membership_intro_label", "value": "首购优惠" },
-    { "name": "membership_offer_notice", "value": "优惠资格及实付金额以华为收银台确认为准。" },
-    { "name": "membership_offer_renewal", "value": "优惠结束后按 %s 续订。" },
+    {
+      "name": "membership_offer_endpoint",
+      "value": ""
+    },
+    {
+      "name": "membership_offer_unavailable",
+      "value": "优惠暂时不可用，请稍后重试。本次未发起扣款。"
+    },
+    {
+      "name": "membership_offer_changed",
+      "value": "套餐价格或优惠已更新，请确认后重新购买。"
+    },
+    {
+      "name": "membership_offer_invalid",
+      "value": "当前优惠不可用或不符合参与条件，请刷新套餐后重试。"
+    },
+    {
+      "name": "membership_offer_signature_invalid",
+      "value": "优惠验证失败，请稍后重试。本次未按原价重新下单。"
+    },
+    {
+      "name": "membership_offer_label",
+      "value": "优惠价"
+    },
+    {
+      "name": "membership_offer_days",
+      "value": "优惠期：%d 天"
+    },
+    {
+      "name": "membership_offer_weeks",
+      "value": "优惠期：%d 周"
+    },
+    {
+      "name": "membership_offer_months",
+      "value": "优惠期：%d 个月"
+    },
+    {
+      "name": "membership_offer_years",
+      "value": "优惠期：%d 年"
+    },
+    {
+      "name": "membership_offer_period_cashier",
+      "value": "优惠期限以华为收银台为准。"
+    },
+    {
+      "name": "membership_offer_trial",
+      "value": "优惠期内免费试用。"
+    },
+    {
+      "name": "membership_offer_recurring",
+      "value": "优惠期内每个订阅周期支付 %s。"
+    },
+    {
+      "name": "membership_offer_upfront",
+      "value": "一次支付 %s，覆盖上述优惠期。"
+    },
+    {
+      "name": "membership_intro_label",
+      "value": "首购优惠"
+    },
+    {
+      "name": "membership_offer_notice",
+      "value": "优惠资格及实付金额以华为收银台确认为准。"
+    },
+    {
+      "name": "membership_offer_renewal",
+      "value": "优惠结束后按 %s 续订。"
+    },
     {
       "name": "reader_tts_manage",
       "value": "导入与管理"
@@ -4484,7 +4598,7 @@
     },
     {
       "name": "settings_cover_super_resolution_desc",
-      "value": "增强播放页低清网络封面，首次处理需稍候；不可用时显示原图"
+      "value": "会员专享：增强播放页低清网络封面，首次处理需稍候；不可用时显示原图"
     },
     {
       "name": "settings_cover_super_resolution_unavailable",
@@ -4652,7 +4766,7 @@
     },
     {
       "name": "membership_benefit_short",
-      "value": "专属主题 · 自动备份 · 书源不限 · 搜索并发 · 专属客服"
+      "value": "专属主题 · 自动备份 · AI 超分与上色 · 搜索并发 · 专属客服"
     },
     {
       "name": "membership_details",
@@ -4784,7 +4898,7 @@
     },
     {
       "name": "membership_terms",
-      "value": "会员购买与自动续费说明\n终身会员为一次性购买的非消耗型商品，权益长期有效，不自动续费；退款或撤销后权益终止。购买终身会员不会自动取消已有月度或年度订阅，请到“管理订阅”关闭原订阅续费。\n月度、年度会员：订阅费用由华为支付收取，按所选月度或年度周期自动续费。请在当前周期结束前通过“管理订阅”取消，以华为页面显示的取消截止时间和扣费规则为准。取消后，已支付周期内权益继续有效。月度会员可选择年度套餐升级，由华为处理同组订阅变更；实际扣费、剩余权益处理和生效时间以华为确认页为准。若下期生效，当前月度权益继续有效，并显示年度预约提示，无需重复购买。\n会员权益包含自动云备份及周期设置、全部会员桌面图标及后续新增官方皮肤、自定义源导入总数不限及专属客服支持。图标切换需要支持该功能的系统；自动备份需登录华为账号并开通可用云空间，在应用使用期间执行，不提供实时双向同步。非会员可手动云备份，最多导入 10 个自定义源；已有超额书源保留并可使用和更新。默认图标、原有界面配色、阅读器主题和阅读听书功能保持免费。\n会员到期或退款导致权益失效后，停止自动备份和超额新增，联网核验时恢复默认图标。会员随购买时的系统华为账号恢复，重新安装或切换账号后请联网恢复购买。暂时无法联网时保留现有图标，新会员操作需核验有效权益。"
+      "value": "会员购买与自动续费说明\n终身会员为一次性购买的非消耗型商品，权益长期有效，不自动续费；退款或撤销后权益终止。购买终身会员不会自动取消已有月度或年度订阅，请到“管理订阅”关闭原订阅续费。\n月度、年度会员：订阅费用由华为支付收取，按所选月度或年度周期自动续费。请在当前周期结束前通过“管理订阅”取消，以华为页面显示的取消截止时间和扣费规则为准。取消后，已支付周期内权益继续有效。月度会员可选择年度套餐升级，由华为处理同组订阅变更；实际扣费、剩余权益处理和生效时间以华为确认页为准。若下期生效，当前月度权益继续有效，并显示年度预约提示，无需重复购买。\n会员权益包含自动云备份及周期设置、全部会员桌面图标及后续新增官方皮肤、AI 封面与漫画超分、漫画 AI 上色、自定义搜索并发及专属客服支持。图标切换需要支持该功能的系统；自动备份需登录华为账号并开通可用云空间，在应用使用期间执行，不提供实时双向同步。所有用户均可不限数量导入自定义源，非会员也可手动云备份。默认图标、原有界面配色、阅读器主题和阅读听书功能保持免费。\n会员到期或退款导致权益失效后，停止自动备份、AI 超分及 AI 上色，联网核验时恢复默认图标。会员随购买时的系统华为账号恢复，重新安装或切换账号后请联网恢复购买。暂时无法联网时保留现有图标，新会员操作需核验有效权益。"
     },
     {
       "name": "membership_consent",
@@ -4833,10 +4947,6 @@
     {
       "name": "auto_backup_membership_required",
       "value": "自动云备份和周期设置为会员专享，非会员可使用手动云备份。"
-    },
-    {
-      "name": "rule_source_membership_limit",
-      "value": "非会员自定义源总数最多 10 个，本批次新增后将超限，未写入；已有超额书源仍可使用和更新。"
     },
     {
       "name": "rule_source_membership_hint",
@@ -5163,6 +5273,22 @@
       "value": "日漫 · 从右向左"
     },
     {
+      "name": "comic_image_preload_title",
+      "value": "同章图片预加载"
+    },
+    {
+      "name": "comic_image_preload_hint",
+      "value": "提前下载当前阅读位置之后的图片，仅限本章。跨章预缓存仍按全局预缓存章节数执行。"
+    },
+    {
+      "name": "comic_image_preload_off",
+      "value": "关闭"
+    },
+    {
+      "name": "comic_image_preload_count",
+      "value": "%d 张"
+    },
+    {
       "name": "comic_gesture_hint",
       "value": "轻点屏幕中央显示工具栏，滑动翻页；读到末尾继续滑动自动进入下一话。"
     },
@@ -5180,7 +5306,135 @@
     },
     {
       "name": "comic_ai_sr_hint",
-      "value": "本机处理已缓存图片，不上传；超大长图或设备不支持时保留原图。"
+      "value": "会员专享：本机处理已缓存图片，不上传；超大长图或设备不支持时保留原图。"
+    },
+    {
+      "name": "comic_ai_settings_title",
+      "value": "漫画 AI 上色接口"
+    },
+    {
+      "name": "comic_ai_api_address",
+      "value": "API 地址"
+    },
+    {
+      "name": "comic_ai_url_placeholder",
+      "value": "填写服务商提供的 Base URL"
+    },
+    {
+      "name": "comic_ai_api_key",
+      "value": "API Key"
+    },
+    {
+      "name": "comic_ai_key_placeholder",
+      "value": "填写密钥，仅加密保存在本机"
+    },
+    {
+      "name": "comic_ai_model",
+      "value": "模型"
+    },
+    {
+      "name": "comic_ai_model_placeholder",
+      "value": "从列表选择，或手动填写模型名称"
+    },
+    {
+      "name": "comic_ai_fetch_models",
+      "value": "获取模型"
+    },
+    {
+      "name": "comic_ai_select_model",
+      "value": "选择模型"
+    },
+    {
+      "name": "comic_ai_search_model",
+      "value": "搜索模型名称"
+    },
+    {
+      "name": "comic_ai_candidate",
+      "value": "图片编辑候选 · 尚未验证"
+    },
+    {
+      "name": "comic_ai_candidate_hint",
+      "value": "展示接口返回的全部模型。图片编辑候选仅根据名称提示，不代表已验证支持上色。"
+    },
+    {
+      "name": "comic_ai_config_hint",
+      "value": "获取后在下拉选择框中选择模型，再保存。模型需支持图片编辑；上色和翻译分别配置，密钥及模型列表仅保存在本机，不随备份导出。"
+    },
+    {
+      "name": "comic_ai_http_hint",
+      "value": "此地址使用 HTTP，密钥会通过未加密的连接发送；建议使用服务商的 HTTPS 地址。"
+    },
+    {
+      "name": "comic_ai_no_image_models",
+      "value": "列表中没有明确的图片编辑候选，仍可自行选择；实际能否上色取决于服务商支持。"
+    },
+    {
+      "name": "comic_ai_save",
+      "value": "保存配置"
+    },
+    {
+      "name": "comic_ai_clear",
+      "value": "清除配置"
+    },
+    {
+      "name": "comic_ai_saved",
+      "value": "配置已保存，可开启对应的 AI 功能。实际支持情况以请求结果为准。"
+    },
+    {
+      "name": "comic_ai_cleared",
+      "value": "接口配置已清除"
+    },
+    {
+      "name": "comic_ai_models_loaded",
+      "value": "连接成功，获取到 %d 个模型；选择后点击保存配置。"
+    },
+    {
+      "name": "comic_ai_no_matches",
+      "value": "没有匹配的模型"
+    },
+    {
+      "name": "comic_ai_invalid_url",
+      "value": "请填写有效的 HTTP 或 HTTPS 接口地址，不要包含密钥、查询参数或片段。"
+    },
+    {
+      "name": "comic_ai_invalid_key",
+      "value": "请填写有效的 API Key，密钥不能包含换行。"
+    },
+    {
+      "name": "comic_ai_invalid_model",
+      "value": "模型名称无效，请检查长度或换行。"
+    },
+    {
+      "name": "comic_ai_unauthorized",
+      "value": "认证失败（401），请检查 API Key。"
+    },
+    {
+      "name": "comic_ai_forbidden",
+      "value": "访问被拒绝（403），请检查密钥权限或服务商访问限制。"
+    },
+    {
+      "name": "comic_ai_not_found",
+      "value": "未找到模型接口（404），请检查 API 地址。"
+    },
+    {
+      "name": "comic_ai_rate_limited",
+      "value": "请求过于频繁或额度受限（429），请稍后再试。"
+    },
+    {
+      "name": "comic_ai_invalid_response",
+      "value": "服务未返回有效的模型列表，请确认支持 /v1/models。"
+    },
+    {
+      "name": "comic_ai_models_too_large",
+      "value": "模型列表超出安全读取范围，未展示不完整列表。"
+    },
+    {
+      "name": "comic_ai_storage_failed",
+      "value": "配置读写失败，请重试。原有配置未被主动清除。"
+    },
+    {
+      "name": "comic_ai_request_failed",
+      "value": "请求失败，请检查网络和接口地址后重试。"
     },
     {
       "name": "comic_ai_color",
@@ -5482,14 +5736,38 @@
       "name": "tts_builtin_voice",
       "value": "默认自带音色"
     },
-    {"name": "reader_card_label", "value": "继续阅读"},
-    {"name": "reader_card_desc", "value": "显示最近阅读的书籍和进度，轻点继续上次阅读。"},
-    {"name": "reader_card_empty", "value": "从一本好书开始"},
-    {"name": "reader_card_empty_hint", "value": "打开书籍，留下你的阅读足迹"},
-    {"name": "reader_card_open", "value": "打开简听"},
-    {"name": "reader_card_continue", "value": "继续阅读"},
-    {"name": "reader_card_chapters", "value": "第 %d / %d 章"},
-    {"name": "reader_card_progress", "value": "继续阅读 %d%%"},
+    {
+      "name": "reader_card_label",
+      "value": "继续阅读"
+    },
+    {
+      "name": "reader_card_desc",
+      "value": "显示最近阅读的书籍和进度，轻点继续上次阅读。"
+    },
+    {
+      "name": "reader_card_empty",
+      "value": "从一本好书开始"
+    },
+    {
+      "name": "reader_card_empty_hint",
+      "value": "打开书籍，留下你的阅读足迹"
+    },
+    {
+      "name": "reader_card_open",
+      "value": "打开简听"
+    },
+    {
+      "name": "reader_card_continue",
+      "value": "继续阅读"
+    },
+    {
+      "name": "reader_card_chapters",
+      "value": "第 %d / %d 章"
+    },
+    {
+      "name": "reader_card_progress",
+      "value": "继续阅读 %d%%"
+    },
     {
       "name": "book_group_action",
       "value": "分组"
@@ -5506,39 +5784,265 @@
       "name": "import_group_failed",
       "value": "%s：已保存，分组设置失败，可在书架重新设置"
     },
-    {"name": "reader_show_brightness_bar", "value": "显示亮度条"},
-    {"name": "reader_brightness", "value": "阅读亮度"},
-    {"name": "reader_brightness_auto", "value": "自动"},
-    {"name": "reader_brightness_failed", "value": "亮度调整失败，请重试"},
-    {"name": "tts_enter_reader", "value": "进入阅读，继续朗读"},
-    {"name": "settings_adaptive_handedness", "value": "智感握姿"},
-    {"name": "settings_adaptive_handedness_desc", "value": "根据左右手握持自动调整底栏、阅读亮度条和朗读小播控的位置"},
-    {"name": "shelf_group_drag_hint", "value": "长按分组拖动排序，松开后自动保存"},
-    {"name": "reader_more", "value": "阅读菜单"},
-    {"name": "reader_bookmarks", "value": "书签"},
-    {"name": "reader_bookmark_add", "value": "添加书签"},
-    {"name": "reader_bookmark_saved", "value": "已保存当前阅读位置"},
-    {"name": "reader_bookmarks_empty", "value": "还没有书签，可在阅读菜单中添加"},
-    {"name": "reader_bookmark_position", "value": "第 %d 章"},
-    {"name": "reader_bookmark_missing", "value": "原书签章节已不存在"},
-    {"name": "reader_tools_storage_error", "value": "保存或读取失败，请重试"},
-    {"name": "reader_tools_limit", "value": "已达到保存数量上限"},
-    {"name": "reader_replace_rules", "value": "替换净化规则"},
-    {"name": "reader_replace_edit", "value": "编辑替换规则"},
-    {"name": "reader_replace_name", "value": "规则名称（选填）"},
-    {"name": "reader_replace_pattern", "value": "查找内容"},
-    {"name": "reader_replace_replacement", "value": "替换为（留空即删除匹配内容）"},
-    {"name": "reader_replace_regex", "value": "使用正则表达式"},
-    {"name": "reader_replace_all_books", "value": "应用于全部书籍"},
-    {"name": "reader_replace_this_book", "value": "仅当前书籍"},
-    {"name": "reader_replace_hint", "value": "默认仅用于本书正文，阅读和朗读同步生效。正则使用 JavaScript 语法，替换内容支持 $1 等捕获组。关闭规则即可恢复原文。"},
-    {"name": "reader_replace_preview", "value": "预览当前章节"},
-    {"name": "reader_replace_preview_empty", "value": "预览文字已全部被规则删除"},
-    {"name": "reader_replace_scope_hint", "value": "显示当前书籍及全局规则，按列表顺序依次生效。"},
-    {"name": "reader_replace_empty", "value": "暂无规则，点击添加可替换文字或清除广告"},
-    {"name": "reader_replace_invalid", "value": "规则无效或执行超限，请检查查找内容"},
-    {"name": "reader_replace_failed", "value": "替换规则执行失败，已显示原文"},
-    {"name":"theme_bundle_ink_name","value":"墨山"},
-    {"name":"theme_bundle_ink_description","value":"宣纸留白，远山淡墨。古朴黄点染交互，山水与墨竹书封相伴；浅深两色，静读有声。"}
+    {
+      "name": "reader_show_brightness_bar",
+      "value": "显示亮度条"
+    },
+    {
+      "name": "reader_brightness",
+      "value": "阅读亮度"
+    },
+    {
+      "name": "reader_brightness_auto",
+      "value": "自动"
+    },
+    {
+      "name": "reader_brightness_failed",
+      "value": "亮度调整失败，请重试"
+    },
+    {
+      "name": "tts_enter_reader",
+      "value": "进入阅读，继续朗读"
+    },
+    {
+      "name": "settings_adaptive_handedness",
+      "value": "智感握姿"
+    },
+    {
+      "name": "settings_adaptive_handedness_desc",
+      "value": "根据左右手握持自动调整底栏、阅读亮度条和朗读小播控的位置"
+    },
+    {
+      "name": "shelf_group_drag_hint",
+      "value": "长按分组拖动排序，松开后自动保存"
+    },
+    {
+      "name": "reader_more",
+      "value": "阅读菜单"
+    },
+    {
+      "name": "reader_bookmarks",
+      "value": "书签"
+    },
+    {
+      "name": "reader_bookmark_add",
+      "value": "添加书签"
+    },
+    {
+      "name": "reader_bookmark_saved",
+      "value": "已保存当前阅读位置"
+    },
+    {
+      "name": "reader_bookmarks_empty",
+      "value": "还没有书签，可在阅读菜单中添加"
+    },
+    {
+      "name": "reader_bookmark_position",
+      "value": "第 %d 章"
+    },
+    {
+      "name": "reader_bookmark_missing",
+      "value": "原书签章节已不存在"
+    },
+    {
+      "name": "reader_tools_storage_error",
+      "value": "保存或读取失败，请重试"
+    },
+    {
+      "name": "reader_tools_limit",
+      "value": "已达到保存数量上限"
+    },
+    {
+      "name": "reader_replace_rules",
+      "value": "替换净化规则"
+    },
+    {
+      "name": "reader_replace_edit",
+      "value": "编辑替换规则"
+    },
+    {
+      "name": "reader_replace_name",
+      "value": "规则名称（选填）"
+    },
+    {
+      "name": "reader_replace_pattern",
+      "value": "查找内容"
+    },
+    {
+      "name": "reader_replace_replacement",
+      "value": "替换为（留空即删除匹配内容）"
+    },
+    {
+      "name": "reader_replace_regex",
+      "value": "使用正则表达式"
+    },
+    {
+      "name": "reader_replace_all_books",
+      "value": "应用于全部书籍"
+    },
+    {
+      "name": "reader_replace_this_book",
+      "value": "仅当前书籍"
+    },
+    {
+      "name": "reader_replace_hint",
+      "value": "默认仅用于本书正文，阅读和朗读同步生效。正则使用 JavaScript 语法，替换内容支持 $1 等捕获组。关闭规则即可恢复原文。"
+    },
+    {
+      "name": "reader_replace_preview",
+      "value": "预览当前章节"
+    },
+    {
+      "name": "reader_replace_preview_empty",
+      "value": "预览文字已全部被规则删除"
+    },
+    {
+      "name": "reader_replace_scope_hint",
+      "value": "显示当前书籍及全局规则，按列表顺序依次生效。"
+    },
+    {
+      "name": "reader_replace_empty",
+      "value": "暂无规则，点击添加可替换文字或清除广告"
+    },
+    {
+      "name": "reader_replace_invalid",
+      "value": "规则无效或执行超限，请检查查找内容"
+    },
+    {
+      "name": "reader_replace_failed",
+      "value": "替换规则执行失败，已显示原文"
+    },
+    {
+      "name": "theme_bundle_ink_name",
+      "value": "墨山"
+    },
+    {
+      "name": "theme_bundle_ink_description",
+      "value": "宣纸留白，远山淡墨。古朴黄点染交互，山水与墨竹书封相伴；浅深两色，静读有声。"
+    },
+    {
+      "name": "comic_ai_configure",
+      "value": "模型配置"
+    },
+    {
+      "name": "comic_ai_color_hint",
+      "value": "会员专享：开启后将可见图片发送到你配置的服务，可能产生费用。关闭恢复原图；退出阅读后需重新开启。"
+    },
+    {
+      "name": "comic_ai_need_config",
+      "value": "请先在此功能的模型配置中填写 API、获取并选择模型，再保存。"
+    },
+    {
+      "name": "comic_ai_color_working",
+      "value": "AI 上色中"
+    },
+    {
+      "name": "comic_ai_edit_forbidden",
+      "value": "图片编辑被服务拒绝（403），请检查密钥权限及图片生成是否已开启。已保留原图。"
+    },
+    {
+      "name": "comic_ai_edit_unsupported",
+      "value": "该接口或模型不支持当前图片编辑请求，请更换支持图片编辑的模型。"
+    },
+    {
+      "name": "comic_ai_model_unavailable",
+      "value": "该模型没有可用的图片编辑通道（503），请向服务商确认。已保留原图。"
+    },
+    {
+      "name": "comic_ai_invalid_image",
+      "value": "服务未返回有效图片，或改变了页面比例。已保留原图。"
+    },
+    {
+      "name": "comic_ai_image_too_large",
+      "value": "图片尺寸或返回数据过大，本轮已停止 AI 处理并保留原图。"
+    },
+    {
+      "name": "comic_ai_translate",
+      "value": "AI 翻译"
+    },
+    {
+      "name": "comic_ai_translate_working",
+      "value": "AI 翻译中"
+    },
+    {
+      "name": "comic_ai_ocr_unsupported",
+      "value": "当前设备不支持系统文字识别，暂时无法翻译漫画。已保留原图。"
+    },
+    {
+      "name": "comic_ai_ocr_failed",
+      "value": "系统文字识别失败，请稍后重试。已保留原图。"
+    },
+    {
+      "name": "comic_ai_translate_invalid_response",
+      "value": "未能生成完整有效的译文，请重试。已保留原图。"
+    },
+    {
+      "name": "comic_ai_translate_too_large",
+      "value": "本页文字或译文过多，已停止处理并保留原图。"
+    },
+    {
+      "name": "comic_ai_translate_layout_failed",
+      "value": "译文过长，无法在原文字区域清晰显示。已保留原图。"
+    },
+    {
+      "name": "comic_ai_translate_render_failed",
+      "value": "译文图片绘制失败，已保留原图。"
+    },
+    {
+      "name": "comic_translation_engine",
+      "value": "翻译方式"
+    },
+    {
+      "name": "comic_offline_hint",
+      "value": "首次使用需下载对应语言资源，之后在设备上识字、翻译并回填图片。日文、韩文经英文中转。关闭恢复原图。"
+    },
+    {
+      "name": "comic_offline_failed",
+      "value": "翻译未完成，请重新开启后重试。"
+    },
+    {
+      "name": "comic_translation_ja_zh",
+      "value": "日文翻译中文"
+    },
+    {
+      "name": "comic_translation_ko_zh",
+      "value": "韩文翻译中文"
+    },
+    {
+      "name": "comic_translation_en_zh",
+      "value": "英文翻译中文"
+    },
+    {
+      "name": "comic_translation_zh_en",
+      "value": "中文翻译英文"
+    },
+    {
+      "name": "comic_translation_off",
+      "value": "关闭翻译"
+    },
+    {
+      "name": "comic_translation_membership",
+      "value": "AI 翻译为会员功能，请先开通会员"
+    },
+    {
+      "name": "comic_translation_download_title",
+      "value": "下载翻译语言资源"
+    },
+    {
+      "name": "comic_translation_download_message",
+      "value": "当前翻译方式还需下载约 %d MB 语言资源，建议使用 WLAN。下载完成后自动开启，后续无需重复下载。"
+    },
+    {
+      "name": "comic_translation_download_action",
+      "value": "下载并开启"
+    },
+    {
+      "name": "comic_translation_download_failed",
+      "value": "语言资源下载或校验失败，请检查网络和存储空间后重试"
+    },
+    {
+      "name": "comic_translation_downloading",
+      "value": "正在准备语言资源 %d%%"
+    }
   ]
 }

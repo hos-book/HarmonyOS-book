@@ -39,6 +39,9 @@ class FakeHttpClient {
 const repository = { isInitialized: () => false, get: async () => undefined,
   readScriptState: async url => states.get(url) || '', writeScriptState: async (url, value) => states.set(url, value) };
 const stubs = {
+  '@kit.ImageKit': { image: { createImageSource: () => ({
+    getImageInfo: async () => ({size:{width:800,height:1200}}), release: async () => {}
+  }) } },
   '@kit.PerformanceAnalysisKit': { hilog: { info() {}, error() {} } },
   '@kit.CoreFileKit': { fileUri: { getUriFromPath: value => 'file://' + value,
     FileUri: class { constructor(uri) { this.path = uri.slice(7); } } },
@@ -82,13 +85,13 @@ const stubs = {
     vm.runInNewContext(script, {}, { timeout: 5000 }) } },
   [prefix + 'upstream/core/http/HttpClient']: { HttpClient: FakeHttpClient }
 };
-function load(name) {
+function load(name, moduleCache = cache) {
   if (stubs[name]) return stubs[name];
-  if (cache.has(name)) return cache.get(name).exports;
+  if (moduleCache.has(name)) return moduleCache.get(name).exports;
   const filename = ['.ts', '.ets'].map(ext => path.join(root, name + ext)).find(fs.existsSync);
   if (!filename) throw new Error(`Module not found: ${name}`);
   const module = { exports: {} };
-  cache.set(name, module);
+  moduleCache.set(name, module);
   const output = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021, experimentalDecorators: true }
   }).outputText;
@@ -97,7 +100,7 @@ function load(name) {
     AppStorage: { get: key => storage.get(key), setOrCreate: (key, value) => storage.set(key, value),
       set: (key, value) => storage.set(key, value), delete: key => storage.delete(key) },
     require: dependency => load(dependency.startsWith('.') ?
-      path.posix.normalize(path.posix.join(path.posix.dirname(name), dependency)) : dependency)
+      path.posix.normalize(path.posix.join(path.posix.dirname(name), dependency)) : dependency, moduleCache)
   }, { filename });
   return module.exports;
 }
@@ -150,7 +153,38 @@ async function run() {
   const { LightSourceImport } = load(prefix + 'upstream/LightSourceImport');
   const { LightSourceCore: engine } = load(prefix + 'LightSourceCore');
   const { LightSourceRuntime } = load(prefix + 'LightSourceRuntime');
+  const workerParser = load(prefix + 'LightNativePureParser', new Map()).LightNativePureParser;
+  stubs[prefix + 'LightNativeParserWorker'] = {parseNativeRule: input => workerParser.run(input)};
+  let releaseParser;
+  let parserRuns = 0;
+  stubs['@kit.ArkTS'].taskpool = {
+    Priority:{HIGH:2,LOW:0}, Task:class {constructor(fn,input){this.fn=fn;this.input=input;}},
+    execute: async task => { parserRuns++; if (releaseParser) await new Promise(resolve => {releaseParser=resolve;}); return task.fn(task.input); }
+  };
+  const parserService = load(prefix + 'LightNativeParserService').LightNativeParserService;
+  const smallParse = JSON.stringify({kind:'select',content:'<b>ok</b>',rule:'b@text'});
+  await assert.rejects(parserService.run(smallParse,()=>true,2), /取消/);
+  releaseParser = true;
+  let cancelActive = false, cancelWaiting = false;
+  const activeParse = parserService.run(smallParse,()=>cancelActive,0);
+  const waitingParse = parserService.run(smallParse,()=>cancelWaiting,2);
+  const activeRejected = assert.rejects(activeParse,/取消/);
+  const waitingRejected = assert.rejects(waitingParse,/取消/);
+  await new Promise(resolve => setImmediate(resolve));
+  cancelActive = cancelWaiting = true;
+  const finishParser = releaseParser; releaseParser = undefined; finishParser();
+  await Promise.all([activeRejected,waitingRejected]);
+  assert.equal(parserRuns,1,'cancelled queued work never enters taskpool');
+  await assert.rejects(parserService.run('invalid',()=>false,2));
+  assert.deepEqual(JSON.parse(await parserService.run(smallParse,()=>false,2)),['ok']);
+  console.log('PASS: parser queue cancellation before/during execution and recovery after failure');
+  let workerCalls = 0;
   LightSourceRuntime.host = {
+    parseNative: async (input, cancelled) => {
+      assert.equal(cancelled(), false);
+      workerCalls++;
+      return workerParser.run(input);
+    },
     hydrate: async () => '{}', readState: async url => states.get(url) || '',
     getSource: async () => '', listSources: async () => '[]', writeState: async (url, state) => states.set(url, state),
     saveCookies: async () => {}, fetch: async () => { throw Error('Unexpected web fetch'); },
@@ -163,6 +197,15 @@ async function run() {
     ruleContent: { content: '$.text' } };
   const { LocalRuleSourceImportParser: parser } = load('service/rulesource/LocalRuleSourceImportParser');
   const { LocalRuleSourceCodec: codec } = load('service/rulesource/LocalRuleSourceCodec');
+  const {LightSourceDefinition: definitions} = load(prefix+'LightSourceDefinition');
+  const definitionRaw = JSON.stringify(source);
+  const firstDefinition = definitions.appDefinition(definitionRaw);
+  const mutableDefinition = JSON.parse(firstDefinition); mutableDefinition.bookSourceName='edited';
+  assert.equal(definitions.appDefinition(definitionRaw), firstDefinition, 'normalization cache holds immutable strings');
+  assert.equal(JSON.parse(definitions.appDefinition(JSON.stringify({...source,bookSourceName:'Changed'}))).bookSourceName,'Changed',
+    'an edited or reimported definition must not reuse stale rules');
+  for (let i=0;i<12;i++) definitions.appDefinition(JSON.stringify({...source,bookSourceUrl:`https://bounded-${i}.test`}));
+  assert.ok(definitions.definitions.size<=8 && definitions.definitionChars<=2*1024*1024);
   await require('./test-native-js-host.cjs')({load,prefix,runtime:LightSourceRuntime,parser,codec,engine,fixtures,states});
   assert.equal(parser.parse(JSON.stringify({format:'jianting.source',version:1})).sources.length,0, 'removed format is rejected');
   const local = parser.parse(JSON.stringify(source)).sources[0];
@@ -348,12 +391,21 @@ async function run() {
       0, new LightSourceRequest(2), true));
     assert.equal(imageDownloads, 0, 'the real native engine returns its manifest without downloading any protected image');
     assert.equal(deferred.imageUrls.length, 2);
+    assert.ok(workerCalls > 0, 'deferred native comic expressions cross the worker boundary');
     assert.match(deferred.imageUrls[0], /restore/);
     assert.match(deferred.imageUrls[0], /imageIndex/);
     const complete = JSON.parse(await engine.content(JSON.stringify(protectedLocal), 'https://stream.test/chapter', '{}'));
     assert.equal(imageDownloads, 2, 'default export/download calls still materialize every protected image');
     assert.ok(complete.imageUrls.every(url => url.startsWith('/cache/')));
   } finally { ComicImagePipeline.materialize = materialize; }
+  const longHtml = '<div>' + Array.from({length:178}, (_,i) => `<img src="https://stream.test/${i}.jpg">`).join('') + '</div>';
+  const selected = JSON.parse(workerParser.run(JSON.stringify({kind:'select',content:longHtml,rule:'img@src',list:true})));
+  assert.equal(selected.length,178);
+  assert.equal(selected[177],'https://stream.test/177.jpg');
+  assert.equal(JSON.parse(workerParser.run(JSON.stringify({kind:'items',content:longHtml,rule:'img'}))).length,178);
+  assert.throws(() => workerParser.run(' '.repeat(8*1024*1024+1)), /8 MiB/);
+  assert.throws(() => workerParser.run(JSON.stringify({kind:'invalid',rule:''})), /未知解析任务/);
+  console.log('PASS: isolated native parser, ordered 178-image selectors and bounded input');
   const comicSearch = JSON.parse(await engine.search(JSON.stringify(comic), 'Second', 2));
   assert.equal(comicSearch[0].contentType, 'comic', 'comic source results must not enter the text reader');
   let requestedChapter;

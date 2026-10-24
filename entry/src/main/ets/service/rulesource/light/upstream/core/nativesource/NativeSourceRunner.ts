@@ -82,6 +82,7 @@ export interface NativeActionEntry {
 }
 
 export interface NativeRunnerHost extends NativeExprHost {
+  parsePure?(input: string): Promise<string>;
   fetch(request: NativeRequest): Promise<NativeResponse>;
   /** 调试时记录规则求值；不调试时不提供。 */
   trace?(entry: NativeRuleTrace): void;
@@ -1551,6 +1552,12 @@ export class NativeSourceRunner {
       return this.host.evaluateExpression(this.definition.js, this.definition.lib || '', text, scope.snapshot(),
         template, this.cancelled);
     }
+    // Cookie expressions retain their live source-scoped host. Script calls keep the bounded script executor.
+    if (this.host.parsePure && !this.expr.requiresScript(text, template) &&
+      !/\bcookie\s*\(/i.test(text + '\n' + (this.definition.lib || ''))) {
+      return JSON.parse(await this.host.parsePure(JSON.stringify({ kind: 'expression', rule: text,
+        library: this.definition.lib || '', scope: scope.snapshot(), template })));
+    }
     return template ? this.expr.render(text, scope) : this.expr.evaluate(text, scope);
   }
 
@@ -1565,8 +1572,10 @@ export class NativeSourceRunner {
       } else {
         const current = scope.get('item');
         const jsonItems = this.jsonRule(spec, current, true);
-        items = jsonItems !== null ? (jsonItems as NativeValue[]) :
-          this.host.selectItems(typeof current === 'string' ? current : NativeExpr.toText(current), spec, baseUrl);
+        const content = typeof current === 'string' ? current : NativeExpr.toText(current);
+        items = jsonItems !== null ? (jsonItems as NativeValue[]) : this.host.parsePure ?
+          JSON.parse(await this.host.parsePure(JSON.stringify({ kind: 'items', content, rule: spec, baseUrl }))) :
+          this.host.selectItems(content, spec, baseUrl);
       }
     } catch (e) {
       throw this.fieldError(field, spec, e);
@@ -1637,7 +1646,10 @@ export class NativeSourceRunner {
     const jsonValue = this.jsonRule(text, current, list);
     if (jsonValue !== null) return jsonValue;
     const content = typeof current === 'string' ? current : NativeExpr.toText(current);
-    const found = this.host.select(content, text, NativeExpr.toText(scope.get('baseUrl')), list);
+    const baseUrl = NativeExpr.toText(scope.get('baseUrl'));
+    const found: string[] = this.host.parsePure ?
+      JSON.parse(await this.host.parsePure(JSON.stringify({ kind: 'select', content, rule: text, baseUrl, list }))) :
+      this.host.select(content, text, baseUrl, list);
     return list ? found : (found.length > 0 ? found[0] : '');
   }
 

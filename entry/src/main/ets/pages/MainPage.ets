@@ -57,6 +57,9 @@ export struct MainPage {
   private recordsBackHandler: (() => boolean) | undefined = undefined;
   @Local currentTab: number = 0;
   @Local tabContentOpacity: number = 1;
+  private tabFadeRunning: boolean = false;
+  private tabFadeCommitIndex: number = -1;
+  private tabFadeGeneration: number = 0;
   // 原生 Tabs 已完成选中切换；这里只镜像物理索引，供后续属性刷新使用。
   // 不参与状态观测，避免 onChange 再刷新 HdsTabs 整组属性并重建 MiniPlayer。
   private nativeTabIndex: number = 0;
@@ -116,6 +119,7 @@ export struct MainPage {
 
   aboutToDisappear(): void {
     this.defaultTabRequest++;
+    this.resetTabFade();
     this.onHomeShownHandlerChange(undefined);
     this.pendingHomeResume = undefined;
     this.onBackHandlerChange(undefined);
@@ -257,9 +261,54 @@ export struct MainPage {
     this.tabController.changeIndex(!this.generalSettings.historyEnabled && index === 3 ? 2 : index);
   }
 
+  private resetTabFade(): void {
+    this.tabFadeGeneration++;
+    this.tabFadeRunning = false;
+    this.tabFadeCommitIndex = -1;
+    this.getUIContext().animateTo({ duration: 0 }, (): void => { this.tabContentOpacity = 1; });
+  }
+
+  private requestTabFade(index: number): void {
+    const count: number = this.generalSettings.historyEnabled ? 4 : 3;
+    if (!this.tabsReady || this.tabFadeRunning || !Number.isInteger(index) ||
+      index < 0 || index >= count || index === this.nativeTabIndex) return;
+    this.tabFadeRunning = true;
+    const generation: number = ++this.tabFadeGeneration;
+    this.getUIContext().animateTo({ duration: 90, curve: Curve.EaseOut,
+      onFinish: (): void => {
+        if (generation !== this.tabFadeGeneration) return;
+        this.tabFadeCommitIndex = index;
+        this.tabController.changeIndex(index);
+      }
+    }, (): void => { this.tabContentOpacity = 0; });
+  }
+
+  private allowTabContentChange(index: number): boolean {
+    if (index === this.nativeTabIndex || index === this.tabFadeCommitIndex) return true;
+    this.requestTabFade(index);
+    return false;
+  }
+
+  private finishTabFade(): void {
+    this.tabFadeCommitIndex = -1;
+    const generation: number = this.tabFadeGeneration;
+    this.getUIContext().animateTo({ duration: 150, curve: Curve.EaseOut,
+      onFinish: (): void => {
+        if (generation === this.tabFadeGeneration) this.tabFadeRunning = false;
+      }
+    }, (): void => { this.tabContentOpacity = 1; });
+  }
+
+  private handleTabSwipe(event: GestureEvent): void {
+    // 只在松手确认后切页，不逐帧改布局；短滑、纵向滚动和取消手势不切换。
+    if (Math.abs(event.offsetX) < 48 || Math.abs(event.offsetX) <= Math.abs(event.offsetY) * 1.2) return;
+    this.requestTabFade(this.nativeTabIndex + (event.offsetX < 0 ? 1 : -1));
+  }
+
   @Monitor('generalSettings.historyEnabled')
   private onHistoryVisibilityChanged(): void {
     if (!this.tabsReady) return;
+    this.resetTabFade();
     const logical = !this.generalSettings.historyEnabled && this.currentTab === 2 ? 0 : this.currentTab;
     this.nativeTabIndex = !this.generalSettings.historyEnabled && logical === 3 ? 2 : logical;
     this.currentTab = logical;
@@ -411,6 +460,8 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.scrollers.set(0, scroller); }
           })
           .opacity(this.tabContentOpacity)
+          .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 })
+            .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
         }
         .tabBar(this.buildTabBar($r('sys.symbol.house_fill'), '首页', ThemeIconRole.Home))
 
@@ -425,6 +476,8 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.scrollers.set(1, scroller); }
           })
           .opacity(this.tabContentOpacity)
+          .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 })
+            .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
         }
         .tabBar(this.buildTabBar($r('sys.symbol.bookshelf'), '书架', ThemeIconRole.Shelf))
 
@@ -439,6 +492,8 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.scrollers.set(2, scroller); }
           })
           .opacity(this.tabContentOpacity)
+          .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 })
+            .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
         }
         .tabBar(this.buildTabBar($r('sys.symbol.calendar_fill'), '记录', ThemeIconRole.Record))
         }
@@ -449,13 +504,18 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.scrollers.set(3, scroller); }
           })
           .opacity(this.tabContentOpacity)
+          .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 })
+            .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
         }
         .tabBar(this.buildTabBar($r('sys.symbol.person_fill'), '我的', ThemeIconRole.Profile))
       }
       .barOverlap(true)
       .barPosition(BarPosition.End)
       .vertical(false)
+      // animationDuration(0) 不能禁止拖动跟手位移，必须关闭原生内容横滑。
+      .scrollable(false)
       .attributeModifier(new CompatibleTabsModifier(this.floatingBarStyle(), 56 + this.bottomSafeVp))
+      .onContentWillChange((_current: number, coming: number): boolean => this.allowTabContentChange(coming))
       .onTabBarClick((index: number) => {
         const now = Date.now();
         const DOUBLE_TAP_DELAY = 300;
@@ -473,16 +533,9 @@ export struct MainPage {
         const changed = this.nativeTabIndex !== index;
         this.nativeTabIndex = index;
         this.currentTab = !this.generalSettings.historyEnabled && index === 2 ? 3 : index;
-        if (changed) {
-          this.getUIContext().animateTo({ duration: 0 }, () => {
-            this.tabContentOpacity = 0.55;
-          });
-          this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, () => {
-            this.tabContentOpacity = 1;
-          });
-        }
+        if (changed) this.finishTabFade();
       })
-      // 仅内容淡入，底栏与迷你播放器保持稳定，不让两页材质参与整屏横移。
+      // 淡出结束后原位换页，再淡入；底栏与迷你播放器不参与内容动画。
       .animationDuration(0)
       .width('100%')
       .height('100%')

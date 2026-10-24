@@ -4,11 +4,9 @@ import { CharsetCodec } from '../../utils/CharsetCodec';
 import { LocalRuleSource } from '../../model/LocalRuleSource';
 import { LocalRuleSourceImportParser } from './LocalRuleSourceImportParser';
 import { LocalRuleSourceImportService } from './LocalRuleSourceImportService';
-import { SourceLimitError } from './LocalRuleSourceRepository';
 import { parseImportFile } from './LocalRuleSourceImportWorker';
 
 export class RuleSourceFileImportResult {
-  membershipLimitReached: boolean = false;
   imported: number = 0;
   skippedSources: number = 0;
   skippedFiles: number = 0;
@@ -99,7 +97,6 @@ export class LocalRuleSourceFileImporter {
         result.imported += imported;
         result.skippedSources += sources.length - imported;
       } catch (error) {
-        if (error instanceof SourceLimitError) result.membershipLimitReached = true;
         result.skippedFiles++;
         if (stage === 'read') result.readFailedFiles++;
         else if (stage === 'parse') result.invalidFiles++;

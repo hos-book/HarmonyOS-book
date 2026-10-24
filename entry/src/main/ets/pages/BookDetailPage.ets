@@ -1,7 +1,7 @@
 import { BookCoverPolicy } from '../utils/BookCoverPolicy';
 import { BookMetadataPolicy } from '../utils/BookMetadataPolicy';
 import { common } from '@kit.AbilityKit';
-import { AppStorageV2 } from '@kit.ArkUI';
+import { AppStorageV2, curves } from '@kit.ArkUI';
 import { emitter } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AppColor, AppRadius, AppSpace, AppFont, AppMaterial, AppTheme } from '../theme/Theme';
@@ -26,6 +26,7 @@ import { WindowUtils } from '../utils/WindowUtils';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { TextReaderRouteParams, TextReadingPosition, EVT_READER_JUMP_CHAPTER, ReaderJumpChapterEvent } from '../model/TextReading';
 import { TextReadingProgressService, EVT_TEXT_READING_PROGRESS_CHANGED } from '../service/text/TextReadingProgressService';
+import { ReaderHoldingHandService } from '../service/text/ReaderHoldingHandService';
 import { OneShotLayoutCallback, OneShotTransitionIds } from '../utils/OneShotTransition';
 import { CoverImage } from '../components/CoverImage';
 import { CoverAspectRatio } from '../utils/CoverAspectRatio';
@@ -177,6 +178,10 @@ export struct BookDetailPage {
   @Local tocFailed: boolean = false;
   private tocGeneration: number = 0;
   private detailActive: boolean = false;
+  private detailVisible: boolean = false;
+  private holdingHand: ReaderHoldingHandService = new ReaderHoldingHandService();
+  @Local holdingHandLeft: boolean = false;
+  @Local primaryCtaWidth: number = 0;
   @Local playerState: PlayerState = AppStorageV2.connect(PlayerState, PLAYER_STATE_KEY, () => new PlayerState())!;
   @Local isStartingPlay: boolean = false;
   @Local lastHistory: PlayHistoryItem | null = null;
@@ -223,6 +228,7 @@ export struct BookDetailPage {
 
   aboutToAppear(): void {
     this.detailActive = true;
+    this.holdingHand.onChange = (left: boolean): void => { this.updateHoldingHand(left); };
     hilog.info(DETAIL_LOG_DOMAIN, DETAIL_LOG_TAG, '====== BookDetailPage aboutToAppear START, bookId=%{public}s ======', this.bookId);
     // 命中 SearchCache 时同步可拿到 book,首屏立刻有内容;
     // 首帧先展示缓存内容，再推迟数据加载到转场后。
@@ -241,6 +247,23 @@ export struct BookDetailPage {
     titleBarState.onChanged();
     WindowUtils.setStatusBarLight(false);
     this.finishEntering();
+  }
+
+  @Monitor('generalSettings.adaptiveHandedness')
+  private syncHoldingHand(): void {
+    this.holdingHand.setVisible(this.detailActive && this.detailVisible && this.generalSettings.adaptiveHandedness);
+    if (!this.generalSettings.adaptiveHandedness) this.updateHoldingHand(false);
+  }
+
+  private updateHoldingHand(left: boolean): void {
+    if (this.holdingHandLeft === left) return;
+    if (!this.detailActive || !this.detailVisible) {
+      this.holdingHandLeft = left;
+      return;
+    }
+    this.getUIContext().animateTo({ curve: curves.springMotion(0.4, 1) }, (): void => {
+      this.holdingHandLeft = left;
+    });
   }
 
   /** 收藏态变化时同步给标题栏（@Local 的赋值点很多，用 Monitor 一处兜住）。 */
@@ -329,6 +352,8 @@ export struct BookDetailPage {
 
   aboutToDisappear(): void {
     this.detailActive = false;
+    this.detailVisible = false;
+    this.holdingHand.setVisible(false);
     this.tocGeneration++;
     this.cancelViewportUpdateTimer();
     emitter.off(EVT_DOWNLOAD_UPDATED, this.downloadHandler);
@@ -1505,6 +1530,12 @@ export struct BookDetailPage {
       right: this.horizontalPadding(),
       bottom: WindowUtils.getBottomSafeVp() + 12
     })
+    // 固定右侧布局，仅平移按钮，避免切换对齐方式导致位置突跳。
+    .translate({ x: this.holdingHandLeft && this.primaryCtaWidth > 0
+      ? -Math.max(0, this.viewportWidth - this.horizontalPadding() * 2 - this.primaryCtaWidth) : 0 })
+    .onSizeChange((_oldValue: SizeOptions, newValue: SizeOptions): void => {
+      if (typeof newValue.width === 'number') this.primaryCtaWidth = newValue.width;
+    })
     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.97 })
     .enabled(!this.chaptersLoading() && (this.book?.chapters.length ?? 0) > 0 && !this.isStartingPlay)
     .opacity(this.chaptersLoading() || (this.book?.chapters.length ?? 0) === 0 || this.isStartingPlay ? 0.6 : 1)
@@ -1708,6 +1739,10 @@ export struct BookDetailPage {
       onDisappear: (): void => { this.sheetDismissedAt = Date.now(); }
     })
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    .onVisibleAreaChange([0, 1], (visible: boolean): void => {
+      this.detailVisible = visible;
+      this.syncHoldingHand();
+    })
     .onSizeChange((_oldValue: SizeOptions, newValue: SizeOptions) => {
       this.handleViewportSizeChange(newValue);
     })

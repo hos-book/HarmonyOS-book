@@ -225,10 +225,17 @@ export struct SettingsPage {
   private async setCoverSuperResolution(enabled: boolean): Promise<void> {
     if (this.isSavingCoverSuperResolution || !CoverSuperResolutionService.supported() ||
       this.coverSuperResolution === enabled) return;
+    if (enabled && !this.membership.hasAccess) return;
     const previous = this.coverSuperResolution;
     this.isSavingCoverSuperResolution = true;
     this.coverSuperResolution = enabled;
     try {
+      if (enabled && !await this.membershipService.hasCurrentEntitlement()) {
+        this.coverSuperResolution = previous;
+        if (this.alive) this.getUIContext().getPromptAction().showToast({ message: this.membershipService.message });
+        return;
+      }
+      if (!this.alive) return;
       await PreferenceService.setCoverSuperResolution(enabled);
     } catch (_error) {
       this.coverSuperResolution = previous;
@@ -785,10 +792,10 @@ export struct SettingsPage {
           $r('app.string.settings_cover_super_resolution'),
           CoverSuperResolutionService.supported() ? $r('app.string.settings_cover_super_resolution_desc')
             : $r('app.string.settings_cover_super_resolution_unavailable'),
-          UIUtils.makeBinding<boolean>(() => this.coverSuperResolution),
+          UIUtils.makeBinding<boolean>(() => this.coverSuperResolution && this.membership.hasAccess),
           (enabled: boolean): void => { this.setCoverSuperResolution(enabled); },
           UIUtils.makeBinding<boolean>(() =>
-            this.isLoaded && !this.isSavingCoverSuperResolution && CoverSuperResolutionService.supported())
+            this.isLoaded && this.membership.hasAccess && !this.isSavingCoverSuperResolution && CoverSuperResolutionService.supported())
         )
       }
       .width('100%')

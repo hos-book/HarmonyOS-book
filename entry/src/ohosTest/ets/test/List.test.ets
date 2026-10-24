@@ -1,4 +1,6 @@
 import localBookImportTest from './LocalBookImport.test';
+import comicTranslationTest from './ComicTranslation.test';
+import comicOfflineTranslationTest from './ComicOfflineTranslation.test';
 import imageStripTransformTest from './ImageStripTransform.test';
 import localRuleQuickJsHostTest from './LocalRuleQuickJsHost.test';
 import localRuleSourceFileImportTest from './LocalRuleSourceFileImport.test';
@@ -14,6 +16,8 @@ import localRuleManagementIntegrationTest from './LocalRuleManagementIntegration
 import localRuleBrowserLoginCoordinatorTests from '../../../test/LocalRuleBrowserLoginCoordinator.test';
 
 export default function testsuite() {
+  comicTranslationTest();
+  comicOfflineTranslationTest();
   imageStripTransformTest();
   localRuleQuickJsHostTest();
   localRuleSourceFileImportTest();

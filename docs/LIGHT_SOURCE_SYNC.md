@@ -4,6 +4,14 @@
 
 ## 固定版本与维护边界
 
+### 漫画原生规则解析工作线程（2026-10-24）
+
+设备旧日志在两次正文 HTTP 返回后记录主线程 Vsync 超时约 1.74 秒和 2.48 秒，与章节规则解析结束重合。图片显示计时不能作为滑动帧率依据。漫画阅读的 `readerImagesDeferred` 请求现通过可选 `SourceEngineHost.nativeParsing` 宿主，将纯表达式和 HTML 选择器交给 taskpool；Cookie 表达式保留源上下文，脚本继续使用原有有界 QuickJS。下载/导出默认路径不启用此策略。
+
+`LightNativeParserService` 串行执行解析，运行及等待最多 16 项，输入和输出各限制为 8 × 1024 × 1024 个字符串代码单元；执行前后检查取消，失败不回退到 UI 线程。工作线程只安装纯解析宿主，不初始化应用存储、网络或 Web 会话。`LightNativeParser` 记录工作线程耗时，`native-worker` 记录含排队与传输的往返耗时。公共内核改动在本地维护提交 `107a116fa5c8391e043e36578e6649e82979e73e`，通过同步脚本迁入，尚未发布到远端。
+
+已通过 178 张图片顺序/元素选择、真实原生漫画清单的宿主边界回归，以及现有书源引擎与图片预加载回归。Release SDK 构建、HAP 渠道核对和覆盖安装成功；工作线程实机命中与首次滑动效果另以设备日志验证。技术参考本轮已读的 [ArkUI 性能分析](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/arkui-performance-analysis/SKILL.md) 与 [ArkTS 语法规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)。
+
 ### 公共文档校正（2026-10-24）
 
 公共规范已按 `NativeImageScriptRunner.run` 修正执行器说明：优先使用宿主安装的 `SourceEngineHost.imageScripts`，未安装时回退内核自带的 `JSScriptSession`。公共文档说明内核默认执行器的队列与超时，不再列出简听专属的下载和预加载参数；简听的总并发 6、后台最多 2 及图片脚本队列限制继续在 `docs/BOOK_SOURCE_RULES.md` 维护。两个来源仅修改文档，重新固定版本后，83 个迁入源码文件内容一致。

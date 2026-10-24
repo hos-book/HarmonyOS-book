@@ -64,6 +64,7 @@ export interface NativeVarItem {
 }
 
 class NativeHost implements NativeRunnerHost {
+  parsePure?: (input: string) => Promise<string>;
   evaluateExpression?: NativeRunnerHost['evaluateExpression'];
   private nativeScripts: Pick<NativeRunnerHost, 'scriptEngine' | 'evaluateExpression'> | undefined;
   private source: BookSource;
@@ -85,6 +86,15 @@ class NativeHost implements NativeRunnerHost {
     this.debugContext = debugContext;
     this.nativeScripts = SourceEngineHost.nativeScripts()?.create(source, this);
     this.evaluateExpression = this.nativeScripts?.evaluateExpression;
+    const parser = SourceEngineHost.nativeParsing();
+    if (parser && SourceEngineHost.readerImagesDeferred(source)) {
+      this.parsePure = async (input: string): Promise<string> => {
+        if (this.cancelled() || SourceEngineHost.isCancelled(source)) throw new Error('已取消');
+        const result = await parser(input, source);
+        if (this.cancelled() || SourceEngineHost.isCancelled(source)) throw new Error('已取消');
+        return result;
+      };
+    }
     if (debugContext) {
       this.trace = (entry: NativeRuleTrace): void => {
         const trace = new BookSourceDebugRuleTrace();

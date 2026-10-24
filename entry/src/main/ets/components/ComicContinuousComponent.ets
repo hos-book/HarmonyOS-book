@@ -22,6 +22,11 @@ export struct ComicContinuousComponent {
   @Param initialPages: ComicPage[] = [];
   @Param pageWidth: number = 360;
   @Param superResolution: boolean = false;
+  @Param colorization: boolean = false;
+  @Param translation: boolean = false;
+  @Param translationDirection: string = 'ja-zh';
+  @Param colorizationActive: boolean = true;
+  @Event onColorError: (message: string) => void = () => {};
   @Param keyTurnRequest: number = 0;
   @Event onToggle: (event: ClickEvent) => void = () => {};
   @Event onPosition: (chapterIndex: number, pageIndex: number, pages: ComicPage[]) => void = () => {};
@@ -39,6 +44,8 @@ export struct ComicContinuousComponent {
   private disposed: boolean = false;
   private restoring: boolean = true;
   private keyTurning: boolean = false;
+  private reportedChapter: number = -1;
+  private reportedPage: number = -1;
 
   aboutToAppear(): void { this.disposed = false; this.reset(); }
   aboutToDisappear(): void { this.disposed = true; this.serial++; }
@@ -74,6 +81,8 @@ export struct ComicContinuousComponent {
 
   private reset(): void {
     this.serial++;
+    this.reportedChapter = -1;
+    this.reportedPage = -1;
     this.restoring = true;
     this.nextLoading = false;
     this.previousLoading = false;
@@ -144,8 +153,13 @@ export struct ComicContinuousComponent {
     if (this.restoring || this.disposed) return;
     const row = this.source.getData(this.firstVisible);
     if (row === undefined) return;
+    if (row.chapterIndex === this.reportedChapter && row.pageIndex === this.reportedPage) return;
     const chapter = this.chapters.find((item: ComicScrollChapter): boolean => item.index === row.chapterIndex);
-    if (chapter !== undefined) this.onPosition(row.chapterIndex, row.pageIndex, chapter.pages);
+    if (chapter !== undefined) {
+      this.reportedChapter = row.chapterIndex;
+      this.reportedPage = row.pageIndex;
+      this.onPosition(row.chapterIndex, row.pageIndex, chapter.pages);
+    }
   }
 
   private visibleChanged(first: number, last: number): void {
@@ -200,6 +214,9 @@ export struct ComicContinuousComponent {
         LazyForEach(this.source, (row: ComicScrollRow) => {
           ListItem() {
             ComicPageImage({ page: row.page, pageWidth: this.pageWidth, superResolution: this.superResolution,
+              colorization: this.colorization, colorizationActive: this.colorizationActive,
+              translation: this.translation, translationDirection: this.translationDirection,
+              onColorError: (message: string): void => this.onColorError(message),
               onToggle: (event: ClickEvent): void => this.onToggle(event) })
           }.width('100%').align(Alignment.Center)
         }, (row: ComicScrollRow): string => `${row.chapterIndex}:${row.page.key}`)

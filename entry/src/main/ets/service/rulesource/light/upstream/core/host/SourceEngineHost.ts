@@ -79,6 +79,8 @@ export interface SourceDiagnostics {
 }
 
 export interface SourceEngineHostAdapter {
+  /** Pure native-rule parsing, JSON in/out; no network or application state is transferred. */
+  nativeParsing?: (input: string, source: BookSource) => Promise<string>;
   imageScripts?: SourceImageScripts;
   nativeScripts?: SourceNativeScripts;
   cookies?: (sourceUrl: string) => SourceCookieJar;
@@ -139,6 +141,10 @@ export class SourceEngineHost {
 
   static nativeScripts(): SourceNativeScripts | undefined {
     return SourceEngineHost.adapter.nativeScripts;
+  }
+
+  static nativeParsing(): SourceEngineHostAdapter['nativeParsing'] {
+    return SourceEngineHost.adapter.nativeParsing;
   }
 
   static imageScripts(): SourceImageScripts | undefined {

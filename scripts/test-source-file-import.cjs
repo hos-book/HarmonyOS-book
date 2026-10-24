@@ -28,14 +28,10 @@ const io = {
   async close(file) { assert.ok(handles.delete(file.fd)); active--; }
 };
 const mocks = {
-  './LocalRuleSourceRepository': { SourceLimitError: class SourceLimitError extends Error {} },
   '@kit.CoreFileKit': { fileIo: io },
   '@kit.ArkTS': { buffer: Buffer, taskpool: { execute: async (fn, ...args) => fn(...args) } },
   '../../utils/CharsetCodec': { CharsetCodec: { decodeBuffer: b => Buffer.from(b).toString('utf8') } },
   './LocalRuleSourceImportService': { LocalRuleSourceImportService: { importSources: async sources => {
-    if (sources.some(s => s.bookSourceUrl === 'https://member-limit')) {
-      throw new mocks['./LocalRuleSourceRepository'].SourceLimitError();
-    }
     if (sources.some(s => s.bookSourceUrl === 'https://write-failure')) throw new Error('db failure');
     let count = 0;
     for (const source of sources) {
@@ -82,11 +78,11 @@ async function run(uris = [...files.keys()]) {
   result = await run(); assert.equal(result.imported, 10); assert.equal(result.skippedFiles, 2);
   reset([['large', ' '.repeat(importer.MAX_FILE_BYTES + 1)], ['ok', JSON.stringify(source('ok'))]]);
   result = await run(); assert.equal(result.imported, 1); assert.equal(result.skippedFiles, 1);
-  reset([['limit', JSON.stringify(source('member-limit'))], ['ok', JSON.stringify(source('ok'))]]);
+  reset([['batch', JSON.stringify(Array.from({ length: 20 }, (_, i) => source(i)))],
+    ['ok', JSON.stringify(source('ok'))]]);
   result = await run();
-  assert.equal(result.membershipLimitReached, true);
-  assert.equal(result.imported, 1);
-  assert.equal(result.skippedFiles, 1);
+  assert.equal(result.imported, 21);
+  assert.equal(result.skippedFiles, 0);
   reset(Array.from({ length: 6 }, (_, i) => [String(i),
     JSON.stringify(source(i)) + ' '.repeat(importer.MAX_FILE_BYTES - Buffer.byteLength(JSON.stringify(source(i))))]));
   result = await run(); assert.equal(result.imported, 6); assert.equal(result.skippedFiles, 0);

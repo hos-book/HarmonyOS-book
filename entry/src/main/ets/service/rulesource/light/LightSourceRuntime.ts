@@ -474,6 +474,13 @@ class LightEngineRateWaiter implements SourceRateWaiter {
 
 // One startup installation. All mutable execution state remains bound to source instances.
 const engineHost: SourceEngineHostAdapter = {
+  nativeParsing: async (input, source) => {
+    const parse = LightSourceRuntime.host.parseNative;
+    if (!parse) throw new Error('后台解析器未初始化');
+    const started = Date.now();
+    try { return await parse(input, () => SourceEngineHost.isCancelled(source), SourceEngineHost.priority(source)); }
+    finally { LightSourceTiming.end(LightSourceTiming.id(source), 'native-worker', started); }
+  },
   imageScripts: {run: async (script, input, cancelled) => {
     if (!LightSourceRuntime.host.evaluateImage) throw new Error('图片脚本执行器未初始化');
     return LightSourceRuntime.host.evaluateImage(script, input, cancelled);

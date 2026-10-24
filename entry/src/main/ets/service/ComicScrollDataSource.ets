@@ -34,20 +34,20 @@ export class ComicScrollDataSource implements IDataSource {
   getData(index: number): ComicScrollRow { return this.rows[index]; }
   reset(rows: ComicScrollRow[]): void {
     this.rows = rows.slice();
-    this.listeners.forEach((listener: DataChangeListener): void => listener.onDataReloaded());
+    this.listeners.forEach((listener: DataChangeListener): void =>
+      listener.onDatasetChange([{ type: DataOperationType.RELOAD }]));
   }
   insert(index: number, rows: ComicScrollRow[]): void {
-    for (let offset = 0; offset < rows.length; offset++) {
-      const position = index + offset;
-      this.rows.splice(position, 0, rows[offset]);
-      this.listeners.forEach((listener: DataChangeListener): void => listener.onDataAdd(position));
-    }
+    if (rows.length === 0) return;
+    this.rows.splice(index, 0, ...rows);
+    this.listeners.forEach((listener: DataChangeListener): void =>
+      listener.onDatasetChange([{ type: DataOperationType.ADD, index, count: rows.length }]));
   }
   remove(index: number, count: number): void {
-    for (let offset = 0; offset < count; offset++) {
-      this.rows.splice(index, 1);
-      this.listeners.forEach((listener: DataChangeListener): void => listener.onDataDelete(index));
-    }
+    if (count <= 0) return;
+    this.rows.splice(index, count);
+    this.listeners.forEach((listener: DataChangeListener): void =>
+      listener.onDatasetChange([{ type: DataOperationType.DELETE, index, count }]));
   }
   registerDataChangeListener(listener: DataChangeListener): void {
     if (!this.listeners.includes(listener)) this.listeners.push(listener);

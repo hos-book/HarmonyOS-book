@@ -51,18 +51,17 @@ function testRows() {
   assert.equal(notifications, 5);
 }
 const repositoryText = fs.readFileSync(path.join(root, 'service/rulesource/LocalRuleSourceRepository.ets'), 'utf8');
-let member = true;
-let refreshedMember = null;
+let membershipCalls = 0;
 const { LocalRuleSourceRepository: repo } = compile(repositoryText, {
   require: name => {
     if (name === '@kit.ArkData') return { relationalStore: { ConflictResolution: { ON_CONFLICT_REPLACE: 1 } } };
     if (name === '../MembershipService') return { MembershipService: { instance: {
-      hasCurrentEntitlement: async (force = false) => {
-        if (force && refreshedMember !== null) member = refreshedMember;
-        return member;
+      hasCurrentEntitlement: async () => {
+        membershipCalls++;
+        throw new Error('Membership verification unavailable');
       }
     } } };
-    if (name === '../../model/MembershipState') return { MembershipState: { current: { get hasAccess() { return member; } } } };
+    if (name === '../../model/MembershipState') return { MembershipState: { current: { get hasAccess() { return false; } } } };
     return {};
   }
 });
@@ -125,34 +124,21 @@ async function testImportOrder() {
   failUrl = '';
   await repo.upsertImportedBatch([source('first'), source('second')]);
   assert.deepEqual(sorted(), ['first', 'second']);
-  member = false;
   await repo.upsertImportedBatch(Array.from({ length: 8 }, (_, i) => source('free-' + i)));
   assert.equal(rows.size, 10);
-  await repo.upsertImportedBatch([source('first'), source('first')]);
-  await assert.rejects(repo.insert(source('eleventh')), /SOURCE_LIMIT_REACHED/);
-  const previousName = rows.get('first').bookSourceName;
-  await assert.rejects(repo.upsertImportedBatch([source('first', { bookSourceName: 'Rollback' }), source('eleventh')]), /SOURCE_LIMIT_REACHED/);
-  assert.equal(rows.get('first').bookSourceName, previousName, 'whole batch rolls back');
-  member = true;
-  await repo.upsertImportedBatch(Array.from({ length: 58 }, (_, i) => source('paid-' + i)));
-  assert.equal(rows.size, 68, 'member has no total-count cap');
-  refreshedMember = false;
-  await assert.rejects(repo.upsertImportedBatch([source('expired-add')]), /SOURCE_LIMIT_REACHED/);
-  assert.equal(member, false, 'import refreshes stale membership before writing a new source');
-  refreshedMember = null;
-  await repo.update(source('first', { bookSourceName: 'Still editable' }));
-  assert.equal(rows.get('first').bookSourceName, 'Still editable');
+  await repo.insert(source('eleventh'));
+  assert.equal(rows.size, 11, 'non-member can manually add the eleventh source');
+  await repo.upsertImportedBatch([source('first', { bookSourceName: 'Updated' }), source('twelfth')]);
+  assert.equal(rows.size, 12);
+  assert.equal(rows.get('first').bookSourceName, 'Updated');
+  await repo.upsertImportedBatch(Array.from({ length: 58 }, (_, i) => source('more-' + i)));
+  assert.equal(rows.size, 70, 'non-member imports have no membership count cap');
   const existing = [...rows.keys()].map(url => source(url));
-  assert.equal(await repo.upsertImportedBatch(existing), 68, 'expired member can update all 68 existing sources');
-  assert.equal(rows.size, 68, 'reimporting does not add sources');
-  await assert.rejects(repo.upsertImportedBatch([source('extra')]), /SOURCE_LIMIT_REACHED/);
-  await assert.rejects(repo.upsertImportedBatch([...existing, source('extra')]), /SOURCE_LIMIT_REACHED/);
-  assert.equal(rows.size, 68, 'expiry blocks the 69th source and preserves existing sources');
-  rows.delete('first');
-  rows.delete('second');
-  for (const key of [...rows.keys()]) if (rows.size > 9) rows.delete(key);
-  await repo.upsertImportedBatch([source('available-again'), source('available-again')]);
-  assert.equal(rows.size, 10, 'duplicates consume one slot and deletion releases capacity');
+  assert.equal(await repo.upsertImportedBatch(existing), 70);
+  assert.equal(rows.size, 70, 'reimport updates rather than duplicates sources');
+  await repo.upsertImportedBatch([source('extra'), source('extra')]);
+  assert.equal(rows.size, 71);
+  assert.equal(membershipCalls, 0, 'imports and edits never depend on membership verification');
 }
 (async () => {
   testRows();

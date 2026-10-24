@@ -1,5 +1,4 @@
 import { TalebookApiClient } from '../service/rulesource/talebook/TalebookApiClient';
-import { SourceLimitError } from '../service/rulesource/LocalRuleSourceRepository';
 import { TalebookSourceIdentity } from '../service/rulesource/talebook/TalebookSourceIdentity';
 import { AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
 
@@ -36,8 +35,7 @@ export struct TalebookConnectComponent {
       this.code = '';
       this.onConnected();
     } catch (error) {
-      if (this.active) this.errorMessage = error instanceof SourceLimitError ?
-        $r('app.string.rule_source_membership_limit') : error instanceof Error ? error.message : String(error);
+      if (this.active) this.errorMessage = error instanceof Error ? error.message : String(error);
     } finally {
       this.busy = false;
       this.onBusy(false);

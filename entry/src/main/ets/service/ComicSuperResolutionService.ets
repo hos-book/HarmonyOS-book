@@ -8,6 +8,7 @@ import { PlatformCompat } from '../utils/PlatformCompat';
 import { PreferenceService } from './PreferenceService';
 import { CoverPrefetcher } from './CoverPrefetcher';
 import { ReaderCacheService } from './ReaderCacheService';
+import { MembershipState } from '../model/MembershipState';
 
 /** 当前可见漫画图片的本地超分；串行处理，原图不覆盖，派生缓存有界。 */
 export class ComicSuperResolutionService {
@@ -30,9 +31,11 @@ export class ComicSuperResolutionService {
         ReaderCacheService.configure(context);
         ReaderCacheService.beginComicWrite();
         try {
-          const result = await ComicSuperResolutionService.process(context, url, active);
+          const allowed = (): boolean => active() && MembershipState.current.hasAccess;
+          if (!allowed()) return '';
+          const result = await ComicSuperResolutionService.process(context, url, allowed);
           if (result) await ReaderCacheService.record([result]);
-          return result;
+          return allowed() ? result : '';
         } finally { ReaderCacheService.endComicWrite(); }
       } catch (_error) {
         console.warn('[ComicSuperResolution] Enhancement unavailable; using original comic image');

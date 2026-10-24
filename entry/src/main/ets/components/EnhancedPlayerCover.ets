@@ -1,4 +1,5 @@
 import { emitter } from '@kit.BasicServicesKit';
+import { MembershipState } from '../model/MembershipState';
 import { CoverSuperResolutionService } from '../service/CoverSuperResolutionService';
 import { EVT_COVER_SUPER_RESOLUTION_CHANGED } from '../service/PreferenceService';
 
@@ -7,6 +8,7 @@ import { EVT_COVER_SUPER_RESOLUTION_CHANGED } from '../service/PreferenceService
 export struct EnhancedPlayerCover {
   @Param url: string = '';
   @Local enhanced: string = '';
+  @Local membership: MembershipState = MembershipState.current;
   private generation: number = 0;
   private alive: boolean = false;
   private preferenceChanged = (): void => { this.refresh(); };
@@ -39,7 +41,7 @@ export struct EnhancedPlayerCover {
   }
 
   build() {
-    if (this.enhanced) {
+    if (this.enhanced && this.membership.hasAccess) {
       Image(this.enhanced)
         .width('100%').height('100%').objectFit(ImageFit.Cover)
         .onError((): void => { this.enhanced = ''; })

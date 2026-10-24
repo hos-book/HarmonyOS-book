@@ -9,6 +9,7 @@ import { OnlineTextContentCache } from './text/OnlineTextContentCache';
 import { LightSourceRequest } from './rulesource/light/LightSourceRequestPolicy';
 import { ReaderCacheService } from './ReaderCacheService';
 import { ComicImageLoader } from './ComicImageLoader';
+import { image } from '@kit.ImageKit';
 
 export class ComicPage {
   key: string = '';
@@ -20,6 +21,22 @@ export class ComicPage {
   requestUrl: string = '';
   cacheKey: string = '';
   chapterId: string = '';
+}
+
+/** Request/source ownership is rebuilt by registerPages; do not repeat it in every disk row. */
+class ComicCachedPage {
+  key: string;
+  url: string;
+  index: number;
+  width: number;
+  height: number;
+  constructor(page: ComicPage) {
+    this.key = page.key;
+    this.url = page.url;
+    this.index = page.index;
+    this.width = page.width;
+    this.height = page.height;
+  }
 }
 
 export class ComicPageDataSource implements IDataSource {
@@ -44,26 +61,85 @@ export class ComicReaderService {
   private static imagePending: Map<string, Promise<boolean>> = new Map();
   private static chapterPages: Map<string, ComicPage[]> = new Map();
   private static saves: Map<string, Promise<void>> = new Map();
+  private static dirtySaves: Set<string> = new Set();
+
+  private static encodePages(pages: ComicPage[]): string {
+    return JSON.stringify(pages.map((page: ComicPage): ComicCachedPage => new ComicCachedPage(page)));
+  }
+
+  /** Read only the image header before mounting Image, so layout and decode use the same aspect ratio. */
+  static async prepareImage(page: ComicPage, path: string): Promise<void> {
+    if (page.width > 0 && page.height > 0) return;
+    let source: image.ImageSource | undefined;
+    try {
+      const local = path.startsWith('file://') ? new fileUri.FileUri(path).path : path;
+      source = image.createImageSource(local);
+      const info = await source.getImageInfo();
+      if (info.size.width > 0 && info.size.height > 0) {
+        page.width = info.size.width;
+        page.height = info.size.height;
+      }
+    } catch (_error) { /* Image still gets a chance to decode; its error UI handles invalid files. */ }
+    finally { if (source) { try { await source.release(); } catch (_error) { } } }
+  }
 
   static async imageReady(page: ComicPage, path: string, context: common.Context): Promise<string> {
+    await ComicReaderService.prepareImage(page, path);
     const uri = path.startsWith('/') ? fileUri.getUriFromPath(path) : path;
     if (page.url === uri) return uri;
     page.url = uri;
+    // Notify mounted offscreen image nodes before persisting the chapter manifest.
+    emitter.emit('app.comic.image.ready');
     const pages = ComicReaderService.chapterPages.get(page.cacheKey);
     if (!pages || !pages.includes(page)) return page.url;
     const key = page.cacheKey;
-    const previous = ComicReaderService.saves.get(key) || Promise.resolve();
-    const save = previous.catch((): void => {}).then(async (): Promise<void> => {
-      if (ComicReaderService.chapterPages.get(key) !== pages) return;
-      await OnlineTextContentCache.write(context, key, JSON.stringify(pages));
-      await ReaderCacheService.record([page.url]);
-      if (pages.every((item: ComicPage): boolean => item.url.startsWith('file://'))) {
-        emitter.emit('app.chapter.cache.updated', { data: { chapterId: page.chapterId } });
-      }
-    });
-    ComicReaderService.saves.set(key, save);
-    try { await save; } finally { if (ComicReaderService.saves.get(key) === save) ComicReaderService.saves.delete(key); }
+    ComicReaderService.dirtySaves.add(key);
+    if (!ComicReaderService.saves.has(key)) {
+      const save = ComicReaderService.saveImages(context, key).catch((): void => {
+        hilog.warn(0x0001, 'ComicReader', 'image manifest save failed');
+      }).finally((): void => { ComicReaderService.saves.delete(key); });
+      ComicReaderService.saves.set(key, save);
+    }
     return page.url;
+  }
+
+  private static async saveImages(context: common.Context, key: string): Promise<void> {
+    // Coalesce completed images without delaying display or the next download.
+    while (ComicReaderService.dirtySaves.has(key)) {
+      await new Promise<void>((resolve): void => { setTimeout(resolve, 300); });
+      ComicReaderService.dirtySaves.delete(key);
+      const pages = ComicReaderService.chapterPages.get(key);
+      if (!pages || pages.length === 0) return;
+      const local = pages.filter((item: ComicPage): boolean => item.url.startsWith('file://'));
+      const startedAt = Date.now();
+      const saving = OnlineTextContentCache.write(context, key, ComicReaderService.encodePages(pages));
+      if (Date.now() - startedAt >= 8) console.info(`[ComicPerf] manifest-encode ms=${Date.now() - startedAt} pages=${pages.length}`);
+      await saving;
+      await ReaderCacheService.record(local.map((item: ComicPage): string => item.url));
+      if (local.length === pages.length && ComicReaderService.chapterPages.get(key) === pages) {
+        emitter.emit('app.chapter.cache.updated', { data: { chapterId: pages[0].chapterId } });
+      }
+    }
+  }
+
+  /** 当前章只预取阅读位置后的有限窗口，不跨章；单页失败不阻断后续图片。 */
+  static async preloadNearbyImages(pages: ComicPage[], pageIndex: number, count: number,
+    context: common.Context, cancelled: () => boolean,
+    keepPage: (index: number) => boolean = (): boolean => true): Promise<void> {
+    if (!Number.isInteger(pageIndex) || !Number.isInteger(count) || count <= 0) return;
+    const start = Math.max(0, pageIndex + 1);
+    const end = Math.min(pages.length, start + Math.min(count, 20));
+    const tasks: Promise<void>[] = [];
+    for (let index = start; index < end; index++) {
+      const page = pages[index];
+      const stopped = (): boolean => cancelled() || !keepPage(index);
+      if (stopped()) continue;
+      // The shared loader bounds background downloads to two and prioritizes visible pages.
+      tasks.push(ComicImageLoader.load(page.sourceUrl, page.url, stopped).then(async (path: string): Promise<void> => {
+        if (!stopped()) await ComicReaderService.imageReady(page, path, context);
+      }).catch((): void => {}));
+    }
+    await Promise.all(tasks);
   }
 
   /** 图片预取独立于清单加载，进入该章无需等待整章图片下载完。 */
@@ -100,6 +176,8 @@ export class ComicReaderService {
       } catch (_error) { return false; }
     }
     if (request.isCancelled()) return false;
+    // Offline completeness is checked only after the final coalesced manifest is durable.
+    if (pages.length > 0) await ComicReaderService.saves.get(pages[0].cacheKey);
     const complete = (await ComicReaderService.cached(context, book, chapter)).length === pages.length;
     if (complete) emitter.emit('app.chapter.cache.updated', { data: { chapterId: chapter.id } });
     hilog.info(0x0001, 'ComicReader', 'image prefetch complete=%{public}s pages=%{public}d', String(complete), pages.length);
@@ -170,6 +248,9 @@ export class ComicReaderService {
         return cached;
       }
       if (force) {
+        ComicReaderService.chapterPages.delete(key);
+        ComicReaderService.dirtySaves.delete(key);
+        await ComicReaderService.saves.get(key);
         for (const page of cached) {
           try { await fileIo.unlink(new fileUri.FileUri(page.url).path); } catch (_error) { /* 已清理 */ }
         }
@@ -197,7 +278,7 @@ export class ComicReaderService {
     if (request.isCancelled()) throw new Error('Comic request cancelled');
     ComicReaderService.registerPages(book, chapter, key, pages);
     if (context && pages.length > 0) {
-      await OnlineTextContentCache.write(context, key, JSON.stringify(pages));
+      await OnlineTextContentCache.write(context, key, ComicReaderService.encodePages(pages));
       emitter.emit('app.chapter.cache.updated', { data: { chapterId: chapter.id } });
     }
     return pages;

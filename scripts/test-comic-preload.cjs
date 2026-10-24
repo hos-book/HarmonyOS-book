@@ -13,6 +13,18 @@ const files = new Map(), records = new Map(), events = [], calls = [];
 let openId = 0, active = 0, maxActive = 0, barrier, failHttp = true;
 const handles = new Map();
 const imageBarriers = new Map();
+const imageListeners = new Set();
+let metadataReads = 0, metadataReleased = 0;
+const imageMetadata = { createImageSource: local => {
+  assert.ok(local.startsWith('/cache/'), 'metadata must read a sandbox file, not a network URL');
+  return { getImageInfo: async () => { metadataReads++; return { size: { width: 800, height: 1600 } }; },
+    release: async () => { metadataReleased++; } };
+} };
+const emitter = {
+  emit: (...args) => { events.push(args); if (args[0] === 'app.comic.image.ready') imageListeners.forEach(fn => fn()); },
+  on: (_name, handler) => imageListeners.add(handler),
+  off: (_name, handler) => imageListeners.delete(handler)
+};
 const fileIo = { OpenMode: { CREATE: 1, WRITE_ONLY: 2, TRUNC: 4 }, mkdirSync() {},
   accessSync: name => files.has(name),
   openSync(name) { handles.set(++openId, name); return { fd: openId }; },
@@ -89,31 +101,44 @@ const { ComicImageLoader: loader } = evaluate('service/ComicImageLoader.ets', na
   if (name.endsWith('LightSourceRequestPolicy')) return { LightSourceRequest };
   return {};
 });
+let manifestWrites = 0;
 const { ComicReaderService: reader } = evaluate('service/ComicReaderService.ets', name => {
   if (name === './BookSourceService') return { BookSourceService: service };
   if (name === './ComicImageLoader') return { ComicImageLoader: loader };
   if (name === '@kit.CoreFileKit') return { fileUri, fileIo };
-  if (name === '@kit.BasicServicesKit') return { emitter: { emit: (...args) => events.push(args) } };
-  if (name === '@kit.PerformanceAnalysisKit') return { hilog: { info() {} } };
+  if (name === '@kit.ImageKit') return { image: imageMetadata };
+  if (name === '@kit.BasicServicesKit') return { emitter };
+  if (name === '@kit.PerformanceAnalysisKit') return { hilog: { info() {}, warn() {} } };
   if (name.endsWith('LightSourceRequestPolicy')) return { LightSourceRequest };
   if (name.endsWith('ReaderCacheService')) return { ReaderCacheService };
   if (name.endsWith('OnlineTextContentCache')) return { OnlineTextContentCache: {
     key: (...parts) => parts.join('|'), read: async (_ctx, key) => records.get(key),
-    write: async (_ctx, key, body) => records.set(key, body), removeChapter: async (_ctx, key) => records.delete(key)
+    write: async (_ctx, key, body) => { manifestWrites++; records.set(key, body); }, removeChapter: async (_ctx, key) => records.delete(key)
   } };
   return {};
-});
+}, {setTimeout});
 const context = { cacheDir: '/cache' };
 (async () => {
   const pages = await reader.load(book, chapter(1), context, false, true);
   assert.equal((await reader.cached(context, book, chapter(1))).length, 0, 'URL lists are not offline cache');
   assert.equal(calls.length, 0, 'opening a chapter does not wait for background image downloads');
   assert.equal(await reader.preloadImages(book, chapter(1), pages, context, () => false), true);
+  assert.equal(manifestWrites,2,'initial manifest plus one coalesced save for nine completed images');
+  const persistedPages = JSON.parse(records.values().next().value);
+  assert.equal(persistedPages[0].sourceUrl,undefined,'disk manifest omits repeated source ownership');
+  assert.equal(persistedPages[0].requestUrl,undefined,'completed local images do not repeat original request markers');
+  assert.equal(persistedPages[0].key,pages[0].key,'stable identity survives compact persistence');
   assert.equal(calls.length, 9, 'ordinary image URLs are actually fetched');
   assert.ok(maxActive <= 6, 'image concurrency stays bounded');
   assert.ok(pages.every(p => p.url.startsWith('file:///cache/comic_images/')));
+  assert.ok(pages.every(p => p.width === 800 && p.height === 1600),
+    'prefetch publishes real dimensions before the image enters the list');
+  assert.equal(metadataReads, metadataReleased, 'image header readers release native resources');
   assert.equal((await reader.cached(context, book, chapter(1))).length, 9);
-  assert.equal((await reader.load(book, chapter(1), context)).length, 9);
+  const restoredPages = await reader.load(book, chapter(1), context);
+  assert.equal(restoredPages.length, 9);
+  assert.equal(restoredPages[0].sourceUrl,book.sourceUrl,'source ownership is restored when reopening');
+  assert.equal(restoredPages[0].chapterId,chapter(1).id);
   assert.equal(calls.length, 9, 'reopening a cached chapter makes no image requests');
 
   let release;
@@ -192,6 +217,101 @@ const context = { cacheDir: '/cache' };
   await Promise.all(sixImages);
   assert.equal(calls.length - beforeSix, 7, 'the queued image starts when a slot becomes available');
   assert.equal(maxActive, 6, 'the pipeline reaches but never exceeds six concurrent downloads');
+
+  const nearbyPages = Array.from({ length: 30 }, (_, index) => ({
+    sourceUrl: book.sourceUrl, url: `https://nearby.test/${index}.jpg`, index
+  }));
+  const beforeNearby = calls.length;
+  await reader.preloadNearbyImages(nearbyPages, 3, 0, context, () => false);
+  assert.equal(calls.length, beforeNearby, 'off must not fetch any nearby images');
+  await reader.preloadNearbyImages(nearbyPages, 3, 2, context, () => false);
+  assert.deepEqual(calls.slice(beforeNearby), ['https://nearby.test/4.jpg', 'https://nearby.test/5.jpg'],
+    'only the selected number of following images are prefetched');
+  await reader.preloadNearbyImages(nearbyPages, 3, 2, context, () => false);
+  assert.equal(calls.length, beforeNearby + 2, 'downloaded nearby images are reused');
+  await reader.preloadNearbyImages(nearbyPages, 28, 20, context, () => false);
+  assert.equal(calls.length, beforeNearby + 3, 'prefetch stops at the current chapter boundary');
+  await reader.preloadNearbyImages(nearbyPages, 6, 5, context, () => true);
+  assert.equal(calls.length, beforeNearby + 3, 'cancelled window does not start downloading');
+  let nearbyCancelled = false, releaseNearby;
+  barrier = new Promise(resolve => { releaseNearby = resolve; });
+  const nearbyTask = reader.preloadNearbyImages(nearbyPages, 10, 5, context, () => nearbyCancelled);
+  const nearbyStarted = calls.length;
+  assert.equal(nearbyStarted, beforeNearby + 5, 'two nearby downloads start concurrently');
+  nearbyCancelled = true; releaseNearby(); barrier = undefined;
+  await nearbyTask;
+  assert.equal(calls.length, nearbyStarted, 'position/settings/background cancellation stops the old window');
+  assert.ok(!nearbyPages[11].url.startsWith('file:'), 'cancelled task does not publish stale results');
+
+  const movingPages = Array.from({ length: 8 }, (_, index) => ({
+    sourceUrl: book.sourceUrl, url: `https://moving.test/${index}.jpg`, index
+  }));
+  let position = 0, releaseMoving;
+  barrier = new Promise(resolve => { releaseMoving = resolve; });
+  const keepPage = index => index >= position && index <= position + 3;
+  const firstWindow = reader.preloadNearbyImages(movingPages, position, 3, context, () => false, keepPage);
+  position = 1;
+  const secondWindow = reader.preloadNearbyImages(movingPages, position, 3, context, () => false, keepPage);
+  const currentImage = loader.load(book.sourceUrl, movingPages[1].url, () => false, true);
+  releaseMoving(); barrier = undefined;
+  await Promise.all([firstWindow, secondWindow, currentImage]);
+  for (const index of [1, 2, 3, 4]) {
+    assert.equal(calls.filter(url => url === `https://moving.test/${index}.jpg`).length, 1,
+      'advancing the window and displaying a prefetched image must reuse the original request');
+    assert.ok(movingPages[index].url.startsWith('file:'), 'overlapping tasks publish local image paths');
+  }
+  assert.ok(events.some(([name]) => name === 'app.comic.image.ready'),
+    'completed prefetch wakes mounted offscreen image nodes');
+
+  // Run the actual component lifecycle/loading methods; ArkUI rendering itself remains a device check.
+  const componentSource = fs.readFileSync(path.join(root, 'components/ComicPageImage.ets'), 'utf8')
+    .split('  @Builder')[0].replace(/@(?:ComponentV2|Param|Local|Event|Monitor)(?:\([^\n]*?\))?\s*/g, '')
+    .replace('export struct ComicPageImage', 'export class ComicPageImage') + '\n}';
+  const componentExports = {};
+  vm.runInNewContext(compile(componentSource), { exports: componentExports, console, require: name => {
+    if (name.endsWith('/ComicReaderService')) return { ComicReaderService: reader, ComicPage: class {} };
+    if (name.endsWith('/ComicImageLoader')) return { ComicImageLoader: loader };
+    if (name.endsWith('/ReaderCacheService')) return { ReaderCacheService: { owner: () => 'node', release() {}, protect() {} } };
+    if (name.endsWith('/MembershipState')) return { MembershipState: { current: { hasAccess: false } } };
+    if (name === '@kit.BasicServicesKit') return { emitter };
+    if (name === '@kit.CoreFileKit') return { fileUri };
+    return {};
+  } });
+  const imageNode = new componentExports.ComicPageImage();
+  const budgetNode = new componentExports.ComicPageImage();
+  for (const density of [1,2,3.5]) {
+    budgetNode.getUIContext = () => ({vp2px:x=>x*density,px2vp:x=>x/density});
+    budgetNode.pageWidth = 1280 / density;
+    for (const [width,height] of [[690,839],[3040,3940],[2000,40000]]) {
+      budgetNode.page = {width,height}; budgetNode.ratio = height / width;
+      for (const zoom of [1,2]) {
+        budgetNode.zoom = zoom;
+        const size = budgetNode.decodeSize();
+        const pixelsWide = size.width*density, pixelsHigh = size.height*density;
+        assert.ok(pixelsWide <= Math.min(width,1536)+0.01,'sourceSize must not multiply the pixel budget by display density');
+        assert.ok(pixelsHigh <= 4096.01 && pixelsWide*pixelsHigh <= 4*1024*1024+1,
+          'high-density displays and long images keep the physical decode budget');
+      }
+    }
+  }
+  imageNode.page = { sourceUrl: book.sourceUrl, url: 'https://offscreen.test/ready.jpg', index: 1 };
+  imageNode.getUIContext = () => ({ getHostContext: () => context, vp2px: x => x * 2, px2vp: x => x / 2 });
+  const beforeOffscreen = calls.length;
+  imageNode.aboutToAppear();
+  assert.equal(calls.length, beforeOffscreen, 'offscreen nodes do not start speculative network requests');
+  await reader.preloadNearbyImages([{}, imageNode.page], 0, 1, context, () => false);
+  assert.ok(imageNode.resolvedUrl.startsWith('file:'), 'offscreen node receives the local URI before entering the viewport');
+  assert.equal(imageNode.ratio, 2, 'first Image build uses the true aspect ratio, not a placeholder decode size');
+  assert.equal(imageNode.imageHeight(), 720);
+  const knownReads = metadataReads;
+  await reader.prepareImage(imageNode.page, imageNode.resolvedUrl);
+  assert.equal(metadataReads, knownReads, 'recycled pages reuse known dimensions without rereading the header');
+  assert.equal(calls.length, beforeOffscreen + 1, 'cache notification does not redownload the image');
+  imageNode.loaded = true;
+  emitter.emit('app.comic.image.ready');
+  assert.equal(imageNode.loaded, true, 'unrelated cache events do not reset an already loaded image');
+  imageNode.aboutToDisappear();
+  assert.equal(imageListeners.size, 0, 'recycled nodes release cache notification listeners');
 
   let releaseDecode, decoding = 0, maxDecoding = 0, decodeCalls = 0;
   const decodeBarrier = new Promise(resolve => { releaseDecode = resolve; });
