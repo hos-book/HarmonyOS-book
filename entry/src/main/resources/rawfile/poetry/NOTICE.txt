@@ -1,0 +1,12 @@
+简听一语内置古诗词
+
+原有 365 条为古代诗词原文摘句。新增 1000 条摘句选自 chinese-poetry/chinese-poetry 的《宋词三百首》数据，保留原文、作者和词牌，另以首句补充标题，按文本去重。不包含现代译文或赏析。
+
+上游项目：https://github.com/chinese-poetry/chinese-poetry
+数据路径：宋词/宋词三百首.json
+获取日期：2026-10-25
+镜像：https://cdn.jsdelivr.net/gh/chinese-poetry/chinese-poetry@master/宋词/宋词三百首.json
+源文件 SHA256：ca5d74f7fdb9d5a6acc22a7c8b4395228cad4bb8be53df44c19ba83ab6983b20
+许可证：MIT；Copyright (c) 2016 JackeyGao。许可全文见同目录 LICENSE.chinese-poetry.txt。
+
+内容随应用打包，运行时不请求上游服务。

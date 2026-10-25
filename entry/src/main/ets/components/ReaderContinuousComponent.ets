@@ -14,6 +14,7 @@ export struct ReaderContinuousComponent {
   @Param selectionEnabled: boolean = true;
   @Local selectionActive: boolean = false;
   @Event onSelectionChange: (active: boolean) => void = () => {};
+  @Event onReadFrom: (chapter: number, offset: number) => void = () => {};
   @Param tapLeftPercent: number = 33;
   @Param tapRightPercent: number = 33;
   @Param tapTopPercent: number = 33;
@@ -63,6 +64,7 @@ export struct ReaderContinuousComponent {
   private reflowTimer: number = -1;
   private positionTimer: number = -1;
   private restoring: boolean = false;
+  private followingSpeech: boolean = false;
   private restoreTarget: number = -1;
   private disposed: boolean = false;
   private readonly backgroundHandler = (): void => this.reportPosition(true);
@@ -95,6 +97,7 @@ export struct ReaderContinuousComponent {
     if (this.followOffset < 0 || this.restoring) return;
     const target = this.source.findPosition(this.chapterIndex, this.followOffset);
     if (target >= 0 && (target < this.firstVisible || target >= this.lastVisible)) {
+      this.followingSpeech = true;
       this.scroller.scrollToIndex(target, false, ScrollAlign.START);
     }
   }
@@ -299,6 +302,7 @@ export struct ReaderContinuousComponent {
               ReaderSpeechText({
                 selectionEnabled: this.selectionEnabled,
                 onSelectionChange: (active: boolean): void => { this.selectionActive = active; this.onSelectionChange(active); },
+                onReadFrom: (offset: number): void => this.onReadFrom(row.chapterIndex, offset),
                 page: row.page, text: row.text, source: row.source, sourceStart: row.startOffset,
                 fontFamily: this.fontFamily, fontWeight: this.fontWeight,
                 state: this.speechState, fontSize: this.fontSize, lineHeight: this.lineHeight, palette: this.palette,
@@ -332,6 +336,7 @@ export struct ReaderContinuousComponent {
       .onTouch((event: TouchEvent): void => {
         this.tapTracker.update(event);
         if (event.type === TouchType.Down) {
+          this.followingSpeech = false;
           this.touchStartedAt = Date.now();
           this.touchStartedSelecting = this.selectionActive;
         }
@@ -357,9 +362,12 @@ export struct ReaderContinuousComponent {
       })
       .onScrollStart((): void => {
         this.tapTracker.cancel();
-        if (!this.restoring) this.onScrollStart();
+        if (!this.restoring && !this.followingSpeech) this.onScrollStart();
       })
-      .onScrollStop((): void => this.reportPosition(true))
+      .onScrollStop((): void => {
+        if (this.followingSpeech) { this.followingSpeech = false; return; }
+        this.reportPosition(true);
+      })
       this.loadIndicator(false)
       this.loadIndicator(true)
     }

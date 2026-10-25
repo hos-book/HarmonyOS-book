@@ -1,5 +1,11 @@
 # 第三方软件声明
 
+## 简听一语古诗词数据
+
+- 内置 1365 条古诗词摘句，其中新增 1000 条选自 [chinese-poetry](https://github.com/chinese-poetry/chinese-poetry) 的 `宋词/宋词三百首.json`，按原文去重并保留作者、词牌，以首句补充标题；不包含现代译文或赏析。
+- 数据集许可证：MIT，Copyright (c) 2016 JackeyGao。
+- 来源、源文件 SHA256 与许可全文随应用保存在 `rawfile/poetry/NOTICE.txt` 和 `LICENSE.chinese-poetry.txt`。运行时纯本地展示。
+
 ## Harmony Book AI Engine
 
 - 上游：https://github.com/wip3l/harmony-book-ai-engine ，固定提交 `e4592264e70402fa6396fd7860b1cb90fd349802`，包名 `@legado/aiengine`，版本 1.0.0。

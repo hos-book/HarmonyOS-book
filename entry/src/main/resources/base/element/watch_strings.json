@@ -34,7 +34,7 @@
     },
     {
       "name": "watch_empty_shelf",
-      "value": "暂无书籍，请先导入有声书源并搜索收藏。"
+      "value": "书架还空着，先导入有声书源，再搜本书收藏吧。"
     },
     {
       "name": "watch_keyword",
@@ -146,7 +146,7 @@
     },
     {
       "name": "watch_no_sources",
-      "value": "没有可搜索的有声书源，请先导入。"
+      "value": "先导入有声书源，简简才能找书哦。"
     },
     {
       "name": "watch_search_partial",
@@ -154,11 +154,11 @@
     },
     {
       "name": "watch_no_results",
-      "value": "这一页暂无结果。"
+      "value": "这一页还没找到书哦。"
     },
     {
       "name": "watch_no_chapters",
-      "value": "暂无可播放章节。"
+      "value": "暂时还没有能播放的章节。"
     },
     {
       "name": "watch_book_failed",
@@ -178,7 +178,7 @@
     },
     {
       "name": "watch_imported",
-      "value": "已导入 %d 个书源"
+      "value": "%d 个书源导入好啦"
     },
     {
       "name": "watch_cloud_confirm",
@@ -198,7 +198,7 @@
     },
     {
       "name": "watch_cloud_restored",
-      "value": "书架和书源已恢复，请到书架选书。"
+      "value": "书架和书源恢复好啦，去挑本书吧。"
     }
   ]
 }

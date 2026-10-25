@@ -696,7 +696,7 @@ export struct BookDetailPage {
     if (!this.book) return;
     if (this.bookId.startsWith('import_') && this.isFavorite) {
       try {
-        this.getUIContext().getPromptAction().showToast({ message: '导入的书需在书架长按删除' });
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.shelf_imported_remove_hint') });
       } catch (_e) { /* ignore */ }
       return;
     }
@@ -714,7 +714,7 @@ export struct BookDetailPage {
         await DataService.upsertCachedBook(SearchCache.get(this.book.id) ?? this.book);
         this.isFavorite = true;
         try {
-          this.getUIContext().getPromptAction().showToast({ message: '已重新加入书架' });
+          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.shelf_readded') });
         } catch (_e) { /* ignore */ }
         return;
       }
@@ -779,7 +779,7 @@ export struct BookDetailPage {
     try {
       const queued = await DownloadService.getInstance().downloadBook(this.book);
       this.downloadTick = this.downloadTick + 1;
-      this.showToast(queued > 0 ? $r('app.string.download_queued_all') : '没有可下载的新章节');
+      this.showToast(queued > 0 ? $r('app.string.download_queued_all') : $r('app.string.download_no_new_chapters'));
     } catch (_e) {
       this.showToast($r('app.string.download_operation_failed'));
     }
@@ -791,7 +791,7 @@ export struct BookDetailPage {
       const queued = await DownloadService.getInstance()
         .downloadNextChapters(this.book, this.currentDownloadStartIndex(), 20);
       this.downloadTick = this.downloadTick + 1;
-      this.showToast(queued > 0 ? $r('app.string.download_queued_next_twenty') : '后续章节已下载或不可下载');
+      this.showToast(queued > 0 ? $r('app.string.download_queued_next_twenty') : $r('app.string.download_next_unavailable'));
     } catch (_e) {
       this.showToast($r('app.string.download_operation_failed'));
     }
@@ -802,7 +802,7 @@ export struct BookDetailPage {
     try {
       const queued = await DownloadService.getInstance().downloadIncremental(this.book);
       this.downloadTick = this.downloadTick + 1;
-      this.showToast(queued > 0 ? $r('app.string.download_queued_incremental') : '没有发现可下载的新章节');
+      this.showToast(queued > 0 ? $r('app.string.download_queued_incremental') : $r('app.string.download_no_new_chapters'));
     } catch (_e) {
       this.showToast($r('app.string.download_operation_failed'));
     }

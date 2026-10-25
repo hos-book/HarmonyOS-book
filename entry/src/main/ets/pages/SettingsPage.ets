@@ -423,7 +423,7 @@ export struct SettingsPage {
         : `已清除 ${result.deleted} 项`;
       try { this.getUIContext().getPromptAction().showToast({ message: msg }); } catch (_e) { /* ignore */ }
     } catch (_e) {
-      try { this.getUIContext().getPromptAction().showToast({ message: '清除失败，请重试' }); } catch (_e2) { /* ignore */ }
+      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_clear_failed') }); } catch (_e2) { /* ignore */ }
     } finally {
       this.isClearingCache = false;
     }
@@ -502,10 +502,10 @@ export struct SettingsPage {
       await StatsService.clearBookStats();
       SearchCache.clear();
       audioService.unfreezePersist();
-      try { this.getUIContext().getPromptAction().showToast({ message: '在线收藏与播放记录已清空' }); } catch (_e) { /* ignore */ }
+      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_online_records_cleared') }); } catch (_e) { /* ignore */ }
     } catch (_e) {
       AudioService.getInstance().unfreezePersist();
-      try { this.getUIContext().getPromptAction().showToast({ message: '清空失败，请重试' }); } catch (_e2) { /* ignore */ }
+      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_clear_failed') }); } catch (_e2) { /* ignore */ }
     } finally {
       this.isClearingBookshelf = false;
     }
@@ -547,9 +547,9 @@ export struct SettingsPage {
     this.isClearingDownloads = true;
     try {
       await DownloadService.getInstance().clearAllDownloads();
-      try { this.getUIContext().getPromptAction().showToast({ message: '下载内容已清除' }); } catch (_e) { /* ignore */ }
+      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_downloads_cleared') }); } catch (_e) { /* ignore */ }
     } catch (_e) {
-      try { this.getUIContext().getPromptAction().showToast({ message: '清除失败，请重试' }); } catch (_e2) { /* ignore */ }
+      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_clear_failed') }); } catch (_e2) { /* ignore */ }
     } finally {
       this.isClearingDownloads = false;
     }
@@ -559,11 +559,11 @@ export struct SettingsPage {
     try {
       ReaderPage.clearEpubCache();
       hilog.info(0xFF00, 'SettingsPage', 'epub handler cache cleared');
-      try { this.getUIContext().getPromptAction().showToast({ message: '电子书缓存已清除' }); } catch (_e) { /* ignore */ }
+      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_ebook_cache_cleared') }); } catch (_e) { /* ignore */ }
     } catch (e) {
       hilog.warn(0xFF00, 'SettingsPage', 'clear epub cache failed: %{public}s',
         e instanceof Error ? e.message : String(e));
-      try { this.getUIContext().getPromptAction().showToast({ message: '清除失败' }); } catch (_e) { /* ignore */ }
+      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_clear_failed') }); } catch (_e) { /* ignore */ }
     }
   }
 

@@ -80,7 +80,7 @@ struct DownloadBookItem {
     return `已完成 · ${this.downloadedCount}/${this.totalCount}`;
   }
 
-  private showToast(message: string): void {
+  private showToast(message: ResourceStr): void {
     try { this.getUIContext().getPromptAction().showToast({ message }); } catch (_e) { /* ignore */ }
   }
 
@@ -89,7 +89,7 @@ struct DownloadBookItem {
       await DownloadService.getInstance().pauseBook(record.bookId);
       this.syncState();
     } catch (_e) {
-      this.showToast('暂停下载失败，请重试');
+      this.showToast($r('app.string.download_pause_failed'));
     }
   }
 
@@ -98,7 +98,7 @@ struct DownloadBookItem {
       await DownloadService.getInstance().resumeBook(record.bookId);
       this.syncState();
     } catch (_e) {
-      this.showToast('继续下载失败，请重试');
+      this.showToast($r('app.string.download_resume_failed'));
     }
   }
 
@@ -113,7 +113,7 @@ struct DownloadBookItem {
     }).then((result) => {
       if (result.index !== 1) return;
       DownloadService.getInstance().deleteBookDownload(record.bookId)
-        .catch(() => this.showToast('删除下载失败，请重试'));
+        .catch(() => this.showToast($r('app.string.download_delete_failed')));
     }).catch(() => { /* ignore */ });
   }
 
@@ -129,9 +129,9 @@ struct DownloadBookItem {
       const result: DownloadExportResult = await DownloadExportService.exportBook(context, record);
       if (result.exportedCount === 0 && result.failedCount === 0) return;
       if (result.failedCount === 0) {
-        this.showToast(`已导出 ${result.exportedCount} 个音频到文件管理`);
+        this.showToast($r('app.string.download_export_success', result.exportedCount));
       } else {
-        this.showToast(`已导出 ${result.exportedCount} 个，失败 ${result.failedCount} 个`);
+        this.showToast($r('app.string.download_export_partial', result.exportedCount, result.failedCount));
       }
     } catch (_e) {
       // Closing the system picker without selecting a location is a normal cancellation.
@@ -351,7 +351,7 @@ export struct DownloadManagerPage {
       SymbolGlyph($r('sys.symbol.arrow_down_circle'))
         .fontSize(42)
         .fontColor([$r('sys.color.font_tertiary')])
-      Text('暂无离线下载')
+      Text($r('app.string.download_empty'))
         .fontSize(AppFont.BodyL)
         .fontColor($r('sys.color.font_secondary'))
     }

@@ -19,6 +19,7 @@ export struct ReaderSpeechText {
   @Param highlightEnabled: boolean = false;
   @Param selectionEnabled: boolean = true;
   @Event onSelectionChange: (active: boolean) => void = () => {};
+  @Event onReadFrom: (offset: number) => void = () => {};
   @Local selecting: boolean = false;
   @Local selectionStart: number = -1;
   @Local selectionEnd: number = -1;
@@ -50,6 +51,28 @@ export struct ReaderSpeechText {
     this.selectionEnd = end;
     this.selecting = this.selectionEnabled && start >= 0 && end > start;
     this.onSelectionChange(this.selecting);
+  }
+
+  private speechSelectionMenu(): EditMenuOptions {
+    return {
+      onCreateMenu: (items: TextMenuItem[]): TextMenuItem[] => {
+        const listen: TextMenuItem = {
+          content: $r('app.string.reader_listen_from_paragraph'),
+          id: TextMenuItemId.of('reader-listen-from-paragraph')
+        };
+        return [listen, ...items];
+      },
+      onMenuItemClick: (item: TextMenuItem, range: TextRange): boolean => {
+        if (!item.id.equals(TextMenuItemId.of('reader-listen-from-paragraph'))) return false;
+        const start = range.start ?? this.selectionStart;
+        if (this.selectionEnabled && start >= 0) {
+          const offset = this.sourceStart + SpeechTextHighlighter.sourceOffset(this.text, this.source, start);
+          this.onReadFrom(offset);
+          this.updateSelection(-1, -1);
+        }
+        return true;
+      }
+    };
   }
 
   private beginSelection(event: GestureEvent): void {
@@ -107,6 +130,7 @@ export struct ReaderSpeechText {
           // 普通触摸不经过原生选字层，长按命中后才交给系统处理选区与菜单。
           .hitTestBehavior(this.selecting ? HitTestMode.Default : HitTestMode.None)
           .copyOption(CopyOptions.LocalDevice).textSelectable(TextSelectableMode.SELECTABLE_FOCUSABLE)
+          .editMenuOptions(this.speechSelectionMenu())
           .selection(this.selectionStart, this.selectionEnd)
           .onTextSelectionChange((start: number, end: number): void => {
             this.updateSelection(start, end);
@@ -146,6 +170,7 @@ export struct ReaderSpeechText {
     .lineBreakStrategy(LineBreakStrategy.GREEDY)
     .draggable(false)
     .copyOption(this.selectionEnabled ? CopyOptions.LocalDevice : CopyOptions.None)
+    .editMenuOptions(this.speechSelectionMenu())
     .textSelectable(TextSelectableMode.SELECTABLE_FOCUSABLE)
     .onTextSelectionChange((start: number, end: number): void => {
       this.updateSelection(start, end);

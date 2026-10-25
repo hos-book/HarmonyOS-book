@@ -2,6 +2,7 @@
 export class CustomTtsConfig {
   id: string = '';
   name: string = '';
+  enabled: boolean = true;
   url: string = '';
   method: string = 'GET';
   body: string = '';

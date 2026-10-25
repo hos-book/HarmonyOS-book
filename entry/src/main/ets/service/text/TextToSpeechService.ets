@@ -64,6 +64,10 @@ export class TextToSpeechService {
   private chapterContent: string = '';
   private textDocument: ReaderTextDocument | null = null;
   private segmentIndex: number = 0;
+  private readingPageBookId: string = '';
+  private readingPageChapter: number = -1;
+  private readingPageEnds: number[] = [];
+  private readingPagesChanged: boolean = false;
   private generation: number = 0;
   private requestSequence: number = 0;
   private requestId: string = '';
@@ -134,7 +138,7 @@ export class TextToSpeechService {
     } catch (_error) { this.state.customTtsConfigs = []; }
     const selected = this.store.getSync('customTtsId', '');
     this.state.customTtsId = typeof selected === 'string' &&
-      this.state.customTtsConfigs.some((item: CustomTtsConfig): boolean => item.id === selected) ? selected : '';
+      this.state.customTtsConfigs.some((item: CustomTtsConfig): boolean => item.id === selected && item.enabled) ? selected : '';
     if (!this.isChineseVoice(this.state.language)) {
       this.state.language = 'zh-CN';
       this.state.person = 13;
@@ -242,7 +246,10 @@ export class TextToSpeechService {
     const catalog = this.state.customTtsConfigs.slice();
     for (const config of configs) {
       const index = catalog.findIndex((item: CustomTtsConfig): boolean => item.id === config.id);
-      if (index >= 0) catalog[index] = config;
+      if (index >= 0) {
+        config.enabled = catalog[index].enabled;
+        catalog[index] = config;
+      }
       else catalog.push(config);
     }
     if (catalog.length > CustomTtsConfigParser.MAX_CONFIGS) throw new Error('TTS catalog full');
@@ -255,7 +262,7 @@ export class TextToSpeechService {
   }
 
   async selectCustomTts(id: string): Promise<void> {
-    if (id && !this.state.customTtsConfigs.some((item: CustomTtsConfig): boolean => item.id === id)) return;
+    if (id && !this.state.customTtsConfigs.some((item: CustomTtsConfig): boolean => item.id === id && item.enabled)) return;
     const resume = this.state.playing || this.state.loading;
     this.pause();
     this.releaseEngine();
@@ -264,6 +271,26 @@ export class TextToSpeechService {
     this.state.error = '';
     this.saveSettings();
     if (resume) await this.resume();
+  }
+
+  async setCustomTtsEnabled(id: string, enabled: boolean): Promise<void> {
+    const store = this.store;
+    if (store === null) return;
+    const previous = this.state.customTtsConfigs;
+    const index = previous.findIndex((item: CustomTtsConfig): boolean => item.id === id);
+    if (index < 0 || previous[index].enabled === enabled) return;
+    const item = previous[index];
+    const updated: CustomTtsConfig = {
+      id: item.id, name: item.name, enabled: enabled, url: item.url,
+      method: item.method, body: item.body, header: item.header, contentType: item.contentType
+    };
+    const catalog = previous.slice();
+    catalog[index] = updated;
+    store.putSync('customTtsCatalog', JSON.stringify(catalog));
+    try { await store.flush(); }
+    catch (_error) { store.putSync('customTtsCatalog', JSON.stringify(previous)); throw new Error('TTS save failed'); }
+    this.state.customTtsConfigs = catalog;
+    if (!enabled && this.state.customTtsId === id) await this.selectCustomTts('');
   }
 
   async removeCustomTts(id: string): Promise<void> {
@@ -628,6 +655,12 @@ export class TextToSpeechService {
 
   private speakNext(ticket: number): void {
     if (!this.valid(ticket) || (!this.state.customTtsId && this.engine === null) || this.book === null) return;
+    if (this.readingPagesChanged) {
+      const nextOffset = this.segments[this.segmentIndex]?.start ?? this.state.contentLength;
+      this.clearHttpPrefetch();
+      this.rebuildSpeechSegments();
+      this.segmentIndex = SpeechTextSegmenter.indexAt(this.segments, nextOffset);
+    }
     if (this.sleepDeadline > 0 && Date.now() >= this.sleepDeadline) {
       this.pause(); this.setSleep(0); return;
     }
@@ -714,8 +747,22 @@ export class TextToSpeechService {
   }
 
   private rebuildSpeechSegments(): void {
-    this.segments = SpeechTextSegmenter.split(this.chapterContent, this.state.customTtsId.length > 0);
+    const pageEnds = this.readingPageBookId === this.state.bookId && this.readingPageChapter === this.state.chapterIndex ?
+      this.readingPageEnds : [];
+    this.segments = SpeechTextSegmenter.split(this.chapterContent, this.state.customTtsId.length > 0, pageEnds);
     this.segmentIndex = SpeechTextSegmenter.indexAt(this.segments, this.state.charOffset);
+    this.readingPagesChanged = false;
+  }
+
+  setReadingPageEnds(bookId: string, chapterIndex: number, offsets: number[]): void {
+    if (this.readingPageBookId === bookId && this.readingPageChapter === chapterIndex &&
+      offsets.length === this.readingPageEnds.length && offsets.every((offset: number, index: number): boolean =>
+        offset === this.readingPageEnds[index])) return;
+    this.readingPageBookId = bookId;
+    this.readingPageChapter = chapterIndex;
+    this.readingPageEnds = offsets.slice();
+    // 正在播放的音频不截断，下一片段及其预取按新分页重新生成。
+    this.readingPagesChanged = this.state.bookId === bookId && this.state.chapterIndex === chapterIndex;
   }
 
   private prefetchHttp(config: CustomTtsConfig, ticket: number): void {
@@ -903,6 +950,24 @@ export class TextToSpeechService {
     this.segmentIndex = Math.max(0, Math.min(this.segments.length - 1, this.segmentIndex + delta));
     this.state.charOffset = this.segments[this.segmentIndex].start;
     this.resume();
+  }
+
+  /** 按本章正文百分比定位到对应语音片段，保持原来的播放/暂停状态。 */
+  seekProgress(percent: number): void {
+    if (!Number.isFinite(percent) || !this.state.active || this.state.loading ||
+      this.book === null || this.segments.length === 0 || this.state.contentLength <= 0) return;
+    const playing = this.state.playing;
+    const offset = Math.floor(Math.max(0, Math.min(100, percent)) * this.state.contentLength / 100);
+    const index = Math.min(this.segments.length - 1, SpeechTextSegmenter.indexAt(this.segments, offset));
+    this.pause();
+    this.segmentIndex = index;
+    const segment = this.segments[index];
+    this.state.charOffset = segment.start;
+    this.state.sentence = segment.text;
+    this.highlightParagraph();
+    this.savePosition(true);
+    this.notify();
+    if (playing) this.resume();
   }
 
   private async toggleFavorite(): Promise<void> {

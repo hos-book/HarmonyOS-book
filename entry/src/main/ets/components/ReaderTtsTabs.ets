@@ -23,14 +23,16 @@ class ReaderTtsDataSource implements IDataSource {
 export struct ReaderTtsTabs {
   @Param configs: CustomTtsConfig[] = [];
   @Param selectedId: string = '';
+  @Param management: boolean = false;
   @Event onSelect: (config: CustomTtsConfig) => void = () => {};
+  @Event onEnabledChange: (config: CustomTtsConfig, enabled: boolean) => void = () => {};
   @Event onDelete: (config: CustomTtsConfig) => void = () => {};
   @Local expanded: boolean = false;
   private source: ReaderTtsDataSource = new ReaderTtsDataSource();
   private pendingDelete: CustomTtsConfig | null = null;
 
   aboutToAppear(): void { this.refresh(); }
-  @Monitor('configs')
+  @Monitor('configs', 'management')
   refresh(): void { this.source.update(this.configs); }
 
   private selectedName(): ResourceStr {
@@ -70,9 +72,16 @@ export struct ReaderTtsTabs {
             }.layoutWeight(1).height(48)
               .onClick((): void => {
                 this.expanded = false;
-                if (config.id !== this.selectedId) this.onSelect(config);
+                if (config.enabled && config.id !== this.selectedId) this.onSelect(config);
               })
-            if (config.id.length > 0) {
+              .opacity(config.enabled ? 1 : 0.5)
+            if (this.management && config.id.length > 0) {
+              Toggle({ type: ToggleType.Switch, isOn: config.enabled })
+                .selectedColor(AppColor.Brand)
+                .accessibilityText($r('app.string.tts_custom_enabled', config.name))
+                .onChange((enabled: boolean): void => {
+                  if (enabled !== config.enabled) this.onEnabledChange(config, enabled);
+                })
               Button({ type: ButtonType.Circle }) {
                 SymbolGlyph($r('sys.symbol.trash')).fontSize(18).fontColor([$r('sys.color.font_secondary')])
               }.width(40).height(40).backgroundColor(Color.Transparent)
@@ -83,7 +92,7 @@ export struct ReaderTtsTabs {
             .backgroundColor(Color.Transparent)
         }
       }, (config: CustomTtsConfig): string => config.id || 'system')
-    }.width(280).height(Math.min(304, (this.configs.length + 1) * 48 + 8))
+    }.width(this.management ? 320 : 280).height(Math.min(304, (this.configs.length + 1) * 48 + 8))
       .padding({ top: 4, bottom: 4 }).scrollBar(BarState.Auto)
   }
 

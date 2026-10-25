@@ -26,7 +26,8 @@ const voice = (person, installed = true) => Object.assign(new stateScope.exports
   person, id: `zh-CN:${person}:interaction-broadcast`, label: `voice-${person}`, installed
 });
 state.voices = [voice(0), voice(21), voice(99, false)];
-state.customTtsConfigs = [{ id: 'imported', name: 'Imported' }];
+state.customTtsConfigs = [{ id: 'disabled', name: 'Disabled', enabled: false },
+  { id: 'imported', name: 'Imported', enabled: true }];
 const calls = [];
 const service = {
   async selectVoice(item) { calls.push(['system', item.person]); state.person = item.person; state.customTtsId = ''; },

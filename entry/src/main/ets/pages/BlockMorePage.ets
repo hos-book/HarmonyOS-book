@@ -33,7 +33,7 @@ export struct BlockMorePage {
   @Local loading: boolean = true;
   @Local loadingMore: boolean = false;
   @Local hasMore: boolean = true;
-  @Local errorMsg: string = '';
+  @Local errorMsg: ResourceStr = '';
 
   private dataSource: BookDataSource = new BookDataSource();
   private nextUrl: string = '';
@@ -49,7 +49,7 @@ export struct BlockMorePage {
 
   private async loadFirstPage(): Promise<void> {
     if ((!this.moreUrl && !this.keyword) || !this.sourceUrl) {
-      this.errorMsg = '参数错误';
+      this.errorMsg = $r('app.string.common_page_invalid');
       this.loading = false;
       return;
     }
@@ -111,7 +111,7 @@ export struct BlockMorePage {
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       hilog.error(DOMAIN, TAG, 'fetchPage failed: %{public}s', msg);
-      if (!append) this.errorMsg = '加载失败：' + msg;
+      if (!append) this.errorMsg = $r('app.string.common_load_error_detail', msg);
       this.hasMore = false;
     }
   }
@@ -235,7 +235,7 @@ export struct BlockMorePage {
       SymbolGlyph($r('sys.symbol.exclamationmark_circle'))
         .fontSize(48)
         .fontColor([$r('sys.color.font_tertiary')])
-      Text('暂无内容')
+      Text($r('app.string.common_content_empty'))
         .fontSize(AppFont.Body)
         .fontColor($r('sys.color.font_tertiary'))
       Text(this.moreUrl)
@@ -245,7 +245,7 @@ export struct BlockMorePage {
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .padding({ left: AppSpace.Lg, right: AppSpace.Lg })
         .textAlign(TextAlign.Center)
-      Text('点击重试')
+      Text($r('app.string.common_tap_retry'))
         .fontSize(AppFont.Body)
         .fontColor(AppColor.Brand)
         .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Xs, bottom: AppSpace.Xs })
@@ -261,7 +261,7 @@ export struct BlockMorePage {
   buildLoading() {
     Column() {
       LoadingProgress().width(40).height(40).color(AppColor.Brand)
-      Text('加载中...')
+      Text($r('app.string.common_content_loading'))
         .fontSize(AppFont.Body)
         .fontColor($r('sys.color.font_tertiary'))
         .margin({ top: AppSpace.Sm })
@@ -282,7 +282,7 @@ export struct BlockMorePage {
         .fontColor($r('sys.color.font_tertiary'))
         .textAlign(TextAlign.Center)
         .padding({ left: AppSpace.Lg, right: AppSpace.Lg })
-      Text('点击重试')
+      Text($r('app.string.common_tap_retry'))
         .fontSize(AppFont.Body)
         .fontColor(AppColor.Brand)
         .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Xs, bottom: AppSpace.Xs })
@@ -312,7 +312,7 @@ export struct BlockMorePage {
         GridItem() {
           Row({ space: AppSpace.Xs }) {
             LoadingProgress().width(20).height(20).color(AppColor.Brand)
-            Text('加载更多...')
+            Text($r('app.string.home_category_loading_more'))
               .fontSize(AppFont.Caption)
               .fontColor($r('sys.color.font_tertiary'))
           }
@@ -323,7 +323,7 @@ export struct BlockMorePage {
         .columnStart(0).columnEnd(this.bookColumns - 1)
       } else if (!this.hasMore && this.books.length > 0) {
         GridItem() {
-          Text('— 没有更多了 —')
+          Text($r('app.string.home_category_load_complete'))
             .fontSize(AppFont.Caption)
             .fontColor($r('sys.color.font_tertiary'))
             .height(48)

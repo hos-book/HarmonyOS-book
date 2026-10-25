@@ -1,0 +1,6 @@
+{
+  "string": [
+    { "name": "tts_custom_enabled", "value": "启用 %s" },
+    { "name": "tts_custom_enabled_hint", "value": "在朗读引擎菜单中开关音色，只有启用的音色会出现在电子书朗读选项中。禁用不会删除配置，禁用当前音色将切回系统语音。" }
+  ]
+}

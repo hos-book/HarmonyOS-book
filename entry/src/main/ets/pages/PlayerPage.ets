@@ -169,6 +169,10 @@ export struct PlayerPage {
   @Local speechState: TextToSpeechState = TextToSpeechService.getInstance().state;
   @Local seeking: boolean = false;
   @Local seekValueMs: number = 0;
+  @Local speechSeeking: boolean = false;
+  @Local speechSeekPercent: number = 0;
+  private speechSeekChapter: number = -1;
+  private speechSeekBookId: string = '';
   /** 缓存版本号：每次有章节时长被解析出来就 +1，强制 V2 重渲染章节列表 */
   @Local chapterCacheTick: number = 0;
   @Local downloadTick: number = 0;
@@ -216,7 +220,7 @@ export struct PlayerPage {
     const data = evt.data as AudioPlayFailedPayload;
     if (!data || data.bookId !== this.bookId) return;
     if (this.playerState.currentChapter && data.chapterId !== this.playerState.currentChapter.id) return;
-    this.showToast(data.message || '播放失败，请点击重试');
+    this.showToast(data.message || $r('app.string.player_play_failed'));
   };
   /** 延迟加载 timer id,用户立即返回时需要 cancel,避免阻塞返回响应 */
   private deferredLoadTimerId: number = -1;
@@ -590,8 +594,26 @@ export struct PlayerPage {
   }
 
   private speechProgress(): number {
+    if (this.speechSeeking) return this.speechSeekPercent;
     if (!this.speechMatchesBook() || this.speechState.contentLength <= 0) return 0;
     return Math.max(0, Math.min(100, this.speechState.charOffset * 100 / this.speechState.contentLength));
+  }
+
+  private changeSpeechProgress(value: number, mode: SliderChangeMode): void {
+    if (mode === SliderChangeMode.Begin || mode === SliderChangeMode.Click || !this.speechSeeking) {
+      this.speechSeekChapter = this.speechState.chapterIndex;
+      this.speechSeekBookId = this.speechState.bookId;
+    }
+    this.speechSeekPercent = Math.max(0, Math.min(100, value));
+    if (mode === SliderChangeMode.Begin || mode === SliderChangeMode.Moving) {
+      this.speechSeeking = true;
+      return;
+    }
+    this.speechSeeking = false;
+    if ((mode === SliderChangeMode.End || mode === SliderChangeMode.Click) && this.canSkipPlayback() &&
+      this.speechSeekChapter === this.speechState.chapterIndex && this.speechSeekBookId === this.speechState.bookId) {
+      TextToSpeechService.getInstance().seekProgress(this.speechSeekPercent);
+    }
   }
 
   private openVoiceOptions(): void {
@@ -720,7 +742,7 @@ export struct PlayerPage {
       if (!this.speechState.customTtsId) {
         return Math.max(0, voices.findIndex((voice: SpeechVoice): boolean => this.speechState.isVoiceSelected(voice)));
       }
-      const index = this.speechState.customTtsConfigs.findIndex((config: CustomTtsConfig): boolean =>
+      const index = this.speechState.customTtsConfigs.filter((config: CustomTtsConfig): boolean => config.enabled).findIndex((config: CustomTtsConfig): boolean =>
         config.id === this.speechState.customTtsId);
       return index < 0 ? 0 : voices.length + index;
     }
@@ -764,7 +786,7 @@ export struct PlayerPage {
           Repeat<SpeechVoice>(this.playbackSpeechVoices()).each((item: RepeatItem<SpeechVoice>) => {
             ListItem() { this.buildSourceVoiceOption(`system:${item.item.id}`, item.item.label) }
           }).key((voice: SpeechVoice): string => `system:${voice.id}`).virtualScroll()
-          Repeat<CustomTtsConfig>(this.speechState.customTtsConfigs).each((item: RepeatItem<CustomTtsConfig>) => {
+          Repeat<CustomTtsConfig>(this.speechState.customTtsConfigs.filter((config: CustomTtsConfig): boolean => config.enabled)).each((item: RepeatItem<CustomTtsConfig>) => {
             ListItem() { this.buildSourceVoiceOption(item.item.id, item.item.name) }
           }).key((config: CustomTtsConfig): string => config.id).virtualScroll()
         } else {
@@ -776,7 +798,8 @@ export struct PlayerPage {
         }, (voice: LocalRuleVoice): string => voice.id)
         }
       }.width('100%').height(Math.min(288, Math.max(1, this.isSpeechBook() ?
-        this.speechState.customTtsConfigs.length + this.playbackSpeechVoices().length : this.sourceVoices.totalCount() + 1) * 48))
+        this.speechState.customTtsConfigs.filter((config: CustomTtsConfig): boolean => config.enabled).length +
+        this.playbackSpeechVoices().length : this.sourceVoices.totalCount() + 1) * 48))
         .scrollBar(BarState.Off)
     }
     .width(Math.min(180, Math.max(120, this.viewportWidth - 32))).padding(AppSpace.Xs)
@@ -970,7 +993,7 @@ export struct PlayerPage {
         await DataService.upsertCachedBook(this.book);
         this.isFavorite = true;
         try {
-          this.getUIContext().getPromptAction().showToast({ message: '已重新加入书架' });
+          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.shelf_readded') });
         } catch (_e) { /* ignore */ }
         return;
       }
@@ -1050,13 +1073,13 @@ export struct PlayerPage {
       return;
     }
     if (record && (record.status === 'pending' || record.status === 'resolving' || record.status === 'downloading')) {
-      this.showToast('这一章正在下载');
+      this.showToast($r('app.string.download_chapter_running'));
       return;
     }
     DownloadService.getInstance().downloadChapter(this.book, ch).then(() => {
       this.downloadTick = this.downloadTick + 1;
-      this.showToast('已加入单章下载');
-    }).catch(() => this.showToast('下载操作失败，请重试'));
+      this.showToast($r('app.string.download_chapter_queued'));
+    }).catch(() => this.showToast($r('app.string.download_operation_failed')));
   }
 
   private isLiveBook(): boolean {
@@ -1079,8 +1102,8 @@ export struct PlayerPage {
         DownloadService.getInstance().deleteChapterDownload(
           this.book.id, ch.id, DownloadPolicy.stablePageUrl(ch)).then(() => {
           this.downloadTick = this.downloadTick + 1;
-          this.showToast('单章下载已删除');
-        }).catch(() => this.showToast('删除下载失败，请重试'));
+          this.showToast($r('app.string.download_chapter_deleted'));
+        }).catch(() => this.showToast($r('app.string.download_delete_failed')));
       }
     }).catch(() => { /* ignore */ });
   }
@@ -1368,7 +1391,7 @@ export struct PlayerPage {
   private openBookDetail(): void {
     const id = this.book?.id || this.bookId;
     if (!id) {
-      this.showToast('暂无书籍详情');
+      this.showToast($r('app.string.reader_detail_unavailable'));
       return;
     }
     this.navStack.pushPathByName('detail', id);
@@ -1840,8 +1863,16 @@ export struct PlayerPage {
   buildProgress() {
     Column({ space: AppSpace.Xxs }) {
       if (this.isSpeechBook()) {
-        Progress({ value: this.speechProgress(), total: 100, type: ProgressType.Linear })
-          .color('#FFFFFF').backgroundColor('#33FFFFFF').width('100%')
+        Slider({ value: this.speechProgress(), min: 0, max: 100, step: 0.1, style: SliderStyle.OutSet })
+          .selectedColor('#FFFFFF').trackColor('#33FFFFFF').blockColor('#FFFFFF')
+          .blockSize({ width: 18, height: 18 }).trackThickness(6).width('100%')
+          .enabled(this.canSkipPlayback())
+          .accessibilityText($r('app.string.tts_chapter_progress'))
+          .id('speech-chapter-progress')
+          .onChange((value: number, mode: SliderChangeMode): void => this.changeSpeechProgress(value, mode))
+          .onTouch((event: TouchEvent): void => {
+            if (event.type === TouchType.Cancel) this.speechSeeking = false;
+          })
         Row() {
           Text($r('app.string.tts_chapter_progress')).fontSize(AppFont.Caption).fontColor('#FFFFFF')
           Blank()

@@ -1079,7 +1079,7 @@ export struct FavoritePage {
     const onPop = (): void => { this.loadFavorites(); };
     if (this.isMissingCachedBook(book)) {
       try {
-        this.getUIContext().getPromptAction().showToast({ message: '这本书的缓存快照缺失，请重新搜索后加入书架' });
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.shelf_snapshot_missing') });
       } catch (_e) { /* ignore */ }
       return;
     }
@@ -1166,7 +1166,7 @@ export struct FavoritePage {
       }
       // 2) 本地没有 → 联网拉取(此时才提示"加载章节")
       try {
-        this.getUIContext().getPromptAction().showToast({ message: '加载章节中...' });
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.book_detail_loading_chapters') });
       } catch (_e) { /* ignore */ }
       const source = await SourceDataService.getSourceByUrl(book.sourceUrl);
       if (!source) {
@@ -1185,7 +1185,7 @@ export struct FavoritePage {
       if (bookInfo?.tocUrl) tocUrl = bookInfo.tocUrl;
       const tocItems = await BookSourceService.getBookToc(source, tocUrl, mergedVars, book.title);
       if (tocItems.length === 0) {
-        this.getUIContext().getPromptAction().showToast({ message: '章节加载失败' });
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.reader_chapter_load_failed') });
         this.navStack.pushPathByName('detail', book.id, onPop);
         return;
       }
@@ -1222,7 +1222,7 @@ export struct FavoritePage {
     });
     } catch (_e) {
       try {
-        this.getUIContext().getPromptAction().showToast({ message: '章节加载失败' });
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.reader_chapter_load_failed') });
       } catch (_e2) { /* ignore */ }
       this.navStack.pushPathByName('detail', book.id, onPop);
     } finally {
@@ -1518,7 +1518,7 @@ export struct FavoritePage {
       await this.loadFavorites();
     } catch (_e) {
       try {
-        this.getUIContext().getPromptAction().showToast({ message: '移除失败，请重试' });
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.shelf_remove_failed') });
       } catch (_e2) { /* ignore */ }
     }
   }

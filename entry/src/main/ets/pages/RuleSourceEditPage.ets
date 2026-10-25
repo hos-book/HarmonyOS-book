@@ -14,7 +14,7 @@ import { NativeSourceDraft } from '../service/rulesource/NativeSourceDraft';
 interface FormFieldParams {
   label: ResourceStr;
   value: string;
-  placeholder?: string;
+  placeholder?: ResourceStr;
   multiline?: boolean;
   enabled?: boolean;
   onChange: (value: string) => void;
@@ -133,7 +133,7 @@ export struct RuleSourceEditPage {
         this.navStack.pop();
       }
     } catch (error) {
-      promptAction.showToast({ message: '加载书源失败' });
+      promptAction.showToast({ message: $r('app.string.rule_source_read_failed') });
       this.navStack.pop();
     } finally {
       this.isLoading = false;
@@ -162,11 +162,11 @@ export struct RuleSourceEditPage {
     }
     if (!this.applyEditorDraft()) return;
     if (!this.source.bookSourceUrl || this.source.bookSourceUrl.trim().length === 0) {
-      promptAction.showToast({ message: '请输入书源地址' });
+      promptAction.showToast({ message: $r('app.string.rule_source_address_required') });
       return;
     }
     if (!this.source.bookSourceName || this.source.bookSourceName.trim().length === 0) {
-      promptAction.showToast({ message: '请输入书源名称' });
+      promptAction.showToast({ message: $r('app.string.rule_source_name_required') });
       return;
     }
 
@@ -179,7 +179,7 @@ export struct RuleSourceEditPage {
       }
       SourceDataService.invalidateLocalSources(this.source.bookSourceUrl);
       this.markSaved();
-      promptAction.showToast({ message: '保存成功' });
+      promptAction.showToast({ message: $r('app.string.rule_source_save_success') });
       this.navStack.pop();
     } catch (error) {
       promptAction.showToast({ message: $r('app.string.rule_source_save_failed') });
@@ -382,7 +382,7 @@ export struct RuleSourceEditPage {
                 .width(40)
                 .height(40)
                 .color(AppColor.Brand)
-              Text('加载中...')
+              Text($r('app.string.common_content_loading'))
                 .fontSize(AppFont.Caption)
                 .fontColor($r('sys.color.font_secondary'))
                 .margin({ top: AppSpace.Xs })
@@ -517,7 +517,7 @@ export struct RuleSourceEditPage {
       FormFieldBuilder({
         label: '书源名称',
         value: this.source.bookSourceName,
-        placeholder: '请输入书源名称',
+        placeholder: $r('app.string.rule_source_name_required'),
         onChange: (value: string) => {
           this.source.bookSourceName = value;
           this.markChanged();

@@ -1664,7 +1664,7 @@ export struct HomePage {
           ListItem() {
             Column() {
               LoadingProgress().width(40).height(40).color(AppColor.Brand)
-              Text('加载中...')
+              Text($r('app.string.common_content_loading'))
                 .fontSize(AppFont.Body)
                 .fontColor(AppTheme.TextTertiary)
                 .margin({ top: AppSpace.Sm })
@@ -1721,14 +1721,15 @@ export struct HomePage {
             }
             .margin({ bottom: AppSpace.Md })
           }, (row: HomeCategoryBookRow) => row.key)
-          if (this.categoryLoading || this.categoryHasMore || this.categoryError) {
+          if (this.categoryBooks.length > 0 || this.categoryLoading || this.categoryHasMore || this.categoryError) {
             ListItem() {
               Row({ space: AppSpace.Xs }) {
                 if (this.categoryLoading) {
                   LoadingProgress().width(24).height(24).color(AppColor.Brand)
                 }
                 Text(this.categoryError || (this.categoryLoading ?
-                  $r('app.string.home_category_loading_more') : $r('app.string.home_category_load_more')))
+                  $r('app.string.home_category_loading_more') : (this.categoryHasMore ?
+                    $r('app.string.home_category_load_more') : $r('app.string.home_category_load_complete'))))
                   .fontSize(AppFont.Caption)
                   .fontColor(AppTheme.TextSecondary)
               }

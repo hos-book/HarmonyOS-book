@@ -270,7 +270,7 @@ export struct ChapterSheet {
           })
         } else if (this.chapters().length === 0) {
           Column({ space: AppSpace.Sm }) {
-            Text('暂无章节信息')
+            Text($r('app.string.reader_no_chapters'))
               .fontSize(AppFont.Body)
               .fontColor($r('sys.color.font_tertiary'))
             if (this.failed) {

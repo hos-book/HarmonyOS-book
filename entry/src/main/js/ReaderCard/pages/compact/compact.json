@@ -1,0 +1,14 @@
+{
+  "data": {
+    "continueLabel": "",
+    "bookId": "",
+    "target": "home"
+  },
+  "actions": {
+    "continueReading": {
+      "action": "router",
+      "abilityName": "EntryAbility",
+      "params": { "from": "widget", "target": "{{target}}", "bookId": "{{bookId}}" }
+    }
+  }
+}

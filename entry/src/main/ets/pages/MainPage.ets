@@ -484,6 +484,7 @@ export struct MainPage {
         if (this.generalSettings.historyEnabled) {
         TabContent() {
           ReadingStatsPage({
+            visible: this.currentTab === 2,
             onBackHandlerChange: (handler: (() => boolean) | undefined): void => {
               this.recordsBackHandler = handler;
             },

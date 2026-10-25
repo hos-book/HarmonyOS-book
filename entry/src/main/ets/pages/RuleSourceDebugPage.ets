@@ -72,7 +72,7 @@ export struct RuleSourceDebugPage {
         this.navStack.pop();
       }
     } catch (error) {
-      promptAction.showToast({ message: '加载书源失败' });
+      promptAction.showToast({ message: $r('app.string.rule_source_read_failed') });
       this.navStack.pop();
     } finally {
       this.isLoading = false;
@@ -211,7 +211,7 @@ export struct RuleSourceDebugPage {
               .width(40)
               .height(40)
               .color(AppColor.Brand)
-            Text('加载中...')
+            Text($r('app.string.common_content_loading'))
               .fontSize(AppFont.Caption)
               .fontColor($r('sys.color.font_secondary'))
               .margin({ top: AppSpace.Xs })

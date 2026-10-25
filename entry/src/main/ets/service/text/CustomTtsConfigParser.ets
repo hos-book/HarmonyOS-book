@@ -8,6 +8,7 @@ class TtsHeaders {}
 class TtsBody {}
 class TtsImportEntry {
   name: string = '';
+  enabled: boolean = true;
   url: string = '';
   method: string = '';
   body: string = '';
@@ -46,6 +47,7 @@ export class CustomTtsConfigParser {
       entry.loginUrl || entry.loginUi || entry.loginCheckJs) throw new Error('Unsupported TTS config');
     const config = new CustomTtsConfig();
     config.name = entry.name.trim();
+    config.enabled = entry.enabled !== false;
     config.url = entry.url.trim();
     config.method = typeof entry.method === 'string' && entry.method ? entry.method.toUpperCase() : 'GET';
     config.body = typeof entry.body === 'string' ? entry.body : '';

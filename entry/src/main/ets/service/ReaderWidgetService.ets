@@ -31,6 +31,7 @@ class ReaderWidgetData extends ReaderWidgetSnapshot {
   cardLabel: string = '';
   progressLabel: string = '';
   actionLabel: string = '';
+  continueLabel: string = '';
 }
 
 /** 仅保存卡片展示快照；继续阅读仍使用原有章节/字符进度，不复制另一套进度。 */
@@ -74,6 +75,7 @@ export class ReaderWidgetService {
 
   static emptyData(context: common.Context): ReaderWidgetData {
     const data = new ReaderWidgetData();
+    data.continueLabel = context.resourceManager.getStringSync($r('app.string.reader_card_continue').id);
     data.cardLabel = context.resourceManager.getStringSync($r('app.string.reader_card_label').id);
     data.bookTitle = context.resourceManager.getStringSync($r('app.string.reader_card_empty').id);
     data.chapterTitle = context.resourceManager.getStringSync($r('app.string.reader_card_empty_hint').id);

@@ -763,11 +763,11 @@ export struct ImportPage {
           .backgroundColor(Color.Transparent)
           .borderRadius(AppRadius.Md)
           .enabled(this.canImport() && !this.importing)
-          .accessibilityText(this.importing ? '导入中...' : '开始导入')
+          .accessibilityText(this.importing ? $r('app.string.rule_source_importing') : $r('app.string.import_action_start'))
           .onClick(() => this.doImport())
 
         Row() {
-          Text(this.importing ? '导入中...' : '开始导入')
+          Text(this.importing ? $r('app.string.rule_source_importing') : $r('app.string.import_action_start'))
             .fontColor(this.importActionForeground())
             .fontSize(AppFont.BodyL)
             .fontWeight(FontWeight.Medium)

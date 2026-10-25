@@ -82,7 +82,7 @@ export struct ChapterLoadingSkeleton {
           .width(16)
           .height(16)
           .color(AppColor.Brand)
-        Text(this.isTextBook ? '正在加载章节目录…' : '正在加载节目列表…')
+        Text(this.isTextBook ? $r('app.string.chapter_catalog_loading') : $r('app.string.chapter_program_loading'))
           .fontSize(AppFont.Caption)
           .fontColor($r('sys.color.font_secondary'))
       }

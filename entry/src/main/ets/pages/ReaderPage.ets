@@ -219,6 +219,15 @@ export struct ReaderPage {
   @Local showSpeechSheet: boolean = false;
   @Local speechState: TextToSpeechState = TextToSpeechService.getInstance().state;
   private openingSpeechPlayer: boolean = false;
+  private speechSelectionSerial: number = 0;
+  @Local speechNavigationPending: boolean = false;
+  @Local speechFollowOffset: number = -1;
+  private speechNavigationSerial: number = 0;
+  private speechPageFloor: number = -1;
+  private speechPageFloorChapter: number = -1;
+  private speechScrollPending: boolean = false;
+  private speechScrollChapter: number = -1;
+  private speechScrollOffset: number = -1;
   /** 详情页返回栈内阅读页时按所选章节跳转 */
   private readonly jumpChapterHandler: (e: emitter.EventData) => void = (e) => this.onJumpChapterEvent(e);
   @Local chapterListOffsetFromCurrent: number = 0;
@@ -604,6 +613,7 @@ export struct ReaderPage {
       const offset = !openLastPage && hasCharOffset ? Math.min(charOffset, content.length) :
         pages[nextPageIndex].startOffset;
       this.updateOnlineTextPosition(true, offset);
+      this.updateSpeechPageEnds();
       if (this.pageTurnMode === PageTurnMode.Vertical) this.continuousRevision++;
       this.prefetchAdjacentOnlineTextChapters(resourceIndex);
       return true;
@@ -613,9 +623,10 @@ export struct ReaderPage {
       hilog.error(READER_LOG_DOMAIN, READER_LOG_TAG,
         'online chapter load failed: %{public}s', message);
       if (initialLoad) {
-        this.failReader(message || '章节正文加载失败');
+        this.failReader(message || this.getUIContext().getHostContext()?.resourceManager
+          .getStringSync($r('app.string.reader_content_load_failed').id) || '');
       } else {
-        this.showToast(message || '章节正文加载失败');
+        this.showToast(message || $r('app.string.reader_content_load_failed'));
       }
       return false;
     } finally {
@@ -1025,6 +1036,7 @@ export struct ReaderPage {
     this.onlineTextPageIndex = OnlineTextPaginator.pageIndexForOffset(pages, charOffset);
     // 窗口/安全区变化只改变分页；保留已确认字符，避免恢复视口后逐次回退。
     this.updateOnlineTextPosition(false, charOffset);
+    this.updateSpeechPageEnds();
     if (this.pageTurnMode === PageTurnMode.Vertical) this.continuousRevision++;
   }
 
@@ -1039,7 +1051,15 @@ export struct ReaderPage {
     this.onlineTextPageIndex = OnlineTextPaginator.pageIndexForOffset(this.onlineTextPages, offset);
     this.currentPosition = TextReadingPosition.atChar(this.book.id, chapterIndex, '', offset,
       this.onlineTextPageIndex, this.currentChapterTitle);
-    if (persist) this.saveProgress();
+    if (persist) {
+      this.saveProgress();
+      if (this.speechScrollPending) {
+        this.speechScrollPending = false;
+        if (chapterIndex !== this.speechScrollChapter || offset !== this.speechScrollOffset) {
+          this.followReadingWithSpeech();
+        }
+      }
+    }
   }
 
   private updateOnlineTextPosition(persist: boolean, charOffset: number = -1): void {
@@ -1150,20 +1170,98 @@ export struct ReaderPage {
     this.initializeReader();
   }
 
-  @Monitor('speechState.charOffset', 'speechState.chapterIndex', 'speechState.playing')
+  @Monitor('speechState.charOffset', 'speechState.chapterIndex', 'speechState.playing', 'speechState.loading')
   private syncSpeechPosition(): void {
     const speech = this.speechState;
     if (!this.readerVisible || this.leaving || this.loading || !this.book || !speech.active ||
       speech.bookId !== this.bookId || speech.loading || !this.isOnlineTextBook()) return;
     this.readingTime.checkpoint(this.book, !speech.playing && this.readingForeground);
+    if (!speech.playing || this.speechNavigationPending || this.speechScrollPending || this.selectingText ||
+      this.onlineTextLoading || this.onlineTextTurnPreview !== null) return;
     if (speech.chapterIndex !== this.currentResourceIndex) {
-      if (!this.onlineTextLoading) this.loadOnlineTextChapter(speech.chapterIndex,
+      this.loadOnlineTextChapter(speech.chapterIndex,
         TextToSpeechService.getInstance().currentRawOffset(), 0, false, false);
       return;
     }
-    this.onlineTextPageIndex = OnlineTextPaginator.pageIndexForOffset(this.onlineTextPages, speech.charOffset);
-    this.updateOnlineTextPosition(false, speech.charOffset);
-    if (this.pageTurnMode === PageTurnMode.Vertical) this.continuousRevision++;
+    let offset = speech.charOffset;
+    // 翻页起点可能位于一句话中间，旧句首不能把刚翻的新页拉回上一页。
+    if (this.speechPageFloorChapter === speech.chapterIndex && offset < this.speechPageFloor) {
+      offset = this.speechPageFloor;
+    } else {
+      this.speechPageFloor = -1;
+      this.speechPageFloorChapter = -1;
+    }
+    this.onlineTextPageIndex = OnlineTextPaginator.pageIndexForOffset(this.onlineTextPages, offset);
+    this.updateOnlineTextPosition(false, offset);
+    this.speechFollowOffset = offset;
+  }
+
+  private async startReaderSpeech(book: Book, chapterIndex: number, rawOffset: number, displayOffset: number): Promise<void> {
+    const ticket = ++this.speechNavigationSerial;
+    this.speechNavigationPending = true;
+    this.speechPageFloorChapter = chapterIndex;
+    this.speechPageFloor = displayOffset;
+    try {
+      if (chapterIndex === this.currentResourceIndex) this.updateSpeechPageEnds();
+      await TextToSpeechService.getInstance().start(book, chapterIndex, rawOffset);
+    } finally {
+      if (ticket === this.speechNavigationSerial) {
+        this.speechNavigationPending = false;
+        this.syncSpeechPosition();
+      }
+    }
+  }
+
+  private updateSpeechPageEnds(): void {
+    if (!this.book) return;
+    TextToSpeechService.getInstance().setReadingPageEnds(this.book.id, this.currentResourceIndex,
+      this.pageTurnMode === PageTurnMode.Vertical ? [] : this.onlineTextPages.map((page: OnlineTextPage): number => page.endOffset));
+  }
+
+  private followReadingWithSpeech(): void {
+    const book = this.book;
+    const speech = TextToSpeechService.getInstance();
+    if (book === null || this.leaving || !this.isOnlineTextBook() ||
+      !speech.state.active || speech.state.bookId !== book.id ||
+      (!speech.state.playing && !speech.state.loading)) return;
+    // start 内部以 generation 取消旧请求，连续翻页只保留最后一次目标。
+    this.startReaderSpeech(book, this.currentResourceIndex, this.currentRawCharOffset(),
+      this.currentOnlineTextCharOffset()).catch((_error: Error): void => {
+      if (!this.leaving) this.showToast($r('app.string.tts_engine_error'));
+    });
+  }
+
+  private async readFromParagraph(chapterIndex: number, displayOffset: number): Promise<void> {
+    const book = this.book;
+    const context = this.context;
+    if (book === null || context === null || this.leaving || !this.isOnlineTextBook() ||
+      chapterIndex < 0 || chapterIndex >= book.chapters.length) return;
+    const ticket = ++this.speechSelectionSerial;
+    this.speechScrollPending = false;
+    this.hideReaderBar();
+    try {
+      const content = await this.getOnlineTextChapterContent(book, chapterIndex);
+      const offset = Math.max(0, Math.min(displayOffset, Math.max(0, content.length - 1)));
+      const paragraphStart = offset > 0 ? content.lastIndexOf('\n', offset - 1) + 1 : 0;
+      const rawOffset = this.textDocuments.get(chapterIndex)?.toRaw(paragraphStart) ?? paragraphStart;
+      const speech = TextToSpeechService.getInstance();
+      await speech.initialize(context);
+      if (this.leaving || !this.readerVisible || this.book?.id !== book.id || ticket !== this.speechSelectionSerial) return;
+      speech.setReadingPageEnds(book.id, chapterIndex, this.pageTurnMode === PageTurnMode.Vertical ? [] :
+        this.paginateOnlineTextContent(content).map((page: OnlineTextPage): number => page.endOffset));
+      await this.startReaderSpeech(book, chapterIndex, rawOffset, paragraphStart);
+    } catch (_error) {
+      if (!this.leaving && ticket === this.speechSelectionSerial) this.showToast($r('app.string.tts_engine_error'));
+    }
+  }
+
+  private beginContinuousSpeechTurn(): void {
+    if (!this.speechScrollPending) {
+      this.speechScrollChapter = this.currentResourceIndex;
+      this.speechScrollOffset = this.currentOnlineTextCharOffset();
+    }
+    this.speechScrollPending = true;
+    this.hideReaderBar();
   }
 
   private saveProgress(): void {
@@ -1727,7 +1825,7 @@ export struct ReaderPage {
     this.showChapterSheet = false;
     if (!keepReaderBar) this.hideReaderBar();
     if (this.isOnlineTextBook()) {
-      await this.loadOnlineTextChapter(resourceIndex, 0, 0, false, false);
+      if (await this.loadOnlineTextChapter(resourceIndex, 0, 0, false, false)) this.followReadingWithSpeech();
       return;
     }
     if (!this.readerKitReady || this.readerKitController === null) return;
@@ -1834,6 +1932,7 @@ export struct ReaderPage {
       this.currentResourceIndex = preview.chapterIndex;
       this.currentChapterTitle = this.chapterTitle(preview.chapterIndex);
       this.updateOnlineTextPosition(true);
+      this.followReadingWithSpeech();
       this.prefetchAdjacentOnlineTextChapters(preview.chapterIndex);
     }
   }
@@ -2471,7 +2570,7 @@ export struct ReaderPage {
             .height('100%')
           this.buildReaderTabs()
           if (this.showBrightnessBar) { this.buildBrightnessBar() }
-          if (this.speechState.active && this.speechState.bookId === this.bookId && this.isOnlineTextBook()) {
+          if (this.readerBarVisible && this.speechState.active && this.speechState.bookId === this.bookId && this.isOnlineTextBook()) {
             this.buildSpeechMiniPlayer()
           }
         }
@@ -2711,6 +2810,7 @@ export struct ReaderPage {
         Column() {
           if (this.pageTurnMode === PageTurnMode.Vertical) {
             ReaderContinuousComponent({
+              onReadFrom: (chapter: number, offset: number): void => { this.readFromParagraph(chapter, offset); },
               selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet && !this.showReplaceSheet && !this.showReaderMenu,
               onSelectionChange: (active: boolean): void => { this.selectingText = active; },
               tapRegions: this.tapRegions,
@@ -2721,8 +2821,7 @@ export struct ReaderPage {
 
               keyTurnRequest: this.keyTurnRequest,
               speechState: this.speechState,
-              followOffset: this.speechState.active && this.speechState.bookId === this.bookId &&
-                this.speechState.chapterIndex === this.currentResourceIndex ? this.speechState.charOffset : -1,
+              followOffset: this.speechNavigationPending || this.speechScrollPending || this.selectingText ? -1 : this.speechFollowOffset,
               revision: this.continuousRevision, chapterIndex: this.currentResourceIndex,
               content: this.onlineTextContent, charOffset: this.currentOnlineTextCharOffset(),
               chapterCount: this.book?.chapters.length ?? 0,
@@ -2740,10 +2839,11 @@ export struct ReaderPage {
               onPosition: (index: number, offset: number, content: string, persist: boolean): void =>
                 this.updateContinuousPosition(index, offset, content, persist),
               onCenterTap: (): void => this.toggleReaderBar(),
-              onScrollStart: (): void => this.hideReaderBar()
+              onScrollStart: (): void => this.beginContinuousSpeechTurn()
             })
           } else {
             ReaderSpeechText({
+              onReadFrom: (offset: number): void => { this.readFromParagraph(this.currentResourceIndex, offset); },
               selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet && !this.showReplaceSheet && !this.showReaderMenu,
               onSelectionChange: (active: boolean): void => { this.selectingText = active; },
               page: this.currentOnlineTextPageLayout(),

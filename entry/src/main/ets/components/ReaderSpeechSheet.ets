@@ -55,6 +55,14 @@ export struct ReaderSpeechSheet {
     finally { this.importing = false; }
   }
 
+  private async setTtsEnabled(config: CustomTtsConfig, enabled: boolean): Promise<void> {
+    if (this.importing) return;
+    this.importing = true;
+    try { await this.service.setCustomTtsEnabled(config.id, enabled); }
+    catch (_error) { this.importMessage = $r('app.string.tts_save_error'); }
+    finally { this.importing = false; }
+  }
+
   build() {
     Scroll() {
       Column({ space: 18 }) {
@@ -71,7 +79,10 @@ export struct ReaderSpeechSheet {
         Row({ space: 12 }) {
           Text($r('app.string.tts_custom_title')).fontColor($r('sys.color.font_primary'))
             .fontWeight(FontWeight.Medium).layoutWeight(1)
-          ReaderTtsTabs({ configs: this.state.customTtsConfigs, selectedId: this.state.customTtsId,
+          ReaderTtsTabs({ configs: this.voiceOnly ?
+            this.state.customTtsConfigs.filter((config: CustomTtsConfig): boolean => config.enabled) : this.state.customTtsConfigs,
+            selectedId: this.state.customTtsId, management: !this.voiceOnly,
+            onEnabledChange: (config: CustomTtsConfig, enabled: boolean): void => { this.setTtsEnabled(config, enabled); },
             onSelect: (config: CustomTtsConfig): void => { this.service.selectCustomTts(config.id); },
             onDelete: (config: CustomTtsConfig): void => { this.deleteTts(config); } })
             .constraintSize({ maxWidth: '72%' })
@@ -95,6 +106,7 @@ export struct ReaderSpeechSheet {
             .onClick((): void => { this.pasteTts(); })
         }
         Text($r('app.string.tts_custom_hint')).fontSize(12).fontColor($r('sys.color.font_secondary')).width('100%')
+        Text($r('app.string.tts_custom_enabled_hint')).fontSize(12).fontColor($r('sys.color.font_secondary')).width('100%')
         if (this.importMessage !== '') {
           Text(this.importMessage).fontSize(13).fontColor(AppColor.Brand).width('100%')
         }

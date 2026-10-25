@@ -20,16 +20,17 @@ export class SpeechTextSegmenter {
     return new RegExp('^[\\s。，、！？!?；;：:“”‘’「」『』（）()\\[\\]【】…—.\\-]+$').test(text);
   }
 
-  static split(content: string, mergeShort: boolean = false): SpeechSegment[] {
+  static split(content: string, mergeShort: boolean = false, pageEnds: number[] = []): SpeechSegment[] {
     content = LocalTextImage.speechContent(content);
     const result: SpeechSegment[] = [];
+    const boundaries: Set<number> = new Set<number>(pageEnds);
     let start = 0;
     let paragraphStart = 0;
     let paragraphEnd = content.indexOf('\n');
     if (paragraphEnd < 0) paragraphEnd = content.length;
     for (let i = 0; i < content.length; i++) {
       const ch = content.charAt(i);
-      const boundary = '。！？!?；;\n'.includes(ch) ||
+      const boundary = boundaries.has(i + 1) || '。！？!?；;\n'.includes(ch) ||
         (ch === '.' && (i + 1 === content.length || new RegExp('\\s').test(content.charAt(i + 1))));
       // 限制单句长度，且不把 UTF-16 代理对拆开。
       const code = content.charCodeAt(i);
@@ -37,7 +38,7 @@ export class SpeechTextSegmenter {
       if (boundary || limit || i === content.length - 1) {
         let end = i + 1;
         // 连续问号和收尾标点随上一句合成，避免拆出没有语音数据的请求。
-        while (end < content.length && '。！？!?；;”’」』）'.includes(content.charAt(end))) end++;
+        while (end < content.length && !boundaries.has(end) && '。！？!?；;”’」』）'.includes(content.charAt(end))) end++;
         const segment = new SpeechSegment();
         segment.start = start;
         segment.end = end;
@@ -59,16 +60,17 @@ export class SpeechTextSegmenter {
         i = end - 1;
       }
     }
-    return mergeShort ? SpeechTextSegmenter.mergeShortSegments(content, result) : result;
+    return mergeShort ? SpeechTextSegmenter.mergeShortSegments(content, result, pageEnds) : result;
   }
 
   /** HTTP 同段短句合并到约 64 字、上限约 180 字，允许附带尾部标点；不跨自然段。 */
-  private static mergeShortSegments(content: string, segments: SpeechSegment[]): SpeechSegment[] {
+  private static mergeShortSegments(content: string, segments: SpeechSegment[], pageEnds: number[]): SpeechSegment[] {
     const result: SpeechSegment[] = [];
     for (const segment of segments) {
       const previous = result.length > 0 ? result[result.length - 1] : null;
       const punctuation = SpeechTextSegmenter.isPunctuationOnly(segment.text);
       if (previous !== null && previous.paragraphStart === segment.paragraphStart &&
+        !pageEnds.some((offset: number): boolean => offset > previous.start && offset < segment.end) &&
         (previous.text.length < 64 || punctuation) && segment.end - previous.start <= (punctuation ? 196 : 180)) {
         previous.end = segment.end;
         previous.text = SpeechTextSegmenter.spokenText(content.substring(previous.start, previous.end));

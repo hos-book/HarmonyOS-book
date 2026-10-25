@@ -353,6 +353,13 @@ export class PreferenceService {
       const options: preferences.Options = { name: STORE_NAME };
       PreferenceService.initPromise = preferences.getPreferences(context, options).then(async (s) => {
         PreferenceService.store = s;
+        // 清理旧版在线句子，只删除已停用的缓存，不影响其他偏好。
+        try {
+          if (await s.has('daily_quote_v1')) {
+            await s.delete('daily_quote_v1');
+            await s.flush();
+          }
+        } catch (_error) { /* 清理失败不影响启动，下次初始化重试。 */ }
         try {
           const edits = s.getSync('book_presentation_v1', '[]');
           const groups = s.getSync('shelf_groups_v1', '[]');

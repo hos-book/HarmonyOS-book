@@ -51,15 +51,15 @@
     },
     {
       "name": "theme_bundle_applying",
-      "value": "正在应用…"
+      "value": "正在换上新主题…"
     },
     {
       "name": "theme_bundle_changed",
-      "value": "主题套装已应用"
+      "value": "新主题换好啦～"
     },
     {
       "name": "theme_bundle_failed",
-      "value": "主题应用失败，请重试"
+      "value": "这次没能换好主题，请再试一次"
     },
     {
       "name": "theme_bundle_restore",
@@ -111,7 +111,7 @@
     },
     {
       "name": "settings_reader_cache_loading",
-      "value": "正在统计缓存占用…"
+      "value": "简简正在数一数缓存…"
     },
     {
       "name": "settings_reader_cache_unavailable",
@@ -299,7 +299,7 @@
     },
     {
       "name": "session_empty",
-      "value": "暂无会话历史，开始阅读或收听后自动记录"
+      "value": "还没有阅听足迹，读一会儿或听一会儿再来吧～"
     },
     {
       "name": "session_load_failed",
@@ -503,11 +503,11 @@
     },
     {
       "name": "app_icon_retry",
-      "value": "读取当前图标失败，点击重试"
+      "value": "暂时没读到当前图标，点一下重试"
     },
     {
       "name": "app_icon_changed",
-      "value": "图标已切换，返回桌面查看"
+      "value": "新图标换好啦，回桌面看看吧～"
     },
     {
       "name": "app_icon_change_failed",
@@ -739,7 +739,7 @@
     },
     {
       "name": "import_reading_metadata",
-      "value": "正在读取书名、作者和封面…"
+      "value": "简简正在整理书名、作者和封面…"
     },
     {
       "name": "import_metadata_failed",
@@ -751,11 +751,11 @@
     },
     {
       "name": "home_category_loading_more",
-      "value": "正在加载更多"
+      "value": "简简正在找更多好书…"
     },
     {
       "name": "chapter_loading_count",
-      "value": "已加载 %d 章，继续加载中"
+      "value": "已找到 %d 章，还在继续加载…"
     },
     {
       "name": "chapter_load_retry",
@@ -763,11 +763,15 @@
     },
     {
       "name": "home_category_load_more",
-      "value": "上拉或点击加载更多"
+      "value": "上拉或点一下，再找找好书"
     },
     {
       "name": "home_category_more_failed",
-      "value": "加载失败，点击重试"
+      "value": "这次没加载好，点一下重试"
+    },
+    {
+      "name": "home_category_load_complete",
+      "value": "简简努力找过啦，这就是全部了～"
     },
     {
       "name": "search_options",
@@ -819,7 +823,7 @@
     },
     {
       "name": "hw_auth_login_success",
-      "value": "登录成功"
+      "value": "登录成功，欢迎回来～"
     },
     {
       "name": "hw_auth_system_login_required",
@@ -875,7 +879,7 @@
     },
     {
       "name": "hw_auth_logout_success",
-      "value": "已退出登录"
+      "value": "已退出登录，下次见～"
     },
     {
       "name": "hw_auth_logout_failed",
@@ -903,7 +907,7 @@
     },
     {
       "name": "account_profile_updated",
-      "value": "账号资料已更新"
+      "value": "账号资料更新好啦"
     },
     {
       "name": "account_profile_failed",
@@ -967,7 +971,7 @@
     },
     {
       "name": "local_backup_success",
-      "value": "备份已保存，包含 %d 个书源"
+      "value": "备份保存好啦，包含 %d 个书源"
     },
     {
       "name": "local_restore_confirm_title",
@@ -1039,7 +1043,7 @@
     },
     {
       "name": "cloud_backup_success",
-      "value": "备份成功，已保存到你的华为云空间"
+      "value": "备份好啦，已存入你的华为云空间"
     },
     {
       "name": "cloud_restore_success",
@@ -1163,11 +1167,11 @@
     },
     {
       "name": "profile_wechat_copied",
-      "value": "公众号名称已复制"
+      "value": "公众号名称复制好啦，去微信搜搜吧"
     },
     {
       "name": "profile_wechat_copy_failed",
-      "value": "复制失败，请重试"
+      "value": "这次没复制成功，请再试一次"
     },
     {
       "name": "guide_reader_theme_action",
@@ -1247,11 +1251,11 @@
     },
     {
       "name": "import_success",
-      "value": "导入成功，已加入书架"
+      "value": "书已放好啦，去书架看看吧～"
     },
     {
       "name": "import_no_files",
-      "value": "没有可导入的文件"
+      "value": "还没找到可导入的文件，再选选吧"
     },
     {
       "name": "chapter_order_save_failed",
@@ -1395,11 +1399,11 @@
     },
     {
       "name": "record_stats_loading",
-      "value": "正在读取收听统计"
+      "value": "简简正在整理收听时光…"
     },
     {
       "name": "record_stats_read_failed",
-      "value": "统计读取失败，点击重试"
+      "value": "暂时没读到统计，点一下重试"
     },
     {
       "name": "record_stats_equivalent_books",
@@ -1431,7 +1435,7 @@
     },
     {
       "name": "home_source_saved",
-      "value": "已设为首页源"
+      "value": "首页书源选好啦"
     },
     {
       "name": "home_source_current",
@@ -1439,19 +1443,19 @@
     },
     {
       "name": "home_source_no_audio",
-      "value": "暂无可选发现源，请先导入并启用支持发现的小说或有声书源"
+      "value": "还没有可用的发现书源，先导入并启用支持发现的小说或有声书源吧"
     },
     {
       "name": "home_source_no_discovery",
-      "value": "该源未提供首页内容或未启用发现，可继续使用搜索"
+      "value": "这个书源暂未提供首页内容或未启用发现，还可以试试搜索"
     },
     {
       "name": "home_source_empty",
-      "value": "当前首页源暂无内容，可下拉刷新或在首页顶部更换书源"
+      "value": "这个书源还没找到内容，下拉刷新或在首页顶部换个书源试试吧"
     },
     {
       "name": "home_source_load_failed",
-      "value": "首页内容加载失败，请下拉重试或在书源管理中更换首页源"
+      "value": "这次没加载好首页，下拉重试或在书源管理中换个首页源吧"
     },
     {
       "name": "home_recommendations",
@@ -1475,11 +1479,11 @@
     },
     {
       "name": "home_categories_empty",
-      "value": "当前首页源暂无分类，可下拉刷新或更换首页源"
+      "value": "这个书源暂时没有分类，下拉刷新或换个首页源试试吧"
     },
     {
       "name": "home_source_category_failed",
-      "value": "分类加载失败，请下拉重试"
+      "value": "这次没加载好分类，下拉再试试吧"
     },
     {
       "name": "app_description",
@@ -1739,19 +1743,19 @@
     },
     {
       "name": "record_empty",
-      "value": "暂无收藏书籍的阅听记录"
+      "value": "收藏的书还没有阅听足迹"
     },
     {
       "name": "record_empty_hint",
-      "value": "收藏书籍后，这里会保留你的阅读和聆听进度。"
+      "value": "收藏一本喜欢的书，简简会记下你读到、听到的地方～"
     },
     {
       "name": "record_unfavorited_empty",
-      "value": "暂无未收藏记录"
+      "value": "未收藏的书还没有阅听足迹"
     },
     {
       "name": "record_unfavorited_hint",
-      "value": "未收藏书籍的阅读和聆听记录会显示在这里。"
+      "value": "还没收藏也没关系，读过、听过的记录会留在这里～"
     },
     {
       "name": "privacy_children_title",
@@ -1935,7 +1939,7 @@
     },
     {
       "name": "player_sleep_waiting",
-      "value": "定时已到，播完本章后暂停"
+      "value": "时间到啦，听完本章就暂停"
     },
     {
       "name": "player_sleep_cancel",
@@ -1943,7 +1947,7 @@
     },
     {
       "name": "player_sleep_cancelled",
-      "value": "已取消定时"
+      "value": "定时取消啦，可以继续听了"
     },
     {
       "name": "player_sleep_close",
@@ -1951,7 +1955,7 @@
     },
     {
       "name": "player_sleep_minutes_set",
-      "value": "已设置 %d 分钟后暂停"
+      "value": "定时设好啦，%d 分钟后暂停"
     },
     {
       "name": "player_sleep_switch_cancelled",
@@ -2027,23 +2031,23 @@
     },
     {
       "name": "download_queued_all",
-      "value": "已加入整本下载"
+      "value": "整本书已加入下载队列啦"
     },
     {
       "name": "download_queued_next_twenty",
-      "value": "已加入后续20章下载"
+      "value": "后续 20 章已加入下载队列啦"
     },
     {
       "name": "download_queued_incremental",
-      "value": "已开始增量下载"
+      "value": "正在下载新章节啦"
     },
     {
       "name": "download_paused",
-      "value": "下载已暂停"
+      "value": "下载暂停啦，想继续时再点一下"
     },
     {
       "name": "download_resumed",
-      "value": "已继续下载"
+      "value": "继续下载啦"
     },
     {
       "name": "download_delete_title",
@@ -2091,7 +2095,7 @@
     },
     {
       "name": "home_source_required",
-      "value": "请先导入并启用可用书源"
+      "value": "先导入并启用可用书源，简简才能帮你找书哦"
     },
     {
       "name": "search_recommendations",
@@ -2099,11 +2103,11 @@
     },
     {
       "name": "search_recommend_loading",
-      "value": "正在从书源加载推荐"
+      "value": "简简正在从书源找推荐…"
     },
     {
       "name": "search_recommend_empty",
-      "value": "暂无可用的书源推荐"
+      "value": "书源暂时没有推荐，试试搜本喜欢的书吧"
     },
     {
       "name": "search_recommend_mystery",
@@ -2163,15 +2167,15 @@
     },
     {
       "name": "search_loading",
-      "value": "正在搜索有声书和电子书"
+      "value": "简简正在帮你找精彩内容…"
     },
     {
       "name": "search_no_result",
-      "value": "未找到相关内容"
+      "value": "简简还没找到相关内容"
     },
     {
       "name": "search_try_another",
-      "value": "试试其他关键词"
+      "value": "换个书名或作者，再找找吧～"
     },
     {
       "name": "search_history",
@@ -2195,7 +2199,7 @@
     },
     {
       "name": "settings_save_failed",
-      "value": "设置保存失败，请重试"
+      "value": "这次没能保存设置，请再试一次"
     },
     {
       "name": "settings_audio_storage_cleanup",
@@ -2227,7 +2231,7 @@
     },
     {
       "name": "download_operation_failed",
-      "value": "下载操作失败，请重试"
+      "value": "这次没能完成下载操作，请再试一次"
     },
     {
       "name": "chapter_downloaded",
@@ -2243,11 +2247,11 @@
     },
     {
       "name": "book_detail_loading",
-      "value": "正在加载书籍详情"
+      "value": "简简正在翻开书籍介绍…"
     },
     {
       "name": "book_detail_load_failed",
-      "value": "书籍详情加载失败"
+      "value": "暂时没加载好书籍详情"
     },
     {
       "name": "common_retry",
@@ -2263,11 +2267,11 @@
     },
     {
       "name": "reader_detail_unavailable",
-      "value": "暂无书籍详情"
+      "value": "暂时还没有这本书的介绍"
     },
     {
       "name": "reader_loading",
-      "value": "正在加载正文"
+      "value": "简简正在铺开正文…"
     },
     {
       "name": "reader_catalog",
@@ -2279,15 +2283,15 @@
     },
     {
       "name": "reader_no_chapters",
-      "value": "暂无章节"
+      "value": "这本书暂时还没有章节"
     },
     {
       "name": "reader_first_page",
-      "value": "已经是第一页"
+      "value": "已经到第一页啦～"
     },
     {
       "name": "reader_last_page",
-      "value": "已经是最后一页"
+      "value": "已经读到最后一页啦～"
     },
     {
       "name": "reader_back_to_current_chapter",
@@ -2663,11 +2667,11 @@
     },
     {
       "name": "rule_source_no_match",
-      "value": "没有匹配的书源"
+      "value": "还没找到匹配的书源"
     },
     {
       "name": "rule_source_no_match_hint",
-      "value": "调整搜索词后重试"
+      "value": "换个关键词，再找找吧"
     },
     {
       "name": "rule_source_selected_count",
@@ -2675,7 +2679,7 @@
     },
     {
       "name": "rule_source_select_hint",
-      "value": "请选择书源"
+      "value": "先选一个书源吧"
     },
     {
       "name": "rule_source_select_all",
@@ -2699,11 +2703,11 @@
     },
     {
       "name": "rule_source_batch_enable_success",
-      "value": "已启用所选书源"
+      "value": "选中的书源已启用啦"
     },
     {
       "name": "rule_source_batch_disable_success",
-      "value": "已禁用所选书源"
+      "value": "选中的书源已停用"
     },
     {
       "name": "rule_source_batch_delete_title",
@@ -2775,7 +2779,7 @@
     },
     {
       "name": "rule_source_import_files_progress",
-      "value": "正在导入第 %d / %d 个文件…"
+      "value": "简简正在导入第 %d / %d 个文件…"
     },
     {
       "name": "rule_source_import_files_result",
@@ -2803,11 +2807,11 @@
     },
     {
       "name": "rule_source_importing",
-      "value": "导入中"
+      "value": "正在导入…"
     },
     {
       "name": "rule_source_import_empty",
-      "value": "请先粘贴书源 JSON"
+      "value": "先粘贴书源 JSON，再导入吧"
     },
     {
       "name": "rule_source_import_invalid",
@@ -2815,7 +2819,7 @@
     },
     {
       "name": "rule_source_import_success",
-      "value": "书源已导入"
+      "value": "书源导入好啦"
     },
     {
       "name": "rule_source_installed",
@@ -2827,7 +2831,7 @@
     },
     {
       "name": "rule_source_loading",
-      "value": "正在读取书源"
+      "value": "简简正在整理书源…"
     },
     {
       "name": "rule_source_load_failed",
@@ -2839,11 +2843,11 @@
     },
     {
       "name": "rule_source_empty",
-      "value": "还没有本地书源"
+      "value": "书源还是空的，先添一个吧"
     },
     {
       "name": "rule_source_empty_hint",
-      "value": "从本地选择或在上方粘贴 JSON 后导入"
+      "value": "选个本地文件，或在上方粘贴书源 JSON，就可以导入啦"
     },
     {
       "name": "rule_source_type_audio",
@@ -2923,7 +2927,7 @@
     },
     {
       "name": "rule_source_account_login_success",
-      "value": "登录成功"
+      "value": "书源登录成功啦"
     },
     {
       "name": "rule_source_account_logout",
@@ -3027,7 +3031,7 @@
     },
     {
       "name": "rule_source_child_empty",
-      "value": "没有匹配的子书源"
+      "value": "还没找到匹配的子书源"
     },
     {
       "name": "rule_source_test_keyword",
@@ -3035,11 +3039,11 @@
     },
     {
       "name": "rule_source_test_keyword_empty",
-      "value": "请先填写搜索测试关键词"
+      "value": "先填个书名或关键词，再测试吧"
     },
     {
       "name": "rule_source_test_success",
-      "value": "书源测试通过"
+      "value": "测试通过，书源准备好啦"
     },
     {
       "name": "rule_source_test_failed",
@@ -3055,7 +3059,7 @@
     },
     {
       "name": "rule_source_bulk_running",
-      "value": "正在测试书源"
+      "value": "简简正在测试书源…"
     },
     {
       "name": "rule_source_bulk_running_short",
@@ -3075,7 +3079,7 @@
     },
     {
       "name": "rule_source_bulk_completed",
-      "value": "批量测试完成，失败书源已保留"
+      "value": "批量测试结束啦，失败书源已保留"
     },
     {
       "name": "rule_source_bulk_operation_failed",
@@ -3135,7 +3139,7 @@
     },
     {
       "name": "rule_source_login_saved",
-      "value": "登录状态已保存"
+      "value": "登录状态保存好啦"
     },
     {
       "name": "rule_source_login_refresh",
@@ -3203,7 +3207,7 @@
     },
     {
       "name": "rule_source_report_saved",
-      "value": "调试报告已保存"
+      "value": "调试报告保存好啦"
     },
     {
       "name": "rule_source_report_failed",
@@ -3439,7 +3443,7 @@
     },
     {
       "name": "rule_source_export_saved",
-      "value": "书源已导出"
+      "value": "书源导出好啦"
     },
     {
       "name": "appearance_material",
@@ -3523,7 +3527,7 @@
     },
     {
       "name": "appearance_save_failed",
-      "value": "外观设置保存失败，请重试"
+      "value": "这次没能保存外观设置，请再试一次"
     },
     {
       "name": "home_favorite_add",
@@ -3535,7 +3539,7 @@
     },
     {
       "name": "home_favorite_failed",
-      "value": "收藏操作失败，请重试"
+      "value": "这次没能完成收藏操作，请再试一次"
     },
     {
       "name": "talebook_add",
@@ -3575,11 +3579,11 @@
     },
     {
       "name": "talebook_connecting",
-      "value": "正在连接…"
+      "value": "正在连接书库…"
     },
     {
       "name": "talebook_connected",
-      "value": "Talebook 已连接，可在发现中浏览书库"
+      "value": "书库连上啦，去发现里逛逛吧"
     },
     {
       "name": "tts_title",
@@ -3747,7 +3751,7 @@
     },
     {
       "name": "reader_no_matching_chapters",
-      "value": "无匹配章节"
+      "value": "还没找到匹配的章节"
     },
     {
       "name": "reader_follow_system",
@@ -3759,7 +3763,7 @@
     },
     {
       "name": "reader_scroll_retry",
-      "value": "章节加载失败，点击重试"
+      "value": "这章没加载好，点一下重试"
     },
     {
       "name": "reader_margins",
@@ -3915,7 +3919,7 @@
     },
     {
       "name": "chapter_grid_empty",
-      "value": "暂无匹配章节"
+      "value": "还没找到匹配的章节"
     },
     {
       "name": "chapter_total_switch",
@@ -4019,7 +4023,7 @@
     },
     {
       "name": "tts_custom_import_success",
-      "value": "已导入 %d 个音色，已选中最后一个"
+      "value": "%d 个音色导入好啦，已选中最后一个"
     },
     {
       "name": "tts_custom_import_partial",
@@ -4047,7 +4051,7 @@
     },
     {
       "name": "source_switch_empty",
-      "value": "未找到匹配版本，可简化上方书名重新搜索，或启用更多书源。"
+      "value": "还没找到匹配版本，简化书名再搜搜，或多启用几个书源吧。"
     },
     {
       "name": "source_switch_failed",
@@ -4055,7 +4059,7 @@
     },
     {
       "name": "source_switch_no_chapters",
-      "value": "该来源暂无章节，请选择其他来源。"
+      "value": "这个来源暂时没有章节，换个来源试试吧。"
     },
     {
       "name": "source_switch_chapter_hint",
@@ -4099,7 +4103,7 @@
     },
     {
       "name": "source_switch_loading_chapters",
-      "value": "正在加载章节…"
+      "value": "简简正在整理章节…"
     },
     {
       "name": "reader_tap_title",
@@ -4283,7 +4287,7 @@
     },
     {
       "name": "medal_load_failed",
-      "value": "勋章加载失败，点击重试"
+      "value": "勋章暂时没加载好，点一下重试"
     },
     {
       "name": "medal_remaining",
@@ -4319,11 +4323,11 @@
     },
     {
       "name": "medal_equipped",
-      "value": "已佩戴勋章"
+      "value": "勋章戴好啦，闪闪发光～"
     },
     {
       "name": "medal_unequipped",
-      "value": "已取消佩戴"
+      "value": "勋章摘下啦，随时可以再戴上"
     },
     {
       "name": "medal_save_failed",
@@ -4447,7 +4451,7 @@
     },
     {
       "name": "ranking_loading",
-      "value": "正在获取榜单…"
+      "value": "简简正在整理榜单…"
     },
     {
       "name": "ranking_cached",
@@ -4475,7 +4479,7 @@
     },
     {
       "name": "ranking_matching",
-      "value": "正在查找书源 · %d / %d"
+      "value": "简简正在找书源 · %d / %d"
     },
     {
       "name": "ranking_no_sources",
@@ -4487,7 +4491,7 @@
     },
     {
       "name": "ranking_no_match",
-      "value": "暂未找到对应版本，试试修改书名或添加更多书源。"
+      "value": "暂时还没找到对应版本，改改书名或多添几个书源试试吧。"
     },
     {
       "name": "ranking_choose_version",
@@ -4667,19 +4671,19 @@
     },
     {
       "name": "shelf_update_checking",
-      "value": "正在检查更新"
+      "value": "正在找新章节…"
     },
     {
       "name": "shelf_update_no_new",
-      "value": "暂时没有新章节"
+      "value": "暂时没有新章节，晚点再来看看吧～"
     },
     {
       "name": "shelf_update_no_record",
-      "value": "还没有更新记录"
+      "value": "还没有更新记录，等好故事上新吧"
     },
     {
       "name": "shelf_update_empty_hint",
-      "value": "在线收藏的最新章节将在这里汇总"
+      "value": "在线收藏有了新章节，简简会在这里告诉你"
     },
     {
       "name": "shelf_update_failed_count",
@@ -4739,7 +4743,7 @@
     },
     {
       "name": "log_copied",
-      "value": "日志已复制"
+      "value": "日志复制好啦"
     },
     {
       "name": "log_operation_failed",
@@ -5119,15 +5123,15 @@
     },
     {
       "name": "shelf_empty_hint",
-      "value": "去首页添加喜欢的书籍吧"
+      "value": "书架还空着，去首页挑本喜欢的书吧～"
     },
     {
       "name": "shelf_filter_empty",
-      "value": "没有符合条件的书籍"
+      "value": "还没找到符合条件的书"
     },
     {
       "name": "shelf_filter_empty_hint",
-      "value": "试试其他筛选条件或搜索关键词"
+      "value": "换个筛选条件或关键词，再找找吧"
     },
     {
       "name": "shelf_filter_save_failed",
@@ -5135,7 +5139,7 @@
     },
     {
       "name": "settings_loading",
-      "value": "正在读取本地设置…"
+      "value": "正在找回你的本地设置…"
     },
     {
       "name": "settings_load_failed",
@@ -5143,7 +5147,7 @@
     },
     {
       "name": "settings_search_loading",
-      "value": "正在读取搜索设置…"
+      "value": "正在读取你的搜索设置…"
     },
     {
       "name": "settings_search_load_failed",
@@ -5151,7 +5155,7 @@
     },
     {
       "name": "book_detail_loading_chapters",
-      "value": "加载章节中"
+      "value": "简简正在整理章节…"
     },
     {
       "name": "app_icon_waveberry",
@@ -5223,11 +5227,11 @@
     },
     {
       "name": "comic_loading",
-      "value": "正在加载漫画…"
+      "value": "简简正在铺开漫画…"
     },
     {
       "name": "comic_empty",
-      "value": "暂时无法读取这一话"
+      "value": "这一话暂时没能打开"
     },
     {
       "name": "comic_empty_hint",
@@ -5247,7 +5251,7 @@
     },
     {
       "name": "comic_saved",
-      "value": "已入书架"
+      "value": "漫画放进书架啦"
     },
     {
       "name": "comic_add_shelf",
@@ -5255,7 +5259,7 @@
     },
     {
       "name": "comic_save_failed",
-      "value": "保存失败，请稍后重试"
+      "value": "这次没能保存，请再试一次"
     },
     {
       "name": "comic_previous",
@@ -5347,7 +5351,7 @@
     },
     {
       "name": "comic_next_failed",
-      "value": "这一话未能加载，已保留当前画面，请稍后重试。"
+      "value": "这一话暂时没加载好，当前画面留着呢，稍后再试试。"
     },
     {
       "name": "search_switch_layout",
@@ -5395,7 +5399,7 @@
     },
     {
       "name": "ranking_settings_retry",
-      "value": "加载失败，点击重试"
+      "value": "这次没加载好，点一下重试"
     },
     {
       "name": "ranking_move_up",
@@ -5459,7 +5463,7 @@
     },
     {
       "name": "ranking_categories_empty",
-      "value": "暂无展示分类，请在设置中开启全网榜单分类"
+      "value": "这里还空着，去设置里开启喜欢的榜单分类吧"
     },
     {
       "name": "record_content_filter",
@@ -5503,7 +5507,7 @@
     },
     {
       "name": "search_source_empty",
-      "value": "请至少选择一个书源"
+      "value": "先选至少一个书源，简简才能开始找书哦"
     },
     {
       "name": "search_group_title",
@@ -5611,7 +5615,7 @@
     },
     {
       "name": "comic_loading_elapsed",
-      "value": "正在解析整章，已等待 %1$d 秒"
+      "value": "简简正在整理整章，已等待 %1$d 秒"
     },
     {
       "name": "shelf_group_settings",
@@ -5643,11 +5647,11 @@
     },
     {
       "name": "reader_card_empty",
-      "value": "从一本好书开始"
+      "value": "和简简一起，翻开一本好书"
     },
     {
       "name": "reader_card_empty_hint",
-      "value": "打开书籍，留下你的阅读足迹"
+      "value": "打开书籍，留下一枚阅读足迹～"
     },
     {
       "name": "reader_card_open",
@@ -5727,11 +5731,11 @@
     },
     {
       "name": "reader_bookmark_saved",
-      "value": "已保存当前阅读位置"
+      "value": "书签夹好啦，下次接着读～"
     },
     {
       "name": "reader_bookmarks_empty",
-      "value": "还没有书签，可在阅读菜单中添加"
+      "value": "还没有书签，读到喜欢的地方就夹一枚吧"
     },
     {
       "name": "reader_bookmark_position",
@@ -5799,7 +5803,7 @@
     },
     {
       "name": "reader_replace_empty",
-      "value": "暂无规则，点击添加可替换文字或清除广告"
+      "value": "还没有替换规则，点添加来替换文字或清除广告吧"
     },
     {
       "name": "reader_replace_invalid",
@@ -5939,7 +5943,143 @@
     },
     {
       "name": "comic_translation_downloading",
-      "value": "正在准备语言资源 %d%%"
+      "value": "简简正在准备语言资源 %d%%"
+    },
+    {
+      "name": "common_content_loading",
+      "value": "简简正在加载…"
+    },
+    {
+      "name": "common_content_empty",
+      "value": "这里暂时还没有内容哦"
+    },
+    {
+      "name": "common_tap_retry",
+      "value": "点一下，再试试"
+    },
+    {
+      "name": "common_load_error_detail",
+      "value": "这次没加载好：%s"
+    },
+    {
+      "name": "common_page_invalid",
+      "value": "页面信息不完整，请返回后重新打开"
+    },
+    {
+      "name": "shelf_readded",
+      "value": "书已放回书架啦"
+    },
+    {
+      "name": "shelf_imported_remove_hint",
+      "value": "导入的书请到书架长按删除哦"
+    },
+    {
+      "name": "shelf_snapshot_missing",
+      "value": "这本书的缓存信息缺失，请重新搜索后加入书架"
+    },
+    {
+      "name": "shelf_remove_failed",
+      "value": "这次没能移出书架，请再试一次"
+    },
+    {
+      "name": "download_no_new_chapters",
+      "value": "暂时没有可下载的新章节，晚点再看看吧"
+    },
+    {
+      "name": "download_next_unavailable",
+      "value": "后续章节已下载或暂不可下载"
+    },
+    {
+      "name": "download_pause_failed",
+      "value": "没能暂停下载，请再试一次"
+    },
+    {
+      "name": "download_resume_failed",
+      "value": "没能继续下载，请再试一次"
+    },
+    {
+      "name": "download_delete_failed",
+      "value": "下载删除失败，请重试"
+    },
+    {
+      "name": "download_export_success",
+      "value": "%d 个音频导出好啦，去文件管理看看吧"
+    },
+    {
+      "name": "download_export_partial",
+      "value": "已导出 %d 个音频，%d 个失败，请重试"
+    },
+    {
+      "name": "download_empty",
+      "value": "还没有离线下载，存几章随时听吧～"
+    },
+    {
+      "name": "download_chapter_running",
+      "value": "这一章正在下载，稍等一下哦"
+    },
+    {
+      "name": "download_chapter_queued",
+      "value": "这一章已加入下载队列啦"
+    },
+    {
+      "name": "download_chapter_deleted",
+      "value": "本章下载已删除"
+    },
+    {
+      "name": "player_play_failed",
+      "value": "这次没能播放，点一下重试"
+    },
+    {
+      "name": "reader_chapter_load_failed",
+      "value": "这章没加载好，请再试一次"
+    },
+    {
+      "name": "reader_content_load_failed",
+      "value": "这章正文没加载好，请再试一次"
+    },
+    {
+      "name": "chapter_catalog_loading",
+      "value": "简简正在整理章节目录…"
+    },
+    {
+      "name": "chapter_program_loading",
+      "value": "简简正在整理节目列表…"
+    },
+    {
+      "name": "rule_source_read_failed",
+      "value": "暂时没能读取书源，请再试一次"
+    },
+    {
+      "name": "rule_source_address_required",
+      "value": "先填上书源地址吧"
+    },
+    {
+      "name": "rule_source_name_required",
+      "value": "给这个书源起个名字吧"
+    },
+    {
+      "name": "rule_source_save_success",
+      "value": "书源保存好啦"
+    },
+    {
+      "name": "import_action_start",
+      "value": "开始导入"
+    },
+    {
+      "name": "settings_clear_failed",
+      "value": "清理未完成，请重试"
+    },
+    {
+      "name": "settings_online_records_cleared",
+      "value": "在线收藏与播放记录已清空"
+    },
+    {
+      "name": "settings_downloads_cleared",
+      "value": "下载内容已清除"
+    },
+    {
+      "name": "settings_ebook_cache_cleared",
+      "value": "电子书缓存清理好啦"
     }
   ]
 }

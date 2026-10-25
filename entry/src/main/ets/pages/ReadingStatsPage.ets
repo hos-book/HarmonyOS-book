@@ -2,6 +2,8 @@ import { LocalBookCover } from '../components/LocalBookCover';
 import { CoverImage } from '../components/CoverImage';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
 import { ImmersiveSummaryTag } from '../components/ImmersiveSummaryTag';
+import { DailyQuoteService } from '../service/DailyQuoteService';
+import { DailyQuote } from '../model/DailyQuote';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { HdsCompat } from '../utils/HdsCompat';
 import { common } from '@kit.AbilityKit';
@@ -106,12 +108,16 @@ const MINI_TITLE_BAR_HEIGHT: number = 56;
 export struct ReadingStatsPage {
   @Param navStack: NavPathStack = new NavPathStack();
   @Param inTab: boolean = false;
+  @Param visible: boolean = true;
   /** 记录 Tab 只展示收藏书籍；时钟入口打开未收藏历史模式。 */
   @Param onlyUnfavorited: boolean = false;
   @Event onScrollerReady: (scroller: Scroller) => void = () => {};
   @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
 
   @Local statsReady: boolean = false;
+  @Local dailyQuoteText: ResourceStr = $r('app.string.daily_quote_initial');
+  @Local dailyQuoteSource: string = '';
+  @Local dailyQuoteCardWidth: number = 0;
   @Local statsError: boolean = false;
   @Local streak: number = 0;
   @Local totalSeconds: number = 0;
@@ -194,19 +200,25 @@ export struct ReadingStatsPage {
     this.visibleRefreshTimer = -1;
   }
 
+  @Monitor('visible')
+  onRecordTabVisibilityChanged(): void {
+    if (this.inTab) this.handleRecordVisibility(this.visible, this.visible ? 1 : 0);
+  }
+
   private handleRecordVisibility(visible: boolean, ratio: number): void {
     this.cancelVisibleRefresh();
     this.pageVisible = false;
     this.listScrolling = false;
     if (this.dayTimer !== -1) clearTimeout(this.dayTimer);
     this.dayTimer = -1;
-    if (!visible || ratio < 0.99 || !this.recoveryActive) return;
+    if (!visible || ratio < 0.99 || !this.recoveryActive || (this.inTab && !this.visible)) return;
     // 横滑露出一角不取数；完整显示稳定后再刷新，避免取数与滑动争抢 UI 线程。
     this.visibleRefreshTimer = setTimeout((): void => {
       this.visibleRefreshTimer = -1;
       if (!this.recoveryActive) return;
       this.pageVisible = true;
       this.loadStats();
+      this.loadDailyQuote();
       this.scheduleDayRefresh();
     }, 220);
   }
@@ -219,8 +231,35 @@ export struct ReadingStatsPage {
       this.dayTimer = -1;
       if (!this.recoveryActive) return;
       this.loadStats();
+      this.loadDailyQuote();
       this.scheduleDayRefresh();
     }, Math.max(1000, nextDay.getTime() - now.getTime()));
+  }
+
+  private loadDailyQuote(): void {
+    if (this.onlyUnfavorited || !this.pageVisible) return;
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
+    try {
+      this.applyDailyQuote(DailyQuoteService.next(context));
+    } catch (_error) { /* 资源异常时保留当前诗句，不影响记录和统计。 */ }
+  }
+
+  private applyDailyQuote(quote: DailyQuote): void {
+    this.dailyQuoteText = quote.text;
+    this.dailyQuoteSource = [quote.author, quote.source].filter((value: string): boolean => value.length > 0).join(' · ');
+  }
+
+  private dailyQuoteFitsInline(): boolean {
+    if (this.dailyQuoteSource.length === 0) return true;
+    const ui = this.getUIContext();
+    const measure = ui.getMeasureUtils();
+    const quoteWidth = measure.measureText({ textContent: this.dailyQuoteText, fontSize: 15 });
+    const indentWidth = measure.measureText({ textContent: '　　', fontSize: 15 });
+    const authorWidth = measure.measureText({
+      textContent: $r('app.string.daily_quote_attribution', this.dailyQuoteSource), fontSize: AppFont.Caption
+    });
+    return ui.px2vp(quoteWidth + indentWidth + authorWidth) + 12 <= this.dailyQuoteCardWidth;
   }
 
   private async loadStats(): Promise<void> {
@@ -691,6 +730,7 @@ export struct ReadingStatsPage {
         Refresh({ refreshing: $$this.refreshing, builder: this.refreshIndicator() }) {
           List({ scroller: this.scroller }) {
             if (!this.onlyUnfavorited) {
+              ListItem() { this.buildDailyQuoteCard() }.margin({ bottom: AppSpace.Sm })
               ListItem() { this.buildSummaryCard() }
             }
             if (this.loading) {
@@ -723,11 +763,12 @@ export struct ReadingStatsPage {
             right: AppSpace.Md
           })
           // 首尾避让随列表滚动，避免 padding 将内容裁在悬浮底栏上方。
-          .contentStartOffset(WindowUtils.getStatusBarHeightVp() + MINI_TITLE_BAR_HEIGHT + AppSpace.Sm)
+          .contentStartOffset(WindowUtils.getStatusBarHeightVp() + MINI_TITLE_BAR_HEIGHT +
+            (this.onlyUnfavorited ? AppSpace.Sm : 0))
           .contentEndOffset(this.inTab ? WindowUtils.getFloatingTabBottomVp() :
             WindowUtils.getBottomSafeVp() + AppSpace.Xl)
         }
-        .onRefreshing(() => { this.loadStats(); })
+        .onRefreshing(() => { this.loadStats(); this.loadDailyQuote(); })
         .width('100%')
         .height('100%')
         .backgroundColor(Color.Transparent)
@@ -824,6 +865,38 @@ export struct ReadingStatsPage {
     .alignItems(HorizontalAlign.Start)
     .padding({ top: 2, bottom: 16 })
     .onClick(() => { if (this.statsError) this.loadStats(); })
+  }
+
+  @Builder
+  buildDailyQuoteCard() {
+    Column({ space: 6 }) {
+      Text($r('app.string.daily_quote_title'))
+        .fontSize(14).fontWeight(FontWeight.Medium).fontColor(AppColor.Brand)
+      if (this.dailyQuoteFitsInline()) {
+        Row({ space: 12 }) {
+          Text(this.dailyQuoteText).fontSize(15).lineHeight(23).textIndent('30fp')
+            .fontColor(AppTheme.TextPrimary).layoutWeight(1)
+          if (this.dailyQuoteSource.length > 0) {
+            Text($r('app.string.daily_quote_attribution', this.dailyQuoteSource))
+              .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+              .textAlign(TextAlign.End).flexShrink(0)
+          }
+        }.width('100%').alignItems(VerticalAlign.Center)
+      } else {
+        Column({ space: 2 }) {
+          Text(this.dailyQuoteText).fontSize(15).lineHeight(23).textIndent('30fp')
+            .fontColor(AppTheme.TextPrimary).width('100%')
+          Text($r('app.string.daily_quote_attribution', this.dailyQuoteSource))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+            .width('100%').textAlign(TextAlign.End)
+        }.width('100%')
+      }
+    }
+    .width('100%').alignItems(HorizontalAlign.Start)
+    .padding({ top: 0, bottom: 4 })
+    .onSizeChange((_oldSize: SizeOptions, size: SizeOptions): void => {
+      this.dailyQuoteCardWidth = Number(size.width);
+    })
   }
 
   @Builder
@@ -956,16 +1029,28 @@ export struct ReadingStatsPage {
   @Builder
   buildRecordActions(item: ListenRecordView) {
     Row({ space: 6 }) {
-      ImmersiveCircleButton({ icon: $r('sys.symbol.clock'), diameter: 36, iconSize: 18, useMaterial: false,
-        iconColor: AppTheme.TextPrimary, label: $r('app.string.session_history'),
-        onPress: (): void => {
+      // 滚动条目使用静态半透明底，避免每行两个实时背景滤镜持续重新取样。
+      Button({ type: ButtonType.Circle }) {
+        SymbolGlyph($r('sys.symbol.clock')).fontSize(18).fontColor([AppTheme.TextPrimary])
+      }
+        .width(36).height(36).padding(0)
+        .backgroundColor($r('app.color.shelf_toolbar_background'))
+        .border({ width: 0.5, color: $r('sys.color.comp_divider') })
+        .accessibilityText($r('app.string.session_history'))
+        .onClick((): void => {
           const params: Record<string, Object> = { 'bookIds': JSON.stringify([item.bookId, ...item.aliasBookIds]) };
           this.navStack.pushPathByName('sessionHistory', params);
-        } })
-      ImmersiveCircleButton({ icon: item.isText ? $r('sys.symbol.book') : $r('sys.symbol.play_fill'),
-        diameter: 36, iconSize: 16, useMaterial: false, iconColor: AppTheme.TextPrimary,
-        label: item.isText ? $r('app.string.book_detail_continue_read') : $r('app.string.book_detail_continue_listen'),
-        onPress: (): void => { this.resumeRecord(item); } })
+        })
+      Button({ type: ButtonType.Circle }) {
+        SymbolGlyph(item.isText ? $r('sys.symbol.book') : $r('sys.symbol.play_fill'))
+          .fontSize(16).fontColor([AppTheme.TextPrimary])
+      }
+        .width(36).height(36).padding(0)
+        .backgroundColor($r('app.color.shelf_toolbar_background'))
+        .border({ width: 0.5, color: $r('sys.color.comp_divider') })
+        .accessibilityText(item.isText ? $r('app.string.book_detail_continue_read') :
+          $r('app.string.book_detail_continue_listen'))
+        .onClick((): void => { this.resumeRecord(item); })
     }.margin({ left: 8 })
   }
 

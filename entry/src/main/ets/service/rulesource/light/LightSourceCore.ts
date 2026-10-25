@@ -403,7 +403,11 @@ export class LightSourceCore {
       const coordinator = new ExploreCoordinator();
       const items = await coordinator.explore({ title: '', url: address,
         sourceUrl: source.bookSourceUrl, sourceName: source.bookSourceName }, page, limit);
-      if (!items.length && coordinator.getNoticeMessage()) throw new Error(coordinator.getNoticeMessage());
+      const notice = coordinator.getNoticeMessage();
+      // 上游用同一提示表示规则未匹配和正常空页；后续分页的空列表表示已到底。
+      // 首屏诊断、请求失败及字段解析失败仍交由调用方显示错误。
+      const reachedEnd = page > 1 && notice === '发现接口已有响应，但列表规则未匹配到内容';
+      if (!items.length && notice && !reachedEnd) throw new Error(notice);
       console.info(`[LightNativeTiming] stage=explore count=${items.length} elapsedMs=${Date.now() - started}`);
       return JSON.stringify({ books: items.map(item => this.result(item, source)), nextUrl: items.length ? address : '' });
     });

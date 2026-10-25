@@ -317,11 +317,66 @@ async function check(name, action) { await action(); console.log(`PASS ${name}`)
     const current = h.spoken.at(-1); await h.complete(1, current); await h.complete(1, current); await settle();
     assert.equal(h.spoken.length, 3); h.service.stop();
   });
+  await check('跨页长段按实际页尾拆分，下一页开始播报即更新位置，HTTP 合并不跨页', async () => {
+    const text = '本页最后一段还没有句号但是已经到了下一页才结束。';
+    const split = 12;
+    for (const merge of [false, true]) {
+      const parts = SpeechTextSegmenter.split(text, merge, [split, text.length]);
+      assert.equal(parts[0].end, split);
+      assert.equal(parts[1].start, split);
+      assert.equal(parts.map(part => part.text).join(''), text);
+      assert.equal(parts[1].paragraphStart, 0, 'paragraph highlight remains intact across pages');
+    }
+    const h = harness(); await h.init();
+    h.service.setReadingPageEnds('page-boundary', 0, [split, text.length]);
+    await h.service.start(book('page-boundary', [text]), 0, 0); await settle();
+    assert.equal(h.spoken.at(-1).text, text.slice(0, split));
+    await h.complete(); await settle();
+    assert.equal(h.service.state.charOffset, split);
+    assert.equal(h.spoken.at(-1).text, text.slice(split));
+    h.service.stop();
+  });
   await check('重启后按章节 URL 恢复，目录重排不串章', async () => {
     const h = harness(); await h.init(); const b = book(); await h.service.start(b, 0, 5); h.service.stop();
     const next = harness(h.memory); await next.init(); b.chapters.reverse();
     await next.service.start(b, 0, 0, true);
     assert.equal(next.service.state.chapterIndex, 1); assert.equal(next.spoken[0].text, '第二句！'); next.service.stop();
+  });
+  await check('本章进度跳转保持播放状态，取消旧语音回调，末端不误跳下一章', async () => {
+    const h = harness(); await h.init();
+    await h.service.start(book('seek', ['第一句。第二句。第三句。第四句。', '下一章。']), 0, 0);
+    const old = h.spoken.at(-1);
+    h.service.seekProgress(50); await settle();
+    assert.equal(h.spoken.at(-1).text, '第三句。');
+    assert.equal(h.service.state.playing, true);
+    const count = h.spoken.length;
+    await h.complete(1, old); await settle();
+    assert.equal(h.spoken.length, count, 'stale playback cannot advance the new target');
+    h.service.seekProgress(100); await settle();
+    assert.equal(h.spoken.at(-1).text, '第四句。');
+    assert.equal(h.service.state.chapterIndex, 0);
+    h.service.seekProgress(-10); await settle();
+    assert.equal(h.spoken.at(-1).text, '第一句。');
+    h.service.stop();
+  });
+  await check('暂停拖动只定位并保存，恢复后从目标片段继续，无效进度不改变位置', async () => {
+    const h = harness(); await h.init();
+    const b = book('paused-seek', ['第一句。第二句。第三句。第四句。']);
+    await h.service.start(b, 0, 0); h.service.pause();
+    const count = h.spoken.length;
+    h.service.seekProgress(75); await settle();
+    assert.equal(h.spoken.length, count);
+    assert.equal(h.service.state.playing, false);
+    assert.equal(h.service.state.charOffset, 12);
+    assert.equal(h.service.state.sentence, '第四句。');
+    assert.equal(JSON.parse(h.memory.get('position_paused-seek')).charOffset, 12);
+    h.service.seekProgress(NaN); h.service.seekProgress(Infinity);
+    assert.equal(h.service.state.charOffset, 12);
+    await h.service.resume(); await settle();
+    assert.equal(h.spoken.at(-1).text, '第四句。');
+    h.service.stop();
+    h.service.seekProgress(0);
+    assert.equal(h.service.state.active, false);
   });
   await check('停止时取消尚未创建完成的引擎，不意外出声', async () => {
     const h = harness(); await h.init(); let finish;
@@ -458,6 +513,32 @@ async function check(name, action) { await action(); console.log(`PASS ${name}`)
     assert.equal(restored.service.state.customTtsId, '');
     assert.equal(restored.service.state.customTtsConfigs.length, 1);
     h.service.stop(); restored.service.stop();
+  });
+  await check('音色禁用持久化、重导入保留状态、禁止选择与重新启用', async () => {
+    const h = harness(); await h.init();
+    const raw = '{"name":"甲","url":"https://tts.example?text={{text}}"}';
+    const configs = CustomTtsConfigParser.parse(raw);
+    assert.equal(configs[0].enabled, true, '旧配置默认启用');
+    await h.service.importCustomTts(configs);
+    await h.service.start(book(), 0, 0); await settle();
+    await h.service.setCustomTtsEnabled(configs[0].id, false); await settle();
+    assert.equal(h.service.state.customTtsId, '');
+    assert.equal(h.service.state.customTtsConfigs[0].enabled, false);
+    assert.ok(h.systemSpoken.length > 0, '禁用当前音色继续使用系统语音');
+    h.service.stop();
+    await h.service.selectCustomTts(configs[0].id);
+    assert.equal(h.service.state.customTtsId, '');
+    await h.service.importCustomTts(CustomTtsConfigParser.parse(raw));
+    assert.equal(h.service.state.customTtsConfigs[0].enabled, false);
+    assert.equal(h.service.state.customTtsId, '');
+    h.memory.set('customTtsId', configs[0].id);
+    const restored = harness(h.memory); await restored.init();
+    assert.equal(restored.service.state.customTtsConfigs[0].enabled, false);
+    assert.equal(restored.service.state.customTtsId, '', '重启不恢复已禁用音色');
+    await restored.service.setCustomTtsEnabled(configs[0].id, true);
+    await restored.service.selectCustomTts(configs[0].id);
+    assert.equal(restored.service.state.customTtsId, configs[0].id);
+    restored.service.stop();
   });
   await check('HTTP 音色等待音频出声才进入播放；切换和暂停隔离迟到回调', async () => {
     const h = harness(); await h.init();

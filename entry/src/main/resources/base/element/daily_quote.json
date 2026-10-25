@@ -1,0 +1,16 @@
+{
+  "string": [
+    {
+      "name": "daily_quote_attribution",
+      "value": "—— %s"
+    },
+    {
+      "name": "daily_quote_title",
+      "value": "简听一语"
+    },
+    {
+      "name": "daily_quote_initial",
+      "value": "欲穷千里目，更上一层楼。"
+    }
+  ]
+}

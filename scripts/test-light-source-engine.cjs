@@ -222,6 +222,25 @@ async function run() {
   assert.equal(search[0].bookUrl, 'https://engine.test/book');
   assert.equal(search[0].rating, 9.2);
   assert.equal(search[0].completed, undefined, 'unknown status must remain absent');
+  const exploreLocal = {...local, definition:JSON.stringify({...source, enabledExplore:true,
+    exploreUrl:'/discover?page={{page}}', ruleExplore:source.ruleSearch})};
+  const exploreJson = JSON.stringify(exploreLocal);
+  const savedExploreSource = LightSourceRuntime.host.getSource;
+  LightSourceRuntime.host.getSource = async () => exploreJson;
+  fixtures.set('https://engine.test/discover?page=1', fixtures.get('https://engine.test/search'));
+  fixtures.set('https://engine.test/discover?page=2', '{"books":[]}');
+  assert.equal(JSON.parse(await engine.explore(exploreJson, '/discover?page={{page}}', 1, 50)).books.length, 1);
+  assert.deepEqual(JSON.parse(await engine.explore(exploreJson, '/discover?page={{page}}', 2, 50)),
+    {books:[],nextUrl:''}, 'a successful empty continuation ends discovery pagination');
+  fixtures.set('https://engine.test/discover?page=1', '{"books":[]}');
+  await assert.rejects(engine.explore(exploreJson, '/discover?page={{page}}', 1, 50), /列表规则未匹配/,
+    'first-page empty results retain source diagnostics');
+  fixtures.set('https://engine.test/discover?page=2', () => { throw Error('fixture network failure'); });
+  await assert.rejects(engine.explore(exploreJson, '/discover?page={{page}}', 2, 50), /fixture network failure/,
+    'network errors must remain retryable errors');
+  fixtures.set('https://engine.test/discover?page=2', '{"books":[{"name":"Missing URL"}]}');
+  await assert.rejects(engine.explore(exploreJson, '/discover?page={{page}}', 2, 50), /书名或详情地址解析失败/);
+  LightSourceRuntime.host.getSource = savedExploreSource;
   const detail = JSON.parse(await engine.detail(JSON.stringify(local), search[0].bookUrl, '{}'));
   assert.equal(detail.author, 'Author');
   assert.equal(detail.rating, 9.6);
