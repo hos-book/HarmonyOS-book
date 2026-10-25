@@ -12,6 +12,8 @@ export class TextToSpeechState {
   @Trace chapterTitle: string = '';
   @Trace chapterCount: number = 0;
   @Trace charOffset: number = 0;
+  // 听书页段内跟随坐标，不驱动正文逐字翻页或频繁保存阅读进度。
+  @Trace playbackOffset: number = 0;
   @Trace contentLength: number = 0;
   @Trace sentence: string = '';
   @Trace playing: boolean = false;

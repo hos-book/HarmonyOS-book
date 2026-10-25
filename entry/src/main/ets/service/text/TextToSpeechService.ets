@@ -67,7 +67,10 @@ export class TextToSpeechService {
   private readingPageBookId: string = '';
   private readingPageChapter: number = -1;
   private readingPageEnds: number[] = [];
-  private readingPagesChanged: boolean = false;
+  private nextSystemId: string = '';
+  private nextSystemIndex: number = -1;
+  private nextSystemPcm: SpeechPcmBuffer = new SpeechPcmBuffer();
+  private nextSystemAudio: ArrayBuffer | null = null;
   private generation: number = 0;
   private requestSequence: number = 0;
   private requestId: string = '';
@@ -435,6 +438,9 @@ export class TextToSpeechService {
       if (this.segments.length === 0) {
         await this.loadChapter(this.state.chapterIndex, this.currentRawOffset(), ticket);
       } else {
+        if (this.state.charOffset > (this.segments[this.segmentIndex]?.start ?? 0) &&
+          this.readingPageBookId === this.state.bookId && this.readingPageChapter === this.state.chapterIndex &&
+          this.readingPageEnds.length > 0) this.rebuildSpeechSegments();
         this.publishMetadata();
         this.speakNext(ticket);
       }
@@ -533,22 +539,42 @@ export class TextToSpeechService {
       this.engineLanguage = language;
       const listener: textToSpeech.SpeakListener = {
         onStart: (id: string, response: textToSpeech.StartResponse): void => {
+          if (id === this.nextSystemId) {
+            try { this.nextSystemPcm.configure(response); }
+            catch (_error) { this.discardSystemPrefetch(id); }
+            return;
+          }
           if (id !== this.requestId) return;
           try { this.pcm.configure(response); }
           catch (error) { this.fail(new Error(String(error))); }
         },
         onComplete: (id: string, response: textToSpeech.CompleteResponse): void => {
+          if (id === this.nextSystemId) {
+            if (response.type !== 0 || this.nextSystemAudio !== null) return;
+            try { this.nextSystemAudio = this.nextSystemPcm.toWave(); }
+            catch (_error) { this.discardSystemPrefetch(id); return; }
+            this.nextSystemPcm.reset();
+            if (id === this.requestId) this.playPreparedSystemSpeech(id, this.generation);
+            return;
+          }
           if (id !== this.requestId || response.type !== 0 || this.pcmPlaybackId === id) return;
           this.pcmPlaybackId = id;
           this.playSystemSpeech(id, this.generation);
         },
         onStop: (id: string, _response: textToSpeech.StopResponse): void => {
+          if (id === this.nextSystemId) { this.discardSystemPrefetch(id); return; }
           if (id === this.requestId) this.pause();
         },
         onError: (id: string, code: number, _message: string): void => {
+          if (id === this.nextSystemId) { this.discardSystemPrefetch(id); return; }
           if (id === this.requestId) this.fail(new Error(`TTS error ${code}`));
         },
         onData: (id: string, data: ArrayBuffer, response: textToSpeech.SynthesisResponse): void => {
+          if (id === this.nextSystemId) {
+            try { this.nextSystemPcm.append(data, response); }
+            catch (_error) { this.discardSystemPrefetch(id); }
+            return;
+          }
           if (id !== this.requestId) return;
           try { this.pcm.append(data, response); }
           catch (error) { this.fail(new Error(String(error))); }
@@ -598,6 +624,7 @@ export class TextToSpeechService {
     this.state.chapterIndex = index;
     this.state.chapterTitle = book.chapters[index].title;
     this.state.charOffset = offset;
+    this.state.playbackOffset = offset;
     this.state.contentLength = 0;
     this.state.sentence = '';
     this.state.highlightOffset = -1;
@@ -655,12 +682,6 @@ export class TextToSpeechService {
 
   private speakNext(ticket: number): void {
     if (!this.valid(ticket) || (!this.state.customTtsId && this.engine === null) || this.book === null) return;
-    if (this.readingPagesChanged) {
-      const nextOffset = this.segments[this.segmentIndex]?.start ?? this.state.contentLength;
-      this.clearHttpPrefetch();
-      this.rebuildSpeechSegments();
-      this.segmentIndex = SpeechTextSegmenter.indexAt(this.segments, nextOffset);
-    }
     if (this.sleepDeadline > 0 && Date.now() >= this.sleepDeadline) {
       this.pause(); this.setSleep(0); return;
     }
@@ -676,6 +697,7 @@ export class TextToSpeechService {
     }
     const segment = this.segments[this.segmentIndex];
     this.state.charOffset = segment.start;
+    this.state.playbackOffset = segment.start;
     this.state.sentence = segment.text;
     this.requestId = this.nextId();
     this.pcm.reset();
@@ -694,17 +716,58 @@ export class TextToSpeechService {
         if (this.valid(ticket)) this.fail(new Error('Speech callback timed out'));
       }, 150000);
       if (this.state.customTtsId) this.speakHttp(segment.text, this.requestId, ticket);
-      else this.engine?.speak(segment.text, params);
+      else if (this.nextSystemIndex === this.segmentIndex && this.nextSystemId.length > 0) {
+        this.requestId = this.nextSystemId;
+        this.playPreparedSystemSpeech(this.requestId, ticket);
+      } else this.engine?.speak(segment.text, params);
     } catch (error) {
       this.fail(error instanceof Error ? error : new Error(String(error)));
     }
   }
 
-  private playSystemSpeech(id: string, ticket: number): void {
+  private discardSystemPrefetch(id: string): void {
+    if (id !== this.nextSystemId) return;
+    const waiting = id.length > 0 && id === this.requestId;
+    this.nextSystemId = '';
+    this.nextSystemIndex = -1;
+    this.nextSystemAudio = null;
+    this.nextSystemPcm.reset();
+    // 预取失败不打断当前音频；已到下一段时按普通合成重试。
+    if (waiting) this.speakNext(this.generation);
+  }
+
+  private prefetchSystemPage(): void {
+    const segment = this.segments[this.segmentIndex];
+    if (!segment || this.nextSystemId.length > 0 ||
+      this.readingPageBookId !== this.state.bookId || this.readingPageChapter !== this.state.chapterIndex ||
+      !this.readingPageEnds.some((end: number): boolean => end > segment.start && end <= segment.end) ||
+      this.segmentIndex + 1 >= this.segments.length) return;
+    this.nextSystemId = this.nextId();
+    this.nextSystemIndex = this.segmentIndex + 1;
+    const params: textToSpeech.SpeakParams = {
+      requestId: this.nextSystemId,
+      extraParams: { 'queueMode': 0, 'speed': Math.min(2, this.state.speed), 'volume': 1, 'pitch': 1,
+        'languageContext': this.state.language, 'audioType': 'pcm', 'soundChannel': 1, 'playType': 0, 'isBackStage': true }
+    };
+    try { this.engine?.speak(this.segments[this.nextSystemIndex].text, params); }
+    catch (_error) { this.discardSystemPrefetch(this.nextSystemId); }
+  }
+
+  private playPreparedSystemSpeech(id: string, ticket: number): void {
+    const buffer = this.nextSystemAudio;
+    if (buffer === null) return;
+    this.nextSystemId = '';
+    this.nextSystemIndex = -1;
+    this.nextSystemAudio = null;
+    this.pcmPlaybackId = id;
+    this.playSystemSpeech(id, ticket, buffer);
+  }
+
+  private playSystemSpeech(id: string, ticket: number, prepared: ArrayBuffer | null = null): void {
     const context = this.context;
     if (context === null) return;
     let buffer: ArrayBuffer;
-    try { buffer = this.pcm.toWave(); }
+    try { buffer = prepared ?? this.pcm.toWave(); }
     catch (error) { this.fail(new Error(String(error))); return; }
     this.pcm.reset();
     const player = new HttpTtsPlayer();
@@ -716,8 +779,10 @@ export class TextToSpeechService {
           if (!this.valid(ticket) || id !== this.requestId) return;
           if (this.spokenSince < 0) this.spokenSince = systemDateTime.getUptime(systemDateTime.TimeType.STARTUP);
           this.highlightParagraph();
+          this.logCrossPagePlayback(id);
           this.state.loading = false;
           this.state.playing = true;
+          this.prefetchSystemPage();
           BackgroundTaskService.startSpeech(context);
           if (Date.now() - this.lastAudioLogAt >= 60000) {
             this.lastAudioLogAt = Date.now();
@@ -725,7 +790,10 @@ export class TextToSpeechService {
           }
           this.syncSession();
           this.notify();
-        }, this.httpOutput);
+        }, this.httpOutput, (position: number, duration: number): void => {
+          if (!this.valid(ticket) || id !== this.requestId || !this.state.playing || this.state.loading) return;
+          this.followSpeechProgress(position, duration);
+        });
         if (!this.valid(ticket) || id !== this.requestId) return;
         this.recordSpokenTime();
         this.requestId = '';
@@ -741,17 +809,55 @@ export class TextToSpeechService {
   }
 
   private clearHttpPrefetch(): void {
+    this.nextSystemId = '';
+    this.nextSystemIndex = -1;
+    this.nextSystemAudio = null;
+    this.nextSystemPcm.reset();
     this.httpTasks.forEach((task: HttpTtsPlayer): void => task.cancel());
     this.httpTasks.clear();
     this.httpSynthesisChain = Promise.resolve();
   }
 
+  private followSpeechProgress(position: number, duration: number): void {
+    if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0 || position < 0) return;
+    const segment = this.segments[this.segmentIndex];
+    if (!segment) return;
+    // 合成接口没有逐字时间戳。仅用真实播放进度估算页界，不切音频、不逐字刷新 UI。
+    const readStart = segment.start + segment.leadingWhitespace;
+    const offset = Math.min(segment.end - 1,
+      readStart + Math.floor((segment.end - readStart) * Math.min(1, position / duration)));
+    if (offset > this.state.playbackOffset) this.state.playbackOffset = offset;
+    if (this.readingPageBookId !== this.state.bookId || this.readingPageChapter !== this.state.chapterIndex) return;
+    let pageOffset = this.state.charOffset;
+    for (const end of this.readingPageEnds) {
+      if (end > pageOffset && end > segment.start && end < segment.end && end <= offset) pageOffset = end;
+    }
+    if (pageOffset === this.state.charOffset) return;
+    hilog.info(0x0000, 'SpeechFlow', 'page request=%{public}s range=%{public}d-%{public}d offset=%{public}d time=%{public}d/%{public}d',
+      this.requestId, segment.start, segment.end, pageOffset, position, duration);
+    this.state.charOffset = pageOffset;
+    this.savePosition(false);
+    this.notify();
+  }
+
+  private logCrossPagePlayback(id: string): void {
+    const segment = this.segments[this.segmentIndex];
+    if (!segment || this.readingPageBookId !== this.state.bookId ||
+      this.readingPageChapter !== this.state.chapterIndex ||
+      !this.readingPageEnds.some((end: number): boolean => end > segment.start && end < segment.end)) return;
+    hilog.info(0x0000, 'SpeechFlow', 'play request=%{public}s range=%{public}d-%{public}d custom=%{public}s',
+      id, segment.start, segment.end, this.state.customTtsId.length > 0 ? 'true' : 'false');
+  }
+
   private rebuildSpeechSegments(): void {
-    const pageEnds = this.readingPageBookId === this.state.bookId && this.readingPageChapter === this.state.chapterIndex ?
-      this.readingPageEnds : [];
+    const pageEnds: number[] = [];
+    // 手动从新页起读仍按指定页首切入；自然播放的后续页界不拆词。
+    if (this.state.charOffset > 0 && this.readingPageBookId === this.state.bookId &&
+      this.readingPageChapter === this.state.chapterIndex && this.readingPageEnds.length > 0) {
+      pageEnds.push(this.state.charOffset);
+    }
     this.segments = SpeechTextSegmenter.split(this.chapterContent, this.state.customTtsId.length > 0, pageEnds);
     this.segmentIndex = SpeechTextSegmenter.indexAt(this.segments, this.state.charOffset);
-    this.readingPagesChanged = false;
   }
 
   setReadingPageEnds(bookId: string, chapterIndex: number, offsets: number[]): void {
@@ -761,8 +867,7 @@ export class TextToSpeechService {
     this.readingPageBookId = bookId;
     this.readingPageChapter = chapterIndex;
     this.readingPageEnds = offsets.slice();
-    // 正在播放的音频不截断，下一片段及其预取按新分页重新生成。
-    this.readingPagesChanged = this.state.bookId === bookId && this.state.chapterIndex === chapterIndex;
+    // 只更新页界映射，重新排版不废弃仍可复用的完整语句音频。
   }
 
   private prefetchHttp(config: CustomTtsConfig, ticket: number): void {
@@ -803,10 +908,14 @@ export class TextToSpeechService {
           this.state.loading = false;
           this.state.playing = true;
           this.highlightParagraph();
+          this.logCrossPagePlayback(id);
           BackgroundTaskService.startSpeech(context);
           this.syncSession();
           this.notify();
-        }, this.httpOutput);
+        }, this.httpOutput, (position: number, duration: number): void => {
+          if (!this.valid(ticket) || id !== this.requestId || !this.state.playing || this.state.loading) return;
+          this.followSpeechProgress(position, duration);
+        });
         if (!this.valid(ticket) || id !== this.requestId) return;
         this.recordSpokenTime();
         this.requestId = '';
@@ -949,6 +1058,7 @@ export class TextToSpeechService {
     this.pause();
     this.segmentIndex = Math.max(0, Math.min(this.segments.length - 1, this.segmentIndex + delta));
     this.state.charOffset = this.segments[this.segmentIndex].start;
+    this.state.playbackOffset = this.state.charOffset;
     this.resume();
   }
 
@@ -963,6 +1073,7 @@ export class TextToSpeechService {
     this.segmentIndex = index;
     const segment = this.segments[index];
     this.state.charOffset = segment.start;
+    this.state.playbackOffset = segment.start;
     this.state.sentence = segment.text;
     this.highlightParagraph();
     this.savePosition(true);

@@ -10,6 +10,7 @@ import { CoverImage } from '../components/CoverImage';
 import { BookSourceSwitchSheet } from '../components/BookSourceSwitchSheet';
 import { common } from '@kit.AbilityKit';
 import { AppStorageV2, curves, FrameCallback, LengthMetrics } from '@kit.ArkUI';
+import { text as graphicsText } from '@kit.ArkGraphics2D';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { vibrator } from '@kit.SensorServiceKit';
@@ -166,6 +167,9 @@ export struct PlayerPage {
   private speechPositionQueued: boolean = false;
   private speechPositionGeneration: number = 0;
   private speechPositionedChapter: string = '';
+  private speechTextControllers: Map<number, TextController> = new Map();
+  private speechPositionedLine: string = '';
+  @Local speechViewportHeight: number = 220;
   @Local speechState: TextToSpeechState = TextToSpeechService.getInstance().state;
   @Local seeking: boolean = false;
   @Local seekValueMs: number = 0;
@@ -1742,7 +1746,8 @@ export struct PlayerPage {
     .margin({ top: this.isLandscapePlayer() ? 0 : this.isCompactPlayer() ? AppSpace.Xs : AppSpace.Lg })
   }
 
-  @Monitor('speechState.chapterIndex', 'speechState.charOffset', 'speechState.contentLength')
+  @Monitor('speechState.bookId', 'speechState.chapterIndex', 'speechState.charOffset',
+    'speechState.playbackOffset', 'speechState.contentLength')
   private syncSpeechParagraphs(): void {
     if (!this.speechMatchesBook()) return;
     const key = `${this.speechState.bookId}:${this.speechState.chapterIndex}:${this.speechState.contentLength}`;
@@ -1757,21 +1762,40 @@ export struct PlayerPage {
         offset += line.length + 1;
       }
       this.speechChapterKey = key;
+      this.speechTextControllers.clear();
+      this.speechPositionedLine = '';
       this.speechParagraphOffsets = offsets;
       this.speechParagraphs = paragraphs;
     }
     let index = 0;
     for (let next = 0; next < this.speechParagraphOffsets.length; next++) {
-      if (this.speechParagraphOffsets[next] > this.speechState.charOffset) break;
+      if (this.speechParagraphOffsets[next] > this.speechState.playbackOffset) break;
       index = next;
     }
     if (chapterChanged || this.speechParagraphIndex !== index) {
       this.speechParagraphIndex = index;
-      this.positionSpeechParagraph(!chapterChanged);
     }
+    this.positionSpeechParagraph(!chapterChanged);
   }
 
-  private positionSpeechParagraph(animated: boolean): void {
+  private speechTextController(index: number): TextController {
+    const offset = this.speechParagraphOffsets[index];
+    let controller = this.speechTextControllers.get(offset);
+    if (controller === undefined) {
+      controller = new TextController();
+      this.speechTextControllers.set(offset, controller);
+      // 仅保留附近已构建项的控制器，长章节不会随浏览不断累积。
+      if (this.speechTextControllers.size > 64) {
+        this.speechTextControllers.forEach((_value: TextController, key: number): void => {
+          if (this.speechTextControllers.size > 64 && key !== offset &&
+            key !== this.speechParagraphOffsets[this.speechParagraphIndex]) this.speechTextControllers.delete(key);
+        });
+      }
+    }
+    return controller;
+  }
+
+  private positionSpeechParagraph(animated: boolean, attempt: number = 0): void {
     if (!this.speechListReady || this.speechPositionQueued || this.speechParagraphs.length === 0) return;
     this.speechPositionQueued = true;
     const generation = this.speechPositionGeneration;
@@ -1780,8 +1804,39 @@ export struct PlayerPage {
       this.speechPositionQueued = false;
       if (this.isLeaving || !this.speechListReady || !this.speechMatchesBook()) return;
       try {
-        this.speechScroller.scrollToIndex(this.speechParagraphIndex,
-          animated && this.speechPositionedChapter === this.speechChapterKey, ScrollAlign.CENTER);
+        const index = this.speechParagraphIndex;
+        const item = this.speechScroller.getItemRect(index);
+        const controller = this.speechTextControllers.get(this.speechParagraphOffsets[index]);
+        if (item.height <= 0 || controller === undefined) {
+          if (attempt < 2) {
+            this.speechScroller.scrollToIndex(index, false, ScrollAlign.START);
+            this.positionSpeechParagraph(false, attempt + 1);
+          }
+          return;
+        }
+        const text = this.speechParagraphs[index];
+        let offset = Math.max(0, Math.min(text.length - 1,
+          this.speechState.playbackOffset - this.speechParagraphOffsets[index]));
+        const code = text.charCodeAt(offset);
+        if (offset > 0 && code >= 0xDC00 && code <= 0xDFFF) offset--;
+        const end = offset + (text.charCodeAt(offset) >= 0xD800 && text.charCodeAt(offset) <= 0xDBFF ? 2 : 1);
+        const boxes = controller.getLayoutManager().getRectsForRange({ start: offset, end: end },
+          graphicsText.RectWidthStyle.TIGHT, graphicsText.RectHeightStyle.TIGHT);
+        if (boxes.length === 0) {
+          if (attempt < 2) this.positionSpeechParagraph(false, attempt + 1);
+          return;
+        }
+        const box = boxes[0].rect;
+        const lineKey = `${this.speechChapterKey}:${index}:${box.top}:${this.speechViewportHeight}:${item.width}`;
+        if (lineKey === this.speechPositionedLine) return;
+        const delta = item.y + 8 + this.getUIContext().px2vp((box.top + box.bottom) / 2) - this.speechViewportHeight / 2;
+        this.speechPositionedLine = lineKey;
+        if (Math.abs(delta) > 1) {
+          this.speechScroller.scrollTo({ xOffset: 0,
+            yOffset: this.speechScroller.currentOffset().yOffset + delta,
+            animation: animated && this.speechPositionedChapter === this.speechChapterKey ?
+              { duration: 180, curve: Curve.EaseOut } : false });
+        }
         this.speechPositionedChapter = this.speechChapterKey;
       } catch (_error) { /* 列表卸载时不继续定位。 */ }
     }));
@@ -1793,12 +1848,25 @@ export struct PlayerPage {
     List({ scroller: this.speechScroller, initialIndex: this.speechParagraphIndex }) {
       Repeat<string>(this.speechParagraphs).each((item: RepeatItem<string>) => {
         ListItem() {
-          Text(item.item).fontSize(16).lineHeight(26).width('100%').padding({ top: 8, bottom: 8 })
+          Text(item.item, { controller: this.speechTextController(item.index) })
+            .fontSize(16).lineHeight(26).width('100%').padding({ top: 8, bottom: 8 })
             .fontColor(item.index === this.speechParagraphIndex ? '#FFFFFF' : '#99FFFFFF')
             .fontWeight(item.index === this.speechParagraphIndex ? FontWeight.Medium : FontWeight.Normal)
         }
       }).key((_paragraph: string, index: number): string => `${this.speechChapterKey}:${this.speechParagraphOffsets[index]}`).virtualScroll()
     }.width('100%').height('100%').scrollBar(BarState.Off).cachedCount(2)
+      .contentStartOffset(Math.max(0, this.speechViewportHeight / 2 - 21))
+      .contentEndOffset(Math.max(0, this.speechViewportHeight / 2 - 21))
+      .onSizeChange((_old: SizeOptions, size: SizeOptions): void => {
+        if (typeof size.height !== 'number' || size.height <= 0) return;
+        const height = size.height;
+        this.getUIContext().postFrameCallback(new PlayerLayoutReadyFrame((): void => {
+          if (!this.speechListReady || this.isLeaving) return;
+          this.speechViewportHeight = height;
+          this.speechPositionedLine = '';
+          this.positionSpeechParagraph(false);
+        }));
+      })
       .onAppear((): void => {
         this.speechListReady = true;
         this.syncSpeechParagraphs();
@@ -1809,6 +1877,8 @@ export struct PlayerPage {
         this.speechPositionQueued = false;
         this.speechPositionGeneration++;
         this.speechPositionedChapter = '';
+        this.speechPositionedLine = '';
+        this.speechTextControllers.clear();
       })
       // 透明蒙版只作用于正文离屏层，露出原来的封面背景，不遮挡触摸。
       Column().width('100%').height('100%')

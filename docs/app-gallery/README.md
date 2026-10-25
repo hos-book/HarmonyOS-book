@@ -13,10 +13,10 @@
 
 ## 安装包
 
-当前邀测构建版本 `0.1.71` / `1000071`，包名 `com.huan.listenbook`，最低 HarmonyOS 6.0 / API 20，目标 API 26。沿用原包名与发布签名。本次完善边听边读：支持选段朗读、翻页跟读、自动翻页和进度跳转，精简暂停浮窗；新增简听一语及紧凑继续阅读卡片，并优化音色管理与阅听记录。
+当前邀测构建版本 `0.1.72` / `1000072`，包名 `com.huan.listenbook`，最低 HarmonyOS 6.0 / API 20，目标 API 26。沿用原包名与发布签名。本次优化电子书跨页连续朗读，减少页尾拆词停顿；听书界面支持长段落逐行跟随，让当前播放位置保持在中间区域。
 
 - `JianTing-v0.1.27.hap`：开发签名 HAP，用于获授权设备安装和 GitHub 分发；对应 SHA-256 文件与本机安装包位于 `artifacts/releases/v0.1.27/`。
-- `JianTing-v0.1.71-AppGallery-signed.app`：本次正式签名邀测 APP 与校验文件位于 `artifacts/releases/v0.1.71/`，用于上传 AppGallery Connect 发起邀测；具体上传、提交结果以该目录的 `release-status.md` 为准，生成包不代表已提交平台。
+- `JianTing-v0.1.72-AppGallery-signed.app`：本次正式签名邀测 APP 与校验文件位于 `artifacts/releases/v0.1.72/`，用于上传 AppGallery Connect 发起邀测；具体上传、提交结果以该目录的 `release-status.md` 为准，生成包不代表已提交平台。
 - 最新 HAP 通过 [GitHub Releases](https://github.com/end-web/HarmonyOS-book/releases/latest) 分发。
 
 ## 平台同步

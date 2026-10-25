@@ -58,9 +58,13 @@ function harness(memory = new Map()) {
           spoken.push({ engine, text, id: params.requestId, speed: params.extraParams.speed });
           assert.equal(params.extraParams.playType, 0);
           assert.equal(params.extraParams.soundChannel, 1);
-          this.listener.onStart(params.requestId, pcmFormat);
-          this.listener.onData(params.requestId, new ArrayBuffer(320), { sequence: 0, audioType: 'pcm' });
-          this.listener.onComplete(params.requestId, { type: 0 });
+          const synthesize = () => {
+            this.listener.onStart(params.requestId, pcmFormat);
+            this.listener.onData(params.requestId, new ArrayBuffer(320), { sequence: 0, audioType: 'pcm' });
+            this.listener.onComplete(params.requestId, { type: 0 });
+          };
+          spoken.at(-1).synthesize = synthesize;
+          if (!tts.deferSynthesis) synthesize();
         } };
       engines.push(engine); return engine;
     } };
@@ -78,14 +82,14 @@ function harness(memory = new Map()) {
     './CustomTtsConfigParser': { CustomTtsConfigParser },
     './HttpTtsPlayer': { HttpTtsAudioOutput: class { async release() {} }, HttpTtsPlayer: class {
       ready = false;
-      async speakAudio(_ctx, buffer, speed, id, onStart) {
+      async speakAudio(_ctx, buffer, speed, id, onStart, _output, onProgress) {
         assert(speed >= 1 && speed <= 1.5);
         assert.equal(new DataView(buffer).getUint32(0, false), 0x52494646);
         if (this.cancelled) throw new Error('cancelled');
         onStart();
         await new Promise((resolve, reject) => {
           this.reject = reject;
-          systemSpoken.push({ id, speed, complete: resolve });
+          systemSpoken.push({ id, speed, complete: resolve, progress: onProgress });
         });
       }
       prepare(config, text, speed) {
@@ -95,11 +99,11 @@ function harness(memory = new Map()) {
         });
         return this.preparation;
       }
-      async speak(_ctx, config, text, speed, id, onStart) {
+      async speak(_ctx, config, text, speed, id, onStart, _output, onProgress) {
         await this.prepare(config, text, speed);
         await new Promise((resolve, reject) => {
           this.reject = reject;
-          httpSpoken.push({ config, text, speed, id, onStart, complete: resolve, fail: reject, task: this });
+          httpSpoken.push({ config, text, speed, id, onStart, complete: resolve, fail: reject, task: this, progress: onProgress });
         });
       }
       cancel() { this.cancelled = true; this.ready = false; this.reject?.(new Error('cancelled')); }
@@ -317,9 +321,9 @@ async function check(name, action) { await action(); console.log(`PASS ${name}`)
     const current = h.spoken.at(-1); await h.complete(1, current); await h.complete(1, current); await settle();
     assert.equal(h.spoken.length, 3); h.service.stop();
   });
-  await check('跨页长段按实际页尾拆分，下一页开始播报即更新位置，HTTP 合并不跨页', async () => {
-    const text = '本页最后一段还没有句号但是已经到了下一页才结束。';
-    const split = 12;
+  await check('跨页清晨保持一次合成，真实播放进度驱动翻页，HTTP 合并仍不跨页', async () => {
+    const text = '他不便提到清晨发生的事情。';
+    const split = text.indexOf('晨');
     for (const merge of [false, true]) {
       const parts = SpeechTextSegmenter.split(text, merge, [split, text.length]);
       assert.equal(parts[0].end, split);
@@ -330,10 +334,71 @@ async function check(name, action) { await action(); console.log(`PASS ${name}`)
     const h = harness(); await h.init();
     h.service.setReadingPageEnds('page-boundary', 0, [split, text.length]);
     await h.service.start(book('page-boundary', [text]), 0, 0); await settle();
-    assert.equal(h.spoken.at(-1).text, text.slice(0, split));
-    await h.complete(); await settle();
+    assert.equal(h.spoken[0].text, text, '清晨 must be synthesized together');
+    assert.equal(h.spoken.length, 1);
+    assert.equal(h.systemSpoken.length, 1);
+    assert.equal(h.service.state.charOffset, 0);
+    const audio = h.systemSpoken[0];
+    audio.progress(split * 100 - 1, text.length * 100);
+    assert.equal(h.service.state.charOffset, 0);
+    audio.progress(split * 100 + 1, text.length * 100);
     assert.equal(h.service.state.charOffset, split);
-    assert.equal(h.spoken.at(-1).text, text.slice(split));
+    assert.equal(h.spoken.length, 1, 'page turn must not start another synthesis');
+    assert.equal(h.systemSpoken.length, 1, 'page turn must not replace the audio player request');
+    audio.progress(0, text.length * 100);
+    audio.progress(NaN, text.length * 100);
+    assert.equal(h.service.state.charOffset, split, 'late/invalid progress cannot pull page back');
+    h.service.pause();
+    audio.progress(text.length * 100, text.length * 100);
+    assert.equal(h.service.state.charOffset, split);
+    await h.service.resume(); await settle();
+    assert.equal(h.spoken.at(-1).text, text.slice(split), 'resume from the visible page');
+    h.service.stop();
+  });
+  await check('页尾预取尚未完成时接管原请求，迟到完成只播放一次', async () => {
+    const h = harness(); await h.init(); h.tts.deferSynthesis = true;
+    h.service.setReadingPageEnds('pending', 0, [4, 8]);
+    await h.service.start(book('pending', ['第一页。第二页。']), 0, 0);
+    h.spoken[0].synthesize(); await settle();
+    assert.equal(h.spoken.length, 2);
+    await h.complete(1, h.spoken[0]);
+    assert.equal(h.systemSpoken.length, 1);
+    h.spoken[1].synthesize(); await settle();
+    assert.equal(h.systemSpoken.length, 2);
+    await h.complete(0, h.spoken[1]); await settle();
+    assert.equal(h.systemSpoken.length, 2);
+    h.service.stop();
+  });
+  await check('页尾预取暂停后丢弃迟到音频，重新分页复用完整句子', async () => {
+    const h = harness(); await h.init();
+    h.service.setReadingPageEnds('stale-page', 0, [4, 8]);
+    await h.service.start(book('stale-page', ['第一页。第二页。']), 0, 0); await settle();
+    const stale = h.spoken[1]; h.service.pause();
+    stale.synthesize(); await settle();
+    assert.equal(h.systemSpoken.length, 1);
+    assert.equal(h.service.state.playing, false);
+    await h.service.start(book('stale-page', ['第一页。第二页。']), 0, 0); await settle();
+    const active = h.spoken[h.spoken.length - 2];
+    h.service.setReadingPageEnds('stale-page', 0, [6, 8]);
+    await h.complete(1, active);
+    assert.equal(h.spoken.find(item => item.id === h.systemSpoken.at(-1).id).text, '第二页。');
+    assert.equal(h.service.state.charOffset, 4);
+    h.systemSpoken.at(-1).progress(250, 400);
+    assert.equal(h.service.state.charOffset, 6, 'new layout maps progress without re-synthesis');
+    h.service.stop();
+  });
+  await check('页尾预取失败不打断本页，轮到下一页再合成', async () => {
+    const h = harness(); await h.init(); h.tts.deferSynthesis = true;
+    h.service.setReadingPageEnds('retry-page', 0, [4, 8]);
+    await h.service.start(book('retry-page', ['第一页。第二页。']), 0, 0);
+    h.spoken[0].synthesize(); await settle();
+    const prefetch = h.spoken[1];
+    prefetch.engine.listener.onError(prefetch.id, 1, 'failed');
+    assert.equal(h.service.state.playing, true);
+    await h.complete(1, h.spoken[0]);
+    assert.equal(h.spoken.length, 3);
+    h.spoken[2].synthesize(); await settle();
+    assert.equal(h.systemSpoken.length, 2);
     h.service.stop();
   });
   await check('重启后按章节 URL 恢复，目录重排不串章', async () => {
@@ -564,6 +629,57 @@ async function check(name, action) { await action(); console.log(`PASS ${name}`)
     h.httpSpoken.at(-1).onStart(); await settle();
     assert.equal(h.service.state.playing, false); assert.equal(h.httpSpoken.length, paused);
     h.service.stop();
+  });
+  await check('度小雯 HTTP 跨页清晨同次合成，播放中翻页不重启，重排及暂停恢复安全', async () => {
+    const h = harness(); await h.init();
+    const configs = CustomTtsConfigParser.parse('{"name":"度小雯","url":"https://tts.example?tex={{speakText}}"}');
+    await h.service.importCustomTts(configs);
+    const text = '老汉偏是个爱面子的人。他不便提到清晨的事情。';
+    const split = text.indexOf('晨');
+    h.service.setReadingPageEnds('http-page', 0, [split, text.length]);
+    await h.service.start(book('http-page', [text]), 0, 0); await settle();
+    const audio = h.httpSpoken[0];
+    assert.equal(audio.text, text, 'HTTP request must include 清晨 together');
+    assert.equal(h.httpPrepared.length, 1);
+    audio.progress(split * 100 + 1, text.length * 100);
+    assert.equal(h.service.state.charOffset, 0, 'loading audio cannot advance pages');
+    audio.onStart(); audio.progress(split * 100 + 1, text.length * 100);
+    assert.equal(h.service.state.charOffset, split);
+    assert.equal(h.httpSpoken.length, 1);
+    assert.equal(h.httpPrepared.length, 1);
+    assert.equal(audio.task.cancelled, undefined);
+    h.service.setReadingPageEnds('http-page', 0, [split + 2, text.length]);
+    audio.progress((split + 2) * 100 + 1, text.length * 100);
+    assert.equal(h.service.state.charOffset, split + 2);
+    assert.equal(h.httpPrepared.length, 1, 'reflow must not invalidate whole sentence audio');
+    h.service.pause(); audio.progress(text.length * 100, text.length * 100);
+    assert.equal(h.service.state.charOffset, split + 2);
+    await h.service.resume(); await settle();
+    assert.equal(h.httpSpoken.at(-1).text, text.slice(split + 2));
+    audio.onStart(); audio.complete(); await settle();
+    assert.equal(h.service.state.charOffset, split + 2, 'stale request must not move resumed playback');
+    h.service.stop();
+  });
+  await check('没有阅读分页时系统与 HTTP 仍更新段内听读坐标，暂停及旧回调不回拉', async () => {
+    for (const custom of [false, true]) {
+      const h = harness(); await h.init();
+      if (custom) await h.service.importCustomTts(CustomTtsConfigParser.parse('{"name":"测试","url":"https://tts.example?tex={{speakText}}"}'));
+      const text = '这是一段没有阅读页界的长段落，听书界面仍需跟随正在播放的位置。';
+      await h.service.start(book('follow-offset', [text]), 0, 0); await settle();
+      const audio = custom ? h.httpSpoken[0] : h.systemSpoken[0];
+      if (custom) audio.onStart();
+      audio.progress(500, 1000);
+      const offset = Math.floor(text.length / 2);
+      assert.equal(h.service.state.playbackOffset, offset);
+      assert.equal(h.service.state.charOffset, 0, '段内跟随不触发正文逐字翻页');
+      audio.progress(100, 1000);
+      assert.equal(h.service.state.playbackOffset, offset);
+      h.service.pause(); audio.progress(900, 1000);
+      assert.equal(h.service.state.playbackOffset, offset);
+      h.service.seekProgress(0);
+      assert.equal(h.service.state.playbackOffset, 0, '暂停跳转也更新跟随坐标');
+      h.service.stop();
+    }
   });
   await check('自定义请求失败保留位置与选择，重试成功后可以切回系统语音', async () => {
     const h = harness(); await h.init();

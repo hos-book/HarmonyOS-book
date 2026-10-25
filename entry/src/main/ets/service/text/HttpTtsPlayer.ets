@@ -20,6 +20,7 @@ export class HttpTtsAudioOutput {
       player.off('stateChange');
       player.off('error');
       player.off('audioInterrupt');
+      player.off('timeUpdate');
     } catch (_error) { reusable = false; }
     if (this.player !== player) return;
     if (reusable) {
@@ -91,16 +92,18 @@ export class HttpTtsPlayer {
   }
 
   async speak(context: common.Context, config: CustomTtsConfig, text: string, speed: number,
-    requestId: string, onStart: () => void, output: HttpTtsAudioOutput): Promise<void> {
+    requestId: string, onStart: () => void, output: HttpTtsAudioOutput,
+    onProgress: ((position: number, duration: number) => void) | null = null): Promise<void> {
     await this.prepare(config, text, speed);
     const buffer = this.preparedAudio;
     if (buffer === null) throw new Error('TTS audio unavailable');
     await this.speakAudio(context, buffer, CustomTtsConfigParser.usesSpeed(config) ? 1 : speed,
-      requestId, onStart, output);
+      requestId, onStart, output, onProgress);
   }
 
   async speakAudio(context: common.Context, buffer: ArrayBuffer, speed: number,
-    requestId: string, onStart: () => void, output: HttpTtsAudioOutput): Promise<void> {
+    requestId: string, onStart: () => void, output: HttpTtsAudioOutput,
+    onProgress: ((position: number, duration: number) => void) | null = null): Promise<void> {
     const path = `${context.cacheDir}/custom_${requestId}.audio`;
     let file: fileIo.File | null = null;
     let player: media.AVPlayer | null = null;
@@ -117,7 +120,7 @@ export class HttpTtsPlayer {
       this.check();
       player = await output.acquire();
       this.check();
-      await this.play(player, file.fd, written, speed, onStart);
+      await this.play(player, file.fd, written, speed, onStart, onProgress);
       completed = true;
     } finally {
       this.rejectPlayback = null;
@@ -130,9 +133,15 @@ export class HttpTtsPlayer {
     }
   }
 
-  private play(player: media.AVPlayer, fd: number, length: number, speed: number, onStart: () => void): Promise<void> {
+  private play(player: media.AVPlayer, fd: number, length: number, speed: number, onStart: () => void,
+    onProgress: ((position: number, duration: number) => void) | null): Promise<void> {
     return new Promise<void>((resolve, reject): void => {
       this.rejectPlayback = reject;
+      if (onProgress !== null) {
+        player.on('timeUpdate', (position: number): void => {
+          if (!this.cancelled && player.state === 'playing') onProgress(position, player.duration);
+        });
+      }
       player.on('error', (): void => reject(new Error('TTS audio playback failed')));
       player.on('audioInterrupt', (event: audio.InterruptEvent): void => {
         if (event.hintType === audio.InterruptHint.INTERRUPT_HINT_PAUSE ||
