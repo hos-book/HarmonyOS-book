@@ -30,9 +30,10 @@ function createDisk(entries = []) {
   return { values: new Map(entries) };
 }
 
-async function launch(disk) {
+async function launch(disk, member = true) {
   const cache = new Map(disk.values);
-  const controls = { failFlush: false, beforeFlush: undefined };
+  const controls = { failFlush: false, beforeFlush: undefined, member };
+  const membership = { MembershipState: { current: { get hasAccess() { return controls.member; } } } };
   const store = {
     getSync: (key, fallback) => cache.has(key) ? cache.get(key) : fallback,
     get: async (key, fallback) => cache.has(key) ? cache.get(key) : fallback,
@@ -51,8 +52,9 @@ async function launch(disk) {
     '@kit.BasicServicesKit': { emitter: { emit: () => {} } },
     '../model/GeneralSettings': { GeneralSettings: { current: {} } },
     '../model/BookPresentation': { BookPresentation: { edits: [], groups: [] } },
-    '../model/MembershipState': { MembershipState: { current: { hasAccess: true } } },
-    './MembershipService': { MembershipService: { instance: { hasCurrentEntitlement: async () => true } } },
+    '../model/MembershipState': membership,
+    './MembershipState': membership,
+    './MembershipService': { MembershipService: { instance: { hasCurrentEntitlement: async () => controls.member } } },
     './ReadingSessionService': { ReadingSessionService: { init: () => {} } },
     '../model/Book': {}
   };
@@ -211,5 +213,20 @@ function expectedSelection(id, accent, material) {
     assert.deepEqual(appearanceOf(fresh), [bundle.id, bundle.accent, bundle.material]);
   }
 
-  console.log('PASS: theme legacy migration, complete apply, queued overrides, flush rollback, restart, invalid records and backup compatibility');
+  const restricted = await launch(createDisk([[themeKey, JSON.stringify(new app.Selection('paper-study', '#2255AA', 4))]]), false);
+  assert.equal(restricted.appearance.themeBundleId, 'default', 'stored VIP theme cannot activate before verification');
+  await assert.rejects(restricted.service.applyThemeBundle('paper-study'), /MEMBERSHIP_REQUIRED/);
+  await restricted.service.restoreBackupSnapshot(snapshot);
+  assert.equal(restricted.appearance.themeBundleId, 'default', 'backup restore cannot activate VIP themes');
+  await restricted.service.applyThemeBundle('default');
+  await restricted.service.setAccentColor('#123456');
+  await restricted.service.setMaterialStyle(4);
+  assert.deepEqual(appearanceOf(restricted), ['default', '#123456', 4], 'basic appearance stays free');
+  restricted.controls.member = true;
+  await restricted.service.applyThemeBundle('paper-study');
+  restricted.controls.member = false;
+  assert.equal(restricted.appearance.themeBundleId, 'default', 'revocation immediately hides the active VIP bundle');
+  restricted.controls.member = true;
+  assert.equal(restricted.appearance.themeBundleId, 'paper-study', 'verified membership restores the chosen bundle');
+  console.log('PASS: theme persistence, rollback, restore and VIP enforcement');
 })().catch(error => { console.error(error); process.exitCode = 1; });

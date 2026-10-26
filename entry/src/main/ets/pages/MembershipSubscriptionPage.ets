@@ -189,6 +189,56 @@ export struct MembershipSubscriptionPage {
     .linearGradient({ angle: 120, colors: [['#EBD5B4', 0], ['#C59962', 1]] })
   }
 
+  @Builder
+  benefitRow(label: Resource, freeValue: Resource, memberValue: Resource) {
+    Row() {
+      Text(label).fontSize(13).fontColor('#55432C').layoutWeight(1.2)
+        .padding({ left: 12, right: 4, top: 12, bottom: 12 })
+      Text(freeValue).fontSize(12).fontColor('#7A6A55').textAlign(TextAlign.Center)
+        .layoutWeight(1).padding({ left: 4, right: 4, top: 12, bottom: 12 })
+      Text(memberValue).fontSize(12).fontWeight(FontWeight.Medium).fontColor('#806039')
+        .textAlign(TextAlign.Center).layoutWeight(1)
+        .padding({ left: 4, right: 4, top: 12, bottom: 12 })
+    }.width('100%').constraintSize({ minHeight: 44 })
+    .border({ width: { bottom: 0.5 }, color: '#EDE4D7' })
+  }
+
+  @Builder
+  benefitComparison() {
+    Column({ space: 12 }) {
+      Text($r('app.string.membership_comparison_title')).fontSize(16).fontWeight(FontWeight.Bold)
+        .fontColor('#624023').width('100%')
+      Column() {
+        Row() {
+          Text($r('app.string.membership_comparison_feature')).fontSize(13).fontColor('#55432C')
+            .layoutWeight(1.2).padding({ left: 12, right: 4, top: 12, bottom: 12 })
+          Text($r('app.string.membership_comparison_free')).fontSize(13).fontColor('#7A6A55')
+            .textAlign(TextAlign.Center).layoutWeight(1).padding(4)
+          Text($r('app.string.membership_comparison_member')).fontSize(13).fontWeight(FontWeight.Bold)
+            .fontColor('#806039').textAlign(TextAlign.Center).layoutWeight(1).padding(4)
+        }.width('100%').backgroundColor('#F2E4CF')
+        this.benefitRow($r('app.string.membership_feature_color'),
+          $r('app.string.membership_comparison_unavailable'), $r('app.string.membership_comparison_available'))
+        this.benefitRow($r('app.string.membership_feature_translate'),
+          $r('app.string.membership_comparison_unavailable'), $r('app.string.membership_comparison_available'))
+        this.benefitRow($r('app.string.membership_feature_upscale'),
+          $r('app.string.membership_comparison_unavailable'), $r('app.string.membership_comparison_available'))
+        this.benefitRow($r('app.string.membership_feature_icon'),
+          $r('app.string.membership_comparison_default_icon'), $r('app.string.membership_comparison_all_icons'))
+        this.benefitRow($r('app.string.membership_feature_theme'),
+          $r('app.string.membership_comparison_basic_theme'), $r('app.string.membership_comparison_member_theme'))
+        this.benefitRow($r('app.string.membership_feature_backup'),
+          $r('app.string.membership_comparison_manual_backup'), $r('app.string.membership_comparison_auto_backup'))
+        this.benefitRow($r('app.string.membership_feature_search'),
+          $r('app.string.membership_comparison_search_free'), $r('app.string.membership_comparison_unlimited'))
+        this.benefitRow($r('app.string.membership_feature_preview'),
+          $r('app.string.membership_comparison_regular_release'), $r('app.string.membership_comparison_early_access'))
+        this.benefitRow($r('app.string.membership_feature_support'),
+          $r('app.string.membership_comparison_unavailable'), $r('app.string.membership_comparison_available'))
+      }.width('100%').backgroundColor('#FFFAF1').borderRadius(12).clip(true)
+    }.width('100%')
+  }
+
   build() {
     Column() {
       Row({ space: AppSpace.Sm }) {
@@ -224,6 +274,7 @@ export struct MembershipSubscriptionPage {
               this.planCard('iconMonth')
             }.padding({ top: 2, bottom: 2 })
           }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
+          this.benefitComparison()
           if (!AppIconService.instance.supported) {
             Text($r('app.string.app_icon_unsupported')).fontSize(12).fontColor('#746B5E').width('100%')
           }

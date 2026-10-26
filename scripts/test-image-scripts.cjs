@@ -10,6 +10,8 @@ const ts = require(path.join(process.env.DEVECO_HOME,
 const root = path.resolve(__dirname, '../entry/src/main/ets/service/rulesource/light/upstream');
 const files = new Map(), handles = new Map(), modules = new Map();
 let nextHandle = 0, cancelled = false, downloaded = 0, executions = 0, partialWrite = false;
+let writeFailure = '', writes = 0;
+const cacheWrites = [];
 const stripCalls = [];
 const cryptoFramework = {
   CryptoMode: { DECRYPT_MODE: 0, ENCRYPT_MODE: 1 },
@@ -45,11 +47,16 @@ const fileIo = { OpenMode: { CREATE: 1, WRITE_ONLY: 2, TRUNC: 4 }, mkdirSync() {
   accessSync: filename => files.has(filename), unlinkSync: filename => files.delete(filename),
   openSync(filename) { handles.set(++nextHandle, filename); files.set(filename, Buffer.alloc(0)); return { fd: nextHandle }; },
   writeSync(fd, bytes) {
+    writes++;
+    if (writeFailure === 'zero') return 0;
+    if (writeFailure === 'throw' && writes > 1) throw Error('disk full');
     const filename = handles.get(fd), data = Buffer.from(bytes);
     const count = partialWrite ? Math.min(7, data.length) : data.length;
+    if (writeFailure === 'cancel') cancelled = true;
     files.set(filename, Buffer.concat([files.get(filename), data.subarray(0, count)])); return count;
   }, closeSync(file) { handles.delete(file.fd); } };
 const stubs = {
+  'core/book/ReaderCacheBudget': { ReaderCacheBudget: { touchComicFile() {}, noteComicWrite(path) { cacheWrites.push(path); } } },
   'core/http/HttpClient': { HttpClient: { CANCELLED_ERROR: 'cancelled' } },
   '@ohos.file.fs': { default: fileIo }, '@kit.CryptoArchitectureKit': { cryptoFramework },
   '@kit.ArkTS': { util: { TextEncoder: class { encodeInto(text) { return new TextEncoder().encode(text); } } } }
@@ -149,5 +156,37 @@ async function materialize(options) { return ComicImagePipeline.materialize(http
   assert.throws(() => NativeSourceCrypto.imageOperationSync('decrypt', image,
     JSON.stringify({ algorithm, keyHex: key, ivHex: 'ff' })), /IV/);
   assert.throws(() => NativeImageScriptRunner.program(script, 'decode()', { url: '', index: 0, params: {} }), /函数名/);
+  // Test the actual pipeline boundaries even if a decoder/transport returns malformed output.
+  const decrypt = NativeSourceCrypto.decryptBytesAsync;
+  const huge = new Uint8Array(20 * 1024 * 1024 + 1); huge.set(image);
+  const protectedOptions = { decode: { algorithm, key, iv } };
+  const savedCount = files.size, recordedCount = cacheWrites.length;
+  try {
+    body = Uint8Array.from([1, 2, 3]);
+    for (const output of [new Uint8Array(0), new Uint8Array(16), huge]) {
+      NativeSourceCrypto.decryptBytesAsync = async () => output;
+      await assert.rejects(materialize(protectedOptions), /图片解码|图片解密/);
+      assert.equal(files.size, savedCount, 'invalid decoded data never becomes a cache entry');
+    }
+  } finally { NativeSourceCrypto.decryptBytesAsync = decrypt; }
+  body = huge;
+  await assert.rejects(materialize({headers:{Referer:'oversized'}}), /20 MiB/);
+  assert.equal(files.size, savedCount);
+  body = image;
+  for (const mode of ['zero', 'throw', 'cancel']) {
+    writeFailure = mode; writes = 0;
+    const options = {headers:{Referer:'write-'+mode}};
+    const before = downloaded;
+    await assert.rejects(materialize(options), /写入失败|disk full|cancelled/);
+    assert.equal(handles.size,0,'close file handles before removing partial cache');
+    assert.equal(files.size,savedCount,'failed and cancelled writes leave no cache file');
+    assert.equal(cacheWrites.length,recordedCount,'failed writes are not published to the cache budget');
+    writeFailure = ''; cancelled = false;
+    const retried = await materialize(options);
+    assert.equal(downloaded,before+2,'retry downloads again instead of hitting a truncated cache');
+    assert.deepEqual(files.get(retried),Buffer.from(image));
+    files.delete(retried);cacheWrites.pop();
+  }
+  console.log('image protection: decoded size/type, oversized input, short/zero/failed writes, cancellation cleanup and retry passed');
   console.log('image scripts: pipeline bytes, async/ArrayBuffer, params/index, cache identity, plain-image opt-in, cancellation, failed decode, prefix IV, strip host parameters and four crypto operations passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

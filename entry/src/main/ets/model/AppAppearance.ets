@@ -1,3 +1,5 @@
+import { MembershipState } from './MembershipState';
+
 /** App 外观偏好。阅读纸张主题独立保存，不随 App 强调色变化。 */
 @ObservedV2
 export class AppAppearance {
@@ -16,7 +18,13 @@ export class AppAppearance {
   /** 空字符串表示使用默认玫瑰红。 */
   @Trace accent: string = '';
   /** 当前套装；继续与阅读纸张和桌面应用图标独立保存。 */
-  @Trace themeBundleId: string = 'default';
+  @Trace private selectedThemeBundleId: string = 'default';
+
+  get themeBundleId(): string {
+    return MembershipState.current.hasAccess ? this.selectedThemeBundleId : 'default';
+  }
+
+  set themeBundleId(value: string) { this.selectedThemeBundleId = value; }
 
   static normalizeMaterial(value: number): number {
     if (value === 1 || value === 2) return 2;

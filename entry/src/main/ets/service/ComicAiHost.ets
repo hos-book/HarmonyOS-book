@@ -1,8 +1,10 @@
 import { AbilityConstant, common } from '@kit.AbilityKit';
 import { worker, util } from '@kit.ArkTS';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
+import { fileIo } from '@kit.CoreFileKit';
 import lazy { AiHost, AiRuntime, ComicColorizer } from '@legado/aiengine';
 import { ReaderCacheService } from './ReaderCacheService';
+import { MembershipState } from '../model/MembershipState';
 
 /** HAR 只负责着色；权限、缓存预算和 Worker 入口由应用提供。 */
 export class ComicAiHost implements AiHost {
@@ -38,7 +40,7 @@ export class ComicAiHost implements AiHost {
   }
 
   isAllowed(feature: string): boolean {
-    return feature === 'colorization';
+    return feature === 'colorization' && MembershipState.current.hasAccess;
   }
 
   cacheDir(): string { return this.context.cacheDir; }
@@ -46,6 +48,38 @@ export class ComicAiHost implements AiHost {
   async downloadImage(_source: string): Promise<Uint8Array> {
     // 仅接受公共图片加载链已经缓存的本地原图，无远程上传或二次下载。
     throw new Error('comic_ai_local_image_required');
+  }
+
+  async downloadColorModel(file: string, destination: string, bytes: number, active: () => boolean,
+    progress: (received: number) => void): Promise<void> {
+    if (!['alac.ms', 'alac-npu-portrait.ms', 'alac-npu-landscape.ms'].includes(file) ||
+      !destination.startsWith(`${this.context.filesDir}/comic_colorizer/`)) {
+      throw new Error('comic_ai_request_failed');
+    }
+    const resource = `comic-colorizer/${file}`;
+    const input = await this.context.resourceManager.getRawFd(resource);
+    try {
+      if (input.length !== bytes) throw new Error('comic_ai_request_failed');
+      const output = await fileIo.open(destination,
+        fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
+      try {
+        let received = 0;
+        while (received < bytes) {
+          if (!active() || !this.isAllowed('colorization')) throw new Error('comic_ai_request_failed');
+          const chunk = new ArrayBuffer(Math.min(1024 * 1024, bytes - received));
+          const count = await fileIo.read(input.fd, chunk, { offset: input.offset + received, length: chunk.byteLength });
+          if (count <= 0) throw new Error('comic_ai_request_failed');
+          let written = 0;
+          while (written < count) {
+            const size = await fileIo.write(output.fd, chunk.slice(written, count));
+            if (size <= 0) throw new Error('comic_ai_request_failed');
+            written += size;
+          }
+          received += count;
+          progress(received);
+        }
+      } finally { await fileIo.close(output); }
+    } finally { await this.context.resourceManager.closeRawFd(resource); }
   }
 
   digestHashHex(algorithm: string, value: string): string {

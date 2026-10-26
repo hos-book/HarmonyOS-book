@@ -23,3 +23,10 @@ with tempfile.TemporaryDirectory(prefix='membership-offer-') as temporary:
                          (output / 'membership-offer-function.js').read_text(encoding='utf-8')
                          .replace("'./membership-offer.js'", "'./membership-offer.mjs'"))
     print(artifact)
+    agc_artifact = server / 'dist/membership-offer-agc.zip'
+    with zipfile.ZipFile(artifact) as source, zipfile.ZipFile(agc_artifact, 'w', zipfile.ZIP_DEFLATED) as archive:
+        for name in source.namelist():
+            if name != 'index.js':
+                archive.writestr(name, source.read(name))
+        archive.write(server / 'src/membership-offer-agc.cjs', 'index.js')
+    print(agc_artifact)

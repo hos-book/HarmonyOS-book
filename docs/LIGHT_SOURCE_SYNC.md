@@ -4,6 +4,24 @@
 
 ## 固定版本与维护边界
 
+### 图片保护补齐（2026-10-26）
+
+`scripts/light-image-protection.cjs` 通过同步脚本生成 `ComicImagePipeline` 的宿主保护，清单标记为 `host-image-protection-v1`。输入和解码结果均限制 20 MiB；配置解码规则但得到空值或无效图片时拒绝落盘。写入按最多 1 MiB 分块，正确处理短写；零写入、写入异常或取消先关闭文件，再清理不完整缓存，仅成功结果登记缓存预算。取消检查同时覆盖调用方和书源宿主。补丁锚点变化会停止同步，避免后续公共包升级静默丢失保护。
+
+`test-image-scripts.cjs` 覆盖解码超限、空/无效结果、截取字节数组、短写、零写入、磁盘异常、取消清理和失败重试。用户明确不需要段评，本次不接入内联段评或本章说页面。语言约束参考已读取的 [ArkTS 语法规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)。
+
+### 公共包同步与独立目录恢复（2026-10-26）
+
+当前内核固定为 `3ee70880efc5fb9ea3823937aa843a4dfcac74f4`，轻页应用辅助代码固定为 `74d39be9b55f6adcafada5cf401fbd45b6cf2dba`，清单包含 91 个生成文件。上游新增请求总时限、内联评论等能力；仅同步引擎依赖，不新增简听页面入口。
+
+新版纯表达式在当前执行上下文求值，避免为每个字段复制整页作用域；纯 HTML 选择器仍可走宿主 taskpool。简听漫画继续先返回清单，由现有可见页队列加载图片；`sync-light-source.cjs` 保留这一宿主策略，并把上游图片缓存通知接到 `ReaderCacheService`，不引入轻页缓存数据库。
+
+Git 传输不可用时可执行 `python scripts/prepare-light-source.py`，默认读取清单中的固定提交。脚本经 GitHub CLI 下载到项目外临时目录，校验完整 Git tree（含可执行位和子模块引用）与上游提交完全一致，再运行原同步脚本；结束删除临时目录。`--check` 只验证，升级可显式传 `--engine-revision` / `--application-revision` 的完整 SHA。
+
+有声书详情失败不再阻断独立目录规则：继续使用搜索/缓存书籍上下文，目录失败仍正常报错。用户提供的“番茄听书（原生）”目录表达式、分卷、19 位章节 ID 已在真实目录响应上验证；《北派盗墓笔记》截图仅含书籍信息，没有请求地址/错误，不能据此宣称该版本已在设备播放成功。定向回归覆盖详情失败但目录成功、两者均失败、原生规则、图片按需调度和缓存宿主边界。
+
+本轮编译修复参考 [ArkTS 编译检查技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)，使用本机 Release SDK 构建；没有已连接设备。
+
 ### 漫画原生规则解析工作线程（2026-10-24）
 
 设备旧日志在两次正文 HTTP 返回后记录主线程 Vsync 超时约 1.74 秒和 2.48 秒，与章节规则解析结束重合。图片显示计时不能作为滑动帧率依据。漫画阅读的 `readerImagesDeferred` 请求现通过可选 `SourceEngineHost.nativeParsing` 宿主，将纯表达式和 HTML 选择器交给 taskpool；Cookie 表达式保留源上下文，脚本继续使用原有有界 QuickJS。下载/导出默认路径不启用此策略。

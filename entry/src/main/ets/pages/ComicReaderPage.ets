@@ -707,7 +707,7 @@ export struct ComicReaderPage {
             }
           }
           ImmersiveCircleButton({ icon: $r('sys.symbol.paintpalette'), label: $r('app.string.comic_ai_color'),
-            iconColor: this.colorization ? AppColor.Brand : $r('sys.color.font_primary'),
+            iconColor: this.colorization && this.membership.hasAccess ? AppColor.Brand : $r('sys.color.font_primary'),
             onPress: (): void => { this.setColorization(!this.colorization); } })
             .id('comic-colorization-toggle').enabled(ComicColorizationService.supported())
           ImmersiveCircleButton({ icon: $r('sys.symbol.arrow_left_arrow_right'), label: $r('app.string.source_switch_title'),
@@ -1242,6 +1242,10 @@ export struct ComicReaderPage {
   }
 
   private setColorization(enabled: boolean): void {
+    if (enabled && !this.membership.hasAccess) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.membership_feature_required') });
+      return;
+    }
     if (enabled && !ComicColorizationService.supported()) return;
     ComicColorizationService.release();
     this.showTranslationMenu = false;
@@ -1249,7 +1253,7 @@ export struct ComicReaderPage {
     const context = this.getUIContext().getHostContext();
     if (enabled && context) {
       ComicColorizationService.prepare(context, (): boolean =>
-        this.alive && this.foreground && this.readerVisible && this.colorization);
+        this.alive && this.foreground && this.readerVisible && this.colorization && this.membership.hasAccess);
     }
   }
 
@@ -1435,7 +1439,8 @@ export struct ComicReaderPage {
       }
       ReaderSettingCard({ title: $r('app.string.comic_ai_color'), inline: true,
         description: ComicColorizationService.supported() ? $r('app.string.comic_ai_color_hint') : $r('app.string.comic_ai_color_unsupported') }) {
-        Toggle({ type: ToggleType.Switch, isOn: this.colorization }).selectedColor(AppColor.Brand)
+        if (MembershipState.featureEnabled) { VipFeatureBadge() }
+        Toggle({ type: ToggleType.Switch, isOn: this.colorization && this.membership.hasAccess }).selectedColor(AppColor.Brand)
           .enabled(ComicColorizationService.supported())
           .onChange((enabled: boolean): void => { this.setColorization(enabled); })
       }

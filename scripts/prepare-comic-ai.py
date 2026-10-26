@@ -68,6 +68,17 @@ def prepare_exports(project):
     package = json.loads(path.read_text(encoding='utf-8'))
     package['oh-exports'] = ['./Index.ets', './Worker.ets']
     path.write_text(json.dumps(package, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    prepare_bundled_models(project)
+    if SPEC.get('performancePatch') == 'upstream-worker-reuse-native-io-v1':
+        if SPEC['integrationPatch'] != 'upstream-fp32-nnrt-v1':
+            raise ValueError('Unknown upstream calibration contract')
+        # These patches were merged upstream. Its check.mjs plus our package regression
+        # suite verify cancellation, worker reuse, native IO and FP32 fallback before build.
+        marker = project / 'aiengine/src/main/resources/rawfile/comic-colorizer/host-integration.json'
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(json.dumps({'patch': SPEC['integrationPatch'],
+                                     'performancePatch': SPEC['performancePatch']}, indent=2) + '\n', encoding='utf-8')
+        return
     if SPEC.get('performancePatch') != 'worker-reuse-native-io-v1':
         raise ValueError('Unknown comic performance patch')
     patch = ROOT / 'scripts/comic-ai-performance.patch'
@@ -78,6 +89,44 @@ def prepare_exports(project):
     metadata = json.loads(marker.read_text(encoding='utf-8'))
     metadata['performancePatch'] = SPEC['performancePatch']
     marker.write_text(json.dumps(metadata, indent=2) + '\n', encoding='utf-8')
+
+
+def prepare_bundled_models(project):
+    # The app has no Light Page account/OBS ticket service. Retain offline installation;
+    # the new engine verifies these same pinned assets through the host copy callback.
+    models = {
+        'alac.ms': 'c212815a335a006b4bbf336af1c25c6158aaeac077f35f2775af381b83fe9934',
+        'alac-npu-portrait.ms': 'db162d1620a560c86fe883484311133e11ba5e4b24790cefe355043f9928e3e0',
+        'alac-npu-landscape.ms': '2abbc0e27cb1dbf859a835072c4c7f06982e70cd0e57ff401008501b33ce40fd'
+    }
+    destination = project / 'aiengine/src/main/resources/rawfile/comic-colorizer'
+    destination.mkdir(parents=True, exist_ok=True)
+    if OUTPUT.exists():
+        with tarfile.open(OUTPUT) as package:
+            for name, digest in models.items():
+                member = 'package/src/main/resources/rawfile/comic-colorizer/' + name
+                try:
+                    with package.extractfile(member) as source, (destination / name).open('wb') as target:
+                        shutil.copyfileobj(source, target)
+                except KeyError:
+                    continue
+                if sha256(destination / name) != digest:
+                    (destination / name).unlink()
+    missing = [name for name, digest in models.items()
+               if not (destination / name).exists() or sha256(destination / name) != digest]
+    if missing:
+        archive = project.parent / 'model-assets.zip'
+        with archive.open('wb') as target:
+            subprocess.run(['gh', 'api', f'repos/{SPEC["repository"]}/zipball/{SPEC["modelAssetsRevision"]}'],
+                           stdout=target, check=True, timeout=600)
+        with zipfile.ZipFile(archive) as package:
+            for name in missing:
+                suffix = '/aiengine/src/main/resources/rawfile/comic-colorizer/' + name
+                member = next(item for item in package.namelist() if item.endswith(suffix))
+                with package.open(member) as source, (destination / name).open('wb') as target:
+                    shutil.copyfileobj(source, target)
+                if sha256(destination / name) != models[name]:
+                    raise ValueError('Bundled model hash mismatch: ' + name)
 
 
 def build():

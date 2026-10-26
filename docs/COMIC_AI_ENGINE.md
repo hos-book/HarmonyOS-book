@@ -1,6 +1,6 @@
 # 漫画本地着色子包
 
-主工程通过 `entry/oh-package.json5` 引用 `entry/libs/aiengine.har`（`@legado/aiengine`），不复制引擎源码、不注册额外 App 模块。当前固定提交为 `e4592264e70402fa6396fd7860b1cb90fd349802`（预热与 NNRT 校验结果持久化），包声明版本仍为 1.0.0；上游仓库、提交和补丁版本见 `scripts/comic-ai-package.json`。
+主工程通过 `entry/oh-package.json5` 引用 `entry/libs/aiengine.har`（`@legado/aiengine`），不复制引擎源码、不注册额外 App 模块。当前固定提交为 `0d152ab20962c3171054cb852578960c21b647d5`（2026-10-26），包声明版本仍为 1.0.0；上游仓库、提交和集成版本见 `scripts/comic-ai-package.json`。该版本已吸收 Worker 复用、原生像素处理与 FP32 复核补丁，并新增模型下载宿主接口。
 
 首次拉取项目或升级子包时，在已登录且能访问该仓库的 GitHub CLI 环境执行：
 
@@ -9,15 +9,15 @@ python scripts/prepare-comic-ai.py
 ohpm install --all
 ```
 
-需要 Python 3.11+、Git / GitHub CLI，以及指向正式版 DevEco Studio 的 `DEVECO_HOME`。脚本在项目外临时目录检查并构建上游固定提交，先用 IDE 内置 Node（需 22.18+）执行上游 `scripts/check.mjs`，结束后清除下载的源码，仅保留 HAR 与许可证。为字节码 HAR 增加 `oh-exports` 中的 `Index.ets` / `Worker.ets` 导出声明，并在临时子包内应用 `scripts/comic_ai_calibration_patch.py` 与 `scripts/comic-ai-performance.patch`；主工程没有引擎实现源码。产物检查最低 API 20、目标 API 26、Release SDK、arm64-v8a/x86_64 原生库及两个补丁标记。大模型 HAR 和本机校验记录不加入 Git；现有 HAR 与校验记录匹配时直接复用。升级先修改固定提交；修改对应补丁时同步更新 `integrationPatch` / `performancePatch`，随后运行 `--force`。补丁按固定源码片段校验，上游变化时会停止构建，要求重新核对。打补丁后运行 `scripts/test-comic-ai-package.mjs <临时引擎目录>`，验证取消复用、释放边界、模型路径隔离和 ArkTS 回退。
+需要 Python 3.11+、Git / GitHub CLI，以及指向正式版 DevEco Studio 的 `DEVECO_HOME`。脚本在项目外临时目录下载固定提交，先用 IDE 内置 Node（需 22.18+）执行上游 `scripts/check.mjs`，再执行本项目 `scripts/test-comic-ai-package.mjs`。新版已包含旧性能和校准补丁，不再重复应用；集成标记记录使用上游实现。脚本补充 `Index.ets` / `Worker.ets` 导出和经过 SHA-256 验证的离线模型资产，再构建并检查 API 20/26、Release SDK、release 模式、双架构原生库和标记。结束清除临时源码，仅保留 HAR、校验记录与许可证。大模型 HAR 和本机记录不加入 Git；匹配固定版本与文件散列时直接复用，强制重建使用 `--force`。旧补丁脚本仅供旧固定版本构建使用。
 
 当前子包携带三个约 59 MiB 模型，HAR 约 164 MiB。模型随应用安装，首次着色时由引擎校验并提取，不需用户填 API 或下载模型。第三方许可证随应用保存在 `rawfile/comic_ai_engine`，模型及字典声明由 HAR 自带。
 
-`ComicAiHost` 为所有用户授权着色能力，提供缓存预算通知及 Worker 创建；禁止引擎直接下载图片。`ComicColorizationService` 将已有公共图片加载链的本地缓存原图交给子包，并保留翻译会员权限检查、队列上限、协作取消和原图回退。推理、模型选择、像素合成及内容哈希缓存由子包负责。NNRT 允许不支持的算子回到 CPU，不能等同于所有算子都在 NPU 执行。
+`ComicAiHost` 仅为有效会员授权着色能力，提供缓存预算通知及 Worker 创建；禁止引擎直接下载图片。新版下载接口在本 App 中只复制随包模型：模型从固定旧提交提取并校验 SHA-256 后打入 HAR，宿主按 1 MiB 分块提取至 `.part`，由引擎校验后改名，复制中途也检查会员和取消状态。无需轻页账号、OBS 下载票据或额外云服务。`ComicColorizationService` 将已有公共图片加载链的本地缓存原图交给子包，并保留翻译会员权限检查、队列上限、协作取消和原图回退。推理、模型选择、像素合成及内容哈希缓存由子包负责。NNRT 允许不支持的算子回到 CPU，不能等同于所有算子都在 NPU 执行。
 
 所有机型使用同一套 HAR，通过系统 NNRT 设备枚举发现加速能力，并按设备 ID、类型、名称和画布尺寸记录后端选择；不按芯片型号分包或强制启用 NPU。首次校验时，先保留上游 CPU FP16 画质对照和耗时比较；仅原画质对照失败才增加 CPU FP32 复核。模型文件、CPU 的 4 线程 / `preferred_fp16`、NNRT 的 `PERFORMANCE_HIGH`、整图和底部 20% 的 MAE 阈值 0.03，以及 NNRT 至少快 10% 的门槛均不变。速度始终与原 CPU FP16 对比，回退也使用原 CPU FP16 输出；复核异常或仍不合格时保留原保护逻辑。首次校验失败的设备会增加一次 FP32 推理，原校验通过的设备不增加此开销；已验证后端直接推理。FP32 只用于复核，不作为所有机型的新推理精度。本项目尚未实测 Kirin 9030，保留上游默认参数；上游的 9030 Pro 测量不能视为本 App 已完成验证。
 
-新版仅持久化真实图片校验成功的 NNRT 选择，最多 32 条、有效 7 天；模型散列、系统版本和校验规则变化会失效，CPU 失败选择不跨进程恢复。补丁版本加入 `ComicColorProfilePolicy.CONTRACT`，避免更新校验规则后误用旧决定。用户主动开启着色后预先准备 CPU 模型资源和 Worker，不做空白图推理；实际图片按方向准备 NPU 模型。Worker 空闲最多保留 120 秒，关闭或离页沿用宿主释放逻辑。`EntryAbility` 经 `ComicAiHost` 转发前后台和内存等级：后台取消并释放；前台 `MEMORY_LEVEL_MODERATE` 释放一次，后续请求可重建并复用；低内存、严重不足、后台及未知等级仍释放并暂停预热和保留 60 秒。两条路径均不强杀在途原生推理，使用释放 epoch 等待安全完成；中等级通知也不会取消已经生效的低内存冷却期。尚未用过引擎的启动/前后台通知不会初始化 HAR，手表分支不接入。等级按系统通知判断，不写死芯片或可用内存阈值；常量和释放接口均在最低 API 20 可用。
+新版仅持久化真实图片校验成功的 NNRT 选择，最多 32 条、有效 7 天；模型散列、系统版本和校验规则变化会失效，CPU 失败选择不跨进程恢复。校验规则契约使用上游 `ComicColorProfilePolicy.CONTRACT`，更新后旧契约决定不会误用。用户主动开启着色后预先准备 CPU 模型资源和 Worker，不做空白图推理；实际图片按方向准备 NPU 模型。Worker 空闲最多保留 120 秒，关闭或离页沿用宿主释放逻辑。`EntryAbility` 经 `ComicAiHost` 转发前后台和内存等级：后台取消并释放；前台 `MEMORY_LEVEL_MODERATE` 释放一次，后续请求可重建并复用；低内存、严重不足、后台及未知等级仍释放并暂停预热和保留 60 秒。两条路径均不强杀在途原生推理，使用释放 epoch 等待安全完成；中等级通知也不会取消已经生效的低内存冷却期。尚未用过引擎的启动/前后台通知不会初始化 HAR，手表分支不接入。等级按系统通知判断，不写死芯片或可用内存阈值；常量和释放接口均在最低 API 20 可用。
 
 `worker-reuse-native-io-v1` 性能补丁将图片离屏的正常取消与 Worker 释放分开：只在 Worker 返回终止确认后复用，取消结果仍被丢弃；显式释放、后台、会员失效、内存压力、超时及异常仍释放。模型加载成功即记录单个 NNRT 模型缓存，避免加载期间取消导致下一张重载；方向/模型路径变化仍重新加载，不增加多模型常驻。RGBA 灰度输入、透明度合白和五通道补白改由原生完成；输出的有限值/范围校验与 NCHW 转换或 NHWC 复制合并遍历，返回独立缓冲区，保留 ArkTS 回退。模型文件、推理参数、分辨率、JPEG 95、合成算法及校验阈值不变；性能补丁不改变原校验契约。
 

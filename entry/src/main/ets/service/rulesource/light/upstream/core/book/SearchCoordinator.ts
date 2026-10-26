@@ -305,10 +305,7 @@ export class SearchCoordinator {
       }, deadlineMs);
     });
     try {
-      const work = this.searchOne(source, keyword, options, abort);
-      const result = await Promise.race([work, timeout]);
-      await work;
-      return result;
+      return await Promise.race([this.searchOne(source, keyword, options, abort), timeout]);
     } finally {
       if (timerId >= 0) clearTimeout(timerId);
     }

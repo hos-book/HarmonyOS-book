@@ -39,6 +39,7 @@ class FakeHttpClient {
 const repository = { isInitialized: () => false, get: async () => undefined,
   readScriptState: async url => states.get(url) || '', writeScriptState: async (url, value) => states.set(url, value) };
 const stubs = {
+  '@ohos.deviceInfo': { default: { sdkApiVersion: 20 } },
   '@kit.ImageKit': { image: { createImageSource: () => ({
     getImageInfo: async () => ({size:{width:800,height:1200}}), release: async () => {}
   }) } },
@@ -410,7 +411,7 @@ async function run() {
       0, new LightSourceRequest(2), true));
     assert.equal(imageDownloads, 0, 'the real native engine returns its manifest without downloading any protected image');
     assert.equal(deferred.imageUrls.length, 2);
-    assert.ok(workerCalls > 0, 'deferred native comic expressions cross the worker boundary');
+    assert.equal(workerCalls, 0, 'pure JSON expressions avoid copying the whole scope into a worker');
     assert.match(deferred.imageUrls[0], /restore/);
     assert.match(deferred.imageUrls[0], /imageIndex/);
     const complete = JSON.parse(await engine.content(JSON.stringify(protectedLocal), 'https://stream.test/chapter', '{}'));

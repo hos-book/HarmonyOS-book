@@ -45,7 +45,7 @@ function colorHost(cache) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
   }).outputText, { exports, require: name => {
     if (name.endsWith('ReaderCacheService')) return { ReaderCacheService: cache };
-    if (['@kit.AbilityKit', '@kit.ArkTS', '@kit.CryptoArchitectureKit', '@legado/aiengine'].includes(name) || name.endsWith('MembershipState')) return {};
+    if (['@kit.AbilityKit', '@kit.ArkTS', '@kit.CoreFileKit', '@kit.CryptoArchitectureKit', '@legado/aiengine'].includes(name) || name.endsWith('MembershipState')) return {};
     throw Error(name);
   } });
   return new exports.ComicAiHost(context);

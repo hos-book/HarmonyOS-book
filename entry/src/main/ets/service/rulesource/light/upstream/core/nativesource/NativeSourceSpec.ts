@@ -184,6 +184,15 @@ export interface NativeReplaceSpec {
 }
 
 /** 段评与章末评论入口：书源只给数据和地址，气泡与卡片由应用绘制。 */
+export interface NativeCommentPageSpec {
+  html: string;
+  data?: Record<string, NativeValue>;
+  title?: string;
+  height?: number;
+  /** At most three requests, evaluated only after a click. Results bind directly to their names. */
+  fetch?: Record<string, NativeFetchSpec>;
+}
+
 export interface NativeCommentsSpec {
   when?: string;
   /** 评论数统计接口，结果绑定为 stats。 */
@@ -194,6 +203,8 @@ export interface NativeCommentsSpec {
   paragraphUrl?: string;
   /** 整章评论页地址，可用 total。 */
   chapterUrl?: string;
+  page?: NativeCommentPageSpec;
+  chapterPage?: NativeCommentPageSpec;
   max?: number;
 }
 
@@ -676,12 +687,15 @@ export class NativeSourceSpec {
         }
       }
       if (content.comments) {
-        if (!content.comments.paragraphUrl && !content.comments.chapterUrl) {
-          errors.push('content.comments 需要 paragraphUrl 或 chapterUrl');
+        if (!content.comments.paragraphUrl && !content.comments.chapterUrl &&
+          !content.comments.page && !content.comments.chapterPage) {
+          errors.push('content.comments 需要 paragraphUrl、chapterUrl、page 或 chapterPage');
         }
-        if (content.comments.paragraphUrl && !content.comments.counts) {
-          errors.push('content.comments 使用 paragraphUrl 时需要 counts');
+        if ((content.comments.paragraphUrl || content.comments.page) && !content.comments.counts) {
+          errors.push('content.comments 使用 paragraphUrl/page 时需要 counts');
         }
+        NativeSourceSpec.checkCommentPage(content.comments.page, 'content.comments.page', errors);
+        NativeSourceSpec.checkCommentPage(content.comments.chapterPage, 'content.comments.chapterPage', errors);
       }
       for (const rule of Array.isArray(content.replace) ? content.replace : []) {
         try {
@@ -697,6 +711,34 @@ export class NativeSourceSpec {
   private static checkBatch(batch: number | undefined, path: string, errors: string[]): void {
     if (batch !== undefined && !(typeof batch === 'number' && Number.isInteger(batch) && batch >= 1 && batch <= 16)) {
       errors.push(`${path} 必须是 1 到 16 的整数`);
+    }
+  }
+
+  private static checkCommentPage(page: NativeCommentPageSpec | undefined, path: string, errors: string[]): void {
+    if (page === undefined) return;
+    if (!page || typeof page !== 'object' || Array.isArray(page) || typeof page.html !== 'string' || !page.html.trim()) {
+      errors.push(`${path}.html 必须是非空字符串规则`);
+      return;
+    }
+    if (page.height !== undefined && !(typeof page.height === 'number' && Number.isFinite(page.height) &&
+      page.height >= 0.2 && page.height <= 1)) errors.push(`${path}.height 必须在 0.2 到 1 之间`);
+    if (page.title !== undefined && typeof page.title !== 'string') errors.push(`${path}.title 必须是字符串规则`);
+    if (page.data !== undefined && (!page.data || typeof page.data !== 'object' || Array.isArray(page.data))) {
+      errors.push(`${path}.data 必须是对象`);
+    }
+    if (page.fetch !== undefined) {
+      if (!page.fetch || typeof page.fetch !== 'object' || Array.isArray(page.fetch) || Object.keys(page.fetch).length > 3) {
+        errors.push(`${path}.fetch 最多声明 3 个请求`);
+      } else {
+        for (const name of Object.keys(page.fetch)) {
+          const request = page.fetch[name];
+          if (!/^[a-zA-Z][a-zA-Z0-9_]*$/.test(name) ||
+            ['para', 'total', 'stats', 'book', 'chapter', 'vars', 'login', 'source', 'data', 'body', 'baseUrl'].includes(name)) {
+            errors.push(`${path}.fetch 名称无效或占用上下文名称：${name}`);
+          }
+          if (!request || typeof request.url !== 'string' || !request.url.trim()) errors.push(`${path}.fetch.${name} 需要 url`);
+        }
+      }
     }
   }
 

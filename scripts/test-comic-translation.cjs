@@ -6,6 +6,7 @@ const ts = require(path.join(process.env.DEVECO_HOME, 'sdk/default/openharmony/e
 const root = path.resolve(__dirname, '../entry/src/main/ets');
 let resources = 0, ocrReleases = 0, chats = 0, supported = true, cancelled = false, longText = false, decodes = 0, encodes = 0;
 const drawn = [], erased = [], canvasSizes = [];
+let member = true;
 const pixel = () => { resources++; return { release: async () => { resources--; } }; };
 const line = (value,x,y,w,h) => ({ value, cornerPoints:[{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}],words:[] });
 let result = { blocks:[{lines:[line('Hello',100,100,180,32),line('world',100,138,160,32),line('Goodbye',500,400,150,32)]}] };
@@ -33,6 +34,7 @@ function load(file,require) {
 }
 const model=load('model/ComicTranslation.ets',()=>({}));
 const {ComicTranslationService:service}=load('service/ComicTranslationService.ets',name=>{
+  if(name.endsWith('MembershipState'))return {MembershipState:{current:{get hasAccess(){return member;}}}};
   if(name.endsWith('ComicTranslation'))return model;
   if(name.endsWith('ComicOfflineTranslationService')) return {ComicOfflineTranslationService:{translate:async(items,direction,active)=>{
     assert.equal(direction,'en-zh');assert.equal(active(),true);chats++;
@@ -47,6 +49,12 @@ const {ComicTranslationService:service}=load('service/ComicTranslationService.et
 });
 (async()=>{
   const input=new Uint8Array([1,2,3]).buffer;
+  member = false;
+  await assert.rejects(service.translate(input,'en-zh',()=>true), /cancelled/);
+  assert.equal(decodes,0,'non-member cannot start OCR or decode through the byte entry');
+  await assert.rejects(service.translatePixels({},800,600,'en-zh',()=>true), /cancelled/);
+  assert.equal(chats,0,'non-member cannot use the pixel entry');
+  member = true;
   const regions=service.regions(result,800,600);
   assert.equal(regions.length,2,'nearby lines merge while distant balloons stay separate');
   assert.equal(regions[0].source,'Hello\nworld');

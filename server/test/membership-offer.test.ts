@@ -6,8 +6,8 @@ const keys = generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
 const pem = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
 const signer = new MembershipOfferSigner('issuer-test', 'key-test', pem);
 
-describe('Huawei cheaplist signatures', () => {
-  it.each(['iconMonth', 'iconYear', 'lastVip'])('binds %s to the fixed app and offer, with a short valid ES256 signature', (productId) => {
+describe('Huawei lifetime_half_2026 signatures', () => {
+  it.each(['lastVip'])('binds %s to the fixed app and offer, with a short valid ES256 signature', (productId) => {
     const now = 1_800_000_000_000;
     const result = signer.create(productId, now);
     const [header, payload, signature] = result.jwsRepresentation.split('.');
@@ -16,20 +16,22 @@ describe('Huawei cheaplist signatures', () => {
     expect(claims).toMatchObject({ iss: 'issuer-test', aud: 'iap-v1', aid: MEMBERSHIP_APP_ID, iat: now / 1000, exp: now / 1000 + 300 });
     const data = JSON.parse(claims.data);
     expect(data.productItem).toEqual({ applicationId: MEMBERSHIP_APP_ID, productId });
-    expect(data.offerInfo.offerId).toBe('cheaplist');
+    expect(data.offerInfo.offerId).toBe('lifetime_half_2026');
     expect(data.offerInfo.nonce).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(result.expiresAt).toBe(now + 300_000);
     expect(verify('sha256', Buffer.from(header + '.' + payload), { key: keys.publicKey, dsaEncoding: 'ieee-p1363' }, Buffer.from(signature, 'base64url'))).toBe(true);
   });
 
   it('issues a new nonce for every request, even in the same second', () => {
-    const first = signer.create('iconMonth');
-    const second = signer.create('iconMonth');
+    const first = signer.create('lastVip');
+    const second = signer.create('lastVip');
     const nonce = (jws: string) => JSON.parse(JSON.parse(Buffer.from(jws.split('.')[1], 'base64url').toString()).data).offerInfo.nonce;
     expect(nonce(first.jwsRepresentation)).not.toBe(nonce(second.jwsRepresentation));
   });
 
   it('rejects arbitrary products and missing configuration', () => {
+    expect(() => signer.create('iconMonth')).toThrow('Unsupported');
+    expect(() => signer.create('iconYear')).toThrow('Unsupported');
     expect(() => signer.create('another-product')).toThrow('Unsupported');
     expect(() => new MembershipOfferSigner('', 'kid', pem)).toThrow('required');
     const wrongKey = generateKeyPairSync('ec', { namedCurve: 'secp384r1' });

@@ -1,10 +1,11 @@
 {
   "repository": "wip3l/harmony-book-ai-engine",
-  "revision": "e4592264e70402fa6396fd7860b1cb90fd349802",
+  "revision": "0d152ab20962c3171054cb852578960c21b647d5",
   "name": "@legado/aiengine",
   "version": "1.0.0",
-  "integrationPatch": "fp32-nnrt-recheck-v3",
-  "performancePatch": "worker-reuse-native-io-v1",
+  "integrationPatch": "upstream-fp32-nnrt-v1",
+  "performancePatch": "upstream-worker-reuse-native-io-v1",
+  "modelAssetsRevision": "e4592264e70402fa6396fd7860b1cb90fd349802",
   "compatibleSdkVersion": 20,
   "targetSdkVersion": 26
 }

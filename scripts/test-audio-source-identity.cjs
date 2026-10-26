@@ -101,6 +101,22 @@ async function run() {
   await service.resolveAudioRequest(source,'https://fixture/chapter',{__audioSourceVoice:''},chapterVariables);
   assert.equal(resolvedVariables.custom,'','default selection clears old catalog override');
   assert.equal(chapterVariables.custom,'1','switching does not mutate the chapter snapshot');
+  service.getBookInfo = async () => { throw new Error('detail endpoint returned an empty response'); };
+  let fallbackTocCalls = 0;
+  service.getBookToc = async (_source,url,variables,_name,onBatch) => {
+    fallbackTocCalls++;
+    assert.equal(url,preview.bookUrl);
+    assert.equal(variables.__lightBook,'{}');
+    const chapters = [{name:'第一章',url:'https://fixture/chapter?id=456'}];
+    onBatch(chapters); return chapters;
+  };
+  const recovered = await service.loadAudioBook({...preview,id:'detail-failed',chapters:[]},() => {});
+  assert.equal(fallbackTocCalls,1,'failed detail must not prevent an independent catalog request');
+  assert.equal(recovered.chapters.length,1);
+  assert.equal(recovered.tocComplete,true);
+  assert.equal(recovered.title,preview.title);
+  service.getBookToc = async () => { throw new Error('catalog endpoint failed'); };
+  await assert.rejects(service.loadAudioBook({...preview,id:'both-failed',chapters:[]},() => {}),/catalog endpoint failed/);
   console.log('PASS: audio edition identity, old cover cache, detail/toc variables, updates and persistence');
 }
 run().catch(error => {console.error(error);process.exitCode=1;});

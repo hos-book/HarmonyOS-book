@@ -76,6 +76,9 @@ export class AppIconService {
     this.changing = true;
     try {
       const current = await this.getCurrent();
+      if (this.membershipRequired && name !== '' && !MembershipState.current.hasAccess) {
+        throw new Error('Active icon membership required');
+      }
       if (current === name) return current;
       await bundleManager.setAlternateIcon(name);
       const applied = await this.getCurrent();

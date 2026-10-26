@@ -28,7 +28,7 @@ function load(relative, imports) {
 const routingModule = load('utils/FileOpenRouting.ets', { '@kit.CoreFileKit': { fileUri } });
 const routing = routingModule.FileOpenRouting;
 const view = (uri, type = '') => ({ action: 'ohos.want.action.viewData', uri, type });
-for (const ext of ['txt', 'epub', 'mobi', 'html', 'htm', 'zip']) {
+for (const ext of ['txt', 'epub', 'mobi', 'pdf', 'html', 'htm', 'zip']) {
   for (const scheme of ['file', 'content']) {
     assert.equal(routing.target(view(`${scheme}://provider/书籍.${ext.toUpperCase()}`)), 'localBookImport');
   }
@@ -42,7 +42,10 @@ assert.equal(routing.target(view('content://provider/42', 'general.json')), 'rul
 assert.equal(routing.target(view('content://provider/42', 'application/x-zip-compressed')), 'localBookImport');
 assert.equal(routing.target(view('content://provider/42', 'com.amazon.mobi')), 'localBookImport');
 assert.equal(routing.target(view('https://example.org/novel.epub')), '');
-assert.equal(routing.target(view('file://docs/novel.pdf', 'text/plain')), '');
+assert.equal(routing.target(view('file://docs/novel.pdf', 'text/plain')), 'localBookImport');
+assert.equal(routing.extension('content://provider/42', 'Application/PDF; version=1.7'), '.pdf');
+assert.equal(routing.target(view('content://provider/42', 'com.adobe.pdf')), 'localBookImport');
+assert.equal(routing.target(view('file://docs/archive.rar', 'application/pdf')), '', 'extension takes priority over PDF MIME');
 assert.equal(routing.target(view('file://docs/archive.rar')), '');
 assert.equal(routing.target(view('file://docs/42', 'application/octet-stream')), '');
 assert.equal(routing.target({ ...view('file://docs/novel.epub'), action: 'ohos.want.action.home' }), '');
@@ -55,12 +58,13 @@ for (const entry of skill.uris) {
   assert.ok(routing.target(view(`${entry.scheme}://provider/42`, entry.type)),
     `Registered file type must have a working route: ${entry.type}`);
 }
-for (const type of ['general.json', 'general.plain-text', 'general.epub', 'com.amazon.mobi', 'general.html', 'general.zip-archive']) {
+for (const type of ['general.json', 'general.plain-text', 'general.epub', 'com.adobe.pdf', 'application/pdf', 'com.amazon.mobi', 'general.html', 'general.zip-archive']) {
   assert.ok(skill.uris.some(u => u.type === type && u.scheme === 'file'));
 }
 
 const entryModule = load('entryability/EntryAbility.ets', {
   '../utils/FileOpenRouting': routingModule,
+  '../utils/PlatformCompat': { PlatformCompat: { wearable: false } },
   '@kit.AbilityKit': { UIAbility: class {} },
   '@kit.BasicServicesKit': { emitter: { emit: (event, payload) => events.push({ event, payload }) } }
 });
@@ -80,4 +84,7 @@ entry.onNewWant(view('file://docs/source.json', 'general.json'), {});
 assert.equal(storage.get(entryModule.KEY_WIDGET_ROUTE).target, 'ruleSourceImport');
 entry.onNewWant(view('file://docs/books.zip', 'general.zip-archive'), {});
 assert.equal(storage.get(entryModule.KEY_WIDGET_ROUTE).target, 'localBookImport');
+entry.onNewWant(view('content://provider/pdf-file', 'application/pdf'), {});
+assert.equal(storage.get(entryModule.KEY_WIDGET_ROUTE).bookId, 'content://provider/pdf-file');
+assert.equal(storage.get(entryModule.KEY_WIDGET_ROUTE).fileType, 'application/pdf');
 console.log('PASS file open: supported formats, JSON priority, MIME/UTD fallback, manifest registration, cold/hot route delivery');

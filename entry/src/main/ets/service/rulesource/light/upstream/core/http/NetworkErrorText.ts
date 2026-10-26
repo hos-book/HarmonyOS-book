@@ -9,6 +9,12 @@ export class NetworkErrorText {
     if (!text) return '';
     const host = NetworkErrorText.hostOf(url);
     const target = host || '服务器';
+    if (/2300016|http\/?2.*(?:error|failed)|framing layer|curl(?:_|\s*)code\s*(?:result\s*)?[=:]?\s*92\b/i.test(text)) {
+      return `与 ${target} 的 HTTP/2 传输异常，可尝试开启 HTTP/1.1 兼容模式`;
+    }
+    if (/2300999|internal error/i.test(text)) {
+      return `访问 ${target} 时发生网络内部错误，请重试或尝试 HTTP/1.1 兼容模式`;
+    }
     if (/2300006|resolve\s+(the\s+)?host|could\s*n['o]?t\s+resolve|name\s+does\s+not\s+resolve/i.test(text)) {
       return `无法解析域名 ${target}，请检查网络或代理`;
     }
@@ -21,7 +27,13 @@ export class NetworkErrorText {
     if (/2300035|2300060|ssl|tls|certificate/i.test(text)) {
       return `与 ${target} 建立安全连接失败`;
     }
-    if (/2300052|2300056|empty\s+reply|recv\s+failure|connection\s+reset/i.test(text)) {
+    if (/connection\s+reset/i.test(text)) {
+      return `与 ${target} 的连接被重置，请稍后重试`;
+    }
+    if (/2300056|recv\s+failure|failed\s+to\s+receive/i.test(text)) {
+      return `接收 ${target} 的数据失败，请稍后重试`;
+    }
+    if (/2300052|empty\s+reply/i.test(text)) {
       return `${target} 没有返回数据，请稍后重试`;
     }
     return '';

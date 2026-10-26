@@ -53,7 +53,7 @@ export struct MembershipPage {
         TabContent() {
           Scroll() {
             Column() {
-              ThemeBundleComponent()
+              ThemeBundleComponent({ onMembershipRequired: (): void => { this.showMembership = true; } })
             }.width('100%').constraintSize({ maxWidth: 920 })
             .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Sm,
               bottom: WindowUtils.getBottomSafeVp() + AppSpace.Lg })

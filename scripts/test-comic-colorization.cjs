@@ -18,6 +18,7 @@ let foregroundEvents = 0, engineForeground = true, memoryNotifications = 0, prep
 let reconciles = 0, afterEngineResult;
 const recorded = [];
 const engine = {
+  ComicColorModels: { missingBytes() { return 0; }, async download() {} },
   AiRuntime: { install(host) { installedHost = host; } },
   ComicColorizer: {
     releaseIdleWorker() { idleReleases++; },
@@ -129,6 +130,9 @@ const waitForEngine = async () => { while (!activeJobs) await new Promise(resolv
   member = false;
   assert.equal(await service.colorize(context, uri, () => false), '');
   assert.equal(engineCalls, 0);
+  assert.equal(await service.colorize(context, uri, () => true), '', 'non-member cannot invoke coloring directly');
+  assert.equal(engineCalls, 0, 'denied requests never reach the engine');
+  member = true;
   const colored = await service.colorize(context, uri, () => true);
   assert.ok(colored.startsWith('file:///cache/comic_images/color_'));
   assert.ok(recorded.includes(colored));
@@ -139,8 +143,8 @@ const waitForEngine = async () => { while (!activeJobs) await new Promise(resolv
   installedHost.createColorWorker();
   assert.equal(workerPath, 'entry/ets/workers/ComicColorWorker.ets');
   member = false;
-  assert.equal(installedHost.isAllowed('colorization'), true, 'colorization is free');
-  assert.equal(await service.colorize(context, uri, () => true), colored);
+  assert.equal(installedHost.isAllowed('colorization'), false, 'HAR host also checks membership');
+  assert.equal(await service.colorize(context, uri, () => true), '', 'cached colorization cannot bypass membership');
   assert.equal(await service.transform(context, uri, () => true, 'en-zh'), '', 'translation still requires membership');
   assert.equal(await service.transform(context, uri, () => true, 'en-zh', true), '', 'combined translation requires membership');
   member = true;
@@ -200,7 +204,7 @@ const waitForEngine = async () => { while (!activeJobs) await new Promise(resolv
   gate = new Promise(resolve => { release = resolve; });
   const freeColor = service.colorize(context, uri, () => true);
   await waitForEngine(); member = false; release();
-  assert.equal(await freeColor, colored, 'membership changes do not cancel free colorization');
+  assert.equal(await freeColor, '', 'revocation discards in-flight colorization');
   member = true;
   gate = new Promise(resolve => { release = resolve; });
   const revoked = service.transform(context, uri, () => true, 'en-zh', true);
@@ -221,15 +225,46 @@ const waitForEngine = async () => { while (!activeJobs) await new Promise(resolv
   service.prepare(context, () => true);
   member = true;
   service.prepare(context, () => false);
-  assert.equal(preparations, 1, 'non-members can warm up while inactive readers cannot');
+  assert.equal(preparations, 0, 'non-members and inactive readers cannot warm up');
   service.prepare(context, () => true);
-  assert.equal(preparations, 2);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(preparations, 1);
   assert.equal(preparationActive(), true);
   member = false;
-  assert.equal(preparationActive(), true, 'free warmup is unaffected by membership');
+  assert.equal(preparationActive(), false, 'membership revocation cancels warmup');
   member = true;
   service.release();
   assert.equal(preparationActive(), false, 'closing invalidates pending preparation');
+  const modelData = new Uint8Array(1024 * 1024 + 37).fill(7);
+  let rawClosed = 0;
+  const modelContext = {filesDir:'/files',cacheDir:'/cache',resourceManager:{
+    async getRawFd(name) { assert.equal(name,'comic-colorizer/alac.ms'); return {fd:900,offset:71,length:modelData.length}; },
+    async closeRawFd() { rawClosed++; }
+  }};
+  const modelHost = new hostModule.ComicAiHost(modelContext);
+  const originalWrite = fileIo.write;
+  fileIo.read = async (fd, chunk, options) => {
+    assert.equal(fd,900);
+    const start = options.offset - 71;
+    const part = modelData.subarray(start,start+chunk.byteLength);
+    new Uint8Array(chunk).set(part); return part.length;
+  };
+  fileIo.write = async (fd, chunk) => {
+    const file = handles.get(fd), previous = new Uint8Array(files.get(file));
+    const size = Math.min(12345,chunk.byteLength); // Real files may accept a short write.
+    const combined = new Uint8Array(previous.length+size);
+    combined.set(previous);combined.set(new Uint8Array(chunk,0,size),previous.length);
+    files.set(file,combined.buffer); return size;
+  };
+  const modelPath='/files/comic_colorizer/alac-fp16-v4.ms.part';
+  const progress=[];
+  await modelHost.downloadColorModel('alac.ms',modelPath,modelData.length,()=>true,n=>progress.push(n));
+  assert.deepEqual(new Uint8Array(files.get(modelPath)),modelData);
+  assert.equal(progress.at(-1),modelData.length);assert.equal(rawClosed,1);
+  await assert.rejects(modelHost.downloadColorModel('alac.ms',modelPath,modelData.length,()=>true,()=>{member=false;}));
+  assert.equal(rawClosed,2,'revocation closes the package resource');
+  member=true; fileIo.write=originalWrite;
+  console.log('comic model assets: bounded copies, resource offsets, partial writes and membership revocation passed');
   hostModule.ComicAiHost.setAppForeground(false);
   assert.equal(engineForeground, false, 'background reaches the installed engine');
   hostModule.ComicAiHost.onMemoryPressure(0);

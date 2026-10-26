@@ -1,9 +1,13 @@
 import { BookSource } from '../../model/data/Book';
 import { NativeSourceSpec } from './NativeSourceSpec';
+import { SourceDefinitionCache } from './SourceDefinitionCache';
 import type { NativeSourceDefinition } from './NativeSourceSpec';
 
 /** Definition conversion only: no cache invalidation, IO or runtime dependencies. */
 export class NativeSourceImport {
+  private static definitions = new SourceDefinitionCache((raw: string): string =>
+    JSON.stringify(NativeSourceImport.toBookSource(NativeSourceSpec.fromObject(JSON.parse(raw)))));
+
   static toBookSource(definition: NativeSourceDefinition, existing: BookSource | null = null): BookSource {
     const source = existing ? Object.assign(new BookSource(), existing) : new BookSource();
     source.bookSourceUrl = definition.url;
@@ -45,6 +49,10 @@ export class NativeSourceImport {
   }
 
   static importObject(value: Object, existing: BookSource | null = null): BookSource {
-    return NativeSourceImport.toBookSource(NativeSourceSpec.fromObject(value), existing);
+    if (existing) return NativeSourceImport.toBookSource(NativeSourceSpec.fromObject(value), existing);
+    const source = Object.assign(new BookSource(),
+      JSON.parse(NativeSourceImport.definitions.normalize(JSON.stringify(value))));
+    source.lastUpdateTime = Date.now();
+    return source;
   }
 }

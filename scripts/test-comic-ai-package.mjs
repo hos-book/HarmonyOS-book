@@ -18,6 +18,7 @@ class FakeWorker {
   reply(data) { this.onmessage({ data }); }
 }
 const ctx = vm.createContext({ Promise, Map, Error, ArrayBuffer, Uint8Array, Number, Array,
+  AbilityConstant: { MemoryLevel: { MEMORY_LEVEL_LOW: 0, MEMORY_LEVEL_MODERATE: 1 } },
   console: { info() {}, warn() {} }, Date: { now: () => now },
   AiRuntime: { isAllowed: () => member, current: () => ({ createColorWorker: () => new FakeWorker() }) },
   setInterval(fn) { tick = fn; return 1; }, clearInterval() { tick = null; },

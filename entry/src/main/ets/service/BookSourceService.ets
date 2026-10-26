@@ -184,8 +184,14 @@ export class BookSourceService {
     const book = task.book;
     const source = await LocalRuleSourceRepository.getByUrl(book.sourceUrl);
     if (source === undefined) throw new Error('书源已被删除或不可用');
-    const info = await BookSourceService.getBookInfo(source, book.bookUrl, book.variables);
-    let tocUrl = book.bookUrl;
+    let info: BookInfo | null = null;
+    try { info = await BookSourceService.getBookInfo(source, book.bookUrl, book.variables); }
+    catch (_) {
+      // Detail and catalog may use independent endpoints. Preserve the selected book's
+      // context and let the catalog rule decide whether it can run without fresh metadata.
+      console.warn('[BookSourceService] audio detail failed; trying the independent catalog rule');
+    }
+    let tocUrl = book.variables?.['tocUrl'] || book.bookUrl;
     if (info !== null) {
       tocUrl = info.tocUrl || tocUrl;
       // Audio discovery may use an edition title while detail returns the original novel title.

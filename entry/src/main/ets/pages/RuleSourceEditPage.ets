@@ -306,7 +306,7 @@ export struct RuleSourceEditPage {
       const definition: Object = JSON.parse(LocalRuleSourceCodec.stringify(this.source));
       const text = JSON.stringify(definition, null, 2);
       const options = new picker.DocumentSaveOptions();
-      options.newFileNames = [`book-source-${Date.now()}.json`];
+      options.newFileNames = [LocalRuleSourceCodec.exportFileName([this.source])];
       const uris = await new picker.DocumentViewPicker(context).save(options);
       if (uris.length === 0) return;
       const file = await fileIo.open(uris[0], fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);

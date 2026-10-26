@@ -7,7 +7,9 @@
 import { CooperativeScheduler } from '../concurrency/CooperativeScheduler';
 import { NativeExpr, NativeExprError, NativeScope } from './NativeExpr';
 import { SourceCoverUrl } from './SourceCoverUrl';
+import { NativePureRule } from './NativePureRule';
 import { NativeJsPrelude } from './NativeJsPrelude';
+import { NativeCommentPage } from './NativeCommentPage';
 import { NativeScriptHost, NativeScriptLimits } from './NativeScriptHost';
 import type { NativeScriptEngine } from './NativeScriptHost';
 import type { NativeBrowserResult } from './NativeSourceInteraction';
@@ -30,6 +32,8 @@ export interface NativeRequest {
   webTimeout: number;
   charset: string;
   retry: number;
+  /** 单请求总等待预算（毫秒），由脚本显式指定；包含限流、跳转和重试。 */
+  timeoutMs?: number;
   /** 主请求：遇到验证页时应提示用户去验证。附加请求不触发。 */
   primary: boolean;
   /** 网页渲染后在页面里执行的表达式（脚本的 browser.render），结果作为响应正文。 */
@@ -47,6 +51,8 @@ export interface NativeResponse {
   status: number;
   body: string;
   url: string;
+  /** Empty when the transport cannot observe the final destination. */
+  finalUrl?: string;
   error: string;
 }
 
@@ -82,7 +88,8 @@ export interface NativeActionEntry {
 }
 
 export interface NativeRunnerHost extends NativeExprHost {
-  parsePure?(input: string): Promise<string>;
+  /** 后台纯解析，JSON 进出；返回 null 表示没接手（超限、后台出错），调用方回到本线程解析。 */
+  parsePure?(input: string): Promise<string | null>;
   fetch(request: NativeRequest): Promise<NativeResponse>;
   /** 调试时记录规则求值；不调试时不提供。 */
   trace?(entry: NativeRuleTrace): void;
@@ -227,6 +234,24 @@ interface StagePage {
   baseUrl: string;
 }
 
+interface InlineParagraph {
+  index: number;
+  count: number;
+  text: string;
+  hash: string;
+  fallbackUrl: string;
+}
+
+interface InlineContext {
+  sourceUrl: string;
+  savedAt: number;
+  values: string;
+  paragraphs: InlineParagraph[];
+  total: number;
+  chapterHash: string;
+  chapterUrl: string;
+}
+
 /** 详情页的响应，留给紧接着的目录第一页复用（目录与详情是同一个请求时）。 */
 interface KeptPage {
   body: string;
@@ -294,6 +319,13 @@ class UiPacer {
 }
 
 export class NativeSourceRunner {
+  private static inlineContexts: Map<string, InlineContext> = new Map<string, InlineContext>();
+
+  static clearCommentContexts(sourceUrl: string): void {
+    NativeSourceRunner.inlineContexts.forEach((context: InlineContext, key: string): void => {
+      if (context.sourceUrl === sourceUrl) NativeSourceRunner.inlineContexts.delete(key);
+    });
+  }
   private static keptPages: Map<string, KeptPage> = new Map<string, KeptPage>();
   private definition: NativeSourceDefinition;
   private host: NativeRunnerHost;
@@ -954,22 +986,28 @@ export class NativeSourceRunner {
     if (kind === 'text' && stage.comments && firstPage && text.trim()) {
       // 评论只是附加信息，任何一步失败都不影响正文。
       try {
-        await this.collectComments(stage.comments, firstPage, text, result);
+        await this.collectComments(stage.comments, firstPage, text, result, book, chapter);
       } catch (e) {
         result.paragraphComments = [];
         result.chapterCommentUrl = '';
+        if (this.host.trace) this.host.trace({ field: 'content.comments', rule: '', type: 'error', count: 0,
+          preview: '', error: e instanceof Error ? e.message : String(e) });
       }
     }
     return result;
   }
 
   private async collectComments(spec: NativeCommentsSpec, page: StagePage, text: string,
-    result: NativeContentResult): Promise<void> {
+    result: NativeContentResult, book: NativeBookInput, chapter: NativeChapterInput): Promise<void> {
     if (spec.when && !NativeExpr.isTruthy((await this.value(spec.when, page.scope)))) return;
     const scope = page.scope.child();
     scope.set('stats', spec.stats ? await this.fetchValue(spec.stats, scope) : null);
+    const inline = !!(spec.page || spec.chapterPage);
+    const contextKey = inline ? this.inlineKey(book, chapter) : '';
+    const context: InlineContext = { sourceUrl: this.definition.url, savedAt: Date.now(), values: '', paragraphs: [], total: 0,
+      chapterHash: inline ? this.host.digest('SHA256', text) : '', chapterUrl: '' };
     let total = 0;
-    if (spec.paragraphUrl && spec.counts) {
+    if ((spec.paragraphUrl || spec.page || spec.chapterPage) && spec.counts) {
       const counts = (await this.value(spec.counts, scope));
       const lines = text.split('\n');
       const limit = Math.max(1, Math.min(Number(spec.max) || DEFAULT_COMMENT_BUBBLES, MAX_COMMENT_BUBBLES));
@@ -980,19 +1018,109 @@ export class NativeSourceRunner {
         const count = Math.floor(NativeExpr.toNumber(counts[key]));
         if (!Number.isInteger(line) || count <= 0) continue;
         total += count;
-        if (line < 0 || line >= lines.length || result.paragraphComments.length >= limit) continue;
+        if (line < 0 || line >= lines.length ||
+          (inline ? context.paragraphs.length : result.paragraphComments.length) >= limit) continue;
         const plain = lines[line].replace(/<[^>]+>/g, '').trim();
         if (!plain) continue;
         const para = { index: line, count: count, text: plain.length > 90 ? plain.substring(0, 90) : plain };
-        const url = NativeExpr.resolveUrl(
-          NativeExpr.toText((await this.template(spec.paragraphUrl, scope.child().set('para', para)))).trim(), page.baseUrl);
-        if (/^https?:\/\//i.test(url)) result.paragraphComments.push({ line: line, count: count, url: url });
+        const candidate = spec.paragraphUrl ? NativeExpr.resolveUrl(
+          NativeExpr.toText((await this.template(spec.paragraphUrl, scope.child().set('para', para)))).trim(), page.baseUrl) : '';
+        const fallback = /^https?:\/\//i.test(candidate) ? candidate : '';
+        const hash = spec.page ? this.host.digest('SHA256', plain) : '';
+        context.paragraphs.push({ index: line, count: count, text: para.text, hash: hash, fallbackUrl: fallback });
+        const url = spec.page ? `${NativeCommentPage.SCHEME}${contextKey}/${line}/${hash}` : fallback;
+        if (url) result.paragraphComments.push({ line: line, count: count, url: url });
       }
     }
     if (spec.chapterUrl) {
       const url = NativeExpr.resolveUrl(
         NativeExpr.toText((await this.template(spec.chapterUrl, scope.child().set('total', total)))).trim(), page.baseUrl);
       if (/^https?:\/\//i.test(url)) result.chapterCommentUrl = url;
+    }
+    if (inline) {
+      context.total = total;
+      context.chapterUrl = result.chapterCommentUrl;
+      context.values = JSON.stringify(scope.snapshot());
+      if (NativeCommentPage.bytes(JSON.stringify(context)) > 2 * 1024 * 1024) throw new Error('内联评论上下文超过 2 MiB');
+      if (spec.chapterPage) result.chapterCommentUrl = `${NativeCommentPage.SCHEME}${contextKey}/-1/${context.chapterHash}`;
+      NativeSourceRunner.inlineContexts.forEach((value: InlineContext, id: string): void => {
+        if (Date.now() - value.savedAt >= 5 * 60 * 1000) NativeSourceRunner.inlineContexts.delete(id);
+      });
+      NativeSourceRunner.inlineContexts.delete(contextKey);
+      if (NativeSourceRunner.inlineContexts.size >= 4) {
+        const oldest = NativeSourceRunner.inlineContexts.keys().next();
+        if (!oldest.done) NativeSourceRunner.inlineContexts.delete(oldest.value);
+      }
+      NativeSourceRunner.inlineContexts.set(contextKey, context);
+    }
+  }
+
+  private inlineKey(book: NativeBookInput, chapter: NativeChapterInput): string {
+    return this.host.digest('SHA256', JSON.stringify([this.definition, this.storedVars, this.credential, book, chapter]));
+  }
+
+  /** Cache contains only bounded chapter context. HTML and page.fetch are always evaluated on a click. */
+  async commentPage(book: NativeBookInput, chapter: NativeChapterInput, action: string): Promise<NativeCommentPage> {
+    const match = /^legado-native-page:([a-f0-9]{64})\/(-1|\d{1,7})\/([a-f0-9]{64})$/.exec(action || '');
+    if (!match || match[1] !== this.inlineKey(book, chapter)) throw new Error('评论入口已失效，请刷新本章');
+    const key = match[1];
+    const line = Number(match[2]);
+    let context = NativeSourceRunner.inlineContexts.get(key);
+    if (!context || Date.now() - context.savedAt >= 5 * 60 * 1000) {
+      NativeSourceRunner.inlineContexts.delete(key);
+      await this.content(book, chapter);
+      context = NativeSourceRunner.inlineContexts.get(key);
+    }
+    if (this.cancelled()) throw new Error('已取消');
+    const comments = this.definition.content?.comments;
+    const spec = line < 0 ? comments?.chapterPage : comments?.page;
+    if (!context || !spec) throw new Error('评论上下文不可用，请刷新本章');
+    const para = context.paragraphs.find((item: InlineParagraph): boolean => item.index === line);
+    if ((line >= 0 && (!para || para.hash !== match[3])) || (line < 0 && context.chapterHash !== match[3])) {
+      throw new Error('正文段落已变化，请刷新本章后打开评论');
+    }
+    const result = new NativeCommentPage();
+    result.fallbackUrl = line < 0 ? context.chapterUrl : (para?.fallbackUrl || '');
+    const scope = new NativeScope();
+    const values = JSON.parse(context.values) as Record<string, NativeValue>;
+    for (const name of Object.keys(values)) scope.set(name, values[name]);
+    scope.set('total', context.total);
+    if (para) scope.set('para', { index: para.index, count: para.count, text: para.text });
+    try {
+      for (const name of Object.keys(spec.fetch || {})) {
+        if (this.cancelled()) throw new Error('已取消');
+        const requestSpec = spec.fetch![name];
+        if (requestSpec.when && !NativeExpr.isTruthy(await this.value(requestSpec.when, scope))) {
+          scope.set(name, null);
+          continue;
+        }
+        const request = await this.buildRequest(requestSpec, scope, '');
+        const response = await this.host.fetch(request);
+        if (!response.ok) throw new Error(response.error || `评论请求失败：HTTP ${response.status}`);
+        let data: NativeValue = response.body;
+        try { data = JSON.parse(response.body); } catch (_) { }
+        scope.set(name, data);
+      }
+      const html = await this.template(spec.html, scope);
+      if (typeof html !== 'string') throw new Error('内联页面 HTML 求值结果必须是字符串');
+      if (!html.trim()) throw new Error('书源没有返回评论页面');
+      if (NativeCommentPage.bytes(html) > NativeCommentPage.MAX_HTML) throw new Error('内联页面 HTML 超过 256 KiB');
+      result.html = html;
+      result.dataJson = JSON.stringify(await this.renderDeep(spec.data || {}, scope));
+      if (NativeCommentPage.bytes(result.dataJson) > NativeCommentPage.MAX_DATA) throw new Error('内联页面 data 超过 64 KiB');
+      result.title = NativeExpr.toText(await this.template(spec.title || '评论', scope)).substring(0, 192) || '评论';
+      result.height = spec.height === undefined ? 0.8 : spec.height;
+      if (this.cancelled()) throw new Error('已取消');
+      if (this.host.trace) this.host.trace({ field: 'content.comments.page', rule: spec.html, type: 'inline-page',
+        count: 1, preview: `HTML ${NativeCommentPage.bytes(result.html)} bytes / data ${NativeCommentPage.bytes(result.dataJson)} bytes`, error: '' });
+      return result;
+    } catch (error) {
+      if (this.cancelled()) throw new Error('已取消');
+      result.html = '';
+      result.dataJson = '{}';
+      result.error = error instanceof Error ? error.message : String(error);
+      if (!result.fallbackUrl) throw new Error(result.error);
+      return result;
     }
   }
 
@@ -1552,12 +1680,7 @@ export class NativeSourceRunner {
       return this.host.evaluateExpression(this.definition.js, this.definition.lib || '', text, scope.snapshot(),
         template, this.cancelled);
     }
-    // Cookie expressions retain their live source-scoped host. Script calls keep the bounded script executor.
-    if (this.host.parsePure && !this.expr.requiresScript(text, template) &&
-      !/\bcookie\s*\(/i.test(text + '\n' + (this.definition.lib || ''))) {
-      return JSON.parse(await this.host.parsePure(JSON.stringify({ kind: 'expression', rule: text,
-        library: this.definition.lib || '', scope: scope.snapshot(), template })));
-    }
+    // 表达式不送后台：求值本身很快，送过去却要把整个作用域（含整页正文、登录信息）序列化一遍。
     return template ? this.expr.render(text, scope) : this.expr.evaluate(text, scope);
   }
 
@@ -1573,9 +1696,9 @@ export class NativeSourceRunner {
         const current = scope.get('item');
         const jsonItems = this.jsonRule(spec, current, true);
         const content = typeof current === 'string' ? current : NativeExpr.toText(current);
-        items = jsonItems !== null ? (jsonItems as NativeValue[]) : this.host.parsePure ?
-          JSON.parse(await this.host.parsePure(JSON.stringify({ kind: 'items', content, rule: spec, baseUrl }))) :
-          this.host.selectItems(content, spec, baseUrl);
+        items = jsonItems !== null ? (jsonItems as NativeValue[]) :
+          (await this.parsePure<NativeValue[]>({ kind: 'items', content, rule: spec, baseUrl })) ??
+            this.host.selectItems(content, spec, baseUrl);
       }
     } catch (e) {
       throw this.fieldError(field, spec, e);
@@ -1647,10 +1770,16 @@ export class NativeSourceRunner {
     if (jsonValue !== null) return jsonValue;
     const content = typeof current === 'string' ? current : NativeExpr.toText(current);
     const baseUrl = NativeExpr.toText(scope.get('baseUrl'));
-    const found: string[] = this.host.parsePure ?
-      JSON.parse(await this.host.parsePure(JSON.stringify({ kind: 'select', content, rule: text, baseUrl, list }))) :
+    const found: string[] = (await this.parsePure<string[]>({ kind: 'select', content, rule: text, baseUrl, list })) ??
       this.host.select(content, text, baseUrl, list);
     return list ? found : (found.length > 0 ? found[0] : '');
+  }
+
+  /** 纯选择器交给宿主的后台解析；宿主没接、规则带脚本或后台没接手时返回 null，由调用方在本线程解析。 */
+  private async parsePure<T>(request: Record<string, NativeValue>): Promise<T | null> {
+    if (!this.host.parsePure || !NativePureRule.isPure(String(request.rule))) return null;
+    const output = await this.host.parsePure(JSON.stringify(request));
+    return output === null ? null : JSON.parse(output) as T;
   }
 
   /**

@@ -107,7 +107,7 @@ export class NativeScriptHost {
       case '@http':
         return this.http(args[0]);
       case '@httpAll':
-        return this.httpAll(Array.isArray(args[0]) ? args[0] : []);
+        return this.httpAll(Array.isArray(args[0]) ? args[0] : [], args[1]);
       case '@varsGet':
         return this.context.getVar(this.text(args[0]));
       case '@varsSet':
@@ -224,18 +224,46 @@ export class NativeScriptHost {
     return await this.fetch(await this.request(raw));
   }
 
-  private async httpAll(list: NativeValue[]): Promise<NativeValue> {
+  private async httpAll(list: NativeValue[], rawOptions: NativeValue): Promise<NativeValue> {
+    if (rawOptions !== undefined && rawOptions !== null &&
+      (typeof rawOptions !== 'object' || Array.isArray(rawOptions))) throw new Error('http.all options 必须是对象');
+    const options = (rawOptions || {}) as Record<string, NativeValue>;
+    const concurrency = options['concurrency'] === undefined ? BATCH :
+      this.integerOption(options['concurrency'], 'http.all concurrency', 1, BATCH);
+    const timeout = this.requestTimeout(options['timeout']);
+    this.count(list.length);
     const requests: NativeRequest[] = [];
-    for (const raw of list) requests.push(await this.request(raw));
-    this.count(requests.length);
+    for (const raw of list) requests.push(await this.request(raw, timeout));
     const results: NativeValue[] = [];
-    for (let offset = 0; offset < requests.length; offset += BATCH) {
-      if (this.context.cancelled()) throw new Error('已取消');
-      const batch = requests.slice(offset, offset + BATCH);
-      const responses = await Promise.all(batch.map((request: NativeRequest): Promise<NativeValue> => this.fetch(request)));
-      for (const response of responses) results.push(response);
-    }
+    let next = 0;
+    let stopped = false;
+    const worker = async (): Promise<void> => {
+      try {
+        while (!stopped && next < requests.length) {
+          if (this.context.cancelled()) throw new Error('已取消');
+          const index = next++;
+          results[index] = await this.fetch(requests[index]);
+        }
+      } catch (error) {
+        stopped = true;
+        throw error;
+      }
+    };
+    const workers: Promise<void>[] = [];
+    for (let index = 0; index < Math.min(concurrency, requests.length); index++) workers.push(worker());
+    await Promise.all(workers);
     return results;
+  }
+
+  private integerOption(value: NativeValue, name: string, min: number, max: number): number {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < min || value > max) {
+      throw new Error(`${name} 必须是 ${min} 到 ${max} 的整数`);
+    }
+    return value;
+  }
+
+  private requestTimeout(value: NativeValue): number | undefined {
+    return value === undefined ? undefined : this.integerOption(value, 'http timeout（毫秒）', 100, 60000);
   }
 
   private count(added: number): void {
@@ -261,12 +289,13 @@ export class NativeScriptHost {
       throw new Error(`脚本收到的数据超过上限（${Math.round(this.context.limits.bytes / 1024 / 1024)} MB）`);
     }
     return {
-      ok: response.ok, status: response.status, body: body, url: response.url || request.url, error: response.error || ''
+      ok: response.ok, status: response.status, body: body, url: response.url || request.url,
+      finalUrl: response.finalUrl || '', error: response.error || ''
     };
   }
 
   /** 脚本给出的请求（地址字符串或对象）整理成与声明式请求相同的 NativeRequest。 */
-  private async request(raw: NativeValue): Promise<NativeRequest> {
+  private async request(raw: NativeValue, defaultTimeout?: number): Promise<NativeRequest> {
     const spec: Record<string, NativeValue> = raw && typeof raw === 'object' && !Array.isArray(raw) ?
       raw as Record<string, NativeValue> : { url: raw };
     const url = this.url(spec['url']);
@@ -291,6 +320,7 @@ export class NativeScriptHost {
       webTimeout: Math.max(3, Math.min(Number(webSpec ? webSpec['timeout'] : 0) || 15, 60)),
       charset: this.text(spec['charset']).trim(),
       retry: Math.max(0, Math.min(Math.floor(Number(spec['retry']) || 0), 3)),
+      timeoutMs: spec['timeout'] === undefined ? defaultTimeout : this.requestTimeout(spec['timeout']),
       primary: false
     };
   }

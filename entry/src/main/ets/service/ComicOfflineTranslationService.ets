@@ -1,5 +1,6 @@
 import { webview } from '@kit.ArkWeb';
 import { ComicTranslationText } from '../model/ComicTranslation';
+import { MembershipState } from '../model/MembershipState';
 
 class ComicOfflineResult {
   id: number = 0;
@@ -31,7 +32,8 @@ export class ComicOfflineTranslationService {
     if (!['ja-zh', 'ko-zh', 'en-zh', 'zh-en'].includes(direction)) throw new Error('comic_offline_language');
   }
 
-  static async translate(items: ComicTranslationText[], direction: string, active: () => boolean): Promise<ComicTranslationText[]> {
+  static async translate(items: ComicTranslationText[], direction: string, isActive: () => boolean): Promise<ComicTranslationText[]> {
+    const active = (): boolean => isActive() && MembershipState.current.hasAccess;
     ComicOfflineTranslationService.validateDirection(direction);
     if (!active()) throw new Error('comic_ai_cancelled');
     if (ComicOfflineTranslationService.busy) throw new Error('comic_offline_busy');

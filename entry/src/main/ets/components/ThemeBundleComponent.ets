@@ -9,10 +9,13 @@ import { AppColor, AppFont, AppRadius, AppSpace, AppTheme } from '../theme/Theme
 import { ThemeBundles } from '../theme/ThemeBundles';
 import { CoverImage } from './CoverImage';
 import { LocalBookCover } from './LocalBookCover';
+import { MembershipState } from '../model/MembershipState';
+import { VipFeatureBadge } from './VipFeatureBadge';
 
 /** 套装预览只读取候选定义；点击应用后才持久化并通知现有页面。 */
 @ComponentV2
 export struct ThemeBundleComponent {
+  @Event onMembershipRequired: () => void = () => {};
   @Local appearance: AppAppearance = AppAppearance.current;
   @Local applying: boolean = false;
   @Local applyingId: string = '';
@@ -44,8 +47,14 @@ export struct ThemeBundleComponent {
     try {
       await PreferenceService.applyThemeBundle(id);
       this.showResult($r('app.string.theme_bundle_changed'));
-    } catch (_error) {
-      this.showResult($r('app.string.theme_bundle_failed'));
+    } catch (error) {
+      if (error instanceof Error && error.message === 'MEMBERSHIP_REQUIRED') {
+        this.showPreview = false;
+        this.showResult($r('app.string.membership_feature_required'));
+        this.onMembershipRequired();
+      } else {
+        this.showResult($r('app.string.theme_bundle_failed'));
+      }
     } finally {
       this.applying = false;
       this.applyingId = '';
@@ -168,6 +177,7 @@ export struct ThemeBundleComponent {
         .lineHeight(19).width('100%').constraintSize({ minHeight: 38 })
       Button({ type: ButtonType.Normal }) {
         Row({ space: AppSpace.Xs }) {
+          if (MembershipState.featureEnabled && bundle.id !== ThemeBundles.DefaultId) { VipFeatureBadge() }
           if (this.applying && this.applyingId === bundle.id) {
             LoadingProgress().width(18).height(18).color(AppColor.Brand)
           }

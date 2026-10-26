@@ -896,7 +896,7 @@ export class PreferenceService {
     return PreferenceService.enqueueAppearanceSave((): AppThemeSelection => {
       const bundle = ThemeBundles.resolve(id);
       return new AppThemeSelection(bundle.id, bundle.accent, bundle.material);
-    });
+    }, id !== ThemeBundles.DefaultId);
   }
 
   static async resetThemeBundleOverrides(): Promise<void> {
@@ -934,10 +934,16 @@ export class PreferenceService {
   }
 
   /** 在队列内读取当前外观，避免连续调色/切套装覆盖刚保存的其他字段。 */
-  private static enqueueAppearanceSave(create: () => AppThemeSelection): Promise<void> {
+  private static enqueueAppearanceSave(create: () => AppThemeSelection, requireMembership: boolean = false): Promise<void> {
     const task: Promise<void> = PreferenceService.appearanceSave.then(async (): Promise<void> => {
+      if (requireMembership && !await MembershipService.instance.hasCurrentEntitlement()) {
+        throw new Error('MEMBERSHIP_REQUIRED');
+      }
       const store = await PreferenceService.ensureStore();
       const selection: AppThemeSelection = create();
+      if (selection.themeBundleId !== ThemeBundles.DefaultId && !MembershipState.current.hasAccess) {
+        throw new Error('MEMBERSHIP_REQUIRED');
+      }
       const previous = await store.get(KEY_THEME_SELECTION, '');
       try {
         await store.put(KEY_THEME_SELECTION, JSON.stringify(selection));

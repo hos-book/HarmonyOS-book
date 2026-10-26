@@ -1,8 +1,8 @@
 import { createPrivateKey, randomUUID, sign, type KeyObject } from 'node:crypto';
 
 export const MEMBERSHIP_APP_ID = '6917615941058168740';
-export const MEMBERSHIP_OFFER_ID = 'cheaplist';
-const productIds = new Set(['iconMonth', 'iconYear', 'lastVip']);
+export const MEMBERSHIP_OFFER_ID = 'lifetime_half_2026';
+const productIds = new Set(['lastVip']);
 
 export interface MembershipOfferSignature {
   productId: string;

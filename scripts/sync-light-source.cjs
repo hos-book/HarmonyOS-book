@@ -17,6 +17,15 @@ const readText = filename => fs.readFileSync(filename, 'utf8').replaceAll('\r\n'
 function revision(root, paths) {
   const status = cp.execFileSync('git', ['-C', root, 'status', '--porcelain', '--', ...paths], { encoding: 'utf8' }).trim();
   if (status) throw new Error(`The upstream source working tree must be clean: ${root}`);
+  // GitHub API archives are usable when Git transport is unavailable. The importer must
+  // verify their complete Git tree against the pinned upstream commit before recording it.
+  const archivePath = path.join(root, '.git/upstream-archive.json');
+  if (fs.existsSync(archivePath)) {
+    const archive = JSON.parse(fs.readFileSync(archivePath, 'utf8'));
+    const tree = cp.execFileSync('git', ['-C', root, 'rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim();
+    if (!/^[a-f0-9]{40}$/.test(archive.commit) || tree !== archive.tree) throw new Error('Unverified upstream archive');
+    return archive.commit;
+  }
   return cp.execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
 }
 const sources = {
@@ -79,7 +88,7 @@ const visit = name => {
   const dependencies = name === 'core/nativesource/NativeImageScriptRunner.ts' ?
     text.replace(/^import .* from '@devzeng\/quickjs';\n/m, '')
       .replace(/^import .* from '\.\/NativeImageTransform';\n/m, '') : text;
-  for (const match of rewritePackageImports(name, dependencies).matchAll(/(?:from\s*|import\s*)['"]([^'"]+)['"]/g)) {
+  for (const match of rewritePackageImports(name, name === 'core/book/ReaderCacheBudget.ts' ? '' : dependencies).matchAll(/(?:from\s*|import\s*)['"]([^'"]+)['"]/g)) {
     if (match[1].startsWith('@legado/sourceengine')) throw new Error(`Unsupported package import: ${match[1]}`);
     if (!match[1].startsWith('.')) continue;
     const base = path.posix.normalize(path.posix.join(path.posix.dirname(name), match[1]));
@@ -104,6 +113,25 @@ const replaceMethod = (text, signature, body) => {
   return text.replace(expression, body);
 };
 function adapt(name, text) {
+  if (name === 'core/book/ComicImagePipeline.ts') text = require('./light-image-protection.cjs')(text);
+  if (name === 'core/book/ReaderCacheBudget.ts') return `
+import { ReaderCacheService } from '../../../../../ReaderCacheService';
+/** Cache lifetime belongs to the app, including active-reader holds and durable text chapters. */
+export class ReaderCacheBudget {
+  static touchComicFile(path: string): void { ReaderCacheService.record([path]).catch(() => {}); }
+  static noteComicWrite(path?: string): void {
+    if (path) ReaderCacheService.record([path]).catch(() => {});
+    else ReaderCacheService.reconcile();
+  }
+}
+`;
+  if (name === 'core/book/WebBookService.ts') {
+    const guard = '    if (!content || !content.includes(ReaderImageMarker.PREFIX)) return content;';
+    if (text.split(guard).length !== 2) throw new Error('Upstream reader image entry changed');
+    text = text.replace(guard, guard + '\n    if (cancelled()) throw new Error(HttpClient.CANCELLED_ERROR);' +
+      '\n    // The app owns visible-image scheduling and source-bound decoding.' +
+      '\n    if (SourceEngineHost.readerImagesDeferred(source)) return content;');
+  }
   if (name === 'core/nativesource/NativeImageScriptRunner.ts') {
     text = text.replace(/^import .* from '@devzeng\/quickjs';\n/m, '')
       .replace(/^import .* from '\.\/NativeSourceCrypto';\n/m, '')
@@ -202,7 +230,7 @@ generated.push({ name: 'LightAudioSupport.ts', original: audioMethods.join('\n')
   `export class LightAudioSupport {\n${audioMethods.join('\n\n')}\n}\n` });
 const manifest = { schemaVersion: 2, sources, license: 'GPL-3.0',
   hashNormalization: 'LF',
-  patches: [],
+  patches: ['host-visible-image-scheduling-v1', 'host-reader-cache-budget-v1', 'host-image-protection-v1'],
   files: generated.map(entry => ({ path: entry.name,
     ...provenance(entry.origin || locate(entry.name)),
     ...(entry.generated ? { generated: true } : {}),

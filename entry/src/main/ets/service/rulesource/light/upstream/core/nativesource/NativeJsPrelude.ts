@@ -89,8 +89,9 @@ ${script ? NativeJsPrelude.SCRIPT_API : NativeJsPrelude.EXPRESSION_STUBS}
     get: function (url, options) { return wrap(call('@http', [toRequest(url, 'GET', undefined, options)])); },
     post: function (url, body, options) { return wrap(call('@http', [toRequest(url, 'POST', body, options)])); },
     request: function (request) { return wrap(call('@http', [toRequest(request)])); },
-    all: function (list) {
-      return call('@httpAll', [(list || []).map(function (item) { return toRequest(item); })]).map(wrap);
+    all: function (list, options) {
+      return call('@httpAll', [(list || []).map(function (item) { return toRequest(item); }),
+        options === undefined ? null : options]).map(wrap);
     }
   }));
   var store = function (prefix) {

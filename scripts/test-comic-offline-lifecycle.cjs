@@ -21,7 +21,10 @@ class Response {
   setResponseCode(code) { this.code = code; }
   setReasonMessage() {} setResponseMimeType() {} setResponseEncoding() {} setResponseHeader() {}
 }
-const { ComicOfflineTranslationService: service } = load('service/ComicOfflineTranslationService.ets', {});
+let member = true;
+const { ComicOfflineTranslationService: service } = load('service/ComicOfflineTranslationService.ets', {
+  '../model/MembershipState': { MembershipState: { current: { get hasAccess() { return member; } } } }
+});
 const owned = new Set();
 let nextFd = 100;
 const { ComicOfflineTranslationHost: Host } = load('components/ComicOfflineTranslationHost.ets', {
@@ -46,6 +49,9 @@ const { ComicOfflineTranslationHost: Host } = load('components/ComicOfflineTrans
   assert.equal(owned.size, 0, 'failed transfer closes the application-owned fd');
 
   const items = [{ id: 1, text: 'Hello' }];
+  member = false;
+  await assert.rejects(service.translate(items, 'en-zh', () => true), /cancelled/);
+  member = true;
   let cancelCalls = 0;
   const detached = { async runJavaScript(script) {
     if (script.includes('typeof')) return 'true';

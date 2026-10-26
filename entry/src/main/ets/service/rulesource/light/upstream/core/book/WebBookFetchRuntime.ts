@@ -17,6 +17,8 @@ export interface WebBookFetchRequest {
   webJsAcceptPattern?: string;
   webJsMaxAttempts?: number;
   timeoutMs?: number;
+  /** Shared deadline includes time queued behind another page. */
+  deadlineAt?: number;
   maxResponseBytes?: number;
 }
 
@@ -33,6 +35,7 @@ class WebBookFetchTask {
   request: WebBookFetchRequest = { url: '', method: 'GET', headers: {} };
   resolve: ((value: WebBookFetchResponse) => void) | null = null;
   timeoutId: number = -1;
+  deadlineId: number = -1;
   inspectId: number = -1;
   stableCount: number = 0;
   lastSignature: string = '';
@@ -95,6 +98,7 @@ export class WebBookFetchRuntime {
     if (this.active) this.finishActive(this.failure(this.active.request.url, '网页抓取环境已关闭'));
     while (this.queue.length > 0) {
       const task = this.queue.shift();
+      if (task && task.deadlineId >= 0) clearTimeout(task.deadlineId);
       if (task?.resolve) task.resolve(this.failure(task.request.url, '网页抓取环境已关闭'));
     }
     this.controller = null;
@@ -180,6 +184,23 @@ export class WebBookFetchRuntime {
       const task = new WebBookFetchTask();
       task.request = request;
       task.resolve = resolve;
+      if (request.deadlineAt) {
+        if (Date.now() >= request.deadlineAt) {
+          resolve(this.failure(url, 'WebView 请求超时 (2300028)'));
+          return;
+        }
+        task.deadlineId = setTimeout((): void => {
+          const failed = this.failure(url, 'WebView 请求超时 (2300028)');
+          if (this.active === task) this.finishActive(failed);
+          else {
+            const index = this.queue.indexOf(task);
+            if (index >= 0) {
+              this.queue.splice(index, 1);
+              task.resolve?.(failed);
+            }
+          }
+        }, request.deadlineAt - Date.now());
+      }
       this.queue.push(task);
       this.recoverIdleController();
       this.runNext();
@@ -198,9 +219,17 @@ export class WebBookFetchRuntime {
     if (this.active || !this.controller || !this.ready || this.queue.length === 0) return;
     const task = this.queue.shift();
     if (!task) return;
+    if (task.request.deadlineAt && Date.now() >= task.request.deadlineAt) {
+      if (task.deadlineId >= 0) clearTimeout(task.deadlineId);
+      task.resolve?.(this.failure(task.request.url, 'WebView 请求超时 (2300028)'));
+      this.runNext();
+      return;
+    }
     this.active = task;
     this.ready = false;
-    const timeoutMs = Math.max(3000, Math.min(60000, task.request.timeoutMs || 20000));
+    const configuredTimeout = Math.max(3000, Math.min(60000, task.request.timeoutMs || 20000));
+    const timeoutMs = task.request.deadlineAt ? Math.max(1, Math.min(configuredTimeout, task.request.deadlineAt - Date.now())) :
+      configuredTimeout;
     task.timeoutId = setTimeout((): void => {
       if (this.active === task) {
         this.finishActive(this.failure(task.request.url, `WebView 请求超时（${timeoutMs}ms）`));
@@ -364,8 +393,10 @@ export class WebBookFetchRuntime {
     if (!task) return;
     this.active = null;
     if (task.timeoutId >= 0) clearTimeout(task.timeoutId);
+    if (task.deadlineId >= 0) clearTimeout(task.deadlineId);
     if (task.inspectId >= 0) clearTimeout(task.inspectId);
-    if (task.resolve) task.resolve(response);
+    if (task.resolve) task.resolve(task.request.deadlineAt && Date.now() >= task.request.deadlineAt ?
+      this.failure(task.request.url, 'WebView 请求超时 (2300028)') : response);
     try { this.controller?.stop(); } catch (_) {}
     try { this.controller?.loadUrl('about:blank'); } catch (_) {}
     setTimeout((): void => this.runNext(), 0);

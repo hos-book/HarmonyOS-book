@@ -39,7 +39,7 @@
     },
     {
       "name": "theme_bundle_hint",
-      "value": "每次应用套装都会恢复该主题的主题色与材质，并切换默认封面、页面背景和首页图标；已有书封保留原图。"
+      "value": "默认主题免费，其他主题套装为 VIP 专享，可免费预览。应用套装会恢复推荐主题色与材质，并切换默认封面、页面背景和首页图标；已有书封保留原图。"
     },
     {
       "name": "theme_bundle_apply",
@@ -138,8 +138,8 @@
       "value": "缓存清理未完成，请重试"
     },
     {
-      "name": "membership_offer_endpoint",
-      "value": ""
+      "name": "membership_offer_function",
+      "value": "membership-offer"
     },
     {
       "name": "membership_offer_unavailable",
@@ -1199,15 +1199,51 @@
     },
     {
       "name": "import_supported_formats",
-      "value": "音频：MP3/M4A/FLAC/WAV/OGG/AAC；电子书：TXT/EPUB/MOBI/HTML/HTM；打包：ZIP。MOBI 支持未加密 MOBI6（未压缩或 PalmDOC 压缩），自动提取封面，不保留正文图片和原排版。"
+      "value": "音频：MP3/M4A/FLAC/WAV/OGG/AAC；电子书：TXT/EPUB/MOBI/PDF/HTML/HTM；打包：ZIP。PDF 在本机逐页转换，保留原版文字、图片和排版，使用图像阅读器阅读，不支持文字重排和朗读；单文件不超过 128 MiB、2000 页，转换图片总计不超过 512 MiB，暂不支持需要密码的文件。MOBI 支持未加密 MOBI6（未压缩或 PalmDOC 压缩），自动提取封面，不保留正文图片和原排版。"
     },
     {
       "name": "import_file_filter",
-      "value": "音频、电子书、ZIP|.mp3,.m4a,.flac,.wav,.ogg,.aac,.txt,.epub,.mobi,.html,.htm,.zip"
+      "value": "音频、电子书、ZIP|.mp3,.m4a,.flac,.wav,.ogg,.aac,.txt,.epub,.mobi,.pdf,.html,.htm,.zip"
     },
     {
       "name": "import_external_failed",
       "value": "无法添加此文件，请重新选择支持的电子书或 ZIP 文件"
+    },
+    {
+      "name": "import_pdf_unsupported",
+      "value": "当前设备不支持 PDF 解析，请在支持 PDFKit 的手机、平板或电脑上导入。"
+    },
+    {
+      "name": "import_pdf_invalid",
+      "value": "PDF 解析或页面转换失败，请检查文件是否完整后重试。"
+    },
+    {
+      "name": "import_pdf_password",
+      "value": "此 PDF 需要密码，暂不支持导入。请先使用其他工具解锁后再导入。"
+    },
+    {
+      "name": "import_pdf_limit",
+      "value": "PDF 导入上限为单文件 128 MiB、2000 页，转换图片总计 512 MiB。请拆分文件后重试。"
+    },
+    {
+      "name": "import_pdf_space",
+      "value": "PDF 转换空间不足，请清理存储后重试（另需保留 256 MiB）。"
+    },
+    {
+      "name": "import_pdf_write_failed",
+      "value": "PDF 页面保存失败，请检查存储空间后重试。"
+    },
+    {
+      "name": "import_pdf_progress",
+      "value": "正在转换 PDF：%d / %d 页"
+    },
+    {
+      "name": "import_pdf_section",
+      "value": "第 %d–%d 页"
+    },
+    {
+      "name": "import_pdf_intro",
+      "value": "本地 PDF · 原版页面"
     },
     {
       "name": "import_mobi_invalid",
@@ -4770,6 +4806,110 @@
       "value": "随心阅读，自在听书，乐享漫画"
     },
     {
+      "name": "membership_feature_required",
+      "value": "此功能为 VIP 专享，请先开通或恢复会员。"
+    },
+    {
+      "name": "membership_comparison_title",
+      "value": "会员权益对比"
+    },
+    {
+      "name": "membership_comparison_feature",
+      "value": "权益"
+    },
+    {
+      "name": "membership_comparison_free",
+      "value": "非会员"
+    },
+    {
+      "name": "membership_comparison_member",
+      "value": "会员"
+    },
+    {
+      "name": "membership_comparison_unavailable",
+      "value": "不支持"
+    },
+    {
+      "name": "membership_comparison_available",
+      "value": "支持"
+    },
+    {
+      "name": "membership_comparison_default_icon",
+      "value": "默认图标"
+    },
+    {
+      "name": "membership_comparison_all_icons",
+      "value": "全部会员图标"
+    },
+    {
+      "name": "membership_comparison_basic_theme",
+      "value": "基础主题"
+    },
+    {
+      "name": "membership_comparison_member_theme",
+      "value": "专属主题"
+    },
+    {
+      "name": "membership_comparison_manual_backup",
+      "value": "手动备份"
+    },
+    {
+      "name": "membership_comparison_auto_backup",
+      "value": "自动云备份"
+    },
+    {
+      "name": "membership_comparison_search_free",
+      "value": "3 个并发"
+    },
+    {
+      "name": "membership_comparison_unlimited",
+      "value": "无限制"
+    },
+    {
+      "name": "membership_comparison_regular_release",
+      "value": "正式版体验"
+    },
+    {
+      "name": "membership_comparison_early_access",
+      "value": "优先体验"
+    },
+    {
+      "name": "membership_feature_color",
+      "value": "AI 上色"
+    },
+    {
+      "name": "membership_feature_translate",
+      "value": "AI 翻译"
+    },
+    {
+      "name": "membership_feature_upscale",
+      "value": "AI 超分"
+    },
+    {
+      "name": "membership_feature_icon",
+      "value": "图标"
+    },
+    {
+      "name": "membership_feature_theme",
+      "value": "主题"
+    },
+    {
+      "name": "membership_feature_backup",
+      "value": "云备份"
+    },
+    {
+      "name": "membership_feature_search",
+      "value": "搜索并发"
+    },
+    {
+      "name": "membership_feature_preview",
+      "value": "功能尝鲜"
+    },
+    {
+      "name": "membership_feature_support",
+      "value": "专属客服"
+    },
+    {
       "name": "membership_card_title",
       "value": "简听阅读会员"
     },
@@ -4783,7 +4923,7 @@
     },
     {
       "name": "membership_benefit_short",
-      "value": "专属主题 · 自动备份 · AI 超分与上色 · 搜索并发 · 专属客服"
+      "value": "AI 上色 / 翻译 / 超分 · 图标与主题 · 自动云备份 · 无限搜索并发 · 功能尝鲜 · 专属客服"
     },
     {
       "name": "membership_details",
@@ -4851,7 +4991,7 @@
     },
     {
       "name": "membership_benefit",
-      "value": "1. 自动云备份：可开启自动备份，选择每天、每 3 天或每周。非会员可手动云备份。\n2. 全量主题解锁：有效期内解锁全部会员桌面图标及后续新增官方皮肤。默认图标、原有界面配色和阅读器主题保持免费。\n3. 自定义源无限制：会员导入总数不限，非会员最多 10 个。\n4. 搜索并发自定义：默认 3，会员可设置 1–12。\n5. 专属客服：会员可享专属客服支持。"
+      "value": "会员享有 AI 上色、AI 翻译、AI 超分、全部会员图标、专属主题、自动云备份、搜索并发无限制、功能尝鲜及专属客服。\n非会员可使用默认图标、基础主题和手动云备份，搜索并发为 3。原有界面配色、阅读器主题、阅读听书和不限数量导入自定义源保持免费。\n图标切换及 AI 能力需系统和设备支持；自动云备份需登录华为账号并开通可用云空间，在应用使用期间执行。"
     },
     {
       "name": "membership_month",
@@ -5823,7 +5963,7 @@
     },
     {
       "name": "comic_ai_color_hint",
-      "value": "免费在本机为可见漫画页面着色，无需配置 API。首次处理可能较慢；关闭恢复原图，退出阅读后需重新开启。"
+      "value": "会员专享：在本机为可见漫画页面着色，无需配置 API。首次处理可能较慢；关闭恢复原图，退出阅读后需重新开启。"
     },
     {
       "name": "comic_ai_color_unsupported",

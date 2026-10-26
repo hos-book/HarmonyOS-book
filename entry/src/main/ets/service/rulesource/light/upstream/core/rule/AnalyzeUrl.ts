@@ -7,6 +7,7 @@ import { util } from '@kit.ArkTS';
 import { BookSourceDebugContext } from '../book/BookSourceDebugModels';
 import { BookSourceHeaderRuntime } from '../book/BookSourceHeaderRuntime';
 import { SourceEngineHost } from '../host/SourceEngineHost';
+import { BookUrlResolver } from '../book/BookUrlResolver';
 
 export interface UrlConfig {
   url: string;
@@ -30,6 +31,7 @@ export class AnalyzeUrl {
   private client: HttpClient;
   private runtimeSourceHeaders: Record<string, string>;
   private noTimeoutRetry: boolean = false;
+  private requestDeadlineAt: number = 0;
   private cancelCheck?: () => boolean;
   private rateLimitMaxWaitMs: number = 0;
   private staticSourceHeader: boolean = true;
@@ -65,6 +67,12 @@ export class AnalyzeUrl {
   /** Marks bridge-issued requests to skip the doubled-timeout idempotent retry. */
   setNoTimeoutRetry(value: boolean): AnalyzeUrl {
     this.noTimeoutRetry = value;
+    return this;
+  }
+
+  /** One deadline follows the request through source throttling, redirects and all fallback attempts. */
+  setRequestTimeout(timeoutMs: number): AnalyzeUrl {
+    this.requestDeadlineAt = Number.isFinite(timeoutMs) && timeoutMs > 0 ? Date.now() + timeoutMs : 0;
     return this;
   }
 
@@ -479,7 +487,10 @@ export class AnalyzeUrl {
       useCookieJar: this.source ? this.source.enabledCookieJar !== false : true,
       useWebView: this.config.useWebView,
       webJs: this.config.webJs || undefined,
-      noTimeoutRetry: this.noTimeoutRetry || undefined
+      noTimeoutRetry: this.noTimeoutRetry || this.requestDeadlineAt > 0 || undefined,
+      deadlineAt: this.requestDeadlineAt || undefined,
+      connectTimeout: this.requestDeadlineAt > 0 ? Math.max(1, this.requestDeadlineAt - Date.now()) : undefined,
+      readTimeout: this.requestDeadlineAt > 0 ? Math.max(1, this.requestDeadlineAt - Date.now()) : undefined
     };
     if (this.config.rawBody && this.config.body) {
       const charset = this.normalizeCharset(this.config.charset || 'utf-8');
@@ -539,6 +550,7 @@ export class AnalyzeUrl {
   private async fetchWithRetry(req: HttpRequest): Promise<HttpResponse> {
     let response = await this.fetchFollowingRedirects(req);
     for (let i = 0; i < this.config.retry && !this.isUsableResponse(response); i++) {
+      if (req.deadlineAt && Date.now() >= req.deadlineAt) break;
       response = await this.fetchFollowingRedirects(req);
     }
     return response;
@@ -602,11 +614,14 @@ export class AnalyzeUrl {
     return payload.length;
   }
 
-  private async acquireTimedSlot(): Promise<RateLimitAcquireResult> {
+  private async acquireTimedSlot(req: HttpRequest): Promise<RateLimitAcquireResult> {
     const timingId = SourceEngineHost.id(this.source);
     const startedAt = Date.now();
     try {
-      return await BookSourceRateLimiter.acquire(this.source, this.cancelCheck, this.rateLimitMaxWaitMs);
+      const remaining = req.deadlineAt ? Math.max(1, req.deadlineAt - Date.now()) : 0;
+      const maxWait = remaining > 0 ? (this.rateLimitMaxWaitMs > 0 ? Math.min(remaining, this.rateLimitMaxWaitMs) : remaining) :
+        this.rateLimitMaxWaitMs;
+      return await BookSourceRateLimiter.acquire(this.source, req.cancelCheck, maxWait);
     } finally {
       if (timingId > 0) {
         SourceEngineHost.end(timingId, 'source-rate-wait', startedAt, `priority=${SourceEngineHost.priority(this.source)}` +
@@ -617,7 +632,9 @@ export class AnalyzeUrl {
 
   private async fetchFollowingRedirects(req: HttpRequest): Promise<HttpResponse> {
     let currentReq = req;
-    let slot = await this.acquireTimedSlot();
+    if (req.deadlineAt && Date.now() >= req.deadlineAt) return HttpClient.timeoutResponse(req);
+    let slot = await this.acquireTimedSlot(currentReq);
+    if (req.deadlineAt && Date.now() >= req.deadlineAt) return HttpClient.timeoutResponse(req);
     if (slot !== RateLimitAcquireResult.Acquired) return this.notSentResponse(currentReq, slot);
     let lastResp = await this.client.execute(currentReq);
     for (let i = 0; i < 3; i++) {
@@ -632,7 +649,9 @@ export class AnalyzeUrl {
       currentReq = switchToGet ?
         { ...currentReq, url: nextUrl, method: 'GET', body: '', headers: redirectHeaders } :
         { ...currentReq, url: nextUrl, headers: redirectHeaders };
-      slot = await this.acquireTimedSlot();
+      if (req.deadlineAt && Date.now() >= req.deadlineAt) return HttpClient.timeoutResponse(req);
+      slot = await this.acquireTimedSlot(currentReq);
+      if (req.deadlineAt && Date.now() >= req.deadlineAt) return HttpClient.timeoutResponse(req);
       if (slot !== RateLimitAcquireResult.Acquired) return this.notSentResponse(currentReq, slot);
       lastResp = await this.client.execute(currentReq);
     }
@@ -663,15 +682,9 @@ export class AnalyzeUrl {
   private resolveRedirectUrl(location: string, baseUrl: string): string {
     const value = (location || '').trim();
     if (!value) return '';
-    if (value.startsWith('http://') || value.startsWith('https://')) return value;
-    if (value.startsWith('//')) return 'https:' + value;
-    const base = this.cleanBaseUrl(baseUrl);
-    const origin = base.match(/^(https?:\/\/[^/]+)/);
-    if (value.startsWith('/')) return origin ? origin[1] + value : value;
-    const qIndex = base.indexOf('?');
-    const clean = qIndex >= 0 ? base.substring(0, qIndex) : base;
-    const dir = clean.endsWith('/') ? clean : clean.replace(/\/[^/]*$/, '/');
-    return dir + value;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(value) && !/^https?:\/\//i.test(value)) return '';
+    const resolved = BookUrlResolver.resolve(value, this.cleanBaseUrl(baseUrl));
+    return /^https?:\/\//i.test(resolved) ? resolved : '';
   }
 
   getConfig(): UrlConfig {

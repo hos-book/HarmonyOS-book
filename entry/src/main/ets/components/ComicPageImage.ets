@@ -163,13 +163,13 @@ export struct ComicPageImage {
   @Monitor('membership.developerAccess', 'membership.revalidating', 'membership.expiresAt',
     'membership.productId', 'membership.verifiedAt')
   private onAiMembershipChanged(): void {
-    // 翻译权益变化时丢弃旧译图，仍可按当前开关继续免费着色。
-    if (this.translation) this.onColorizationChanged();
+    this.onColorizationChanged();
+    this.onEnhancementChanged();
   }
 
   private colorize(): void {
     const translate = this.translation && this.membership.hasAccess;
-    if (!this.alive || !this.visible || (!this.colorization && !translate) || !this.colorizationActive ||
+    if (!this.membership.hasAccess || !this.alive || !this.visible || (!this.colorization && !translate) || !this.colorizationActive ||
       !this.resolvedUrl || this.coloredUrl || this.colorBusy) return;
     const context = this.getUIContext().getHostContext();
     if (!context) return;
@@ -181,7 +181,7 @@ export struct ComicPageImage {
     this.colorReadyAt = 0;
     this.coloredWithTranslation = translate;
     this.colorBusy = true;
-    const active = (): boolean => this.alive && this.visible && (!translate || this.membership.hasAccess) &&
+    const active = (): boolean => this.alive && this.visible && this.membership.hasAccess &&
       (this.colorization || translate) && this.colorizationActive &&
       ticket === this.colorSerial;
     ComicColorizationService.transform(context, this.resolvedUrl, active,
@@ -221,7 +221,7 @@ export struct ComicPageImage {
   @Builder
   imageContent(): void {
     Stack({ alignContent: Alignment.TopStart }) {
-        Image((!this.coloredWithTranslation || this.membership.hasAccess ? this.coloredUrl : '') ||
+        Image((this.membership.hasAccess ? this.coloredUrl : '') ||
           (this.membership.hasAccess ? this.enhancedUrl : '') || this.resolvedUrl)
           .id(`${this.page.key}:${this.retry}`)
           .width(this.pageWidth).height(this.imageHeight())

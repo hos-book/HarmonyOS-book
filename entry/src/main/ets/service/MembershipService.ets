@@ -32,7 +32,8 @@ export class MembershipPlan {
     this.regularPrice = this.price;
     this.groupId = product.subscriptionInfo?.groupId || '';
     const promotion = product.promotionalOffers?.find((offer: iap.PromotionalOffer): boolean =>
-      offer.offerId === 'cheaplist' && typeof offer.localPrice === 'string' && offer.localPrice.length > 0 &&
+      product.id === 'lastVip' && offer.offerId === 'lifetime_half_2026' &&
+      typeof offer.localPrice === 'string' && offer.localPrice.length > 0 &&
       Number.isFinite(offer.microPrice) && offer.microPrice >= 0);
     if (promotion) {
       this.price = promotion.localPrice;
@@ -637,7 +638,8 @@ export class MembershipService {
         parameter.jwsRepresentation = await MembershipOfferClient.request(context, id, selectedPlan.offerId);
         parameter.promotionalOfferId = selectedPlan.offerId;
       }
-      const result = await this.bounded(iap.createPurchase(context, parameter), 180000);
+      // 收银台由用户交互结束；本地 Promise 超时无法取消支付，不能提前释放购买锁或丢弃迟到结果。
+      const result = await iap.createPurchase(context, parameter);
       if (id === LifetimePolicy.product) {
         const order = LifetimePolicy.validate(await SubscriptionVerifier.verifyLifetime(context, result.purchaseData),
           this.allowSandbox, Date.now());

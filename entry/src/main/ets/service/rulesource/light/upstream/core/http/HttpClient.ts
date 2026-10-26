@@ -5,6 +5,8 @@ import { TlsTrustStore } from './TlsTrustStore';
 import { WebBookFetchRuntime } from '../book/WebBookFetchRuntime';
 import { BookSourceDebugContext, BookSourceDebugNetworkTrace } from '../book/BookSourceDebugModels';
 import { SourceEngineHost } from '../host/SourceEngineHost';
+import { HttpProtocolPolicy } from './HttpProtocolPolicy';
+import { HttpFinalUrlObserver } from './HttpFinalUrlObserver';
 
 export interface HttpRequest {
   url: string;
@@ -16,6 +18,8 @@ export interface HttpRequest {
   useCookieJar?: boolean;
   connectTimeout?: number;
   readTimeout?: number;
+  /** Absolute deadline shared by throttling, redirects and retries; not a fresh timeout per attempt. */
+  deadlineAt?: number;
   contentType?: string;
   maxResponseBytes?: number;
   useWebView?: boolean;
@@ -37,6 +41,8 @@ export interface HttpRequest {
 
 export interface HttpResponse {
   url: string;
+  /** Observed final destination; absent/empty means unavailable on this transport/platform. */
+  finalUrl?: string;
   statusCode: number;
   headers: Record<string, string>;
   body: string;
@@ -46,6 +52,7 @@ export interface HttpResponse {
 
 export interface HttpBinaryResponse {
   url: string;
+  finalUrl?: string;
   statusCode: number;
   headers: Record<string, string>;
   data: Uint8Array;
@@ -54,6 +61,9 @@ export interface HttpBinaryResponse {
 }
 
 export class HttpClient {
+  /** Host-owned persistent preference; automatic per-origin fallback remains temporary. */
+  static get forceHttp1(): boolean { return HttpProtocolPolicy.forceHttp1; }
+  static set forceHttp1(value: boolean) { HttpProtocolPolicy.forceHttp1 = value; }
   private timeout: number;
   private activeClients: Set<http.HttpRequest> = new Set<http.HttpRequest>();
   static readonly DEFAULT_USER_AGENT: string =
@@ -70,6 +80,30 @@ export class HttpClient {
   }
 
   static readonly CANCELLED_ERROR: string = '书源请求已取消';
+
+  static timeoutResponse(req: HttpRequest): HttpResponse {
+    return { url: req.url, statusCode: 0, headers: {}, body: '', success: false, error: '请求超时 (2300028)' };
+  }
+
+  private timeoutFor(req: HttpRequest, configured?: number): number {
+    const value = configured || this.timeout;
+    return req.deadlineAt ? Math.max(1, Math.min(value, req.deadlineAt - Date.now())) : value;
+  }
+
+  /** Also bounds waiting for a shared browser session. Late work checks the same deadline before sending. */
+  private async withinDeadline<T>(req: HttpRequest, work: () => Promise<T>, timedOut: () => T): Promise<T> {
+    if (!req.deadlineAt) return await work();
+    const remaining = req.deadlineAt - Date.now();
+    if (remaining <= 0) return timedOut();
+    return await new Promise<T>((resolve, reject): void => {
+      const timer = setTimeout((): void => resolve(timedOut()), remaining);
+      work().then((value: T): void => {
+        clearTimeout(timer);
+        resolve(req.deadlineAt && Date.now() >= req.deadlineAt ? timedOut() : value);
+      },
+        (error: Error): void => { clearTimeout(timer); reject(error); });
+    });
+  }
 
   private cancelledResponse(req: HttpRequest): HttpResponse {
     return { url: req.url, statusCode: 0, headers: {}, body: '', success: false, error: HttpClient.CANCELLED_ERROR };
@@ -97,7 +131,8 @@ export class HttpClient {
     const startedAt = Date.now();
     let response: HttpResponse;
     try {
-      response = await this.executeInternal(req);
+      response = await this.withinDeadline(req, (): Promise<HttpResponse> => this.executeInternal(req),
+        (): HttpResponse => HttpClient.timeoutResponse(req));
     } catch (error) {
       response = { url: req.url || '', statusCode: 0, headers: {}, body: '', success: false,
         error: error instanceof Error ? error.message : String(error || 'network error') };
@@ -108,7 +143,7 @@ export class HttpClient {
       const trace = new BookSourceDebugNetworkTrace();
       trace.method = req.method || 'GET';
       trace.url = req.url || '';
-      trace.finalUrl = response.url || req.url || '';
+      trace.finalUrl = response.finalUrl || '';
       trace.statusCode = response.statusCode || 0;
       trace.responseBytes = response.body ? response.body.length : 0;
       trace.bodyPreview = response.body || '';
@@ -121,21 +156,24 @@ export class HttpClient {
 
   private async executeInternal(req: HttpRequest): Promise<HttpResponse> {
     if (req.cancelCheck && req.cancelCheck()) return this.cancelledResponse(req);
+    if (req.deadlineAt && Date.now() >= req.deadlineAt) return HttpClient.timeoutResponse(req);
     if (!req.url || req.url.trim() === '') {
       return { url: '', statusCode: 0, headers: {}, body: '', success: false, error: 'empty url' };
     }
     if (req.useWebView) {
       return await SourceEngineHost.withWeb(req.cookieSource || '', async () => {
+        if (req.deadlineAt && Date.now() >= req.deadlineAt) return HttpClient.timeoutResponse(req);
         const runtime = WebBookFetchRuntime.get();
         // Only wait for the hidden ArkWeb host to attach. A busy host is healthy: fetch() queues
         // subsequent requests and runs them in order instead of misreporting it as "not ready".
-        const attached = await runtime.waitUntilAttached(8000);
+        const attached = await runtime.waitUntilAttached(this.timeoutFor(req, 8000));
+        if (req.deadlineAt && Date.now() >= req.deadlineAt) return HttpClient.timeoutResponse(req);
         if (!attached) {
           return { url: req.url, statusCode: 0, headers: {}, body: '', success: false,
             error: 'WebView 抓取环境未挂载，请重新进入当前页面' };
         }
         if (req.cancelCheck && req.cancelCheck()) return this.cancelledResponse(req);
-        return await runtime.fetch({
+        const response = await runtime.fetch({
           url: req.url,
           cookieSource: req.cookieSource,
           method: req.method,
@@ -144,17 +182,23 @@ export class HttpClient {
           webJs: req.webJs,
           webJsAcceptPattern: req.webJsAcceptPattern,
           webJsMaxAttempts: req.webJsMaxAttempts,
-          timeoutMs: Math.max(req.connectTimeout || 0, req.readTimeout || 0, this.timeout),
+          timeoutMs: this.timeoutFor(req, Math.max(req.connectTimeout || 0, req.readTimeout || 0, this.timeout)),
+          deadlineAt: req.deadlineAt,
           maxResponseBytes: req.maxResponseBytes
         });
+        return { ...response, finalUrl: response.success ? response.url : '' };
       });
     }
-    const response = await this.executeWithProtocol(req, false);
-    if (!response.success && this.shouldRetryWithHttp1(req.url, response.error || '')) {
-      console.info('[HttpClient] HTTP/2 failed; retrying once with HTTP/1.1:', this.hostForLog(req.url));
-      return await this.executeWithProtocol(req, true);
+    const forceHttp1 = HttpProtocolPolicy.prefersHttp1(req.url);
+    const response = await this.executeWithProtocol(req, forceHttp1);
+    if (!response.success && forceHttp1) HttpProtocolPolicy.forget(req.url);
+    if (!response.success && !forceHttp1 && HttpProtocolPolicy.mayRetry(req.url, req.method, response.error || '')) {
+      console.info('[HttpClient] transport failed; trying HTTP/1.1 once:', this.hostForLog(req.url));
+      const retry = await this.executeWithProtocol(req, true);
+      if (retry.success) HttpProtocolPolicy.rememberSuccess(req.url);
+      return retry;
     }
-    if (!response.success && !req.noTimeoutRetry && this.shouldRetryTimeout(req, response.error || '')) {
+    if (!response.success && !req.noTimeoutRetry && !req.deadlineAt && this.shouldRetryTimeout(req, response.error || '')) {
       const retryTimeout = Math.min(30000, Math.max(this.timeout * 2, 15000));
       console.info('[HttpClient] idempotent request timed out; retrying once:', this.hostForLog(req.url));
       return await this.executeWithProtocol({
@@ -168,9 +212,16 @@ export class HttpClient {
 
   private async executeWithProtocol(req: HttpRequest, forceHttp1: boolean): Promise<HttpResponse> {
     if (req.cancelCheck && req.cancelCheck()) return this.cancelledResponse(req);
+    if (req.deadlineAt && Date.now() >= req.deadlineAt) return HttpClient.timeoutResponse(req);
     const client = http.createHttp();
     this.activeClients.add(client);
+    const destination = new HttpFinalUrlObserver(client);
     let responseTooLarge = false;
+    let expired = false;
+    const deadlineTimer = req.deadlineAt ? setTimeout((): void => {
+      expired = true;
+      try { client.destroy(); } catch (_) { }
+    }, Math.max(1, req.deadlineAt - Date.now())) : -1;
     try {
       const method = this.resolveMethod(req.method);
       const headers: Record<string, string> = { ...this.defaultHeaders, ...req.headers };
@@ -180,7 +231,9 @@ export class HttpClient {
         headers['Cookie'] = cookie;
       }
       const maxResponseBytes = req.maxResponseBytes || 0;
-      if (maxResponseBytes > 0) {
+      // Interceptors do not run on requestInStream. On API 22+ use the SDK's bounded buffer
+      // so script requests can observe automatic redirects without losing their byte limit.
+      if (maxResponseBytes > 0 && !destination.attached) {
         const chunks: ArrayBuffer[] = [];
         let receivedBytes = 0;
         let streamSentAt = 0;
@@ -223,8 +276,8 @@ export class HttpClient {
             method: method,
             header: headers,
             extraData: requestData,
-            connectTimeout: req.connectTimeout || this.timeout,
-            readTimeout: req.readTimeout || this.timeout
+            connectTimeout: this.timeoutFor(req, req.connectTimeout),
+            readTimeout: this.timeoutFor(req, req.readTimeout)
           };
           this.applyTlsTrust(options, req.url);
           if (forceHttp1) options.usingProtocol = http.HttpProtocol.HTTP1_1;
@@ -240,6 +293,7 @@ export class HttpClient {
           client.off('headersReceive', onHeadersReceive);
           client.off('dataReceive', onDataReceive);
         }
+        if (expired || (req.deadlineAt && Date.now() >= req.deadlineAt)) return HttpClient.timeoutResponse(req);
         if (responseTooLarge) {
           return {
             url: req.url,
@@ -266,57 +320,88 @@ export class HttpClient {
         method: method,
         header: headers,
         extraData: requestData,
-        connectTimeout: req.connectTimeout || this.timeout,
-        readTimeout: req.readTimeout || this.timeout,
+        connectTimeout: this.timeoutFor(req, req.connectTimeout),
+        readTimeout: this.timeoutFor(req, req.readTimeout),
         expectDataType: http.HttpDataType.ARRAY_BUFFER
       };
+      if (maxResponseBytes > 0) options.maxLimit = Math.min(maxResponseBytes, 100 * 1024 * 1024);
       this.applyTlsTrust(options, req.url);
       if (forceHttp1) options.usingProtocol = http.HttpProtocol.HTTP1_1;
       const transportStartedAt = Date.now();
       const resp = await client.request(req.url, options);
+      if (expired || (req.deadlineAt && Date.now() >= req.deadlineAt)) return HttpClient.timeoutResponse(req);
       this.endTransportTiming(req, transportStartedAt, forceHttp1, resp);
       const responseHeaders = (resp.header || {}) as Record<string, string>;
-      return this.buildResponse(req, resp.responseCode, responseHeaders, resp.result);
+      if (maxResponseBytes > 0 && resp.result instanceof ArrayBuffer && resp.result.byteLength > maxResponseBytes) {
+        responseTooLarge = true;
+        throw new Error('response too large');
+      }
+      const response = this.buildResponse({ ...req, url: destination.url || req.url },
+        resp.responseCode, responseHeaders, resp.result);
+      response.finalUrl = destination.url;
+      return response;
     } catch (e) {
+      if (expired || (req.deadlineAt && Date.now() >= req.deadlineAt)) return HttpClient.timeoutResponse(req);
       return {
         url: req.url,
         statusCode: 0,
         headers: {},
         body: '',
         success: false,
-        error: responseTooLarge ? `response too large: >${req.maxResponseBytes}` :
+        error: responseTooLarge || (!!req.maxResponseBytes && /2300063/.test(this.describeError(e as Object))) ?
+          `response too large: >${req.maxResponseBytes}` :
           this.decorateTlsError(req.url, this.describeError(e as Object))
       };
     } finally {
+      if (deadlineTimer >= 0) clearTimeout(deadlineTimer);
       this.activeClients.delete(client);
-      client.destroy();
+      try { client.destroy(); } catch (_) { }
     }
   }
 
   async executeBinary(req: HttpRequest, maxResponseBytes: number = 20 * 1024 * 1024):
     Promise<HttpBinaryResponse> {
+    return await this.withinDeadline(req, (): Promise<HttpBinaryResponse> => this.executeBinaryInternal(req, maxResponseBytes),
+      (): HttpBinaryResponse => ({ url: req.url, statusCode: 0, headers: {}, data: new Uint8Array(),
+        success: false, error: '请求超时 (2300028)' }));
+  }
+
+  private async executeBinaryInternal(req: HttpRequest, maxResponseBytes: number): Promise<HttpBinaryResponse> {
     if (!req.url || req.url.trim() === '') {
       return { url: '', statusCode: 0, headers: {}, data: new Uint8Array(), success: false, error: 'empty url' };
     }
     // A limit carried by the request itself is honoured too; it used to be ignored on this path.
     const limit = req.maxResponseBytes && req.maxResponseBytes > 0 ?
       Math.min(req.maxResponseBytes, maxResponseBytes) : maxResponseBytes;
-    const response = await this.executeBinaryWithProtocol(req, limit, false);
-    if (!response.success && this.shouldRetryWithHttp1(req.url, response.error || '')) {
-      console.info('[HttpClient] binary HTTP/2 failed; retrying once with HTTP/1.1:', this.hostForLog(req.url));
-      return await this.executeBinaryWithProtocol(req, limit, true);
+    const forceHttp1 = HttpProtocolPolicy.prefersHttp1(req.url);
+    const response = await this.executeBinaryWithProtocol(req, limit, forceHttp1);
+    if (!response.success && forceHttp1) HttpProtocolPolicy.forget(req.url);
+    if (!response.success && !forceHttp1 && HttpProtocolPolicy.mayRetry(req.url, req.method, response.error || '')) {
+      console.info('[HttpClient] binary transport failed; trying HTTP/1.1 once:', this.hostForLog(req.url));
+      const retry = await this.executeBinaryWithProtocol(req, limit, true);
+      if (retry.success) HttpProtocolPolicy.rememberSuccess(req.url);
+      return retry;
     }
     return response;
   }
 
   private async executeBinaryWithProtocol(req: HttpRequest, maxResponseBytes: number,
     forceHttp1: boolean): Promise<HttpBinaryResponse> {
+    if (req.deadlineAt && Date.now() >= req.deadlineAt) {
+      return { url: req.url, statusCode: 0, headers: {}, data: new Uint8Array(), success: false, error: '请求超时 (2300028)' };
+    }
     if (req.cancelCheck && req.cancelCheck()) {
       return { url: req.url, statusCode: 0, headers: {}, data: new Uint8Array(), success: false,
         error: HttpClient.CANCELLED_ERROR };
     }
     const client = http.createHttp();
     this.activeClients.add(client);
+    const destination = new HttpFinalUrlObserver(client);
+    let expired = false;
+    const deadlineTimer = req.deadlineAt ? setTimeout((): void => {
+      expired = true;
+      try { client.destroy(); } catch (_) { }
+    }, Math.max(1, req.deadlineAt - Date.now())) : -1;
     let cancelTimer: number = -1;
     let cancelled = false;
     if (req.cancelCheck) {
@@ -336,8 +421,8 @@ export class HttpClient {
         method: this.resolveMethod(req.method),
         header: headers,
         extraData: requestData,
-        connectTimeout: req.connectTimeout || this.timeout,
-        readTimeout: req.readTimeout || this.timeout,
+        connectTimeout: this.timeoutFor(req, req.connectTimeout),
+        readTimeout: this.timeoutFor(req, req.readTimeout),
         expectDataType: http.HttpDataType.ARRAY_BUFFER,
         maxLimit: maxResponseBytes
       };
@@ -345,6 +430,7 @@ export class HttpClient {
       if (forceHttp1) options.usingProtocol = http.HttpProtocol.HTTP1_1;
       const transportStartedAt = Date.now();
       const resp = await client.request(req.url, options);
+      if (expired || (req.deadlineAt && Date.now() >= req.deadlineAt)) throw new Error('请求超时 (2300028)');
       if (cancelled || (req.cancelCheck && req.cancelCheck())) {
         return { url: req.url, statusCode: 0, headers: {}, data: new Uint8Array(), success: false,
           error: HttpClient.CANCELLED_ERROR };
@@ -353,7 +439,7 @@ export class HttpClient {
       const responseHeaders = (resp.header || {}) as Record<string, string>;
       const setCookie = this.findHeader(responseHeaders, 'set-cookie');
       if (setCookie && req.useCookieJar !== false) {
-        CookieStore.forSource(req.cookieSource).setCookies(req.url, setCookie);
+        CookieStore.forSource(req.cookieSource).setCookies(destination.url || req.url, setCookie);
         CookieStore.forSource(req.cookieSource).saveAsync();
       }
       const data = resp.result instanceof ArrayBuffer ?
@@ -370,7 +456,8 @@ export class HttpClient {
         };
       }
       return {
-        url: req.url,
+        url: destination.url || req.url,
+        finalUrl: destination.url,
         statusCode: resp.responseCode,
         headers: responseHeaders,
         data: data,
@@ -383,9 +470,11 @@ export class HttpClient {
         headers: {},
         data: new Uint8Array(),
         success: false,
-        error: cancelled ? HttpClient.CANCELLED_ERROR : this.decorateTlsError(req.url, this.describeError(e as Object))
+        error: expired ? '请求超时 (2300028)' :
+          (cancelled ? HttpClient.CANCELLED_ERROR : this.decorateTlsError(req.url, this.describeError(e as Object)))
       };
     } finally {
+      if (deadlineTimer >= 0) clearTimeout(deadlineTimer);
       if (cancelTimer >= 0) clearInterval(cancelTimer);
       this.activeClients.delete(client);
       try { client.destroy(); } catch (_) { }
@@ -527,11 +616,6 @@ export class HttpClient {
   private isReadableErrorText(value: string): boolean {
     const text = (value || '').trim().toLowerCase();
     return !!text && !text.includes('[object object]') && text !== 'object object' && text !== '{}';
-  }
-
-  private shouldRetryWithHttp1(url: string, error: string): boolean {
-    if (!/^https:\/\//i.test(url || '')) return false;
-    return /2300016|2300999|http\/?2|http2|framing layer|curl(?:_|\s*)code\s*[=:]?\s*92/i.test(error || '');
   }
 
   private shouldRetryTimeout(req: HttpRequest, error: string): boolean {

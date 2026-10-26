@@ -5,7 +5,7 @@ export class SubscriptionOrder {
   productType: string = '';
   purchaseToken: string = '';
   purchaseOrderId: string = '';
-  finishStatus: string = '';
+  finishStatus?: string;
   purchaseTime: number = 0;
 }
 
@@ -35,6 +35,7 @@ export class SubscriptionEnvelope {
 
 /** 在密码学验证之后校验应用、商品、环境及有效期，不信任反序列化的类型声明。 */
 export class SubscriptionPolicy {
+  static readonly applicationId: string = '6917615941058168740';
   static readonly month: string = 'iconMonth';
   static readonly year: string = 'iconYear';
 
@@ -44,7 +45,7 @@ export class SubscriptionPolicy {
 
   static validate(payload: SubscriptionPayload, sandbox: boolean, now: number): SubscriptionStatus | undefined {
     if (!payload || payload.packageName !== 'com.huan.listenbook' ||
-      typeof payload.applicationId !== 'string' || payload.applicationId.length === 0 ||
+      payload.applicationId !== SubscriptionPolicy.applicationId ||
       typeof payload.subGroupId !== 'string' || payload.subGroupId.length === 0 ||
       (payload.environment !== 'NORMAL' && !(sandbox && payload.environment === 'SANDBOX'))) {
       throw new Error('Invalid subscription application or environment');
@@ -61,7 +62,8 @@ export class SubscriptionPolicy {
       order.productType !== '2' || typeof order.purchaseToken !== 'string' || !order.purchaseToken ||
       typeof order.purchaseOrderId !== 'string' || !order.purchaseOrderId ||
       !Number.isFinite(order.purchaseTime) || order.purchaseTime <= 0 || order.purchaseTime > now + 60000 ||
-      status.expiresTime <= order.purchaseTime || !['1', '2'].includes(order.finishStatus)) {
+      status.expiresTime <= order.purchaseTime ||
+      (order.finishStatus !== undefined && !['1', '2'].includes(order.finishStatus))) {
       throw new Error('Invalid subscription order');
     }
     return status;

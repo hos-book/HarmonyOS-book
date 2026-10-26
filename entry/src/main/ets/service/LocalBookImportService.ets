@@ -534,6 +534,47 @@ export class LocalBookImportService {
     }
   }
 
+  private static async importPdf(context: common.Context, book: Book, directory: string,
+    file: LocalImportFile, size: number, progress: (text: string) => void,
+    writes: LocalImportTaskQueue): Promise<void> {
+    if (!canIUse('SystemCapability.OfficeService.PDFService.Core')) {
+      throw new Error(context.resourceManager.getStringSync($r('app.string.import_pdf_unsupported').id));
+    }
+    if (size <= 0 || size > 128 * 1024 * 1024) {
+      throw new Error(context.resourceManager.getStringSync($r('app.string.import_pdf_limit').id));
+    }
+    try {
+      const path = `${directory}/source.pdf`;
+      await LocalBookImportService.copyFile(file.uri, path);
+      const pdf = await import('./text/PdfImportService');
+      const pages = await pdf.PdfImportService.render(path, directory, (completed: number, total: number): void => {
+        progress(context.resourceManager.getStringSync($r('app.string.import_pdf_progress').id, completed, total));
+      });
+      // 每 50 页一节，复用漫画连续阅读、翻页、目录和逐页进度。
+      for (let start = 0; start < pages; start += 50) {
+        const end = Math.min(pages, start + 50);
+        const tokens: string[] = [];
+        for (let index = start; index < end; index++) {
+          tokens.push(LocalTextImage.token(`${directory}/image_${index}_0.img`));
+        }
+        await LocalBookImportService.appendText(book, directory,
+          context.resourceManager.getStringSync($r('app.string.import_pdf_section').id, start + 1, end),
+          tokens.join('\n'), writes);
+      }
+      if (!book.cover) book.cover = `${directory}/image_0_0.img`;
+      book.contentType = 'comic';
+      book.intro = context.resourceManager.getStringSync($r('app.string.import_pdf_intro').id);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : '';
+      let message: Resource = $r('app.string.import_pdf_invalid');
+      if (code === 'import_pdf_password') message = $r('app.string.import_pdf_password');
+      else if (code === 'import_pdf_limit') message = $r('app.string.import_pdf_limit');
+      else if (code === 'import_pdf_space') message = $r('app.string.import_pdf_space');
+      else if (code === 'import_pdf_write_failed') message = $r('app.string.import_pdf_write_failed');
+      throw new Error(context.resourceManager.getStringSync(message.id));
+    }
+  }
+
   static async importBook(context: common.Context, file: LocalImportFile, id: string,
     title: string, author: string, cover: string, progress: (text: string) => void,
     epubMode: EpubImportMode = 'auto'): Promise<Book> {
@@ -576,7 +617,9 @@ export class LocalBookImportService {
       stage = 'parse';
       parseStarted = Date.now();
       prepareMs = parseStarted - started;
-      if (file.ext === '.mobi') {
+      if (file.ext === '.pdf') {
+        await LocalBookImportService.importPdf(context, book, directory, file, size, report, writes);
+      } else if (file.ext === '.mobi') {
         await LocalBookImportService.importMobi(context, book, directory, file, title, author, report, writes);
       } else if (file.ext === '.epub') {
         if (size > 512 * 1024 * 1024) throw new Error('EPUB 超过 512 MiB');

@@ -14,7 +14,46 @@ const strings = new Map(JSON.parse(fs.readFileSync(path.join(root, '../resources
   .string.map(item => [item.name, item.value]));
 context.resourceManager = {
   getStringByNameSync: name => strings.get(name),
-  getStringSync: id => strings.get(id.replace('app.string.', ''))
+  getStringSync: (id, ...args) => {
+    let index = 0;
+    return strings.get(id.replace('app.string.', '')).replace(/%d/g, () => String(args[index++]));
+  }
+};
+let pdfAvailable = true, pdfPageCount = 53, pdfParseResult = 0, pdfFailurePage = -1;
+let pdfDocuments = 0, pdfPages = 0, pdfPixels = 0, pdfLoads = 0;
+const pdfRenders = [];
+let receivingTask;
+class Task {
+  constructor(fn, ...args) { this.fn = fn; this.args = args; }
+  onReceiveData(callback) { this.callback = callback; }
+  static sendData(...args) { receivingTask?.callback?.(...args); }
+}
+const pdfService = {
+  ParseResult: { PARSE_SUCCESS: 0, PARSE_ERROR_PASSWORD: 3 },
+  PdfMatrix: class {}, PixelOptions: class {},
+  PdfDocument: class {
+    constructor() { pdfDocuments++; }
+    loadDocument(filename) { assert.ok(fs.existsSync(filename)); pdfLoads++; return pdfParseResult; }
+    releaseDocument() { pdfDocuments--; }
+    getPageCount() { return pdfPageCount; }
+    getPage(index) {
+      pdfPages++;
+      return {
+        getWidth: () => index === 1 ? 842 : 595,
+        getHeight: () => index === 1 ? 595 : 842,
+        getAreaPixelMapWithOptions(matrix, width, height, options) {
+          if (index === pdfFailurePage) throw new Error('native render failed');
+          assert.ok(width > 0 && height > 0 && width * height <= 4 * 1024 ** 2);
+          assert.ok(width <= 3072 && height <= 3072);
+          assert.equal(options.drawAnnotations, true);
+          assert.equal(options.isTransparent, false);
+          pdfRenders.push({ index, width, height }); pdfPixels++;
+          return { release: async () => { pdfPixels--; } };
+        },
+        release() { pdfPages--; }
+      };
+    }
+  }
 };
 let parserAvailable = true;
 let parserLoads = 0;
@@ -142,7 +181,8 @@ function load(relative) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
   }).outputText;
   vm.runInNewContext(code, { exports, console, Error, ArrayBuffer, Uint8Array, setTimeout,
-    canIUse: () => parserAvailable, $r: id => ({ id }), require: name => {
+    canIUse: capability => capability.includes('PDFService') ? pdfAvailable : parserAvailable, $r: id => ({ id }), require: name => {
+    if (name === '@kit.PDFKit') { assert.ok(pdfAvailable); return { pdfService }; }
     if (name === '@kit.CoreFileKit') return { fileIo, statfs: { getFreeSize: async () => free } };
     if (name === '@kit.ImageKit') return { image };
     if (name === '@kit.PerformanceAnalysisKit') return { hilog: {
@@ -153,7 +193,13 @@ function load(relative) {
       putSync: (key, value) => diagnosticSettings.set(key, value),
       async flush() { if (diagnosticFlushFails) throw new Error('settings write failed'); }
     }) } };
-    if (name === '@kit.ArkTS') return { taskpool: { execute: async (fn, ...args) => fn(...args) }, util: { TextDecoder: { create(encoding, options) {
+    if (name === '@kit.ArkTS') return { taskpool: { Task, execute: async (fn, ...args) => {
+      if (fn instanceof Task) {
+        receivingTask = fn;
+        try { return await fn.fn(...fn.args); } finally { receivingTask = undefined; }
+      }
+      return fn(...args);
+    } }, util: { TextDecoder: { create(encoding, options) {
       const decoder = new TextDecoder(encoding, options);
       return { decodeToString: (bytes, opts) => decoder.decode(bytes, opts) };
     } } } };
@@ -435,6 +481,51 @@ function load(relative) {
   assert.equal((await data.getBookById(context, forcedText.id)).contentType, 'comic');
   await data.removeImportedBook(forcedText.id);
   console.log('PASS in-place comic type switch preserves ID, TOC and body, creates no duplicate and survives restart');
+  const pdfFile = { uri: path.join(temp, 'document.pdf'), name: '原版 PDF', ext: '.pdf' };
+  const pdfOriginal = Buffer.from('%PDF-1.7\nPDFKit fixture');
+  await fsp.writeFile(pdfFile.uri, pdfOriginal);
+  assert.ok(service.TEXT_EXTS.includes('.pdf'), 'ZIP collector accepts PDF using the shared extensions');
+  assert.ok(strings.get('import_file_filter').includes('.pdf'));
+  const updatesPdf = [];
+  const pdfBook = await service.importBook(context, pdfFile, 'import_pdf', '', '', '', text => updatesPdf.push(text));
+  assert.equal(pdfBook.contentType, 'comic');
+  assert.equal(pdfBook.title, '原版 PDF');
+  assert.deepEqual(Array.from(pdfBook.chapters, ch => ch.title), ['第 1–50 页', '第 51–53 页']);
+  const firstPdf = await fsp.readFile(pdfBook.chapters[0].source.value, 'utf8');
+  const lastPdf = await fsp.readFile(pdfBook.chapters[1].source.value, 'utf8');
+  assert.equal([...firstPdf.matchAll(images.pattern())].length, 50);
+  assert.equal([...lastPdf.matchAll(images.pattern())].length, 3);
+  for (const [, filename] of (firstPdf + '\n' + lastPdf).matchAll(images.pattern())) {
+    assert.ok(fs.existsSync(filename)); assert.ok(images.resolve(filename));
+  }
+  assert.ok(pdfRenders[0].height > pdfRenders[0].width);
+  assert.ok(pdfRenders[1].width > pdfRenders[1].height, 'landscape pages retain their aspect ratio');
+  assert.ok(fs.existsSync(pdfBook.cover));
+  assert.ok(updatesPdf.at(-1).includes('53 / 53'));
+  await data.addImportedBook(pdfBook); data.cache = null;
+  const pdfRestored = await data.getBookById(context, pdfBook.id);
+  assert.equal(pdfRestored.contentType, 'comic');
+  assert.equal(await data.readImportedText(pdfRestored, pdfRestored.chapters[1].source.value), lastPdf);
+  await data.removeImportedBook(pdfBook.id);
+  assert.equal(fs.existsSync(path.join(temp, 'ebooks/import_pdf')), false);
+  for (const [result, count, failedPage, message] of [
+    [3, 53, -1, /密码/], [2, 53, -1, /解析/], [0, 0, -1, /解析/],
+    [0, 2001, -1, /2000/], [0, 53, 2, /解析/]
+  ]) {
+    pdfParseResult = result; pdfPageCount = count; pdfFailurePage = failedPage;
+    await assert.rejects(service.importBook(context, pdfFile, 'import_pdf_failed', '', '', '', () => {}), message);
+    assert.equal(fs.existsSync(path.join(temp, 'ebooks/import_pdf_failed')), false, 'failed PDF leaves no partial book');
+    assert.equal(pdfDocuments, 0); assert.equal(pdfPages, 0); assert.equal(pdfPixels, 0);
+  }
+  pdfParseResult = 0; pdfPageCount = 53; pdfFailurePage = -1;
+  pdfAvailable = false;
+  const previousLoads = pdfLoads;
+  await assert.rejects(service.importBook(context, pdfFile, 'import_pdf_unsupported', '', '', '', () => {}), /不支持 PDF/);
+  assert.equal(pdfLoads, previousLoads, 'unsupported devices never open PDFKit');
+  pdfAvailable = true;
+  assert.deepEqual(await fsp.readFile(pdfFile.uri), pdfOriginal, 'source document is never modified');
+  assert.equal(pdfDocuments, 0); assert.equal(pdfPages, 0); assert.equal(pdfPixels, 0);
+  console.log('PASS PDF: ordered page images, landscape, chapters, cover, persistence, deletion, unsupported/password/broken/limit/render failure cleanup');
   const file = { uri: path.join(temp, 'novel.txt'), name: '小说', ext: '.txt' };
   const source = '第一章 初见\n你好世界\n第二章 重逢\n' + '文字😀'.repeat(20000);
   await fsp.writeFile(file.uri, source);

@@ -1,6 +1,7 @@
 import fs from '@ohos.file.fs';
 import { util } from '@kit.ArkTS';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
+import { ReaderCacheBudget } from './ReaderCacheBudget';
 import { SourceEngineHost } from '../host/SourceEngineHost';
 import { BookSource } from '../../model/data/Book';
 import { HttpClient } from '../http/HttpClient';
@@ -23,7 +24,17 @@ export class ComicImageSpec {
   decodeParams: Object = {};
   processPlainImages: boolean = false;
   decodeError: string = '';
-  imageIndex: number = 0;
+  /** 原生书源给每张图标的本章原始序号；-1 表示没有，用调用方给的序号。 */
+  imageIndex: number = -1;
+}
+
+/** 单张正文图片各环节耗时（毫秒），用于排查整章图片加载慢。 */
+export class ComicImageTiming {
+  cacheHit: boolean = false;
+  downloadMs: number = 0;
+  /** 图片脚本耗时，包含排队等待全局脚本会话的时间。 */
+  scriptMs: number = 0;
+  decryptMs: number = 0;
 }
 
 /**
@@ -44,6 +55,10 @@ export class ComicImagePipeline {
     const rawOptions = value.substring(optionIndex + 1).trim();
     try {
       const options = JSON.parse(rawOptions) as Record<string, Object>;
+      const imageIndex = options['imageIndex'];
+      if (typeof imageIndex === 'number' && Number.isInteger(imageIndex) && imageIndex >= 0) {
+        spec.imageIndex = imageIndex;
+      }
       const headerObject = options['headers'];
       if (headerObject && typeof headerObject === 'object' && !Array.isArray(headerObject)) {
         const record = headerObject as Record<string, Object>;
@@ -76,8 +91,6 @@ export class ComicImagePipeline {
           }
         }
       }
-      const imageIndex = Number(options['imageIndex']);
-      spec.imageIndex = Number.isSafeInteger(imageIndex) && imageIndex >= 0 ? imageIndex : 0;
       spec.hasOptions = true;
     } catch (_) {
     }
@@ -85,12 +98,14 @@ export class ComicImagePipeline {
   }
 
   static async materialize(http: HttpClient, source: BookSource, raw: string,
-    forceLocal: boolean = false, shouldCancel: () => boolean = (): boolean => false, index: number = -1): Promise<string> {
+    forceLocal: boolean = false, shouldCancel: () => boolean = (): boolean => false, index: number = 0,
+    timing: ComicImageTiming | null = null): Promise<string> {
     const cancelled = (): boolean => shouldCancel() || SourceEngineHost.isCancelled(source);
     if (cancelled()) throw new Error(HttpClient.CANCELLED_ERROR);
     const spec = this.parse(raw);
-    if (index < 0) index = spec.imageIndex;
     if (spec.decodeError) throw new Error(spec.decodeError);
+    // 逐张加载时调用方给的序号未必是图片在本章的原始位置，书源标了 imageIndex 就以它为准。
+    const imageIndex = spec.imageIndex >= 0 ? spec.imageIndex : index;
     let scriptCode = '';
     let scriptConfig = '';
     if (spec.decodeScript) {
@@ -130,16 +145,21 @@ export class ComicImagePipeline {
       `\n${JSON.stringify(spec.headers)}`;
     const cacheKey = spec.decodeScript ? digestHashHex('SHA256', JSON.stringify({
       version: 1, identity: cacheIdentity, js: scriptCode, config: scriptConfig, fn: spec.decodeScript,
-      params: spec.decodeParams, plain: spec.processPlainImages, index: index
+      params: spec.decodeParams, plain: spec.processPlainImages, index: imageIndex
     })) : this.hashText(cacheIdentity);
     const basePath = `${dir}/${cacheKey}`;
     const existing = this.findExisting(basePath);
-    if (existing) return existing;
+    if (existing) {
+      if (timing) timing.cacheHit = true;
+      ReaderCacheBudget.touchComicFile(existing);
+      return existing;
+    }
 
     let bytes: Uint8Array;
     if (embedded) {
       bytes = embedded;
     } else {
+      const downloadStarted = Date.now();
       const response = await http.executeBinary({
         cookieSource: source.bookSourceUrl,
         cancelCheck: cancelled,
@@ -152,6 +172,7 @@ export class ComicImagePipeline {
         connectTimeout: 15000,
         readTimeout: 30000
       }, this.MAX_IMAGE_BYTES);
+      if (timing) timing.downloadMs = Date.now() - downloadStarted;
       if (cancelled()) throw new Error(HttpClient.CANCELLED_ERROR);
       if (!response.success || response.data.length === 0) {
         if (spec.decodeAlgorithm || spec.decodeScript) throw new Error(`正文图片下载失败（HTTP ${response.statusCode}）`);
@@ -162,14 +183,18 @@ export class ComicImagePipeline {
     }
     if (bytes.length > this.MAX_IMAGE_BYTES) throw new Error('图片超过 20 MiB');
     if (spec.decodeScript && (spec.processPlainImages || !this.looksLikeImage(bytes))) {
+      const scriptStarted = Date.now();
       try {
         bytes = await NativeImageScriptRunner.run(scriptCode, spec.decodeScript, bytes,
-          { url: spec.url, index: index, params: spec.decodeParams }, cancelled);
+          { url: spec.url, index: imageIndex, params: spec.decodeParams }, cancelled);
         if (!this.looksLikeImage(bytes)) throw new Error('脚本返回的字节不是支持的图片格式');
       } catch (e) {
         throw new Error(`content.imageDecode.script (${spec.decodeScript})：${(e as Error).message}`);
+      } finally {
+        if (timing) timing.scriptMs = Date.now() - scriptStarted;
       }
     }
+    const decryptStarted = Date.now();
     if (spec.decodeAlgorithm && !this.looksLikeImage(bytes)) {
       try {
         if (!spec.decodeKey) throw new Error('密钥为空');
@@ -187,9 +212,11 @@ export class ComicImagePipeline {
     }
     if (decodeRule && !this.looksLikeImage(bytes)) {
       const decoded = await this.decodeImage(bytes, decodeRule);
-      if (decoded.length > 0) bytes = decoded;
+      bytes = decoded;
     }
-    if (!bytes.length || bytes.length > this.MAX_IMAGE_BYTES || !this.looksLikeImage(bytes)) {
+    if (timing) timing.decryptMs = Date.now() - decryptStarted;
+    if (bytes.length > this.MAX_IMAGE_BYTES) throw new Error('图片解码结果超过 20 MiB');
+    if (!bytes.length || !this.looksLikeImage(bytes)) {
       if (spec.decodeScript || spec.decodeAlgorithm || decodeRule) throw new Error('图片解码未返回有效图片');
       return spec.url;
     }
@@ -197,20 +224,27 @@ export class ComicImagePipeline {
     const path = `${basePath}${this.imageExtension(bytes, spec.url)}`;
     const file = fs.openSync(path, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
     try {
-      const buffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-      let written = 0;
-      while (written < buffer.byteLength) {
-        const count = fs.writeSync(file.fd, buffer.slice(written));
-        if (count <= 0) throw new Error('图片缓存写入失败');
-        written += count;
+      try {
+        let written = 0;
+        while (written < bytes.byteLength) {
+          if (cancelled()) throw new Error(HttpClient.CANCELLED_ERROR);
+          const end = Math.min(bytes.byteLength, written + 1024 * 1024);
+          const count = fs.writeSync(file.fd, bytes.buffer.slice(bytes.byteOffset + written, bytes.byteOffset + end));
+          if (!Number.isInteger(count) || count <= 0 || count > end - written) throw new Error('图片缓存写入失败');
+          written += count;
+        }
+        if (cancelled()) throw new Error(HttpClient.CANCELLED_ERROR);
+      } finally {
+        fs.closeSync(file);
       }
     } catch (error) {
+      // Close first, then remove incomplete output so the next request cannot hit a corrupt cache.
       try { fs.unlinkSync(path); } catch (_) {}
       throw error;
-    } finally {
-      fs.closeSync(file);
     }
+    ReaderCacheBudget.noteComicWrite(path);
     return path;
+
   }
 
   private static async decodeImage(input: Uint8Array, rule: string): Promise<Uint8Array> {

@@ -42,10 +42,10 @@ function lifetime(changes = {}) {
 }
 function payload(changes = {}) {
   return {
-    environment: 'NORMAL', applicationId: 'app-1', packageName: 'com.huan.listenbook', subGroupId: 'icons',
+    environment: 'NORMAL', applicationId: '6917615941058168740', packageName: 'com.huan.listenbook', subGroupId: 'icons',
     lastSubscriptionStatus: {
       status: '1', expiresTime: now + 86400000, renewalInfo: { autoRenewStatusCode: '1' },
-      lastPurchaseOrder: { environment: 'NORMAL', applicationId: 'app-1', productId: 'iconMonth', productType: '2',
+      lastPurchaseOrder: { environment: 'NORMAL', applicationId: '6917615941058168740', productId: 'iconMonth', productType: '2',
         purchaseToken: 'token-1', purchaseOrderId: 'order-1', finishStatus: '2', purchaseTime: now - 1000 }
     }, ...changes
   };
@@ -54,30 +54,46 @@ let count = 0;
 async function test(name, fn) { await fn(); count++; console.log('PASS', name); }
 
 async function main() {
-  await test('Offer transport rejects missing endpoint, wrong product, expired signatures and HTTP failures, always releasing HTTP', async () => {
-    let endpoint = '', released = 0, calls = 0;
-    let response = { responseCode: 200, result: JSON.stringify({ productId: 'lastVip', offerId: 'cheaplist',
+  await test('Authenticated cloud offer transport validates configuration, product, expiry and gateway failures', async () => {
+    let functionName = '', calls = 0, cloudError = null;
+    let desktopWindow = false, supportedApi = true;
+    let response = { result: JSON.stringify({ productId: 'lastVip', offerId: 'lifetime_half_2026',
       jwsRepresentation: 'a.b.c', expiresAt: now + 300000 }) };
     const client = load('service/membership/MembershipOfferClient.ets', {
-      '@kit.NetworkKit': { http: { RequestMethod: { POST: 'POST' }, HttpDataType: { STRING: 0 },
-        createHttp: () => ({ request: async () => { calls++; return response; }, destroy: () => { released++; } }) } }
+      '../../utils/PlatformCompat': { PlatformCompat: { get desktopWindow() { return desktopWindow; }, supports: () => supportedApi } },
+      '@kit.CloudFoundationKit': { cloudFunction: { call: async request => {
+        calls++; assert.equal(request.name, 'membership-offer'); assert.equal(request.version, '1');
+        assert.equal(request.timeout, 10000);
+        assert.deepEqual(JSON.parse(request.data), { productId: 'lastVip', offerId: 'lifetime_half_2026' });
+        if (cloudError) throw cloudError;
+        return response;
+      } } }
     }).MembershipOfferClient;
-    const ctx = { resourceManager: { getStringSync: () => endpoint } };
-    await assert.rejects(client.request(ctx, 'lastVip', 'cheaplist'), e => e.code === -3);
+    const ctx = { resourceManager: { getStringSync: () => functionName } };
+    await assert.rejects(client.request(ctx, 'lastVip', 'lifetime_half_2026'), e => e.code === -3);
     assert.equal(calls, 0);
-    endpoint = 'https://example.test/offer';
-    assert.equal(await client.request(ctx, 'lastVip', 'cheaplist'), 'a.b.c');
+    functionName = 'membership-offer';
+    assert.equal(await client.request(ctx, 'lastVip', 'lifetime_half_2026'), 'a.b.c');
+    const valid = JSON.parse(response.result);
+    response = { result: { ...valid, expiresAt: String(valid.expiresAt) } };
+    assert.equal(await client.request(ctx, 'lastVip', 'lifetime_half_2026'), 'a.b.c');
+    await assert.rejects(client.request(ctx, 'iconYear', 'lifetime_half_2026'), e => e.code === -3);
+    desktopWindow = true; supportedApi = false;
+    await assert.rejects(client.request(ctx, 'lastVip', 'lifetime_half_2026'), e => e.code === -3);
+    desktopWindow = false; supportedApi = true;
+    assert.equal(calls, 2);
     for (const result of [
-      { productId: 'iconYear', offerId: 'cheaplist', jwsRepresentation: 'a.b.c', expiresAt: now + 300000 },
-      { productId: 'lastVip', offerId: 'cheaplist', jwsRepresentation: 'a.b.c', expiresAt: now - 1 },
+      { productId: 'iconYear', offerId: 'lifetime_half_2026', jwsRepresentation: 'a.b.c', expiresAt: now + 300000 },
+      { productId: 'lastVip', offerId: 'lifetime_half_2026', jwsRepresentation: 'a.b.c', expiresAt: now - 1 },
+      { ...valid, expiresAt: 'Infinity' },
+      { code: 'OFFER_UNAVAILABLE' },
       null
     ]) {
-      response = { responseCode: 200, result: JSON.stringify(result) };
-      await assert.rejects(client.request(ctx, 'lastVip', 'cheaplist'), e => e.code === -3);
+      response = { result: JSON.stringify(result) };
+      await assert.rejects(client.request(ctx, 'lastVip', 'lifetime_half_2026'), e => e.code === -3);
     }
-    response = { responseCode: 503, result: '{}' };
-    await assert.rejects(client.request(ctx, 'lastVip', 'cheaplist'), e => e.code === -3);
-    assert.equal(released, calls);
+    cloudError = new Error('gateway unavailable');
+    await assert.rejects(client.request(ctx, 'lastVip', 'lifetime_half_2026'), e => e.code === -3);
   });
   await test('Known IDs, expiry, cancellation, refund and sandbox separation', () => {
     const p = payload();
@@ -99,11 +115,13 @@ async function main() {
   await test('Reject cross-app, malformed and inconsistent orders', () => {
     for (const mutation of [
       p => p.packageName = 'another.app', p => p.applicationId = '',
+      p => { p.applicationId = 'another-app'; p.lastSubscriptionStatus.lastPurchaseOrder.applicationId = 'another-app'; },
       p => p.lastSubscriptionStatus.expiresTime = '9999999999999',
       p => p.lastSubscriptionStatus.lastPurchaseOrder.applicationId = 'another-app',
       p => p.lastSubscriptionStatus.lastPurchaseOrder.productType = '0',
       p => p.lastSubscriptionStatus.lastPurchaseOrder.purchaseToken = '',
       p => p.lastSubscriptionStatus.lastPurchaseOrder.purchaseTime = now + 120000,
+      p => p.lastSubscriptionStatus.lastPurchaseOrder.finishStatus = 'unexpected',
       p => p.lastSubscriptionStatus.status = 'unexpected'
     ]) { const p = payload(); mutation(p); assert.throws(() => policy.validate(p, false, now)); }
   });
@@ -181,7 +199,7 @@ async function main() {
     badOid = true; await assert.rejects(verifier.verify(context, signed(payload()))); badOid = false;
   });
 
-  function session(developerEnabled = false, displayDisk = new Map(), membershipRequired = true, featureEnabled = true) {
+  function session(developerEnabled = false, displayDisk = new Map(), membershipRequired = true, featureEnabled = true, serviceGlobals = {}) {
     const developer = load('service/membership/DeveloperMembership.ets');
     developer.DeveloperMembership.ENABLED = developerEnabled;
     let defaultsReset = 0;
@@ -286,7 +304,7 @@ async function main() {
         verify: async (_, p) => { if (verificationError) throw verificationError; return JSON.parse(p); },
         verifyLifetime: async (_, p) => { if (verificationError) throw verificationError; return JSON.parse(p); }
       } }
-    });
+    }, serviceGlobals);
     return { defaultsReset: () => defaultsReset, service: MembershipService.instance, state: stateModule.MembershipState.current,
       offerRequests, setPromotion: value => { promotion = value; }, setOfferError: value => { offerError = value; },
       current, unfinished, finishes, icons, lifetimeCurrent, lifetimeUnfinished, purchases, queries, productQueries,
@@ -306,7 +324,7 @@ async function main() {
   }
   await test('Huawei promotion price and signature are used together; signing failure never charges regular price', async () => {
     const s = session();
-    s.setPromotion({ offerId: 'cheaplist', localPrice: '¥98.00', microPrice: 98000000, paymentMode: 5 });
+    s.setPromotion({ offerId: 'lifetime_half_2026', localPrice: '¥98.00', microPrice: 98000000, paymentMode: 5 });
     await s.service.load(context);
     const plan = s.service.plans.find(p => p.id === 'lastVip');
     assert.equal(plan.price, '¥98.00');
@@ -318,12 +336,12 @@ async function main() {
     s.setOfferError(null);
     await s.service.purchase(context, 'lastVip');
     assert.equal(s.purchaseCount(), 1);
-    assert.equal(s.purchases[0].promotionalOfferId, 'cheaplist');
+    assert.equal(s.purchases[0].promotionalOfferId, 'lifetime_half_2026');
     assert.equal(s.purchases[0].jwsRepresentation, 'header.payload.signature');
   });
   await test('An expired campaign refreshes the displayed plan and stops before the cashier', async () => {
     const s = session();
-    s.setPromotion({ offerId: 'cheaplist', localPrice: '¥39.00', microPrice: 39000000, paymentMode: 5 });
+    s.setPromotion({ offerId: 'lifetime_half_2026', localPrice: '¥39.00', microPrice: 39000000, paymentMode: 5 });
     await s.service.load(context);
     s.setPromotion(null);
     await s.service.purchase(context, 'lastVip');
@@ -1058,6 +1076,39 @@ async function main() {
     s.service.background(); s.service.foreground(context);
     release(); await first; await s.service.confirmationTask;
     assert.equal(s.state.hasAccess, true); assert.equal(s.queries.length, 4);
+  });
+  await test('Cashier stays exclusive beyond three minutes and delivers its eventual success', async () => {
+    const timers = new Map(); let timerId = 0;
+    const s = session(false, new Map(), true, true, {
+      setTimeout(fn, delay) {
+        if (fn.length > 0 && delay <= 5100) { now += delay; queueMicrotask(fn); return ++timerId; }
+        timers.set(++timerId, { fn, due: now + delay }); return timerId;
+      },
+      clearTimeout(id) { timers.delete(id); }
+    });
+    await s.service.load(context);
+    let release; s.setPurchaseGate(new Promise(resolve => { release = resolve; }));
+    const buying = s.service.purchase(context, 'lastVip');
+    for (let i = 0; i < 80 && s.purchaseCount() === 0; i++) await Promise.resolve();
+    assert.equal(s.purchaseCount(), 1);
+    now += 181000;
+    for (const [id, timer] of Array.from(timers)) {
+      if (timer.due <= now) { timers.delete(id); timer.fn(); }
+    }
+    for (let i = 0; i < 80; i++) await Promise.resolve();
+    assert.equal(s.service.busy, true);
+    await s.service.purchase(context, 'lastVip');
+    assert.equal(s.purchaseCount(), 1);
+    release(); await buying; await s.service.confirmationTask;
+    assert.equal(s.state.hasAccess, true); assert.equal(s.finishes.length, 1);
+    assert.equal(s.service.busy, false);
+  });
+  await test('Optional subscription finishStatus does not invalidate current entitlement', async () => {
+    const s = session(); const p = payload();
+    delete p.lastSubscriptionStatus.lastPurchaseOrder.finishStatus;
+    s.current.push(p);
+    await s.service.load(context); await s.service.confirmationTask;
+    assert.equal(s.state.hasAccess, true); assert.equal(s.finishes.length, 1);
   });
   await test('Rejected purchase signatures, mismatched products and revoked receipts grant nothing', async () => {
     for (const mode of ['signature', 'revoked', 'wrong-product', 'expired']) {

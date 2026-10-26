@@ -3,13 +3,15 @@ import { LengthMetricsUnit } from '@kit.ArkUI';
 import lazy { textRecognition } from '@kit.CoreVisionKit';
 import { ComicTranslationRegion, ComicTextBox, ComicTranslationText } from '../model/ComicTranslation';
 import { ComicOfflineTranslationService } from './ComicOfflineTranslationService';
+import { MembershipState } from '../model/MembershipState';
 
 /** 系统 OCR 定位原文、端侧模型翻译、本机回填；翻译链路不调用在线 API。 */
 export class ComicTranslationService {
   static supported(): boolean { return canIUse('SystemCapability.AI.OCR.TextRecognition'); }
 
   static async translate(jpeg: ArrayBuffer, language: string,
-    active: () => boolean): Promise<Uint8Array> {
+    isActive: () => boolean): Promise<Uint8Array> {
+    const active = (): boolean => isActive() && MembershipState.current.hasAccess;
     if (!active()) throw new Error('comic_ai_cancelled');
     if (!ComicTranslationService.supported()) throw new Error('comic_ai_ocr_unsupported');
     const source = image.createImageSource(jpeg);
@@ -28,7 +30,8 @@ export class ComicTranslationService {
 
   /** 复用阅读器已解码的像素；所有权仍属于调用方，只编码一次最终结果。 */
   static async translatePixels(pixels: image.PixelMap, width: number, height: number,
-    language: string, active: () => boolean, original?: ArrayBuffer): Promise<Uint8Array> {
+    language: string, isActive: () => boolean, original?: ArrayBuffer): Promise<Uint8Array> {
+    const active = (): boolean => isActive() && MembershipState.current.hasAccess;
     if (!active()) throw new Error('comic_ai_cancelled');
     if (!ComicTranslationService.supported()) throw new Error('comic_ai_ocr_unsupported');
     if (width < 32 || height < 32 || width * height > 2 * 1024 * 1024) throw new Error('comic_ai_image_too_large');
@@ -45,6 +48,7 @@ export class ComicTranslationService {
     const received = Date.now();
     if (!active()) throw new Error('comic_ai_cancelled');
     const output = await ComicTranslationService.render(pixels, width, height, regions, translated, active);
+    if (!active()) throw new Error('comic_ai_cancelled');
     console.info(`[ComicTranslation] ocrMs=${recognized - started} modelMs=${received - recognized} renderMs=${Date.now() - received}`);
     return output;
   }

@@ -3,6 +3,14 @@ import { LocalRuleSourceImportParser } from './LocalRuleSourceImportParser';
 
 /** Merge editable fields into the original definition so extension fields survive a round trip. */
 export class LocalRuleSourceCodec {
+  static exportFileName(sources: LocalRuleSource[]): string {
+    const original = sources.length > 0 ? sources[0].bookSourceName : '';
+    const name = original.replace(/[\\/:*?"<>|\x00-\x1f]/g, '_').trim()
+      .slice(0, 60).replace(/[. ]+$/g, '') || 'book-source';
+    const count = sources.length > 1 ? `-${sources.length}` : '';
+    return `${name}${count}-${Date.now()}.json`;
+  }
+
   static exportBatch(sources: LocalRuleSource[]): string {
     const definitions: Record<string, Object>[] = [];
     for (const source of sources) {

@@ -484,7 +484,7 @@ export struct RuleSourcePage {
       const sources = this.allSources.filter((source: LocalRuleSource) => urls.includes(source.bookSourceUrl));
       const text = LocalRuleSourceCodec.exportBatch(sources);
       const options = new picker.DocumentSaveOptions();
-      options.newFileNames = [`book-sources-${Date.now()}.json`];
+      options.newFileNames = [LocalRuleSourceCodec.exportFileName(sources)];
       const uris = await new picker.DocumentViewPicker(context).save(options);
       if (uris.length === 0) return;
       const file = await fileIo.open(uris[0], fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);

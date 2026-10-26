@@ -3,7 +3,7 @@ import { image } from '@kit.ImageKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { buffer, util } from '@kit.ArkTS';
-import lazy { ComicColorizer } from '@legado/aiengine';
+import lazy { ComicColorizer, ComicColorModels } from '@legado/aiengine';
 import { ComicAiHost } from './ComicAiHost';
 import { ComicTranslationService } from './ComicTranslationService';
 import { ComicOfflineTranslationService } from './ComicOfflineTranslationService';
@@ -17,6 +17,21 @@ export class ComicColorizationService {
   private static blockedRevision: number = -1;
   private static revision: number = 0;
   private static engineUsed: boolean = false;
+  private static modelPreparation: Promise<void> | undefined = undefined;
+
+  private static async ensureModels(context: common.Context, active: () => boolean): Promise<void> {
+    if (!active() || !MembershipState.current.hasAccess) return;
+    if (ComicColorizationService.modelPreparation) {
+      try { await ComicColorizationService.modelPreparation; } catch (_) {}
+      if (!active() || !MembershipState.current.hasAccess) return;
+    }
+    if (ComicColorModels.missingBytes(context) === 0) return;
+    const task = ComicColorModels.download(context,
+      (): boolean => active() && MembershipState.current.hasAccess, (_status: string): void => {});
+    ComicColorizationService.modelPreparation = task;
+    try { await task; }
+    finally { if (ComicColorizationService.modelPreparation === task) ComicColorizationService.modelPreparation = undefined; }
+  }
 
   static supported(): boolean { return canIUse('SystemCapability.AI.MindSporeLite'); }
 
@@ -31,12 +46,14 @@ export class ComicColorizationService {
   }
 
   static prepare(context: common.Context, active: () => boolean): void {
-    if (!active() || !ComicColorizationService.supported()) return;
+    if (!active() || !MembershipState.current.hasAccess || !ComicColorizationService.supported()) return;
     const revision = ComicColorizationService.revision;
     ComicAiHost.install(context);
     ComicColorizationService.engineUsed = true;
-    ComicColorizer.prepare(context, (): boolean => active() &&
-      revision === ComicColorizationService.revision).catch((): void => {});
+    const valid = (): boolean => active() && MembershipState.current.hasAccess &&
+      revision === ComicColorizationService.revision;
+    ComicColorizationService.ensureModels(context, valid)
+      .then((): Promise<void> => ComicColorizer.prepare(context, valid)).catch((): void => {});
   }
 
   static async colorize(context: common.Context, uri: string, active: () => boolean): Promise<string> {
@@ -46,7 +63,7 @@ export class ComicColorizationService {
   static async transform(context: common.Context, uri: string, active: () => boolean,
     targetLanguage: string, colorization: boolean = false, trace: string = ''): Promise<string> {
     if (targetLanguage) ComicOfflineTranslationService.validateDirection(targetLanguage);
-    const permitted = (): boolean => !targetLanguage || MembershipState.current.hasAccess;
+    const permitted = (): boolean => MembershipState.current.hasAccess;
     if (!active() || !permitted()) return '';
     if (ComicColorizationService.pending >= 4) return '';
     const revision = ComicColorizationService.revision;
@@ -118,6 +135,8 @@ export class ComicColorizationService {
       ComicAiHost.install(context);
       ComicColorizationService.engineUsed = true;
       try {
+        await ComicColorizationService.ensureModels(context, active);
+        if (!active()) return '';
         const result = await ComicColorizer.colorize(context, uri, active, (_status: string): void => {});
         const recordedAt = Date.now();
         // 即使此时离屏，已写出的结果也必须进入预算；写入租约覆盖登记过程。

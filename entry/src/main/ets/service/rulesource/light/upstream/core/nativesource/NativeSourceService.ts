@@ -18,6 +18,7 @@ import { NativeExpr } from './NativeExpr';
 import type { NativeScriptLibrary, NativeValue } from './NativeExpr';
 import { NativeJsLibrary } from './NativeJsLibrary';
 import { NativeSourceRunner } from './NativeSourceRunner';
+import { NativeCommentPage } from './NativeCommentPage';
 import { SourceCoverUrl } from './SourceCoverUrl';
 import type {
   NativeBookInput, NativeBookRecord, NativeContentResult, NativeMenuEntry, NativeRequest, NativeResponse,
@@ -42,6 +43,7 @@ import type { NativeScriptEngine } from './NativeScriptHost';
 import { BookSourceRuntimeStore } from '../book/BookSourceRuntimeStore';
 import { deviceInfo } from '@kit.BasicServicesKit';
 import { SourceEngineHost } from '../host/SourceEngineHost';
+import { NativePureRule } from './NativePureRule';
 
 export interface NativeFilterGroup {
   title: string;
@@ -64,7 +66,7 @@ export interface NativeVarItem {
 }
 
 class NativeHost implements NativeRunnerHost {
-  parsePure?: (input: string) => Promise<string>;
+  parsePure?: (input: string) => Promise<string | null>;
   evaluateExpression?: NativeRunnerHost['evaluateExpression'];
   private nativeScripts: Pick<NativeRunnerHost, 'scriptEngine' | 'evaluateExpression'> | undefined;
   private source: BookSource;
@@ -74,6 +76,11 @@ class NativeHost implements NativeRunnerHost {
   private debugContext: BookSourceDebugContext | null;
   private cacheScope: string = '';
   private cacheScopeInput: string[] = [];
+  private operationDeadline: number = 0;
+  private operationRequests: number = 0;
+  private operationBytes: number = 0;
+
+  limitCommentPage(deadline: number): void { this.operationDeadline = deadline; }
   /** 只在调试时提供：把规则求值记到调试页的执行明细里。 */
   trace?: (entry: NativeRuleTrace) => void;
 
@@ -88,10 +95,21 @@ class NativeHost implements NativeRunnerHost {
     this.evaluateExpression = this.nativeScripts?.evaluateExpression;
     const parser = SourceEngineHost.nativeParsing();
     if (parser && SourceEngineHost.readerImagesDeferred(source)) {
-      this.parsePure = async (input: string): Promise<string> => {
-        if (this.cancelled() || SourceEngineHost.isCancelled(source)) throw new Error('已取消');
-        const result = await parser(input, source);
-        if (this.cancelled() || SourceEngineHost.isCancelled(source)) throw new Error('已取消');
+      const cancelled = (): boolean => this.cancelled() || SourceEngineHost.isCancelled(source);
+      // 后台只是优化：超限或出错都交回本线程按原路径解析（规则本身的错误会在那里照常抛出），只有取消直接抛出。
+      this.parsePure = async (input: string): Promise<string | null> => {
+        if (cancelled()) throw new Error('已取消');
+        if (input.length > NativePureRule.MAX_CHARS) return null;
+        let result: string;
+        try {
+          result = await parser(input, source);
+        } catch (e) {
+          if (cancelled()) throw new Error('已取消');
+          console.warn(`[NativeSource] 后台解析失败，改在本线程解析 source=${source.bookSourceName} ` +
+            `error=${e instanceof Error ? e.message : String(e)}`);
+          return null;
+        }
+        if (cancelled()) throw new Error('已取消');
         return result;
       };
     }
@@ -126,7 +144,8 @@ class NativeHost implements NativeRunnerHost {
       webRequest.webJsAcceptPattern = '\\S';
       webRequest.webJsMaxAttempts = Math.max(4, request.webTimeout * 2);
     }
-    webRequest.readTimeout = request.webTimeout * 1000;
+    webRequest.readTimeout = request.timeoutMs ? Math.min(request.webTimeout * 1000, request.timeoutMs) :
+      request.webTimeout * 1000;
     webRequest.debugContext = this.debugContext || undefined;
     if (this.maxResponseBytes > 0) webRequest.maxResponseBytes = this.maxResponseBytes;
     return await analyzeUrl.fetchPrepared(webRequest);
@@ -134,6 +153,12 @@ class NativeHost implements NativeRunnerHost {
 
   async fetch(request: NativeRequest): Promise<NativeResponse> {
     if (this.cancelled()) return { ok: false, status: 0, body: '', url: request.url, error: '已取消' };
+    if (this.operationDeadline) {
+      if (++this.operationRequests > 8) throw new Error('评论页面请求超过 8 次（含上下文重建）');
+      const remaining = this.operationDeadline - Date.now();
+      if (remaining <= 0) throw new Error('评论页面请求超时');
+      request = Object.assign({}, request, { timeoutMs: Math.min(request.timeoutMs || remaining, remaining) });
+    }
     // 沿用书源请求层：限流、Cookie、书源请求头、编码探测和验证处理都在 AnalyzeUrl 里。
     const options: Record<string, Object> = {};
     if (request.method !== 'GET') options['method'] = request.method;
@@ -144,10 +169,15 @@ class NativeHost implements NativeRunnerHost {
     if (request.retry > 0) options['retry'] = request.retry;
     const url = Object.keys(options).length > 0 ? `${request.url},${JSON.stringify(options)}` : request.url;
     // 顶层 headers 已由运行器按作用域求值并放进 request.headers，书源记录里的字面值副本不再重复合并。
-    const analyzeUrl = new AnalyzeUrl(this.source, this.http).setCancelCheck(this.cancelled).setStaticSourceHeader(false);
+    const analyzeUrl = new AnalyzeUrl(this.source, this.http).setCancelCheck(this.cancelled).setStaticSourceHeader(false)
+      .setRequestTimeout(request.timeoutMs || 0);
     const response = request.webView && (request.webWaitFor || request.webJs) ?
       await this.fetchWaitingFor(analyzeUrl, url, request) :
       await analyzeUrl.fetch(url, this.maxResponseBytes > 0 ? this.maxResponseBytes : undefined, this.debugContext);
+    if (this.operationDeadline) {
+      this.operationBytes += NativeCommentPage.bytes(response.body || '');
+      if (this.operationBytes > 2 * 1024 * 1024) throw new Error('评论页面响应总量超过 2 MiB');
+    }
     // 没拿到响应且请求层报的是明确的网络错误（域名解析、超时、连不上等）：与登录无关，直接给出真实原因。
     // 否则配置了登录入口的书源会把断网也报成“需要登录或网页验证”，还会拉起验证流程。
     if (response.statusCode === 0 && !response.success) {
@@ -176,6 +206,7 @@ class NativeHost implements NativeRunnerHost {
       status: response.statusCode,
       body: response.body || '',
       url: BookUrlResolver.effectiveBase(response, request.url, this.source.bookSourceUrl),
+      finalUrl: response.finalUrl || '',
       error: response.error || ''
     };
   }
@@ -358,6 +389,7 @@ export class NativeSourceService {
 
   /** 书源被修改、重新导入或退出登录后，丢掉它的缓存值。 */
   static clearCache(sourceUrl: string): void {
+    NativeSourceRunner.clearCommentContexts(sourceUrl);
     const prefix = `${sourceUrl}\n`;
     for (const key of Array.from(NativeSourceService.cacheEntries.keys())) {
       if (key.startsWith(prefix)) NativeSourceService.cacheEntries.delete(key);
@@ -795,6 +827,33 @@ export class NativeSourceService {
         `${url},${JSON.stringify({ ...options, imageIndex: index })}`);
     }
     return result;
+  }
+
+  /** Same entry point for the reader and debugger; no page HTML or credentials are stored in markers. */
+  static async getCommentPage(source: BookSource, http: HttpClient, book: Book, chapter: BookChapter,
+    action: string, cancelled: () => boolean, debugContext: BookSourceDebugContext | null = null): Promise<NativeCommentPage> {
+    const deadline = Date.now() + 15000;
+    let finished = false;
+    const stopped = (): boolean => finished || cancelled() || Date.now() >= deadline;
+    const host = new NativeHost(source, http, stopped, 1024 * 1024, debugContext);
+    host.limitCommentPage(deadline);
+    const runner = new NativeSourceRunner(NativeSourceService.definitionOf(source), host, NativeSourceService.storedVars(source))
+      .setCancelCheck(stopped).setCredential(NativeSourceService.credential(source));
+    let timer = -1;
+    try {
+      const result = await Promise.race([
+        runner.commentPage(NativeSourceService.bookInput(source, book),
+          { url: chapter.url, title: chapter.title, index: chapter.index }, action),
+        new Promise<NativeCommentPage>((_resolve, reject): void => {
+          timer = setTimeout((): void => reject(new Error('评论页面生成超过 15 秒')), 15000);
+        })
+      ]);
+      if (stopped()) throw new Error(Date.now() >= deadline ? '评论页面生成超过 15 秒' : '已取消');
+      return result;
+    } finally {
+      finished = true;
+      if (timer >= 0) clearTimeout(timer);
+    }
   }
 
   /**

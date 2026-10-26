@@ -5,20 +5,21 @@ import { createMembershipOfferHandler } from '../src/membership-offer-function.j
 const privateKey = generateKeyPairSync('ec', { namedCurve: 'prime256v1' }).privateKey
   .export({ type: 'pkcs8', format: 'pem' }).toString();
 const env = { IAP_ISSUER_ID: 'issuer', IAP_KEY_ID: 'kid', IAP_PRIVATE_KEY: privateKey, IAP_OFFER_PRODUCTS: 'iconMonth,lastVip' };
-const event = { httpMethod: 'POST', body: JSON.stringify({ productId: 'lastVip', offerId: 'cheaplist' }) };
+const event = { httpMethod: 'POST', body: JSON.stringify({ productId: 'lastVip', offerId: 'lifetime_half_2026' }) };
 
 describe('Huawei FunctionGraph offer adapter', () => {
   it('returns an uncached signature bound to the configured promotion', async () => {
     const response = await createMembershipOfferHandler(env)(event);
     expect(response.statusCode).toBe(200);
     expect(response.headers['Cache-Control']).toBe('no-store');
-    expect(JSON.parse(response.body)).toMatchObject({ productId: 'lastVip', offerId: 'cheaplist' });
+    expect(JSON.parse(response.body)).toMatchObject({ productId: 'lastVip', offerId: 'lifetime_half_2026' });
   });
   it('fails closed without configuration and rejects unconfigured products and injected signing claims', async () => {
     expect((await createMembershipOfferHandler({})(event)).statusCode).toBe(503);
     const handler = createMembershipOfferHandler(env);
-    for (const body of ['null', '{', JSON.stringify({ productId: 'iconYear', offerId: 'cheaplist' }),
-      JSON.stringify({ productId: 'lastVip', offerId: 'cheaplist', applicationId: 'another-app' }),
+    for (const body of ['null', '{', JSON.stringify({ productId: 'lastVip', offerId: 'cheaplist' }),
+      JSON.stringify({ productId: 'iconYear', offerId: 'lifetime_half_2026' }),
+      JSON.stringify({ productId: 'lastVip', offerId: 'lifetime_half_2026', applicationId: 'another-app' }),
       JSON.stringify({ productId: 'lastVip', offerId: 'another-offer' })]) {
       expect((await handler({ ...event, body })).statusCode).toBe(400);
     }
