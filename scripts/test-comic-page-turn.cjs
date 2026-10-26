@@ -71,11 +71,23 @@ touch(dissolve, TouchType.Down); now += 100; touch(dissolve, TouchType.Up);
 assert.equal(dissolve.pageIndex, 2, 'dissolve also starts on release');
 console.log('comic page input: immediate turn, no duplicate, center toolbar, hold/move/cancel and animation lock passed');
 
-const zoomed = reader(); zoomed.showZoom = true;
+const zoomed = reader(); zoomed.zoomActive = true;
 touch(zoomed, TouchType.Down); now += 100; touch(zoomed, TouchType.Up);
 zoomed.onContentTap({ windowX: 150, windowY: 300 });
 assert.equal(zoomed.turns.length, 0, 'zoom gestures cannot turn the underlying page');
 assert.equal(zoomed.toggles, 0, 'zoom taps cannot toggle the underlying toolbar');
+zoomed.zoomActive = false;
+touch(zoomed, TouchType.Up, 280);
+zoomed.onContentTap({ windowX: 150, windowY: 300 });
+assert.equal(zoomed.turns.length, 0, 'last finger after shrinking cannot turn the page');
+assert.equal(zoomed.toggles, 0, 'last finger after shrinking cannot show toolbar');
+touch(zoomed, TouchType.Down, 280); now += 100; touch(zoomed, TouchType.Up, 280);
+assert.equal(zoomed.turns.length, 1, 'fresh single touch works after returning to original size');
+const multi = reader(3);
+touch(multi, TouchType.Down, 280);
+multi.contentTouch({ type: TouchType.Down, touches: [{x:280,y:300},{x:100,y:300}], changedTouches: [] });
+touch(multi, TouchType.Up, 20);
+assert.equal(multi.pageIndex, 1, 'two-finger gesture cannot trigger dissolve or chapter swipes');
 
 const keys = reader();
 Object.assign(keys, { alive: true, foreground: true, readerVisible: true, volumeKeyPageTurn: false,
@@ -91,7 +103,7 @@ keys.keyCallback(false);
 assert.equal(keys.pageIndex, 1);
 keys.chrome = true;
 assert.equal(keys.canUseVolumeKeys(), true, 'toolbar alone does not disable volume page turns');
-for (const field of ['busy', 'failed', 'showChapters', 'showSettings', 'showSourceSwitch', 'showZoom',
+for (const field of ['busy', 'failed', 'showChapters', 'showSettings', 'showSourceSwitch', 'zoomActive',
   'sheetPresented', 'chapterSliderDragging', 'chapterSliderConfirming']) {
   keys[field] = true; keys.syncVolumeKeys();
   assert.equal(keys.subscribed, false, field);

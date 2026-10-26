@@ -21,6 +21,9 @@ export struct ComicContinuousComponent {
   @Param initialPageIndex: number = 0;
   @Param initialPages: ComicPage[] = [];
   @Param pageWidth: number = 360;
+  @Param pageHeight: number = 600;
+  @Param viewportTop: number = 0;
+  @Param zoomOwner: string = '';
   @Param superResolution: boolean = false;
   @Param colorization: boolean = false;
   @Param translation: boolean = false;
@@ -29,7 +32,7 @@ export struct ComicContinuousComponent {
   @Event onColorError: (message: string) => void = () => {};
   @Param keyTurnRequest: number = 0;
   @Event onToggle: (event: ClickEvent) => void = () => {};
-  @Event onZoom: (page: ComicPage, url: string, focusY: number) => void = () => {};
+  @Event onZoomChange: (owner: string, active: boolean) => void = () => {};
   @Event onPosition: (chapterIndex: number, pageIndex: number, pages: ComicPage[]) => void = () => {};
   @Event loadPages: (index: number, preload: boolean) => Promise<ComicPage[]> = async (): Promise<ComicPage[]> => [];
   @Local nextLoading: boolean = false;
@@ -215,14 +218,16 @@ export struct ComicContinuousComponent {
         LazyForEach(this.source, (row: ComicScrollRow) => {
           ListItem() {
             ComicPageImage({ page: row.page, pageWidth: this.pageWidth, superResolution: this.superResolution,
+              pageHeight: this.pageHeight, viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
               colorization: this.colorization, colorizationActive: this.colorizationActive,
               translation: this.translation, translationDirection: this.translationDirection,
               onColorError: (message: string): void => this.onColorError(message),
-               onZoom: (page: ComicPage, url: string, focusY: number): void => this.onZoom(page, url, focusY),
+              onZoomChange: (owner: string, active: boolean): void => this.onZoomChange(owner, active),
               onToggle: (event: ClickEvent): void => this.onToggle(event) })
           }.width('100%').align(Alignment.Center)
         }, (row: ComicScrollRow): string => `${row.chapterIndex}:${row.page.key}`)
       }.width('100%').height('100%').cachedCount(2).scrollBar(BarState.Off)
+        .enableScrollInteraction(this.zoomOwner.length === 0)
         .edgeEffect(EdgeEffect.None).maintainVisibleContentPosition(true)
         .onScrollIndex((first: number, last: number): void => this.visibleChanged(first, last))
         .onReachEnd((): void => { this.loadNeighbor(true); })

@@ -292,9 +292,11 @@ const context = { cacheDir: '/cache' };
     .replace(/@(?:ComponentV2|Param|Local|Event)\s*/g, '')
     .replace('export struct ComicPageImage', 'export class ComicPageImage') + '\n}';
   const componentExports = {};
-  vm.runInNewContext(compile(componentSource), { exports: componentExports, console, require: name => {
+  const TouchType = { Down: 0, Up: 1, Move: 2, Cancel: 3 };
+  vm.runInNewContext(compile(componentSource), { exports: componentExports, console, TouchType, require: name => {
     if (name.endsWith('/ComicReaderService')) return { ComicReaderService: reader, ComicPage: class {} };
     if (name.endsWith('/ComicImageLoader')) return { ComicImageLoader: loader };
+    if (name.endsWith('/ComicZoomGeometry')) return evaluate('utils/ComicZoomGeometry.ts', () => ({}));
     if (name.endsWith('/ReaderCacheService')) return { ReaderCacheService: { owner: () => 'node', release() {}, protect() {} } };
     if (name.endsWith('/MembershipState')) return { MembershipState: { current: { hasAccess: false } } };
     if (name === '@kit.BasicServicesKit') return { emitter };
@@ -319,6 +321,43 @@ const context = { cacheDir: '/cache' };
       }
     }
   }
+  const pinchNode = new componentExports.ComicPageImage();
+  pinchNode.getUIContext = () => ({vp2px: x => x * 2, px2vp: x => x / 2});
+  pinchNode.pageWidth = 360; pinchNode.pageHeight = 720;
+  pinchNode.page = { width: 1440, height: 5760 }; pinchNode.ratio = 4;
+  const zoomActivity = [];
+  pinchNode.onZoomChange = (_owner, active) => zoomActivity.push(active);
+  const finger = { windowY: 300, y: 700 };
+  pinchNode.zoomTouch({ type: TouchType.Down, touches: [finger, finger], changedTouches: [finger] });
+  assert.equal(pinchNode.zoomLocked, true, 'second finger blocks parent scrolling before pinch recognition');
+  pinchNode.beginPinch({ pinchCenterX: 180, pinchCenterY: 700, scale: 1 });
+  pinchNode.updatePinch({ pinchCenterX: 180, pinchCenterY: 700, scale: 2 });
+  assert.equal(pinchNode.zoomState.scale, 2);
+  assert.equal(pinchNode.zoomState.visibleTop, 400, 'viewport starts at the currently visible part of the long image');
+  assert.equal(pinchNode.decodeScale, 1, 'pinching does not request a new decode every frame');
+  pinchNode.zoomTouch({ type: TouchType.Up, touches: [], changedTouches: [finger] });
+  pinchNode.finishPinch();
+  assert.equal(pinchNode.zoomLocked, true, 'one-finger drag remains available after enlargement');
+  assert.equal(pinchNode.decodeScale, 2);
+  assert.ok(pinchNode.decodeSize().width * 2 > 720, 'enlarged view decodes more source pixels');
+  pinchNode.zoomTouch({ type: TouchType.Down, touches: [finger, finger], changedTouches: [finger] });
+  pinchNode.beginPinch({ pinchCenterX: 180, pinchCenterY: 700, scale: 1 });
+  pinchNode.updatePinch({ pinchCenterX: 180, pinchCenterY: 700, scale: 0.5 });
+  assert.equal(pinchNode.zoomLocked, true, 'original scale stays locked until the fingers finish');
+  pinchNode.zoomTouch({ type: TouchType.Up, touches: [], changedTouches: [finger] });
+  pinchNode.finishPinch();
+  assert.equal(pinchNode.zoomLocked, false);
+  assert.equal(pinchNode.zoomState.y, 0, 'shrinking restores the exact original reading position');
+  assert.deepEqual(zoomActivity, [true, false]);
+  pinchNode.zoomTouch({ type: TouchType.Down, touches: [finger, finger], changedTouches: [finger] });
+  pinchNode.zoomTouch({ type: TouchType.Cancel, touches: [], changedTouches: [] });
+  assert.equal(pinchNode.zoomLocked, false, 'cancelled unrecognized pinch cannot lock scrolling');
+  const firstFinger = { id: 0, windowY: 300, y: 700 }, secondFinger = { id: 1, windowY: 500, y: 900 };
+  pinchNode.zoomTouch({ type: TouchType.Down, touches: [firstFinger, secondFinger], changedTouches: [secondFinger] });
+  pinchNode.zoomTouch({ type: TouchType.Up, touches: [firstFinger, secondFinger], changedTouches: [secondFinger] });
+  assert.equal(pinchNode.zoomLocked, true);
+  pinchNode.zoomTouch({ type: TouchType.Up, touches: [firstFinger], changedTouches: [firstFinger] });
+  assert.equal(pinchNode.zoomLocked, false, 'Up may still include the lifted finger without leaving scroll locked');
   imageNode.page = { sourceUrl: book.sourceUrl, url: 'https://offscreen.test/ready.jpg', index: 1 };
   imageNode.getUIContext = () => ({ getHostContext: () => context, vp2px: x => x * 2, px2vp: x => x / 2 });
   const beforeOffscreen = calls.length;

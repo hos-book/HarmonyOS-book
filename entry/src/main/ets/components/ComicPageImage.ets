@@ -8,15 +8,16 @@ import { ComicSuperResolutionService } from '../service/ComicSuperResolutionServ
 import { MembershipState } from '../model/MembershipState';
 import { ReaderCacheService } from '../service/ReaderCacheService';
 import { ComicColorizationService } from '../service/ComicColorizationService';
+import { ComicZoomTransform } from '../utils/ComicZoomGeometry';
 
 @ComponentV2
 export struct ComicPageImage {
   @Param page: ComicPage = new ComicPage();
   @Param pageWidth: number = 360;
   @Param pageHeight: number = 600;
+  @Param viewportTop: number = 0;
+  @Param zoomOwner: string = '';
   @Param paged: boolean = false;
-  @Param zoomRegionLeft: number = 33;
-  @Param zoomRegionRight: number = 33;
   @Param superResolution: boolean = false;
   @Param colorization: boolean = false;
   @Param translation: boolean = false;
@@ -31,7 +32,15 @@ export struct ComicPageImage {
   private colorReadyAt: number = 0;
   private colorTrace: string = '';
   @Event onToggle: (event: ClickEvent) => void = () => {};
-  @Event onZoom: (page: ComicPage, url: string, focusY: number) => void = () => {};
+  @Event onZoomChange: (owner: string, active: boolean) => void = () => {};
+  @Local zoomState: ComicZoomTransform = new ComicZoomTransform();
+  @Local zoomLocked: boolean = false;
+  @Local decodeScale: number = 1;
+  private gestureStart: ComicZoomTransform = new ComicZoomTransform();
+  private pinchX: number = 0;
+  private pinchY: number = 0;
+  private imageWindowY: number = 0;
+  private pinchSequence: boolean = false;
   @Local ratio: number = 0;
   @Local failed: boolean = false;
   @Local loaded: boolean = false;
@@ -62,6 +71,7 @@ export struct ComicPageImage {
   }
 
   aboutToDisappear(): void {
+    this.resetZoom();
     this.alive = false;
     emitter.off('app.comic.image.ready', this.imageReadyHandler);
     this.visible = false;
@@ -78,6 +88,7 @@ export struct ComicPageImage {
   }
 
   private loadImage(): void {
+    this.resetZoom();
     const page = this.page;
     const ticket = ++this.imageSerial;
     this.startedAt = Date.now();
@@ -207,8 +218,67 @@ export struct ComicPageImage {
   private decodeWidth(): number {
     const ratio = this.imageHeight() / Math.max(1, this.pageWidth);
     const nativeWidth = this.page.width > 0 ? this.page.width * (this.enhancedUrl ? 4 : 1) : 1536;
-    return Math.max(1, Math.floor(Math.min(this.getUIContext().vp2px(this.pageWidth), 1536, 4096 / ratio,
-      Math.sqrt(4 * 1024 * 1024 / ratio), nativeWidth)));
+    const enlarged = this.decodeScale > 1;
+    return Math.max(1, Math.floor(Math.min(this.getUIContext().vp2px(this.pageWidth) * this.decodeScale,
+      enlarged ? 4096 : 1536, (enlarged ? 8192 : 4096) / ratio,
+      Math.sqrt((enlarged ? 8 : 4) * 1024 * 1024 / ratio), nativeWidth)));
+  }
+
+  @Monitor('pageWidth', 'pageHeight', 'viewportTop')
+  private onZoomLayoutChanged(): void { this.resetZoom(); }
+
+  @Monitor('zoomOwner')
+  private onZoomOwnerChanged(): void {
+    if (this.zoomLocked && this.zoomOwner !== this.cacheOwner) this.resetZoom();
+  }
+
+  private resetZoom(): void {
+    this.zoomState = new ComicZoomTransform();
+    this.decodeScale = 1;
+    this.pinchSequence = false;
+    this.reportZoom();
+  }
+
+  private reportZoom(): void {
+    const active = this.pinchSequence || this.zoomState.scale > 1;
+    if (active === this.zoomLocked) return;
+    this.zoomLocked = active;
+    this.onZoomChange(this.cacheOwner, active);
+  }
+
+  private zoomTouch(event: TouchEvent): void {
+    const touch = event.touches[0] ?? event.changedTouches[0];
+    if (touch !== undefined && event.type === TouchType.Down) this.imageWindowY = touch.windowY - touch.y;
+    if (event.touches.length > 1) this.pinchSequence = true;
+    // 部分设备在 Up 的 touches 中仍包含刚抬起的触点，按 id 排除 changedTouches。
+    const remaining = event.type === TouchType.Up ? event.touches.filter((point: TouchObject): boolean =>
+      !event.changedTouches.some((changed: TouchObject): boolean => changed.id === point.id)).length : event.touches.length;
+    if (event.type === TouchType.Cancel || (event.type === TouchType.Up && remaining === 0)) {
+      this.pinchSequence = false;
+    }
+    this.reportZoom();
+  }
+
+  private beginPinch(event: GestureEvent): void {
+    const top = this.viewportTop - this.imageWindowY;
+    const bottom = top + this.pageHeight;
+    this.gestureStart = this.zoomState.scale > 1 ? this.zoomState.viewport(top, bottom) :
+      ComicZoomTransform.fit(this.pageWidth, this.imageHeight(), top, bottom);
+    this.pinchX = event.pinchCenterX;
+    this.pinchY = event.pinchCenterY;
+    this.updatePinch(event);
+  }
+
+  private updatePinch(event: GestureEvent): void {
+    this.zoomState = this.gestureStart.zoom(this.gestureStart.scale * event.scale, this.pinchX, this.pinchY)
+      .pan(event.pinchCenterX - this.pinchX, event.pinchCenterY - this.pinchY);
+    this.reportZoom();
+  }
+
+  private finishPinch(): void {
+    // 松手后再提高解码尺寸，避免每帧重解码；回到 1 倍即恢复原图位置与滚动。
+    this.decodeScale = this.zoomState.scale;
+    this.reportZoom();
   }
 
   private displayUrl(): string {
@@ -228,7 +298,9 @@ export struct ComicPageImage {
     Stack({ alignContent: Alignment.TopStart }) {
         Image(this.displayUrl())
           .id(`${this.page.key}:${this.retry}`)
-          .width(this.pageWidth).height(this.imageHeight())
+          .width(this.pageWidth * this.zoomState.scale).height(this.imageHeight() * this.zoomState.scale)
+          .position({ x: this.zoomState.x, y: this.zoomState.y })
+          .draggable(false)
           // 容器已按原图比例计算；Fill 消除解码宽高取整造成的亚像素留边。
           .objectFit(ImageFit.Fill)
           .syncLoad(false)
@@ -259,15 +331,6 @@ export struct ComicPageImage {
             else if (this.enhancedUrl) { this.enhancedUrl = ''; this.enhancementFailed = true; }
             else this.failed = true;
           })
-          .gesture(TapGesture({ count: 2 }).onAction((event: GestureEvent): void => {
-            const finger = event.fingerList[0];
-            if (finger === undefined) return;
-            const percent = finger.localX / Math.max(1, this.pageWidth) * 100;
-            if (percent >= this.zoomRegionLeft && percent < 100 - this.zoomRegionRight) {
-              this.onZoom(this.page, this.displayUrl(),
-                Math.max(0, Math.min(1, finger.localY / Math.max(1, this.imageHeight()))));
-            }
-          }))
           .accessibilityText($r('app.string.comic_page_number', this.page.index + 1))
       if (this.colorBusy) {
         Row({ space: 6 }) {
@@ -278,7 +341,23 @@ export struct ComicPageImage {
         }.padding(8).backgroundColor('#99000000').borderRadius(12).margin({ top: 8, left: 8 })
           .hitTestBehavior(HitTestMode.None)
       }
-    }.width(this.pageWidth).height(this.imageHeight())
+    }.width(this.pageWidth).height(this.imageHeight()).clip(true)
+      .onTouch((event: TouchEvent): void => this.zoomTouch(event))
+      .priorityGesture(GestureGroup(GestureMode.Exclusive,
+        PinchGesture({ fingers: 2 })
+          .onActionStart((event: GestureEvent): void => this.beginPinch(event))
+          .onActionUpdate((event: GestureEvent): void => this.updatePinch(event))
+          .onActionEnd((): void => this.finishPinch())
+          .onActionCancel((): void => this.finishPinch()),
+        PanGesture({ fingers: 1, direction: PanDirection.All }).tag('comic-image-pan')
+          .onActionStart((): void => { this.gestureStart = this.zoomState; })
+          .onActionUpdate((event: GestureEvent): void => {
+            this.zoomState = this.gestureStart.pan(event.offsetX, event.offsetY);
+          })
+      ))
+      .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult =>
+        info.tag === 'comic-image-pan' && (this.zoomState.scale <= 1 || this.pinchSequence) ?
+          GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
   }
 
   build() {
@@ -296,7 +375,7 @@ export struct ComicPageImage {
         Scroll() {
           this.imageContent()
         }.width(this.pageWidth).height(this.pageHeight)
-          .scrollable(ScrollDirection.Vertical).scrollBar(BarState.Off)
+          .scrollable(ScrollDirection.Vertical).scrollBar(BarState.Off).enableScrollInteraction(!this.zoomLocked)
       } else if (this.resolvedUrl) {
         // 连续模式由外层 List 统一滚动，不为每张长图创建一个禁用滚动的 Scroll。
         this.imageContent()
@@ -319,7 +398,7 @@ export struct ComicPageImage {
         this.enhance();
         this.colorize();
       }
-      else { this.enhancementSerial++; this.colorSerial++; this.colorBusy = false; }
+      else { this.resetZoom(); this.enhancementSerial++; this.colorSerial++; this.colorBusy = false; }
     })
   }
 }
