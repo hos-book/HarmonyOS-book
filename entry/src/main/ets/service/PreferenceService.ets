@@ -250,6 +250,28 @@ export class PreferenceService {
 
   static async setComicImagePreloadCount(count: number): Promise<void> {
     if (![0, 2, 5, 10, 20].includes(count)) throw new Error('Invalid comic image preload count');
+  static async getComicPageLayout(): Promise<number> {
+    const store = await PreferenceService.ensureStore();
+    const value = store.getSync('comic_page_layout', 1);
+    return value === 0 || value === 2 ? value : 1;
+  }
+
+  static async setComicPageLayout(layout: number): Promise<void> {
+    if (![0, 1, 2].includes(layout)) throw new Error('Invalid comic page layout');
+    await PreferenceService.saveComicPreference('comic_page_layout', layout, 1);
+  }
+
+  static async getComicPageOverlap(): Promise<number> {
+    const store = await PreferenceService.ensureStore();
+    const value = store.getSync('comic_page_overlap', 10);
+    return typeof value === 'number' && [0, 10, 20, 30].includes(value) ? value : 10;
+  }
+
+  static async setComicPageOverlap(overlap: number): Promise<void> {
+    if (![0, 10, 20, 30].includes(overlap)) throw new Error('Invalid comic page overlap');
+    await PreferenceService.saveComicPreference('comic_page_overlap', overlap, 10);
+  }
+
     await PreferenceService.saveComicPreference('comic_image_preload_count', count, 5);
   }
 

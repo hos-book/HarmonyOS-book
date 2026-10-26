@@ -2,6 +2,8 @@
 export class ComicZoomTransform {
   imageWidth: number = 1;
   imageHeight: number = 1;
+  viewportWidth: number = 1;
+  contained: boolean = false;
   visibleTop: number = 0;
   visibleBottom: number = 1;
   scale: number = 1;
@@ -12,7 +14,17 @@ export class ComicZoomTransform {
     const value = new ComicZoomTransform();
     value.imageWidth = Math.max(1, width);
     value.imageHeight = Math.max(1, height);
+    value.viewportWidth = value.imageWidth;
     return value.viewport(top, bottom);
+  }
+
+  static contain(width: number, height: number, viewportWidth: number, viewportHeight: number): ComicZoomTransform {
+    const value = ComicZoomTransform.fit(width, height, 0, height);
+    value.contained = true;
+    value.viewportWidth = Math.max(1, viewportWidth);
+    value.visibleTop = 0;
+    value.visibleBottom = Math.max(1, viewportHeight);
+    return value.bounded();
   }
 
   width(): number { return this.imageWidth * this.scale; }
@@ -42,6 +54,13 @@ export class ComicZoomTransform {
   }
 
   private bounded(): ComicZoomTransform {
+    if (this.contained) {
+      this.x = this.width() <= this.viewportWidth ? (this.viewportWidth - this.width()) / 2 :
+        Math.max(this.viewportWidth - this.width(), Math.min(0, this.x));
+      this.y = this.height() <= this.visibleBottom ? (this.visibleBottom - this.height()) / 2 :
+        Math.max(this.visibleBottom - this.height(), Math.min(0, this.y));
+      return this;
+    }
     if (this.scale <= 1) {
       this.x = 0;
       this.y = 0;
@@ -57,6 +76,8 @@ export class ComicZoomTransform {
     const value = new ComicZoomTransform();
     value.imageWidth = this.imageWidth;
     value.imageHeight = this.imageHeight;
+    value.viewportWidth = this.viewportWidth;
+    value.contained = this.contained;
     value.visibleTop = this.visibleTop;
     value.visibleBottom = this.visibleBottom;
     value.scale = this.scale;

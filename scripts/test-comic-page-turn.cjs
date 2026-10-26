@@ -29,7 +29,7 @@ function method(name) {
 let now = 1000;
 const scope = { ...policyExports, TouchType, Date: { now: () => now }, Curve: { EaseInOut: 0 } };
 const handlers = ['onContentTap', 'contentTouch', 'turnPage', 'adjacent', 'canChange',
-  'canUseVolumeKeys', 'syncVolumeKeys', 'handleVolumePageTurn'].map(method).join('\n');
+  'canUseVolumeKeys', 'syncVolumeKeys', 'handleVolumePageTurn', 'usesContinuousPages', 'usesJoinedPages'].map(method).join('\n');
 vm.runInNewContext(compile(`class ComicInput { ${handlers} }\nglobalThis.ComicInput = ComicInput;`), scope);
 function reader(mode = 1) {
   const r = new scope.ComicInput();
@@ -88,6 +88,14 @@ touch(multi, TouchType.Down, 280);
 multi.contentTouch({ type: TouchType.Down, touches: [{x:280,y:300},{x:100,y:300}], changedTouches: [] });
 touch(multi, TouchType.Up, 20);
 assert.equal(multi.pageIndex, 1, 'two-finger gesture cannot trigger dissolve or chapter swipes');
+const joined = reader(); joined.pageLayout = 2; joined.keyTurnRequest = 0;
+touch(joined, TouchType.Down, 280); now += 100; touch(joined, TouchType.Up, 40);
+assert.equal(joined.keyTurnRequest, 1, 'horizontal swipe advances stitched content by viewport');
+assert.equal(joined.pageIndex, 1, 'joined page turn retains raw image index for preload/progress');
+touch(joined, TouchType.Down, 20); now += 100; touch(joined, TouchType.Up, 20);
+assert.equal(joined.keyTurnRequest, -2, 'left tap requests the previous viewport');
+joined.zoomActive = true; joined.turnPage(1);
+assert.equal(joined.keyTurnRequest, -2, 'zoom locks joined viewport turns');
 
 const keys = reader();
 Object.assign(keys, { alive: true, foreground: true, readerVisible: true, volumeKeyPageTurn: false,

@@ -64,6 +64,10 @@ export struct ComicReaderPage {
   @Local leftSafe: number = WindowUtils.getLeftSafeVp();
   @Local rightSafe: number = WindowUtils.getRightSafeVp();
   @Local mode: number = 0;
+  @Local pageLayout: number = 1;
+  @Local pageOverlap: number = 10;
+  private pageFraction: number = 0;
+  @Local scrollInitialFraction: number = 0;
   @Local superResolution: boolean = false;
   @Local zoomActive: boolean = false;
   @Local zoomOwner: string = '';
@@ -291,6 +295,8 @@ export struct ComicReaderPage {
       // 首次沿用旧章节条偏好，此后漫画与小说分别保存。
       const showChapterBar = await PreferenceService.getComicChapterBar(settings.showChapterBar);
       const mode = await PreferenceService.getComicReadingMode();
+      const pageLayout = await PreferenceService.getComicPageLayout();
+      const pageOverlap = await PreferenceService.getComicPageOverlap();
       const volumeKeyPageTurn = await PreferenceService.getComicVolumeKeyPageTurn();
       const showBrightnessBar = await PreferenceService.getComicBrightnessBar();
       const brightness = await PreferenceService.getComicBrightness();
@@ -310,18 +316,21 @@ export struct ComicReaderPage {
       this.chapters.setChapters(book.chaptersDescending ? book.chapters.slice().reverse() : book.chapters);
       const explicit = this.params.resourceIndex >= 0;
       this.mode = mode;
+      this.pageLayout = pageLayout;
+      this.pageOverlap = pageOverlap;
       const initialIndex = Math.max(0, Math.min(book.chapters.length - 1,
         explicit ? this.params.resourceIndex : position?.resourceIndex ?? 0));
       const initialPage = !explicit && position && !position.domPos.startsWith('comic:') && book.id.startsWith('import_') ?
         await ComicReaderService.localPageOffset(book, book.chapters[initialIndex], position.charOffset) :
         explicit ? 0 : position?.pageOffset ?? 0;
-      await this.loadChapter(initialIndex, initialPage);
+      const savedFraction = !explicit && position?.domPos.startsWith('comic:') ? Number(position.domPos.split('@')[1] ?? 0) : 0;
+      await this.loadChapter(initialIndex, initialPage, false, savedFraction);
     } catch (error) {
       if (this.alive) { this.reportError(error); this.failed = true; this.busy = false; }
     }
   }
 
-  private async loadChapter(index: number, page: number = 0, force: boolean = false): Promise<void> {
+  private async loadChapter(index: number, page: number = 0, force: boolean = false, fraction: number = 0): Promise<void> {
     this.loadStartedAt = Date.now();
     this.loadingSeconds = 0;
     const book = this.book;
@@ -366,6 +375,8 @@ export struct ComicReaderPage {
       this.preparedComicChapters.clear();
       this.protectComicCache();
       this.pageIndex = Math.max(0, Math.min(page, pages.length - 1));
+      this.pageFraction = Number.isFinite(fraction) ? Math.max(0, Math.min(1, fraction)) : 0;
+      this.scrollInitialFraction = this.pageFraction;
       this.pageCount = pages.length;
       this.busy = false;
       this.restorePage();
@@ -424,13 +435,13 @@ export struct ComicReaderPage {
   }
 
   private restorePage(): void {
-    if (this.mode === 0) return;
+    if (this.usesContinuousPages()) return;
     if (this.restoreTimer >= 0) clearTimeout(this.restoreTimer);
     const target = this.pageIndex;
     this.restoreTimer = setTimeout((): void => {
       this.restoreTimer = -1;
       if (!this.alive || this.busy || this.pageCount === 0) return;
-      if (this.mode !== 0 && this.mode !== 3) this.swiper.changeIndex(target, false);
+      if (!this.usesContinuousPages() && this.mode !== 3) this.swiper.changeIndex(target, false);
     }, 100);
   }
 
@@ -444,7 +455,7 @@ export struct ComicReaderPage {
     const context = this.getUIContext().getHostContext();
     if (!context || !this.book || this.busy || this.failed || this.pageCount === 0) return;
     const mode = this.mode === 0 ? 'comic:scroll' : this.mode === 1 ? 'comic:paged' : this.mode === 2 ? 'comic:rtl' : 'comic:dissolve';
-    const position = TextReadingPosition.of(this.book.id, this.chapterIndex, mode,
+    const position = TextReadingPosition.of(this.book.id, this.chapterIndex, `${mode}@${this.pageFraction}`,
       this.pageIndex, this.book.chapters[this.chapterIndex].title);
     ReadingSessionService.checkpoint('reading', SessionLocation.text(this.book, position), this.foreground);
     if (Date.now() - startedAt >= 8) console.info(`[ComicPerf] progress-checkpoint ms=${Date.now() - startedAt}`);
@@ -476,13 +487,41 @@ export struct ComicReaderPage {
 
   private applyMode(mode: number): void {
     this.turning = false;
-    if (mode === 0) {
+    this.mode = mode;
+    if (this.usesContinuousPages()) {
       this.scrollInitialPages = this.activeChapterPages;
+      this.scrollInitialFraction = this.pageFraction;
       this.scrollResetToken++;
     }
-    this.mode = mode;
     this.restorePage();
     this.scheduleSave();
+  }
+
+  private usesJoinedPages(): boolean { return this.mode === 1 && this.pageLayout === 2; }
+  private usesContinuousPages(): boolean { return this.mode === 0 || this.usesJoinedPages(); }
+
+  private async changePageLayout(layout: number): Promise<void> {
+    if (this.settingsSaving || layout === this.pageLayout) return;
+    this.settingsSaving = true;
+    try {
+      await PreferenceService.setComicPageLayout(layout);
+      if (!this.alive) return;
+      this.pageLayout = layout;
+      this.applyMode(this.mode);
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    } finally { this.settingsSaving = false; }
+  }
+
+  private async changePageOverlap(overlap: number): Promise<void> {
+    if (this.settingsSaving || overlap === this.pageOverlap) return;
+    this.settingsSaving = true;
+    try {
+      await PreferenceService.setComicPageOverlap(overlap);
+      if (this.alive) this.pageOverlap = overlap;
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    } finally { this.settingsSaving = false; }
   }
 
   private currentPages(): ComicPage[] {
@@ -514,7 +553,11 @@ export struct ComicReaderPage {
   }
 
   private turnPage(direction: number): void {
-    if (this.busy || this.failed || this.showChapters || this.showSettings || this.showSourceSwitch || this.turning) return;
+    if (this.busy || this.failed || this.showChapters || this.showSettings || this.showSourceSwitch || this.turning || this.zoomActive) return;
+    if (this.usesContinuousPages()) {
+      this.keyTurnRequest = (Math.abs(this.keyTurnRequest) + 1) * (direction > 0 ? 1 : -1);
+      return;
+    }
     const target = this.pageIndex + direction;
     if (target < 0 || target >= this.pageCount) {
       if (this.canChange(direction)) this.loadChapter(this.adjacent(direction), direction < 0 ? Number.MAX_SAFE_INTEGER : 0);
@@ -528,6 +571,7 @@ export struct ComicReaderPage {
     this.getUIContext().animateTo({ duration: 240, curve: Curve.EaseInOut,
       onFinish: () => { this.turning = false; } }, () => {
       this.pageIndex = target;
+      this.pageFraction = 0;
     });
     this.scheduleSave();
   }
@@ -546,7 +590,7 @@ export struct ComicReaderPage {
 
   private handleVolumePageTurn(forward: boolean): void {
     if (!this.canUseVolumeKeys() || this.turning || this.restoreTimer >= 0) return;
-    if (this.mode === 0) {
+    if (this.usesContinuousPages()) {
       this.keyTurnRequest = (Math.abs(this.keyTurnRequest) + 1) * (forward ? 1 : -1);
     } else {
       this.turnPage(forward ? 1 : -1);
@@ -577,7 +621,7 @@ export struct ComicReaderPage {
       }
       if (this.mode !== 0 && Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy)) {
         const direction = (this.mode === 2 ? dx > 0 : dx < 0) ? 1 : -1;
-        if (this.mode === 3) this.turnPage(direction);
+        if (this.mode === 3 || this.usesJoinedPages()) this.turnPage(direction);
         else if (this.touchGeneration === this.generation &&
           (direction > 0 ? this.touchPageIndex === this.pageCount - 1 : this.touchPageIndex === 0) &&
           this.canChange(direction)) {
@@ -601,9 +645,9 @@ export struct ComicReaderPage {
     return pages;
   }
 
-  private onScrollPosition(index: number, page: number, pages: ComicPage[]): void {
-    if (this.busy || this.mode !== 0 || !this.alive) return;
-    if (index === this.chapterIndex && page === this.pageIndex) return;
+  private onScrollPosition(index: number, page: number, pages: ComicPage[], fraction: number = 0): void {
+    if (this.busy || !this.usesContinuousPages() || !this.alive) return;
+    if (index === this.chapterIndex && page === this.pageIndex && fraction === this.pageFraction) return;
     const changed = index !== this.chapterIndex;
     if (changed) {
       this.chapterIndex = index;
@@ -617,6 +661,7 @@ export struct ComicReaderPage {
       if (this.book) this.preloadChapters(this.book, index, this.generation);
     }
     this.pageIndex = page;
+    this.pageFraction = fraction;
     this.scheduleSave();
   }
 
@@ -642,9 +687,10 @@ export struct ComicReaderPage {
             Button($r('app.string.comic_retry')).backgroundColor(AppColor.Brand)
               .onClick(() => { if (this.book) this.loadChapter(this.chapterIndex, this.pageIndex); else this.initialize(); })
           }.layoutWeight(1).width('100%').justifyContent(FlexAlign.Center).padding(32)
-        } else if (this.mode === 0) {
+        } else if (this.usesContinuousPages()) {
           ComicContinuousComponent({ book: this.book ?? null, resetToken: this.scrollResetToken,
-            keyTurnRequest: this.keyTurnRequest,
+            keyTurnRequest: this.keyTurnRequest, paged: this.usesJoinedPages(), overlap: this.pageOverlap,
+            initialFraction: this.scrollInitialFraction,
             initialChapterIndex: this.chapterIndex, initialPageIndex: this.pageIndex,
             initialPages: this.scrollInitialPages, pageWidth: this.imageWidth(), superResolution: this.superResolution,
             pageHeight: this.heightVp, viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
@@ -654,7 +700,7 @@ export struct ComicReaderPage {
             onZoomChange: (owner: string, active: boolean): void => this.onZoomChanged(owner, active),
             onToggle: (event: ClickEvent): void => this.onContentTap(event),
             loadPages: (index: number, preload: boolean): Promise<ComicPage[]> => this.loadScrollPages(index, preload),
-            onPosition: (index: number, page: number, pages: ComicPage[]): void => this.onScrollPosition(index, page, pages)
+            onPosition: (index: number, page: number, pages: ComicPage[], fraction: number): void => this.onScrollPosition(index, page, pages, fraction)
           }).width('100%').layoutWeight(1)
         } else if (this.mode === 3) {
           Stack() {
@@ -665,7 +711,7 @@ export struct ComicReaderPage {
                   colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
                   onColorError: (message: string): void => this.colorizationFailed(message),
                   onZoomChange: (owner: string, active: boolean): void => this.onZoomChanged(owner, active),
-                  pageWidth: this.imageWidth(), pageHeight: this.heightVp, paged: true,
+                  pageWidth: this.imageWidth(), pageHeight: this.heightVp, paged: true, fitScreen: this.pageLayout !== 0,
                   viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
                   onToggle: (event: ClickEvent): void => { this.onContentTap(event); } })
               }.width('100%').height('100%').transition(TransitionEffect.OPACITY)
@@ -680,7 +726,7 @@ export struct ComicReaderPage {
                    colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
                    onColorError: (message: string): void => this.colorizationFailed(message),
                    onZoomChange: (owner: string, active: boolean): void => this.onZoomChanged(owner, active),
-                   paged: true, viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
+                   paged: true, fitScreen: this.pageLayout !== 0, viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
                    onToggle: (event: ClickEvent): void => { this.onContentTap(event); } })
               }.width('100%').height('100%').justifyContent(FlexAlign.Center)
             }, (page: ComicPage): string => page.key)
@@ -692,14 +738,14 @@ export struct ComicReaderPage {
           .direction(this.mode === 2 ? Direction.Rtl : Direction.Ltr)
           .onChange((index: number) => {
             if (this.busy || this.restoreTimer >= 0 || index < 0 || index >= this.pageCount) return;
-            this.pageIndex = index; this.scheduleSave();
+            this.pageIndex = index; this.pageFraction = 0; this.scheduleSave();
           })
         }
       }.width('100%').height('100%')
       .padding({ left: this.leftSafe, right: this.rightSafe })
       // 弹框动画仅采样一个视口大小的正文层；关闭后释放缓存，正常滚动不缓存长列表。
       .clip(true)
-      .renderGroup(this.mode === 0 && this.sheetPresented && !this.busy)
+      .renderGroup(this.usesContinuousPages() && this.sheetPresented && !this.busy)
       .onClick((event: ClickEvent) => this.onContentTap(event))
       .onTouch((event: TouchEvent) => this.contentTouch(event))
       if (this.busy && this.pageCount > 0) {
@@ -753,8 +799,10 @@ export struct ComicReaderPage {
           onDisappear: (): void => { this.sheetPresented = false; } })
       Stack({ alignContent: Alignment.BottomEnd }) {
         if (!this.chrome && this.pageCount > 0) {
-        Text($r('app.string.comic_chapter_position', this.chapterAtOrdinal(this.chapterIndex) + 1,
-          this.book?.chapters.length ?? 0, this.pageIndex + 1, this.pageCount))
+        Text(this.usesJoinedPages() ? $r('app.string.comic_joined_position', this.chapterAtOrdinal(this.chapterIndex) + 1,
+          this.book?.chapters.length ?? 0, this.pageIndex + 1, this.pageCount) :
+          $r('app.string.comic_chapter_position', this.chapterAtOrdinal(this.chapterIndex) + 1,
+            this.book?.chapters.length ?? 0, this.pageIndex + 1, this.pageCount))
           .fontColor('#DDFFFFFF').fontSize(11).padding(8).backgroundColor('#88121212').borderRadius(12)
           .margin({ right: 16 + this.rightSafe, bottom: Math.max(12, this.bottomSafe) })
         }
@@ -1427,6 +1475,23 @@ export struct ComicReaderPage {
         ImmersiveOptionTabs({ labels: [$r('app.string.comic_scroll'), $r('app.string.comic_paged'),
           $r('app.string.comic_dissolve')], selected: [0, 1, 3].indexOf(this.mode),
           onSelect: (index: number): void => { this.changeMode([0, 1, 3][index]); } }).enabled(!this.settingsSaving)
+      }
+      if (this.mode !== 0) {
+        ReaderSettingCard({ title: $r('app.string.comic_page_layout'), inline: true,
+          description: $r('app.string.comic_page_layout_hint') }) {
+          ImmersiveOptionTabs({ labels: this.mode === 1 ? [$r('app.string.comic_layout_width'),
+            $r('app.string.comic_layout_screen'), $r('app.string.comic_layout_joined')] :
+            [$r('app.string.comic_layout_width'), $r('app.string.comic_layout_screen')],
+            selected: this.mode === 1 ? this.pageLayout : Math.min(1, this.pageLayout),
+            onSelect: (index: number): void => { this.changePageLayout(index); } }).enabled(!this.settingsSaving)
+        }
+      }
+      if (this.usesJoinedPages()) {
+        ReaderSettingCard({ title: $r('app.string.comic_page_overlap'), inline: true,
+          description: $r('app.string.comic_page_overlap_hint') }) {
+          ImmersiveOptionTabs({ labels: ['0%', '10%', '20%', '30%'], selected: this.pageOverlap / 10,
+            onSelect: (index: number): void => { this.changePageOverlap(index * 10); } }).enabled(!this.settingsSaving)
+        }
       }
       ReaderSettingCard({ title: $r('app.string.comic_image_preload_title'), inline: true,
         description: $r('app.string.comic_image_preload_hint') }) {

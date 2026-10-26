@@ -5646,6 +5646,38 @@
       "value": "全部书源"
     },
     {
+      "name": "comic_page_layout",
+      "value": "图片分页"
+    },
+    {
+      "name": "comic_layout_width",
+      "value": "原图宽度"
+    },
+    {
+      "name": "comic_layout_screen",
+      "value": "整图适屏"
+    },
+    {
+      "name": "comic_layout_joined",
+      "value": "拼接分页"
+    },
+    {
+      "name": "comic_page_layout_hint",
+      "value": "整图适屏可完整显示一张图，双指捏合查看小字；原图宽度可上下滑动长图。左右翻页还可选择拼接分页，将相邻碎图接起来，横滑或点按两侧按屏切换。"
+    },
+    {
+      "name": "comic_page_overlap",
+      "value": "页间重叠"
+    },
+    {
+      "name": "comic_page_overlap_hint",
+      "value": "下一屏保留上一屏底部的一部分，方便接着读对话和画面。不会自动识别分镜边界。"
+    },
+    {
+      "name": "comic_joined_position",
+      "value": "第 %d / %d 章 · 第 %d / %d 张"
+    },
+    {
       "name": "search_source_empty",
       "value": "先选至少一个书源，简简才能开始找书哦"
     },

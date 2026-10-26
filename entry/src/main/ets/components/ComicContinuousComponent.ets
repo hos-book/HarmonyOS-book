@@ -19,11 +19,14 @@ export struct ComicContinuousComponent {
   @Param resetToken: number = 0;
   @Param initialChapterIndex: number = 0;
   @Param initialPageIndex: number = 0;
+  @Param initialFraction: number = 0;
   @Param initialPages: ComicPage[] = [];
   @Param pageWidth: number = 360;
   @Param pageHeight: number = 600;
   @Param viewportTop: number = 0;
   @Param zoomOwner: string = '';
+  @Param paged: boolean = false;
+  @Param overlap: number = 10;
   @Param superResolution: boolean = false;
   @Param colorization: boolean = false;
   @Param translation: boolean = false;
@@ -33,7 +36,7 @@ export struct ComicContinuousComponent {
   @Param keyTurnRequest: number = 0;
   @Event onToggle: (event: ClickEvent) => void = () => {};
   @Event onZoomChange: (owner: string, active: boolean) => void = () => {};
-  @Event onPosition: (chapterIndex: number, pageIndex: number, pages: ComicPage[]) => void = () => {};
+  @Event onPosition: (chapterIndex: number, pageIndex: number, pages: ComicPage[], fraction: number) => void = () => {};
   @Event loadPages: (index: number, preload: boolean) => Promise<ComicPage[]> = async (): Promise<ComicPage[]> => [];
   @Local nextLoading: boolean = false;
   @Local previousLoading: boolean = false;
@@ -50,6 +53,10 @@ export struct ComicContinuousComponent {
   private keyTurning: boolean = false;
   private reportedChapter: number = -1;
   private reportedPage: number = -1;
+  private anchorFraction: number = 0;
+  private reportedFraction: number = -1;
+  private awaitingImage: boolean = false;
+  private restoreSerial: number = 0;
 
   aboutToAppear(): void { this.disposed = false; this.reset(); }
   aboutToDisappear(): void { this.disposed = true; this.serial++; }
@@ -57,14 +64,16 @@ export struct ComicContinuousComponent {
   @Monitor('resetToken')
   onReset(): void { if (!this.disposed) this.reset(); }
 
-  @Monitor('pageWidth')
+  @Monitor('pageWidth', 'pageHeight')
   onWidthChanged(): void { if (!this.disposed) this.restoreVisible(); }
 
   @Monitor('keyTurnRequest')
   private onKeyTurnRequest(): void { this.turnFromKey(this.keyTurnRequest > 0).catch((): void => {}); }
 
   private async turnFromKey(forward: boolean): Promise<void> {
-    if (this.disposed || this.restoring || this.keyTurning || this.source.totalCount() === 0) return;
+    if (this.disposed || this.restoring || this.keyTurning || this.zoomOwner.length > 0 || this.source.totalCount() === 0) return;
+    // 用户主动翻页后，不再等待先前进度对应的图片回调。
+    this.awaitingImage = false;
     this.keyTurning = true;
     const ticket = this.serial;
     try {
@@ -75,18 +84,32 @@ export struct ComicContinuousComponent {
       if (atEdge) {
         this.getUIContext().postFrameCallback(new ComicScrollLayoutFrame((): void => {
           if (this.disposed || this.restoring || ticket !== this.serial) return;
-          try { this.scroller.scrollPage({ next: forward, animation: true }); } catch (_error) { }
+          try { this.advanceViewport(forward); } catch (_error) { }
         }));
       } else {
-        this.scroller.scrollPage({ next: forward, animation: true });
+        this.advanceViewport(forward);
       }
     } finally { this.keyTurning = false; }
+  }
+
+  private advanceViewport(forward: boolean): void {
+    if (this.zoomOwner.length > 0) return;
+    if (this.paged) {
+      // 拼接按屏即时翻页，保留一段上下文；不对长图做破坏性裁剪或合成大位图。
+      const distance = Math.max(1, this.pageHeight * (1 - Math.max(0, Math.min(30, this.overlap)) / 100));
+      this.scroller.scrollBy(0, forward ? distance : -distance);
+    } else {
+      this.scroller.scrollPage({ next: forward, animation: true });
+    }
   }
 
   private reset(): void {
     this.serial++;
     this.reportedChapter = -1;
     this.reportedPage = -1;
+    this.reportedFraction = -1;
+    this.anchorFraction = Math.max(0, Math.min(1, this.initialFraction));
+    this.awaitingImage = this.anchorFraction > 0;
     this.restoring = true;
     this.nextLoading = false;
     this.previousLoading = false;
@@ -103,13 +126,33 @@ export struct ComicContinuousComponent {
   private restoreVisible(): void {
     this.restoring = true;
     const ticket = this.serial;
+    const restoreTicket = ++this.restoreSerial;
     this.getUIContext().postFrameCallback(new ComicScrollLayoutFrame((): void => {
-      if (this.disposed || ticket !== this.serial) return;
+      if (this.disposed || ticket !== this.serial || restoreTicket !== this.restoreSerial) return;
       try { this.scroller.scrollToIndex(this.firstVisible, false, ScrollAlign.START); } catch (_error) { }
-      this.restoring = false;
-      this.reportPosition();
-      this.loadNeighbor(true);
+      this.getUIContext().postFrameCallback(new ComicScrollLayoutFrame((): void => {
+        if (this.disposed || ticket !== this.serial || restoreTicket !== this.restoreSerial) return;
+        const row = this.source.getData(this.firstVisible);
+        this.awaitingImage = this.anchorFraction > 0 && (row === undefined || row.page.width <= 0 || row.page.height <= 0);
+        if (!this.awaitingImage && this.anchorFraction > 0) {
+          try {
+            const rect = this.scroller.getItemRect(this.firstVisible);
+            this.scroller.scrollBy(0, rect.y + rect.height * this.anchorFraction);
+          } catch (_error) { }
+        }
+        // scrollBy 在下一帧应用；落位前不能把旧布局的 0 偏移写回进度。
+        this.getUIContext().postFrameCallback(new ComicScrollLayoutFrame((): void => {
+          if (this.disposed || ticket !== this.serial || restoreTicket !== this.restoreSerial) return;
+          this.restoring = false;
+          this.reportPosition();
+          this.loadNeighbor(true);
+        }));
+      }));
     }));
+  }
+
+  private imageGeometryReady(row: ComicScrollRow): void {
+    if (this.awaitingImage && this.source.getData(this.firstVisible) === row && !this.disposed) this.restoreVisible();
   }
 
   private async loadNeighbor(forward: boolean, retry: boolean = false): Promise<void> {
@@ -154,20 +197,33 @@ export struct ComicContinuousComponent {
   }
 
   private reportPosition(): void {
-    if (this.restoring || this.disposed) return;
+    if (this.restoring || this.disposed || this.awaitingImage) return;
+    try {
+      // 章尾不足一屏时 List 会向前夹紧，实际首图可能早于请求恢复的图片。
+      const index = this.scroller.getItemIndex(this.pageWidth / 2, 1);
+      if (index >= 0 && index < this.source.totalCount()) this.firstVisible = index;
+    } catch (_error) { }
     const row = this.source.getData(this.firstVisible);
     if (row === undefined) return;
-    if (row.chapterIndex === this.reportedChapter && row.pageIndex === this.reportedPage) return;
+    let fraction = 0;
+    try {
+      const rect = this.scroller.getItemRect(this.firstVisible);
+      if (rect.height > 0) fraction = Math.max(0, Math.min(1, -rect.y / rect.height));
+    } catch (_error) { }
+    fraction = Math.round(fraction * 10000) / 10000;
+    this.anchorFraction = fraction;
+    if (row.chapterIndex === this.reportedChapter && row.pageIndex === this.reportedPage && fraction === this.reportedFraction) return;
     const chapter = this.chapters.find((item: ComicScrollChapter): boolean => item.index === row.chapterIndex);
     if (chapter !== undefined) {
       this.reportedChapter = row.chapterIndex;
       this.reportedPage = row.pageIndex;
-      this.onPosition(row.chapterIndex, row.pageIndex, chapter.pages);
+      this.reportedFraction = fraction;
+      this.onPosition(row.chapterIndex, row.pageIndex, chapter.pages, fraction);
     }
   }
 
   private visibleChanged(first: number, last: number): void {
-    if (this.disposed || this.restoring || this.source.getData(first) === undefined) return;
+    if (this.disposed || this.restoring || this.awaitingImage || this.source.getData(first) === undefined) return;
     this.firstVisible = first;
     this.lastVisible = Math.min(last, this.source.totalCount() - 1);
     this.reportPosition();
@@ -223,13 +279,18 @@ export struct ComicContinuousComponent {
               translation: this.translation, translationDirection: this.translationDirection,
               onColorError: (message: string): void => this.onColorError(message),
               onZoomChange: (owner: string, active: boolean): void => this.onZoomChange(owner, active),
+              onGeometryReady: (): void => this.imageGeometryReady(row),
               onToggle: (event: ClickEvent): void => this.onToggle(event) })
           }.width('100%').align(Alignment.Center)
         }, (row: ComicScrollRow): string => `${row.chapterIndex}:${row.page.key}`)
       }.width('100%').height('100%').cachedCount(2).scrollBar(BarState.Off)
-        .enableScrollInteraction(this.zoomOwner.length === 0)
+        .enableScrollInteraction(!this.paged && this.zoomOwner.length === 0)
         .edgeEffect(EdgeEffect.None).maintainVisibleContentPosition(true)
         .onScrollIndex((first: number, last: number): void => this.visibleChanged(first, last))
+        .onDidScroll((): void => { this.reportPosition(); })
+        .onTouch((event: TouchEvent): void => {
+          if (event.type === TouchType.Move && !this.restoring && !this.paged && this.zoomOwner.length === 0) this.awaitingImage = false;
+        })
         .onReachEnd((): void => { this.loadNeighbor(true); })
         .onReachStart((): void => { this.loadNeighbor(false); })
         .onScrollStop((): void => { this.reportPosition(); this.trimChapters(); })

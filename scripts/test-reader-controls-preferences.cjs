@@ -37,6 +37,14 @@ function load() {
   assert.equal(await load().getComicTranslationDirection(), 'zh-en');
   assert.equal(await service.getComicChapterBar(false), false, 'migrate the former shared chapter bar once');
   assert.equal(await load().getComicChapterBar(true), false, 'later novel changes cannot alter comic controls');
+  assert.equal(await service.getComicPageLayout(), 1, 'whole image fits the screen by default');
+  assert.equal(await service.getComicPageOverlap(), 10);
+  await service.setComicPageLayout(2);
+  await service.setComicPageOverlap(30);
+  assert.equal(await load().getComicPageLayout(), 2);
+  assert.equal(await load().getComicPageOverlap(), 30);
+  await assert.rejects(service.setComicPageLayout(3));
+  await assert.rejects(service.setComicPageOverlap(99));
   await service.setComicVolumeKeyPageTurn(true);
   await service.setComicReadingMode(3);
   await service.setComicChapterBar(true);
@@ -60,6 +68,10 @@ function load() {
   assert.equal(await service.getComicTranslationDirection(), 'ja-zh', 'invalid persisted direction falls back');
   assert.equal(await service.getComicBrightnessBar(), true);
   assert.equal(await service.getComicBrightness(), -1);
+  await assert.rejects(service.setComicPageLayout(0));
+  await assert.rejects(service.setComicPageOverlap(0));
+  assert.equal(await load().getComicPageLayout(), 2, 'failed layout save rolls back');
+  assert.equal(await load().getComicPageOverlap(), 30, 'failed overlap save rolls back');
   await service.setComicBrightnessBar(false);
   await service.setComicBrightness(0.42);
   const restarted = load();

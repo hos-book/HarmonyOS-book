@@ -9,7 +9,7 @@ const root = path.resolve(__dirname, '../entry/src/main/ets');
 const compile = code => ts.transpileModule(code, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
 }).outputText;
-const scope = { exports: {}, DataOperationType: {ADD:'add',DELETE:'delete',RELOAD:'reload'}, ComicPage: class {}, PreferenceService: { getPreloadChapters: async () => 1 },
+const scope = { exports: {}, ScrollAlign: {START:0}, DataOperationType: {ADD:'add',DELETE:'delete',RELOAD:'reload'}, ComicPage: class {}, PreferenceService: { getPreloadChapters: async () => 1 },
   ComicScrollLayoutFrame: class { constructor(callback) { this.callback = callback; } } };
 const data = fs.readFileSync(path.join(root, 'service/ComicScrollDataSource.ets'), 'utf8').replace(/^import .*;\r?\n/gm, '');
 vm.runInNewContext(compile(data), scope);
@@ -27,17 +27,17 @@ function method(name, text = source) {
   }
   return text.slice(start, end);
 }
-vm.runInNewContext(compile(`class Continuous { ${['loadNeighbor', 'reportPosition', 'visibleChanged', 'trimChapters', 'turnFromKey']
+vm.runInNewContext(compile(`class Continuous { ${['loadNeighbor', 'reportPosition', 'visibleChanged', 'trimChapters', 'turnFromKey', 'advanceViewport', 'restoreVisible', 'imageGeometryReady']
   .map(name => method(name)).join('\n')} }\nglobalThis.Continuous = Continuous;`), scope);
 const parentSource = fs.readFileSync(path.join(root, 'pages/ComicReaderPage.ets'), 'utf8');
-vm.runInNewContext(compile(`class Parent { ${method('onScrollPosition', parentSource)} }
+vm.runInNewContext(compile(`class Parent { ${['onScrollPosition', 'usesJoinedPages', 'usesContinuousPages'].map(name => method(name, parentSource)).join('\n')} }
   globalThis.Parent = Parent;`), scope);
 const pages = index => Array.from({ length: 6 }, (_, n) => ({ key: `${index}:${n}`, index: n, url: `${index}/${n}` }));
 function reader(index = 2, descending = false) {
   const r = new scope.Continuous(), events = [], requests = [], positions = [];
   const chapter = scope.ComicScrollChapter.create(index, pages(index));
   Object.assign(r, { source: new scope.ComicScrollDataSource(), chapters: [chapter], serial: 1,
-    firstVisible: 0, lastVisible: 2, disposed: false, restoring: false,
+    firstVisible: 0, lastVisible: 2, disposed: false, restoring: false, restoreSerial: 0, zoomOwner: '',
     nextLoading: false, previousLoading: false, nextFailed: false, previousFailed: false,
     book: { chapters: new Array(20), chaptersDescending: descending },
     scroller: { isAtEnd: () => false, currentOffset: () => ({ yOffset: 100 }),
@@ -128,6 +128,10 @@ function reader(index = 2, descending = false) {
   assert.equal(saves, 2);
   parent.onScrollPosition(3, 3, pages(3));
   assert.equal(saves, 2, 'unchanged visible position does not schedule another progress write');
+  parent.mode = 1; parent.pageLayout = 2;
+  parent.onScrollPosition(3, 3, pages(3), 0.45);
+  assert.equal(saves, 3, 'moving inside the same long image saves progress');
+  assert.equal(parent.pageFraction, 0.45);
   assert.equal(parent.preparedComicChapters.has(10), false);
 
   scope.PreferenceService.getPreloadChapters = async () => 0;
@@ -157,5 +161,34 @@ function reader(index = 2, descending = false) {
   keyReader.disposed = true;
   await keyReader.turnFromKey(false);
   assert.equal(turns.length, 3, 'leaving reader stops key scrolling');
+  const joined = reader();
+  joined.paged = true; joined.pageHeight = 800; joined.overlap = 20;
+  let offset = 0;
+  joined.scroller.scrollBy = (_x, y) => { offset += y; };
+  await joined.turnFromKey(true); assert.equal(offset, 640);
+  await joined.turnFromKey(false); assert.equal(offset, 0, 'forward/back preserve the same overlap');
+  joined.zoomOwner = 'image'; await joined.turnFromKey(true); assert.equal(offset, 0);
+  joined.zoomOwner = ''; joined.anchorFraction = 0.45;
+  joined.source.getData(0).page.width = 600; joined.source.getData(0).page.height = 2400;
+  const restoreFrames = [];
+  joined.getUIContext = () => ({ postFrameCallback: frame => restoreFrames.push(frame) });
+  joined.scroller.scrollToIndex = () => { offset = 0; };
+  joined.scroller.getItemRect = () => ({ y: -offset, height: 1600 });
+  joined.restoreVisible();
+  restoreFrames.shift().callback(); restoreFrames.shift().callback(); restoreFrames.shift().callback();
+  assert.equal(offset, 720, 'restores the fraction using the current image layout after resize');
+  assert.equal(joined.anchorFraction, 0.45);
+  joined.source.getData(0).page.width = 0;
+  joined.restoreVisible(); restoreFrames.shift().callback(); restoreFrames.shift().callback(); restoreFrames.shift().callback();
+  assert.equal(joined.awaitingImage, true, 'unknown image size cannot erase saved progress');
+  joined.source.getData(0).page.width = 600;
+  joined.imageGeometryReady(joined.source.getData(0));
+  restoreFrames.shift().callback(); restoreFrames.shift().callback(); restoreFrames.shift().callback();
+  assert.equal(offset, 720, 'restores after the downloaded image reports its actual size');
+  joined.scroller.getItemIndex = () => 2;
+  joined.scroller.getItemRect = index => ({ y: index === 2 ? -100 : 600, height: 500 });
+  joined.reportPosition();
+  assert.equal(joined.firstVisible, 2, 'chapter-end clamping reports the actual first image');
+  assert.equal(joined.anchorFraction, 0.2);
   console.log('comic continuous: append/prepend anchors, chapter progress/order, request isolation, retry, trimming and disabled prefetch passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });
