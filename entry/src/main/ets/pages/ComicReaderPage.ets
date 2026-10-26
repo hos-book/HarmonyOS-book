@@ -1546,18 +1546,13 @@ export struct ComicReaderPage {
         }.width('100%')
       }
       ReaderSettingCard({ title: $r('app.string.comic_translation_engine'), inline: true }) {
-        Select([{ value: $r('app.string.comic_translation_ja_zh') }, { value: $r('app.string.comic_translation_ko_zh') },
-          { value: $r('app.string.comic_translation_en_zh') }, { value: $r('app.string.comic_translation_zh_en') }])
-          .id('comic-translation-direction')
-          .selected(['ja-zh', 'ko-zh', 'en-zh', 'zh-en'].indexOf(this.translationDirection))
-          .value(this.translationDirection === 'ko-zh' ? $r('app.string.comic_translation_ko_zh') :
-            this.translationDirection === 'en-zh' ? $r('app.string.comic_translation_en_zh') :
-            this.translationDirection === 'zh-en' ? $r('app.string.comic_translation_zh_en') : $r('app.string.comic_translation_ja_zh'))
-          .selectedOptionFontColor(AppColor.Brand).enabled(!this.settingsSaving && this.membership.hasAccess)
-          .onSelect((index: number): void => {
+        ImmersiveOptionTabs({ labels: [$r('app.string.comic_translation_ja_zh'), $r('app.string.comic_translation_ko_zh'),
+          $r('app.string.comic_translation_en_zh'), $r('app.string.comic_translation_zh_en')],
+          selected: ['ja-zh', 'ko-zh', 'en-zh', 'zh-en'].indexOf(this.translationDirection),
+          onSelect: (index: number): void => {
             const direction = ['ja-zh', 'ko-zh', 'en-zh', 'zh-en'][index];
             if (direction) this.setTranslationDirection(direction);
-          })
+          } }).id('comic-translation-direction').enabled(!this.settingsSaving && this.membership.hasAccess)
       }
       Text($r('app.string.comic_gesture_hint')).fontSize(12).fontColor($r('sys.color.font_secondary'))
     }.width('100%').padding(24)
