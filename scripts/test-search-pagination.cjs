@@ -18,6 +18,7 @@ const exportsObject = {};
 vm.runInNewContext(code, {
   exports: exportsObject, Set, Map,
   DOMAIN: 0, TAG: 'test', hilog: { warn() {} }, LocalRuleSource: class {},
+  LightSourceRequest: class {},
   SearchOptions: { matches: name => name !== 'filtered', matchesContentType: () => true },
   BookSourceService: { searchBooks: async (s, keyword, page) => {
     calls.push([s.bookSourceUrl, keyword, page]);
@@ -30,7 +31,9 @@ function page() {
   Object.assign(p, { searchGen: 1, searching: true, searchedSourceCount: 0, pageShown: true, leavingPage: false,
     audioBooks: [], textBooks: [], comicBooks: [], searchConcurrency: 2,
     refreshVisibleBooks() {}, scheduleResultsRefresh() {}, prefetchCovers() {},
-    searchResultToBook: item => item });
+    groupKey: book => `${book.contentType}:${book.title}`,
+    searchResultToBook: (item, contentType) => ({ ...item, contentType, title: item.name,
+      id: `${item.sourceUrl}:${item.bookUrl}` }) });
   p.activeKeyword = 'original';
   p.activeSources = ['a', 'b'].map(bookSourceUrl => ({ bookSourceUrl, bookSourceType: 0 }));
   for (const s of p.activeSources) p.sourcePages.set(s.bookSourceUrl, 1);

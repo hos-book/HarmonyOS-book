@@ -216,6 +216,19 @@ export class PreferenceService {
     }
   }
 
+  static async setSwipeSwitchTabs(enabled: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const previous = store.getSync('swipe_switch_tabs', true);
+    try {
+      await store.put('swipe_switch_tabs', enabled);
+      await store.flush();
+      GeneralSettings.current.swipeSwitchTabs = enabled;
+    } catch (error) {
+      await store.put('swipe_switch_tabs', previous);
+      throw new Error(`Failed to save tab swipe preference: ${String(error)}`);
+    }
+  }
+
   static async getComicVolumeKeyPageTurn(): Promise<boolean> {
     const store = await PreferenceService.ensureStore();
     return store.getSync('comic_volume_key_page_turn', false) === true;
@@ -237,19 +250,6 @@ export class PreferenceService {
     return typeof value === 'number' && [0, 2, 5, 10, 20].includes(value) ? value : 5;
   }
 
-  static async getComicTranslationDirection(): Promise<string> {
-    const store = await PreferenceService.ensureStore();
-    const value = store.getSync('comic_translation_direction', 'ja-zh');
-    return typeof value === 'string' && ['ja-zh', 'ko-zh', 'en-zh', 'zh-en'].includes(value) ? value : 'ja-zh';
-  }
-
-  static async setComicTranslationDirection(direction: string): Promise<void> {
-    if (!['ja-zh', 'ko-zh', 'en-zh', 'zh-en'].includes(direction)) throw new Error('comic_offline_language');
-    await PreferenceService.saveComicPreference('comic_translation_direction', direction, 'ja-zh');
-  }
-
-  static async setComicImagePreloadCount(count: number): Promise<void> {
-    if (![0, 2, 5, 10, 20].includes(count)) throw new Error('Invalid comic image preload count');
   static async getComicPageLayout(): Promise<number> {
     const store = await PreferenceService.ensureStore();
     const value = store.getSync('comic_page_layout', 1);
@@ -272,6 +272,19 @@ export class PreferenceService {
     await PreferenceService.saveComicPreference('comic_page_overlap', overlap, 10);
   }
 
+  static async getComicTranslationDirection(): Promise<string> {
+    const store = await PreferenceService.ensureStore();
+    const value = store.getSync('comic_translation_direction', 'ja-zh');
+    return typeof value === 'string' && ['ja-zh', 'ko-zh', 'en-zh', 'zh-en'].includes(value) ? value : 'ja-zh';
+  }
+
+  static async setComicTranslationDirection(direction: string): Promise<void> {
+    if (!['ja-zh', 'ko-zh', 'en-zh', 'zh-en'].includes(direction)) throw new Error('comic_offline_language');
+    await PreferenceService.saveComicPreference('comic_translation_direction', direction, 'ja-zh');
+  }
+
+  static async setComicImagePreloadCount(count: number): Promise<void> {
+    if (![0, 2, 5, 10, 20].includes(count)) throw new Error('Invalid comic image preload count');
     await PreferenceService.saveComicPreference('comic_image_preload_count', count, 5);
   }
 
@@ -391,6 +404,7 @@ export class PreferenceService {
         GeneralSettings.current.historyEnabled = s.getSync('history_enabled', true) !== false;
         GeneralSettings.current.showShelfSource = s.getSync('show_shelf_source', true) !== false;
         GeneralSettings.current.adaptiveHandedness = s.getSync('adaptive_handedness', true) !== false;
+        GeneralSettings.current.swipeSwitchTabs = s.getSync('swipe_switch_tabs', true) !== false;
         const material = await s.get(KEY_MATERIAL_STYLE, 0);
         const accent = await s.get(KEY_ACCENT_COLOR, '');
         const rawTheme = await s.get(KEY_THEME_SELECTION, '');

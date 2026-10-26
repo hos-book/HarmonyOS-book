@@ -299,8 +299,13 @@ export struct MainPage {
     }, (): void => { this.tabContentOpacity = 1; });
   }
 
+  private judgeTabSwipe(info: GestureInfo): GestureJudgeResult {
+    return info.tag === 'main-tab-swipe' && !this.generalSettings.swipeSwitchTabs ?
+      GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE;
+  }
+
   private handleTabSwipe(event: GestureEvent): void {
-    // 只在松手确认后切页，不逐帧改布局；短滑、纵向滚动和取消手势不切换。
+    if (!this.generalSettings.swipeSwitchTabs) return;
     if (Math.abs(event.offsetX) < 48 || Math.abs(event.offsetX) <= Math.abs(event.offsetY) * 1.2) return;
     this.requestTabFade(this.nativeTabIndex + (event.offsetX < 0 ? 1 : -1));
   }
@@ -460,8 +465,9 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.scrollers.set(0, scroller); }
           })
           .opacity(this.tabContentOpacity)
-          .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 })
+          .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
+          .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
         }
         .tabBar(this.buildTabBar($r('sys.symbol.house_fill'), '首页', ThemeIconRole.Home))
 
@@ -476,8 +482,9 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.scrollers.set(1, scroller); }
           })
           .opacity(this.tabContentOpacity)
-          .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 })
+          .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
+          .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
         }
         .tabBar(this.buildTabBar($r('sys.symbol.bookshelf'), '书架', ThemeIconRole.Shelf))
 
@@ -493,8 +500,9 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.scrollers.set(2, scroller); }
           })
           .opacity(this.tabContentOpacity)
-          .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 })
+          .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
+          .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
         }
         .tabBar(this.buildTabBar($r('sys.symbol.calendar_fill'), '记录', ThemeIconRole.Record))
         }
@@ -505,15 +513,16 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.scrollers.set(3, scroller); }
           })
           .opacity(this.tabContentOpacity)
-          .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 })
+          .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
+          .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
         }
         .tabBar(this.buildTabBar($r('sys.symbol.person_fill'), '我的', ThemeIconRole.Profile))
       }
       .barOverlap(true)
       .barPosition(BarPosition.End)
       .vertical(false)
-      // animationDuration(0) 不能禁止拖动跟手位移，必须关闭原生内容横滑。
+      // 关闭原生跟手横滑，由偏好决定自定义手势切底部 Tab 或页面内类型。
       .scrollable(false)
       .attributeModifier(new CompatibleTabsModifier(this.floatingBarStyle(), 56 + this.bottomSafeVp))
       .onContentWillChange((_current: number, coming: number): boolean => this.allowTabContentChange(coming))

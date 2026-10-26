@@ -24,11 +24,13 @@ import { PlaybackStore } from '../service/PlaybackStore';
 import { WindowUtils } from '../utils/WindowUtils';
 import { PreferenceService } from '../service/PreferenceService';
 import { HomeSourceContent, HomeSourceService } from '../service/rulesource/HomeSourceService';
+import { LightSourceRequest } from '../service/rulesource/light/LightSourceRequestPolicy';
 
 const DOMAIN = 0x0000;
 const TAG = 'SearchPage';
 const LOCAL_RULE_COVER_CONCURRENCY: number = 3;
 const LOCAL_RULE_COVER_LIMIT: number = 12;
+const LOCAL_RULE_COVER_PENDING_LIMIT: number = 96;
 const SEARCH_COVER_ASPECT_RATIO: number = 0.75;
 const SEARCH_HEADER_HEIGHT: number = 56;
 const SEARCH_TITLE_CONTROL_HEIGHT: number = 44;
@@ -42,6 +44,18 @@ const SEARCH_RECOMMENDATION_CONCURRENCY: number = 3;
 const SEARCH_RECOMMENDATION_KEYWORDS: string[] = [
   '斗破苍穹', '三体', '凡人修仙传', '诡秘之主', '红楼梦', '盗墓笔记', '西游记', '庆余年'
 ];
+
+class SearchCoverTask {
+  source: LocalRuleSource;
+  book: Book;
+  generation: number;
+
+  constructor(source: LocalRuleSource, book: Book, generation: number) {
+    this.source = source;
+    this.book = book;
+    this.generation = generation;
+  }
+}
 
 @ComponentV2
 struct SearchOptionItem {
@@ -99,11 +113,12 @@ export struct SearchPage {
   @Local hasSearched: boolean = false;
   @Local searchTab: number = 0;
   @Local viewMode: number = 0;
-  @Local audioBooks: Book[] = [];
-  @Local textBooks: Book[] = [];
-  @Local comicBooks: Book[] = [];
+  private audioBooks: Book[] = [];
+  private textBooks: Book[] = [];
+  private comicBooks: Book[] = [];
   @Local audioCount: number = 0;
   @Local textCount: number = 0;
+  @Local comicCount: number = 0;
   @Local visibleResultCount: number = 0;
   @Local searchHistory: string[] = [];
   @Local historyTagsHeight: number = 84;
@@ -117,7 +132,15 @@ export struct SearchPage {
   @Local selectedSourceUrls: string[] = [];
   @Local availableSearchSources: BookSource[] = [];
   @Local resultGroupVisible: boolean = false;
-  @Local resultGroups: Map<string, Book[]> = new Map();
+  private resultGroups: Map<string, Book[]> = new Map();
+  @Local resultGroupsRevision: number = 0;
+  private searchBookIndexes: Map<string, number> = new Map();
+  private representativeIndexes: Map<string, number> = new Map();
+  private audioRepresentatives: Book[] = [];
+  private textRepresentatives: Book[] = [];
+  private comicRepresentatives: Book[] = [];
+  private coverHydrationQueue: SearchCoverTask[] = [];
+  private coverHydrationActive: number = 0;
   private groupedBooks: BookDataSource = new BookDataSource();
   private resultsRefreshTimer: number = -1;
   private resultDataSource: BookDataSource = new BookDataSource();
@@ -195,6 +218,7 @@ export struct SearchPage {
     this.leavingPage = true;
     this.pageShown = false;
     this.searchGen++;
+    this.coverHydrationQueue = [];
     if (this.resultsRefreshTimer >= 0) clearTimeout(this.resultsRefreshTimer);
     this.resultsRefreshTimer = -1;
     this.cancelRecommendations();
@@ -282,6 +306,7 @@ export struct SearchPage {
     this.comicBooks = [];
     this.audioCount = 0;
     this.textCount = 0;
+    this.comicCount = 0;
     this.visibleResultCount = 0;
     this.resultDataSource.clear();
     this.scheduleRecommendations();
@@ -424,7 +449,7 @@ export struct SearchPage {
         const source = candidates[nextIndex++];
         const keywordIndex = Math.floor(Math.random() * SEARCH_RECOMMENDATION_KEYWORDS.length);
         const batch = await this.loadSourceRecommendationBooks(source,
-          SEARCH_RECOMMENDATION_KEYWORDS[keywordIndex]);
+          SEARCH_RECOMMENDATION_KEYWORDS[keywordIndex], generation);
         if (generation !== this.recommendationGen) return;
         for (const book of batch) this.appendRecommendationBook(book, books, seen);
         this.publishRecommendationBooks(books, generation);
@@ -437,9 +462,13 @@ export struct SearchPage {
     await Promise.all(tasks);
   }
 
-  private async loadSourceRecommendationBooks(source: BookSource, keyword: string): Promise<Book[]> {
+  private async loadSourceRecommendationBooks(source: BookSource, keyword: string,
+    generation: number): Promise<Book[]> {
     try {
-      const results = await BookSourceService.searchBooks(source, keyword);
+      const request = new LightSourceRequest();
+      request.cancelCheck = (): boolean => generation !== this.recommendationGen || this.leavingPage;
+      const results = await BookSourceService.searchBooks(source, keyword, 1, request);
+      if (request.cancelCheck()) return [];
       const fallbackType: 'audio' | 'text' | 'comic' = source.bookSourceType === 0 || source.bookSourceType === 3
         ? 'text' : source.bookSourceType === 2 ? 'comic' : 'audio';
       const books: Book[] = [];
@@ -499,6 +528,7 @@ export struct SearchPage {
     this.comicBooks = [];
     this.audioCount = 0;
     this.textCount = 0;
+    this.comicCount = 0;
     this.visibleResultCount = 0;
     this.resultDataSource.clear();
     try {
@@ -536,6 +566,16 @@ export struct SearchPage {
   private resetPagination(): void {
     this.sourcePages = new Map();
     this.searchSeen = new Set();
+    this.resultGroups = new Map();
+    this.searchBookIndexes = new Map();
+    this.representativeIndexes = new Map();
+    this.audioRepresentatives = [];
+    this.textRepresentatives = [];
+    this.comicRepresentatives = [];
+    this.coverHydrationQueue = [];
+    this.resultGroupsRevision = 0;
+    if (this.resultsRefreshTimer >= 0) clearTimeout(this.resultsRefreshTimer);
+    this.resultsRefreshTimer = -1;
   }
 
   private async searchSources(sources: BookSource[], keyword: string, gen: number,
@@ -571,7 +611,9 @@ export struct SearchPage {
     seen: Set<string>): Promise<void> {
     try {
       const page = this.sourcePages.get(source.bookSourceUrl) ?? 1;
-      const results = await BookSourceService.searchBooks(source, keyword, page);
+      const request = new LightSourceRequest();
+      request.cancelCheck = (): boolean => gen !== this.searchGen || this.leavingPage;
+      const results = await BookSourceService.searchBooks(source, keyword, page, request);
       if (gen !== this.searchGen) return;
       // 使用筛选前的身份判断翻页进度；不支持翻页、反复返回首页的源在此终止。
       const freshResults: SearchResult[] = [];
@@ -584,9 +626,6 @@ export struct SearchPage {
       if (freshResults.length === 0) this.sourcePages.delete(source.bookSourceUrl);
       else this.sourcePages.set(source.bookSourceUrl, page + 1);
       const books: Book[] = [];
-      const audioBooks: Book[] = [];
-      const textBooks: Book[] = [];
-      const comicBooks: Book[] = [];
       const fallbackContentType: 'audio' | 'text' | 'comic' = source.bookSourceType === 0 || source.bookSourceType === 3
         ? 'text' : source.bookSourceType === 2 ? 'comic' : 'audio';
       for (const item of freshResults) {
@@ -595,24 +634,9 @@ export struct SearchPage {
         if (!SearchOptions.matchesContentType(contentType, this.searchTextOnly, this.searchAudioOnly, this.searchComicOnly)) continue;
         const book = this.searchResultToBook(item, contentType);
         books.push(book);
-        if (contentType === 'comic') {
-          comicBooks.push(book);
-        } else if (contentType === 'text') {
-          textBooks.push(book);
-        } else {
-          audioBooks.push(book);
-        }
+        this.appendSearchBook(book);
       }
       if (books.length === 0) return;
-      if (comicBooks.length > 0) this.comicBooks = this.comicBooks.concat(comicBooks);
-      if (textBooks.length > 0) {
-        this.textBooks = this.textBooks.concat(textBooks);
-        this.textCount = this.textBooks.length;
-      }
-      if (audioBooks.length > 0) {
-        this.audioBooks = this.audioBooks.concat(audioBooks);
-        this.audioCount = this.audioBooks.length;
-      }
       this.scheduleResultsRefresh();
       this.prefetchCovers(books);
       if (source instanceof LocalRuleSource && source.ruleSearch.coverUrl.trim().length === 0 &&
@@ -633,6 +657,31 @@ export struct SearchPage {
     }
   }
 
+  private booksForType(contentType: 'audio' | 'text' | 'comic' | undefined): Book[] {
+    return contentType === 'comic' ? this.comicBooks : contentType === 'text' ? this.textBooks : this.audioBooks;
+  }
+
+  private representativesForType(contentType: 'audio' | 'text' | 'comic' | undefined): Book[] {
+    return contentType === 'comic' ? this.comicRepresentatives :
+      contentType === 'text' ? this.textRepresentatives : this.audioRepresentatives;
+  }
+
+  private appendSearchBook(book: Book): void {
+    const books = this.booksForType(book.contentType);
+    this.searchBookIndexes.set(book.id, books.length);
+    books.push(book);
+    const key = this.groupKey(book);
+    const group = this.resultGroups.get(key);
+    if (group !== undefined) {
+      group.push(book);
+      return;
+    }
+    this.resultGroups.set(key, [book]);
+    const representatives = this.representativesForType(book.contentType);
+    this.representativeIndexes.set(key, representatives.length);
+    representatives.push(book);
+  }
+
   private prefetchCovers(books: Book[]): void {
     const covers: string[] = [];
     for (const book of books) {
@@ -643,35 +692,55 @@ export struct SearchPage {
 
   private async hydrateMissingLocalRuleCovers(source: LocalRuleSource, books: Book[],
     gen: number): Promise<void> {
-    const candidates: Book[] = [];
+    let queued = 0;
     for (const book of books) {
+      if (gen !== this.searchGen || this.leavingPage ||
+        this.coverHydrationQueue.length >= LOCAL_RULE_COVER_PENDING_LIMIT) break;
       if (book.cover.trim().length > 0 || book.bookUrl.trim().length === 0) continue;
-      candidates.push(book);
-      if (candidates.length >= LOCAL_RULE_COVER_LIMIT) break;
+      this.coverHydrationQueue.push(new SearchCoverTask(source, book, gen));
+      if (++queued >= LOCAL_RULE_COVER_LIMIT) break;
     }
-    for (let start = 0; start < candidates.length; start += LOCAL_RULE_COVER_CONCURRENCY) {
-      if (gen !== this.searchGen) return;
-      const tasks: Promise<Book | undefined>[] = [];
-      const end = Math.min(candidates.length, start + LOCAL_RULE_COVER_CONCURRENCY);
-      for (let index = start; index < end; index++) {
-        tasks.push(this.hydrateOneLocalRuleCover(source, candidates[index], gen));
-      }
-      const hydratedBooks = await Promise.all(tasks);
-      if (gen !== this.searchGen) return;
-      for (const hydratedBook of hydratedBooks) {
-        if (hydratedBook !== undefined) this.replaceSearchBook(hydratedBook);
-      }
-      this.refreshVisibleBooks();
+    this.pumpCoverHydration();
+  }
+
+  private pumpCoverHydration(): void {
+    while (!this.leavingPage && this.coverHydrationActive < LOCAL_RULE_COVER_CONCURRENCY &&
+      this.coverHydrationQueue.length > 0) {
+      const task = this.coverHydrationQueue.shift();
+      if (task === undefined || task.generation !== this.searchGen) continue;
+      this.coverHydrationActive++;
+      this.runCoverHydration(task);
     }
-    this.prefetchCovers(candidates);
+  }
+
+  private async runCoverHydration(task: SearchCoverTask): Promise<void> {
+    try {
+      const book = await this.hydrateOneLocalRuleCover(task.source, task.book, task.generation);
+      if (book !== undefined && task.generation === this.searchGen && !this.leavingPage) {
+        this.replaceSearchBook(book);
+        this.scheduleResultsRefresh();
+        this.prefetchCovers([book]);
+      }
+    } catch (error) {
+      if (task.generation === this.searchGen && !this.leavingPage) {
+        hilog.warn(DOMAIN, TAG, 'cover hydration failed [%{public}s]: %{public}s',
+          task.source.bookSourceName, String(error));
+      }
+    } finally {
+      // 换代只清队列；旧请求真正结束前仍占据全页并发槽位。
+      this.coverHydrationActive--;
+      this.pumpCoverHydration();
+    }
   }
 
   private async hydrateOneLocalRuleCover(source: LocalRuleSource, book: Book,
     gen: number): Promise<Book | undefined> {
-    const info = await BookSourceService.getBookInfo(source, book.bookUrl, book.variables);
+    const request = new LightSourceRequest(0);
+    request.cancelCheck = (): boolean => gen !== this.searchGen || this.leavingPage;
+    const info = await BookSourceService.getBookInfo(source, book.bookUrl, book.variables, request);
     if (gen !== this.searchGen || info === null) return undefined;
     const coverUrl = info.coverUrl.trim();
-    if (coverUrl.length === 0) return undefined;
+    if (coverUrl.length === 0 || coverUrl === book.cover) return undefined;
     BookCoverPolicy.setDetail(book, coverUrl);
     const hydratedBook = this.cloneBook(book);
     SearchCache.put(hydratedBook);
@@ -679,26 +748,18 @@ export struct SearchPage {
   }
 
   private replaceSearchBook(book: Book): void {
-    const audioBooks = this.audioBooks.slice();
-    let audioChanged = false;
-    for (let index = 0; index < audioBooks.length; index++) {
-      if (audioBooks[index].id !== book.id) continue;
-      audioBooks[index] = book;
-      audioChanged = true;
-      break;
+    const index = this.searchBookIndexes.get(book.id);
+    if (index === undefined) return;
+    this.booksForType(book.contentType)[index] = book;
+    const key = this.groupKey(book);
+    const group = this.resultGroups.get(key);
+    if (group === undefined) return;
+    const groupIndex = group.findIndex((item: Book): boolean => item.id === book.id);
+    if (groupIndex >= 0) group[groupIndex] = book;
+    const representativeIndex = this.representativeIndexes.get(key);
+    if (groupIndex === 0 && representativeIndex !== undefined) {
+      this.representativesForType(book.contentType)[representativeIndex] = book;
     }
-    if (audioChanged) this.audioBooks = audioBooks;
-
-    const textBooks = this.textBooks.slice();
-    let textChanged = false;
-    for (let index = 0; index < textBooks.length; index++) {
-      if (textBooks[index].id !== book.id) continue;
-      textBooks[index] = book;
-      textChanged = true;
-      break;
-    }
-    if (textChanged) this.textBooks = textBooks;
-    this.comicBooks = this.comicBooks.map((item: Book): Book => item.id === book.id ? book : item);
   }
 
   private cloneBook(book: Book): Book {
@@ -743,30 +804,31 @@ export struct SearchPage {
     return `${book.contentType ?? 'audio'}:${book.title.replace(/\s+/g, '').toLowerCase()}`;
   }
 
-  private groupCount(book: Book): number { return this.resultGroups.get(this.groupKey(book))?.length ?? 1; }
+  private groupCount(book: Book): number {
+    // 私有分组增量更新，统一发布版本让可见角标响应本批次变化。
+    if (this.resultGroupsRevision === 0) return 1;
+    return this.resultGroups.get(this.groupKey(book))?.length ?? 1;
+  }
 
   private refreshVisibleBooks(): void {
+    if (this.resultsRefreshTimer >= 0) clearTimeout(this.resultsRefreshTimer);
+    this.resultsRefreshTimer = -1;
     const visible: Book[] = [];
     if (this.searchTab === 0 || this.searchTab === 1) {
-      for (const book of this.audioBooks) visible.push(book);
+      for (const book of this.audioRepresentatives) visible.push(book);
     }
     if (this.searchTab === 0 || this.searchTab === 2) {
-      for (const book of this.textBooks) visible.push(book);
+      for (const book of this.textRepresentatives) visible.push(book);
     }
     if (this.searchTab === 0 || this.searchTab === 3) {
-      for (const book of this.comicBooks) visible.push(book);
+      for (const book of this.comicRepresentatives) visible.push(book);
     }
-    const groups = new Map<string, Book[]>();
-    const representatives: Book[] = [];
-    for (const book of visible) {
-      const key = this.groupKey(book);
-      const group = groups.get(key);
-      if (group) group.push(book);
-      else { groups.set(key, [book]); representatives.push(book); }
-    }
-    this.resultGroups = groups;
-    this.resultDataSource.setBooks(representatives);
-    this.visibleResultCount = representatives.length;
+    this.audioCount = this.audioBooks.length;
+    this.textCount = this.textBooks.length;
+    this.comicCount = this.comicBooks.length;
+    this.resultGroupsRevision++;
+    this.resultDataSource.updateBooks(visible);
+    this.visibleResultCount = visible.length;
   }
 
   private selectSearchTab(index: number): void {
@@ -809,7 +871,7 @@ export struct SearchPage {
   private openBook(book: Book): void {
     const group = this.resultGroups.get(this.groupKey(book));
     if (group && group.length > 1) {
-      this.groupedBooks.setBooks(group);
+      this.groupedBooks.setBooks(group.slice());
       this.resultGroupVisible = true;
       return;
     }
@@ -1007,8 +1069,8 @@ export struct SearchPage {
         .fontSize(12)
         .fontColor(this.searchTab === index ? HomeTheme.Accent : $r('sys.color.font_secondary'))
         .fontWeight(this.searchTab === index ? FontWeight.Medium : FontWeight.Regular)
-      Text((index === 0 ? this.audioCount + this.textCount + this.comicBooks.length :
-        (index === 1 ? this.audioCount : index === 2 ? this.textCount : this.comicBooks.length)).toString())
+      Text((index === 0 ? this.audioCount + this.textCount + this.comicCount :
+        (index === 1 ? this.audioCount : index === 2 ? this.textCount : this.comicCount)).toString())
         .fontSize(11)
         .fontColor(this.searchTab === index ? HomeTheme.Accent : $r('sys.color.font_tertiary'))
     }
@@ -1119,7 +1181,7 @@ export struct SearchPage {
           this.buildGroupBadge(book)
           }.width('100%')
         }
-      }, (book: Book) => book.id)
+      }, (book: Book) => this.resultDataSource.getVersionedKey(book))
     }
     .columnsTemplate(`repeat(${this.bookColumns}, 1fr)`)
     .onSizeChange((_oldSize: SizeOptions, size: SizeOptions): void => {
@@ -1219,7 +1281,7 @@ export struct SearchPage {
         ListItem() {
           this.buildListItem(book)
         }
-      }, (book: Book) => book.id)
+      }, (book: Book) => this.resultDataSource.getVersionedKey(book))
     }
     .layoutWeight(1)
     .width('100%')

@@ -17,7 +17,7 @@ function compile(text, globals = {}) {
     .replace(/@ObservedV2\s*/g, '').replace(/@Trace\s*/g, ''), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
   }).outputText;
-  vm.runInNewContext(code, { module, exports: module.exports, Map, Set, Date, JSON, console, ...globals });
+  vm.runInNewContext(code, { module, exports: module.exports, Map, Set, Date, JSON, console, setTimeout, ...globals });
   return module.exports;
 }
 const sourceUrl = index => `https://source-${index}.invalid/`;
@@ -172,9 +172,13 @@ const shelf = Object.assign(new ShelfHarness(), {
   console.log('PASS shelf lifecycle: coalesced initialization, no progress reload on tab switches, cancelled delayed updates');
 
   const baselineStart = performance.now();
+  let parsedAtUiTurn = -1;
+  setTimeout(() => { parsedAtUiTurn = parsedRules; }, 0);
   assert.equal((await sources.getSources()).length, 2000);
   const baselineMs = performance.now() - baselineStart;
   assert.equal(parsedRules, 2000);
+  assert.ok(parsedAtUiTurn > 0 && parsedAtUiTurn < 2000,
+    'a UI event must run before the full source list finishes decoding');
   sources.invalidateLocalSources();
   resetCounts();
   await home.loadHomeBlocks();
@@ -195,7 +199,7 @@ const shelf = Object.assign(new ShelfHarness(), {
   const warmMs = performance.now() - warmStart;
   assert.equal(fullReads + pointReads, 0, 'repeated page loading uses the existing source lookup cache');
   assert.equal(parsedRules, 0, 'Tab changes must not reparse rule JSON');
-  console.log(`PASS 2000-source fixture: old full load ${baselineMs.toFixed(1)} ms / 2000 parses; ` +
+  console.log(`PASS 2000-source fixture: cooperative full load ${baselineMs.toFixed(1)} ms / 2000 parses; ` +
     `20 repeated page loads ${warmMs.toFixed(1)} ms / 0 reads / 0 parses (host, not device FPS)`);
 
   await home.loadHomeSourceMenu();

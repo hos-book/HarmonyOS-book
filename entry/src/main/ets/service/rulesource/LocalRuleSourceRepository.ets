@@ -24,6 +24,8 @@ const MAX_SESSION_TOKEN_LENGTH = 4096;
 const MAX_SESSION_DEVICE_ID_LENGTH = 256;
 const MAX_COOKIE_HEADER_LENGTH = 64 * 1024;
 const BATCH_PREDICATE_LIMIT = 400;
+const SOURCE_READ_SLICE_MS = 6;
+const SOURCE_READ_SLICE_ROWS = 16;
 
 const CREATE_TABLE_SQL = `CREATE TABLE IF NOT EXISTS ${TABLE_NAME} (
   source_url TEXT PRIMARY KEY NOT NULL,
@@ -193,8 +195,18 @@ export class LocalRuleSourceRepository {
     const sources: LocalRuleSource[] = [];
     try {
       resultSet = await store.querySql(LIST_SQL);
+      let sliceStartedAt = Date.now();
+      let sliceRows = 0;
       while (resultSet.goToNextRow()) {
         sources.push(LocalRuleSourceRepository.readSource(resultSet));
+        sliceRows++;
+        // 查询本身异步，游标解码和导入规则解析仍在调用线程执行。
+        // 按时间和数量双重分片，避免大量书源连续占满搜索页的事件循环。
+        if (sliceRows >= SOURCE_READ_SLICE_ROWS || Date.now() - sliceStartedAt >= SOURCE_READ_SLICE_MS) {
+          await new Promise<void>((resolve: () => void): void => { setTimeout(resolve, 0); });
+          sliceStartedAt = Date.now();
+          sliceRows = 0;
+        }
       }
       return sources;
     } finally {

@@ -27,6 +27,7 @@ function searchHarness() {
   let peak = 0;
   vm.runInNewContext(code, {
     exports, Set,
+    LightSourceRequest: class {},
     hilog: { warn() {} }, DOMAIN: 0, TAG: 'SearchTest',
     BookSourceService: { searchBooks: bookSource => {
       started.push(bookSource.id);

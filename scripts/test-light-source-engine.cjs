@@ -16,9 +16,11 @@ const requests = [];
 const storage = new Map();
 const comicDisk = new Map();
 const comicFiles = new Set();
+const activeIntervals = new Set();
+let cancelledHttpClients = 0;
 let liveOrigin = '';
 class FakeHttpClient {
-  cancelAll() {}
+  cancelAll() { cancelledHttpClients++; }
   setHeaders() {}
   async execute(request) {
     requests.push(request);
@@ -96,7 +98,9 @@ function load(name, moduleCache = cache) {
   const output = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021, experimentalDecorators: true }
   }).outputText;
-  vm.runInNewContext(output, { module, exports: module.exports, console, setTimeout, clearTimeout, setInterval, clearInterval,
+  vm.runInNewContext(output, { module, exports: module.exports, console, setTimeout, clearTimeout,
+    setInterval: (callback, delay) => { const timer = setInterval(callback, delay); activeIntervals.add(timer); return timer; },
+    clearInterval: timer => { activeIntervals.delete(timer); clearInterval(timer); },
     ObservedV2: value => value, Trace: () => {},
     AppStorage: { get: key => storage.get(key), setOrCreate: (key, value) => storage.set(key, value),
       set: (key, value) => storage.set(key, value), delete: key => storage.delete(key) },
@@ -219,10 +223,47 @@ async function run() {
   fixtures.set('https://engine.test/book', '{"name":"Book","author":"Author","toc":"/toc","kind":"玄幻|评分：9.6"}');
   fixtures.set('https://engine.test/toc', '{"chapters":[{"name":"One","url":"/chapter"}]}');
   fixtures.set('https://engine.test/chapter', '{"text":"chapter text"}');
-  const search = JSON.parse(await engine.search(JSON.stringify(local), 'Book', 1));
+  const search = JSON.parse(await engine.search(JSON.stringify(local), 'Book', 1, new LightSourceRequest()));
+  assert.equal(activeIntervals.size, 0, 'successful searches release their cancellation timer');
   assert.equal(search[0].bookUrl, 'https://engine.test/book');
   assert.equal(search[0].rating, 9.2);
   assert.equal(search[0].completed, undefined, 'unknown status must remain absent');
+  const cancelledBeforeStart = new LightSourceRequest();
+  cancelledBeforeStart.cancel();
+  const requestCountBeforeCancel = requests.length;
+  await assert.rejects(engine.search(JSON.stringify(local), 'Book', 1, cancelledBeforeStart), /取消/);
+  await assert.rejects(engine.detail(JSON.stringify(local), 'https://engine.test/book', '{}', cancelledBeforeStart), /取消/);
+  assert.equal(requests.length, requestCountBeforeCancel, 'cancelled searches and cover details never start HTTP');
+  const searchFixture = fixtures.get('https://engine.test/search');
+  const searchRequest = new LightSourceRequest();
+  let generationChanged = false;
+  searchRequest.cancelCheck = () => generationChanged;
+  const previousCancels = cancelledHttpClients;
+  fixtures.set('https://engine.test/search', async request => {
+    assert.equal(request.cancelCheck(), false);
+    generationChanged = true;
+    assert.equal(request.cancelCheck(), true, 'page generation cancellation reaches the transport host');
+    await new Promise(resolve => setTimeout(resolve, 80));
+    return searchFixture;
+  });
+  await assert.rejects(engine.search(JSON.stringify(local), 'Book', 1, searchRequest), /取消/);
+  assert.equal(cancelledHttpClients, previousCancels + 1, 'the search coordinator also cancels its HTTP and rule owner');
+  assert.equal(activeIntervals.size, 0, 'cancelled searches release their cancellation timer');
+  fixtures.set('https://engine.test/search', () => { throw Error('cancel-fixture failure'); });
+  await assert.rejects(engine.search(JSON.stringify(local), 'Book', 1, new LightSourceRequest()), /cancel-fixture failure/);
+  assert.equal(activeIntervals.size, 0, 'failed searches release their cancellation timer');
+  fixtures.set('https://engine.test/search', searchFixture);
+  const detailFixture = fixtures.get('https://engine.test/book');
+  const detailRequest = new LightSourceRequest(0);
+  fixtures.set('https://engine.test/book', request => {
+    assert.equal(request.cancelCheck(), false);
+    detailRequest.cancel();
+    assert.equal(request.cancelCheck(), true, 'cover detail cancellation reaches the transport host');
+    return detailFixture;
+  });
+  await assert.rejects(engine.detail(JSON.stringify(local), 'https://engine.test/book', '{}', detailRequest), /取消/);
+  fixtures.set('https://engine.test/book', detailFixture);
+  console.log('PASS: search/detail cancellation reaches HTTP, cancels the coordinator and releases timers on every exit');
   const exploreLocal = {...local, definition:JSON.stringify({...source, enabledExplore:true,
     exploreUrl:'/discover?page={{page}}', ruleExplore:source.ruleSearch})};
   const exploreJson = JSON.stringify(exploreLocal);

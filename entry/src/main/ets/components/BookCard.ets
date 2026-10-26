@@ -179,7 +179,8 @@ export struct BookCard {
         if (this.showRating) {
           Row() {
             Blank()
-            BookRatingBadge({ rating: BookMetadataPolicy.rating(this.book.rating, this.book.category), coverWidth: this.ratingCoverWidth })
+            BookRatingBadge({ rating: BookMetadataPolicy.rating(this.book.rating, this.book.category),
+              coverWidth: this.ratingCoverWidth, sizeScale: 0.7 })
           }.width('100%').hitTestBehavior(HitTestMode.None)
         }
       }

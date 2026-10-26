@@ -6,7 +6,7 @@ import { CoverImage } from './CoverImage';
 import { AppColor } from '../theme/Theme';
 import { picker, fileIo } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
-import { common } from '@kit.AbilityKit';
+import { url } from '@kit.ArkTS';
 
 @ComponentV2
 export struct BookEditSheet {
@@ -21,6 +21,11 @@ export struct BookEditSheet {
   @Local searching: boolean = false;
   @Local saving: boolean = false;
   @Local error: string = '';
+  @Local showCoverLink: boolean = false;
+  @Local coverLink: string = '';
+  @Local pendingCoverLink: string = '';
+  @Local coverLinkRequest: number = 0;
+  private coverLinkTimer: number = -1;
   private search: SourceSwitchSearch = new SourceSwitchSearch();
   private covers: SourceSwitchBookDataSource = new SourceSwitchBookDataSource();
   private alive: boolean = false;
@@ -67,12 +72,53 @@ export struct BookEditSheet {
   aboutToDisappear(): void {
     this.alive = false;
     this.search.cancelled = true;
+    this.cancelCoverLink();
     if (!this.committed && this.ownedCover) fileIo.unlink(this.ownedCover).catch((): void => {});
+  }
+
+  private cancelCoverLink(): void {
+    if (this.coverLinkTimer >= 0) clearTimeout(this.coverLinkTimer);
+    this.coverLinkTimer = -1;
+    this.coverLinkRequest++;
+    this.pendingCoverLink = '';
+  }
+
+  private previewCoverLink(): void {
+    if (this.saving || this.pendingCoverLink) return;
+    const value = this.coverLink.trim();
+    try {
+      const parsed = url.URL.parseURL(value);
+      if (!/^https?:\/\//i.test(value) || /\s/.test(value) || !parsed.hostname ||
+        parsed.username || parsed.password) throw new Error('Invalid cover URL');
+      this.coverLink = parsed.href;
+    } catch (_error) {
+      this.error = this.message($r('app.string.shelf_edit_cover_link_invalid'));
+      return;
+    }
+    this.error = '';
+    this.cancelCoverLink();
+    this.pendingCoverLink = this.coverLink;
+    const request = this.coverLinkRequest;
+    this.coverLinkTimer = setTimeout((): void => { this.finishCoverLink(request, false); }, 15000);
+  }
+
+  private finishCoverLink(request: number, succeeded: boolean): void {
+    if (!this.alive || request !== this.coverLinkRequest || !this.pendingCoverLink) return;
+    if (succeeded) {
+      this.cover = this.pendingCoverLink;
+      this.showCoverLink = false;
+      this.error = '';
+    } else {
+      this.error = this.message($r('app.string.shelf_edit_cover_link_failed'));
+    }
+    this.cancelCoverLink();
   }
 
   private async pickCover(): Promise<void> {
     const context = this.getUIContext().getHostContext();
-    if (!context || this.saving) return;
+    if (!context || this.saving || this.pendingCoverLink) return;
+    this.showCoverLink = false;
+    this.error = '';
     try {
       const options = new picker.PhotoSelectOptions();
       options.MIMEType = picker.PhotoViewMIMETypes.IMAGE_TYPE;
@@ -121,7 +167,8 @@ export struct BookEditSheet {
   }
 
   private async findCovers(): Promise<void> {
-    if (this.searching || this.saving) return;
+    if (this.searching || this.saving || this.pendingCoverLink) return;
+    this.showCoverLink = false;
     this.search.cancelled = true;
     this.search = new SourceSwitchSearch();
     this.searching = true;
@@ -135,7 +182,7 @@ export struct BookEditSheet {
   }
 
   private async save(): Promise<void> {
-    if (this.saving || !this.title.trim()) return;
+    if (this.saving || this.showCoverLink || this.pendingCoverLink || !this.title.trim()) return;
     this.saving = true;
     try {
       const edit = new BookPresentationEdit();
@@ -163,18 +210,48 @@ export struct BookEditSheet {
       TextInput({ text: this.title, placeholder: $r('app.string.shelf_edit_name') })
         .maxLength(200).onChange((value: string): void => { this.title = value; })
       Row({ space: 12 }) {
+        if (this.pendingCoverLink) {
+          ForEach([this.coverLinkRequest], (request: number) => {
+            Stack() {
+              Image(this.pendingCoverLink).width(66).height(88).objectFit(ImageFit.Cover)
+                .borderRadius(8).sourceSize({ width: 300, height: 400 }).draggable(false)
+                .onComplete((event) => {
+                  if (event?.loadingStatus === 1) this.finishCoverLink(request, true);
+                })
+                .onError((): void => { this.finishCoverLink(request, false); })
+              LoadingProgress().width(24).height(24).color(AppColor.Brand)
+            }.width(66).height(88)
+          }, (request: number): string => request.toString())
+        } else {
         ForEach([this.cover], (coverUrl: string) => {
           CoverImage({ url: coverUrl, title: this.title, author: this.book.author,
             localPlaceholder: this.book.id.startsWith('import_'), imgWidth: 66, imgHeight: 88, useFixedHeight: true })
         }, (coverUrl: string): string => coverUrl)
+        }
         Column({ space: 8 }) {
           Button($r('app.string.shelf_edit_local_cover')).backgroundColor(AppColor.Brand).fontColor(Color.White)
-            .onClick((): void => { this.pickCover(); }).enabled(!this.saving)
+            .onClick((): void => { this.pickCover(); }).enabled(!this.saving && !this.pendingCoverLink)
           Button($r('app.string.shelf_edit_source_cover')).backgroundColor(AppColor.Brand).fontColor(Color.White)
             .onClick((): void => { this.findCovers(); })
-            .enabled(!this.saving && !this.searching)
+            .enabled(!this.saving && !this.searching && !this.pendingCoverLink)
+          Button($r('app.string.shelf_edit_link_cover')).backgroundColor(AppColor.Brand).fontColor(Color.White)
+            .enabled(!this.saving && !this.pendingCoverLink)
+            .onClick((): void => { this.showCoverLink = true; this.error = ''; })
         }.layoutWeight(1)
       }.width('100%')
+      if (this.showCoverLink) {
+        TextInput({ text: this.coverLink, placeholder: $r('app.string.shelf_edit_cover_link_placeholder') })
+          .maxLength(8192).enabled(!this.saving && !this.pendingCoverLink)
+          .onChange((value: string): void => { this.coverLink = value; this.error = ''; })
+        Row({ space: 8 }) {
+          Button($r('app.string.common_cancel')).layoutWeight(1)
+            .onClick((): void => { this.cancelCoverLink(); this.showCoverLink = false; this.error = ''; })
+          Button($r('app.string.shelf_edit_cover_link_apply')).layoutWeight(1)
+            .backgroundColor(AppColor.Brand).fontColor(Color.White)
+            .enabled(!this.saving && !this.pendingCoverLink && !!this.coverLink.trim())
+            .onClick((): void => { this.previewCoverLink(); })
+        }.width('100%')
+      }
       } else {
       List({ space: 8 }) {
         ListItem() {
@@ -221,13 +298,19 @@ export struct BookEditSheet {
             Row({ space: 12 }) {
               CoverImage({ url: candidate.cover, imgWidth: 48, imgHeight: 64, useFixedHeight: true })
               Text(candidate.narrator).layoutWeight(1).fontColor($r('sys.color.font_primary')).maxLines(2)
-            }.width('100%').onClick((): void => { this.cover = candidate.cover; })
+            }.width('100%').onClick((): void => {
+              if (this.saving || this.pendingCoverLink) return;
+              this.showCoverLink = false;
+              this.error = '';
+              this.cover = candidate.cover;
+            })
           }
         }, (candidate: Book): string => candidate.id)
       }.layoutWeight(1).width('100%').scrollBar(BarState.Auto).padding({ right: 8 })
       }
       Button($r('app.string.common_save')).width('100%').backgroundColor(AppColor.Brand).fontColor(Color.White)
-        .enabled(!this.saving && !!this.title.trim()).onClick((): void => { this.save(); })
+        .enabled(!this.saving && !this.showCoverLink && !this.pendingCoverLink && !!this.title.trim())
+        .onClick((): void => { this.save(); })
     }.padding({ left: 24, right: 24, top: 16, bottom: 28 }).width('100%').height('100%')
   }
 }

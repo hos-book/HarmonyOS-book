@@ -257,10 +257,13 @@ export class BookSourceService {
     return fallbackMs;
   }
 
-  static async searchBooks(source: BookSource, keyword: string, page: number = 1): Promise<SearchResult[]> {
+  static async searchBooks(source: BookSource, keyword: string, page: number = 1,
+    request?: LightSourceRequest): Promise<SearchResult[]> {
+    if (request?.isCancelled()) return [];
     if (source instanceof LocalRuleSource && !source.isSearchEnabled()) return [];
     const localSource = await BookSourceService.resolveLocalSource(source);
-    return localSource === undefined ? [] : LocalRuleDispatcher.search(localSource, keyword, page);
+    if (request?.isCancelled()) return [];
+    return localSource === undefined ? [] : LocalRuleDispatcher.search(localSource, keyword, page, request);
   }
 
   static async testLocalSource(source: LocalRuleSource, keyword: string): Promise<LocalRuleSourceHealth> {
@@ -521,10 +524,12 @@ export class BookSourceService {
   }
 
   static async getBookInfo(source: BookSource, bookUrl: string,
-    _variables?: Record<string, string>): Promise<BookInfo | null> {
+    _variables?: Record<string, string>, request?: LightSourceRequest): Promise<BookInfo | null> {
+    if (request?.isCancelled()) return null;
     const localSource = await BookSourceService.resolveLocalSource(source);
+    if (request?.isCancelled()) return null;
     return localSource === undefined ? null : LocalRuleDispatcher.getBookInfo(
-      localSource, bookUrl, BookSourceService.copyVariables(_variables));
+      localSource, bookUrl, BookSourceService.copyVariables(_variables), request);
   }
 
   static async getBookToc(source: BookSource, tocUrl: string,

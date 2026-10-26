@@ -182,11 +182,18 @@ struct ReaderMarginSlider {
     Row({ space: AppSpace.Sm }) {
       Text(this.label).fontSize(AppFont.Caption).width(36).fontColor($r('sys.color.font_primary'))
       this.stepper($r('sys.symbol.minus'), this.value > 0, -1)
-      Slider({ value: this.value, min: 0, max: this.max, step: 1 })
-        .layoutWeight(1).selectedColor(AppColor.Brand)
-        .onChange((next: number, mode: SliderChangeMode): void => {
-          this.onChange(next, mode === SliderChangeMode.End || mode === SliderChangeMode.Click);
-        })
+      Column() {
+        Slider({ value: this.value, min: 0, max: this.max, step: 1 })
+          .width('100%').selectedColor(AppColor.Brand)
+          .onChange((next: number, mode: SliderChangeMode): void => {
+            this.onChange(next, mode === SliderChangeMode.End || mode === SliderChangeMode.Click);
+          })
+        Row() {
+          Text('0').fontSize(10).fontColor($r('sys.color.font_secondary'))
+          Blank()
+          Text(`${this.max}`).fontSize(10).fontColor($r('sys.color.font_secondary'))
+        }.width('100%').padding({ left: 8, right: 8 })
+      }.layoutWeight(1).padding({ bottom: AppSpace.Xs })
       this.stepper($r('sys.symbol.plus'), this.value < this.max, 1)
       Text(`${this.value}`).width(36).fontColor($r('sys.color.font_primary')).fontSize(AppFont.Caption)
     }.width('100%')

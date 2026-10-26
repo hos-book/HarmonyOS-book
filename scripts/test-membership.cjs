@@ -520,7 +520,10 @@ async function main() {
     const source = fs.readFileSync(path.join(root, `pages/${kind}.ets`), 'utf8');
     let methods;
     if (kind === 'SettingsPage') {
-      methods = source.slice(source.indexOf('  private async requireSearchMembership()'), source.indexOf('  private async clearCache()'))
+      const start = source.indexOf('  private async requireSearchMembership()');
+      const end = source.indexOf('  private async setColorMode(', start);
+      assert.ok(start >= 0 && end > start, 'extract only settings membership handlers');
+      methods = source.slice(start, end)
         .replace(/@Monitor\([^\n]+\)\s*/g, '');
     } else if (kind === 'AccountPage') {
       methods = source.slice(source.indexOf('  private async requireAutoMembership()'), source.indexOf('  private autoFrequency()')) +

@@ -47,6 +47,8 @@ class PendingAudioResolve {
 class ClearCacheResult {
   deleted: number = 0;
   failed: number = 0;
+  releasedBytes: number = 0;
+  protectedCount: number = 0;
 }
 
 interface CacheEntry {
@@ -71,6 +73,7 @@ interface DiskCacheEntry {
 }
 
 export class ChapterCacheService {
+  static readonly CACHE_LIMIT: number = MAX_FILE_CACHE_BYTES;
   private static instance: ChapterCacheService | null = null;
   private audioCache: Map<string, CacheEntry> = new Map();
   /** 章节 → 已下载到本地的音频文件 */
@@ -98,6 +101,7 @@ export class ChapterCacheService {
   private activeFilePaths: Set<string> = new Set();
   private diskCleanupTask: Promise<void> | null = null;
   private diskCleanupRequested: boolean = false;
+  private cacheCleanupTask: Promise<ClearCacheResult> | null = null;
 
   setPlayingFile(filePath: string = ''): void {
     this.playingFilePath = filePath;
@@ -175,8 +179,47 @@ export class ChapterCacheService {
     return this.durationCache.get(chapterId) ?? 0;
   }
 
-  async clearAllCache(): Promise<ClearCacheResult> {
+  /** 完整预加载音频的实际磁盘占用，不含主动下载和正在写入的临时文件。 */
+  async getCacheUsage(): Promise<number> {
+    await this.storageMigration;
+    if (this.cacheCleanupTask !== null) await this.cacheCleanupTask;
+    if (this.diskCleanupTask !== null) await this.diskCleanupTask;
+    const ctx = this.appContext;
+    if (!ctx) throw new Error('音频缓存尚未初始化');
+    let bytes: number = 0;
+    const names = await fileIo.listFile(ctx.filesDir);
+    for (const name of names) {
+      if (!name.startsWith('chap_') || !name.endsWith('.mp3')) continue;
+      const filePath = `${ctx.filesDir}/${name}`;
+      try {
+        const stat = await fileIo.stat(filePath);
+        if (stat.isFile()) bytes += Math.max(0, stat.size);
+      } catch (error) {
+        // 正在淘汰/取消的文件可能已消失；其他统计错误交给设置页提示。
+        if (await fileIo.access(filePath)) throw new Error(error instanceof Error ? error.message : String(error));
+      }
+    }
+    return bytes;
+  }
+
+  clearAllCache(): Promise<ClearCacheResult> {
+    if (this.cacheCleanupTask !== null) return this.cacheCleanupTask;
+    const task = this.clearCacheFiles().finally((): void => {
+      this.cacheCleanupTask = null;
+      this.drain();
+      this.stopBackgroundTransferIfIdle();
+    });
+    this.cacheCleanupTask = task;
+    return task;
+  }
+
+  private async clearCacheFiles(): Promise<ClearCacheResult> {
+    // 取消传输后发布标记会异步撤销，本次清理仍保留开始时在使用的文件。
+    const protectedPaths: Set<string> = new Set<string>(this.activeFilePaths);
+    if (this.playingFilePath) protectedPaths.add(this.playingFilePath);
     this.clearGen++;
+    this.preloadGen++;
+    for (const task of this.audioResolves.values()) task.request.cancel();
     for (const download of this.activeDownloads.values()) download.cancel();
     this.audioCache.clear();
     this.durationCache.clear();
@@ -184,24 +227,34 @@ export class ChapterCacheService {
     this.activeDownloads.clear();
     this.queue.clear();
     await this.storageMigration;
+    if (this.diskCleanupTask !== null) await this.diskCleanupTask;
     const result = new ClearCacheResult();
-    const unlinkPromises: Promise<void>[] = [];
-    for (const entry of this.fileCache.values()) {
-      unlinkPromises.push(fileIo.unlink(entry.filePath).then((): void => { result.deleted++; }).catch((): void => { result.failed++; }));
-    }
-    this.fileCache.clear();
     const ctx = this.appContext;
-    if (ctx) {
+    if (!ctx) throw new Error('音频缓存尚未初始化');
+    const names = await fileIo.listFile(ctx.filesDir);
+    for (const name of names) {
+      if (!name.startsWith('chap_') || !name.endsWith('.mp3')) continue;
+      const filePath = `${ctx.filesDir}/${name}`;
       try {
-        const names = await fileIo.listFile(ctx.filesDir);
-        for (const name of names) {
-          if (!name.startsWith('chap_')) continue;
-          const p = `${ctx.filesDir}/${name}`;
-          unlinkPromises.push(fileIo.unlink(p).then((): void => { result.deleted++; }).catch((): void => { result.failed++; }));
+        const stat = await fileIo.stat(filePath);
+        if (!stat.isFile()) continue;
+        if (protectedPaths.has(filePath) || this.isProtectedFile(filePath)) {
+          result.protectedCount++;
+          continue;
         }
-      } catch (_e) { /* ignore */ }
+        await fileIo.unlink(filePath);
+        result.deleted++;
+        result.releasedBytes += Math.max(0, stat.size);
+        this.removeFileCacheEntry(filePath);
+      } catch (_e) {
+        try {
+          if (await fileIo.access(filePath)) result.failed++;
+          else this.removeFileCacheEntry(filePath);
+        } catch (_accessError) {
+          result.failed++;
+        }
+      }
     }
-    await Promise.all(unlinkPromises);
     return result;
   }
 
@@ -415,14 +468,14 @@ export class ChapterCacheService {
   /* ───────────── 内部：URL 解析队列 ───────────── */
 
   private enqueue(chapterId: string, task: () => Promise<void>): void {
-    if (!this.isPreloadEnabled() || this.preloadSuspended ||
+    if (this.cacheCleanupTask !== null || !this.isPreloadEnabled() || this.preloadSuspended ||
       this.queue.has(chapterId) || this.runningTaskGenerations.get(chapterId) === this.preloadGen) return;
     this.queue.set(chapterId, task);
     this.drain();
   }
 
   private drain(): void {
-    if (this.preloadSuspended || !this.isPreloadEnabled()) return;
+    if (this.cacheCleanupTask !== null || this.preloadSuspended || !this.isPreloadEnabled()) return;
     while (this.runningCount < MAX_CONCURRENT && this.queue.size > 0) {
       const first = this.queue.keys().next();
       if (first.done) return;
@@ -447,12 +500,13 @@ export class ChapterCacheService {
 
   /** 预缓存与手动下载分别持有 dataTransfer，暂停音频不会中断已经安排的有限队列。 */
   private async runQueuedTask(chapterId: string, task: () => Promise<void>, generation: number): Promise<void> {
+    const clearGeneration = this.clearGen;
     const context = this.appContext;
     if (context && !this.transferHeld) {
       this.transferHeld = true;
       await BackgroundTaskService.startDataTransfer(context, 'preload');
     }
-    if (!this.isPreloadEnabled() ||
+    if (clearGeneration !== this.clearGen || this.cacheCleanupTask !== null || !this.isPreloadEnabled() ||
       (generation !== this.preloadGen && chapterId !== this.priorityChapterId)) return;
     await task();
   }
@@ -559,7 +613,8 @@ export class ChapterCacheService {
 
   private async downloadFileStrict(book: Book, chapter: Chapter, audioUrl: string,
     headers: Record<string, string> = {}): Promise<void> {
-    if (!this.isPreloadEnabled() || (this.preloadSuspended && this.priorityChapterId !== chapter.id)) return;
+    if (this.cacheCleanupTask !== null || !this.isPreloadEnabled() ||
+      (this.preloadSuspended && this.priorityChapterId !== chapter.id)) return;
     // HLS 是播放清单，不能作为完整音频写入 mp3 缓存（包含点播与直播）。
     if (DownloadPolicy.isHls(audioUrl, '')) return;
     if (!this.appContext) return;
@@ -591,7 +646,7 @@ export class ChapterCacheService {
       this.activeDownloads.set(chapter.id, transport);
       const bytes = await transport.download({ url: audioUrl, headers: headers, finalPath: filePath });
       if (capturedGen !== this.clearGen || this.activeDownloads.get(chapter.id) !== transport) {
-        this.deleteFileSafely(filePath);
+        if (filePath !== this.playingFilePath) this.deleteFileSafely(filePath);
         return;
       }
       this.fileCache.set(chapter.id, {
@@ -647,6 +702,7 @@ export class ChapterCacheService {
 
   /** 文件缓存超过 1GB 后，按最近访问时间淘汰最久未使用的章节。 */
   private evictFileCache(): void {
+    if (this.cacheCleanupTask !== null) return;
     let totalBytes: number = 0;
     for (const entry of this.fileCache.values()) {
       totalBytes += Math.max(0, entry.bytes);
@@ -673,6 +729,7 @@ export class ChapterCacheService {
 
   /** 冷启动时按磁盘实际大小执行 1GB 上限，避免上个进程遗留文件脱离内存索引。 */
   private async enforceDiskCacheLimit(): Promise<void> {
+    if (this.cacheCleanupTask !== null) return;
     this.diskCleanupRequested = true;
     if (this.diskCleanupTask !== null) return this.diskCleanupTask;
     const task = this.drainDiskCleanup();
@@ -739,7 +796,6 @@ export class ChapterCacheService {
       const entry = this.fileCache.get(chapterId);
       if (entry && entry.filePath === filePath) {
         this.fileCache.delete(chapterId);
-        return;
       }
     }
   }

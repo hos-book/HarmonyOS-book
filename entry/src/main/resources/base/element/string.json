@@ -110,6 +110,14 @@
       "value": "漫画图片缓存"
     },
     {
+      "name": "settings_audio_cache_title",
+      "value": "音频缓存"
+    },
+    {
+      "name": "settings_audio_cache_confirm",
+      "value": "清理播放预加载的音频，之后收听时会按需重新加载。保留正在播放或写入的缓存，不影响书架、播放进度、本地导入和离线下载。离线下载可在下载管理中删除。"
+    },
+    {
       "name": "settings_reader_cache_loading",
       "value": "简简正在数一数缓存…"
     },
@@ -5638,14 +5646,6 @@
       "value": "第 %d / %d 章 · 第 %d / %d 页"
     },
     {
-      "name": "search_selected_sources",
-      "value": "指定源搜索"
-    },
-    {
-      "name": "search_source_all",
-      "value": "全部书源"
-    },
-    {
       "name": "comic_page_layout",
       "value": "图片分页"
     },
@@ -5676,6 +5676,14 @@
     {
       "name": "comic_joined_position",
       "value": "第 %d / %d 章 · 第 %d / %d 张"
+    },
+    {
+      "name": "search_selected_sources",
+      "value": "指定源搜索"
+    },
+    {
+      "name": "search_source_all",
+      "value": "全部书源"
     },
     {
       "name": "search_source_empty",
@@ -5732,6 +5740,26 @@
     {
       "name": "shelf_edit_source_cover",
       "value": "查找书源封面"
+    },
+    {
+      "name": "shelf_edit_link_cover",
+      "value": "使用图片链接"
+    },
+    {
+      "name": "shelf_edit_cover_link_placeholder",
+      "value": "粘贴 HTTP/HTTPS 图片链接"
+    },
+    {
+      "name": "shelf_edit_cover_link_apply",
+      "value": "预览并使用"
+    },
+    {
+      "name": "shelf_edit_cover_link_invalid",
+      "value": "请输入有效的 HTTP/HTTPS 图片链接"
+    },
+    {
+      "name": "shelf_edit_cover_link_failed",
+      "value": "图片加载失败或超时，请检查链接和网络后重试"
     },
     {
       "name": "shelf_edit_cover_failed",
@@ -5880,6 +5908,14 @@
     {
       "name": "settings_adaptive_handedness",
       "value": "智感握姿"
+    },
+    {
+      "name": "settings_swipe_switch_tabs",
+      "value": "横滑切换底部 Tab"
+    },
+    {
+      "name": "settings_swipe_switch_tabs_desc",
+      "value": "开启时横滑切换首页、书架、记录和我的；关闭时横滑切换首页栏目或书架类型"
     },
     {
       "name": "settings_adaptive_handedness_desc",

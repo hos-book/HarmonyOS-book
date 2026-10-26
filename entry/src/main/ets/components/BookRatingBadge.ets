@@ -5,9 +5,10 @@ import { BookMetadataPolicy } from '../utils/BookMetadataPolicy';
 export struct BookRatingBadge {
   @Param rating: number = 0;
   @Param coverWidth: number = 100;
+  @Param sizeScale: number = 1;
 
   private scaled(value: number): number {
-    return value * this.coverWidth / 100;
+    return value * this.coverWidth / 100 * this.sizeScale;
   }
 
   build() {

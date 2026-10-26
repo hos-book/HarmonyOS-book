@@ -41,15 +41,17 @@ function harness(count = 6, home = false) {
   let update;
   const exports = {};
   vm.runInNewContext(code, {
-    exports, Set, LocalRuleSource, LocalRuleSourceStatus: { READY: 'READY' },
+    exports, Set, LocalRuleSource, LocalRuleSourceStatus: { READY: 'READY' }, LightSourceRequest: class {},
     hilog: { warn() {} }, DOMAIN: 0, TAG: 'RecommendationsTest',
     SourceDataService: { getEnabledSources: async () => sources },
     HomeSourceService: {
       isEligible: () => home,
       loadHome: (_source, _refresh, onUpdate) => { update = onUpdate; return discovery.promise; }
     },
-    BookSourceService: { searchBooks: source => {
+    BookSourceService: { searchBooks: (source, _keyword, page, request) => {
       const task = deferred();
+      task.request = request;
+      assert.equal(page, 1);
       started.push(source.id);
       pending.set(source.id, task);
       return task.promise;
@@ -122,6 +124,9 @@ async function cancellationAndResume() {
   assert.deepEqual(Array.from(search.queue.recommendationBooks, value => value.bookUrl), ['9', '1'],
     'resuming preserves existing books and deduplicates arriving results');
   search.queue.recommendationGen++;
+  for (const task of search.pending.values()) {
+    assert.equal(task.request.cancelCheck(), true, 'submitting a keyword cancels in-flight recommendation requests');
+  }
   for (const task of search.pending.values()) task.resolve([book(2)]);
   await searchWork;
   assert.equal(search.queue.recommendationBooks.length, 2, 'late search results are discarded');

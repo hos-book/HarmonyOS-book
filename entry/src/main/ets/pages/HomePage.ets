@@ -1,4 +1,5 @@
 import { HdsCompat } from '../utils/HdsCompat';
+import { GeneralSettings } from '../model/GeneralSettings';
 import { curves, FrameCallback, LengthMetrics } from '@kit.ArkUI';
 import { ImmersiveTabComponent } from '../components/ImmersiveTabComponent';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -686,6 +687,17 @@ export struct HomePage {
     }, (): void => {
       this.carouselExpansion = target;
     });
+  }
+
+  private handleCategorySwipe(event: GestureEvent): void {
+    if (GeneralSettings.current.swipeSwitchTabs) return;
+    if (!this.visible || !this.homeResolved || this.rankingMode || this.homeSourceMenuVisible ||
+      this.isRefreshing || this.openingCarouselBook) return;
+    if (Math.abs(event.offsetX) < 48 || Math.abs(event.offsetX) <= Math.abs(event.offsetY) * 1.2) return;
+    const next: number = this.selectedCategoryIndex + (event.offsetX < 0 ? 1 : -1);
+    if (next < CATEGORY_OVERVIEW_INDEX || next >= this.homeCategories.length) return;
+    if (next === CATEGORY_OVERVIEW_INDEX) this.showCategoryOverview();
+    else this.switchCategory(next);
   }
 
   private showCategoryOverview(): void {
@@ -1518,6 +1530,11 @@ export struct HomePage {
     .onVisibleAreaChange([0, 1], (visible: boolean): void => {
       if (visible && this.lastSourceRevision !== SourceDataService.getInvalidationCounter()) this.reloadSource();
     })
+    .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('page-type-swipe')
+      .onActionEnd((event: GestureEvent): void => this.handleCategorySwipe(event)))
+    .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult =>
+      info.tag === 'page-type-swipe' && GeneralSettings.current.swipeSwitchTabs ?
+        GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
   }
 
   @Builder

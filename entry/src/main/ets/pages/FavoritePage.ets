@@ -155,7 +155,7 @@ export struct FavoritePage {
   @Local viewMode: number = 0; // 0=网格，1=列表
   private viewModeRevision: number = 0;
   private viewModeSaveTask: Promise<void> = Promise.resolve();
-  @Local shelfFilter: number = 0; // 0=全部, 1=有声书, 2=电子书
+  @Local shelfFilter: number = 0; // 0=全部, 1=有声书, 2=电子书, 3=漫画
   @Local shelfStatusFilter: number = 0; // 0=全部, 1=连载中, 2=已完结
   @Local statusFilterMenuVisible: boolean = false;
   @Local shelfKeyword: string = '';
@@ -1062,6 +1062,13 @@ export struct FavoritePage {
     }.width(200).padding(AppSpace.Xs)
   }
 
+  private handleShelfTypeSwipe(event: GestureEvent): void {
+    if (GeneralSettings.current.swipeSwitchTabs) return;
+    if (!this.visible || this.loading || this.isManaging || this.removingBook || this.isRefreshing) return;
+    if (Math.abs(event.offsetX) < 48 || Math.abs(event.offsetX) <= Math.abs(event.offsetY) * 1.2) return;
+    this.selectShelfFilter(this.shelfFilter + (event.offsetX < 0 ? 1 : -1));
+  }
+
   private selectShelfFilter(index: number): void {
     if (this.removingBook || this.showBatchDelete) return;
     if (index < 0 || index > 3 || this.shelfFilter === index) return;
@@ -1610,6 +1617,11 @@ export struct FavoritePage {
         })
         .refreshOffset(64)
         .pullToRefresh(!this.isManaging && !this.removingBook && !this.checkingUpdates)
+        .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('page-type-swipe')
+          .onActionEnd((event: GestureEvent): void => this.handleShelfTypeSwipe(event)))
+        .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult =>
+          info.tag === 'page-type-swipe' && GeneralSettings.current.swipeSwitchTabs ?
+            GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
         .width('100%')
         .layoutWeight(1)
         .backgroundColor(Color.Transparent)
@@ -2145,8 +2157,8 @@ export struct FavoritePage {
         this.buildPinnedBadge(book)
         if (this.isManaging) {
           Row() {
-            Blank()
             this.buildSelectionMark(book)
+            Blank()
           }.width('100%').padding(6)
         }
       }
@@ -2209,7 +2221,6 @@ export struct FavoritePage {
   buildPinnedBadge(book: Book) {
     if (this.pinnedBookIds.has(book.id) && !this.isManaging) {
       Row() {
-        Blank()
         SymbolGlyph($r('sys.symbol.pin'))
           .fontSize(16)
           .fontColor([AppColor.OnBrand])
@@ -2217,6 +2228,7 @@ export struct FavoritePage {
           .backgroundColor(AppColor.Brand)
           .borderRadius(AppRadius.Pill)
           .accessibilityText($r('app.string.shelf_pin'))
+        Blank()
       }
       .width('100%')
       .padding(4)
@@ -2227,20 +2239,25 @@ export struct FavoritePage {
   @Builder
   buildTypeBadge(small: boolean, contentType: string) {
     Row() {
-      Text(contentType === 'comic' ? $r('app.string.shelf_badge_comic') : contentType === 'text' ? $r('app.string.shelf_badge_text') : $r('app.string.shelf_badge_audio'))
-        .fontSize(small ? 9 : 10)
-        .fontColor(Color.White)
-        .fontWeight(FontWeight.Medium)
+      Row() {
+        Text(contentType === 'comic' ? $r('app.string.shelf_badge_comic') : contentType === 'text' ? $r('app.string.shelf_badge_text') : $r('app.string.shelf_badge_audio'))
+          .fontSize(small ? 9 : 10)
+          .fontColor(Color.White)
+          .fontWeight(FontWeight.Medium)
+      }
+      .padding({
+        left: small ? 5 : 6,
+        right: small ? 5 : 6,
+        top: small ? 2 : 3,
+        bottom: small ? 2 : 3
+      })
+      .backgroundColor(contentType === 'comic' ? '#CC8E5BB7' : contentType !== 'audio' ? '#CC4E7FA8' : '#CCFF8800')
+      .borderRadius(AppRadius.Sm)
     }
-    .padding({
-      left: small ? 5 : 6,
-      right: small ? 5 : 6,
-      top: small ? 2 : 3,
-      bottom: small ? 2 : 3
-    })
-    .backgroundColor(contentType === 'comic' ? '#CC8E5BB7' : contentType !== 'audio' ? '#CC4E7FA8' : '#CCFF8800')
-    .borderRadius(AppRadius.Sm)
-    .margin({ top: small ? 5 : 6, left: small ? 10 : 14 })
+    .width('100%')
+    .justifyContent(FlexAlign.End)
+    .padding({ top: small ? 5 : 6, right: small ? 5 : 6 })
+    .hitTestBehavior(HitTestMode.None)
   }
 
   @Builder

@@ -12,11 +12,6 @@ import { AppTheme, AppRadius, AppSpace, AppFont, AppColor } from '../theme/Theme
 import { PreferenceService } from '../service/PreferenceService';
 import { AudioService } from '../service/AudioService';
 import { ChapterCacheService } from '../service/ChapterCacheService';
-import { DataService } from '../service/DataService';
-import { DownloadService } from '../service/DownloadService';
-import { StatsService } from '../service/StatsService';
-import { TextToSpeechService } from '../service/text/TextToSpeechService';
-import { SearchCache } from '../utils/SearchCache';
 import { WidgetUpdater } from '../service/WidgetUpdater';
 import { WindowUtils } from '../utils/WindowUtils';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
@@ -24,7 +19,7 @@ import { ReaderPage } from './ReaderPage';
 import { RankingSettingsComponent } from '../components/RankingSettingsComponent';
 import { AppearanceSettingsComponent } from '../components/AppearanceSettingsComponent';
 import { CoverSuperResolutionService } from '../service/CoverSuperResolutionService';
-import { ReaderCacheService, ReaderCacheKind, ReaderCacheUsage } from '../service/ReaderCacheService';
+import { ReaderCacheService, ReaderCacheKind, ReaderCacheUsage, ReaderCacheCleanup } from '../service/ReaderCacheService';
 import { OnlineTextContentCache } from '../service/text/OnlineTextContentCache';
 
 interface ThemeOption {
@@ -76,6 +71,8 @@ const PRELOAD_OPTIONS: PreloadOption[] = [
 const ROW_INDENT: number = AppSpace.Md;
 const SEARCH_CONCURRENCY_OPTIONS: number[] = [3, 6, 9, 12];
 
+enum SettingsCacheKind { Text, Comic, Audio }
+
 @ComponentV2
 export struct SettingsPage {
   @Param navStack: NavPathStack = new NavPathStack();
@@ -103,7 +100,6 @@ export struct SettingsPage {
   @Local searchConcurrencyCustom: boolean = false;
   @Local isSavingSearchConcurrency: boolean = false;
   @Local isSavingPreload: boolean = false;
-  @Local isClearingListeningTime: boolean = false;
   @Local isLoaded: boolean = false;
   @Local preferencesLoadFailed: boolean = false;
   @Local searchConcurrencyLoading: boolean = true;
@@ -112,13 +108,13 @@ export struct SettingsPage {
   private preferencesLoadSerial: number = 0;
   @Local coverSuperResolution: boolean = false;
   @Local isSavingCoverSuperResolution: boolean = false;
-  @Local isClearingCache: boolean = false;
-  @Local isClearingBookshelf: boolean = false;
-  @Local isClearingDownloads: boolean = false;
   @Local readerCacheUsage: ReaderCacheUsage = new ReaderCacheUsage();
   @Local readerCacheLoading: boolean = true;
   @Local readerCacheFailed: boolean = false;
-  @Local clearingReaderCache: boolean = false;
+  @Local audioCacheBytes: number = 0;
+  @Local audioCacheLoading: boolean = true;
+  @Local audioCacheFailed: boolean = false;
+  @Local clearingCache: boolean = false;
   @Local viewportWidth: number = 0;
   @Local viewportHeight: number = 0;
   private viewportUpdateTimerId: number = -1;
@@ -127,6 +123,7 @@ export struct SettingsPage {
     this.alive = true;
     this.loadPrefs();
     this.loadReaderCacheUsage();
+    this.loadAudioCacheUsage();
   }
 
   aboutToDisappear(): void {
@@ -413,104 +410,6 @@ export struct SettingsPage {
     }
   }
 
-  private async clearCache(): Promise<void> {
-    if (this.isClearingCache) return;
-    this.isClearingCache = true;
-    try {
-      const result = await ChapterCacheService.getInstance().clearAllCache();
-      const msg = result.failed > 0
-        ? `已清除 ${result.deleted} 项，${result.failed} 项失败`
-        : `已清除 ${result.deleted} 项`;
-      try { this.getUIContext().getPromptAction().showToast({ message: msg }); } catch (_e) { /* ignore */ }
-    } catch (_e) {
-      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_clear_failed') }); } catch (_e2) { /* ignore */ }
-    } finally {
-      this.isClearingCache = false;
-    }
-  }
-
-  private showAudioStorageCleanup(): void {
-    const prompt = this.getUIContext().getPromptAction();
-    prompt.showDialog({
-      title: $r('app.string.settings_audio_storage_cleanup'),
-      message: $r('app.string.settings_audio_storage_cleanup_message'),
-      buttons: [
-        { text: $r('app.string.common_cancel'), color: '#8F8F8F' },
-        { text: $r('app.string.settings_clear_preload_cache'), color: AppColor.Brand },
-        { text: $r('app.string.settings_clear_downloads'), color: '#FF4444' }
-      ]
-    }).then((result) => {
-      if (result.index === 1) {
-        this.clearCache();
-      } else if (result.index === 2) {
-        this.confirmClearDownloads();
-      }
-    }).catch(() => { /* ignore */ });
-  }
-
-  private confirmClearBookshelf(): void {
-    const prompt = this.getUIContext().getPromptAction();
-    prompt.showDialog({
-      title: '清空在线收藏与播放记录',
-      message: '将清除在线收藏、播放记录与进度。本地导入、下载内容和跳过头尾设置会保留。此操作不可恢复,确定吗?',
-      buttons: [
-        { text: '取消', color: '#8F8F8F' },
-        { text: '清空', color: '#FF4444' }
-      ]
-    }).then((result) => {
-      if (result.index === 1) this.doClearBookshelf();
-    }).catch(() => { /* ignore */ });
-  }
-
-  private confirmResetListeningTime(): void {
-    if (this.isClearingListeningTime) return;
-    this.getUIContext().getPromptAction().showDialog({
-      title: $r('app.string.settings_reset_listening_title'),
-      message: $r('app.string.settings_reset_listening_confirm'),
-      buttons: [
-        { text: $r('app.string.settings_reset_listening_cancel'), color: '#8F8F8F' },
-        { text: $r('app.string.settings_reset_listening_action'), color: '#FF4444' }
-      ]
-    }).then((result): void => {
-      if (result.index === 1) this.resetListeningTime();
-    }).catch((): void => {});
-  }
-
-  private async resetListeningTime(): Promise<void> {
-    if (this.isClearingListeningTime) return;
-    this.isClearingListeningTime = true;
-    try {
-      TextToSpeechService.getInstance().pause();
-      await AudioService.getInstance().pause();
-      await StatsService.resetListeningTime();
-      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_reset_listening_done') });
-    } catch (error) {
-      hilog.warn(0xFF00, 'SettingsPage', 'Reset listening time failed: %{public}s', String(error));
-      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_reset_listening_failed') });
-    } finally { this.isClearingListeningTime = false; }
-  }
-
-  private async doClearBookshelf(): Promise<void> {
-    if (this.isClearingBookshelf) return;
-    this.isClearingBookshelf = true;
-    try {
-      const audioService = AudioService.getInstance();
-      await audioService.stopForClear();
-      await PreferenceService.clearOnlineFavoritesAndHistory();
-      await DataService.clearCachedBooks();
-      await ChapterCacheService.getInstance().wipeDiskCaches();
-      await StatsService.clearBookStats();
-      SearchCache.clear();
-      audioService.unfreezePersist();
-      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_online_records_cleared') }); } catch (_e) { /* ignore */ }
-    } catch (_e) {
-      AudioService.getInstance().unfreezePersist();
-      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_clear_failed') }); } catch (_e2) { /* ignore */ }
-    } finally {
-      this.isClearingBookshelf = false;
-    }
-  }
-
   private async setColorMode(mode: number): Promise<void> {
     const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     const appCtx = ctx.getApplicationContext();
@@ -528,45 +427,6 @@ export struct SettingsPage {
     }, 100);
   }
 
-  private confirmClearDownloads(): void {
-    const prompt = this.getUIContext().getPromptAction();
-    prompt.showDialog({
-      title: '清除下载内容',
-      message: '将删除所有整本/单章离线下载音频，不会删除书架、收藏和播放记录。确定清除吗？',
-      buttons: [
-        { text: '取消', color: '#8F8F8F' },
-        { text: '清除', color: '#FF4444' }
-      ]
-    }).then((result) => {
-      if (result.index === 1) this.doClearDownloads();
-    }).catch(() => { /* ignore */ });
-  }
-
-  private async doClearDownloads(): Promise<void> {
-    if (this.isClearingDownloads) return;
-    this.isClearingDownloads = true;
-    try {
-      await DownloadService.getInstance().clearAllDownloads();
-      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_downloads_cleared') }); } catch (_e) { /* ignore */ }
-    } catch (_e) {
-      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_clear_failed') }); } catch (_e2) { /* ignore */ }
-    } finally {
-      this.isClearingDownloads = false;
-    }
-  }
-
-  private clearEpubCache(): void {
-    try {
-      ReaderPage.clearEpubCache();
-      hilog.info(0xFF00, 'SettingsPage', 'epub handler cache cleared');
-      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_ebook_cache_cleared') }); } catch (_e) { /* ignore */ }
-    } catch (e) {
-      hilog.warn(0xFF00, 'SettingsPage', 'clear epub cache failed: %{public}s',
-        e instanceof Error ? e.message : String(e));
-      try { this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_clear_failed') }); } catch (_e) { /* ignore */ }
-    }
-  }
-
   private async loadReaderCacheUsage(): Promise<void> {
     this.readerCacheLoading = true;
     this.readerCacheFailed = false;
@@ -581,44 +441,95 @@ export struct SettingsPage {
     } finally { if (this.alive) this.readerCacheLoading = false; }
   }
 
+  private async loadAudioCacheUsage(): Promise<void> {
+    this.audioCacheLoading = true;
+    this.audioCacheFailed = false;
+    try {
+      const bytes = await ChapterCacheService.getInstance().getCacheUsage();
+      if (this.alive) this.audioCacheBytes = bytes;
+    } catch (_error) {
+      if (this.alive) this.audioCacheFailed = true;
+    } finally { if (this.alive) this.audioCacheLoading = false; }
+  }
+
   private cacheSize(bytes: number): string {
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`;
     if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
   }
 
-  private readerCacheSummary(kind: ReaderCacheKind): ResourceStr {
-    if (this.readerCacheLoading) return $r('app.string.settings_reader_cache_loading');
-    if (this.readerCacheFailed) return $r('app.string.settings_reader_cache_unavailable');
-    return $r('app.string.settings_reader_cache_summary',
-      this.cacheSize(kind === ReaderCacheKind.Text ? this.readerCacheUsage.textBytes : this.readerCacheUsage.comicBytes),
-      this.cacheSize(kind === ReaderCacheKind.Text ? ReaderCacheService.TEXT_LIMIT : ReaderCacheService.COMIC_LIMIT));
+  private cacheTitle(kind: SettingsCacheKind): ResourceStr {
+    if (kind === SettingsCacheKind.Audio) return $r('app.string.settings_audio_cache_title');
+    return kind === SettingsCacheKind.Text ? $r('app.string.settings_text_cache_title') : $r('app.string.settings_comic_cache_title');
   }
 
-  private async clearReaderCache(kind: ReaderCacheKind): Promise<void> {
-    if (this.clearingReaderCache) return;
-    if (this.readerCacheFailed) { await this.loadReaderCacheUsage(); return; }
-    this.clearingReaderCache = true;
+  private cacheLoading(kind: SettingsCacheKind): boolean {
+    return kind === SettingsCacheKind.Audio ? this.audioCacheLoading : this.readerCacheLoading;
+  }
+
+  private cacheFailed(kind: SettingsCacheKind): boolean {
+    return kind === SettingsCacheKind.Audio ? this.audioCacheFailed : this.readerCacheFailed;
+  }
+
+  private cacheSummary(kind: SettingsCacheKind): ResourceStr {
+    if (this.cacheLoading(kind)) return $r('app.string.settings_reader_cache_loading');
+    if (this.cacheFailed(kind)) return $r('app.string.settings_reader_cache_unavailable');
+    if (kind === SettingsCacheKind.Audio) return $r('app.string.settings_reader_cache_summary',
+      this.cacheSize(this.audioCacheBytes), this.cacheSize(ChapterCacheService.CACHE_LIMIT));
+    return $r('app.string.settings_reader_cache_summary',
+      this.cacheSize(kind === SettingsCacheKind.Text ? this.readerCacheUsage.textBytes : this.readerCacheUsage.comicBytes),
+      this.cacheSize(kind === SettingsCacheKind.Text ? ReaderCacheService.TEXT_LIMIT : ReaderCacheService.COMIC_LIMIT));
+  }
+
+  private async refreshCacheUsage(kind: SettingsCacheKind): Promise<void> {
+    if (kind === SettingsCacheKind.Audio) await this.loadAudioCacheUsage();
+    else await this.loadReaderCacheUsage();
+  }
+
+  private async clearCache(kind: SettingsCacheKind): Promise<void> {
+    if (this.clearingCache || this.cacheLoading(kind)) return;
+    if (this.cacheFailed(kind)) { await this.refreshCacheUsage(kind); return; }
+    this.clearingCache = true;
     try {
       const prompt = this.getUIContext().getPromptAction();
-      const choice = await prompt.showDialog({
-        title: kind === ReaderCacheKind.Text ? $r('app.string.settings_text_cache_title') : $r('app.string.settings_comic_cache_title'),
-        message: $r('app.string.settings_reader_cache_confirm'),
-        buttons: [{ text: $r('app.string.common_cancel'), color: AppTheme.TextSecondary },
-          { text: $r('app.string.settings_reader_cache_clear'), color: AppColor.Brand }]
-      });
-      if (choice.index !== 1 || !this.alive) return;
-      const context = this.getUIContext().getHostContext();
-      if (!context) throw new Error('Context unavailable');
-      const result = kind === ReaderCacheKind.Text ? await OnlineTextContentCache.clear(context) :
-        await ReaderCacheService.clear(ReaderCacheKind.Comic);
-      if (kind === ReaderCacheKind.Text) ReaderPage.clearTextContentCache();
-      if (this.alive) prompt.showToast({ message: $r('app.string.settings_reader_cache_result',
-        this.cacheSize(result.releasedBytes), result.protectedCount, result.failed) });
-      await this.loadReaderCacheUsage();
+      let choiceIndex: number = -1;
+      try {
+        const choice = await prompt.showDialog({
+          title: this.cacheTitle(kind),
+          message: kind === SettingsCacheKind.Audio ? $r('app.string.settings_audio_cache_confirm') : $r('app.string.settings_reader_cache_confirm'),
+          buttons: [{ text: $r('app.string.common_cancel'), color: AppTheme.TextSecondary },
+            { text: $r('app.string.settings_reader_cache_clear'), color: AppColor.Brand }]
+        });
+        choiceIndex = choice.index;
+      } catch (_dialogError) { return; }
+      if (choiceIndex !== 1 || !this.alive) return;
+      let result: ReaderCacheCleanup = new ReaderCacheCleanup();
+      if (kind === SettingsCacheKind.Audio) {
+        const audioResult = await ChapterCacheService.getInstance().clearAllCache();
+        result.releasedBytes = audioResult.releasedBytes;
+        result.protectedCount = audioResult.protectedCount;
+        result.failed = audioResult.failed;
+      } else {
+        const context = this.getUIContext().getHostContext();
+        if (!context) throw new Error('Context unavailable');
+        result = kind === SettingsCacheKind.Text ? await OnlineTextContentCache.clear(context) :
+          await ReaderCacheService.clear(ReaderCacheKind.Comic);
+        if (kind === SettingsCacheKind.Text) ReaderPage.clearTextContentCache();
+      }
+      if (!this.alive) return;
+      await this.refreshCacheUsage(kind);
+      if (this.alive) {
+        try {
+          prompt.showToast({ message: $r('app.string.settings_reader_cache_result',
+            this.cacheSize(result.releasedBytes), result.protectedCount, result.failed) });
+        } catch (_toastError) { /* 占用已刷新，提示失败不改变清理结果。 */ }
+      }
     } catch (_error) {
-      if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_reader_cache_clear_failed') });
-    } finally { if (this.alive) this.clearingReaderCache = false; }
+      if (this.alive) {
+        await this.refreshCacheUsage(kind);
+        if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_reader_cache_clear_failed') });
+      }
+    } finally { if (this.alive) this.clearingCache = false; }
   }
 
   build() {
@@ -673,6 +584,15 @@ export struct SettingsPage {
     if (this.savingGeneral) return;
     this.savingGeneral = true;
     try { await PreferenceService.setAdaptiveHandedness(enabled); }
+    catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
+    } finally { this.savingGeneral = false; }
+  }
+
+  private async setSwipeSwitchTabs(enabled: boolean): Promise<void> {
+    if (!this.isLoaded || this.savingGeneral || enabled === this.generalSettings.swipeSwitchTabs) return;
+    this.savingGeneral = true;
+    try { await PreferenceService.setSwipeSwitchTabs(enabled); }
     catch (_error) {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
     } finally { this.savingGeneral = false; }
@@ -781,6 +701,14 @@ export struct SettingsPage {
         AppearanceSettingsComponent()
         this.buildDivider()
         this.buildSwitchItem(
+          $r('app.string.settings_swipe_switch_tabs'),
+          $r('app.string.settings_swipe_switch_tabs_desc'),
+          UIUtils.makeBinding<boolean>(() => this.generalSettings.swipeSwitchTabs),
+          (enabled: boolean): void => { this.setSwipeSwitchTabs(enabled); },
+          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral)
+        )
+        this.buildDivider()
+        this.buildSwitchItem(
           $r('app.string.settings_adaptive_handedness'),
           $r('app.string.settings_adaptive_handedness_desc'),
           UIUtils.makeBinding<boolean>(() => this.generalSettings.adaptiveHandedness),
@@ -795,7 +723,8 @@ export struct SettingsPage {
           UIUtils.makeBinding<boolean>(() => this.coverSuperResolution && this.membership.hasAccess),
           (enabled: boolean): void => { this.setCoverSuperResolution(enabled); },
           UIUtils.makeBinding<boolean>(() =>
-            this.isLoaded && this.membership.hasAccess && !this.isSavingCoverSuperResolution && CoverSuperResolutionService.supported())
+            this.isLoaded && this.membership.hasAccess && !this.isSavingCoverSuperResolution && CoverSuperResolutionService.supported()),
+          true
         )
       }
       .width('100%')
@@ -909,37 +838,16 @@ export struct SettingsPage {
 
         this.buildDivider()
 
-        this.buildActionItem(
-          '清除电子书缓存',
-          '清除已解析的 EPUB 电子书缓存，下次打开时重新加载',
-          () => this.clearEpubCache(),
-          false
-        )
+        this.buildCacheItem(SettingsCacheKind.Text)
 
         this.buildDivider()
 
-        this.buildReaderCacheItem(ReaderCacheKind.Text)
+        this.buildCacheItem(SettingsCacheKind.Comic)
 
         this.buildDivider()
 
-        this.buildReaderCacheItem(ReaderCacheKind.Comic)
+        this.buildCacheItem(SettingsCacheKind.Audio)
 
-        this.buildDivider()
-
-        this.buildActionItem(
-          $r('app.string.settings_audio_storage_cleanup'),
-          $r('app.string.settings_audio_storage_cleanup_desc'),
-          () => this.showAudioStorageCleanup(),
-          this.isClearingCache || this.isClearingDownloads
-        )
-
-        this.buildDivider()
-
-        this.buildActionItem('清空在线收藏与播放记录', '清除在线收藏 / 缓存书 / 播放记录，保留导入和下载', () => this.confirmClearBookshelf(), this.isClearingBookshelf)
-        this.buildDivider()
-        this.buildActionItem($r('app.string.settings_reset_listening_title'),
-          $r('app.string.settings_reset_listening_subtitle'),
-          (): void => this.confirmResetListeningTime(), this.isClearingListeningTime)
       }
       .width('100%')
       .backgroundColor(AppTheme.Surface)
@@ -1050,13 +958,20 @@ export struct SettingsPage {
     subtitle: ResourceStr,
     isOn: Binding<boolean>,
     onChange: (isOn: boolean) => void,
-    enabled: Binding<boolean>
+    enabled: Binding<boolean>,
+    vipFeature: boolean = false
   ) {
     Row() {
       Column({ space: 2 }) {
-        Text(title)
-          .fontSize(AppFont.BodyL)
-          .fontColor(AppTheme.TextPrimary)
+        Row({ space: AppSpace.Sm }) {
+          Text(title)
+            .fontSize(AppFont.BodyL)
+            .fontColor(AppTheme.TextPrimary)
+            .flexShrink(1)
+          if (vipFeature && MembershipState.featureEnabled) {
+            VipFeatureBadge()
+          }
+        }.width('100%')
         if (typeof subtitle !== 'string' || subtitle.length > 0) {
           Text(subtitle)
             .fontSize(AppFont.Caption)
@@ -1082,17 +997,17 @@ export struct SettingsPage {
   }
 
   @Builder
-  buildReaderCacheItem(kind: ReaderCacheKind) {
+  buildCacheItem(kind: SettingsCacheKind) {
     Row() {
       Column({ space: 2 }) {
-        Text(kind === ReaderCacheKind.Text ? $r('app.string.settings_text_cache_title') : $r('app.string.settings_comic_cache_title'))
+        Text(this.cacheTitle(kind))
           .fontSize(AppFont.BodyL)
           .fontColor(AppTheme.TextPrimary)
-        Text(this.readerCacheSummary(kind))
+        Text(this.cacheSummary(kind))
           .fontSize(AppFont.Caption)
           .fontColor(AppTheme.TextTertiary)
       }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-      if (this.clearingReaderCache || this.readerCacheLoading) {
+      if (this.clearingCache || this.cacheLoading(kind)) {
         LoadingProgress().width(18).height(18).color(AppColor.Brand)
       } else {
         SymbolGlyph($r('sys.symbol.trash')).fontSize(18).fontColor([AppTheme.TextTertiary])
@@ -1101,45 +1016,7 @@ export struct SettingsPage {
     .width('100%')
     .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
     .constraintSize({ minHeight: 56 })
-    .enabled(!this.clearingReaderCache && !this.readerCacheLoading)
-    .onClick(() => this.clearReaderCache(kind))
-  }
-
-  @Builder
-  buildActionItem(title: ResourceStr, subtitle: ResourceStr, onAction: () => void, isClearing: boolean = false) {
-    Row() {
-      Column({ space: 2 }) {
-        Text(title)
-          .fontSize(AppFont.BodyL)
-          .fontColor(AppTheme.TextPrimary)
-        Text(subtitle)
-          .fontSize(AppFont.Caption)
-          .fontColor(AppTheme.TextTertiary)
-      }
-      .alignItems(HorizontalAlign.Start)
-      .layoutWeight(1)
-
-      if (isClearing) {
-        LoadingProgress()
-          .width(18)
-          .height(18)
-          .color(AppColor.Brand)
-      } else {
-        SymbolGlyph($r('sys.symbol.trash'))
-          .fontSize(18)
-          .fontColor([AppTheme.TextTertiary])
-      }
-    }
-    .width('100%')
-    .padding({
-      left: ROW_INDENT,
-      right: ROW_INDENT,
-      top: AppSpace.Sm,
-      bottom: AppSpace.Sm
-    })
-    .constraintSize({ minHeight: 56 })
-    .enabled(!this.isClearingCache && !this.isClearingBookshelf && !this.isClearingDownloads)
-    .opacity((this.isClearingCache || this.isClearingBookshelf || this.isClearingDownloads) ? 0.5 : 1.0)
-    .onClick(() => onAction())
+    .enabled(!this.clearingCache && !this.cacheLoading(kind))
+    .onClick(() => this.clearCache(kind))
   }
 }

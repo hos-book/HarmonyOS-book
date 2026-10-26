@@ -9,6 +9,7 @@ import { AppColor, AppMaterial, HomeTheme, AppSpace, AppRadius, AppTheme } from 
 import { ThemeIconRole } from '../theme/ThemeIcons';
 import { ThemeIconComponent } from '../components/ThemeIconComponent';
 import { HdsCompat } from '../utils/HdsCompat';
+import { GeneralSettings } from '../model/GeneralSettings';
 import { WindowUtils } from '../utils/WindowUtils';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
@@ -415,6 +416,22 @@ export struct RankingHomePage {
     } finally {
       if (generation === this.generation) { this.loading = false; this.refreshing = false; }
     }
+  }
+
+  private handlePlatformSwipe(event: GestureEvent): void {
+    if (GeneralSettings.current.swipeSwitchTabs) return;
+    if (!this.visible || this.showSheet || this.activeBoard !== undefined || this.boardTransitioning || this.refreshing) return;
+    if (Math.abs(event.offsetX) < 48 || Math.abs(event.offsetX) <= Math.abs(event.offsetY) * 1.2) return;
+    const current: number = this.overview ? -1 :
+      this.platforms.findIndex((platform: RankingPlatform): boolean => platform.id === this.platformId);
+    const next: number = current + (event.offsetX < 0 ? 1 : -1);
+    if (next < -1 || next >= this.platforms.length) return;
+    if (next === -1) {
+      this.overview = true;
+      return;
+    }
+    this.selectPlatform(this.platforms[next].id);
+    try { this.categoryScroller.scrollToIndex(next, true, ScrollAlign.AUTO); } catch (_error) { /* 分类栏尚未挂载。 */ }
   }
 
   private selectPlatform(id: string): void {
@@ -1030,6 +1047,11 @@ export struct RankingHomePage {
       })
       .padding({ left: this.leftSafe, right: this.rightSafe })
       .enabled(this.activeBoard === undefined)
+      .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('page-type-swipe')
+        .onActionEnd((event: GestureEvent): void => this.handlePlatformSwipe(event)))
+      .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult =>
+        info.tag === 'page-type-swipe' && GeneralSettings.current.swipeSwitchTabs ?
+          GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
       .accessibilityLevel(this.activeBoard === undefined ? 'auto' : 'no-hide-descendants')
       .systemBarStyle({ statusBarContentColor: this.statusBarContentColor },
         { statusBarContentColor: this.statusBarContentColor })

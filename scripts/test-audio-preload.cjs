@@ -425,7 +425,7 @@ function load(name) {
   migrationIo.stat = async filename => {
     if (filename === '/files' || filename === '/cache') return { isDirectory: () => true };
     if (!sizes.has(filename)) throw new Error('missing');
-    return { size: sizes.get(filename), mtime: 1, isDirectory: () => false };
+    return { size: sizes.get(filename), mtime: 1, isDirectory: () => false, isFile: () => true };
   };
   migrationIo.copyFile = async (from, to) => { sizes.set(to, sizes.get(from)); };
   migrationIo.moveFile = async (from, to) => { sizes.set(to, sizes.get(from)); sizes.delete(from); };
@@ -461,4 +461,105 @@ function load(name) {
   assert.equal(sizes.has(old), false);
   for (const protectedPath of [pinned, part, publishing]) assert.equal(sizes.has(protectedPath), true);
   console.log('PASS disk eviction excludes partial, playing and publishing files');
+
+  // Exercise the settings cleanup against real files, including cold-start files
+  // that have no in-memory cache entry and a recoverable deletion failure.
+  const temporary = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'audio-cache-cleanup-'));
+  const filesDir = path.join(temporary, 'files').replaceAll('\\', '/');
+  const cacheDir = path.join(temporary, 'cache').replaceAll('\\', '/');
+  fs.mkdirSync(filesDir);
+  fs.mkdirSync(cacheDir);
+  const originalIo = { ...io };
+  const unlinkCalls = [];
+  const pendingUnlinks = [];
+  let failingPath = `${filesDir}/chap_failure.mp3`;
+  try {
+    io.listFile = dir => fs.promises.readdir(dir);
+    io.stat = filename => fs.promises.stat(filename);
+    io.statSync = filename => fs.statSync(filename);
+    io.access = async filename => fs.existsSync(filename);
+    io.unlink = filename => {
+      unlinkCalls.push(filename);
+      if (filename === failingPath) return Promise.reject(new Error('file busy'));
+      const task = fs.promises.unlink(filename);
+      pendingUnlinks.push(task);
+      return task;
+    };
+    const fixtureFiles = new Map([
+      ['chap_indexed.mp3', 4096], ['chap_cold.mp3', 8192], ['chap_playing.mp3', 2048],
+      ['chap_publishing.mp3', 3072], ['chap_failure.mp3', 5120], ['chap_active.mp3.part', 1024],
+      ['imported.mp3', 2048]
+    ]);
+    for (const [name, bytes] of fixtureFiles) fs.writeFileSync(`${filesDir}/${name}`, Buffer.alloc(bytes));
+    fs.mkdirSync(`${filesDir}/chap_directory.mp3`);
+    fs.writeFileSync(`${filesDir}/chap_directory.mp3/keep`, 'directory');
+    fs.mkdirSync(`${filesDir}/downloads`);
+    fs.writeFileSync(`${filesDir}/downloads/manual.mp3`, Buffer.alloc(8192));
+    const cleanup = new ChapterCacheService();
+    cleanup.appContext = { filesDir, cacheDir };
+    cleanup.setPlayingFile(`${filesDir}/chap_playing.mp3`);
+    cleanup.activeFilePaths.add(`${filesDir}/chap_publishing.mp3`);
+    for (const id of ['indexed', 'indexed-alias']) {
+      cleanup.fileCache.set(id, { filePath: `${filesDir}/chap_indexed.mp3`, bytes: 99, timestamp: 1, pageUrl: id });
+    }
+    cleanup.fileCache.set('playing', { filePath: cleanup.playingFilePath, bytes: 2048, timestamp: 1, pageUrl: 'playing' });
+    assert.equal(ChapterCacheService.CACHE_LIMIT, 1024 ** 3);
+    assert.equal(await cleanup.getCacheUsage(), 22528, 'Usage reads the actual complete audio files, not stale index sizes');
+    const vanishingPath = `${filesDir}/chap_vanishing.mp3`;
+    fs.writeFileSync(vanishingPath, Buffer.alloc(1536));
+    io.stat = filename => {
+      if (filename === vanishingPath && fs.existsSync(filename)) fs.unlinkSync(filename);
+      return fs.promises.stat(filename);
+    };
+    const clearing = cleanup.clearAllCache();
+    assert.equal(cleanup.clearAllCache(), clearing, 'Concurrent cleanup requests share a single disk operation');
+    const cleanupResult = await clearing;
+    assert.deepEqual({ ...cleanupResult }, { deleted: 2, failed: 1, releasedBytes: 12288, protectedCount: 2 });
+    assert.equal(fs.existsSync(vanishingPath), false, 'Concurrent cancellation is not reported as a failed deletion');
+    assert.equal(unlinkCalls.filter(filename => filename.endsWith('/chap_indexed.mp3')).length, 1);
+    assert.equal(cleanup.fileCache.has('indexed'), false);
+    assert.equal(cleanup.fileCache.has('indexed-alias'), false);
+    assert.equal(cleanup.fileCache.has('playing'), true);
+    for (const name of ['chap_playing.mp3', 'chap_publishing.mp3', 'chap_failure.mp3',
+      'chap_active.mp3.part', 'imported.mp3', 'chap_directory.mp3/keep', 'downloads/manual.mp3']) {
+      assert.equal(fs.existsSync(`${filesDir}/${name}`), true, `${name} must be retained`);
+    }
+    assert.equal(await cleanup.getCacheUsage(), 10240);
+    cleanup.setPlayingFile();
+    cleanup.activeFilePaths.clear();
+    failingPath = '';
+    const retried = await cleanup.clearAllCache();
+    assert.deepEqual({ ...retried }, { deleted: 3, failed: 0, releasedBytes: 10240, protectedCount: 0 });
+    assert.equal(await cleanup.getCacheUsage(), 0);
+    console.log('PASS real audio cleanup counts bytes once, retains playing/publishing files and downloads, and reports failed deletions');
+
+    // A transport can finish publishing after cancellation; it must not restore
+    // the cleared generation or remove a file that playback has already taken.
+    for (const playingAfterCancel of [false, true]) {
+      const lateBook = makeBook(`late-clear-${playingAfterCancel}`);
+      const lateChapter = lateBook.chapters[0];
+      const downloadTask = cleanup.downloadFile(lateBook, lateChapter, 'https://cdn.invalid/late-clear.mp3');
+      await settle();
+      const lateTransfer = transfers.at(-1);
+      lateTransfer.cancel = () => { lateTransfer.cancelled = true; };
+      await cleanup.clearAllCache();
+      assert.equal(lateTransfer.cancelled, true);
+      const finalPath = lateTransfer.options.finalPath;
+      if (playingAfterCancel) cleanup.setPlayingFile(finalPath);
+      fs.writeFileSync(finalPath, Buffer.alloc(4096));
+      lateTransfer.finish(4096);
+      await downloadTask;
+      await Promise.all(pendingUnlinks);
+      assert.equal(cleanup.fileCache.has(lateChapter.id), false, 'Late completion cannot repopulate the cleared cache index');
+      assert.equal(fs.existsSync(finalPath), playingAfterCancel);
+    }
+    console.log('PASS clear cancellation ignores late publication and protects playback takeover');
+    io.listFile = async () => { throw new Error('storage unavailable'); };
+    await assert.rejects(cleanup.getCacheUsage(), /storage unavailable/);
+    await assert.rejects(cleanup.clearAllCache(), /storage unavailable/);
+    assert.equal(cleanup.cacheCleanupTask, null, 'A failed scan releases cleanup state for retry');
+  } finally {
+    Object.assign(io, originalIo);
+    fs.rmSync(temporary, { recursive: true, force: true });
+  }
 })().catch(error => { console.error(error); process.exitCode = 1; });

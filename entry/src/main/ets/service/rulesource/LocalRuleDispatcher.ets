@@ -24,11 +24,12 @@ export class LocalRuleDispatcher {
   }
 
   static async search(source: LocalRuleSource, keyword: string,
-    page: number = 1): Promise<SearchResult[]> {
-    if (!source.isSearchEnabled()) return [];
+    page: number = 1, request?: LightSourceRequest): Promise<SearchResult[]> {
+    if (request?.isCancelled() || !source.isSearchEnabled()) return [];
     try {
-      return await LocalRuleDispatcher.searchStrict(source, keyword, page);
+      return await LocalRuleDispatcher.searchStrict(source, keyword, page, {}, request);
     } catch (error) {
+      if (request?.isCancelled()) return [];
       LocalRuleDispatcher.logFailure(source, 'search', error as Object);
       return [];
     }
@@ -69,9 +70,10 @@ export class LocalRuleDispatcher {
   }
 
   static async getBookInfo(source: LocalRuleSource, bookUrl: string,
-    variables: Record<string, string> = {}): Promise<BookInfo | null> {
+    variables: Record<string, string> = {}, request?: LightSourceRequest): Promise<BookInfo | null> {
+    if (request?.isCancelled()) return null;
     LocalRuleDispatcher.requireSource(source);
-    return LightSourceBridge.detail(source, bookUrl, variables);
+    return LightSourceBridge.detail(source, bookUrl, variables, request);
   }
 
   static async getBookToc(source: LocalRuleSource, tocUrl: string,
@@ -114,9 +116,9 @@ export class LocalRuleDispatcher {
   }
 
   private static async searchStrict(source: LocalRuleSource, keyword: string,
-    page: number, variables: Record<string, string> = {}): Promise<SearchResult[]> {
+    page: number, variables: Record<string, string> = {}, request?: LightSourceRequest): Promise<SearchResult[]> {
     LocalRuleDispatcher.requireSource(source);
-    return LightSourceBridge.search(source, keyword, page);
+    return LightSourceBridge.search(source, keyword, page, request);
   }
 
   private static requireSource(source: LocalRuleSource): void {

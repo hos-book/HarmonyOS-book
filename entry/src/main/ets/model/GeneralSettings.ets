@@ -5,4 +5,5 @@ export class GeneralSettings {
   @Trace historyEnabled: boolean = true;
   @Trace showShelfSource: boolean = true;
   @Trace adaptiveHandedness: boolean = true;
+  @Trace swipeSwitchTabs: boolean = true;
 }

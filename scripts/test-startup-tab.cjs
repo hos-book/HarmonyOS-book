@@ -18,11 +18,12 @@ function page(read, historyEnabled = true) {
     tabChanged(index: number) { ${tabChanged} }
   }`, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
-  }).outputText, { exports, PreferenceService: { getDefaultTab: read }, Curve: { EaseOut: 'ease-out' } });
+  }).outputText, { exports, PreferenceService: { getDefaultTab: read }, Curve: { EaseOut: 'ease-out' },
+    GestureJudgeResult: { CONTINUE: 0, REJECT: 1 } });
   const value = new exports.Page();
   Object.assign(value, { tabsReady: false, defaultTabRequest: 0, pendingInitialTab: -1,
     tabFadeRunning: false, tabFadeCommitIndex: -1, tabFadeGeneration: 0, tabContentOpacity: 1,
-    currentTab: 0, generalSettings: { historyEnabled }, switches: [] });
+    currentTab: 0, generalSettings: { historyEnabled, swipeSwitchTabs: true }, switches: [] });
   value.tabController = { changeIndex: i => value.switches.push(i) };
   value.getUIContext = () => ({ animateTo: (_options, update) => update() });
   return value;
@@ -116,17 +117,13 @@ function page(read, historyEnabled = true) {
   assert.equal(fade.tabFadeRunning, true, 'keep the transition locked until fade-in completes');
   finishes.shift()();
   assert.equal(fade.tabFadeRunning, false);
-  for (const event of [{ offsetX: -20, offsetY: 0 }, { offsetX: 60, offsetY: 100 }]) {
-    fade.handleTabSwipe(event);
-    assert.equal(finishes.length, 0, 'short and vertical gestures must not switch tabs');
-  }
-  fade.handleTabSwipe({ offsetX: -100, offsetY: 5 });
+  fade.changeTab(3);
   finishes.shift()();
   finishes.shift()();
   assert.equal(fade.currentTab, 3);
-  fade.handleTabSwipe({ offsetX: -100, offsetY: 0 });
-  assert.equal(finishes.length, 0, 'last tab must not wrap around');
-  fade.handleTabSwipe({ offsetX: 100, offsetY: 0 });
+  fade.changeTab(3);
+  assert.equal(finishes.length, 0, 'clicking the selected tab must not animate again');
+  fade.changeTab(2);
   const obsoleteFinish = finishes.shift();
   fade.generalSettings.historyEnabled = false;
   fade.onHistoryVisibilityChanged();
@@ -134,16 +131,31 @@ function page(read, historyEnabled = true) {
   assert.equal(fade.currentTab, 3, 'history visibility changes cancel stale transition commits');
   assert.equal(fade.nativeTabIndex, 2);
   assert.equal(fade.tabContentOpacity, 1);
-  fade.handleTabSwipe({ offsetX: 100, offsetY: 0 });
+  fade.changeTab(1);
   finishes.shift()();
   finishes.shift()();
-  assert.equal(fade.currentTab, 1, 'swipe skips hidden history');
-  fade.handleTabSwipe({ offsetX: 100, offsetY: 0 });
+  assert.equal(fade.currentTab, 1, 'clicking shelf works with hidden history');
+  fade.changeTab(0);
   const disposedFinish = finishes.shift();
   fade.resetTabFade();
   disposedFinish();
   assert.equal(fade.currentTab, 1, 'disposed transitions cannot navigate later');
   assert.equal(fade.tabContentOpacity, 1);
-  console.log('PASS: fade ordering, repeated input, short/vertical swipes, boundaries, hidden history and stale callbacks');
+  assert.ok(source.includes('.scrollable(false)'), 'native bottom-tab swipes stay disabled');
+  fade.generalSettings.swipeSwitchTabs = false;
+  assert.equal(fade.judgeTabSwipe({ tag: 'main-tab-swipe' }), 1, 'disabled tab gesture rejects before it steals type swipes');
+  assert.equal(fade.judgeTabSwipe({ tag: 'other' }), 0, 'unrelated gestures remain available');
+  fade.handleTabSwipe({ offsetX: -100, offsetY: 0 });
+  assert.equal(finishes.length, 0, 'disabled swipe mode never schedules navigation');
+  fade.generalSettings.swipeSwitchTabs = true;
+  assert.equal(fade.judgeTabSwipe({ tag: 'main-tab-swipe' }), 0);
+  for (const event of [{ offsetX: -20, offsetY: 0 }, { offsetX: 60, offsetY: 100 }]) fade.handleTabSwipe(event);
+  assert.equal(finishes.length, 0);
+  fade.handleTabSwipe({ offsetX: -100, offsetY: 0 });
+  finishes.shift()(); finishes.shift()();
+  assert.equal(fade.currentTab, 3, 'enabled swipe follows visible tab order with history hidden');
+  fade.handleTabSwipe({ offsetX: -100, offsetY: 0 });
+  assert.equal(finishes.length, 0, 'last tab does not wrap');
+  console.log('PASS: configurable tab swipes, click navigation, fade ordering, repeated input, hidden history and stale callbacks');
   console.log('PASS: cold-start defaults, current tab across playback/return/refresh, hidden history mapping, pending navigation, disposal and storage fallback');
 })().catch(error => { console.error(error); process.exitCode = 1; });

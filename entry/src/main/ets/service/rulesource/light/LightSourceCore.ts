@@ -385,14 +385,31 @@ export class LightSourceCore {
       await LightSourceRuntime.updateState(source.bookSourceUrl,state => { delete state.lightLoginPending; });
     });
   }
-  static async search(localJson: string, keyword: string, page: number): Promise<string> {
+  static async search(localJson: string, keyword: string, page: number, request?: LightSourceRequest): Promise<string> {
+    if (request?.isCancelled()) throw new Error('搜索已取消');
     const local = JSON.parse(localJson) as LocalRuleSource;
     const source = this.source(local);
+    LightSourceRequestPolicy.bind(source, request);
     return LightSourceRuntime.run(source, local, async () => {
+      if (request?.isCancelled()) throw new Error('搜索已取消');
       const coordinator = new SearchCoordinator(1);
-      const items = await coordinator.search(keyword, () => {}, { targetSources: [source], maxResultsPerSource: 50, page });
-      if (!items.length && coordinator.getLastFailureReason()) throw new Error(coordinator.getLastFailureReason());
-      return JSON.stringify(items.map(item => this.result(item, source)));
+      // Page generations can change while HTTP, scripts or field batches are still running.
+      // The host signal cancels transport/worker queues; cancel() also stops the rule owner.
+      let cancellationTimer: number | undefined;
+      if (request) cancellationTimer = setInterval(() => {
+        if (!request.isCancelled()) return;
+        coordinator.cancel();
+        if (cancellationTimer !== undefined) clearInterval(cancellationTimer);
+        cancellationTimer = undefined;
+      }, 50);
+      try {
+        const items = await coordinator.search(keyword, () => {}, { targetSources: [source], maxResultsPerSource: 50, page });
+        if (request?.isCancelled()) throw new Error('搜索已取消');
+        if (!items.length && coordinator.getLastFailureReason()) throw new Error(coordinator.getLastFailureReason());
+        return JSON.stringify(items.map(item => this.result(item, source)));
+      } finally {
+        if (cancellationTimer !== undefined) clearInterval(cancellationTimer);
+      }
     });
   }
   static async explore(localJson: string, address: string, page: number, limit: number): Promise<string> {
@@ -412,15 +429,19 @@ export class LightSourceCore {
       return JSON.stringify({ books: items.map(item => this.result(item, source)), nextUrl: items.length ? address : '' });
     });
   }
-  static async detail(localJson: string, url: string, context: string): Promise<string> {
+  static async detail(localJson: string, url: string, context: string, request?: LightSourceRequest): Promise<string> {
+    if (request?.isCancelled()) throw new Error('书籍详情已取消');
     const local = JSON.parse(localJson) as LocalRuleSource;
     const source = this.source(local);
+    LightSourceRequestPolicy.bind(source, request);
     return LightSourceRuntime.run(source, local, async () => {
+      if (request?.isCancelled()) throw new Error('书籍详情已取消');
       AppStorage.setOrCreate('bookSourceStageLastError', '');
       const input = this.book(source, url, JSON.parse(context));
       // The clicked detail URL is authoritative; old chapter variables can contain another URL.
       input.bookUrl = url;
       const book = await new WebBookService().getBookInfo(source, input);
+      if (request?.isCancelled()) throw new Error('书籍详情已取消');
       const failure = LightSourceRuntime.getError(source);
       if (failure) throw new Error(failure);
       return JSON.stringify({ name: book.name, author: book.author, coverUrl: book.coverUrl, intro: book.intro,

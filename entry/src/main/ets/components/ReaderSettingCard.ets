@@ -1,4 +1,4 @@
-import { AppColor, AppFont, AppMaterial, AppRadius, AppSpace } from '../theme/Theme';
+import { AppFont, AppRadius, AppSpace } from '../theme/Theme';
 
 /**
  * 设置分组卡片。
@@ -30,7 +30,7 @@ export struct ReaderSettingCard {
       } else {
       Text(this.title)
         .fontSize(AppFont.Caption)
-        .fontColor($r('sys.color.font_secondary'))
+        .fontColor($r('sys.color.font_primary'))
         .fontWeight(FontWeight.Medium)
         .width('100%')
       this.content()
@@ -44,7 +44,7 @@ export struct ReaderSettingCard {
     .padding({ left: AppSpace.Md, right: AppSpace.Md,
       top: this.compact ? 8 : AppSpace.Md, bottom: this.compact ? 8 : AppSpace.Md })
     .borderRadius(AppRadius.Lg)
-    .backgroundColor(AppColor.GlassSheetControlTint)
-    .border({ width: 0.5, color: AppColor.GlassSheetStroke })
+    .backgroundColor($r('app.color.reader_setting_card_background'))
+    .border({ width: 1, color: $r('app.color.reader_setting_card_border') })
   }
 }

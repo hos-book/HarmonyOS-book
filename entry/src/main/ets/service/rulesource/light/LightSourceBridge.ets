@@ -98,16 +98,20 @@ export class LightSourceBridge {
   static async clearLogin(source: LocalRuleSource): Promise<void> {
     return LightSourceCore.clearLogin(LightSourceBridge.prepare(source, true));
   }
-  static async search(source: LocalRuleSource, keyword: string, page: number): Promise<SearchResult[]> {
-    const values: SearchResult[] = JSON.parse(await LightSourceCore.search(LightSourceBridge.prepare(source), keyword, page));
+  static async search(source: LocalRuleSource, keyword: string, page: number,
+    request?: LightSourceRequest): Promise<SearchResult[]> {
+    if (request?.isCancelled()) return [];
+    const values: SearchResult[] = JSON.parse(await LightSourceCore.search(LightSourceBridge.prepare(source), keyword, page, request));
     return values;
   }
   static async explore(source: LocalRuleSource, address: string, page: number, limit: number): Promise<LocalRuleExploreResult> {
     const result: LocalRuleExploreResult = JSON.parse(await LightSourceCore.explore(LightSourceBridge.prepare(source), address, page, limit));
     return result;
   }
-  static async detail(source: LocalRuleSource, url: string, variables: Record<string, string>): Promise<BookInfo> {
-    const result: BookInfo = JSON.parse(await LightSourceCore.detail(LightSourceBridge.prepare(source), url, JSON.stringify(variables)));
+  static async detail(source: LocalRuleSource, url: string, variables: Record<string, string>,
+    request?: LightSourceRequest): Promise<BookInfo> {
+    if (request?.isCancelled()) throw new Error('书籍详情已取消');
+    const result: BookInfo = JSON.parse(await LightSourceCore.detail(LightSourceBridge.prepare(source), url, JSON.stringify(variables), request));
     return result;
   }
   static async toc(source: LocalRuleSource, url: string, variables: Record<string, string>): Promise<TocItem[]> {

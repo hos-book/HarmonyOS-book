@@ -47,7 +47,7 @@ const SOURCE_ITEMS: ProfileItem[] = [
 ];
 
 const CONTENT_ITEMS: ProfileItem[] = [
-  new ProfileItem($r('sys.symbol.star_fill'), $r('app.string.achievement_title'), 'achievements', '#E6A23C'),
+  new ProfileItem($r('sys.symbol.medal'), $r('app.string.achievement_title'), 'achievements', '#E6A23C'),
   new ProfileItem($r('sys.symbol.star_fill'), $r('app.string.membership_title'), 'membership', $r('app.color.app_brand'))
 ];
 
