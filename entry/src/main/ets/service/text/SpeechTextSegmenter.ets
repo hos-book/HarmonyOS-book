@@ -11,13 +11,17 @@ export class SpeechSegment {
 
 /** 偏移始终对应阅读器规范化正文，分段不删除或重排原文。 */
 export class SpeechTextSegmenter {
-  /** 仅清理合成输入中的数字脚注，正文和字符偏移保持原样。 */
+  /** 只清理合成输入；正文、段落与阅读字符偏移始终使用原文。 */
   private static spokenText(content: string): string {
-    return content.replace(new RegExp('\\[\\s*\\d{1,4}\\s*\\]|【\\s*\\d{1,4}\\s*】', 'g'), '').trim();
+    return content.replace(new RegExp('\\[\\s*\\d{1,4}\\s*\\]|【\\s*\\d{1,4}\\s*】', 'g'), '')
+      .replace(new RegExp('[*＊﹡※☆★◆◇■□●○◎▲△▼▽━─═\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\uFEFF]+', 'g'), ' ')
+      .replace(new RegExp('[~～_=#＃|｜]{3,}', 'g'), ' ').trim();
   }
 
   private static isPunctuationOnly(text: string): boolean {
-    return new RegExp('^[\\s。，、！？!?；;：:“”‘’「」『』（）()\\[\\]【】…—.\\-]+$').test(text);
+    // 纯符号/表情没有可合成的文字，不能向系统或 HTTP 音色提交空音频请求。
+    // Unicode 字母和数字包括中文、英文、日文等，不能简单地删除所有非中文内容。
+    return !new RegExp('[\\p{L}\\p{N}]', 'u').test(text);
   }
 
   static split(content: string, mergeShort: boolean = false, pageEnds: number[] = []): SpeechSegment[] {

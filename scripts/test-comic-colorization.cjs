@@ -139,11 +139,13 @@ const waitForEngine = async () => { while (!activeJobs) await new Promise(resolv
   assert.equal(reconciles, 0, 'a successful engine write must not invalidate the entire cache index');
   assert.equal(decodes, 0, 'image conversion belongs to the external engine');
   assert.equal(installedHost.isAllowed('translation'), false, 'existing translation stays independent');
+  assert.equal(installedHost.isAllowed('super-resolution'), true, 'member may use the shared tiled SR engine');
   await assert.rejects(installedHost.downloadImage('https://example.test/image.jpg'), /local_image_required/);
   installedHost.createColorWorker();
   assert.equal(workerPath, 'entry/ets/workers/ComicColorWorker.ets');
   member = false;
   assert.equal(installedHost.isAllowed('colorization'), false, 'HAR host also checks membership');
+  assert.equal(installedHost.isAllowed('super-resolution'), false, 'SR shares live membership revocation');
   assert.equal(await service.colorize(context, uri, () => true), '', 'cached colorization cannot bypass membership');
   assert.equal(await service.transform(context, uri, () => true, 'en-zh'), '', 'translation still requires membership');
   assert.equal(await service.transform(context, uri, () => true, 'en-zh', true), '', 'combined translation requires membership');

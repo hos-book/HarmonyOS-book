@@ -71,6 +71,12 @@ touch(dissolve, TouchType.Down); now += 100; touch(dissolve, TouchType.Up);
 assert.equal(dissolve.pageIndex, 2, 'dissolve also starts on release');
 console.log('comic page input: immediate turn, no duplicate, center toolbar, hold/move/cancel and animation lock passed');
 
+const zoomed = reader(); zoomed.showZoom = true;
+touch(zoomed, TouchType.Down); now += 100; touch(zoomed, TouchType.Up);
+zoomed.onContentTap({ windowX: 150, windowY: 300 });
+assert.equal(zoomed.turns.length, 0, 'zoom gestures cannot turn the underlying page');
+assert.equal(zoomed.toggles, 0, 'zoom taps cannot toggle the underlying toolbar');
+
 const keys = reader();
 Object.assign(keys, { alive: true, foreground: true, readerVisible: true, volumeKeyPageTurn: false,
   keyTurnRequest: 0, volumeKeys: { setEnabled(enabled, callback) { keys.subscribed = enabled; keys.keyCallback = callback; } } });
@@ -85,7 +91,7 @@ keys.keyCallback(false);
 assert.equal(keys.pageIndex, 1);
 keys.chrome = true;
 assert.equal(keys.canUseVolumeKeys(), true, 'toolbar alone does not disable volume page turns');
-for (const field of ['busy', 'failed', 'showChapters', 'showSettings', 'showSourceSwitch',
+for (const field of ['busy', 'failed', 'showChapters', 'showSettings', 'showSourceSwitch', 'showZoom',
   'sheetPresented', 'chapterSliderDragging', 'chapterSliderConfirming']) {
   keys[field] = true; keys.syncVolumeKeys();
   assert.equal(keys.subscribed, false, field);

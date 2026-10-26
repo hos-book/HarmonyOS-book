@@ -1,161 +1,110 @@
-// Exercise the real service with deterministic native engine and file adapters.
+// Exercise the actual host facade. Tiling/inference lives in the pinned Light Page HAR.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const crypto = require('node:crypto');
-const ide = process.env.DEVECO_HOME || process.env.DEVECO_PATH;
-if (!ide) throw new Error('Set DEVECO_HOME to the installed Release IDE');
-const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
-const root = path.resolve(__dirname, '../entry/src/main/ets');
-function setup() {
-  const state = { member: true, membershipFails: false, enabled: false, api: 26, capable: true, downloads: 0, created: 0,
-    destroyed: 0, releasedInput: 0, releasedOutput: 0, releasedSource: 0,
-    size: 300, frames: 1, fail: false, active: true, duringProcess: () => {} };
-  const files = new Map();
-  const settings = new Map();
-  const store = { get: async (k, d) => settings.has(k) ? settings.get(k) : d,
-    put: async (k, v) => settings.set(k, v), flush: async () => {
-      if (state.flushFails) throw Error('disk full');
-    } };
-  const input = { release: async () => state.releasedInput++ };
-  const output = { release: async () => state.releasedOutput++, getImageInfo: async () => ({
-    size: { width: state.size * 2, height: state.size * 2 }
-  }) };
+const ts = require(path.join(process.env.DEVECO_HOME,
+  'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
+const source = fs.readFileSync(path.join(__dirname,
+  '../entry/src/main/ets/service/ComicSuperResolutionService.ets'), 'utf8').replace(/import lazy /g, 'import ');
+const settle = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
+function harness() {
+  const state = { enabled: false, member: true, api: 26, capable: true, active: true,
+    size: 1024, fail: false, preferenceFails: false, installed: 0, writes: 0, operation: async () => {} };
+  const calls = [], records = [], held = new Set(), timers = new Map();
+  let timer = 0;
   const mocks = {
+    '@kit.CoreFileKit': { fileIo: { stat: async () => ({ size: state.size }) },
+      fileUri: { FileUri: class { constructor(uri) { this.path = uri.slice(7); } } } },
+    '@legado/aiengine': { ReaderComicSuperResolution: { enhance: async (url, width, active) => {
+      calls.push({ url, width, active });
+      assert.equal(held.has(url), true, 'original stays protected during native work');
+      assert.ok(state.installed > 0);
+      await state.operation();
+      if (state.fail) throw Error('native unavailable');
+      return `file:///cache/comic_images/sr_fixture_${width}.jpg`;
+    } } },
+    '../utils/PlatformCompat': { PlatformCompat: { supports: level => state.api >= level } },
+    './PreferenceService': { PreferenceService: { getComicSuperResolution: async () => {
+      if (state.preferenceFails) throw Error('entitlement unavailable');
+      return state.enabled;
+    } } },
     '../model/MembershipState': { MembershipState: { current: { get hasAccess() { return state.member; } } } },
-    './MembershipService': { MembershipService: { instance: { hasCurrentEntitlement: async () => {
-      if (state.membershipFails) throw new Error('verification unavailable');
-      return state.member;
-    } } } },
-    './ReaderCacheService': { ReaderCacheService: { configure() {}, beginComicWrite() {}, endComicWrite() {}, record: async () => {} } },
-    '@kit.AbilityKit': { ConfigurationConstant: { ColorMode: { COLOR_MODE_NOT_SET: -1 } } },
-    '@kit.BasicServicesKit': { emitter: { emit: () => {} } },
-    '@kit.ArkData': { preferences: {} },
-    '@kit.ArkTS': { buffer: { from: Buffer.from }, util: { TextEncoder: class {
-      encodeInto(text) { return new Uint8Array(Buffer.from(text)); }
-    } } },
-    '@kit.CryptoArchitectureKit': { cryptoFramework: { createMd: () => {
-      const hash = crypto.createHash('sha256');
-      return { update: async ({ data }) => hash.update(data), digest: async () => ({ data: hash.digest() }) };
-    } } },
-    '@kit.CoreFileKit': { fileUri: { getUriFromPath: p => `file://${p}`, FileUri: class { constructor(uri) { this.path = uri.slice(7); } } }, fileIo: {
-      stat: async () => ({size: 1024, mtime: 1}), OpenMode: { CREATE: 1, WRITE_ONLY: 2, TRUNC: 4 }, access: async p => files.has(p),
-      mkdir: async p => files.set(p, null), open: async p => { files.set(p, ''); return { fd: p }; },
-      write: async (p, data) => data.byteLength, close: async () => {},
-      rename: async (a, b) => { files.set(b, files.get(a)); files.delete(a); },
-      unlink: async p => files.delete(p), listFile: async dir => [...files.keys()]
-        .filter(p => p.startsWith(`${dir}/`)).map(p => path.posix.basename(p))
-    } },
-    '@kit.ImageKit': { image: { PixelMapFormat: { RGBA_8888: 1 }, createImageSource: () => ({
-      getImageInfo: async () => ({ size: { width: state.size, height: state.size } }),
-      getFrameCount: async () => state.frames, createPixelMap: async () => input,
-      release: async () => state.releasedSource++
-    }), createImagePacker: () => ({ packToData: async () => new ArrayBuffer(64), release: async () => {} }) } },
-    '@kit.CoreVisionKit': { imageSuperResolution: { ImageSRAnalyzer: { create: async () => {
-      state.created++;
-      return { process: async () => {
-        await state.duringProcess();
-        if (state.fail) throw Error('engine unsupported');
-        return { pixelMap: output };
-      }, destroy: async () => state.destroyed++ };
-    } } } },
-    '../utils/PlatformCompat': { PlatformCompat: { supports: n => state.api >= n } },
-    './CoverPrefetcher': { CoverPrefetcher: { loadOriginal: async () => {
-      state.downloads++; return new ArrayBuffer(4);
-    } } }
+    './ComicAiHost': { ComicAiHost: { install: () => { state.installed++; } } },
+    './ReaderCacheService': { ReaderCacheService: {
+      beginComicWrite: () => { state.writes++; }, endComicWrite: () => { state.writes--; },
+      hold: url => held.add(url), unhold: url => held.delete(url), record: async paths => records.push(...paths)
+    } }
   };
-  function load(relative) {
-    const source = fs.readFileSync(path.join(root, relative + '.ets'), 'utf8').replace(/import lazy /g, 'import ');
-    const exports = {};
-    const js = ts.transpileModule(source, { compilerOptions: {
-      module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021
-    } }).outputText;
-    vm.runInNewContext(js, { exports, require: name => mocks[name] || {},
-      canIUse: () => state.capable, console: { warn() {} }, Uint8Array, setTimeout, clearTimeout });
-    return exports;
-  }
-  const preference = load('service/PreferenceService').PreferenceService;
-  preference.store = store;
-  mocks['./PreferenceService'] = { PreferenceService: preference };
-  const service = load('service/ComicSuperResolutionService').ComicSuperResolutionService;
-  const run = url => service.enhance({ cacheDir: '/cache' }, url || 'file:///cache/comic_images/cover.jpg', () => state.active);
-  return { state, files, preference, service, run };
+  const exportsValue = {};
+  vm.runInNewContext(ts.transpileModule(source, { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021
+  } }).outputText, { exports: exportsValue, require: name => {
+    assert.ok(name in mocks, `unexpected native implementation dependency: ${name}`); return mocks[name];
+  }, canIUse: () => state.capable, console: { warn() {} },
+  setTimeout: callback => { timers.set(++timer, callback); return timer; }, clearTimeout: id => timers.delete(id) });
+  const service = exportsValue.ComicSuperResolutionService;
+  return { state, calls, records, held, timers, service,
+    run: (width = 1080, url = 'file:///cache/comic_images/original.jpg') =>
+      service.enhance({ cacheDir: '/cache' }, url, () => state.active, width) };
 }
 (async () => {
-  const gate = setup();
-  gate.state.member = false;
-  await assert.rejects(gate.preference.setComicSuperResolution(true), /MEMBERSHIP_REQUIRED/);
-  assert.equal(await gate.run(), '');
-  assert.equal(gate.state.created, 0);
-  gate.state.member = true;
-  await gate.preference.setComicSuperResolution(true);
-  assert.match(await gate.run(), /^file:/);
-  const created = gate.state.created;
-  gate.state.member = false;
-  assert.equal(await gate.preference.getComicSuperResolution(), false, 'saved switch cannot bypass membership');
-  assert.equal(await gate.run(), '', 'cached enhanced image is blocked without membership');
-  assert.equal(gate.state.created, created);
-  await gate.preference.setComicSuperResolution(false);
-  gate.state.member = true;
-  await gate.preference.setComicSuperResolution(true);
-  gate.state.membershipFails = true;
-  assert.equal(await gate.run(), '', 'verification failure falls back to original');
-  gate.state.membershipFails = false;
-  gate.state.duringProcess = () => { gate.state.member = false; };
-  assert.equal(await gate.run('https://source/revoked.jpg'), '', 'revoked membership discards in-flight output');
-  assert.equal(gate.state.destroyed, gate.state.created);
-  assert.equal(gate.state.releasedOutput, gate.state.created);
-
-  const h = setup();
-  assert.equal(await h.preference.getComicSuperResolution(), false);
+  const h = harness();
   assert.equal(await h.run(), '');
-  assert.equal(h.state.downloads, 0, 'off does not download');
-  await h.preference.setComicSuperResolution(true);
-  h.state.api = 20;
+  h.state.enabled = true; h.state.api = 20;
   assert.equal(await h.run(), '');
-  assert.equal(h.state.created, 0, 'old systems never enter native engine');
-  h.state.api = 26;
-  h.state.capable = false;
+  h.state.api = 26; h.state.capable = false;
   assert.equal(await h.run(), '');
-  h.state.capable = true;
-  assert.match(await h.run(), /^file:\/\/\/cache\/comic_super_resolution_v1\/[a-f0-9]{64}\.jpg$/);
-  assert.equal(h.state.created, 1);
-  await h.run();
-  assert.equal(h.state.created, 1, 'cache hit avoids processing');
-  assert.equal(h.state.downloads, 0, 'local comic processing never downloads or uploads images');
-  const remote = setup();
-  await remote.preference.setComicSuperResolution(true);
-  assert.match(await remote.run('https://source/remote.jpg'), /^file:/);
-  assert.equal(remote.state.downloads, 1, 'ordinary remote comic images enter the bounded processor');
-  assert.equal(h.state.destroyed, 1);
-  assert.equal(h.state.releasedInput, 1);
-  assert.equal(h.state.releasedOutput, 1);
+  h.state.capable = true; h.state.member = false;
+  assert.equal(await h.run(), '');
+  h.state.member = true; h.state.preferenceFails = true;
+  assert.equal(await h.run(), '');
+  assert.equal(h.calls.length, 0, 'off/unsupported/unverified requests do not initialize HAR');
+  h.state.preferenceFails = false;
+  for (const url of ['https://source/image.jpg', 'file:///private/image.jpg',
+    'file:///cache/comic_images/../private.jpg']) assert.equal(await h.run(1080, url), '');
+  for (const width of [NaN, Infinity, 0, 63]) assert.equal(await h.run(width), '');
+  h.state.size = 21 * 1024 * 1024;
+  assert.equal(await h.run(), '');
+  h.state.size = 1024;
+  assert.equal(await h.run(1080.2), 'file:///cache/comic_images/sr_fixture_1080.jpg');
+  assert.equal(await h.run(1440), 'file:///cache/comic_images/sr_fixture_1440.jpg');
+  assert.deepEqual(h.calls.map(call => call.width), [1080, 1440], 'actual display pixels key the HAR cache');
+  assert.equal(h.records.length, 2);
+  assert.equal(h.state.writes, 0); assert.equal(h.held.size, 0); assert.equal(h.timers.size, 0);
   h.state.fail = true;
-  assert.equal(await h.run('file:///cache/comic_images/fail.jpg'), '');
-  assert.equal(h.state.destroyed, 2, 'failed native processing releases engine');
-  assert.equal(h.state.releasedInput, 2);
+  assert.equal(await h.run(), '');
+  assert.equal(h.state.writes, 0); assert.equal(h.held.size, 0);
   h.state.fail = false;
-  h.state.size = 5000;
-  assert.equal(await h.run('file:///cache/comic_images/large.jpg'), '');
-  assert.equal(h.state.created, 2, 'already large images skip enhancement');
-  h.state.size = 300;
-  h.state.frames = 2;
-  assert.equal(await h.run('file:///cache/comic_images/animated.gif'), '');
-  h.state.frames = 1;
-  h.state.duringProcess = () => { h.state.active = false; };
-  assert.equal(await h.run('file:///cache/comic_images/leaving.jpg'), '');
-  assert.equal(h.state.releasedOutput, 2, 'late output is released after leaving');
-  h.state.active = true;
-  h.state.duringProcess = () => h.preference.setComicSuperResolution(false);
-  assert.equal(await h.run('file:///cache/comic_images/disabled.jpg'), '');
-  h.state.duringProcess = () => {};
-  await h.preference.setComicSuperResolution(true);
-  for (let i = 0; i < 15; i++) await h.run(`file:///cache/comic_images/${i}.jpg`);
-  assert.equal([...h.files.keys()].filter(p => p.endsWith('.jpg')).length, 12, 'cache bounded to 12 outputs');
-  assert.equal([...h.files.keys()].filter(p => p.endsWith('.tmp')).length, 0);
-  h.state.flushFails = true;
-  await assert.rejects(h.preference.setComicSuperResolution(false));
-  assert.equal(await h.preference.getComicSuperResolution(), true, 'failed save rolls back in-memory preference');
-  console.log('Comic super resolution regression passed: opt-in, compatibility, cache, failure, cancellation, cleanup');
+  h.state.operation = async () => { h.state.member = false; };
+  assert.equal(await h.run(), '', 'late revoked output is not displayed');
+  h.state.member = true;
+  h.state.operation = async () => { h.state.enabled = false; };
+  assert.equal(await h.run(), '', 'disabled output is not displayed');
+
+  const queued = harness(); queued.state.enabled = true;
+  let release;
+  queued.state.operation = () => new Promise(resolve => { release = resolve; });
+  const first = queued.run(); await settle();
+  const second = queued.run(); const third = queued.run(); const fourth = queued.run();
+  assert.equal(await queued.run(), '', 'pending work is bounded');
+  assert.equal(queued.calls.length, 1, 'native jobs remain serial');
+  queued.state.active = false; release();
+  assert.deepEqual(await Promise.all([first, second, third, fourth]), ['', '', '', '']);
+  assert.equal(queued.calls.length, 1, 'stale queued pages never enter the engine');
+  assert.equal(queued.held.size, 0);
+
+  const timeout = harness(); timeout.state.enabled = true;
+  let finish;
+  timeout.state.operation = () => new Promise(resolve => { finish = resolve; });
+  const expired = timeout.run(); await settle();
+  timeout.timers.values().next().value();
+  assert.equal(await expired, '');
+  assert.equal(timeout.calls[0].active(), false, 'timeout cancels the next native tile');
+  assert.equal(await timeout.run(), '', 'a hung native call cannot start another job');
+  finish(); await settle();
+  assert.equal(timeout.state.writes, 0); assert.equal(timeout.held.size, 0);
+  timeout.state.operation = async () => {};
+  assert.match(await timeout.run(), /^file:/, 'completed cleanup permits a later retry');
+  console.log('PASS comic SR HAR: display width, source bounds, live permission, queue/timeout cancellation, cache accounting and recovery');
 })().catch(error => { console.error(error); process.exitCode = 1; });

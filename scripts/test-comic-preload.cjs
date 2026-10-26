@@ -57,6 +57,7 @@ function evaluate(relative, require, globals = {}) {
 const { ComicImagePipeline } = evaluate('service/rulesource/light/upstream/core/book/ComicImagePipeline.ts',
   name => {
     if (name.endsWith('HttpClient')) return { HttpClient };
+    if (name.endsWith('ReaderCacheBudget')) return { ReaderCacheBudget: { touchComicFile() {}, noteComicWrite() {} } };
     if (name.endsWith('SourceImageDecoder')) return evaluate(
       'service/rulesource/light/upstream/core/nativesource/SourceImageDecoder.ts', () => ({}));
     if (name === '@ohos.file.fs') return { default: fileIo };
@@ -287,7 +288,8 @@ const context = { cacheDir: '/cache' };
 
   // Run the actual component lifecycle/loading methods; ArkUI rendering itself remains a device check.
   const componentSource = fs.readFileSync(path.join(root, 'components/ComicPageImage.ets'), 'utf8')
-    .split('  @Builder')[0].replace(/@(?:ComponentV2|Param|Local|Event|Monitor)(?:\([^\n]*?\))?\s*/g, '')
+    .split('  @Builder')[0].replace(/@Monitor\([^)]*\)\s*/g, '')
+    .replace(/@(?:ComponentV2|Param|Local|Event)\s*/g, '')
     .replace('export struct ComicPageImage', 'export class ComicPageImage') + '\n}';
   const componentExports = {};
   vm.runInNewContext(compile(componentSource), { exports: componentExports, console, require: name => {
@@ -306,11 +308,12 @@ const context = { cacheDir: '/cache' };
     budgetNode.pageWidth = 1280 / density;
     for (const [width,height] of [[690,839],[3040,3940],[2000,40000]]) {
       budgetNode.page = {width,height}; budgetNode.ratio = height / width;
-      for (const zoom of [1,2]) {
-        budgetNode.zoom = zoom;
+      for (const enhanced of [false,true]) {
+        budgetNode.enhancedUrl = enhanced ? 'file:///cache/comic_images/sr_fixture.jpg' : '';
         const size = budgetNode.decodeSize();
         const pixelsWide = size.width*density, pixelsHigh = size.height*density;
-        assert.ok(pixelsWide <= Math.min(width,1536)+0.01,'sourceSize must not multiply the pixel budget by display density');
+        assert.ok(pixelsWide <= Math.min(width*(enhanced?4:1),1536)+0.01,
+          'enhanced pixels may exceed original width without multiplying the physical budget by display density');
         assert.ok(pixelsHigh <= 4096.01 && pixelsWide*pixelsHigh <= 4*1024*1024+1,
           'high-density displays and long images keep the physical decode budget');
       }

@@ -6,7 +6,7 @@ import lazy { AiHost, AiRuntime, ComicColorizer } from '@legado/aiengine';
 import { ReaderCacheService } from './ReaderCacheService';
 import { MembershipState } from '../model/MembershipState';
 
-/** HAR 只负责着色；权限、缓存预算和 Worker 入口由应用提供。 */
+/** HAR 负责着色与超分；权限、缓存预算和 Worker 入口由应用提供。 */
 export class ComicAiHost implements AiHost {
   private static installed: boolean = false;
   private static foreground: boolean = true;
@@ -40,7 +40,7 @@ export class ComicAiHost implements AiHost {
   }
 
   isAllowed(feature: string): boolean {
-    return feature === 'colorization' && MembershipState.current.hasAccess;
+    return (feature === 'colorization' || feature === 'super-resolution') && MembershipState.current.hasAccess;
   }
 
   cacheDir(): string { return this.context.cacheDir; }
@@ -96,7 +96,7 @@ export class ComicAiHost implements AiHost {
   }
 
   noteComicWrite(): void {
-    // 成功结果由 ComicColorizationService 按返回路径登记；失败时再 reconcile。
+    // 成功结果由着色/超分宿主按返回路径登记；失败时再 reconcile。
     // 每张图都使索引失效，会让结果返回等待整个阅读缓存重新扫描。
   }
 

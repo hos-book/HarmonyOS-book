@@ -12,7 +12,7 @@ export struct BookRatingBadge {
 
   build() {
     if (BookMetadataPolicy.rating(this.rating) > 0) {
-      Text(this.rating.toFixed(1))
+      Text(BookMetadataPolicy.rating(this.rating).toFixed(1))
         .fontSize(`${this.scaled(12)}vp`)
         .fontWeight(FontWeight.Bold)
         .fontColor(Color.White)
@@ -22,7 +22,7 @@ export struct BookRatingBadge {
         .margin(this.scaled(4))
         .maxLines(1)
         .hitTestBehavior(HitTestMode.None)
-        .accessibilityText($r('app.string.book_detail_score', this.rating.toFixed(1)))
+        .accessibilityText($r('app.string.book_detail_score', BookMetadataPolicy.rating(this.rating).toFixed(1)))
     }
   }
 }

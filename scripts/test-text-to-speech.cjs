@@ -745,6 +745,35 @@ async function check(name, action) { await action(); console.log(`PASS ${name}`)
     assert.equal(h.service.state.charOffset, content.length);
     h.service.stop();
   });
+  await check('星号和装饰分隔符不打断系统及 HTTP 音色，英文数字仍可朗读', async () => {
+    const content = '开头。\n*****\n＊＊＊＊＊\n###___~~~\n★◆※😀\n第二段***继续，Hello 2026，C++ 3.14！\n结尾。';
+    for (const custom of [false, true]) {
+      const segments = SpeechTextSegmenter.split(content, custom);
+      assert.ok(segments.every(segment => /[\p{L}\p{N}]/u.test(segment.text)));
+      assert.ok(segments.every(segment => !/[*＊#★◆※]/.test(segment.text)));
+      assert.ok(segments.some(segment => segment.text.includes('Hello 2026，C++ 3.14')));
+      const second = segments.find(segment => segment.text.includes('第二段'));
+      assert.equal(second.paragraphStart, content.indexOf('第二段'));
+      const h = harness(); await h.init();
+      if (custom) await h.service.importCustomTts(CustomTtsConfigParser.parse('{"name":"测试","url":"https://tts.example?text={{speakText}}"}'));
+      await h.service.start(book('symbols', [content, '*****\n@@@\n😀', '后续章节。']), 0, 0); await settle();
+      let requests = 0;
+      for (let step = 0; step < 12 && (h.service.state.playing || h.service.state.loading); step++) {
+        const request = (custom ? h.httpSpoken : h.spoken).at(-1);
+        assert.ok(request && /[\p{L}\p{N}]/u.test(request.text), 'only meaningful text reaches synthesis');
+        assert.ok(!/[*＊#★◆※]/.test(request.text));
+        requests++;
+        if (custom) { request.onStart(); request.complete(); await settle(); }
+        else await h.complete();
+      }
+      assert.ok(requests >= 4);
+      assert.equal(h.service.state.error, '');
+      assert.equal(h.service.state.chapterIndex, 2, 'symbol-only chapter advances normally');
+      assert.equal(h.service.state.charOffset, '后续章节。'.length);
+      assert.equal(h.service.state.playing, false);
+      h.service.stop();
+    }
+  });
   await check('HTTP 同段短句合并，保留自然段和字符位置，跳过纯标点请求', async () => {
     const content = '“嘶！”有人惊呼。怎么回事？他愣住了。\n下一段。还有一句！\n……\n最后。';
     const segments = SpeechTextSegmenter.split(content, true);

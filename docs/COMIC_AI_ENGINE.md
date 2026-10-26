@@ -59,3 +59,9 @@ ohpm install --all
 图片左上角提示已通过 ArkTS 静态检查和应用构建；临时诊断入口已删除，最终调试 HAP 已使用 Release SDK 构建并安装启动。尚未完成三种阅读模式下两种提示的逐项实机目视确认。已读取在线 [ArkUI 指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md) 并浏览其实时布局目录，但进一步请求位置 / Stack 布局参考正文时返回 HTTP 403，布局接口以本机 SDK 检查为准。
 
 参考：上游 [校验实现](https://github.com/wip3l/harmony-book-ai-engine/blob/a1eaedd712b00d8e56a85d576e050df69e646bde/aiengine/src/main/ets/core/reader/ComicColorInference.ets)、[MindSpore CPU FP16 配置说明](https://github.com/mindspore-ai/docs/blob/master/docs/lite/cloud_docs/source_en/infer/runtime_cpp.md)，以及在线 [ArkTS 语法指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md) / [构建修复指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/harmony-build-fix/SKILL.md)。已查询在线 SDK 技能目录，但其 25 Kit 集合不包含 MindSporeLite；具体接口以安装的 Release SDK 声明和真机结果核对。未验证平板、PC、手表或最低 API 20 设备。
+
+## 漫画超分
+
+`ComicSuperResolutionService` 复用同一固定 HAR 导出的 `ReaderComicSuperResolution`，`ComicAiHost` 为有效会员授权 `super-resolution`。对照的实现为 [轻页分块超分](https://github.com/wip3l/harmony-book-ai-engine/blob/0d152ab20962c3171054cb852578960c21b647d5/aiengine/src/main/ets/core/reader/ReaderComicSuperResolution.ets)：系统接口固定四倍放大且单块上限 2048×2048；长图按 512K 像素切块，上下各保留 16 行重叠，拼接时仅取中部。输出按显示物理宽度的两倍收敛且不超过约 12M 像素，缓存按目标宽度隔离。宿主继续限制 20 MiB 原图、四个待处理请求、串行执行、30 秒超时及实时会员校验；原生调用超时后取消后续分块，等待已有调用清理完成才能重试。
+
+只接受现有图片加载链产生的本地 comic_images 文件，不启用 HAR 远程下载。结果为 comic_images/sr_ 文件，进入现有 1 GiB 漫画缓存预算；旧整图 comic_super_resolution_v1 缓存不再使用。增强显示不回写原始页面尺寸。回归验证宿主权限、取消、超时恢复、宽度传递和预算登记；偶发色块与拼接画质仍需设备对照原图验证。

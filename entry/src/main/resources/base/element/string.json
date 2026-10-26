@@ -5447,7 +5447,27 @@
     },
     {
       "name": "comic_gesture_hint",
-      "value": "轻点屏幕中央显示工具栏，滑动翻页；读到末尾继续滑动自动进入下一话。"
+      "value": "轻点屏幕中央显示工具栏，滑动翻页；双击图片中部进入放大模式，可双指缩放、拖动查看。读到末尾继续滑动自动进入下一话。"
+    },
+    {
+      "name": "comic_zoom_close",
+      "value": "退出放大"
+    },
+    {
+      "name": "comic_zoom_reset",
+      "value": "适合宽度"
+    },
+    {
+      "name": "comic_zoom_scale",
+      "value": "%d%%"
+    },
+    {
+      "name": "comic_zoom_hint",
+      "value": "双指缩放 · 拖动查看 · 双击切换大小"
+    },
+    {
+      "name": "comic_zoom_failed",
+      "value": "图片加载失败，请退出后重试"
     },
     {
       "name": "search_comic_only",

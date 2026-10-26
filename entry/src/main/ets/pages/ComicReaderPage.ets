@@ -33,6 +33,7 @@ import { MembershipState } from '../model/MembershipState';
 import { MembershipService } from '../service/MembershipService';
 import { VipFeatureBadge } from '../components/VipFeatureBadge';
 import { ComicPageImage } from '../components/ComicPageImage';
+import { ComicZoomComponent } from '../components/ComicZoomComponent';
 import { ComicColorizationService } from '../service/ComicColorizationService';
 import { ComicOfflineTranslationHost } from '../components/ComicOfflineTranslationHost';
 import { ComicOfflineTranslationService } from '../service/ComicOfflineTranslationService';
@@ -65,6 +66,10 @@ export struct ComicReaderPage {
   @Local rightSafe: number = WindowUtils.getRightSafeVp();
   @Local mode: number = 0;
   @Local superResolution: boolean = false;
+  @Local showZoom: boolean = false;
+  @Local zoomUrl: string = '';
+  @Local zoomRatio: number = 1;
+  @Local zoomFocusY: number = 0.5;
   @Local membership: MembershipState = MembershipState.current;
   @Local savingSuperResolution: boolean = false;
   @Local colorization: boolean = false;
@@ -199,11 +204,27 @@ export struct ComicReaderPage {
   }
 
   private onContentTap(event: ClickEvent): void {
-    if (!this.touchTracker.canTap() || this.busy || this.failed) return;
+    if (this.showZoom || !this.touchTracker.canTap() || this.busy || this.failed) return;
     const action = ReaderTapPolicy.resolve(ReaderTapPolicy.DEFAULT, event.windowX - this.leftSafe, event.windowY,
       this.widthVp - this.leftSafe - this.rightSafe, this.heightVp, this.tapLeftPercent, this.tapRightPercent);
     if (action === 1 || this.mode === 0) this.toggleChrome();
     // 两侧翻页已在 Touch Up 立即处理，避免等待图片双击判定及重复翻页。
+  }
+
+  private openZoom(page: ComicPage, url: string, focusY: number): void {
+    if (!url || this.busy || this.showZoom || this.sheetPresented) return;
+    this.zoomUrl = url;
+    this.zoomRatio = page.width > 0 && page.height > 0 ? page.height / page.width : 1.45;
+    this.zoomFocusY = focusY;
+    this.showZoom = true;
+    this.savePosition();
+  }
+
+  @Builder
+  zoomContent(): void {
+    ComicZoomComponent({ url: this.zoomUrl, imageRatio: this.zoomRatio, focusY: this.zoomFocusY,
+      topSafe: this.topSafe, bottomSafe: this.bottomSafe,
+      onClose: (): void => { this.showZoom = false; } })
   }
 
   private reportError(error: Object): void {
@@ -522,11 +543,11 @@ export struct ComicReaderPage {
   private canUseVolumeKeys(): boolean {
     return this.alive && this.foreground && this.readerVisible && this.volumeKeyPageTurn &&
       !this.busy && !this.failed && this.pageCount > 0 && !this.showChapters && !this.showSettings &&
-      !this.showSourceSwitch && !this.sheetPresented && !this.chapterSliderDragging && !this.chapterSliderConfirming;
+      !this.showSourceSwitch && !this.showZoom && !this.sheetPresented && !this.chapterSliderDragging && !this.chapterSliderConfirming;
   }
 
   @Monitor('volumeKeyPageTurn', 'readerVisible', 'busy', 'failed', 'pageCount', 'showChapters',
-    'showSettings', 'showSourceSwitch', 'sheetPresented', 'chapterSliderDragging', 'chapterSliderConfirming')
+    'showSettings', 'showSourceSwitch', 'showZoom', 'sheetPresented', 'chapterSliderDragging', 'chapterSliderConfirming')
   private syncVolumeKeys(): void {
     this.volumeKeys.setEnabled(this.canUseVolumeKeys(), (forward: boolean): void => this.handleVolumePageTurn(forward));
   }
@@ -541,6 +562,7 @@ export struct ComicReaderPage {
   }
 
   private contentTouch(event: TouchEvent): void {
+    if (this.showZoom) return;
     this.touchTracker.update(event);
     const touch = event.changedTouches[0];
     if (!touch || this.busy || this.restoreTimer >= 0) return;
@@ -634,6 +656,7 @@ export struct ComicReaderPage {
             colorization: this.colorization, translation: this.translation, translationDirection: this.translationDirection,
             colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
             onColorError: (message: string): void => this.colorizationFailed(message),
+            onZoom: (page: ComicPage, url: string, focusY: number): void => this.openZoom(page, url, focusY),
             onToggle: (event: ClickEvent): void => this.onContentTap(event),
             loadPages: (index: number, preload: boolean): Promise<ComicPage[]> => this.loadScrollPages(index, preload),
             onPosition: (index: number, page: number, pages: ComicPage[]): void => this.onScrollPosition(index, page, pages)
@@ -646,6 +669,7 @@ export struct ComicReaderPage {
                   colorization: this.colorization, translation: this.translation, translationDirection: this.translationDirection,
                   colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
                   onColorError: (message: string): void => this.colorizationFailed(message),
+                  onZoom: (page: ComicPage, url: string, focusY: number): void => this.openZoom(page, url, focusY),
                   pageWidth: this.imageWidth(), pageHeight: this.heightVp, paged: true,
                   zoomRegionLeft: this.tapLeftPercent, zoomRegionRight: this.tapRightPercent,
                   onToggle: (event: ClickEvent): void => { this.onContentTap(event); } })
@@ -660,6 +684,7 @@ export struct ComicReaderPage {
                    colorization: this.colorization, translation: this.translation, translationDirection: this.translationDirection,
                    colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
                    onColorError: (message: string): void => this.colorizationFailed(message),
+                    onZoom: (page: ComicPage, url: string, focusY: number): void => this.openZoom(page, url, focusY),
                    paged: true, zoomRegionLeft: this.tapLeftPercent, zoomRegionRight: this.tapRightPercent,
                    onToggle: (event: ClickEvent): void => { this.onContentTap(event); } })
               }.width('100%').height('100%').justifyContent(FlexAlign.Center)
@@ -718,6 +743,9 @@ export struct ComicReaderPage {
         .margin({ top: this.topSafe + 4 }).hitTestBehavior(HitTestMode.Transparent)
       }
       // Each sheet needs its own stable host; repeated bindSheet on one node overrides earlier bindings.
+      Column().width(0).height(0).hitTestBehavior(HitTestMode.None)
+        .bindContentCover($$this.showZoom, this.zoomContent(), { modalTransition: ModalTransition.NONE,
+          onDisappear: (): void => { this.showZoom = false; this.zoomUrl = ''; } })
       Column().width(0).height(0).hitTestBehavior(HitTestMode.None)
         .bindSheet($$this.showSettings, this.settingsSheet(), { height: '70%', detents: ['70%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM,
           showClose: true, backgroundColor: AppMaterial.SheetBackground, blurStyle: AppMaterial.ReaderSheetBlur,

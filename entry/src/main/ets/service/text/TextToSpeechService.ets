@@ -642,7 +642,7 @@ export class TextToSpeechService {
       this.state.charOffset = document.toDisplay(offset);
       this.chapterContent = content;
       this.rebuildSpeechSegments();
-      if (this.segments.length === 0) throw new Error('Empty chapter');
+      if (this.segments.length === 0 && content.trim().length === 0) throw new Error('Empty chapter');
       this.state.contentLength = content.length;
       this.segmentIndex = SpeechTextSegmenter.indexAt(this.segments, this.state.charOffset);
       this.speakNext(ticket);

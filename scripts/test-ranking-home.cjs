@@ -57,13 +57,23 @@ function result(source, name = '夜无疆', type = 'text') {
 const qidian = '<a href="//m.qidian.com/book/123/" class="_bookItem_x"><img data-src="//bookcover.yuewen.com/qdbimg/349573/123/180"><h2 class="_title_x">夜无疆</h2><p class="_bookDesc_x">风起&amp;云涌</p><p class="_subTitle_x">辰东 <em>·</em> 玄幻</p></a>';
 (async () => {
   const { BookMetadataPolicy: metadata } = metadataPolicy;
-  for (const value of [undefined, '', '暂无', 'NaN', NaN, Infinity, -1, 0, 11, '9.5万人']) {
+  for (const value of [undefined, '', '暂无', 'NaN', NaN, Infinity, -1, 0, 101, '9.5万人', '95/10', '5/5', '101%']) {
     assert.equal(metadata.rating(value), 0, `missing/invalid rating: ${value}`);
   }
   assert.equal(metadata.rating('9.5分'), 9.5);
+  for (const [value, expected] of [[95, 9.5], [100, 10], [11, 1.1], ['95分', 9.5], ['95%', 9.5],
+    ['95％', 9.5], ['95 / 100', 9.5], ['9/100', 0.9], ['9%', 0.9], ['9.5/10', 9.5]]) {
+    assert.equal(metadata.rating(value), expected, `ten-point normalization: ${value}`);
+    assert.equal(metadata.rating(metadata.rating(value)), expected, 'normalization must be idempotent');
+  }
+  for (const label of ['评分：95', '玄幻 | 95分 | 连载中', 'score: 95/100', '评分：95%', 'rating 95％']) {
+    assert.equal(metadata.rating(undefined, label), 9.5, label);
+  }
+  assert.equal(metadata.rating(undefined, '热度95万'), 0);
+  assert.equal(metadata.rating(undefined, '排名95'), 0);
   assert.equal(metadata.rating(undefined, '玄幻 | 评分：9.8 | 连载中'), 9.8);
   assert.equal(metadata.rating(undefined, '悬疑,9.2分'), 9.2);
-  assert.equal(metadata.rating(undefined, '19.8分'), 0);
+  assert.equal(metadata.rating(undefined, '19.8分'), 1.98);
   assert.equal(metadata.rating(undefined, '热度9.8万'), 0);
   assert.equal(metadata.completed(''), undefined);
   assert.equal(metadata.completed('未知'), undefined);
@@ -77,7 +87,7 @@ const qidian = '<a href="//m.qidian.com/book/123/" class="_bookItem_x"><img data
     const tags = `玄幻${separator}9.2分${separator}热血|玄幻`;
     assert.equal(metadata.rating(undefined, tags), 9.2);
     assert.deepEqual(Array.from(metadata.categories(tags)), ['玄幻', '热血']);
-    assert.equal(metadata.rating(undefined, `玄幻${separator}19.8分`), 0);
+    assert.equal(metadata.rating(undefined, `玄幻${separator}19.8分`), 1.98);
   }
   assert.deepEqual(Array.from(metadata.categories('2.5次元·轻小说')), ['2.5次元', '轻小说']);
   assert.equal(metadata.rating(undefined, '热度9.8万·玄幻'), 0);

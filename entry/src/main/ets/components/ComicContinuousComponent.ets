@@ -29,6 +29,7 @@ export struct ComicContinuousComponent {
   @Event onColorError: (message: string) => void = () => {};
   @Param keyTurnRequest: number = 0;
   @Event onToggle: (event: ClickEvent) => void = () => {};
+  @Event onZoom: (page: ComicPage, url: string, focusY: number) => void = () => {};
   @Event onPosition: (chapterIndex: number, pageIndex: number, pages: ComicPage[]) => void = () => {};
   @Event loadPages: (index: number, preload: boolean) => Promise<ComicPage[]> = async (): Promise<ComicPage[]> => [];
   @Local nextLoading: boolean = false;
@@ -217,6 +218,7 @@ export struct ComicContinuousComponent {
               colorization: this.colorization, colorizationActive: this.colorizationActive,
               translation: this.translation, translationDirection: this.translationDirection,
               onColorError: (message: string): void => this.onColorError(message),
+               onZoom: (page: ComicPage, url: string, focusY: number): void => this.onZoom(page, url, focusY),
               onToggle: (event: ClickEvent): void => this.onToggle(event) })
           }.width('100%').align(Alignment.Center)
         }, (row: ComicScrollRow): string => `${row.chapterIndex}:${row.page.key}`)

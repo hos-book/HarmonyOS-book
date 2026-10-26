@@ -31,11 +31,11 @@ export struct ComicPageImage {
   private colorReadyAt: number = 0;
   private colorTrace: string = '';
   @Event onToggle: (event: ClickEvent) => void = () => {};
+  @Event onZoom: (page: ComicPage, url: string, focusY: number) => void = () => {};
   @Local ratio: number = 0;
   @Local failed: boolean = false;
   @Local loaded: boolean = false;
   @Local retry: number = 0;
-  @Local zoom: number = 1;
   @Local enhancedUrl: string = '';
   @Local membership: MembershipState = MembershipState.current;
   @Local enhancementFailed: boolean = false;
@@ -74,7 +74,6 @@ export struct ComicPageImage {
   @Monitor('page')
   onPageChanged(): void {
     this.ratio = 0;
-    this.zoom = 1;
     if (this.alive) this.loadImage();
   }
 
@@ -133,7 +132,8 @@ export struct ComicPageImage {
     if (!context) return;
     const ticket = ++this.enhancementSerial;
     const active = (): boolean => this.visible && this.superResolution && ticket === this.enhancementSerial;
-    ComicSuperResolutionService.enhance(context, this.resolvedUrl, active).then((uri: string): void => {
+    ComicSuperResolutionService.enhance(context, this.resolvedUrl, active,
+      this.getUIContext().vp2px(this.pageWidth)).then((uri: string): void => {
       if (!active()) return;
       this.enhancedUrl = uri;
       this.protectImage();
@@ -206,8 +206,13 @@ export struct ComicPageImage {
 
   private decodeWidth(): number {
     const ratio = this.imageHeight() / Math.max(1, this.pageWidth);
-    return Math.max(1, Math.floor(Math.min(this.getUIContext().vp2px(this.pageWidth) * this.zoom, 1536, 4096 / ratio,
-      Math.sqrt(4 * 1024 * 1024 / ratio), this.page.width > 0 ? this.page.width : 1536)));
+    const nativeWidth = this.page.width > 0 ? this.page.width * (this.enhancedUrl ? 4 : 1) : 1536;
+    return Math.max(1, Math.floor(Math.min(this.getUIContext().vp2px(this.pageWidth), 1536, 4096 / ratio,
+      Math.sqrt(4 * 1024 * 1024 / ratio), nativeWidth)));
+  }
+
+  private displayUrl(): string {
+    return (this.membership.hasAccess ? this.coloredUrl || this.enhancedUrl : '') || this.resolvedUrl;
   }
 
   private decodeSize(): ImageSourceSize {
@@ -221,8 +226,7 @@ export struct ComicPageImage {
   @Builder
   imageContent(): void {
     Stack({ alignContent: Alignment.TopStart }) {
-        Image((this.membership.hasAccess ? this.coloredUrl : '') ||
-          (this.membership.hasAccess ? this.enhancedUrl : '') || this.resolvedUrl)
+        Image(this.displayUrl())
           .id(`${this.page.key}:${this.retry}`)
           .width(this.pageWidth).height(this.imageHeight())
           // 容器已按原图比例计算；Fill 消除解码宽高取整造成的亚像素留边。
@@ -230,7 +234,6 @@ export struct ComicPageImage {
           .syncLoad(false)
           .autoResize(true)
           .sourceSize(this.decodeSize())
-          .scale({ x: this.zoom, y: this.zoom })
           .onComplete((event) => {
             if (event && event.width > 0 && event.height > 0) {
               if (this.coloredUrl && this.colorReadyAt > 0 && event.loadingStatus === 1) {
@@ -238,9 +241,11 @@ export struct ComicPageImage {
                   `display=${Date.now() - this.colorReadyAt}ms total=${Date.now() - this.colorStartedAt}ms`);
                 this.colorReadyAt = 0;
               }
-              if (!this.coloredUrl && this.ratio <= 0) this.ratio = event.height / event.width;
+              if (!this.coloredUrl && !this.enhancedUrl && this.ratio <= 0) this.ratio = event.height / event.width;
               // 懒加载节点回收后仍保留已知比例，避免回滚时先按占位高度再跳一次。
-              if (!this.coloredUrl) { this.page.width = event.width; this.page.height = event.height; }
+              if (!this.coloredUrl && !this.enhancedUrl && this.page.width <= 0) {
+                this.page.width = event.width; this.page.height = event.height;
+              }
               this.loaded = true;
               if (!this.displayLogged) {
                 this.displayLogged = true;
@@ -259,7 +264,8 @@ export struct ComicPageImage {
             if (finger === undefined) return;
             const percent = finger.localX / Math.max(1, this.pageWidth) * 100;
             if (percent >= this.zoomRegionLeft && percent < 100 - this.zoomRegionRight) {
-              this.zoom = this.zoom === 1 ? 2 : 1;
+              this.onZoom(this.page, this.displayUrl(),
+                Math.max(0, Math.min(1, finger.localY / Math.max(1, this.imageHeight()))));
             }
           }))
           .accessibilityText($r('app.string.comic_page_number', this.page.index + 1))
