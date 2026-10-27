@@ -442,7 +442,7 @@ export struct AccountPage {
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
         if (this.membership.displayActive) {
-          MembershipBadge({ productId: this.membership.displayProductId, badgeHeight: 20, compact: true })
+          MembershipBadge({ productId: this.membership.displayProductId, badgeHeight: 28, compact: true })
         }
         Text(this.auth.isLoggedIn ? $r('app.string.account_huawei_connected') : $r('app.string.account_local_available'))
           .fontSize(AppFont.Caption)

@@ -134,6 +134,8 @@ export struct PlayerPage {
   @Param resumeProgressMs: number = 0;
   @Local book: Book | null = null;
   @Local showSourceSwitch: boolean = false;
+  private sourceUnavailable: boolean = false;
+  private sourceRecoveryPrompted: boolean = false;
   @Local reloadingChapter: boolean = false;
   @Local sourceName: ResourceStr = '';
   @Local sourceVoiceAvailable: boolean = false;
@@ -225,6 +227,7 @@ export struct PlayerPage {
     if (!data || data.bookId !== this.bookId) return;
     if (this.playerState.currentChapter && data.chapterId !== this.playerState.currentChapter.id) return;
     this.showToast(data.message || $r('app.string.player_play_failed'));
+    if (this.book?.sourceUrl) this.promptSourceRecovery(this.book);
   };
   /** 延迟加载 timer id,用户立即返回时需要 cancel,避免阻塞返回响应 */
   private deferredLoadTimerId: number = -1;
@@ -279,7 +282,7 @@ export struct PlayerPage {
     if (b && current && this.isSameBook(b, current)
       && b.chapters.length === 0 && current.chapters.length > 0) {
       b = current;
-    } else if (!b && current) {
+    } else if (!b && current && (!this.bookId || current.id === this.bookId)) {
       b = current;
     }
     if (!b) return;
@@ -483,9 +486,8 @@ export struct PlayerPage {
         b = stored;
       }
     }
-    if (!b && current) {
-      // 不强制 id 匹配:卡片语义就是"打开正在播放的书",不同会话间 id 可能因
-      // hash 算法差异而不一致(home_audio_xxx / search_audio_xxx),只要有 currentBook 就用
+    if (!b && current && (!this.bookId || current.id === this.bookId)) {
+      // 指定书籍的入口不能用另一部正在播放的书兜底；同书别名由上方来源和 URL 匹配处理。
       b = current;
     }
     if (!b) {
@@ -506,8 +508,9 @@ export struct PlayerPage {
       this.isFavorite = await PreferenceService.isFavorite(b.id);
       return;
     }
-    AudioService.getInstance().setPlayMode(PlayMode.Sequence);
-    if (this.needsChapterHydration(b)) {
+    this.sourceUnavailable = !!b.sourceUrl && !(await SourceDataService.getSourceByUrl(b.sourceUrl));
+    if (this.isLeaving) return;
+    if (!this.sourceUnavailable && this.needsChapterHydration(b)) {
       b = await this.hydrateBookChapters(b);
       if (this.isLeaving) return;
     }
@@ -518,6 +521,13 @@ export struct PlayerPage {
     this.book = b;
     this.loadSourceName(b);
     this.chapterDataSource.setChapters(PreferenceService.orderedChapters(b));
+    this.isFavorite = await PreferenceService.isFavorite(b.id);
+    if (this.isLeaving) return;
+    if (this.sourceUnavailable || (b.sourceUrl && b.chapters.length === 0)) {
+      this.promptSourceRecovery(b);
+      return;
+    }
+    AudioService.getInstance().setPlayMode(PlayMode.Sequence);
     const pendingToc = BookSourceService.pendingAudioBook(b.id);
     if (pendingToc !== undefined) {
       BookSourceService.loadAudioBook(b, (loaded: Book): void => {
@@ -538,8 +548,6 @@ export struct PlayerPage {
       }
     }
     AudioService.getInstance().prewarmBookSource(b);
-    this.isFavorite = await PreferenceService.isFavorite(b.id);
-    if (this.isLeaving) return;
     // 绑定全局状态/上下文
     AudioService.getInstance().bind(this.playerState, this.context!);
 
@@ -554,6 +562,26 @@ export struct PlayerPage {
     return left.bookUrl.length > 0 && left.bookUrl === right.bookUrl && left.sourceUrl === right.sourceUrl;
   }
 
+  private promptSourceRecovery(book: Book): void {
+    if (this.isLeaving || this.sourceRecoveryPrompted || !book.sourceUrl) return;
+    this.sourceRecoveryPrompted = true;
+    this.getUIContext().getPromptAction().showDialog({
+      title: $r('app.string.player_source_unavailable_title'),
+      message: $r('app.string.player_source_unavailable_message', book.title),
+      buttons: [
+        { text: $r('app.string.common_cancel'), color: '#8F8F8F' },
+        { text: $r('app.string.source_switch_title'), color: AppColor.Brand }
+      ]
+    }).then((result): void => {
+      if (result.index === 1 && !this.isLeaving && this.book?.id === book.id) this.showSourceSwitch = true;
+    }).catch((): void => {});
+  }
+
+  private audioMatchesBook(): boolean {
+    const current = this.playerState.currentBook;
+    return this.book !== null && current !== null && this.isSameBook(this.book, current);
+  }
+
   private isSpeechBook(): boolean {
     return this.book?.contentType === 'text';
   }
@@ -563,11 +591,13 @@ export struct PlayerPage {
   }
 
   private playbackLoading(): boolean {
-    return this.isSpeechBook() ? this.speechMatchesBook() && this.speechState.loading : this.playerState.isLoading;
+    return this.isSpeechBook() ? this.speechMatchesBook() && this.speechState.loading :
+      this.audioMatchesBook() && this.playerState.isLoading;
   }
 
   private playbackPlaying(): boolean {
-    return this.isSpeechBook() ? this.speechMatchesBook() && this.speechState.playing : this.playerState.isPlaying;
+    return this.isSpeechBook() ? this.speechMatchesBook() && this.speechState.playing :
+      this.audioMatchesBook() && this.playerState.isPlaying;
   }
 
   private playbackSpeed(): number {
@@ -575,7 +605,7 @@ export struct PlayerPage {
   }
 
   private playbackChapter(): Chapter | null {
-    if (!this.isSpeechBook()) return this.playerState.currentChapter;
+    if (!this.isSpeechBook()) return this.audioMatchesBook() ? this.playerState.currentChapter : null;
     return this.speechMatchesBook() ? this.book?.chapters[this.speechState.chapterIndex] ?? null : null;
   }
 
@@ -587,14 +617,14 @@ export struct PlayerPage {
   private skipPlayback(delta: number): void {
     if (this.isSpeechBook()) {
       if (this.speechMatchesBook()) TextToSpeechService.getInstance().skipSentence(delta);
-    } else {
+    } else if (this.audioMatchesBook()) {
       AudioService.getInstance().seekBy(delta * 15000);
     }
   }
 
   private canSkipPlayback(): boolean {
     if (this.isSpeechBook()) return this.speechMatchesBook() && !this.speechState.loading && this.speechState.contentLength > 0;
-    return !this.isLiveBook() && !this.playerState.isLoading && this.playerState.durationMs > 0;
+    return this.audioMatchesBook() && !this.isLiveBook() && !this.playerState.isLoading && this.playerState.durationMs > 0;
   }
 
   private speechProgress(): number {
@@ -927,12 +957,14 @@ export struct PlayerPage {
 
   /** Slider max 与右侧总时长显示用同一份兜底:prepared 前用 savedDurationMs */
   private sliderMaxMs(): number {
+    if (!this.audioMatchesBook()) return 1;
     if (this.playerState.durationMs > 0) return this.playerState.durationMs;
     if (this.playerState.savedDurationMs > 0) return this.playerState.savedDurationMs;
     return 1;
   }
 
   private displayDurationMs(): number {
+    if (!this.audioMatchesBook()) return 0;
     if (this.playerState.durationMs > 0) return this.playerState.durationMs;
     return this.playerState.savedDurationMs;
   }
@@ -956,7 +988,21 @@ export struct PlayerPage {
       }
       return;
     }
-    await AudioService.getInstance().toggle();
+    if (!this.book) return;
+    if (this.audioMatchesBook()) {
+      await AudioService.getInstance().toggle();
+    } else if (this.book.chapters.length === 0) {
+      this.showSourceSwitch = !!this.book.sourceUrl;
+    } else {
+      const chapter = this.book.chapters.find((item: Chapter): boolean => item.id === this.resumeChapterId)
+        ?? this.book.chapters[0];
+      if (this.sourceUnavailable && chapter.source.type !== 'file' &&
+        this.chapterDownloadRecord(chapter)?.status !== 'completed') {
+        this.showSourceSwitch = true;
+        return;
+      }
+      await AudioService.getInstance().playChapterFromSavedProgress(this.book, chapter);
+    }
   }
 
   private async playPrev(): Promise<void> {
@@ -964,7 +1010,7 @@ export struct PlayerPage {
       if (this.speechMatchesBook()) await TextToSpeechService.getInstance().moveChapter(-1);
       return;
     }
-    if (!this.book || !this.playerState.currentChapter) return;
+    if (!this.book || !this.audioMatchesBook() || !this.playerState.currentChapter) return;
     const idx = this.currentChapterIndex();
     const target = idx - 1;
     if (idx >= 0 && target >= 0 && target < this.book.chapters.length) {
@@ -979,7 +1025,7 @@ export struct PlayerPage {
       if (this.speechMatchesBook()) await TextToSpeechService.getInstance().moveChapter(1);
       return;
     }
-    if (!this.book || !this.playerState.currentChapter) return;
+    if (!this.book || !this.audioMatchesBook() || !this.playerState.currentChapter) return;
     const idx = this.currentChapterIndex();
     const target = idx + 1;
     if (idx >= 0 && target >= 0 && target < this.book.chapters.length) {
@@ -1228,7 +1274,7 @@ export struct PlayerPage {
   /** 当前播放章节在列表中的索引 */
   private currentChapterIndex(): number {
     if (this.isSpeechBook()) return this.speechMatchesBook() ? this.speechState.chapterIndex : -1;
-    if (!this.book || !this.playerState.currentChapter) return -1;
+    if (!this.book || !this.audioMatchesBook() || !this.playerState.currentChapter) return -1;
     return DataService.resolveChapterIndex(
       this.book,
       this.playerState.currentChapter.id,
@@ -1671,7 +1717,7 @@ export struct PlayerPage {
           .accessibilityText($r('app.string.source_switch_title'))
           .onClick((): void => { this.showSourceSwitch = true; })
           .margin({ right: 8 })
-          .enabled(!this.reloadingChapter && !this.playerState.isLoading)
+          .enabled(!this.reloadingChapter && !this.playbackLoading())
           .bindSheet($$this.showSourceSwitch, this.buildSourceSwitchSheet(), {
             height: '82%', detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM, showClose: true,
             backgroundColor: AppMaterial.SheetBackground,
@@ -1963,7 +2009,7 @@ export struct PlayerPage {
         .blockColor('#FFFFFF')
         .blockSize({ width: 18, height: 18 })
         .trackThickness(6)
-        .enabled(this.playerState.durationMs > 0 && !this.playerState.isLoading)
+        .enabled(this.audioMatchesBook() && this.playerState.durationMs > 0 && !this.playerState.isLoading)
         .onChange((value: number, mode: SliderChangeMode) => {
           if (mode === SliderChangeMode.Begin || mode === SliderChangeMode.Moving) {
             this.seeking = true;
@@ -2038,7 +2084,7 @@ export struct PlayerPage {
       .accessibilityText(this.playbackPlaying() || this.playbackLoading()
         ? $r('app.string.tts_pause') : $r('app.string.tts_play'))
       .onClick(() => {
-        if (this.isSpeechBook() || !this.playerState.isLoading) this.togglePlay();
+        if (!this.playbackLoading()) this.togglePlay();
       })
 
       Blank()

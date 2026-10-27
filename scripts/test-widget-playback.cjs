@@ -15,9 +15,13 @@ const speech = { state: { active: true }, currentBook: () => book,
   async moveChapter(step) { calls.push(step); }, async start(...args) { calls.push(Array.from(args.slice(1))); } };
 const prefs = { snapshot: { playbackKind: 'tts', bookId: 'text', chapterId: 'b', charOffset: 73 },
   async getWidgetPlayerSnapshot() { return this.snapshot; }, async applyTocOrder() {} };
-const audio = { async whenReady() {}, async play() { calls.push('audio-play'); } };
+const audio = { async whenReady() {}, async play() { calls.push('audio-play'); },
+  async pause(source) { calls.push(`audio-pause:${source}`); },
+  async playNext() { calls.push('audio-next'); }, async playPrevious() { calls.push('audio-prev'); } };
+const playback = { playing: false, isPlayingNow() { return this.playing; } };
 const data = { async getBookById() { return book; } };
 const deps = { './AudioService': { AudioService: { getInstance: () => audio } },
+  './PlaybackStore': { PlaybackStore: { getInstance: () => playback } },
   './text/TextToSpeechService': { TextToSpeechService: { getInstance: () => speech } },
   './PreferenceService': { PreferenceService: prefs }, './DataService': { DataService: data },
   './BookSourceService': { BookSourceService: {} } };
@@ -49,6 +53,28 @@ const router = moduleContext.exports.WidgetPlaybackService;
   while (!finish) await new Promise(resolve => setImmediate(resolve));
   await router.execute({}, 'pause');
   finish(book); await pending;
-  assert.equal(calls.length, 0, 'pause cancels pending cold-start play');
+  assert.deepEqual(calls, ['audio-pause:widget'], 'pause cancels pending cold-start play and reaches the audio player');
+
+  const readSnapshot = prefs.getWidgetPlayerSnapshot;
+  prefs.getWidgetPlayerSnapshot = async () => { throw new Error('PreferenceService not initialized'); };
+  audio.whenReady = () => new Promise(() => {});
+  calls.length = 0;
+  const immediatePause = router.execute({}, 'pause');
+  assert.deepEqual(calls, ['audio-pause:widget'], 'pause must not wait for initialization or card preferences');
+  await immediatePause;
+  speech.state.active = true; speech.currentBook = () => book;
+  calls.length = 0;
+  const immediateSpeechPause = router.execute({}, 'pause');
+  assert.deepEqual(calls, ['pause'], 'active speech also pauses immediately');
+  await immediateSpeechPause;
+  speech.state.active = false; speech.currentBook = () => null;
+  audio.whenReady = async () => {};
+  playback.playing = true; calls.length = 0;
+  for (const command of ['play', 'next', 'prev']) await router.execute({}, command);
+  assert.deepEqual(calls, ['audio-play', 'audio-next', 'audio-prev'], 'live audio commands bypass unavailable snapshots');
+  prefs.getWidgetPlayerSnapshot = readSnapshot;
+  calls.length = 0;
+  await router.execute({}, 'next');
+  assert.deepEqual(calls, ['audio-next'], 'stale TTS snapshot cannot redirect currently playing audio');
   console.log('PASS widget active/cold TTS commands, position restore, reverse chapters, legacy audio and cancellation');
 })().catch(error => { console.error(error); process.exitCode = 1; });

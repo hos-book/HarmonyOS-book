@@ -102,7 +102,7 @@ export class LocalBookImportService {
       if (attr !== null && !/^(?:[a-z]+:|\/\/)/i.test(attr[1])) {
         try {
           const bytes = handler.getResourceContent(index, KkBiqugeHtmlParser.cleanContent(attr[1]).split('#')[0]);
-          if (stats.imageBytes + bytes.byteLength > 2 * 1024 * 1024 * 1024) {
+          if (stats.imageBytes + bytes.byteLength > LocalBookImportService.MAX_EPUB_EXPANDED_BYTES) {
             throw new Error('import_epub_images_limit');
           }
           if (bytes.byteLength > 0 && bytes.byteLength <= 20 * 1024 * 1024) {
@@ -147,6 +147,9 @@ export class LocalBookImportService {
     return text;
   }
   static readonly MAX_CHAPTERS: number = 50000;
+  static readonly MAX_EPUB_BYTES: number = 3 * 1024 * 1024 * 1024;
+  // 解压内容和落盘图片共用容量上限，逐章/逐图处理的内存预算保持不变。
+  static readonly MAX_EPUB_EXPANDED_BYTES: number = 6 * 1024 * 1024 * 1024;
   static readonly MAX_ARCHIVE_BYTES: number = 32 * 1024 * 1024 * 1024;
   static readonly MAX_EXPANDED_BYTES: number = 64 * 1024 * 1024 * 1024;
   static readonly TEXT_EXTS: string[] = FileOpenRouting.TEXT_EXTS;
@@ -191,8 +194,8 @@ export class LocalBookImportService {
         const sample = new Uint8Array(buffer, 0, length);
         const content = util.TextDecoder.create(LocalBookImportService.detectEncoding(sample))
           .decodeToString(sample, { stream: true });
-        const title = file.ext === '.txt' ? /(?:^|\n)\s*(?:书名[：:]\s*|《)([^\n》]{1,120})/.exec(content) :
-          /<title[^>]*>([^<]{1,120})<\/title\s*>/i.exec(content);
+        // TXT 没有标准书名元数据，正文中的简称或提及作品不能覆盖用户选择的文件名。
+        const title = file.ext === '.txt' ? null : /<title[^>]*>([^<]{1,120})<\/title\s*>/i.exec(content);
         const author = /(?:^|\n)\s*作者[：:]\s*([^\r\n]{1,80})/.exec(content);
         if (title !== null) result.title = title[1].trim();
         if (author !== null) result.author = author[1].trim();
@@ -205,13 +208,18 @@ export class LocalBookImportService {
     await fileIo.mkdir(result.directory, true);
     try {
       const size = await LocalBookImportService.fileSize(file.uri);
-      if (size <= 0 || size > 512 * 1024 * 1024) throw new Error('Invalid EPUB size');
+      if (size <= 0) throw new Error('Invalid EPUB size');
+      if (size > LocalBookImportService.MAX_EPUB_BYTES) {
+        throw new Error(context.resourceManager.getStringSync($r('app.string.import_epub_size_limit').id));
+      }
       await LocalBookImportService.requireSpace(context, size * 3);
       const archive = `${result.directory}/source.zip`;
       const epub = `${result.directory}/source.epub`;
       await LocalBookImportService.copyFile(file.uri, archive);
       const expanded = await zlib.getOriginalSize(archive);
-      if (expanded > 2 * 1024 * 1024 * 1024) throw new Error('Invalid EPUB expanded size');
+      if (expanded > LocalBookImportService.MAX_EPUB_EXPANDED_BYTES) {
+        throw new Error(context.resourceManager.getStringSync($r('app.string.import_epub_expanded_limit').id));
+      }
       await LocalBookImportService.requireSpace(context, expanded * 2);
       await fileIo.moveFile(archive, epub);
       const handler = await LocalBookImportService.openEpub(context, epub);
@@ -622,7 +630,9 @@ export class LocalBookImportService {
       } else if (file.ext === '.mobi') {
         await LocalBookImportService.importMobi(context, book, directory, file, title, author, report, writes);
       } else if (file.ext === '.epub') {
-        if (size > 512 * 1024 * 1024) throw new Error('EPUB 超过 512 MiB');
+        if (size > LocalBookImportService.MAX_EPUB_BYTES) {
+          throw new Error(context.resourceManager.getStringSync($r('app.string.import_epub_size_limit').id));
+        }
         const openStarted = Date.now();
         const prepared = LocalBookImportService.preparedEpub;
         let handler: bookParser.BookParserHandler;
@@ -635,7 +645,9 @@ export class LocalBookImportService {
           const epub = `${directory}/source.epub`;
           await LocalBookImportService.copyFile(file.uri, archive);
           const expanded = await zlib.getOriginalSize(archive);
-          if (expanded > 2 * 1024 * 1024 * 1024) throw new Error('EPUB 解压内容超过 2 GiB');
+          if (expanded > LocalBookImportService.MAX_EPUB_EXPANDED_BYTES) {
+            throw new Error(context.resourceManager.getStringSync($r('app.string.import_epub_expanded_limit').id));
+          }
           await LocalBookImportService.requireSpace(context, expanded * 2);
           await fileIo.moveFile(archive, epub);
           handler = await LocalBookImportService.openEpub(context, epub);

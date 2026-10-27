@@ -1,6 +1,6 @@
 {
   "repository": "wip3l/harmony-book-ai-engine",
-  "revision": "0d152ab20962c3171054cb852578960c21b647d5",
+  "revision": "174cd66b40851a62126c418578a2dc5c96a0771d",
   "name": "@legado/aiengine",
   "version": "1.0.0",
   "integrationPatch": "upstream-fp32-nnrt-v1",

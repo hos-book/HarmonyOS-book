@@ -876,8 +876,8 @@ export struct FavoritePage {
     if (this.isManaging || this.removingBook || this.showBatchDelete || this.shelfSearchAnimating) return;
     if (this.showShelfSearch) this.shelfSearchController.stopEditing();
     this.shelfSearchAnimating = true;
-    this.listScroller.scrollToIndex(0);
-    // 先让回顶布局落定；按钮和输入框的位置、尺寸及圆角由共享元素转场计算。
+    this.listScroller.scrollTo({ xOffset: 0, yOffset: 0 });
+    // 回到组头起点；scrollToIndex 会按列表项定位，可能跳过导航占位。
     this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
       if (!this.alive) return;
       if (!this.visible) {
@@ -887,8 +887,16 @@ export struct FavoritePage {
       this.getUIContext().animateTo({
         duration: 320,
         curve: Curve.FastOutSlowIn,
-        onFinish: (): void => { if (this.alive) this.shelfSearchAnimating = false; }
+        onFinish: (): void => {
+          if (!this.alive) return;
+          this.shelfSearchAnimating = false;
+          if (this.visible) this.listScroller.scrollTo({ xOffset: 0, yOffset: 0 });
+        }
       }, (): void => { this.showShelfSearch = !this.showShelfSearch; });
+      // 组头变高后取消 List 为保留旧可见项施加的滚动补偿，让书卡随筛选栏一起下移。
+      this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+        if (this.alive && this.visible) this.listScroller.scrollTo({ xOffset: 0, yOffset: 0 });
+      }));
     }));
   }
 
@@ -1931,7 +1939,7 @@ export struct FavoritePage {
       })
   }
 
-  @Builder
+  @LocalBuilder
   buildShelfContentInset() {
     // 使用真实的全宽组头预留导航空间，避免沉浸导航绑定后的滚动偏移影响首行位置。
     Column()
@@ -2017,6 +2025,8 @@ export struct FavoritePage {
           controller: this.shelfSearchController })
           .id('shelf-search-input')
           .height(44).width('100%').enabled(!this.removingBook && !this.showBatchDelete)
+          // Search 默认上下各 8vp 外边距会使 98vp 的导航区溢出，间距统一交给父 Column。
+          .margin(0)
           .placeholderFont({ size: AppFont.Body, weight: FontWeight.Regular })
           .textFont({ size: AppFont.Body, weight: FontWeight.Regular })
           .borderRadius(22).clip(true)
@@ -2028,7 +2038,7 @@ export struct FavoritePage {
             this.shelfKeyword = value;
             this.selectedBookIds = new Set();
             this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
-            this.listScroller.scrollToIndex(0);
+            this.listScroller.scrollTo({ xOffset: 0, yOffset: 0 });
           })
       }
       Stack({ alignContent: Alignment.Bottom }) {

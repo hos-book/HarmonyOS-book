@@ -5,6 +5,9 @@
  * 本文件不依赖系统 API，可直接在 Node 回归脚本中加载。
  */
 
+import { HttpRetryPolicy } from '../http/HttpRetryPolicy';
+import { HttpHeaderValues } from '../http/HttpHeaderValues';
+import { BookSourceDebugRedactor } from '../book/BookSourceDebugModels';
 import { NativeExpr } from './NativeExpr';
 import type { NativeValue } from './NativeExpr';
 import type { NativeRequest, NativeResponse, NativeRunnerHost } from './NativeSourceRunner';
@@ -19,6 +22,7 @@ export interface NativeScriptRunOptions {
   wallMs: number;
   cancelled: () => boolean;
   pausedMs?: () => number;
+  timing?: (cpuMs: number, wallMs: number) => void;
 }
 
 /** 在后台运行书源 js 里的函数 fn(ctx)：真机是 QuickJS 后台会话，Node 回归是 worker。 */
@@ -81,6 +85,7 @@ export class NativeScriptHost {
   private requests: number = 0;
   private bytes: number = 0;
   private paused: number = 0;
+  private startedAt: number = Date.now();
 
   constructor(context: NativeScriptContext) {
     this.context = context;
@@ -230,6 +235,9 @@ export class NativeScriptHost {
     const options = (rawOptions || {}) as Record<string, NativeValue>;
     const concurrency = options['concurrency'] === undefined ? BATCH :
       this.integerOption(options['concurrency'], 'http.all concurrency', 1, BATCH);
+    if (options['failOnPartial'] !== undefined && typeof options['failOnPartial'] !== 'boolean') {
+      throw new Error('http.all failOnPartial 必须是布尔值');
+    }
     const timeout = this.requestTimeout(options['timeout']);
     this.count(list.length);
     const requests: NativeRequest[] = [];
@@ -252,6 +260,15 @@ export class NativeScriptHost {
     const workers: Promise<void>[] = [];
     for (let index = 0; index < Math.min(concurrency, requests.length); index++) workers.push(worker());
     await Promise.all(workers);
+    if (this.context.cancelled()) throw new Error('已取消');
+    if (options['failOnPartial'] === true) {
+      const failures: string[] = [];
+      results.forEach((value: NativeValue, index: number): void => {
+        const result = value as Record<string, NativeValue>;
+        if (!result['ok']) failures.push(`[${index}] ${result['requestId'] || ''} HTTP ${result['status']} ${BookSourceDebugRedactor.url(String(result['url']))}`);
+      });
+      if (failures.length) throw new Error(`http.all 部分失败：成功 ${results.length - failures.length}，失败 ${failures.length}；${failures.join('；')}`);
+    }
     return results;
   }
 
@@ -275,22 +292,29 @@ export class NativeScriptHost {
 
   private async fetch(request: NativeRequest): Promise<NativeValue> {
     const startedAt = Date.now();
+    const remaining = this.context.limits.wallMs - (startedAt - this.startedAt - this.paused);
+    if (remaining <= 0) throw new Error('脚本运行总时长超过上限');
+    request.timeoutMs = Math.min(request.timeoutMs || remaining, remaining);
     let response: NativeResponse;
     try {
       response = await this.context.host.fetch(request);
     } catch (e) {
       response = { ok: false, status: 0, body: '', url: request.url, error: (e as Error).message || '网络异常' };
     }
+    if (this.context.cancelled()) throw new Error('已取消');
     const body = response.body || '';
     this.bytes += body.length;
-    this.trace(`${request.method} ${request.url}`,
-      `${response.status || '-'} · ${body.length} 字 · ${Date.now() - startedAt} ms`, response.ok ? '' : (response.error || ''));
+    this.trace(`${request.method} ${BookSourceDebugRedactor.url(request.url)}`,
+      `${response.requestId || ''} · ${response.status || '-'} · ${body.length} 字符 · ${Date.now() - startedAt} ms`,
+      response.ok ? '' : (response.error || `HTTP ${response.status}`));
     if (this.bytes > this.context.limits.bytes) {
       throw new Error(`脚本收到的数据超过上限（${Math.round(this.context.limits.bytes / 1024 / 1024)} MB）`);
     }
     return {
       ok: response.ok, status: response.status, body: body, url: response.url || request.url,
-      finalUrl: response.finalUrl || '', error: response.error || ''
+      finalUrl: response.finalUrl || '', error: response.error || '',
+      headers: HttpHeaderValues.normalize(response.headers || {}), headersAvailable: response.headersAvailable === true,
+      requestId: response.requestId || ''
     };
   }
 
@@ -319,7 +343,7 @@ export class NativeScriptHost {
       webWaitFor: webSpec && webSpec['waitFor'] ? String(webSpec['waitFor']).trim() : '',
       webTimeout: Math.max(3, Math.min(Number(webSpec ? webSpec['timeout'] : 0) || 15, 60)),
       charset: this.text(spec['charset']).trim(),
-      retry: Math.max(0, Math.min(Math.floor(Number(spec['retry']) || 0), 3)),
+      retry: HttpRetryPolicy.parse(spec['retry']),
       timeoutMs: spec['timeout'] === undefined ? defaultTimeout : this.requestTimeout(spec['timeout']),
       primary: false
     };

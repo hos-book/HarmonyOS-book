@@ -328,19 +328,6 @@ export class WidgetUpdater {
     return generation === WidgetUpdater.updateGeneration;
   }
 
-  /** 重新打开 preferences，读取 FormExtensionAbility 刚写入的 formId。 */
-  private static async refreshPreferenceCache(): Promise<void> {
-    if (!WidgetUpdater.appContext) return;
-    try {
-      await PreferenceService.invalidateCache(WidgetUpdater.appContext);
-      await PreferenceService.init(WidgetUpdater.appContext);
-    } catch (err) {
-      const e = err as Error;
-      hilog.warn(DOMAIN, TAG, 'refresh preferences failed: %{public}s',
-        e?.message ?? JSON.stringify(err));
-    }
-  }
-
   /** 卡片当前不展示播放进度，比较可见字段即可，避免每个 tick 都重建图片绑定。 */
   private static sameCardState(a: WidgetPlayerSnapshot, b: WidgetPlayerSnapshot): boolean {
     return a.bookId === b.bookId
@@ -383,8 +370,7 @@ export class WidgetUpdater {
       await PreferenceService.setWidgetPlayerSnapshot(snap);
     }
     if (!WidgetUpdater.isLatest(generation)) return;
-    // form-id 列表由 FormExtensionAbility 进程写入，主进程必须刷新 preferences 缓存。
-    await WidgetUpdater.refreshPreferenceCache();
+    // 登记信息独立存储并按次读取，不清空主应用正在使用的偏好缓存。
     const ids = await PreferenceService.getWidgetFormIds(WIDGET_PLAYER);
     hilog.info(DOMAIN, TAG, 'update card generation=%{public}d forms=%{public}d playing=%{public}s',
       generation, ids.length, snap.isPlaying ? 'true' : 'false');
@@ -521,7 +507,6 @@ export class WidgetUpdater {
   /** 把当前 preference 里的快照推送到所有听书卡片(seed 后调用) */
   static async pushSnapshotToCards(): Promise<void> {
     const generation = WidgetUpdater.updateGeneration;
-    await WidgetUpdater.refreshPreferenceCache();
     const ids = await PreferenceService.getWidgetFormIds(WIDGET_PLAYER);
     if (ids.length === 0) return;
     const snap = await PreferenceService.getWidgetPlayerSnapshot();
@@ -561,7 +546,6 @@ export class WidgetUpdater {
 
     try {
       const generation = ++WidgetUpdater.updateGeneration;
-      await WidgetUpdater.refreshPreferenceCache();
       const snap = await PreferenceService.getWidgetPlayerSnapshot();
       if (!snap || snap.bookId.length === 0 || snap.isPlaying === isPlaying) {
         return;
@@ -572,7 +556,6 @@ export class WidgetUpdater {
       if (!WidgetUpdater.isLatest(generation)) return;
       await PreferenceService.setWidgetPlayerSnapshot(snap);
 
-      await WidgetUpdater.refreshPreferenceCache();
       const ids = await PreferenceService.getWidgetFormIds(WIDGET_PLAYER);
       if (ids.length === 0) return;
 

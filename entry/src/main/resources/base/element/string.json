@@ -1,11 +1,28 @@
 {
   "string": [
+    { "name": "settings_jianjian_companion", "value": "简简陪伴" },
+    { "name": "settings_limited_trial", "value": "限时体验" },
+    { "name": "settings_jianjian_companion_desc", "value": "让简简陪你阅听，点击互动，长按拖动" },
+    { "name": "jianjian_reply_shy", "value": "一被你发现，就有点害羞啦。" },
+    { "name": "jianjian_reply_surprised", "value": "哇！故事里是不是出现新惊喜了？" },
+    { "name": "jianjian_reply_crying", "value": "遇到难过的情节，简简陪你缓一缓。" },
+    { "name": "jianjian_reply_angry", "value": "哼，故事里的坏家伙可别得意太早！" },
+    { "name": "jianjian_reply_wink", "value": "今天的好心情，也分给你一份。" },
+    { "name": "jianjian_reply_reading", "value": "翻开下一页吧，我和你一起看。" },
+    { "name": "jianjian_reply_heart", "value": "送你一颗小红心，谢谢你来陪我。" },
+    { "name": "jianjian_interact", "value": "简简，点击互动，长按拖动" },
+    { "name": "jianjian_reply_hello", "value": "嗨，我是简简！今天也想陪你读一本好书。" },
+    { "name": "jianjian_reply_company", "value": "你慢慢看，我在这里陪着你呀。" },
+    { "name": "jianjian_reply_happy", "value": "被你发现啦！送你一份好心情。" },
+    { "name": "jianjian_reply_rest", "value": "故事可以慢慢听，也记得让眼睛休息一下哦。" },
     { "name": "import_epub_mode", "value": "EPUB 阅读类型" },
     { "name": "import_epub_auto", "value": "自动识别" },
     { "name": "import_epub_text", "value": "电子书" },
     { "name": "import_epub_comic", "value": "漫画" },
-    { "name": "import_epub_mode_hint", "value": "自动识别以图片为主的 EPUB；识别不准时可手动选择。此设置适用于本批 EPUB（含 ZIP 内的 EPUB）。" },
-    { "name": "import_epub_images_limit", "value": "EPUB 正文图片累计超过 2 GiB，请拆分后导入。" },
+    { "name": "import_epub_mode_hint", "value": "自动识别以图片为主的 EPUB；识别不准时可手动选择。此设置适用于本批 EPUB（含 ZIP 内的 EPUB）。单文件最大 3 GiB，解压内容及正文图片分别最多 6 GiB；大文件导入需要更多时间和存储空间。" },
+    { "name": "import_epub_size_limit", "value": "EPUB 文件超过 3 GiB，请拆分后导入。" },
+    { "name": "import_epub_expanded_limit", "value": "EPUB 解压内容超过 6 GiB，请拆分后导入。" },
+    { "name": "import_epub_images_limit", "value": "EPUB 正文图片累计超过 6 GiB，请拆分后导入。" },
     { "name": "import_epub_images_failed", "value": "有 %d 张漫画图片无法提取，未保存本书。请检查原文件；单张图片需不超过 20 MiB、3200 万像素。" },
     { "name": "import_epub_no_images", "value": "未找到可读取的漫画图片，请选择电子书类型或检查 EPUB 原文件。" },
     { "name": "import_local_comic", "value": "本地漫画" },
@@ -4086,6 +4103,14 @@
       "value": "重载失败，请稍后重试"
     },
     {
+      "name": "player_source_unavailable_title",
+      "value": "书源暂不可用"
+    },
+    {
+      "name": "player_source_unavailable_message",
+      "value": "《%s》的书源已失效或暂时无法访问，可以换源继续收听。"
+    },
+    {
       "name": "source_switch_title",
       "value": "换源"
     },
@@ -5140,6 +5165,10 @@
     {
       "name": "membership_buy_lifetime",
       "value": "一次购买"
+    },
+    {
+      "name": "membership_order_opening",
+      "value": "11月1日 00:00 开放订购"
     },
     {
       "name": "membership_lifetime_renewal_notice",

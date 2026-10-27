@@ -18,6 +18,7 @@ import { NativeExpr } from './NativeExpr';
 import type { NativeScriptLibrary, NativeValue } from './NativeExpr';
 import { NativeJsLibrary } from './NativeJsLibrary';
 import { NativeSourceRunner } from './NativeSourceRunner';
+import { HttpHeaderValues } from '../http/HttpHeaderValues';
 import { NativeCommentPage } from './NativeCommentPage';
 import { SourceCoverUrl } from './SourceCoverUrl';
 import type {
@@ -166,11 +167,12 @@ class NativeHost implements NativeRunnerHost {
     if (Object.keys(request.headers).length > 0) options['headers'] = request.headers;
     if (request.webView) options['webView'] = true;
     if (request.charset) options['charset'] = request.charset;
-    if (request.retry > 0) options['retry'] = request.retry;
+    if (typeof request.retry === 'number' && request.retry > 0) options['retry'] = request.retry;
     const url = Object.keys(options).length > 0 ? `${request.url},${JSON.stringify(options)}` : request.url;
     // 顶层 headers 已由运行器按作用域求值并放进 request.headers，书源记录里的字面值副本不再重复合并。
     const analyzeUrl = new AnalyzeUrl(this.source, this.http).setCancelCheck(this.cancelled).setStaticSourceHeader(false)
-      .setRequestTimeout(request.timeoutMs || 0);
+      .setRequestTimeout(request.timeoutMs || 0)
+      .setRetryPolicy(typeof request.retry === 'object' ? request.retry : null);
     const response = request.webView && (request.webWaitFor || request.webJs) ?
       await this.fetchWaitingFor(analyzeUrl, url, request) :
       await analyzeUrl.fetch(url, this.maxResponseBytes > 0 ? this.maxResponseBytes : undefined, this.debugContext);
@@ -184,7 +186,8 @@ class NativeHost implements NativeRunnerHost {
       const networkReason = NetworkErrorText.describe(response.error || '', request.url);
       if (networkReason) {
         console.warn(`[NativeSource] 网络请求失败 source=${this.source.bookSourceName} error=${response.error || ''}`);
-        return { ok: false, status: 0, body: '', url: request.url, error: networkReason };
+        return { ok: false, status: 0, body: '', url: request.url, error: networkReason,
+          headers: {}, headersAvailable: false, requestId: response.requestId || '' };
       }
     }
     // 主请求拿到的是人机验证或登录拦截页时，沿用应用现有的「去验证」流程，而不是当成没有结果。
@@ -198,6 +201,8 @@ class NativeHost implements NativeRunnerHost {
         `${this.source.bookSourceName} 验证`, this.source);
       return {
         ok: false, status: response.statusCode, body: '', url: request.url,
+        headers: response.headersAvailable ? HttpHeaderValues.normalize(response.headers || {}) : {},
+        headersAvailable: response.headersAvailable === true, requestId: response.requestId || '',
         error: NativeSourceService.VERIFICATION_REASON
       };
     }
@@ -207,6 +212,9 @@ class NativeHost implements NativeRunnerHost {
       body: response.body || '',
       url: BookUrlResolver.effectiveBase(response, request.url, this.source.bookSourceUrl),
       finalUrl: response.finalUrl || '',
+      headers: response.headersAvailable ? HttpHeaderValues.normalize(response.headers || {}) : {},
+      headersAvailable: response.headersAvailable === true,
+      requestId: response.requestId || '',
       error: response.error || ''
     };
   }
@@ -482,7 +490,7 @@ export class NativeSourceService {
     return (definition.vars || []).map((item: NativeVarSpec): NativeVarItem => ({
       key: item.key,
       label: item.label || item.key,
-      options: Array.isArray(item.options) ? item.options.map((option: string): string => String(option)) : [],
+      options: Array.isArray(item.options) ? item.options.map((option: string | number): string => String(option)) : [],
       value: current[item.key] || ''
     }));
   }
@@ -554,7 +562,7 @@ export class NativeSourceService {
       .filter((item: NativeVarSpec): boolean => item.filter === true && Array.isArray(item.options) &&
         item.options.length > 0)
       .map((item: NativeVarSpec): NativeFilterGroup => {
-        const options = (item.options as string[]).map((option: string): string => String(option));
+        const options = (item.options as string[]).map((option: string | number): string => String(option));
         const selected = current[item.key] || '';
         if (item.optionsScript && selected && options.indexOf(selected) < 0) options.push(selected);
         return { title: item.label || item.key, options: options, selected: selected };
@@ -568,7 +576,7 @@ export class NativeSourceService {
     const target = (definition.vars || []).find((item: NativeVarSpec): boolean => (item.label || item.key) === title);
     if (!target) return '';
     if (Array.isArray(target.options) && target.options.length > 0 &&
-      target.options.map((option: string): string => String(option)).indexOf(selection) < 0) {
+      target.options.map((option: string | number): string => String(option)).indexOf(selection) < 0) {
       return '';
     }
     const stored = NativeSourceService.storedVars(source);
@@ -807,6 +815,13 @@ export class NativeSourceService {
       chapters.push(chapter);
     }
     return chapters;
+  }
+
+  /** 视频专用结果保留网页、请求头和直链解析错误，通用正文接口保持原行为。 */
+  static async getVideoContent(source: BookSource, http: HttpClient, book: Book, chapter: BookChapter,
+    cancelled: () => boolean): Promise<NativeContentResult> {
+    return await NativeSourceService.runner(source, http, cancelled, 0, null).content(
+      NativeSourceService.bookInput(source, book), { url: chapter.url, title: chapter.title, index: chapter.index }, true);
   }
 
   static async getContent(source: BookSource, http: HttpClient, book: Book, chapter: BookChapter,

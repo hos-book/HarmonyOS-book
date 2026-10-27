@@ -230,6 +230,18 @@ ${script ? NativeJsPrelude.SCRIPT_API : NativeJsPrelude.EXPRESSION_STUBS}
     return text === undefined ? 'null' : text;
   }
 
+  /** 只为明确的未定义标识符错误补充写源提示；不改变脚本环境，也不推断任意业务错误。 */
+  static scriptError(message: string, builtins: string[]): string {
+    const firstLine = (message || '').split('\n')[0].trim();
+    // QuickJS 给标识符加单引号，Node/V8 不加引号。只匹配异常首行，不扫描堆栈或源码。
+    const missing = /^ReferenceError: (?:'([A-Za-z_$][A-Za-z0-9_$]*)'|([A-Za-z_$][A-Za-z0-9_$]*)) is not defined$/.exec(firstLine);
+    const summary = NativeJsPrelude.shortError(message);
+    if (!missing) return summary;
+    const name = missing[1] || missing[2];
+    if (!NativeJsPrelude.isIdentifier(name) || builtins.indexOf(name) < 0) return summary;
+    return `${summary}；若要调用原生书源内置函数，请使用 native.${name}(...)`;
+  }
+
   /** 错误信息只留前几行，避免整段堆栈塞进界面。 */
   static shortError(message: string): string {
     const lines = (message || '').split('\n').map((line: string): string => line.trim()).filter(Boolean);

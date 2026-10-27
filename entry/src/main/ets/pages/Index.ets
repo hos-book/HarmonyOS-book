@@ -46,6 +46,9 @@ import { HdsCompat } from '../utils/HdsCompat';
 import { AppRadius } from '../theme/Theme';
 import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
 import { WindowUtils } from '../utils/WindowUtils';
+import { JianjianCompanionComponent } from '../components/JianjianCompanionComponent';
+import { GeneralSettings } from '../model/GeneralSettings';
+import { EVT_JIANJIAN_COMPANION_CHANGED } from '../service/PreferenceService';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { LocalImportRouteParams } from '../utils/FileOpenRouting';
 import { RuleSourceImportQueue } from '../service/rulesource/RuleSourceImportQueue';
@@ -68,6 +71,13 @@ interface WidgetRouteEvent {
 @Entry
 @ComponentV2
 struct Index {
+  @Local companionEnabled: boolean = GeneralSettings.current.jianjianCompanionEnabled;
+  private readonly companionChangedListener: () => void = (): void => {
+    this.getUIContext().runScopedTask((): void => {
+      this.companionEnabled = GeneralSettings.current.jianjianCompanionEnabled;
+    });
+  };
+  @Local companionActive: boolean = true;
   @Local navStack: NavPathStack = new NavPathStack();
   @Local playerRenderGroup: boolean = false;
   @Local playerOpacity: number = 1;
@@ -101,6 +111,8 @@ struct Index {
   };
 
   aboutToAppear(): void {
+    this.companionEnabled = GeneralSettings.current.jianjianCompanionEnabled;
+    emitter.on(EVT_JIANJIAN_COMPANION_CHANGED, this.companionChangedListener);
     // 详情页顶栏（HDS 标题栏内容）不是本组件的常规子树，收不到外部 @ObservedV2 的刷新，
     // 只能由这里在被通知后改自己的 @Local，重跑 titleBar 的 stackBuilder 来刷新。
     this.titleBarBridge.onChanged = (): void => {
@@ -128,6 +140,7 @@ struct Index {
   }
 
   aboutToDisappear(): void {
+    emitter.off(EVT_JIANJIAN_COMPANION_CHANGED, this.companionChangedListener);
     LocalRuleBrowserLoginCoordinator.unbindNavigation(this.browserLoginOpener);
     if (this.widgetSubscribed) {
       try {
@@ -135,6 +148,14 @@ struct Index {
       } catch (_e) { /* ignore */ }
       this.widgetSubscribed = false;
     }
+  }
+
+  onPageShow(): void {
+    this.companionActive = true;
+  }
+
+  onPageHide(): void {
+    this.companionActive = false;
   }
 
   private resolveParam(param: object | null | undefined, key: string): string {
@@ -599,6 +620,9 @@ struct Index {
     // Keep the rendering transport active when the home NavDestination is hidden.
     if (WebEngineGate.instance.needRuleBrowser) {
       WebBookFetchRuntimeHost()
+    }
+    if (this.companionEnabled) {
+      JianjianCompanionComponent({ active: this.companionActive })
     }
     }.width('100%').height('100%')
   }

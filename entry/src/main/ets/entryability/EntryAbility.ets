@@ -420,10 +420,7 @@ export default class EntryAbility extends UIAbility {
       this.callee.on('play', (_data: rpc.MessageSequence) => {
         DiagnosticLogService.info('widget.command', 'play');
         this.startupPlaybackPending = false;
-        // 乐观更新:立即翻转卡片图标，不等 AVPlayer
-        WidgetUpdater.optimisticSetPlaying(true).catch((err: Error) => {
-          hilog.warn(DOMAIN, TAG, 'optimistic play push failed: %{public}s', err?.message ?? '');
-        });
+        // 图标由播放器的真实状态回传，避免预更新清空偏好缓存与播控并发。
         WidgetPlaybackService.execute(this.context, 'play').catch((err: Error) => {
           hilog.error(DOMAIN, TAG, 'callee play failed: %{public}s', err?.message ?? JSON.stringify(err));
         });
@@ -432,10 +429,6 @@ export default class EntryAbility extends UIAbility {
       this.callee.on('pause', (_data: rpc.MessageSequence) => {
         DiagnosticLogService.info('widget.command', 'pause');
         this.startupPlaybackPending = false;
-        // 乐观更新:立即翻转卡片图标，不等 AVPlayer
-        WidgetUpdater.optimisticSetPlaying(false).catch((err: Error) => {
-          hilog.warn(DOMAIN, TAG, 'optimistic pause push failed: %{public}s', err?.message ?? '');
-        });
         WidgetPlaybackService.execute(this.context, 'pause').catch((err: Error) => {
           hilog.error(DOMAIN, TAG, 'callee pause failed: %{public}s', err?.message ?? JSON.stringify(err));
         });

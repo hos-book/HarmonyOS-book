@@ -233,7 +233,7 @@ export struct ProfilePage {
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .flexShrink(1)
             if (this.membership.displayActive) {
-              MembershipBadge({ productId: this.membership.displayProductId, badgeHeight: 16, compact: true,
+              MembershipBadge({ productId: this.membership.displayProductId, badgeHeight: 24, compact: true,
                 showLabel: false }).flexShrink(0)
             }
           }.width('100%').alignItems(VerticalAlign.Center)

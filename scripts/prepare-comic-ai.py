@@ -9,12 +9,23 @@ import subprocess
 import tarfile
 import tempfile
 import zipfile
+import urllib.request
 from comic_ai_calibration_patch import apply_calibration_patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = json.loads((ROOT / 'scripts/comic-ai-package.json').read_text(encoding='utf-8'))
 OUTPUT = ROOT / 'entry/libs/aiengine.har'
 STAMP = OUTPUT.with_suffix('.har.json')
+
+
+def download_archive(revision, output):
+    # Keep credentials in memory; urllib avoids gh's occasionally stalled archive stream on Windows.
+    token = subprocess.check_output(['gh', 'auth', 'token'], timeout=30).decode().strip()
+    request = urllib.request.Request(
+        f'https://api.github.com/repos/{SPEC["repository"]}/zipball/{revision}',
+        headers={'Authorization': 'Bearer ' + token, 'User-Agent': 'HSDA-package-builder'})
+    with urllib.request.urlopen(request, timeout=60) as source, output.open('wb') as target:
+        shutil.copyfileobj(source, target)
 
 
 def sha256(path):
@@ -116,9 +127,7 @@ def prepare_bundled_models(project):
                if not (destination / name).exists() or sha256(destination / name) != digest]
     if missing:
         archive = project.parent / 'model-assets.zip'
-        with archive.open('wb') as target:
-            subprocess.run(['gh', 'api', f'repos/{SPEC["repository"]}/zipball/{SPEC["modelAssetsRevision"]}'],
-                           stdout=target, check=True, timeout=600)
+        download_archive(SPEC['modelAssetsRevision'], archive)
         with zipfile.ZipFile(archive) as package:
             for name in missing:
                 suffix = '/aiengine/src/main/resources/rawfile/comic-colorizer/' + name
@@ -138,13 +147,18 @@ def build():
     env['DEVECO_SDK_HOME'] = str(ide / 'sdk')
     env['JAVA_HOME'] = str(ide / 'jbr')
     env['PATH'] = str(ide / 'tools/node') + os.pathsep + env['PATH']
+    if os.name == 'nt':
+        # Upstream native tests pass Windows paths to bash; WSL bash.exe cannot consume them.
+        # Git Bash handles those paths and delegates the compiler to WSL when needed.
+        git = shutil.which('git')
+        git_bash = Path(git).resolve().parent.parent / 'bin' if git else None
+        if git_bash and (git_bash / 'bash.exe').is_file():
+            env['PATH'] = str(git_bash) + os.pathsep + env['PATH']
     # TemporaryDirectory is outside the app checkout and removes all downloaded engine source after use.
     with tempfile.TemporaryDirectory(prefix='hsda-ai-') as directory:
         temporary = Path(directory).resolve()
         archive = temporary / 'engine.zip'
-        with archive.open('wb') as target:
-            subprocess.run(['gh', 'api', f'repos/{SPEC["repository"]}/zipball/{SPEC["revision"]}'],
-                           stdout=target, check=True, timeout=600)
+        download_archive(SPEC['revision'], archive)
         project = temporary / 'engine'
         project.mkdir()
         with zipfile.ZipFile(archive) as package:

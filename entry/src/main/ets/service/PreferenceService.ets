@@ -15,6 +15,7 @@ import { ThemeBundles } from '../theme/ThemeBundles';
 export const EVT_FAVORITES_CHANGED = 'app.favorites.changed';
 export const EVT_SHELF_SOURCE_VISIBILITY_CHANGED = 'app.shelf.sourceVisibility.changed';
 export const EVT_HOME_SOURCE_CHANGED = 'app.home.source.changed';
+export const EVT_JIANJIAN_COMPANION_CHANGED = 'app.jianjian.companion.changed';
 
 /**
  * 本地持久化：书架 / 播放历史 / 设置
@@ -31,6 +32,7 @@ const KEY_ACCENT_COLOR = 'accent_color';
 const KEY_THEME_SELECTION = 'app_theme_preferences';
 const KEY_IMPORTED_BOOKS = 'imported_books';
 const KEY_DEFAULT_TAB = 'default_tab';
+const KEY_JIANJIAN_COMPANION_ENABLED = 'jianjian_companion_enabled';
 const KEY_AUTO_PLAY_ON_LAUNCH = 'auto_play_on_launch';
 const KEY_COVER_SUPER_RESOLUTION = 'cover_super_resolution';
 export const EVT_COVER_SUPER_RESOLUTION_CHANGED = 'app.cover.super_resolution.changed';
@@ -229,6 +231,23 @@ export class PreferenceService {
     }
   }
 
+  static async setJianjianCompanionEnabled(enabled: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const previous: boolean = store.getSync(KEY_JIANJIAN_COMPANION_ENABLED, false) === true;
+    // 先响应显示，再异步落盘，避免 flush 延迟让开关看起来没有生效。
+    GeneralSettings.current.jianjianCompanionEnabled = enabled;
+    emitter.emit(EVT_JIANJIAN_COMPANION_CHANGED);
+    try {
+      await store.put(KEY_JIANJIAN_COMPANION_ENABLED, enabled);
+      await store.flush();
+    } catch (error) {
+      GeneralSettings.current.jianjianCompanionEnabled = previous;
+      emitter.emit(EVT_JIANJIAN_COMPANION_CHANGED);
+      await store.put(KEY_JIANJIAN_COMPANION_ENABLED, previous);
+      throw new Error(`Failed to save companion preference: ${String(error)}`);
+    }
+  }
+
   static async getComicVolumeKeyPageTurn(): Promise<boolean> {
     const store = await PreferenceService.ensureStore();
     return store.getSync('comic_volume_key_page_turn', false) === true;
@@ -358,6 +377,9 @@ export class PreferenceService {
 
   private static store: preferences.Preferences | null = null;
   private static initPromise: Promise<void> | null = null;
+  private static widgetContext: common.BaseContext | null = null;
+  private static widgetStateWrites: Promise<void> = Promise.resolve();
+  private static widgetFormWrites: Promise<void> = Promise.resolve();
   private static appearanceSave: Promise<void> = Promise.resolve();
   private static favoriteListener: (() => void) | null = null;
   private static historyListener: (() => void) | null = null;
@@ -380,6 +402,7 @@ export class PreferenceService {
   }
 
   static async init(context: common.BaseContext): Promise<void> {
+    PreferenceService.widgetContext = context;
     if (PreferenceService.store) {
       return;
     }
@@ -405,6 +428,8 @@ export class PreferenceService {
         GeneralSettings.current.showShelfSource = s.getSync('show_shelf_source', true) !== false;
         GeneralSettings.current.adaptiveHandedness = s.getSync('adaptive_handedness', true) !== false;
         GeneralSettings.current.swipeSwitchTabs = s.getSync('swipe_switch_tabs', true) !== false;
+        GeneralSettings.current.jianjianCompanionEnabled = s.getSync(KEY_JIANJIAN_COMPANION_ENABLED, false) === true;
+        emitter.emit(EVT_JIANJIAN_COMPANION_CHANGED);
         const material = await s.get(KEY_MATERIAL_STYLE, 0);
         const accent = await s.get(KEY_ACCENT_COLOR, '');
         const rawTheme = await s.get(KEY_THEME_SELECTION, '');
@@ -1280,6 +1305,7 @@ export class PreferenceService {
     await s.delete(KEY_HISTORY);
     await s.delete(KEY_LAST_PLAYED);
     await s.delete(KEY_WIDGET_PLAYER_SNAPSHOT);
+    await PreferenceService.writeWidgetSnapshot('null');
     await s.delete(KEY_CACHED_BOOKS);
     // 逐本进度 progress_v1_* + 逐本跳过头尾 skip_v1_*:枚举全部 key,前缀匹配删除
     try {
@@ -1311,6 +1337,7 @@ export class PreferenceService {
     await s.delete(KEY_HISTORY);
     await s.delete(KEY_LAST_PLAYED);
     await s.delete(KEY_WIDGET_PLAYER_SNAPSHOT);
+    await PreferenceService.writeWidgetSnapshot('null');
     await s.delete(KEY_CACHED_BOOKS);
     // 仅删 progress_v1_*，保留 skip_v1_*
     try {
@@ -1332,8 +1359,11 @@ export class PreferenceService {
 
   /** 卡片快照:主进程写,FormExtensionAbility 在 onAddForm/onUpdateForm 里读 */
   static async getWidgetPlayerSnapshot(): Promise<WidgetPlayerSnapshot | null> {
-    const s = await PreferenceService.ensureStore();
-    const raw = await s.get(KEY_WIDGET_PLAYER_SNAPSHOT, '') as string;
+    await PreferenceService.widgetStateWrites.catch((): void => {});
+    const s = await PreferenceService.widgetStore('player_widget_state');
+    let raw = await s.get(KEY_WIDGET_PLAYER_SNAPSHOT, '');
+    if (!raw) raw = await (await PreferenceService.ensureStore()).get(KEY_WIDGET_PLAYER_SNAPSHOT, '');
+    if (typeof raw !== 'string') return null;
     if (!raw) return null;
     try {
       return JSON.parse(raw) as WidgetPlayerSnapshot;
@@ -1343,45 +1373,68 @@ export class PreferenceService {
   }
 
   static async setWidgetPlayerSnapshot(snap: WidgetPlayerSnapshot): Promise<void> {
-    const s = await PreferenceService.ensureStore();
-    await s.put(KEY_WIDGET_PLAYER_SNAPSHOT, JSON.stringify(snap));
-    await s.flush();
+    await PreferenceService.writeWidgetSnapshot(JSON.stringify(snap));
+  }
+
+  /** 主进程写快照，卡片进程写登记；分库避免整份 Preferences 缓存互相覆盖。 */
+  private static async widgetStore(name: string): Promise<preferences.Preferences> {
+    const context = PreferenceService.widgetContext;
+    if (!context) throw new Error('Widget preferences not initialized');
+    await preferences.removePreferencesFromCache(context, { name: name });
+    return preferences.getPreferences(context, { name: name });
+  }
+
+  private static writeWidgetSnapshot(raw: string): Promise<void> {
+    const write = PreferenceService.widgetStateWrites.catch((): void => {}).then(async (): Promise<void> => {
+      const store = await PreferenceService.widgetStore('player_widget_state');
+      await store.put(KEY_WIDGET_PLAYER_SNAPSHOT, raw);
+      await store.flush();
+    });
+    PreferenceService.widgetStateWrites = write;
+    return write;
+  }
+
+  private static async widgetFormBuckets(store: preferences.Preferences): Promise<FormIdBucket[]> {
+    let raw = await store.get(KEY_WIDGET_FORM_IDS, '');
+    // 新存储尚无登记时兼容旧版；写入空数组后不再恢复已删除的旧 ID。
+    if (!raw) raw = await (await PreferenceService.ensureStore()).get(KEY_WIDGET_FORM_IDS, '[]');
+    if (typeof raw !== 'string') return [];
+    return JSON.parse(raw);
   }
 
   /** 已添加到桌面的卡片 formId 列表(按卡片名 name 分桶) */
   static async getWidgetFormIds(name: string): Promise<string[]> {
-    const s = await PreferenceService.ensureStore();
-    const raw = await s.get(KEY_WIDGET_FORM_IDS, '[]') as string;
-    const arr = JSON.parse(raw) as FormIdBucket[];
+    await PreferenceService.widgetFormWrites.catch((): void => {});
+    const s = await PreferenceService.widgetStore('player_widget_forms');
+    const arr = await PreferenceService.widgetFormBuckets(s);
     const bucket = arr.find((b) => b.name === name);
     return bucket ? bucket.ids.slice() : [];
   }
 
   static async addWidgetFormId(name: string, formId: string): Promise<void> {
-    const s = await PreferenceService.ensureStore();
-    const raw = await s.get(KEY_WIDGET_FORM_IDS, '[]') as string;
-    const arr = JSON.parse(raw) as FormIdBucket[];
-    let bucket = arr.find((b) => b.name === name);
-    if (!bucket) {
-      bucket = { name, ids: [] };
-      arr.push(bucket);
-    }
-    if (!bucket.ids.includes(formId)) {
-      bucket.ids.push(formId);
-    }
-    await s.put(KEY_WIDGET_FORM_IDS, JSON.stringify(arr));
-    await s.flush();
+    await PreferenceService.changeWidgetFormId(name, formId, false);
   }
 
   static async removeWidgetFormId(name: string, formId: string): Promise<void> {
-    const s = await PreferenceService.ensureStore();
-    const raw = await s.get(KEY_WIDGET_FORM_IDS, '[]') as string;
-    const arr = JSON.parse(raw) as FormIdBucket[];
-    const bucket = arr.find((b) => b.name === name);
-    if (!bucket) return;
-    bucket.ids = bucket.ids.filter((id) => id !== formId);
-    await s.put(KEY_WIDGET_FORM_IDS, JSON.stringify(arr));
-    await s.flush();
+    await PreferenceService.changeWidgetFormId(name, formId, true);
+  }
+
+  private static changeWidgetFormId(name: string, formId: string, remove: boolean): Promise<void> {
+    const write = PreferenceService.widgetFormWrites.catch((): void => {}).then(async (): Promise<void> => {
+      const s = await PreferenceService.widgetStore('player_widget_forms');
+      const arr = await PreferenceService.widgetFormBuckets(s);
+      let bucket = arr.find((item: FormIdBucket): boolean => item.name === name);
+      if (!bucket) {
+        bucket = { name: name, ids: [] };
+        arr.push(bucket);
+      }
+      if (remove) bucket.ids = bucket.ids.filter((id: string): boolean => id !== formId);
+      else if (formId && !bucket.ids.includes(formId)) bucket.ids.push(formId);
+      await s.put(KEY_WIDGET_FORM_IDS, JSON.stringify(arr));
+      await s.flush();
+    });
+    PreferenceService.widgetFormWrites = write;
+    return write;
   }
 
   static async getPreloadChapters(): Promise<number> {

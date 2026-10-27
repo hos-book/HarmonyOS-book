@@ -12,11 +12,21 @@ export class BookSourceDebugLimits {
 }
 
 export class BookSourceDebugNetworkTrace {
+  requestId: string = '';
+  transport: string = '';
+  retryAttempt: number = 0;
+  retryReason: string = '';
+  attempts: string = '';
+  requestHeaders: Record<string, string> = {};
+  responseHeaders: Record<string, string> = {};
+  headersAvailable: boolean = false;
+  responseChars: number = 0;
   method: string = '';
   url: string = '';
   finalUrl: string = '';
   statusCode: number = 0;
-  responseBytes: number = 0;
+  /** Measured wire bytes, -1 when unavailable. */
+  responseBytes: number = -1;
   bodyPreview: string = '';
   elapsedMs: number = 0;
   error: string = '';
@@ -97,11 +107,14 @@ export class BookSourceDebugContext {
 
   addNetwork(trace: BookSourceDebugNetworkTrace): void {
     if (!this.currentStep || this.requestCount() >= BookSourceDebugLimits.MAX_REQUESTS) return;
+    trace.requestHeaders = this.boundedHeaders(trace.requestHeaders);
+    trace.responseHeaders = this.boundedHeaders(trace.responseHeaders);
+    trace.retryReason = BookSourceDebugRedactor.text(trace.retryReason);
     trace.url = BookSourceDebugRedactor.url(trace.url);
     trace.finalUrl = BookSourceDebugRedactor.url(trace.finalUrl);
     trace.bodyPreview = this.reserve(BookSourceDebugRedactor.text(trace.bodyPreview),
       BookSourceDebugLimits.MAX_BODY_PREVIEW);
-    trace.error = this.safe(trace.error, 2000);
+    trace.error = this.safe(BookSourceDebugRedactor.text(BookSourceDebugRedactor.url(trace.error)), 2000);
     this.currentStep.requests.push(trace);
   }
 
@@ -146,6 +159,13 @@ export class BookSourceDebugContext {
     return this.session;
   }
 
+  private boundedHeaders(headers: Record<string, string>): Record<string, string> {
+    const result = BookSourceDebugRedactor.headers(headers || {});
+    const bounded: Record<string, string> = {};
+    for (const key of Object.keys(result).slice(0, 64)) bounded[key.substring(0, 128)] = this.reserve(result[key], 512);
+    return bounded;
+  }
+
   private requestCount(): number {
     return this.session.steps.reduce((count: number, step: BookSourceDebugStep): number => count + step.requests.length, 0);
   }
@@ -178,8 +198,8 @@ export class BookSourceDebugRedactor {
   static headers(headers: Record<string, string>): Record<string, string> {
     const result: Record<string, string> = {};
     for (const key of Object.keys(headers || {})) {
-      result[key] = /^(?:cookie|set-cookie|authorization|proxy-authorization|x-api-key|x-auth-token)$/i.test(key) ?
-        '[REDACTED]' : String(headers[key] || '').substring(0, 512);
+      result[key] = /cookie|authorization|token|secret|password|passwd|api[-_]?key|signature/i.test(key) ?
+        '[REDACTED]' : BookSourceDebugRedactor.text(BookSourceDebugRedactor.url(String(headers[key] || ''))).substring(0, 512);
     }
     return result;
   }

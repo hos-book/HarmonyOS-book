@@ -57,6 +57,9 @@ function evaluate(relative, require, globals = {}) {
 const { ComicImagePipeline } = evaluate('service/rulesource/light/upstream/core/book/ComicImagePipeline.ts',
   name => {
     if (name.endsWith('HttpClient')) return { HttpClient };
+    if (name.endsWith('DigestHash')) return {
+      digestHashHex: (algorithm, value) => crypto.createHash(algorithm.toLowerCase()).update(value).digest('hex')
+    };
     if (name.endsWith('ReaderCacheBudget')) return { ReaderCacheBudget: { touchComicFile() {}, noteComicWrite() {} } };
     if (name.endsWith('SourceImageDecoder')) return evaluate(
       'service/rulesource/light/upstream/core/nativesource/SourceImageDecoder.ts', () => ({}));

@@ -1,5 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { AudioService } from './AudioService';
+import { PlaybackStore } from './PlaybackStore';
 import { TextToSpeechService } from './text/TextToSpeechService';
 import { PreferenceService } from './PreferenceService';
 import { DataService } from './DataService';
@@ -12,20 +13,29 @@ export class WidgetPlaybackService {
   static async execute(context: common.UIAbilityContext, command: string): Promise<void> {
     const ticket = ++WidgetPlaybackService.generation;
     const audio = AudioService.getInstance();
+    const speech = TextToSpeechService.getInstance();
+    // 暂停优先直达运行中的播放器，同时取消尚未完成的冷启动播放。
+    // 卡片快照可能陈旧，偏好缓存刷新也可能暂时不可读，均不能阻断暂停。
+    if (command === 'pause') {
+      if (speech.state.active && speech.currentBook() !== null) speech.pause();
+      else await audio.pause('widget');
+      return;
+    }
     await audio.whenReady();
     if (ticket !== WidgetPlaybackService.generation) return;
-    const speech = TextToSpeechService.getInstance();
     if (speech.state.active && speech.currentBook() !== null) {
       if (command === 'play') await speech.resume();
-      else if (command === 'pause') speech.pause();
       else if (command === 'next') await speech.moveChapter(1);
       else if (command === 'prev') await speech.moveChapter(-1);
+      return;
+    }
+    if (PlaybackStore.getInstance().isPlayingNow()) {
+      await WidgetPlaybackService.executeAudio(command);
       return;
     }
     const snapshot = await PreferenceService.getWidgetPlayerSnapshot();
     if (ticket !== WidgetPlaybackService.generation) return;
     if (snapshot?.playbackKind === 'tts') {
-      if (command === 'pause') return;
       let book = speech.currentBook();
       if (book?.id !== snapshot.bookId) book = await DataService.getBookById(context, snapshot.bookId) ?? null;
       if (!book || book.contentType !== 'text' || ticket !== WidgetPlaybackService.generation) return;
@@ -41,8 +51,12 @@ export class WidgetPlaybackService {
       await speech.start(book, target, step === 0 ? snapshot.charOffset ?? 0 : 0, step === 0);
       return;
     }
+    await WidgetPlaybackService.executeAudio(command);
+  }
+
+  private static async executeAudio(command: string): Promise<void> {
+    const audio = AudioService.getInstance();
     if (command === 'play') await audio.play();
-    else if (command === 'pause') await audio.pause('widget');
     else if (command === 'next') await audio.playNext();
     else if (command === 'prev') await audio.playPrevious();
   }

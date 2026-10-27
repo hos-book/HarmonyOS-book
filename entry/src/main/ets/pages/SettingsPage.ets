@@ -78,6 +78,7 @@ export struct SettingsPage {
   @Param navStack: NavPathStack = new NavPathStack();
   @Local generalSettings: GeneralSettings = GeneralSettings.current;
   @Local savingGeneral: boolean = false;
+  @Local jianjianCompanionEnabled: boolean = false;
   @Local currentMode: number = ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET;
   @Local selectedThemeIndex: number = 0;
   @Local defaultTab: number = 0;
@@ -177,6 +178,7 @@ export struct SettingsPage {
       const preloadCount = await PreferenceService.getPreloadChapters();
       if (!this.alive || serial !== this.preferencesLoadSerial) return;
       this.currentMode = mode;
+      this.jianjianCompanionEnabled = this.generalSettings.jianjianCompanionEnabled;
       this.selectedThemeIndex = Math.max(0, THEME_OPTIONS.findIndex((opt: ThemeOption) => opt.mode === mode));
       this.defaultTab = defaultTab;
       this.autoPlayOnLaunch = autoPlay;
@@ -598,6 +600,23 @@ export struct SettingsPage {
     } finally { this.savingGeneral = false; }
   }
 
+  private async setJianjianCompanionEnabled(enabled: boolean): Promise<void> {
+    if (!this.isLoaded || this.savingGeneral || enabled === this.jianjianCompanionEnabled) return;
+    const previous: boolean = this.jianjianCompanionEnabled;
+    this.savingGeneral = true;
+    this.jianjianCompanionEnabled = enabled;
+    try {
+      await PreferenceService.setJianjianCompanionEnabled(enabled);
+    } catch (_error) {
+      this.jianjianCompanionEnabled = previous;
+      if (this.alive) {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
+      }
+    } finally {
+      this.savingGeneral = false;
+    }
+  }
+
   private async setShowShelfSource(enabled: boolean): Promise<void> {
     if (this.savingGeneral) return;
     const previous: boolean = this.generalSettings.showShelfSource;
@@ -699,6 +718,16 @@ export struct SettingsPage {
         .constraintSize({ minHeight: 56 })
 
         AppearanceSettingsComponent()
+        this.buildDivider()
+        this.buildSwitchItem(
+          $r('app.string.settings_jianjian_companion'),
+          $r('app.string.settings_jianjian_companion_desc'),
+          UIUtils.makeBinding<boolean>(() => this.jianjianCompanionEnabled),
+          (enabled: boolean): void => { this.setJianjianCompanionEnabled(enabled); },
+          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral),
+          false,
+          true
+        )
         this.buildDivider()
         this.buildSwitchItem(
           $r('app.string.settings_swipe_switch_tabs'),
@@ -959,7 +988,8 @@ export struct SettingsPage {
     isOn: Binding<boolean>,
     onChange: (isOn: boolean) => void,
     enabled: Binding<boolean>,
-    vipFeature: boolean = false
+    vipFeature: boolean = false,
+    trialFeature: boolean = false
   ) {
     Row() {
       Column({ space: 2 }) {
@@ -970,6 +1000,10 @@ export struct SettingsPage {
             .flexShrink(1)
           if (vipFeature && MembershipState.featureEnabled) {
             VipFeatureBadge()
+          }
+          if (trialFeature) {
+            Text($r('app.string.settings_limited_trial'))
+              .fontSize(AppFont.Caption).fontColor(AppColor.Brand).flexShrink(0)
           }
         }.width('100%')
         if (typeof subtitle !== 'string' || subtitle.length > 0) {

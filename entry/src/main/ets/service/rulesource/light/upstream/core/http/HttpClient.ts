@@ -1,5 +1,6 @@
+import { HttpHeaderValues } from './HttpHeaderValues';
 import http from '@ohos.net.http';
-import { util } from '@kit.ArkTS';
+import { util, url } from '@kit.ArkTS';
 import { CookieStore } from './CookieStore';
 import { TlsTrustStore } from './TlsTrustStore';
 import { WebBookFetchRuntime } from '../book/WebBookFetchRuntime';
@@ -23,6 +24,14 @@ export interface HttpRequest {
   contentType?: string;
   maxResponseBytes?: number;
   useWebView?: boolean;
+  /** Explicit policy disables implicit transport retries. */
+  managedRetry?: boolean;
+  retryAttempt?: number;
+  retryReason?: string;
+  diagnosticAttempts?: string[];
+  observedRequestHeaders?: Record<string, string>;
+  /** Custom media credentials are scoped to the initial origin, including SDK redirects. */
+  protectedHeaderNames?: string[];
   webJs?: string;
   /** See WebBookFetchRequest: re-run `webJs` until the result matches, up to the attempt limit. */
   webJsAcceptPattern?: string;
@@ -41,6 +50,8 @@ export interface HttpRequest {
 
 export interface HttpResponse {
   url: string;
+  headersAvailable?: boolean;
+  requestId?: string;
   /** Observed final destination; absent/empty means unavailable on this transport/platform. */
   finalUrl?: string;
   statusCode: number;
@@ -61,6 +72,7 @@ export interface HttpBinaryResponse {
 }
 
 export class HttpClient {
+  private static requestSequence: number = 0;
   /** Host-owned persistent preference; automatic per-origin fallback remains temporary. */
   static get forceHttp1(): boolean { return HttpProtocolPolicy.forceHttp1; }
   static set forceHttp1(value: boolean) { HttpProtocolPolicy.forceHttp1 = value; }
@@ -128,6 +140,8 @@ export class HttpClient {
   }
 
   async execute(req: HttpRequest): Promise<HttpResponse> {
+    req = { ...req, diagnosticAttempts: [] };
+    const requestId = `http-${++HttpClient.requestSequence}`;
     const startedAt = Date.now();
     let response: HttpResponse;
     try {
@@ -137,6 +151,8 @@ export class HttpClient {
       response = { url: req.url || '', statusCode: 0, headers: {}, body: '', success: false,
         error: error instanceof Error ? error.message : String(error || 'network error') };
     }
+    response.headersAvailable = response.headersAvailable === undefined ? response.statusCode > 0 && !req.useWebView : response.headersAvailable;
+    response.requestId = requestId;
     this.endTiming(req, 'http-total', startedAt,
       (): string => `status=${response.statusCode} success=${response.success} web=${!!req.useWebView}`);
     if (req.debugContext) {
@@ -145,7 +161,16 @@ export class HttpClient {
       trace.url = req.url || '';
       trace.finalUrl = response.finalUrl || '';
       trace.statusCode = response.statusCode || 0;
-      trace.responseBytes = response.body ? response.body.length : 0;
+      trace.requestId = requestId;
+      trace.transport = req.useWebView ? 'WebView' : 'HTTP';
+      trace.retryAttempt = req.retryAttempt || 0;
+      trace.retryReason = req.retryReason || '';
+      trace.attempts = (req.diagnosticAttempts || []).join(' → ');
+      trace.requestHeaders = req.observedRequestHeaders || {};
+      trace.responseHeaders = response.headersAvailable ? HttpHeaderValues.normalize(response.headers || {}) : {};
+      trace.headersAvailable = response.headersAvailable === true;
+      trace.responseChars = response.body ? response.body.length : 0;
+      trace.responseBytes = -1; // Wire size is not measured by this decoded-text path.
       trace.bodyPreview = response.body || '';
       trace.elapsedMs = Math.max(0, Date.now() - startedAt);
       trace.error = response.success ? '' : (response.error || 'request failed');
@@ -173,6 +198,8 @@ export class HttpClient {
             error: 'WebView 抓取环境未挂载，请重新进入当前页面' };
         }
         if (req.cancelCheck && req.cancelCheck()) return this.cancelledResponse(req);
+        req.observedRequestHeaders = { ...this.defaultHeaders, ...req.headers };
+        req.diagnosticAttempts?.push('WebView');
         const response = await runtime.fetch({
           url: req.url,
           cookieSource: req.cookieSource,
@@ -186,13 +213,13 @@ export class HttpClient {
           deadlineAt: req.deadlineAt,
           maxResponseBytes: req.maxResponseBytes
         });
-        return { ...response, finalUrl: response.success ? response.url : '' };
+        return { ...response, headersAvailable: false, finalUrl: response.success ? response.url : '' };
       });
     }
     const forceHttp1 = HttpProtocolPolicy.prefersHttp1(req.url);
     const response = await this.executeWithProtocol(req, forceHttp1);
     if (!response.success && forceHttp1) HttpProtocolPolicy.forget(req.url);
-    if (!response.success && !forceHttp1 && HttpProtocolPolicy.mayRetry(req.url, req.method, response.error || '')) {
+    if (!req.managedRetry && !response.success && !forceHttp1 && HttpProtocolPolicy.mayRetry(req.url, req.method, response.error || '')) {
       console.info('[HttpClient] transport failed; trying HTTP/1.1 once:', this.hostForLog(req.url));
       const retry = await this.executeWithProtocol(req, true);
       if (retry.success) HttpProtocolPolicy.rememberSuccess(req.url);
@@ -230,6 +257,8 @@ export class HttpClient {
       if (cookie && !headers['Cookie']) {
         headers['Cookie'] = cookie;
       }
+      req.observedRequestHeaders = headers;
+      req.diagnosticAttempts?.push(forceHttp1 ? 'HTTP/1.1' : 'HTTP 默认协议');
       const maxResponseBytes = req.maxResponseBytes || 0;
       // Interceptors do not run on requestInStream. On API 22+ use the SDK's bounded buffer
       // so script requests can observe automatic redirects without losing their byte limit.
@@ -361,6 +390,9 @@ export class HttpClient {
 
   async executeBinary(req: HttpRequest, maxResponseBytes: number = 20 * 1024 * 1024):
     Promise<HttpBinaryResponse> {
+    if (req.protectedHeaderNames?.length && !req.deadlineAt) {
+      req = { ...req, deadlineAt: Date.now() + Math.max(this.timeout, req.connectTimeout || 0, req.readTimeout || 0) };
+    }
     return await this.withinDeadline(req, (): Promise<HttpBinaryResponse> => this.executeBinaryInternal(req, maxResponseBytes),
       (): HttpBinaryResponse => ({ url: req.url, statusCode: 0, headers: {}, data: new Uint8Array(),
         success: false, error: '请求超时 (2300028)' }));
@@ -373,6 +405,51 @@ export class HttpClient {
     // A limit carried by the request itself is honoured too; it used to be ignored on this path.
     const limit = req.maxResponseBytes && req.maxResponseBytes > 0 ?
       Math.min(req.maxResponseBytes, maxResponseBytes) : maxResponseBytes;
+    if (req.protectedHeaderNames?.length) return await this.executeProtectedBinary(req, limit);
+    return await this.executeBinaryAttempt(req, limit);
+  }
+
+  private async executeProtectedBinary(req: HttpRequest, limit: number): Promise<HttpBinaryResponse> {
+    let current: HttpRequest = { ...req, headers: { ...req.headers } };
+    const scoped = (req.protectedHeaderNames || []).map((name: string): string => name.toLowerCase())
+      .concat(['cookie', 'authorization', 'proxy-authorization', 'origin']);
+    const visited: string[] = [req.url];
+    for (let hop = 0; hop <= 8; hop++) {
+      const response = await this.executeBinaryAttempt(current, limit);
+      if (![301, 302, 303, 307, 308].includes(response.statusCode)) return response;
+      const location = this.findHeader(response.headers, 'location');
+      if (!location) return response;
+      let target: url.URL;
+      let previous: url.URL;
+      try {
+        target = new url.URL(location, current.url);
+        previous = new url.URL(current.url);
+      } catch (_) {
+        return { ...response, success: false, error: '媒体重定向地址无效' };
+      }
+      if (!['http:', 'https:'].includes(target.protocol) || target.username || target.password) {
+        return { ...response, success: false, error: '媒体重定向只支持不含用户凭据的 HTTP(S) 地址' };
+      }
+      if (hop === 8 || visited.includes(target.href)) {
+        return { ...response, success: false, error: '媒体重定向循环或超过 8 次' };
+      }
+      if (!['GET', 'HEAD'].includes(current.method.toUpperCase())) {
+        return { ...response, success: false, error: '带自定义头的媒体重定向仅支持 GET/HEAD' };
+      }
+      const headers: Record<string, string> = {};
+      const crossed = target.origin !== previous.origin;
+      for (const name of Object.keys(current.headers)) {
+        if (!crossed || !scoped.includes(name.toLowerCase())) headers[name] = current.headers[name];
+      }
+      current = { ...current, url: target.href, headers: headers,
+        useCookieJar: crossed ? false : current.useCookieJar };
+      visited.push(target.href);
+    }
+    return { url: current.url, statusCode: 0, headers: {}, data: new Uint8Array(), success: false,
+      error: '媒体重定向超过 8 次' };
+  }
+
+  private async executeBinaryAttempt(req: HttpRequest, limit: number): Promise<HttpBinaryResponse> {
     const forceHttp1 = HttpProtocolPolicy.prefersHttp1(req.url);
     const response = await this.executeBinaryWithProtocol(req, limit, forceHttp1);
     if (!response.success && forceHttp1) HttpProtocolPolicy.forget(req.url);
@@ -396,7 +473,14 @@ export class HttpClient {
     }
     const client = http.createHttp();
     this.activeClients.add(client);
-    const destination = new HttpFinalUrlObserver(client);
+    const manualRedirects = !!req.protectedHeaderNames?.length;
+    const destination = new HttpFinalUrlObserver(client, manualRedirects);
+    if (req.protectedHeaderNames?.length && !destination.attached) {
+      this.activeClients.delete(client);
+      try { client.destroy(); } catch (_) { }
+      return { url: req.url, statusCode: 0, headers: {}, data: new Uint8Array(), success: false,
+        error: '自定义媒体请求头需要支持请求拦截的系统（API 22+）' };
+    }
     let expired = false;
     const deadlineTimer = req.deadlineAt ? setTimeout((): void => {
       expired = true;
@@ -439,12 +523,18 @@ export class HttpClient {
       const responseHeaders = (resp.header || {}) as Record<string, string>;
       const setCookie = this.findHeader(responseHeaders, 'set-cookie');
       if (setCookie && req.useCookieJar !== false) {
-        CookieStore.forSource(req.cookieSource).setCookies(destination.url || req.url, setCookie);
+        CookieStore.forSource(req.cookieSource).setCookies(manualRedirects ? req.url : destination.url || req.url, setCookie);
         CookieStore.forSource(req.cookieSource).saveAsync();
+      }
+      // A stopped redirect can have no result at all. Its headers, not its body,
+      // drive the next hop; do not feed an empty value into the platform encoder.
+      if (manualRedirects && [301, 302, 303, 307, 308].includes(resp.responseCode)) {
+        return { url: req.url, finalUrl: req.url, statusCode: resp.responseCode,
+          headers: responseHeaders, data: new Uint8Array(), success: false };
       }
       const data = resp.result instanceof ArrayBuffer ?
         new Uint8Array(resp.result as ArrayBuffer) :
-        new util.TextEncoder().encodeInto(String(resp.result || ''));
+        (resp.result ? new util.TextEncoder().encodeInto(String(resp.result)) : new Uint8Array());
       if (data.byteLength > maxResponseBytes) {
         return {
           url: req.url,
@@ -456,8 +546,8 @@ export class HttpClient {
         };
       }
       return {
-        url: destination.url || req.url,
-        finalUrl: destination.url,
+        url: manualRedirects ? req.url : destination.url || req.url,
+        finalUrl: manualRedirects ? req.url : destination.url,
         statusCode: resp.responseCode,
         headers: responseHeaders,
         data: data,

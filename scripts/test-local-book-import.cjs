@@ -62,6 +62,7 @@ let epubCount = 2;
 let epubRaw = false;
 let epubBodies = null;
 let epubMissingImage = false;
+let epubExpandedSize = 1024;
 let layoutCalls = 0;
 let writeDelay = 0;
 let failingWrite = '';
@@ -207,7 +208,7 @@ function load(relative) {
       emitter: { emit: (event, payload) => typeEvents.push({ event, payload,
         saved: JSON.parse(values.get('books') || '[]') }) },
       deviceInfo: { sdkApiVersion: 20, deviceType: 'phone' },
-      zlib: { getOriginalSize: async () => 1024 }
+      zlib: { getOriginalSize: async () => epubExpandedSize }
     };
     if (name === '@hms.core.readerservice.bookParser') {
       parserLoads++;
@@ -241,6 +242,20 @@ function load(relative) {
 }
 (async () => {
   const { LocalBookImportService: service } = load('service/LocalBookImportService');
+  const namedTxt = path.join(temp, '玄鉴仙族.txt');
+  await fsp.writeFile(namedTxt, '书名：玄鉴\n作者：季越人\n第一章 起始\n正文内容');
+  const txtFile = { uri: namedTxt, name: '玄鉴仙族', ext: '.txt' };
+  const txtPreview = await service.preview(context, txtFile);
+  assert.equal(txtPreview.title, '玄鉴仙族', 'TXT body metadata must not shorten the selected filename');
+  assert.equal(txtPreview.author, '季越人');
+  const namedBook = await service.importBook(context, txtFile, 'import_txt_filename',
+    txtPreview.title, txtPreview.author, '', () => {});
+  assert.equal(namedBook.title, '玄鉴仙族');
+  const renamedBook = await service.importBook(context, txtFile, 'import_txt_renamed', '手动书名', '', '', () => {});
+  assert.equal(renamedBook.title, '手动书名', 'explicit user title still wins');
+  await fsp.writeFile(namedTxt, '《另一部作品》\n正文中提及的书名');
+  assert.equal((await service.preview(context, txtFile)).title, '玄鉴仙族');
+  console.log('PASS TXT keeps filename through preview/import and respects manual title edits');
   const { KkBiqugeHtmlParser: legacyHtml } = load('service/text/KkBiqugeHtmlParser');
   for (const source of [
     '<html><head><title>不可混入正文</title><style>body{}</style></head><body><h1>标题</h1><p>中文 😀 正文</p></body></html>',
@@ -283,12 +298,12 @@ function load(relative) {
   const fakeImages = new Profile();
   fakeImages.observe('<!--<img src="1.png"/><img src="2.png"/><img src="3.png"/>--><p>正文</p>');
   assert.equal(fakeImages.isComic(), false);
-  const aboveOldLimit = { imageBytes: 128 * 1024 * 1024, imageCount: 20 };
+  const aboveOldLimit = { imageBytes: 2 * 1024 ** 3, imageCount: 20 };
   const aboveBody = await service.epubBody(context, { getResourceContent: () => Uint8Array.from(MOBI_COVER_PNG).buffer },
     1, '<img src="page.png"/>', imageDirectory, aboveOldLimit);
-  assert.ok(images.pattern().test(aboveBody), 'comic images beyond the old 128 MiB limit must be retained');
+  assert.ok(images.pattern().test(aboveBody), 'comic images beyond the old 2 GiB limit must be retained');
   await assert.rejects(service.epubBody(context, { getResourceContent: () => Uint8Array.from(MOBI_COVER_PNG).buffer },
-    1, '<img src="page.png"/>', imageDirectory, { imageBytes: 2 * 1024 ** 3, imageCount: 21 }), /2 GiB/);
+    1, '<img src="page.png"/>', imageDirectory, { imageBytes: 6 * 1024 ** 3, imageCount: 21 }), /6 GiB/);
   assert.equal(parserLoads, 0, 'loading import service at startup must not load ReaderKit');
   parserAvailable = false;
   await assert.rejects(service.openEpub(context, '/unavailable.epub'), /当前设备不支持 EPUB 解析/);
@@ -616,6 +631,39 @@ function load(relative) {
   await service.importBook(context, file, 'import_preview_discarded', '', '', '', () => {});
   assert.equal(parserOpens, opensBeforeRetry + 1, 'discarded previews open a fresh parser');
   console.log('PASS direct EPUB files, resource/layout fallback, preview reuse/cleanup and rolling I/O slots');
+
+  // 模拟文件元数据边界，避免回归测试实际分配或复制数 GiB 文件。
+  const originalFileSize = service.fileSize;
+  try {
+    service.fileSize = async () => 3 * 1024 ** 3;
+    epubExpandedSize = 6 * 1024 ** 3;
+    const largePreview = await service.preview(context, file);
+    const largeReused = await service.importBook(context, file, 'import_large_reused', '', '', '', () => {});
+    assert.equal(largeReused.chapters.length, 2);
+    await service.releasePreview(largePreview);
+    const largeDirect = await service.importBook(context, file, 'import_large_direct', '', '', '', () => {});
+    assert.equal(largeDirect.chapters.length, 2);
+
+    for (const [size, expanded, pattern, id] of [
+      [3 * 1024 ** 3 + 1, 1024, /文件超过 3 GiB/, 'size'],
+      [3 * 1024 ** 3, 6 * 1024 ** 3 + 1, /解压内容超过 6 GiB/, 'expanded'],
+      [3 * 1024 ** 3, 6 * 1024 ** 3, /空间不足/, 'space']
+    ]) {
+      service.fileSize = async () => size;
+      epubExpandedSize = expanded;
+      if (id === 'space') free = 10 * 1024 ** 3; // 通过复制预检，但不足以容纳解压及转换产物。
+      const cacheBefore = (await fsp.readdir(context.cacheDir)).sort();
+      await assert.rejects(service.preview(context, file), pattern);
+      assert.deepEqual((await fsp.readdir(context.cacheDir)).sort(), cacheBefore, 'failed preview removes its files');
+      await assert.rejects(service.importBook(context, file, `import_large_${id}`, '', '', '', () => {}), pattern);
+      assert.equal(fs.existsSync(path.join(temp, 'ebooks', `import_large_${id}`)), false);
+    }
+  } finally {
+    service.fileSize = originalFileSize;
+    epubExpandedSize = 1024;
+    free = 256 * 1024 ** 3;
+  }
+  console.log('PASS EPUB 3 GiB / expanded 6 GiB metadata boundaries, preview reuse, space checks and rollback (simulated)');
 
   epubCount = 2200; epubRaw = true; layoutCalls = 0;
   writeDelay = 2; maxWrites = 0;

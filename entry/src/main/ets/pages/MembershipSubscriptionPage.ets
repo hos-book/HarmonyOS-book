@@ -22,7 +22,6 @@ export struct MembershipSubscriptionPage {
   @Local selectedPlan: string = 'lastVip';
   @Local showDetails: boolean = false;
   @Local agreed: boolean = false;
-  @Local contentViewportHeight: number = 0;
 
   aboutToAppear(): void {
     const context = this.abilityContext();
@@ -35,12 +34,6 @@ export struct MembershipSubscriptionPage {
     try {
       return sendableContextManager.convertToUIAbilityContext(sendableContextManager.convertFromContext(host));
     } catch (_error) { return undefined; }
-  }
-
-  private purchase(plan: MembershipPlan): void {
-    if (!this.agreed || !this.membership.supported) return;
-    const context = this.abilityContext();
-    if (context) this.membership.purchase(context, plan.id);
   }
 
   private restore(): void {
@@ -89,45 +82,42 @@ export struct MembershipSubscriptionPage {
       this.state.pendingProductId !== 'iconYear';
   }
 
-  private shouldManagePlan(productId: string): boolean {
-    return this.state.active && productId !== 'lastVip' && !this.isAnnualUpgrade(productId);
-  }
-
-  private planAction(productId: string): Resource {
-    if (this.state.active && this.state.lifetime) return $r('app.string.membership_lifetime_owned');
-    if (this.isAnnualUpgrade(productId)) return $r('app.string.membership_upgrade_year');
-    if (this.shouldManagePlan(productId)) return $r('app.string.membership_manage');
-    return productId === 'lastVip' ? $r('app.string.membership_buy_lifetime') : $r('app.string.membership_subscribe');
-  }
-
-  private canSelectPlan(productId: string): boolean {
-    if (this.membership.busy || !this.membership.supported || (this.state.active && this.state.lifetime)) return false;
-    if (!this.state.hasAccess && !this.state.confirmedInactive) return false;
-    if (this.isAnnualUpgrade(productId)) return this.agreed && this.membership.canUpgradeToYear();
-    if (this.shouldManagePlan(productId)) return true;
-    return this.agreed && this.findPlan(productId) !== undefined;
+  private hasPlanOffer(productId: string): boolean {
+    const plan = this.findPlan(productId);
+    return plan !== undefined && (!!plan.offerId || plan.introductory);
   }
 
   @Builder
   planCard(productId: string) {
-    Column({ space: 8 }) {
-      MembershipBadge({ productId: productId, badgeHeight: 36 })
-      Text(productId === 'lastVip' ? $r('app.string.membership_lifetime') :
-        productId === 'iconMonth' ? $r('app.string.membership_month') : $r('app.string.membership_year'))
-        .fontSize(15).fontWeight(FontWeight.Medium).fontColor('#30291F')
-      Text(this.planPrice(productId)).fontSize(this.findPlan(productId) ? 20 : 14).fontWeight(FontWeight.Bold).fontColor('#30291F')
-      if (this.findPlan(productId)?.offerId || this.findPlan(productId)?.introductory) {
+    Stack({ alignContent: Alignment.Top }) {
+      Column({ space: 4 }) {
+        MembershipBadge({ productId: productId, badgeHeight: 56 })
+        Text(productId === 'lastVip' ? $r('app.string.membership_lifetime') :
+          productId === 'iconMonth' ? $r('app.string.membership_month') : $r('app.string.membership_year'))
+          .fontSize(15).fontWeight(FontWeight.Medium).fontColor('#30291F').maxLines(1)
+        Text(this.planPrice(productId)).fontSize(this.findPlan(productId) ? 24 : 14)
+          .fontWeight(FontWeight.Bold)
+          .fontColor(productId === 'iconMonth' ? '#202020' : productId === 'iconYear' ? '#AD8450' : '#514125')
+          .maxLines(1)
+        Text(this.findPlan(productId)?.regularPrice ?? '').fontSize(11).fontColor('#7A6A55')
+          .decoration({ type: TextDecorationType.LineThrough }).constraintSize({ minHeight: 14 })
+          .visibility(this.hasPlanOffer(productId) ? Visibility.Visible : Visibility.Hidden)
+        Text(productId === 'lastVip' ? $r('app.string.membership_lifetime_period') :
+          productId === 'iconMonth' ? $r('app.string.membership_month_period') : $r('app.string.membership_year_period'))
+          .fontSize(10).fontColor('#7A6A55').textAlign(TextAlign.Center).maxLines(1)
+      }.width('100%').padding({ top: 10, bottom: 10, left: 8, right: 8 })
+      .justifyContent(FlexAlign.Start)
+      if (this.hasPlanOffer(productId)) {
         Text(this.findPlan(productId)?.introductory ? $r('app.string.membership_intro_label') :
-          $r('app.string.membership_offer_label')).fontSize(11).fontColor('#806039')
-        Text(this.findPlan(productId)?.regularPrice ?? '').fontSize(12).fontColor('#7A6A55')
-          .decoration({ type: TextDecorationType.LineThrough })
+          $r('app.string.membership_offer_label'))
+          .fontSize(10).fontColor('#806039').padding({ left: 6, right: 6, top: 2, bottom: 2 })
+          .backgroundColor('#F2E4CF').borderRadius({ topRight: 14, bottomLeft: 10 })
+          .position({ top: 0, right: 0 })
       }
-      Text(productId === 'lastVip' ? $r('app.string.membership_lifetime_period') :
-        productId === 'iconMonth' ? $r('app.string.membership_month_period') : $r('app.string.membership_year_period'))
-        .fontSize(11).fontColor('#7A6A55').textAlign(TextAlign.Center).maxLines(1)
-    }.width(130).constraintSize({ minHeight: 132 }).padding(12).borderRadius(12)
+    }.width(130).borderRadius(16).clip(true).flexShrink(0)
+    .id(`membership-plan-${productId}`)
     .backgroundColor(this.selectedPlan === productId ? '#FFFAF1' : '#FFFFFF')
-    .border({ width: this.selectedPlan === productId ? 2 : 1,
+    .border({ width: 2,
       color: this.selectedPlan === productId ? '#AD8450' : '#FFFFFF' })
     .onClick((): void => { this.selectedPlan = productId; })
     .accessibilitySelected(this.selectedPlan === productId)
@@ -157,7 +147,7 @@ export struct MembershipSubscriptionPage {
           .fontSize(15).fontWeight(FontWeight.Medium).fontColor('#30291F').flexShrink(1)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         if (this.state.displayActive) {
-          MembershipBadge({ productId: this.state.displayProductId, badgeHeight: 28 }).flexShrink(0)
+          MembershipBadge({ productId: this.state.displayProductId, badgeHeight: 36 }).flexShrink(0)
         }
       }.layoutWeight(1).alignItems(VerticalAlign.Center)
     }.width('100%').padding({ top: 4, bottom: 4 })
@@ -236,7 +226,7 @@ export struct MembershipSubscriptionPage {
         this.benefitRow($r('app.string.membership_feature_support'),
           $r('app.string.membership_comparison_unavailable'), $r('app.string.membership_comparison_available'))
       }.width('100%').backgroundColor('#FFFAF1').borderRadius(12).clip(true)
-    }.width('100%')
+    }.width('100%').margin({ top: 12 })
   }
 
   build() {
@@ -268,11 +258,12 @@ export struct MembershipSubscriptionPage {
           Text($r('app.string.membership_period_title')).fontSize(15).fontWeight(FontWeight.Medium)
             .fontColor('#665C4D').width('100%').margin({ top: 4 })
           Scroll() {
-            Row({ space: 10 }) {
+            Flex({ direction: FlexDirection.Row, justifyContent: FlexAlign.SpaceBetween,
+              alignItems: ItemAlign.Stretch }) {
               this.planCard('lastVip')
               this.planCard('iconYear')
               this.planCard('iconMonth')
-            }.padding({ top: 2, bottom: 2 })
+            }.width(410).padding({ top: 2, bottom: 2 })
           }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
           this.benefitComparison()
           if (!AppIconService.instance.supported) {
@@ -313,35 +304,27 @@ export struct MembershipSubscriptionPage {
             Text($r('app.string.membership_benefit')).fontSize(12).fontColor('#746B5E').width('100%')
             Text($r('app.string.membership_terms')).fontSize(12).fontColor('#746B5E').width('100%')
           }
-          if (!this.state.active || !this.state.lifetime) {
-            Row({ space: AppSpace.Sm }) {
-              Checkbox({ name: 'subscriptionConsent' }).width(18).height(18).select(this.agreed).selectedColor(AppColor.Brand)
-                .onChange((value: boolean): void => { this.agreed = value; })
-                .accessibilityText($r('app.string.membership_consent'))
-              Text($r('app.string.membership_consent')).fontSize(12)
-                .fontColor('#30291F').layoutWeight(1)
-            }.width('100%')
-          }
-          Button(this.planAction(this.selectedPlan)).width('100%').height(40)
-            .fontSize(15).fontWeight(FontWeight.Medium).backgroundColor('#B9905C').fontColor(Color.White)
-            .enabled(this.canSelectPlan(this.selectedPlan))
-            .onClick((): void => {
-              if (this.shouldManagePlan(this.selectedPlan)) this.manage();
-              else {
-                const plan = this.findPlan(this.selectedPlan);
-                if (plan) this.purchase(plan);
-              }
-            })
-        }.width('100%').constraintSize({ maxWidth: 680, minHeight: this.contentViewportHeight })
-        .justifyContent(FlexAlign.SpaceBetween).padding({ left: AppSpace.Md, right: AppSpace.Md,
-          top: AppSpace.Sm, bottom: WindowUtils.getBottomSafeVp() + AppSpace.Sm })
+        }.width('100%').constraintSize({ maxWidth: 680 })
+        .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Sm, bottom: AppSpace.Md })
       }.width('100%').layoutWeight(1).scrollBar(BarState.Off).align(Alignment.Top)
-      .onAreaChange((_oldArea: Area, newArea: Area): void => {
-        const height = Number(newArea.height);
-        if (Number.isFinite(height) && height > 0 && this.contentViewportHeight !== height) {
-          this.contentViewportHeight = height;
+      Column({ space: 10 }) {
+        if (!this.state.active || !this.state.lifetime) {
+          Row({ space: AppSpace.Sm }) {
+            Checkbox({ name: 'subscriptionConsent' }).width(18).height(18).select(this.agreed).selectedColor(AppColor.Brand)
+              .onChange((value: boolean): void => { this.agreed = value; })
+              .accessibilityText($r('app.string.membership_consent'))
+            Text($r('app.string.membership_consent')).fontSize(12)
+              .fontColor('#30291F').layoutWeight(1)
+          }.width('100%')
         }
-      })
+        Button($r('app.string.membership_order_opening')).width('100%').height(40)
+          .id('membership-purchase-button')
+          .fontSize(15).fontWeight(FontWeight.Medium).backgroundColor('#B9905C').fontColor(Color.White)
+          .enabled(false)
+      }.width('100%').constraintSize({ maxWidth: 680 }).flexShrink(0)
+      .padding({ left: AppSpace.Md, right: AppSpace.Md, top: 12,
+        bottom: WindowUtils.getBottomSafeVp() + AppSpace.Sm })
+      .backgroundColor(Color.Transparent)
     }.width('100%').height('100%')
     .linearGradient({ angle: 180, colors: [[MEMBERSHIP_BACKGROUND_TOP, 0], ['#EEE7D8', 0.55], ['#F3F4F5', 1]] })
   }

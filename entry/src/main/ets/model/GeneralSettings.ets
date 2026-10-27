@@ -6,4 +6,5 @@ export class GeneralSettings {
   @Trace showShelfSource: boolean = true;
   @Trace adaptiveHandedness: boolean = true;
   @Trace swipeSwitchTabs: boolean = true;
+  @Trace jianjianCompanionEnabled: boolean = false;
 }

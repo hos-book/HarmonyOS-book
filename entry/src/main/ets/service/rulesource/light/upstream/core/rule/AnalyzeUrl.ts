@@ -1,3 +1,5 @@
+import { HttpRetryPolicy } from '../http/HttpRetryPolicy';
+import type { HttpRetrySpec } from '../http/HttpRetryPolicy';
 import { BookSource } from '../../model/data/Book';
 import { HttpClient, HttpRequest, HttpResponse } from '../http/HttpClient';
 import { VerificationSupport } from '../http/VerificationSupport';
@@ -27,6 +29,12 @@ export interface UrlConfig {
 
 export class AnalyzeUrl {
   private config: UrlConfig;
+  private retryPolicy: HttpRetrySpec | null = null;
+
+  setRetryPolicy(policy: HttpRetrySpec | null): AnalyzeUrl {
+    this.retryPolicy = policy ? HttpRetryPolicy.parse(policy) as HttpRetrySpec : null;
+    return this;
+  }
   private source: BookSource | null;
   private client: HttpClient;
   private runtimeSourceHeaders: Record<string, string>;
@@ -487,7 +495,8 @@ export class AnalyzeUrl {
       useCookieJar: this.source ? this.source.enabledCookieJar !== false : true,
       useWebView: this.config.useWebView,
       webJs: this.config.webJs || undefined,
-      noTimeoutRetry: this.noTimeoutRetry || this.requestDeadlineAt > 0 || undefined,
+      managedRetry: this.retryPolicy !== null,
+      noTimeoutRetry: this.retryPolicy !== null || this.noTimeoutRetry || this.requestDeadlineAt > 0 || undefined,
       deadlineAt: this.requestDeadlineAt || undefined,
       connectTimeout: this.requestDeadlineAt > 0 ? Math.max(1, this.requestDeadlineAt - Date.now()) : undefined,
       readTimeout: this.requestDeadlineAt > 0 ? Math.max(1, this.requestDeadlineAt - Date.now()) : undefined
@@ -518,7 +527,7 @@ export class AnalyzeUrl {
     }
     if (req.url.startsWith('data:')) return this.decodeDataUrl(req.url, maxResponseBytes);
     const resp = await this.fetchWithRetry(req);
-    if (this.isUsableResponse(resp)) return resp;
+    if (this.retryPolicy || this.isUsableResponse(resp)) return resp;
 
     // A small group of IIS/legacy hosts intermittently fail before HarmonyOS Network Kit can
     // produce an HTTP response (for example 2300003/2300056/2300999). The same URL remains
@@ -529,7 +538,7 @@ export class AnalyzeUrl {
     if (this.shouldRetryWithWebView(req, resp)) {
       console.info('[AnalyzeUrl] native transport failed; retrying with WebView:', this.urlHost(req.url));
       if (req.cancelCheck && req.cancelCheck()) return this.notSentResponse(req, RateLimitAcquireResult.Cancelled);
-      const webResponse = await this.fetchFollowingRedirects({ ...req, useWebView: true });
+      const webResponse = await this.fetchFollowingRedirects({ ...req, useWebView: true, retryReason: '原生传输失败，回退 WebView' });
       if (this.isUsableResponse(webResponse)) return webResponse;
     }
 
@@ -548,10 +557,32 @@ export class AnalyzeUrl {
   }
 
   private async fetchWithRetry(req: HttpRequest): Promise<HttpResponse> {
+    const policy = this.retryPolicy;
+    if (policy) {
+      // A managed policy owns retries. Each round has at most four explicit redirect hops;
+      // SDK-internal redirects are platform controlled. Lower transport retries are disabled.
+      req.managedRetry = true;
+      req.noTimeoutRetry = true;
+      req.deadlineAt = req.deadlineAt || Date.now() + 60000;
+      let response = await this.fetchFollowingRedirects(req);
+      if (!['GET', 'HEAD'].includes(req.method.toUpperCase()) || req.body || req.bodyBytes) return response;
+      for (let index = 0; index < policy.times && policy.onStatus!.includes(response.statusCode); index++) {
+        const delay = HttpRetryPolicy.delay(policy, index, response.headers, Date.now());
+        if (delay < 0) { req.debugContext?.addLog('info', 'Retry-After 超过 maxDelay，停止重试'); break; }
+        const cancelled = (): boolean => !!req.cancelCheck && req.cancelCheck();
+        if (!await HttpRetryPolicy.wait(delay, cancelled, req.deadlineAt)) {
+          return cancelled() ? this.notSentResponse(req, RateLimitAcquireResult.Cancelled) : HttpClient.timeoutResponse(req);
+        }
+        const reason = `HTTP ${response.statusCode}，退避 ${delay} ms`;
+        req.debugContext?.addLog('info', `重试 ${index + 1}/${policy.times}：${reason}`);
+        response = await this.fetchFollowingRedirects({ ...req, retryAttempt: index + 1, retryReason: reason });
+      }
+      return response;
+    }
     let response = await this.fetchFollowingRedirects(req);
     for (let i = 0; i < this.config.retry && !this.isUsableResponse(response); i++) {
       if (req.deadlineAt && Date.now() >= req.deadlineAt) break;
-      response = await this.fetchFollowingRedirects(req);
+      response = await this.fetchFollowingRedirects({ ...req, retryAttempt: i + 1, retryReason: '数字 retry' });
     }
     return response;
   }
