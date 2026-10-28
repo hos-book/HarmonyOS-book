@@ -63,6 +63,9 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     TextReadingPosition: { atChar: (bookId, resourceIndex, domPos, charOffset) => ({ bookId, resourceIndex, charOffset }) }
   });
   const reader = new ReaderNavigation();
+  const { ReaderAutoPageService } = compile(fs.readFileSync(path.join(root,
+    'service/text/ReaderAutoPageService.ets'), 'utf8'), {}, { setTimeout, clearTimeout });
+  reader.autoPage = new ReaderAutoPageService();
   Object.assign(reader, { book: { id: 'book' }, bookId: 'book', readerVisible: true, speechNavigationSerial: 0,
     speechState: speech.state, readingTime: { checkpoint() {} }, currentResourceIndex: 0,
     onlineTextContent: 'text', onlineTextPages: [], onlineTextPageIndex: 0,

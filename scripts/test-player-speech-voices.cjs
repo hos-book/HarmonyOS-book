@@ -8,7 +8,9 @@ const root = path.resolve(__dirname, '../entry/src/main/ets');
 const compile = code => ts.transpileModule(code, {
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
 }).outputText;
-const stateScope = { exports: {}, ObservedV2: value => value, Trace: () => {}, require: () => ({}) };
+const synthesisScope = { exports: {} };
+vm.runInNewContext(compile(fs.readFileSync(path.join(root, 'model/SpeechSynthesisSettings.ets'), 'utf8')), synthesisScope);
+const stateScope = { exports: {}, ObservedV2: value => value, Trace: () => {}, require: () => synthesisScope.exports };
 vm.runInNewContext(compile(fs.readFileSync(path.join(root, 'model/TextToSpeechState.ets'), 'utf8')), stateScope);
 const source = fs.readFileSync(path.join(root, 'pages/PlayerPage.ets'), 'utf8');
 function method(name) {

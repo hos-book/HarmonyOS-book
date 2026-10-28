@@ -24,8 +24,8 @@ class ReaderCacheEntry {
 
 /** Shared by the TypeScript source bridge and ArkTS readers. Only disposable directories are admitted. */
 export class ReaderCacheService {
-  static readonly TEXT_LIMIT: number = 256 * 1024 * 1024;
-  static readonly COMIC_LIMIT: number = 1024 * 1024 * 1024;
+  static readonly TEXT_LIMIT: number = 1024 * 1024 * 1024;
+  static readonly COMIC_LIMIT: number = 5 * 1024 * 1024 * 1024;
   private static context: common.Context | null = null;
   private static entries: Map<string, ReaderCacheEntry> = new Map();
   private static owners: Map<string, Set<string>> = new Map();

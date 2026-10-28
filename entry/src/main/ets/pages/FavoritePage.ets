@@ -1042,7 +1042,7 @@ export struct FavoritePage {
     const options: CustomPopupOptions = {
       builder: this.buildStatusFilterMenu,
       placement: Placement.BottomRight,
-      popupColor: Color.Transparent,
+      popupColor: AppMaterial.SheetBackground,
       radius: AppRadius.Xl,
       enableArrow: false,
       focusable: true,

@@ -165,13 +165,13 @@ export struct SettingsPage {
     const serial = ++this.preferencesLoadSerial;
     this.isLoaded = false;
     this.preferencesLoadFailed = false;
-    // 搜索并发需要联网核验会员，只更新自身控件，不阻塞本地设置首屏。
+    // 首屏只读取本地偏好；权益由现有生命周期静默刷新，提交会员设置时才等待鉴权。
     this.loadSearchConcurrency(serial);
     try {
       const mode = await PreferenceService.getColorMode();
       const defaultTab = await PreferenceService.getDefaultTab();
       const autoPlay = await PreferenceService.getAutoPlayOnLaunch();
-      const coverResolution = await PreferenceService.getCoverSuperResolution();
+      const coverResolution = await PreferenceService.getStoredCoverSuperResolution();
       const focusMode = await PreferenceService.getAudioInterruptMode();
       const autoResume = await PreferenceService.getAudioAutoResume();
       const defaultPlaybackSpeed = await PreferenceService.getDefaultPlaybackSpeed();
@@ -200,13 +200,9 @@ export struct SettingsPage {
     this.searchConcurrencyLoading = true;
     this.searchConcurrencyLoadFailed = false;
     try {
-      const count = await PreferenceService.getSearchConcurrency();
+      const count = await PreferenceService.getStoredSearchConcurrency();
       if (!this.alive || serial !== this.preferencesLoadSerial) return;
-      if (!this.membership.hasAccess && !this.membership.confirmedInactive) {
-        this.searchConcurrencyLoadFailed = true;
-        return;
-      }
-      this.searchConcurrency = this.membership.hasAccess ? count : 3;
+      this.searchConcurrency = this.membership.confirmedInactive && !this.membership.hasAccess ? 3 : count;
       this.searchConcurrencyDraft = this.searchConcurrency.toString();
       this.searchConcurrencyCustom = !SEARCH_CONCURRENCY_OPTIONS.includes(this.searchConcurrency);
     } catch (_error) {
@@ -224,7 +220,6 @@ export struct SettingsPage {
   private async setCoverSuperResolution(enabled: boolean): Promise<void> {
     if (this.isSavingCoverSuperResolution || !CoverSuperResolutionService.supported() ||
       this.coverSuperResolution === enabled) return;
-    if (enabled && !this.membership.hasAccess) return;
     const previous = this.coverSuperResolution;
     this.isSavingCoverSuperResolution = true;
     this.coverSuperResolution = enabled;
@@ -364,11 +359,12 @@ export struct SettingsPage {
       this.searchConcurrency = 3;
       this.searchConcurrencyDraft = '3';
       this.searchConcurrencyCustom = false;
+      this.coverSuperResolution = false;
     }
   }
 
   private async submitSearchConcurrency(): Promise<void> {
-    if (this.isSavingSearchConcurrency || this.checkingSearchMembership || !this.membership.hasAccess) return;
+    if (this.isSavingSearchConcurrency || this.checkingSearchMembership) return;
     const count = Number(this.searchConcurrencyDraft);
     if (!new RegExp('^[0-9]+$').test(this.searchConcurrencyDraft) ||
       !Number.isInteger(count) || count < 1 || count > 12) {
@@ -379,8 +375,7 @@ export struct SettingsPage {
   }
 
   private async chooseSearchConcurrency(index: number): Promise<void> {
-    if (this.isSavingSearchConcurrency || !this.membership.hasAccess || index < 0 || index > 4 ||
-      !await this.requireSearchMembership()) return;
+    if (this.isSavingSearchConcurrency || this.checkingSearchMembership || index < 0 || index > 4) return;
     this.searchConcurrencyCustom = index === 4;
     if (!this.searchConcurrencyCustom) this.searchConcurrencyDraft = SEARCH_CONCURRENCY_OPTIONS[index].toString();
   }
@@ -749,10 +744,10 @@ export struct SettingsPage {
           $r('app.string.settings_cover_super_resolution'),
           CoverSuperResolutionService.supported() ? $r('app.string.settings_cover_super_resolution_desc')
             : $r('app.string.settings_cover_super_resolution_unavailable'),
-          UIUtils.makeBinding<boolean>(() => this.coverSuperResolution && this.membership.hasAccess),
+          UIUtils.makeBinding<boolean>(() => this.coverSuperResolution),
           (enabled: boolean): void => { this.setCoverSuperResolution(enabled); },
           UIUtils.makeBinding<boolean>(() =>
-            this.isLoaded && this.membership.hasAccess && !this.isSavingCoverSuperResolution && CoverSuperResolutionService.supported()),
+            this.isLoaded && !this.isSavingCoverSuperResolution && CoverSuperResolutionService.supported()),
           true
         )
       }
@@ -907,13 +902,7 @@ export struct SettingsPage {
             .fontColor(AppTheme.TextSecondary)
             .width('100%')
         }
-        if (this.searchConcurrencyLoading || this.checkingSearchMembership || this.membershipService.busy) {
-          Row({ space: AppSpace.Sm }) {
-            LoadingProgress().width(18).height(18).color(AppColor.Brand)
-            Text($r('app.string.settings_search_loading')).fontSize(AppFont.Caption)
-              .fontColor(AppTheme.TextSecondary).layoutWeight(1)
-          }.width('100%')
-        } else if (this.searchConcurrencyLoadFailed) {
+        if (this.searchConcurrencyLoadFailed) {
           Row({ space: AppSpace.Sm }) {
             Text($r('app.string.settings_search_load_failed')).fontSize(AppFont.Caption)
               .fontColor(AppTheme.TextSecondary).layoutWeight(1)
@@ -932,10 +921,8 @@ export struct SettingsPage {
             }
           }).layoutWeight(1.5)
           TextInput({ text: this.searchConcurrencyDraft, placeholder: $r('app.string.settings_search_concurrency_hint') })
-            .enabled(this.membership.hasAccess)
             .type(InputType.Number).maxLength(2).layoutWeight(1).height(40)
             .onChange((value: string): void => {
-              if (!this.membership.hasAccess) return;
               this.searchConcurrencyDraft = value;
               this.searchConcurrencyCustom = true;
             })
@@ -943,8 +930,8 @@ export struct SettingsPage {
         }
         .width('100%')
         .alignItems(VerticalAlign.Center)
-        .enabled(this.membership.hasAccess && !this.isSavingSearchConcurrency && !this.searchConcurrencyLoading && !this.searchConcurrencyLoadFailed &&
-          !this.checkingSearchMembership && !this.membershipService.busy)
+        .enabled(!this.isSavingSearchConcurrency && !this.searchConcurrencyLoading && !this.searchConcurrencyLoadFailed &&
+          !this.checkingSearchMembership)
       }
       .width('100%')
       .padding(ROW_INDENT)

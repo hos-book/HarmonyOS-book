@@ -87,7 +87,7 @@
     { "name": "glass_sheet_fallback", "value": "#F2171A1D" },
     { "name": "glass_control_tint", "value": "#E62C2C2C" },
     { "name": "glass_sheet_control_tint", "value": "#1FFFFFFF" },
-    { "name": "reader_setting_card_background", "value": "#4032363C" },
+    { "name": "reader_setting_card_background", "value": "#3332363C" },
     { "name": "reader_setting_card_border", "value": "#20FFFFFF" },
     { "name": "glass_sheet_stroke", "value": "#3DFFFFFF" },
     { "name": "glass_text_primary", "value": "#F2FFFFFF" },

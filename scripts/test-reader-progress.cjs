@@ -46,6 +46,8 @@ mocks['@kit.InputKit'].inputConsumer = {
   off(type, handler) { assert.equal(type, 'keyPressed'); subscriptions.delete(handler); }
 };
 const { ReaderVolumeKeyService } = compile('service/text/ReaderVolumeKeyService');
+const { ReaderAutoPageService } = compile('service/text/ReaderAutoPageService');
+mocks['../service/text/ReaderAutoPageService'] = { ReaderAutoPageService };
 const volumeKeys = new ReaderVolumeKeyService();
 const directions = [];
 volumeKeys.setEnabled(true, forward => directions.push(forward));
@@ -69,6 +71,9 @@ mocks['./ReaderTheme'] = compile('model/ReaderTheme');
 mocks['../model/ReaderTheme'] = mocks['./ReaderTheme'];
 const model = compile('model/TextReading');
 mocks['../model/TextReading'] = model;
+mocks['../service/text/LocalTextImage'] = compile('service/text/LocalTextImage');
+let importedBody = '';
+mocks['../service/DataService'] = { DataService: { readImportedText: async () => importedBody } };
 mocks['../../model/TextReading'] = model;
 mocks['../service/text/OnlineTextPaginator'] = compile('service/text/OnlineTextPaginator');
 mocks['./OnlineTextPaginator'] = mocks['../service/text/OnlineTextPaginator'];
@@ -76,7 +81,7 @@ const { TextReadingProgressService: progress } = compile('service/text/TextReadi
 mocks['../service/text/TextReadingProgressService'] = { TextReadingProgressService: progress };
 mocks['../service/text/ReaderFontService'] = { ReaderFontService: { register: () => 'ReaderFont_Custom' } };
 mocks['../service/text/TextToSpeechService'] = { TextToSpeechService: {
-  getInstance: () => ({ state: { playing: false } })
+  getInstance: () => ({ state: { playing: false }, setReadingPageEnds() {} })
 } };
 mocks['../service/ReadingSessionService'] = {
   SessionLocation: { text: () => ({}) }, ReadingSessionService: { checkpoint() {} }
@@ -139,6 +144,7 @@ bottomReader.topSafeVp = 30;
 assert.equal(bottomReader.readerTopInsetVp(), 30, 'always-visible status bar uses its measured height');
 const keyReader = Object.create(ReaderPage.prototype);
 Object.assign(keyReader, { volumeKeyPageTurn: false, readerVisible: true, leaving: false, loading: false,
+  autoPage: new ReaderAutoPageService(), autoPageRunning: false,
   readerError: '', keyTurnRequest: 0, screenOn: { touch() {} }, isOnlineTextBook: () => true });
 assert.equal(keyReader.canUseVolumeKeys(), false);
 keyReader.volumeKeyPageTurn = true;
@@ -206,6 +212,7 @@ function reader() {
   // Skip ArkUI construction, retaining the actual progress, load, reflow and turn methods.
   const page = Object.create(ReaderPage.prototype);
   Object.assign(page, {
+    autoPage: new ReaderAutoPageService(), autoPageRunning: false,
     context: {}, textDocuments: new Map(), book: { id: 'test-book', chapters: [{ title: '第一章' }, { title: '第二章' }] },
     readingTime: { checkpoint() {} },
     speechState: { active: false, bookId: '' },
@@ -221,6 +228,19 @@ function reader() {
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 (async () => {
+  const { LocalTextImage } = mocks['../service/text/LocalTextImage'];
+  const tokens = [0, 1, 2].map(index => LocalTextImage.token(`/files/ebooks/import_pdf/image_${index}_0.img`));
+  importedBody = '前言\n' + tokens.join('\n说明\n');
+  for (const [imageIndex, expectedIndex] of [[0, 0], [1, 1], [2, 2], [99, 2]]) {
+    const comicReturn = reader();
+    const book = { id: 'import_pdf', chapters: [{ title: '原版页面', source: { value: '/files/ebooks/import_pdf/0.txt' } }] };
+    comicReturn.book = book;
+    let restoredOffset = -1;
+    comicReturn.loadOnlineTextChapter = async (_chapter, offset) => { restoredOffset = offset; return false; };
+    await comicReturn.prepareOnlineTextReader(book, TextReadingPosition.of(book.id, 0, 'comic:scroll@0.5', imageIndex, '原版页面'));
+    assert.equal(restoredOffset, importedBody.indexOf(tokens[expectedIndex]), 'comic image position must restore the same image in text layout');
+  }
+  console.log('PASS comic-to-reader restores image character positions, including an out-of-range old page');
   const fontPage = reader();
   fontPage.fontPath = '/files/reader_fonts/custom.ttf';
   fontPage.fontName = 'Custom';
@@ -369,6 +389,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   let positioned = -1;
   let reported = -1;
   Object.assign(continuous, {
+    autoScroll: { stop() {} }, autoScrollReady: false,
     contentWidth: 360, disposed: false, serial: 0, restoreTimer: -1, positionTimer: -1,
     chapters: [makeChapter(9), makeChapter(10), makeChapter(11)],
     chapterIndex: 10, charOffset: 150, content, source: new scrollModel.OnlineTextScrollDataSource(),
@@ -403,12 +424,14 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   continuous.aboutToDisappear();
   const short = Object.create(ReaderContinuousComponent.prototype);
   Object.assign(short, {
+    autoScroll: { stop() {} }, autoScrollReady: false,
     contentWidth: 360, contentHeight: 800, rowHeight: 34, disposed: false, serial: 0,
     restoreTimer: -1, positionTimer: -1, chapters: [], chapterIndex: 0, charOffset: 0,
     chapterCount: 30, chapterStep: 1, content: '短章', source: new scrollModel.OnlineTextScrollDataSource(),
     makeChapter: index => scrollModel.OnlineTextScrollChapter.create(index, `short-${index}`, '扉页', '短章',
       [mocks['./OnlineTextPaginator'].OnlineTextPage.of('短章', 0, 2)]),
-    scroller: { scrollToIndex() {} }, getContent: async () => '短章', onPosition() {}, backgroundHandler() {}
+    scroller: { scrollToIndex() {} }, getContent: async () => '短章', onPosition() {}, backgroundHandler() {},
+    onAutoPageDelay() {}
   });
   short.reset();
   short.visibleChanged(0, 1);

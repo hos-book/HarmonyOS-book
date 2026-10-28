@@ -307,6 +307,34 @@ export class PreferenceService {
     await PreferenceService.saveComicPreference('comic_image_preload_count', count, 5);
   }
 
+  /** 仅记忆速度；自动翻页每次由用户启动，不恢复后台运行状态。 */
+  static async getAutoPageSeconds(comic: boolean): Promise<number> {
+    const store = await PreferenceService.ensureStore();
+    const value = await store.get(comic ? 'comic_auto_page_seconds' : 'reader_auto_page_seconds', 10);
+    return typeof value === 'number' && Number.isFinite(value) ? Math.max(3, Math.min(120, Math.round(value))) : 10;
+  }
+
+  static async setAutoPageSeconds(comic: boolean, seconds: number): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const value = Number.isFinite(seconds) ? Math.max(3, Math.min(120, Math.round(seconds))) : 10;
+    await store.put(comic ? 'comic_auto_page_seconds' : 'reader_auto_page_seconds', value);
+    await store.flush();
+  }
+
+  static async getAutoScrollSpeed(comic: boolean): Promise<number> {
+    const store = await PreferenceService.ensureStore();
+    const value = await store.get(comic ? 'comic_auto_scroll_speed' : 'reader_auto_scroll_speed', comic ? 30 : 20);
+    return typeof value === 'number' && Number.isFinite(value) ?
+      Math.max(6, Math.min(comic ? 120 : 100, Math.round(value / 2) * 2)) : (comic ? 30 : 20);
+  }
+
+  static async setAutoScrollSpeed(comic: boolean, speed: number): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const value = Number.isFinite(speed) ? Math.max(6, Math.min(comic ? 120 : 100, Math.round(speed / 2) * 2)) : (comic ? 30 : 20);
+    await store.put(comic ? 'comic_auto_scroll_speed' : 'reader_auto_scroll_speed', value);
+    await store.flush();
+  }
+
   static async setComicReadingMode(mode: number): Promise<void> {
     await PreferenceService.saveComicPreference('comic_reading_mode', mode === 1 || mode === 3 ? mode : 0, 0);
   }
@@ -1179,9 +1207,14 @@ export class PreferenceService {
   }
 
   static async getCoverSuperResolution(): Promise<boolean> {
-    const store = await PreferenceService.ensureStore();
-    return (await store.get(KEY_COVER_SUPER_RESOLUTION, false)) === true &&
+    return await PreferenceService.getStoredCoverSuperResolution() &&
       await MembershipService.instance.hasCurrentEntitlement();
+  }
+
+  /** 设置页只读取用户选择；实际启用能力仍走 getCoverSuperResolution 的权益校验。 */
+  static async getStoredCoverSuperResolution(): Promise<boolean> {
+    const store = await PreferenceService.ensureStore();
+    return (await store.get(KEY_COVER_SUPER_RESOLUTION, false)) === true;
   }
 
   static async getComicSuperResolution(): Promise<boolean> {
@@ -1469,6 +1502,12 @@ export class PreferenceService {
       }
       return 3;
     }
+    return PreferenceService.getStoredSearchConcurrency();
+  }
+
+  /** 仅供设置展示，不授予搜索并发权限。 */
+  static async getStoredSearchConcurrency(): Promise<number> {
+    const s = await PreferenceService.ensureStore();
     const count = await s.get(KEY_SEARCH_CONCURRENCY, 3);
     return typeof count === 'number' && Number.isInteger(count) && count >= 1 && count <= 12 ? count : 3;
   }

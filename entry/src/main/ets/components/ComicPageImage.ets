@@ -19,6 +19,12 @@ export struct ComicPageImage {
   @Param zoomOwner: string = '';
   @Param paged: boolean = false;
   @Param fitScreen: boolean = false;
+  @Param autoPageRequest: number = 0;
+  @Param autoPageActive: boolean = false;
+  @Event onAutoPageEnd: () => void = (): void => {};
+  @Event onAutoPageFailure: () => void = (): void => {};
+  @Event onAutoPageDelay: () => void = (): void => {};
+  private pageScroller: Scroller = new Scroller();
   @Param superResolution: boolean = false;
   @Param colorization: boolean = false;
   @Param translation: boolean = false;
@@ -87,6 +93,22 @@ export struct ComicPageImage {
   onPageChanged(): void {
     this.ratio = 0;
     if (this.alive) this.loadImage();
+  }
+
+  @Monitor('autoPageRequest')
+  private advanceAutoPage(): void {
+    if (!this.alive || !this.autoPageActive || !this.paged || this.zoomLocked) return;
+    if (this.failed) { this.onAutoPageFailure(); return; }
+    if (!this.loaded) return;
+    // 适宽长图先读完当前图片，不能直接切走遗漏下半部分。
+    if (this.fitScreen || this.pageScroller.isAtEnd()) this.onAutoPageEnd();
+    else this.pageScroller.scrollBy(0, this.pageHeight * 0.85);
+  }
+
+  @Monitor('loaded', 'failed')
+  private syncAutoPageImage(): void {
+    if (this.failed) this.onAutoPageFailure();
+    else if (this.loaded) this.onAutoPageDelay();
   }
 
   private loadImage(): void {
@@ -390,7 +412,7 @@ export struct ComicPageImage {
       } else if (this.resolvedUrl && this.fitScreen) {
         this.imageContent()
       } else if (this.resolvedUrl && this.paged) {
-        Scroll() {
+        Scroll(this.pageScroller) {
           this.imageContent()
         }.width(this.pageWidth).height(this.pageHeight)
           .scrollable(ScrollDirection.Vertical).scrollBar(BarState.Off).enableScrollInteraction(!this.zoomLocked)

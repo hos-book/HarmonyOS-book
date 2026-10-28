@@ -9,9 +9,9 @@ const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKi
 const requests = [], players = [], files = new Set();
 const settle = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 const moduleMock = { exports: {} };
-vm.runInNewContext(code, { module: moduleMock, exports: moduleMock.exports, ArrayBuffer, require(name) {
+vm.runInNewContext(code, { module: moduleMock, exports: moduleMock.exports, ArrayBuffer, setTimeout, clearTimeout, require(name) {
   if (name === '@kit.NetworkKit') return { http: { createHttp() {
-    const req = { request() { return new Promise((resolve, reject) => { req.resolve = resolve; req.reject = reject; }); },
+    const req = { request(_url, options) { req.options = options; return new Promise((resolve, reject) => { req.resolve = resolve; req.reject = reject; }); },
       destroy() { req.destroyed = true; } };
     requests.push(req); return req;
   } } };
@@ -80,5 +80,18 @@ const respond = req => req.resolve({ responseCode: 200, result: new ArrayBuffer(
   assert.equal(players[1].rate, 1); // synthesis already applied the speed
   stopped.cancel(); await stoppedResult;
   assert.equal(players[1].released, true); assert.equal(files.size, 0);
+  const retryStart = requests.length;
+  const retry = new HttpTtsPlayer(0.01, 1);
+  await assert.rejects(retry.prepare({}, '超时重试。', 3), /timed out/);
+  assert.equal(requests.length - retryStart, 2, 'retry count is bounded even when the provider never responds');
+  assert.ok(requests.slice(retryStart).every(req => req.destroyed && req.options.readTimeout === 10));
+  const stopRetry = new HttpTtsPlayer(30, 3);
+  const stopRetryResult = stopRetry.prepare({}, '取消重试。', 3);
+  const cancelledRetry = assert.rejects(stopRetryResult, /cancelled/);
+  await settle();
+  requests.at(-1).reject(new Error('offline')); await settle();
+  const beforeCancel = requests.length;
+  stopRetry.cancel(); await cancelledRetry;
+  assert.equal(requests.length, beforeCancel, 'cancellation clears retry backoff without issuing another request');
   console.log('PASS 连续片段复用同一播放器、停止释放、预取不播放、合成去重、取消迟到请求和临时文件释放');
 })().catch(error => { console.error(error); process.exitCode = 1; });

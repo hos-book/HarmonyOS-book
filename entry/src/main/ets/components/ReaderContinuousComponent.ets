@@ -7,6 +7,7 @@ import { TextToSpeechState } from '../model/TextToSpeechState';
 import { OnlineTextPaginator } from '../service/text/OnlineTextPaginator';
 import { OnlineTextScrollChapter, OnlineTextScrollDataSource, OnlineTextScrollRow } from '../service/text/OnlineTextScrollDataSource';
 import { ReaderSpeechText } from './ReaderSpeechText';
+import { ReaderAutoScrollService } from '../service/text/ReaderAutoScrollService';
 
 /** 按真实排版行懒加载的连续正文。只保留当前章附近内容，补章不替换可见正文。 */
 @ComponentV2
@@ -25,6 +26,12 @@ export struct ReaderContinuousComponent {
   private touchStartedSelecting: boolean = false;
   private contentHeight: number = 0;
   @Param keyTurnRequest: number = 0;
+  @Param autoScrollReady: boolean = false;
+  @Param autoScrollSpeed: number = 20;
+  private autoScroll: ReaderAutoScrollService = new ReaderAutoScrollService();
+  private autoScrollSavedAt: number = 0;
+  @Event onForwardEnd: () => void = (): void => {};
+  @Event onAutoPageDelay: () => void = (): void => {};
   @Param revision: number = 0;
   @Param chapterIndex: number = 0;
   @Param content: string = '';
@@ -72,6 +79,30 @@ export struct ReaderContinuousComponent {
   aboutToAppear(): void {
     this.disposed = false;
     emitter.on('app.reader.background', this.backgroundHandler);
+    this.syncAutoScroll();
+  }
+
+  @Monitor('autoScrollReady')
+  private syncAutoScroll(): void {
+    this.autoScroll.stop();
+    if (!this.autoScrollReady || this.disposed) { this.reportPosition(true); return; }
+    this.autoScroll.start(this.getUIContext(), (elapsed: number): void => this.advanceAutoScroll(elapsed));
+  }
+
+  private advanceAutoScroll(elapsed: number): void {
+    if (!this.autoScrollReady || this.disposed || this.restoring || this.selectionActive || this.contentHeight <= 0) return;
+    if (this.scroller.isAtEnd()) {
+      const last = this.chapters[this.chapters.length - 1];
+      const next = last !== undefined ? last.index + this.chapterStep : -1;
+      if (this.nextFailed || next < 0 || next >= this.chapterCount) this.onForwardEnd();
+      else this.loadNeighbor(true);
+      return;
+    }
+    this.scroller.scrollBy(0, elapsed * this.autoScrollSpeed * this.rowHeight / 60);
+    if (Date.now() - this.autoScrollSavedAt >= 1000) {
+      this.autoScrollSavedAt = Date.now();
+      this.reportPosition(true);
+    }
   }
 
   @Monitor('revision', 'fontFamily', 'fontWeight', 'fontSize', 'lineHeight', 'paragraphSpacing', 'textAlignment')
@@ -88,6 +119,13 @@ export struct ReaderContinuousComponent {
   @Monitor('keyTurnRequest')
   onKeyTurnRequested(): void {
     if (this.disposed || this.restoring || this.contentHeight <= 0) return;
+    if (this.keyTurnRequest > 0 && this.scroller.isAtEnd()) {
+      const last = this.chapters[this.chapters.length - 1];
+      const next = last !== undefined ? last.index + this.chapterStep : -1;
+      if (this.nextFailed || next < 0 || next >= this.chapterCount) this.onForwardEnd();
+      else this.loadNeighbor(true);
+      return;
+    }
     this.onScrollStart();
     this.scroller.scrollBy(0, (this.keyTurnRequest > 0 ? 1 : -1) * this.contentHeight * 0.85);
   }
@@ -103,6 +141,7 @@ export struct ReaderContinuousComponent {
   }
 
   aboutToDisappear(): void {
+    this.autoScroll.stop();
     this.reportPosition(true);
     emitter.off('app.reader.background', this.backgroundHandler);
     this.disposed = true;
@@ -198,6 +237,7 @@ export struct ReaderContinuousComponent {
       if (ticket === this.serial && !this.disposed) {
         if (forward) this.nextLoading = false;
         else this.previousLoading = false;
+        this.onAutoPageDelay();
         // 内容不足一屏时可能没有新的索引事件，继续补齐视口，仍受章节窗口限制。
         if (forward && this.source.totalCount() < Math.ceil(this.contentHeight / Math.max(1, this.rowHeight)) + 2) {
           this.loadNeighbor(true);
@@ -362,11 +402,13 @@ export struct ReaderContinuousComponent {
       })
       .onScrollStart((): void => {
         this.tapTracker.cancel();
-        if (!this.restoring && !this.followingSpeech) this.onScrollStart();
+        if (!this.restoring && !this.followingSpeech && !this.autoScrollReady) this.onScrollStart();
       })
       .onScrollStop((): void => {
+        if (this.autoScrollReady) return;
         if (this.followingSpeech) { this.followingSpeech = false; return; }
         this.reportPosition(true);
+        this.onAutoPageDelay();
       })
       this.loadIndicator(false)
       this.loadIndicator(true)

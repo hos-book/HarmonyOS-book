@@ -451,9 +451,9 @@ function load(name) {
   const old = '/files/chap_old.mp3';
   const part = '/files/chap_active.mp3.part';
   const publishing = '/files/chap_publishing.mp3';
-  sizes.set(pinned, 600 * 1024 * 1024);
-  sizes.set(old, 600 * 1024 * 1024);
-  sizes.set(part, 600 * 1024 * 1024);
+  sizes.set(pinned, 3 * 1024 ** 3);
+  sizes.set(old, 3 * 1024 ** 3);
+  sizes.set(part, 3 * 1024 ** 3);
   sizes.set(publishing, 100 * 1024 * 1024);
   expiring.setPlayingFile(pinned);
   expiring.activeFilePaths.add(publishing);
@@ -503,7 +503,7 @@ function load(name) {
       cleanup.fileCache.set(id, { filePath: `${filesDir}/chap_indexed.mp3`, bytes: 99, timestamp: 1, pageUrl: id });
     }
     cleanup.fileCache.set('playing', { filePath: cleanup.playingFilePath, bytes: 2048, timestamp: 1, pageUrl: 'playing' });
-    assert.equal(ChapterCacheService.CACHE_LIMIT, 1024 ** 3);
+    assert.equal(ChapterCacheService.CACHE_LIMIT, 5 * 1024 ** 3);
     assert.equal(await cleanup.getCacheUsage(), 22528, 'Usage reads the actual complete audio files, not stale index sizes');
     const vanishingPath = `${filesDir}/chap_vanishing.mp3`;
     fs.writeFileSync(vanishingPath, Buffer.alloc(1536));

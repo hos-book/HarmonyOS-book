@@ -5,6 +5,8 @@ import { ReaderTtsTabs } from './ReaderTtsTabs';
 import { CustomTtsConfig } from '../model/CustomTtsConfig';
 import { CustomTtsImportService } from '../service/text/CustomTtsImportService';
 import { CustomTtsConfigParser } from '../service/text/CustomTtsConfigParser';
+import { SpeechSynthesisSettingsPanel } from './SpeechSynthesisSettingsPanel';
+import { SpeechSynthesisSettings } from '../model/SpeechSynthesisSettings';
 
 @ComponentV2
 export struct ReaderSpeechSheet {
@@ -15,6 +17,7 @@ export struct ReaderSpeechSheet {
   @Local showPaste: boolean = false;
   @Local importText: string = '';
   @Local importMessage: ResourceStr = '';
+  @Local showSynthesis: boolean = false;
   private service: TextToSpeechService = TextToSpeechService.getInstance();
 
   private async pickTts(): Promise<void> {
@@ -146,6 +149,12 @@ export struct ReaderSpeechSheet {
         }, (voice: SpeechVoice): string => voice.id)
         }
 
+        Button($r('app.string.tts_synthesis_title')).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
+          .onClick((): void => { this.showSynthesis = !this.showSynthesis; }).id('tts-synthesis-settings')
+        if (this.showSynthesis) {
+          SpeechSynthesisSettingsPanel({ settings: this.state.synthesis,
+            onSave: (value: SpeechSynthesisSettings): Promise<void> => this.service.setSynthesisSettings(value) })
+        }
       }.width('100%').padding({ left: 20, right: 20, top: 12, bottom: 32 })
         .alignItems(HorizontalAlign.Start)
     }.width('100%').height('100%').scrollBar(BarState.Off)

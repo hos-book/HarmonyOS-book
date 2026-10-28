@@ -494,6 +494,15 @@ function load(relative) {
   assert.equal(await fsp.readFile(forcedText.chapters[0].source.value, 'utf8'), beforeComicBody);
   data.cache = null;
   assert.equal((await data.getBookById(context, forcedText.id)).contentType, 'comic');
+  importedSaveFails = true;
+  await assert.rejects(data.switchImportedBookToText(forcedText.id), /injected imported metadata failure/);
+  importedSaveFails = false;
+  assert.equal((await data.getBookById(context, forcedText.id)).contentType, 'comic');
+  assert.equal((await data.switchImportedBookToText(forcedText.id)).contentType, 'text');
+  data.cache = null;
+  assert.equal((await data.getBookById(context, forcedText.id)).contentType, 'text');
+  assert.equal((await data.getImportedBooks()).length, beforeSwitchCount);
+  assert.equal(await fsp.readFile(forcedText.chapters[0].source.value, 'utf8'), beforeComicBody);
   await data.removeImportedBook(forcedText.id);
   console.log('PASS in-place comic type switch preserves ID, TOC and body, creates no duplicate and survives restart');
   const pdfFile = { uri: path.join(temp, 'document.pdf'), name: '原版 PDF', ext: '.pdf' };
@@ -515,14 +524,32 @@ function load(relative) {
   }
   assert.ok(pdfRenders[0].height > pdfRenders[0].width);
   assert.ok(pdfRenders[1].width > pdfRenders[1].height, 'landscape pages retain their aspect ratio');
-  assert.ok(fs.existsSync(pdfBook.cover));
+  assert.equal(pdfBook.cover, '', 'PDF without an uploaded cover retains the default title cover');
   assert.ok(updatesPdf.at(-1).includes('53 / 53'));
   await data.addImportedBook(pdfBook); data.cache = null;
   const pdfRestored = await data.getBookById(context, pdfBook.id);
   assert.equal(pdfRestored.contentType, 'comic');
   assert.equal(await data.readImportedText(pdfRestored, pdfRestored.chapters[1].source.value), lastPdf);
+  // Simulate the previous automatic first-page cover, without changing any document content.
+  const legacyPdfList = JSON.parse(values.get('books'));
+  legacyPdfList.find(b => b.id === pdfBook.id).cover = `${context.filesDir}/ebooks/${pdfBook.id}/image_0_0.img`;
+  values.set('books', JSON.stringify(legacyPdfList));
+  data.cache = null;
+  assert.equal((await data.getBookById(context, pdfBook.id)).cover, '');
   await data.removeImportedBook(pdfBook.id);
   assert.equal(fs.existsSync(path.join(temp, 'ebooks/import_pdf')), false);
+  const pdfText = await service.importBook(context, pdfFile, 'import_pdf_text', '', '', '', () => {}, 'text');
+  assert.equal(pdfText.contentType, 'text');
+  assert.equal(pdfText.cover, '');
+  assert.equal([...((await fsp.readFile(pdfText.chapters[0].source.value, 'utf8')).matchAll(images.pattern()))].length, 50);
+  const coverFile = path.join(temp, 'pdf-user-cover.jpg');
+  await fsp.writeFile(coverFile, 'custom cover');
+  const pdfCustom = await service.importBook(context, pdfFile, 'import_pdf_custom', '', '', coverFile, () => {}, 'comic');
+  assert.equal(pdfCustom.contentType, 'comic');
+  await data.addImportedBook(pdfCustom); data.cache = null;
+  assert.equal((await data.getBookById(context, pdfCustom.id)).cover, pdfCustom.cover);
+  assert.equal(await fsp.readFile(pdfCustom.cover, 'utf8'), 'custom cover');
+  await data.removeImportedBook(pdfCustom.id);
   for (const [result, count, failedPage, message] of [
     [3, 53, -1, /密码/], [2, 53, -1, /解析/], [0, 0, -1, /解析/],
     [0, 2001, -1, /2000/], [0, 53, 2, /解析/]

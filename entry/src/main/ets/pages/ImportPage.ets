@@ -511,7 +511,7 @@ export struct ImportPage {
           Column({ space: AppSpace.Lg }) {
             this.buildFileSection()
             if (this.pickedFiles.some((file: PickedFile): boolean =>
-              file.ext === '.epub' || file.ext === '.zip')) {
+              file.ext === '.epub' || file.ext === '.pdf' || file.ext === '.zip')) {
               this.buildEpubModeSection()
             }
             this.buildCoverSection()

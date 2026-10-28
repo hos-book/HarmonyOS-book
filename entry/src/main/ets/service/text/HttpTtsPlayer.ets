@@ -45,6 +45,13 @@ export class HttpTtsPlayer {
   private preparation: Promise<void> | null = null;
   private preparedAudio: ArrayBuffer | null = null;
 
+  private timeoutSeconds: number;
+  private retries: number;
+  constructor(timeoutSeconds: number = 30, retries: number = 2) {
+    this.timeoutSeconds = timeoutSeconds;
+    this.retries = retries;
+  }
+
   get ready(): boolean { return this.preparedAudio !== null && !this.cancelled; }
 
   cancel(): void {
@@ -65,15 +72,37 @@ export class HttpTtsPlayer {
   }
 
   private async synthesize(config: CustomTtsConfig, text: string, speed: number): Promise<void> {
+    for (let attempt = 0; attempt <= this.retries; attempt++) {
+      this.check();
+      try { await this.synthesizeOnce(config, text, speed); return; }
+      catch (error) {
+        this.check();
+        if (attempt >= this.retries) throw new Error(String(error));
+        await new Promise<void>((resolve, reject): void => {
+          const timer = setTimeout((): void => { this.rejectPlayback = null; resolve(); }, 300 * (attempt + 1));
+          this.rejectPlayback = (reason: Error): void => { clearTimeout(timer); reject(reason); };
+        });
+      }
+    }
+  }
+
+  private async synthesizeOnce(config: CustomTtsConfig, text: string, speed: number): Promise<void> {
+    let timeout = -1;
     try {
       this.check();
       const url = await CustomTtsConfigParser.expand(config.url, text, speed, false);
       const options = await CustomTtsConfigParser.requestOptions(config, text, speed);
+      options.connectTimeout = this.timeoutSeconds * 1000;
+      options.readTimeout = this.timeoutSeconds * 1000;
       this.check();
       const request = http.createHttp();
       this.request = request;
       const response = await new Promise<http.HttpResponse>((resolve, reject): void => {
         this.rejectPlayback = reject;
+        timeout = setTimeout((): void => {
+          reject(new Error('TTS request timed out'));
+          request.destroy();
+        }, this.timeoutSeconds * 1000);
         request.request(url, options).then(resolve, reject);
       });
       this.rejectPlayback = null;
@@ -85,6 +114,7 @@ export class HttpTtsPlayer {
         response.result.byteLength > 8 * 1024 * 1024) throw new Error('Invalid TTS audio response');
       this.preparedAudio = response.result;
     } finally {
+      if (timeout >= 0) clearTimeout(timeout);
       this.rejectPlayback = null;
       this.request?.destroy();
       this.request = null;
@@ -135,8 +165,10 @@ export class HttpTtsPlayer {
 
   private play(player: media.AVPlayer, fd: number, length: number, speed: number, onStart: () => void,
     onProgress: ((position: number, duration: number) => void) | null): Promise<void> {
+    let playbackTimeout = -1;
     return new Promise<void>((resolve, reject): void => {
       this.rejectPlayback = reject;
+      playbackTimeout = setTimeout((): void => reject(new Error('TTS player prepare timed out')), 30000);
       if (onProgress !== null) {
         player.on('timeUpdate', (position: number): void => {
           if (!this.cancelled && player.state === 'playing') onProgress(position, player.duration);
@@ -156,6 +188,11 @@ export class HttpTtsPlayer {
           } catch (_error) { reject(new Error('TTS audio prepare failed')); }
         } else if (state === 'prepared') {
           try {
+            // 批量音频可超过旧的 150 秒固定期限，按真实媒体时长设置有界保护。
+            clearTimeout(playbackTimeout);
+            const duration = Number.isFinite(player.duration) && player.duration > 0 ? player.duration / speed : 150000;
+            playbackTimeout = setTimeout((): void => reject(new Error('TTS playback timed out')),
+              Math.max(30000, Math.min(7200000, duration + 30000)));
             player.setPlaybackRate(speed);
             player.play().catch((): void => reject(new Error('TTS audio play failed')));
           } catch (_error) { reject(new Error('TTS audio play failed')); }
@@ -166,6 +203,6 @@ export class HttpTtsPlayer {
         }
       });
       player.fdSrc = { fd: fd, offset: 0, length: length };
-    });
+    }).finally((): void => { if (playbackTimeout >= 0) clearTimeout(playbackTimeout); });
   }
 }

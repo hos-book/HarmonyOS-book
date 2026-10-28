@@ -11,6 +11,9 @@ import { ReaderTapPolicy, ReaderTouchTracker } from '../utils/ReaderTapPolicy';
 import { TextReadingSettingsService } from '../service/text/TextReadingSettingsService';
 import { ImmersiveOptionTabs } from '../components/ImmersiveOptionTabs';
 import { ReaderSettingCard } from '../components/ReaderSettingCard';
+import { ReaderAutoPageSettings } from '../components/ReaderAutoPageSettings';
+import { ReaderAutoPageService } from '../service/text/ReaderAutoPageService';
+import { ReaderScreenOnService } from '../service/text/ReaderScreenOnService';
 import { emitter } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { HdsTabs, HdsTabsFloatingStyle } from '@kit.UIDesignKit';
@@ -31,7 +34,6 @@ import { OnlineTextContentCache } from '../service/text/OnlineTextContentCache';
 import { ComicSuperResolutionService } from '../service/ComicSuperResolutionService';
 import { MembershipState } from '../model/MembershipState';
 import { MembershipService } from '../service/MembershipService';
-import { VipFeatureBadge } from '../components/VipFeatureBadge';
 import { ComicPageImage } from '../components/ComicPageImage';
 import { ComicColorizationService } from '../service/ComicColorizationService';
 import { ComicOfflineTranslationHost } from '../components/ComicOfflineTranslationHost';
@@ -40,6 +42,7 @@ import { ComicTranslationModelService } from '../service/ComicTranslationModelSe
 import { ComicContinuousComponent } from '../components/ComicContinuousComponent';
 import { ChapterCacheIndicator } from '../components/ChapterCacheIndicator';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
+import { ImmersiveActionButton } from '../components/ImmersiveActionButton';
 import { BookSourceSwitchSheet } from '../components/BookSourceSwitchSheet';
 import { ChapterDataSource } from '../utils/ChapterDataSource';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
@@ -79,12 +82,21 @@ export struct ComicReaderPage {
   @Local translation: boolean = false;
   @Local translationDownloading: boolean = false;
   @Local showTranslationMenu: boolean = false;
+  @Local showReaderMenu: boolean = false;
+  @Local switchingText: boolean = false;
   @Local translationDownloadPercent: number = 0;
   private translationIntent: number = 0;
   @Local translationDirection: string = 'ja-zh';
   @Local translationConfigured: boolean = false;
   @Local volumeKeyPageTurn: boolean = false;
   @Local keyTurnRequest: number = 0;
+  @Local autoPageRunning: boolean = false;
+  @Local autoPageRequest: number = 0;
+  @Local autoPageSeconds: number = ReaderAutoPageService.DEFAULT_SECONDS;
+  @Local autoScrollSpeed: number = 30;
+  @Local autoScrollReady: boolean = false;
+  private autoPage: ReaderAutoPageService = new ReaderAutoPageService();
+  private screenOn: ReaderScreenOnService = new ReaderScreenOnService();
   @Local settingsSaving: boolean = false;
   @Local imagePreloadCount: number = 5;
   private imagePreloadGeneration: number = 0;
@@ -178,6 +190,7 @@ export struct ComicReaderPage {
   private alive: boolean = false;
   @Local foreground: boolean = true;
   private backgroundHandler = (): void => {
+    this.stopAutoPage();
     this.translationIntent++;
     ComicColorizationService.release();
     this.imagePreloadGeneration++;
@@ -243,6 +256,8 @@ export struct ComicReaderPage {
       };
       this.brightnessControl.init(context).catch((): void => {});
       this.brightnessControl.setVisible(true);
+      this.screenOn.init(context).catch((): void => {});
+      this.screenOn.setVisible(true);
     }
     this.loadFeedbackTimer = setInterval((): void => {
       if (this.busy) this.loadingSeconds = Math.floor((Date.now() - this.loadStartedAt) / 1000);
@@ -258,6 +273,8 @@ export struct ComicReaderPage {
   }
 
   aboutToDisappear(): void {
+    this.stopAutoPage();
+    this.screenOn.dispose();
     this.translationIntent++;
     ComicColorizationService.release();
     this.volumeKeys.dispose();
@@ -295,6 +312,8 @@ export struct ComicReaderPage {
       // 首次沿用旧章节条偏好，此后漫画与小说分别保存。
       const showChapterBar = await PreferenceService.getComicChapterBar(settings.showChapterBar);
       const mode = await PreferenceService.getComicReadingMode();
+      const autoPageSeconds = await PreferenceService.getAutoPageSeconds(true);
+      const autoScrollSpeed = await PreferenceService.getAutoScrollSpeed(true);
       const pageLayout = await PreferenceService.getComicPageLayout();
       const pageOverlap = await PreferenceService.getComicPageOverlap();
       const volumeKeyPageTurn = await PreferenceService.getComicVolumeKeyPageTurn();
@@ -316,6 +335,8 @@ export struct ComicReaderPage {
       this.chapters.setChapters(book.chaptersDescending ? book.chapters.slice().reverse() : book.chapters);
       const explicit = this.params.resourceIndex >= 0;
       this.mode = mode;
+      this.autoPageSeconds = autoPageSeconds;
+      this.autoScrollSpeed = autoScrollSpeed;
       this.pageLayout = pageLayout;
       this.pageOverlap = pageOverlap;
       const initialIndex = Math.max(0, Math.min(book.chapters.length - 1,
@@ -380,11 +401,13 @@ export struct ComicReaderPage {
       this.pageCount = pages.length;
       this.busy = false;
       this.restorePage();
+      this.autoPage.restart();
       this.scheduleSave();
       this.preloadChapters(book, index, generation);
       hilog.info(0x0001, 'ComicReader', 'load complete chapter=%{public}d pages=%{public}d', index, pages.length);
     } catch (error) {
       if (this.alive && generation === this.generation) {
+        this.stopAutoPage();
         hilog.error(0x0001, 'ComicReader', 'load failed target=%{public}d retained=%{public}s', index, String(retainCurrent));
         this.reportError(error); this.failed = !retainCurrent; this.busy = false;
         if (retainCurrent) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_next_failed') });
@@ -552,6 +575,72 @@ export struct ComicReaderPage {
     }
   }
 
+  private toggleAutoPage(): void {
+    if (this.autoPageRunning) { this.stopAutoPage(); return; }
+    if (this.busy || this.failed || this.pageCount === 0 || this.zoomActive) return;
+    this.autoPageRunning = true;
+    this.showSettings = false;
+    this.chrome = false;
+    WindowUtils.setReaderStatusBarVisible(false);
+    this.screenOn.configure(-1);
+    if (this.mode !== 0) this.autoPage.start(this.autoPageSeconds, (): void => {
+      if (!this.canAutoPage() || this.restoreTimer >= 0 || this.turning) return;
+      if (this.usesContinuousPages()) this.turnPage(1);
+      else this.autoPageRequest++;
+    });
+    this.syncAutoPage();
+  }
+
+  private finishAutoPageImage(page: ComicPage): void {
+    if (!this.canAutoPage() || page.key !== this.pages.getData(this.pageIndex).key) return;
+    if (this.pageIndex === this.pageCount - 1 && !this.canChange(1)) this.stopAutoPage();
+    else this.turnPage(1);
+  }
+
+  private autoPageImageReady(page: ComicPage, failed: boolean): void {
+    if (this.pageCount === 0 || page.key !== this.pages.getData(this.pageIndex).key) return;
+    if (failed) this.stopAutoPage();
+    else this.autoPage.restart();
+  }
+
+  private stopAutoPage(): void {
+    this.autoPage.stop();
+    this.autoScrollReady = false;
+    if (!this.autoPageRunning) return;
+    this.autoPageRunning = false;
+    this.screenOn.configure(0);
+  }
+
+  private setAutoPageInterval(seconds: number): void {
+    this.autoPageSeconds = ReaderAutoPageService.normalizeSeconds(seconds);
+    PreferenceService.setAutoPageSeconds(true, this.autoPageSeconds).catch((): void => {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    });
+  }
+
+  private canAutoPage(): boolean {
+    return this.autoPageRunning && this.alive && this.foreground && this.readerVisible &&
+      !this.busy && !this.failed && this.pageCount > 0 && !this.chrome && !this.showSettings &&
+      !this.showChapters && !this.showSourceSwitch && !this.sheetPresented && !this.zoomActive &&
+      !this.showReaderMenu && !this.showTranslationMenu && !this.chapterSliderDragging && !this.chapterSliderConfirming;
+  }
+
+  private setAutoScrollSpeed(speed: number): void {
+    this.autoScrollSpeed = speed;
+    PreferenceService.setAutoScrollSpeed(true, speed).catch((): void => {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    });
+  }
+
+  @Monitor('readerVisible', 'foreground', 'busy', 'failed', 'chrome', 'showSettings', 'showChapters',
+    'showSourceSwitch', 'sheetPresented', 'zoomActive', 'showReaderMenu', 'showTranslationMenu',
+    'chapterSliderDragging', 'chapterSliderConfirming')
+  private syncAutoPage(): void {
+    if (!this.readerVisible || !this.foreground || this.failed || this.zoomActive) this.stopAutoPage();
+    this.autoScrollReady = this.canAutoPage() && this.mode === 0;
+    this.autoPage.setReady(this.canAutoPage() && this.mode !== 0);
+  }
+
   private turnPage(direction: number): void {
     if (this.busy || this.failed || this.showChapters || this.showSettings || this.showSourceSwitch || this.turning || this.zoomActive) return;
     if (this.usesContinuousPages()) {
@@ -590,6 +679,7 @@ export struct ComicReaderPage {
 
   private handleVolumePageTurn(forward: boolean): void {
     if (!this.canUseVolumeKeys() || this.turning || this.restoreTimer >= 0) return;
+    this.stopAutoPage();
     if (this.usesContinuousPages()) {
       this.keyTurnRequest = (Math.abs(this.keyTurnRequest) + 1) * (forward ? 1 : -1);
     } else {
@@ -689,6 +779,10 @@ export struct ComicReaderPage {
           }.layoutWeight(1).width('100%').justifyContent(FlexAlign.Center).padding(32)
         } else if (this.usesContinuousPages()) {
           ComicContinuousComponent({ book: this.book ?? null, resetToken: this.scrollResetToken,
+            autoPageRunning: this.autoPageRunning,
+            autoScrollReady: this.autoScrollReady, autoScrollSpeed: this.autoScrollSpeed,
+            onForwardEnd: (): void => this.stopAutoPage(),
+            onAutoPageDelay: (): void => this.autoPage.restart(),
             keyTurnRequest: this.keyTurnRequest, paged: this.usesJoinedPages(), overlap: this.pageOverlap,
             initialFraction: this.scrollInitialFraction,
             initialChapterIndex: this.chapterIndex, initialPageIndex: this.pageIndex,
@@ -707,6 +801,10 @@ export struct ComicReaderPage {
             ForEach(this.currentPages(), (page: ComicPage) => {
               Column() {
                 ComicPageImage({ page: page, superResolution: this.superResolution,
+                  autoPageRequest: this.autoPageRequest, autoPageActive: this.autoPageRunning,
+                  onAutoPageEnd: (): void => this.finishAutoPageImage(page),
+                  onAutoPageFailure: (): void => this.autoPageImageReady(page, true),
+                  onAutoPageDelay: (): void => this.autoPageImageReady(page, false),
                   colorization: this.colorization, translation: this.translation, translationDirection: this.translationDirection,
                   colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
                   onColorError: (message: string): void => this.colorizationFailed(message),
@@ -722,6 +820,11 @@ export struct ComicReaderPage {
             LazyForEach(this.pages, (page: ComicPage) => {
               Column() {
                 ComicPageImage({ page: page, superResolution: this.superResolution, pageWidth: this.imageWidth(), pageHeight: this.heightVp,
+                   autoPageRequest: this.autoPageRequest,
+                   autoPageActive: this.autoPageRunning && page.key === this.pages.getData(this.pageIndex).key,
+                   onAutoPageEnd: (): void => this.finishAutoPageImage(page),
+                   onAutoPageFailure: (): void => this.autoPageImageReady(page, true),
+                   onAutoPageDelay: (): void => this.autoPageImageReady(page, false),
                    colorization: this.colorization, translation: this.translation, translationDirection: this.translationDirection,
                    colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
                    onColorError: (message: string): void => this.colorizationFailed(message),
@@ -734,7 +837,7 @@ export struct ComicReaderPage {
            .duration(260).curve(Curve.EaseOut)
             .disableSwipe(this.zoomActive)
            .onAnimationStart((): void => { this.turning = true; })
-           .onAnimationEnd((): void => { this.turning = false; })
+            .onAnimationEnd((): void => { this.turning = false; this.autoPage.restart(); })
           .direction(this.mode === 2 ? Direction.Rtl : Direction.Ltr)
           .onChange((index: number) => {
             if (this.busy || this.restoreTimer >= 0 || index < 0 || index >= this.pageCount) return;
@@ -779,8 +882,10 @@ export struct ComicReaderPage {
             .id('comic-colorization-toggle').enabled(ComicColorizationService.supported())
           ImmersiveCircleButton({ icon: $r('sys.symbol.arrow_left_arrow_right'), label: $r('app.string.source_switch_title'),
             onPress: (): void => { this.showSourceSwitch = true; } }).enabled(!this.busy && this.book !== undefined)
-          ImmersiveCircleButton({ icon: $r('sys.symbol.info_circle'), label: $r('app.string.reader_details'),
-            onPress: (): void => { this.openDetails(); } }).enabled(this.book !== undefined)
+          ImmersiveCircleButton({ icon: $r('sys.symbol.square_grid_2x2'), label: $r('app.string.reader_more'),
+            onPress: (): void => { this.showReaderMenu = !this.showReaderMenu; } })
+            .id('comic-reader-functions')
+            .bindMenu(this.showReaderMenu, this.readerMenu(), this.readerMenuOptions())
         }.width('100%').padding({ left: 16 + this.leftSafe, right: 16 + this.rightSafe })
         .margin({ top: this.topSafe + 4 }).hitTestBehavior(HitTestMode.Transparent)
       }
@@ -818,9 +923,26 @@ export struct ComicReaderPage {
           // 与底栏一致，弹框期间停止被遮挡亮度条的实时材质采样；保留节点及亮度状态。
           .visibility(this.sheetPresented ? Visibility.Hidden : Visibility.Visible)
       }
+      if (this.autoPageRunning) {
+        Stack({ alignContent: Alignment.BottomStart }) {
+          ImmersiveActionButton({
+            label: this.mode === 0 ? $r('app.string.reader_auto_scroll_stop') : $r('app.string.reader_auto_page_stop'),
+            buttonHeight: 40,
+            onPress: (): void => this.stopAutoPage()
+          }).width(148)
+            .margin({ left: this.leftSafe + 16, bottom: Math.max(12, this.bottomSafe) })
+            .id('comic-auto-page-stop')
+        }.width('100%').height('100%').hitTestBehavior(HitTestMode.Transparent)
+      }
     }.width('100%').height('100%').backgroundColor('#121212')
+    .onTouchIntercept((event: TouchEvent): HitTestMode => {
+      if (event.type === TouchType.Down) this.stopAutoPage();
+      return HitTestMode.Default;
+    })
     .onVisibleAreaChange([0, 1], (visible: boolean): void => {
       this.readerVisible = visible;
+      if (!visible) this.stopAutoPage();
+      this.screenOn.setVisible(visible);
       this.syncVolumeKeys();
       this.brightnessControl.setVisible(visible);
       this.syncHoldingHand();
@@ -843,6 +965,55 @@ export struct ComicReaderPage {
         this.sheetPresented = false; this.showChapters = false; this.chapterPositionGeneration++;
       } })
 
+  }
+
+  private readerMenuOptions(): MenuOptions {
+    const options: MenuOptions = {
+      placement: Placement.BottomLeft,
+      backgroundColor: AppMaterial.SheetBackground,
+      onDisappear: (): void => { this.showReaderMenu = false; }
+    };
+    if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
+    else options.backgroundBlurStyle = AppMaterial.SheetBlur;
+    return options;
+  }
+
+  @Builder
+  private readerMenu(): void {
+    Menu() {
+      if (this.book?.id.startsWith('import_') && !this.book?.sourceUrl) {
+        MenuItem({ content: $r('app.string.comic_switch_text') })
+          .enabled(!this.busy && !this.switchingText)
+          .onClick((): void => { this.showReaderMenu = false; this.switchToText(); })
+      }
+      MenuItem({ content: $r('app.string.reader_details') })
+        .enabled(this.book !== undefined && !this.switchingText)
+        .onClick((): void => { this.showReaderMenu = false; this.openDetails(); })
+    }
+  }
+
+  private async switchToText(): Promise<void> {
+    const book = this.book;
+    if (!book || this.busy || this.switchingText) return;
+    this.switchingText = true;
+    let typeSaved = false;
+    try {
+      this.savePosition();
+      await this.saveChain;
+      if (!this.alive) return;
+      const changed = await DataService.switchImportedBookToText(book.id);
+      typeSaved = true;
+      changed.chapters = book.chapters;
+      SearchCache.put(changed);
+      if (!this.alive) return;
+      this.navStack.replacePath({ name: 'reader', param: TextReaderRouteParams.of(book.id) }, false);
+    } catch (error) {
+      hilog.error(0x0001, 'ComicReader', 'text switch failed: %{public}s',
+        error instanceof Error ? error.message : String(error));
+      if (this.alive) this.getUIContext().getPromptAction().showToast({
+        message: typeSaved ? $r('app.string.comic_switch_text_open_failed') : $r('app.string.reader_switch_comic_failed')
+      });
+    } finally { this.switchingText = false; }
   }
 
   private openDetails(): void {
@@ -880,10 +1051,16 @@ export struct ComicReaderPage {
       } })
   }
 
+  private bottomControlsWidth(): number {
+    return Math.max(1, this.widthVp - 2 * (16 + Math.max(this.leftSafe, this.rightSafe)));
+  }
+
   private floatingStyle(): HdsTabsFloatingStyle | undefined {
     if (!PlatformCompat.floatingTabs) return undefined;
+    const width = this.bottomControlsWidth();
     return {
-      barSideMargin: 16 + Math.max(this.leftSafe, this.rightSafe),
+      barWidth: { smallWidth: width, mediumWidth: width, largeWidth: width },
+      barSideMargin: 0,
       barBottomMargin: Math.max(this.bottomSafe, 8) + 4,
       gradientMask: { maskColor: Color.Transparent, maskHeight: 0 },
       systemMaterialEffect: HdsCompat.adaptiveMaterial,
@@ -963,7 +1140,7 @@ export struct ComicReaderPage {
 
   private chapterFloatingStyle(): HdsTabsFloatingStyle | undefined {
     if (!PlatformCompat.floatingTabs) return undefined;
-    const width = Math.max(1, (this.widthVp - this.leftSafe - this.rightSafe) * 0.84);
+    const width = this.bottomControlsWidth();
     return {
       barWidth: { smallWidth: width, mediumWidth: width, largeWidth: width },
       barSideMargin: 0, barBottomMargin: 0,
@@ -997,7 +1174,7 @@ export struct ComicReaderPage {
                 }
               })
           this.chapterArrow(1, $r('sys.symbol.chevron_right'))
-        }.width(Math.max(1, (this.widthVp - this.leftSafe - this.rightSafe) * 0.84)).height(44).borderRadius(22)
+        }.width(this.bottomControlsWidth()).height(44).borderRadius(22)
 
   }
 
@@ -1009,7 +1186,7 @@ export struct ComicReaderPage {
         TabContent() {}.tabBar(this.tabStyle($r('sys.symbol.list_bullet'), $r('app.string.comic_chapters'), 1))
         TabContent() {}.tabBar(this.tabStyle($r('sys.symbol.gearshape'), $r('app.string.reader_settings'), 2))
         TabContent() {}.tabBar(this.tabStyle($r('sys.symbol.forward_end_fill'), $r('app.string.comic_next'), 3, 1))
-      }.width('100%').height(120 + this.bottomSafe)
+      }.width(this.bottomControlsWidth()).height(120 + this.bottomSafe)
       .barOverlap(true).barMode(BarMode.Fixed).barPosition(BarPosition.End).scrollable(false)
       .attributeModifier(new CompatibleTabsModifier(this.floatingStyle(), 60 + this.bottomSafe))
       .onContentWillChange((): boolean => false)
@@ -1042,9 +1219,9 @@ export struct ComicReaderPage {
             .justifyContent(FlexAlign.Center).backgroundColor('#E63A3C40')
             .translate({ y: -52 }).hitTestBehavior(HitTestMode.None)
         }
-        }.width(Math.max(1, (this.widthVp - this.leftSafe - this.rightSafe) * 0.84)).height(44)
+        }.width(this.bottomControlsWidth()).height(44)
         }
-      }.width('100%').padding({ left: 16 + this.leftSafe, right: 16 + this.rightSafe })
+      }.width('100%').alignItems(HorizontalAlign.Center)
         .margin({ bottom: 76 + this.bottomSafe })
     }.width('100%').height(160 + this.bottomSafe)
     .animation(null).translate({ y: this.chrome ? 0 : 24 }).opacity(this.chrome ? 1 : 0)
@@ -1471,6 +1648,12 @@ export struct ComicReaderPage {
   settingsSheet() {
     Scroll() {
     Column({ space: 12 }) {
+      ReaderAutoPageSettings({ seconds: this.autoPageSeconds, running: this.autoPageRunning,
+        scrolling: this.mode === 0, comic: true, speed: this.autoScrollSpeed,
+        onSpeed: (speed: number): void => this.setAutoScrollSpeed(speed),
+        available: !this.busy && !this.failed && this.pageCount > 0 && !this.zoomActive,
+        onInterval: (seconds: number): void => this.setAutoPageInterval(seconds),
+        onToggle: (): void => this.toggleAutoPage() })
       ReaderSettingCard({ title: $r('app.string.reader_turn_title'), inline: true }) {
         ImmersiveOptionTabs({ labels: [$r('app.string.comic_scroll'), $r('app.string.comic_paged'),
           $r('app.string.comic_dissolve')], selected: [0, 1, 3].indexOf(this.mode),
@@ -1517,23 +1700,20 @@ export struct ComicReaderPage {
         Toggle({ type: ToggleType.Switch, isOn: this.showBrightnessBar }).selectedColor(AppColor.Brand)
           .onChange((enabled: boolean): void => { this.setBrightnessBar(enabled); })
       }
-      ReaderSettingCard({ title: $r('app.string.comic_ai_sr'), inline: true,
+      ReaderSettingCard({ title: $r('app.string.comic_ai_sr'), inline: true, showVip: MembershipState.featureEnabled,
         description: $r('app.string.comic_ai_sr_hint') }) {
-        if (MembershipState.featureEnabled) { VipFeatureBadge() }
         Toggle({ type: ToggleType.Switch, isOn: this.superResolution && this.membership.hasAccess })
           .selectedColor(AppColor.Brand).enabled(this.membership.hasAccess && ComicSuperResolutionService.supported() && !this.savingSuperResolution)
           .onChange((enabled: boolean) => { this.setSuperResolution(enabled); })
       }
-      ReaderSettingCard({ title: $r('app.string.comic_ai_color'), inline: true,
+      ReaderSettingCard({ title: $r('app.string.comic_ai_color'), inline: true, showVip: MembershipState.featureEnabled,
         description: ComicColorizationService.supported() ? $r('app.string.comic_ai_color_hint') : $r('app.string.comic_ai_color_unsupported') }) {
-        if (MembershipState.featureEnabled) { VipFeatureBadge() }
         Toggle({ type: ToggleType.Switch, isOn: this.colorization && this.membership.hasAccess }).selectedColor(AppColor.Brand)
           .enabled(ComicColorizationService.supported())
           .onChange((enabled: boolean): void => { this.setColorization(enabled); })
       }
-      ReaderSettingCard({ title: $r('app.string.comic_ai_translate'), inline: true,
+      ReaderSettingCard({ title: $r('app.string.comic_ai_translate'), inline: true, showVip: MembershipState.featureEnabled,
         description: $r('app.string.comic_offline_hint') }) {
-        if (MembershipState.featureEnabled) { VipFeatureBadge() }
         Toggle({ type: ToggleType.Switch, isOn: this.translation && this.membership.hasAccess })
           .selectedColor(AppColor.Brand).enabled(!this.settingsSaving)
           .onChange((_enabled: boolean): void => { this.toggleTranslation(); })

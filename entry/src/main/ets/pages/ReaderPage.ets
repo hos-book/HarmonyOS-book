@@ -1,4 +1,5 @@
 import { ReaderBrightnessService } from '../service/text/ReaderBrightnessService';
+import { ReaderAutoPageService } from '../service/text/ReaderAutoPageService';
 import { ComicReaderService } from '../service/ComicReaderService';
 import { ReaderBookmark, ReaderTextDocument } from '../model/ReaderTools';
 import { ReaderToolsService } from '../service/text/ReaderToolsService';
@@ -16,6 +17,7 @@ import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { KeyCode } from '@kit.InputKit';
 import { ReaderTapPolicy } from '../utils/ReaderTapPolicy';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
+import { ImmersiveActionButton } from '../components/ImmersiveActionButton';
 import { ChapterCacheIndicator } from '../components/ChapterCacheIndicator';
 import { BookSourceSwitchSheet } from '../components/BookSourceSwitchSheet';
 import { TextReaderRouteParams } from '../model/TextReading';
@@ -184,6 +186,12 @@ export struct ReaderPage {
   @Local readerVisible: boolean = false;
   @Local volumeKeyPageTurn: boolean = false;
   @Local keyTurnRequest: number = 0;
+  @Local autoPageRunning: boolean = false;
+  @Local autoPageSeconds: number = ReaderAutoPageService.DEFAULT_SECONDS;
+  @Local autoScrollSpeed: number = 20;
+  @Local autoScrollReady: boolean = false;
+  private autoPage: ReaderAutoPageService = new ReaderAutoPageService();
+  private autoPageKitPosition: string = '';
   @Local pageTurnMode: string = TextReadingSettings.PAGE_TURN_MODE_DEFAULT;
   @Local showReadingStatus: boolean = TextReadingSettings.SHOW_READING_STATUS_DEFAULT;
   @Local alwaysShowStatusBar: boolean = TextReadingSettings.ALWAYS_SHOW_STATUS_BAR_DEFAULT;
@@ -303,6 +311,7 @@ export struct ReaderPage {
     };
 
   private backgroundHandler = (): void => {
+    this.stopAutoPage();
     this.readingForeground = false;
     this.completeOnlineTextTurn(this.onlineTextTurnConfirmed);
     this.saveProgress();
@@ -390,6 +399,7 @@ export struct ReaderPage {
   }
 
   aboutToDisappear(): void {
+    this.stopAutoPage();
     ReaderCacheService.release(this.diskCacheOwner);
     this.readerVisible = false;
     this.volumeKeys.dispose();
@@ -569,6 +579,19 @@ export struct ReaderPage {
     this.readerSetting = null;
     const count = Math.max(1, book.chapters.length);
     const resourceIndex = this.clampResourceIndex(startPosition.resourceIndex, count);
+    if (book.id.startsWith('import_') && startPosition.domPos.startsWith('comic:') && book.chapters[resourceIndex]) {
+      const content = await DataService.readImportedText(book, book.chapters[resourceIndex].source.value);
+      const pattern = LocalTextImage.pattern();
+      let match = pattern.exec(content);
+      let index = 0;
+      while (match !== null) {
+        startPosition.charOffset = match.index;
+        if (index >= startPosition.pageOffset) break;
+        index++;
+        match = pattern.exec(content);
+      }
+      startPosition.pageOffset = 0;
+    }
     this.currentResourceIndex = resourceIndex;
     this.currentChapterTitle = this.chapterTitle(resourceIndex);
     this.currentPosition = TextReadingPosition.atChar(
@@ -1290,6 +1313,8 @@ export struct ReaderPage {
     if (currentContext === null) return;
     try {
       const settings = await TextReadingSettingsService.get(currentContext);
+      this.autoPageSeconds = await PreferenceService.getAutoPageSeconds(false);
+      this.autoScrollSpeed = await PreferenceService.getAutoScrollSpeed(false);
       this.followSystemTheme = settings.followSystemTheme;
       this.marginLeft = settings.marginLeft;
       this.marginRight = settings.marginRight;
@@ -1880,6 +1905,7 @@ export struct ReaderPage {
       OnlineTextPageNavigator.previous(displayIndex, this.onlineTextPageIndex);
     target.chapterIndex = PreferenceService.chapterDisplayIndex(currentBook, target.chapterIndex);
     if (!target.moved) {
+      if (forward) this.stopAutoPage();
       this.showToast(forward ? $r('app.string.reader_last_page') : $r('app.string.reader_first_page'));
       return false;
     }
@@ -1903,6 +1929,7 @@ export struct ReaderPage {
       return true;
     } catch (e) {
       if (!this.leaving && ticket === this.onlineTextTurnSerial) {
+        this.stopAutoPage();
         this.showToast(e instanceof Error ? e.message : String(e));
       }
       return false;
@@ -1932,6 +1959,7 @@ export struct ReaderPage {
       this.currentResourceIndex = preview.chapterIndex;
       this.currentChapterTitle = this.chapterTitle(preview.chapterIndex);
       this.updateOnlineTextPosition(true);
+      this.autoPage.restart();
       this.followReadingWithSpeech();
       this.prefetchAdjacentOnlineTextChapters(preview.chapterIndex);
     }
@@ -1982,6 +2010,75 @@ export struct ReaderPage {
     }
   }
 
+  private autoPageAvailable(): boolean {
+    return !this.loading && !this.onlineTextLoading && this.readerError.length === 0 &&
+      !this.speechState.active && (this.isOnlineTextBook() ? this.onlineTextPages.length > 0 : this.readerKitReady);
+  }
+
+  private toggleAutoPage(): void {
+    if (this.autoPageRunning) { this.stopAutoPage(); return; }
+    if (!this.autoPageAvailable()) return;
+    this.autoPageRunning = true;
+    this.autoPageKitPosition = '';
+    this.showSettingsSheet = false;
+    this.hideReaderBar();
+    this.screenOn.configure(-1);
+    if (!this.isAutoScrollMode()) this.autoPage.start(this.autoPageSeconds, (): void => this.advanceAutoPage());
+    this.syncAutoPage();
+  }
+
+  private stopAutoPage(): void {
+    this.autoPage.stop();
+    this.autoScrollReady = false;
+    if (!this.autoPageRunning) return;
+    this.autoPageRunning = false;
+    this.autoPageKitPosition = '';
+    this.screenOn.configure(this.screenOnMinutes);
+  }
+
+  private setAutoPageInterval(seconds: number): void {
+    this.autoPageSeconds = ReaderAutoPageService.normalizeSeconds(seconds);
+    PreferenceService.setAutoPageSeconds(false, this.autoPageSeconds).catch((): void => {
+      this.showToast($r('app.string.comic_save_failed'));
+    });
+  }
+
+  private isAutoScrollMode(): boolean {
+    return this.isOnlineTextBook() && this.pageTurnMode === PageTurnMode.Vertical;
+  }
+
+  private setAutoScrollSpeed(speed: number): void {
+    this.autoScrollSpeed = speed;
+    PreferenceService.setAutoScrollSpeed(false, speed).catch((): void => this.showToast($r('app.string.comic_save_failed')));
+  }
+
+  @Monitor('readerVisible', 'loading', 'readerError', 'readerBarVisible', 'onlineTextLoading',
+    'onlineTextTurnPreview', 'selectingText', 'showChapterSheet', 'showSettingsSheet', 'showSpeechSheet',
+    'showSourceSwitch', 'showBookmarkSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont',
+    'pickingBackgroundImage', 'speechState.active')
+  private syncAutoPage(): void {
+    if (!this.readerVisible || this.speechState.active || this.readerError.length > 0) this.stopAutoPage();
+    const ready = this.autoPageRunning && this.readingForeground && this.canTurnWithKeyboard() &&
+      !this.readerBarVisible && !this.onlineTextLoading && this.onlineTextTurnPreview === null && !this.selectingText;
+    this.autoScrollReady = ready && this.isAutoScrollMode();
+    this.autoPage.setReady(ready && !this.isAutoScrollMode());
+  }
+
+  private advanceAutoPage(): void {
+    this.syncAutoPage();
+    if (!this.autoPageRunning || !this.readingForeground || !this.canTurnWithKeyboard() ||
+      this.readerBarVisible || this.onlineTextLoading || this.onlineTextTurnPreview !== null || this.selectingText) return;
+    if (this.isOnlineTextBook()) {
+      this.keyTurnRequest = Math.abs(this.keyTurnRequest) + 1;
+    } else if (this.readerKitReady) {
+      // flipPage 无返回值；下一周期仍无位置变化时结束，避免末页空转。
+      const position = `${this.currentResourceIndex}:${this.readerKitDomPos}:${this.readerKitPageOffset}`;
+      if (this.autoPageKitPosition === position) { this.stopAutoPage(); return; }
+      this.autoPageKitPosition = position;
+      try { this.readerKitController?.flipPage(true); } catch (_error) { this.stopAutoPage(); }
+    }
+  }
+
   private canUseVolumeKeys(): boolean {
     return this.volumeKeyPageTurn && this.canTurnWithKeyboard();
   }
@@ -2013,6 +2110,7 @@ export struct ReaderPage {
   }
 
   private turnPageFromKey(forward: boolean): void {
+    this.stopAutoPage();
     this.screenOn.touch();
     if (this.isOnlineTextBook()) {
       this.keyTurnRequest = (Math.abs(this.keyTurnRequest) + 1) * (forward ? 1 : -1);
@@ -2589,7 +2687,7 @@ export struct ReaderPage {
             this.previewFontSize = 0; this.previewLineHeight = 0; this.previewParagraphSpacing = -1; this.previewFontWeight = 0;
             if (!this.leaving) {
               this.saveReadingSettings();
-              if (!this.showChapterSheet) this.showReaderBar();
+              if (!this.showChapterSheet && !this.autoPageRunning) this.showReaderBar();
             }
           }
         })
@@ -2602,6 +2700,17 @@ export struct ReaderPage {
       }
       if (this.book !== null && (this.readerBarVisible || this.readerError.length > 0)) {
         this.buildSourceActions()
+      }
+      if (this.autoPageRunning) {
+        Stack({ alignContent: Alignment.BottomEnd }) {
+          ImmersiveActionButton({
+            label: this.isAutoScrollMode() ? $r('app.string.reader_auto_scroll_stop') : $r('app.string.reader_auto_page_stop'),
+            buttonHeight: 40,
+            onPress: (): void => this.stopAutoPage()
+          }).width(148)
+            .margin({ right: this.rightSafeVp + 16, bottom: this.readerTextBottomPaddingVp() + 30 })
+            .id('reader-auto-page-stop')
+        }.width('100%').height('100%').hitTestBehavior(HitTestMode.Transparent)
       }
     }
     .width('100%')
@@ -2619,6 +2728,10 @@ export struct ReaderPage {
         this.showChapterSheet = false;
         if (!this.leaving && !this.showSettingsSheet) this.showReaderBar();
       }
+    })
+    .onTouchIntercept((event: TouchEvent): HitTestMode => {
+      if (event.type === TouchType.Down) this.stopAutoPage();
+      return HitTestMode.Default;
     })
     .onTouch((event: TouchEvent): void => { if (event.type === TouchType.Down) this.screenOn.touch(); })
     .onKeyEvent((event: KeyEvent): void => this.handleReaderKey(event))
@@ -2820,6 +2933,7 @@ export struct ReaderPage {
           tapBottomPercent: this.tapBottomPercent,
 
               keyTurnRequest: this.keyTurnRequest,
+              autoScrollReady: this.autoScrollReady, autoScrollSpeed: this.autoScrollSpeed,
               speechState: this.speechState,
               followOffset: this.speechNavigationPending || this.speechScrollPending || this.selectingText ? -1 : this.speechFollowOffset,
               revision: this.continuousRevision, chapterIndex: this.currentResourceIndex,
@@ -2839,7 +2953,9 @@ export struct ReaderPage {
               onPosition: (index: number, offset: number, content: string, persist: boolean): void =>
                 this.updateContinuousPosition(index, offset, content, persist),
               onCenterTap: (): void => this.toggleReaderBar(),
-              onScrollStart: (): void => this.beginContinuousSpeechTurn()
+              onScrollStart: (): void => this.beginContinuousSpeechTurn(),
+              onForwardEnd: (): void => this.stopAutoPage(),
+              onAutoPageDelay: (): void => this.autoPage.restart()
             })
           } else {
             ReaderSpeechText({
@@ -3093,6 +3209,12 @@ export struct ReaderPage {
   @Builder
   buildSettingsSheet(): void {
     ReaderSettingsSheet({
+      autoPageSeconds: this.autoPageSeconds, autoPageRunning: this.autoPageRunning,
+      autoScrolling: this.isAutoScrollMode(), autoScrollSpeed: this.autoScrollSpeed,
+      onAutoScrollSpeed: (speed: number): void => this.setAutoScrollSpeed(speed),
+      autoPageAvailable: this.autoPageAvailable(),
+      onAutoPageInterval: (seconds: number): void => this.setAutoPageInterval(seconds),
+      onAutoPageToggle: (): void => this.toggleAutoPage(),
       supportsSpeech: this.isOnlineTextBook(),
       onSpeechSettings: (): void => { this.openSpeechSheet(); },
       fontPanel: this.fontPanel, fontWeight: this.previewFontWeight || this.fontWeight,

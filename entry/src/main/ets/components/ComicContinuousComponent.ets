@@ -5,6 +5,7 @@ import { ComicScrollChapter, ComicScrollDataSource, ComicScrollRow } from '../se
 import { PreferenceService } from '../service/PreferenceService';
 import { AppColor } from '../theme/Theme';
 import { ComicPageImage } from './ComicPageImage';
+import { ReaderAutoScrollService } from '../service/text/ReaderAutoScrollService';
 
 class ComicScrollLayoutFrame extends FrameCallback {
   private callback: () => void;
@@ -34,6 +35,13 @@ export struct ComicContinuousComponent {
   @Param colorizationActive: boolean = true;
   @Event onColorError: (message: string) => void = () => {};
   @Param keyTurnRequest: number = 0;
+  @Param autoPageRunning: boolean = false;
+  @Param autoScrollReady: boolean = false;
+  @Param autoScrollSpeed: number = 30;
+  private autoScroll: ReaderAutoScrollService = new ReaderAutoScrollService();
+  private autoScrollReportedAt: number = 0;
+  @Event onForwardEnd: () => void = (): void => {};
+  @Event onAutoPageDelay: () => void = (): void => {};
   @Event onToggle: (event: ClickEvent) => void = () => {};
   @Event onZoomChange: (owner: string, active: boolean) => void = () => {};
   @Event onPosition: (chapterIndex: number, pageIndex: number, pages: ComicPage[], fraction: number) => void = () => {};
@@ -56,10 +64,33 @@ export struct ComicContinuousComponent {
   private anchorFraction: number = 0;
   private reportedFraction: number = -1;
   private awaitingImage: boolean = false;
+  private imageReady: Map<string, boolean> = new Map();
   private restoreSerial: number = 0;
 
-  aboutToAppear(): void { this.disposed = false; this.reset(); }
-  aboutToDisappear(): void { this.disposed = true; this.serial++; }
+  aboutToAppear(): void { this.disposed = false; this.reset(); this.syncAutoScroll(); }
+  aboutToDisappear(): void { this.autoScroll.stop(); this.reportPosition(); this.disposed = true; this.serial++; }
+
+  @Monitor('autoScrollReady')
+  private syncAutoScroll(): void {
+    this.autoScroll.stop();
+    if (!this.autoScrollReady || this.disposed) { this.reportPosition(); return; }
+    this.autoScroll.start(this.getUIContext(), (elapsed: number): void => this.advanceAutoScroll(elapsed));
+  }
+
+  private advanceAutoScroll(elapsed: number): void {
+    if (!this.autoScrollReady || this.disposed || this.restoring || this.paged || this.zoomOwner.length > 0) return;
+    const row = this.source.getData(this.firstVisible);
+    const ready = row !== undefined ? this.imageReady.get(`${row.chapterIndex}:${row.page.key}`) : undefined;
+    if (ready === false) this.onForwardEnd();
+    if (ready !== true) return;
+    if (this.scroller.isAtEnd()) {
+      if (this.nextFailed || this.chapters[this.chapters.length - 1]?.index === (this.book?.chapters.length ?? 0) - 1) {
+        this.onForwardEnd();
+      } else this.loadNeighbor(true);
+      return;
+    }
+    this.scroller.scrollBy(0, elapsed * this.autoScrollSpeed);
+  }
 
   @Monitor('resetToken')
   onReset(): void { if (!this.disposed) this.reset(); }
@@ -72,18 +103,31 @@ export struct ComicContinuousComponent {
 
   private async turnFromKey(forward: boolean): Promise<void> {
     if (this.disposed || this.restoring || this.keyTurning || this.zoomOwner.length > 0 || this.source.totalCount() === 0) return;
+    if (this.autoPageRunning) {
+      const row = this.source.getData(this.firstVisible);
+      const ready = row !== undefined ? this.imageReady.get(`${row.chapterIndex}:${row.page.key}`) : undefined;
+      if (ready === false) this.onForwardEnd();
+      if (ready !== true) return;
+    }
     // 用户主动翻页后，不再等待先前进度对应的图片回调。
     this.awaitingImage = false;
     this.keyTurning = true;
     const ticket = this.serial;
+    const automatic = this.autoPageRunning;
     try {
       const atEdge = forward ? this.scroller.isAtEnd() : this.scroller.currentOffset().yOffset <= 0;
+      if (forward && atEdge && (this.nextFailed ||
+        this.chapters[this.chapters.length - 1]?.index === (this.book?.chapters.length ?? 0) - 1)) {
+        this.onForwardEnd();
+        return;
+      }
       if (atEdge) await this.loadNeighbor(forward);
-      if (this.disposed || this.restoring || ticket !== this.serial) return;
+      if (this.disposed || this.restoring || ticket !== this.serial || (automatic && !this.autoPageRunning)) return;
+      if (forward && this.nextFailed && atEdge) { this.onForwardEnd(); return; }
       // 一屏一翻，长图不会因跳到下一张而漏读；沿用列表的边界续章。
       if (atEdge) {
         this.getUIContext().postFrameCallback(new ComicScrollLayoutFrame((): void => {
-          if (this.disposed || this.restoring || ticket !== this.serial) return;
+          if (this.disposed || this.restoring || ticket !== this.serial || (automatic && !this.autoPageRunning)) return;
           try { this.advanceViewport(forward); } catch (_error) { }
         }));
       } else {
@@ -152,6 +196,7 @@ export struct ComicContinuousComponent {
   }
 
   private imageGeometryReady(row: ComicScrollRow): void {
+    if (this.source.getData(this.firstVisible) === row) this.onAutoPageDelay();
     if (this.awaitingImage && this.source.getData(this.firstVisible) === row && !this.disposed) this.restoreVisible();
   }
 
@@ -192,6 +237,7 @@ export struct ComicContinuousComponent {
       if (ticket === this.serial && !this.disposed) {
         if (forward) this.nextLoading = false;
         else this.previousLoading = false;
+        this.onAutoPageDelay();
       }
     }
   }
@@ -241,6 +287,7 @@ export struct ComicContinuousComponent {
       this.chapters[0].index !== last.chapterIndex) {
       const removed = this.chapters.shift();
       if (removed === undefined) break;
+      for (const row of removed.rows) this.imageReady.delete(`${row.chapterIndex}:${row.page.key}`);
       this.firstVisible -= removed.rows.length;
       this.lastVisible -= removed.rows.length;
       this.source.remove(0, removed.rows.length);
@@ -250,6 +297,7 @@ export struct ComicContinuousComponent {
       this.chapters[this.chapters.length - 1].index !== first.chapterIndex) {
       const removed = this.chapters.pop();
       if (removed === undefined) break;
+      for (const row of removed.rows) this.imageReady.delete(`${row.chapterIndex}:${row.page.key}`);
       this.source.remove(this.source.totalCount() - removed.rows.length, removed.rows.length);
     }
   }
@@ -280,6 +328,14 @@ export struct ComicContinuousComponent {
               onColorError: (message: string): void => this.onColorError(message),
               onZoomChange: (owner: string, active: boolean): void => this.onZoomChange(owner, active),
               onGeometryReady: (): void => this.imageGeometryReady(row),
+              onAutoPageDelay: (): void => {
+                this.imageReady.set(`${row.chapterIndex}:${row.page.key}`, true);
+                if (this.source.getData(this.firstVisible) === row) this.onAutoPageDelay();
+              },
+              onAutoPageFailure: (): void => {
+                this.imageReady.set(`${row.chapterIndex}:${row.page.key}`, false);
+                if (this.source.getData(this.firstVisible) === row) this.onForwardEnd();
+              },
               onToggle: (event: ClickEvent): void => this.onToggle(event) })
           }.width('100%').align(Alignment.Center)
         }, (row: ComicScrollRow): string => `${row.chapterIndex}:${row.page.key}`)
@@ -287,13 +343,20 @@ export struct ComicContinuousComponent {
         .enableScrollInteraction(!this.paged && this.zoomOwner.length === 0)
         .edgeEffect(EdgeEffect.None).maintainVisibleContentPosition(true)
         .onScrollIndex((first: number, last: number): void => this.visibleChanged(first, last))
-        .onDidScroll((): void => { this.reportPosition(); })
+        .onDidScroll((): void => {
+          if (!this.autoScrollReady || Date.now() - this.autoScrollReportedAt >= 200) {
+            this.autoScrollReportedAt = Date.now();
+            this.reportPosition();
+          }
+        })
         .onTouch((event: TouchEvent): void => {
           if (event.type === TouchType.Move && !this.restoring && !this.paged && this.zoomOwner.length === 0) this.awaitingImage = false;
         })
         .onReachEnd((): void => { this.loadNeighbor(true); })
         .onReachStart((): void => { this.loadNeighbor(false); })
-        .onScrollStop((): void => { this.reportPosition(); this.trimChapters(); })
+        .onScrollStop((): void => {
+          if (!this.autoScrollReady) { this.reportPosition(); this.trimChapters(); this.onAutoPageDelay(); }
+        })
       this.loadIndicator(true)
       this.loadIndicator(false)
     }.width('100%').height('100%')

@@ -274,9 +274,6 @@ export struct ProfilePage {
             .height(24)
             .color(AppColor.Brand)
             .accessibilityText($r('app.string.hw_auth_processing'))
-        } else {
-          ThemeIconComponent({ role: ThemeIconRole.ChevronRight, symbol: $r('sys.symbol.chevron_right'),
-            iconSize: 24, tint: AppTheme.TextTertiary })
         }
       }
       .width('100%')

@@ -652,7 +652,7 @@ export struct ReadingStatsPage {
     const options: CustomPopupOptions = {
       builder: this.buildContentFilterMenu,
       placement: Placement.BottomRight,
-      popupColor: Color.Transparent,
+      popupColor: AppMaterial.SheetBackground,
       radius: AppRadius.Xl,
       enableArrow: false,
       focusable: true,

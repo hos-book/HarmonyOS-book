@@ -230,6 +230,76 @@ async function check(name, test) {
 }
 
 (async () => {
+  await check('background pause checkpoints native time before releasing the background task', async () => {
+    for (const reason of ['sleep', 'session', 'focus']) {
+      const f = await fixture('playing');
+      f.service.persistHistory = Object.getPrototypeOf(f.service).persistHistory;
+      const store = await f.preference.ensureStore();
+      let finishFlush;
+      const blocked = new Promise(resolve => { finishFlush = resolve; });
+      f.preference.ensureStore = async () => ({ ...store, flush: () => blocked });
+      f.player.currentTime = 137500;
+      f.state.progressMs = 42000; // No final timeUpdate while the screen is off.
+      f.service.setForeground(false);
+      let pause;
+      if (reason === 'sleep') pause = f.service.pauseForSleep();
+      else if (reason === 'session') pause = f.service.pause('session');
+      else {
+        f.player.state = 'paused';
+        f.service.handleInterrupt({ forceType: audio.InterruptForceType.INTERRUPT_FORCE,
+          hintType: audio.InterruptHint.INTERRUPT_HINT_PAUSE });
+      }
+      await flush();
+      assert.equal(f.state.progressMs, 137500, reason);
+      assert.equal(f.backgroundCalls.includes('stop'), false, 'Keep eligibility while storage is pending');
+      finishFlush();
+      await pause;
+      await f.service.historyWriteChain;
+      await flush();
+      f.preference.progressMemo.clear();
+      assert.equal((await f.preference.getProgress('book-1')).positionMs, 137500);
+      assert.equal((await f.preference.getLastPlayed()).progressMs, 137500);
+      assert.ok(f.backgroundCalls.includes('stop'));
+    }
+  });
+  await check('queued playback snapshots keep their order, speed and chapter while I/O is slow', async () => {
+    const f = await fixture('paused');
+    f.service.persistHistory = Object.getPrototypeOf(f.service).persistHistory;
+    const store = await f.preference.ensureStore();
+    let unblock;
+    const blocked = new Promise(resolve => { unblock = resolve; });
+    f.preference.ensureStore = async () => ({ ...store, flush: () => blocked });
+    f.player.currentTime = 50000;
+    const first = f.service.flushHistory();
+    await flush();
+    f.player.currentTime = 95000;
+    f.state.speed = 1.5;
+    const second = f.service.flushHistory();
+    f.service.stopBackgroundIfIdle();
+    f.state.isPlaying = true; // Resuming during persistence must not lose the background task.
+    unblock();
+    await Promise.all([first, second]);
+    await flush();
+    assert.equal((await f.preference.getProgress('book-1')).positionMs, 95000);
+    assert.equal((await f.preference.getProgress('book-1')).speed, 1.5);
+    assert.equal((await f.preference.getLastPlayed()).progressMs, 95000);
+    assert.equal(f.backgroundCalls.includes('stop'), false);
+  });
+  await check('foreground position sampling preserves pending seeks and ignores stale sources', async () => {
+    const f = await fixture('paused');
+    f.player.currentTime = 120000;
+    f.service.setForeground(true);
+    assert.equal(f.state.progressMs, 120000);
+    f.state.progressMs = 90000;
+    f.service.resumeTargetMs = 90000;
+    f.player.currentTime = 1000;
+    f.service.setForeground(true);
+    assert.equal(f.state.progressMs, 90000);
+    f.service.resumeTargetMs = 0;
+    f.service.playGen++;
+    f.service.setForeground(true);
+    assert.equal(f.state.progressMs, 90000);
+  });
   await check('global speed defaults only new books, survives reload, and never overwrites per-book speed', async () => {
     const f = await fixture();
     f.service.persistHistory = Object.getPrototypeOf(f.service).persistHistory;

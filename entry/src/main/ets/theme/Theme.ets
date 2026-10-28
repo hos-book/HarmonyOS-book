@@ -249,11 +249,11 @@ class CompatibleSelectMaterialModifier extends CompatibleMaterialModifier {
 
   applyNormalAttribute(instance: SelectAttribute): void {
     super.applyNormalAttribute(instance);
-    instance.menuBackgroundColor(Color.Transparent);
     if (PlatformCompat.immersiveMaterial && this.menuMaterial !== undefined) {
-      instance.menuBackgroundBlurStyle(BlurStyle.NONE).menuSystemMaterial(this.menuMaterial);
+      instance.menuBackgroundColor(Color.Transparent)
+        .menuBackgroundBlurStyle(BlurStyle.NONE).menuSystemMaterial(this.menuMaterial);
     } else {
-      instance.menuBackgroundBlurStyle(this.menuBlur);
+      instance.menuBackgroundColor($r('sys.color.comp_background_primary')).menuBackgroundBlurStyle(this.menuBlur);
     }
   }
 }

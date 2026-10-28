@@ -489,10 +489,22 @@ export class DataService {
   static async getImportedBooks(): Promise<Book[]> {
     try {
       const json = await PreferenceService.getImportedBooks();
-      return DataService.parseBookList(json);
+      const list = DataService.parseBookList(json);
+      for (const book of list) await DataService.restorePdfDefaultCover(book);
+      return list;
     } catch (_e) {
       return [];
     }
+  }
+
+  private static async restorePdfDefaultCover(book: Book): Promise<void> {
+    if (!DataService.ctx || !/^import_[A-Za-z0-9_]+$/.test(book.id) || book.sourceUrl) return;
+    const directory = `${DataService.ctx.filesDir}/ebooks/${book.id}`;
+    // 仅旧 PDF 自动指定的第一页；用户上传的 cover.jpg/png 不受影响。
+    if (book.cover !== `${directory}/image_0_0.img`) return;
+    try {
+      if (await fileIo.access(`${directory}/source.pdf`)) book.cover = '';
+    } catch (_error) { /* 无法确认 PDF 时保留原封面。 */ }
   }
 
   static async addImportedBook(book: Book): Promise<void> {
@@ -526,6 +538,14 @@ export class DataService {
 
   /** 原书原地切换类型，不重建书籍、目录、正文或阅读记录。 */
   static async switchImportedBookToComic(bookId: string): Promise<Book> {
+    return DataService.switchImportedBookType(bookId, 'comic');
+  }
+
+  static async switchImportedBookToText(bookId: string): Promise<Book> {
+    return DataService.switchImportedBookType(bookId, 'text');
+  }
+
+  private static async switchImportedBookType(bookId: string, contentType: 'text' | 'comic'): Promise<Book> {
     // 切换属于写操作，读取失败必须保留原始错误，不能用空书单掩盖。
     const list = DataService.parseBookList(await PreferenceService.getImportedBooks());
     const book = list.find((item: Book): boolean => item.id === bookId);
@@ -534,12 +554,13 @@ export class DataService {
       throw new Error('Invalid local text book');
     }
     // 旧阅读页/书架残留文字快照时，重复操作也应成功并刷新显示。
-    if (book.contentType !== 'comic') {
-      book.contentType = 'comic';
+    if (book.contentType !== contentType) {
+      book.contentType = contentType;
       await PreferenceService.saveImportedBooks(JSON.stringify(list));
     }
     DataService.cache = list;
     SearchCache.remove(bookId);
+    await DataService.restorePdfDefaultCover(book);
     // 状态与缓存先提交，再通知书架重读，不能依赖阅读进度是否刚好改变收藏顺序。
     try { emitter.emit(EVT_FAVORITES_CHANGED, { data: { bookId: bookId } }); } catch (_event) { /* 类型已保存 */ }
     return book;

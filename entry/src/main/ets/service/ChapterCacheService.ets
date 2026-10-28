@@ -26,7 +26,7 @@ let PRE_DOWNLOAD_BACKWARD = 0;
 const MAX_CONCURRENT = 1; // 按播放距离串行解析并下载，给当前播放保留带宽。
 const MAX_URL_CACHE_SIZE = 50;
 const AUDIO_URL_TTL_MS = 5 * 60 * 1000;
-const MAX_FILE_CACHE_BYTES = 1024 * 1024 * 1024; // 章节临时音频缓存上限 1GB
+const MAX_FILE_CACHE_BYTES = 5 * 1024 * 1024 * 1024; // 章节临时音频缓存上限 5 GiB
 const PRELOAD_FAILURE_COOLDOWN_MS = 30000;
 const PRELOAD_RESOLVE_TIMEOUT_MS = 15000;
 
@@ -727,7 +727,7 @@ export class ChapterCacheService {
     }
   }
 
-  /** 冷启动时按磁盘实际大小执行 1GB 上限，避免上个进程遗留文件脱离内存索引。 */
+  /** 冷启动时按磁盘实际大小执行缓存上限，避免上个进程遗留文件脱离内存索引。 */
   private async enforceDiskCacheLimit(): Promise<void> {
     if (this.cacheCleanupTask !== null) return;
     this.diskCleanupRequested = true;

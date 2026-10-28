@@ -798,7 +798,7 @@ export struct PlayerPage {
     const options: CustomPopupOptions = {
       builder: this.buildSourceVoiceMenu,
       placement: Placement.BottomRight,
-      popupColor: Color.Transparent,
+      popupColor: AppMaterial.SheetBackground,
       radius: AppRadius.Xl,
       enableArrow: false,
       focusable: true,

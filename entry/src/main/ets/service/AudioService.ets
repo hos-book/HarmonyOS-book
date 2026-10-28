@@ -184,6 +184,8 @@ export class AudioService {
 
   setForeground(foreground: boolean): void {
     this.foreground = foreground;
+    // 熄屏期间 timeUpdate 可能稀疏或延后；首帧前直接校准原生位置。
+    if (foreground) this.capturePlayerPosition();
     this.tracePlayback(foreground ? 'foreground' : 'background');
   }
   private resumeAfterSleepChapter: boolean = false;
@@ -207,6 +209,7 @@ export class AudioService {
   /** 节流持久化的最近一次时间戳。正常播放依靠 timeUpdate 稀疏持久化(5s 一次),
    *  避免依赖 tick 频繁落盘,配合低功耗渲染器长休眠周期 */
   private lastPersistAt: number = 0;
+  private historyWriteChain: Promise<void> = Promise.resolve();
   private static readonly PERSIST_INTERVAL_MS: number = 5000;
   private static readonly USAGE_TICK_MS: number = 15000;
   private usageSince: number = -1;
@@ -526,22 +529,20 @@ export class AudioService {
         }
       } else if (newState === 'paused') {
         this.state.isPlaying = false;
+        this.capturePlayerPosition();
         if (this.state.currentBook && this.state.currentChapter) {
           this.triggerPreload(this.state.currentBook, this.state.currentChapter, true);
         }
         this.stopTick();
-        // 立即落盘:暂停后 tick 停了,不存就会丢掉「上次 tick 到暂停」之间的进度,
-        // 手动暂停 / 锁屏 / 电话打断后续播都会偏早。progressMs 此刻已是暂停位置,
-        // seek 守卫保证它不会是被打回的 0。
-        this.persistHistory();
+        this.persistHistory().catch((error: Error): void => {
+          hilog.warn(DOMAIN, TAG, 'Paused progress save failed: %{public}s', error.message);
+        });
         this.syncPlaybackState();
         PlaybackStore.getInstance().setPlaying(false);
         // 未在播时不要继续挂 audioPlayback 长时任务:
         // 系统会以「音频未运行」取消整条 continuous task，连同 dataTransfer 一起失效，
         // 息屏后纯下载也会被冻结。下载侧会单独维持 dataTransfer。
-        if (this.context) {
-          BackgroundTaskService.stop(this.context).catch((_e: Error): void => {});
-        }
+        this.stopBackgroundIfIdle();
       } else if (newState === 'completed') {
         this.state.isPlaying = false;
         this.recordSession();
@@ -936,9 +937,24 @@ export class AudioService {
       this.state.currentChapter, this.state.progressMs, this.state.durationMs), this.state.isPlaying);
   }
 
+  /** 只采集当前音源的合法位置，未完成的 seek/切章仍以目标位置为准。 */
+  private capturePlayerPosition(): void {
+    const p = this.player;
+    const state = this.state;
+    if (!p || !state || state.isLive || state.isLoading || this.isApplying ||
+      this.playerSourceGeneration !== this.playGen || this.pendingSeek > 0 || this.resumeTargetMs > 0) return;
+    if (p.state !== 'playing' && p.state !== 'paused' && p.state !== 'completed') return;
+    const position = p.currentTime;
+    if (!Number.isFinite(position) || position < 0) return;
+    state.progressMs = p.duration > 0 ? Math.min(position, p.duration) : position;
+    if (p.duration > 0) state.durationMs = p.duration;
+    this.lastProgressWriteAt = Date.now();
+  }
+
   private async persistHistory(): Promise<void> {
     if (this.frozenPersistGen >= 0) return;
     if (!this.state || !this.state.currentBook || !this.state.currentChapter) return;
+    this.capturePlayerPosition();
     this.recordSession();
     const book = this.state.currentBook;
     const chapter = this.state.currentChapter;
@@ -946,48 +962,51 @@ export class AudioService {
     const chapterTitle = chapter.title;
     const progressMs = this.state.isLive ? 0 : this.state.progressMs;
     const durationMs = this.state.durationMs;
+    const speed = this.state.speed;
+    const updatedAt = Date.now();
     const chapterIndex = this.findChapterIndex(book, chapter);
-    await PreferenceService.upsertHistory({
-      bookId: book.id,
-      chapterId,
-      progressMs,
-      updatedAt: Date.now(),
-      chapterTitle,
-      durationMs,
-      sourceUrl: book.sourceUrl || '',
-      bookUrl: book.bookUrl || ''
+    // 内存信号立即更新，页面恢复不等待 Preferences/数据库 I/O。
+    PlaybackStore.getInstance().update(book.id, chapterId, chapterIndex,
+      chapter.source?.value ?? '', this.state.isPlaying);
+    const write = this.historyWriteChain.catch((): void => {}).then(async (): Promise<void> => {
+      await PreferenceService.upsertHistory({
+        bookId: book.id,
+        chapterId,
+        progressMs,
+        updatedAt,
+        chapterTitle,
+        durationMs,
+        sourceUrl: book.sourceUrl || '',
+        bookUrl: book.bookUrl || ''
+      });
+      await PreferenceService.setLastPlayed(book.id, chapterId, progressMs, chapterTitle, durationMs, speed);
+      // 每本书独立的最新进度,切书前 reset AVPlayer 之前必须把这条落盘,
+      // 切回旧书时 caller 没传 positionMs 也能从这里 fallback 到上次位置
+      const progress: PlayProgress = {
+        bookId: book.id,
+        chapterId,
+        chapterTitle,
+        chapterIndex: chapterIndex >= 0 ? chapterIndex : 0,
+        positionMs: progressMs,
+        durationMs,
+        updatedAt,
+        speed,
+        sourceUrl: book.sourceUrl || '',
+        bookUrl: book.bookUrl || ''
+      };
+      await PreferenceService.saveProgress(progress);
+      const chapterProgress = new ChapterPlayProgress();
+      chapterProgress.bookId = book.id;
+      chapterProgress.chapterId = chapterId;
+      chapterProgress.positionMs = progressMs;
+      chapterProgress.durationMs = durationMs;
+      chapterProgress.updatedAt = updatedAt;
+      await PreferenceService.saveChapterProgress(chapterProgress);
+      await DataService.upsertCachedBook(book);
+      emitter.emit(EVT_HISTORY_UPDATED, { data: { bookId: book.id } });
     });
-    await PreferenceService.setLastPlayed(book.id, chapterId, progressMs, chapterTitle, durationMs, this.state.speed);
-    // 每本书独立的最新进度,切书前 reset AVPlayer 之前必须把这条落盘,
-    // 切回旧书时 caller 没传 positionMs 也能从这里 fallback 到上次位置
-    const progress: PlayProgress = {
-      bookId: book.id,
-      chapterId,
-      chapterTitle,
-      chapterIndex: chapterIndex >= 0 ? chapterIndex : 0,
-      positionMs: progressMs,
-      durationMs,
-      updatedAt: Date.now(),
-      speed: this.state.speed,
-      sourceUrl: book.sourceUrl || '',
-      bookUrl: book.bookUrl || ''
-    };
-    await PreferenceService.saveProgress(progress);
-    const chapterProgress = new ChapterPlayProgress();
-    chapterProgress.bookId = book.id;
-    chapterProgress.chapterId = chapterId;
-    chapterProgress.positionMs = progressMs;
-    chapterProgress.durationMs = durationMs;
-    chapterProgress.updatedAt = Date.now();
-    await PreferenceService.saveChapterProgress(chapterProgress);
-    await DataService.upsertCachedBook(book);
-    // PlaybackStore: 让其他页面拿到的是"现在响着的"那本书,
-    // sourceUrl 走 chapter.source.value(已是解析后的真实 URL,作 same-source 判断)
-    PlaybackStore.getInstance().update(
-      book.id, chapterId, progress.chapterIndex,
-      chapter.source?.value ?? '', this.state.isPlaying
-    );
-    emitter.emit(EVT_HISTORY_UPDATED, { data: { bookId: book.id } });
+    this.historyWriteChain = write;
+    await write;
   }
 
   /** 主动把当前进度立刻落盘,供 PlayerPage 退出 / 暂停等场景调用 */
@@ -1898,9 +1917,15 @@ export class AudioService {
   }
 
   private stopBackgroundIfIdle(): void {
-    if (this.context && !this.state?.isPlaying && !this.state?.isLoading && !this.isApplying) {
-      BackgroundTaskService.stop(this.context).catch((_error: Error): void => {});
-    }
+    if (!this.context || this.state?.isPlaying || this.state?.isLoading || this.isApplying) return;
+    const pending = this.historyWriteChain;
+    // paused/焦点/定时停止都必须先完成续播快照，否则后台可能在 flush 中途被冻结。
+    pending.catch((): void => {}).then((): void => {
+      if (pending !== this.historyWriteChain) { this.stopBackgroundIfIdle(); return; }
+      if (this.context && !this.state?.isPlaying && !this.state?.isLoading && !this.isApplying) {
+        BackgroundTaskService.stop(this.context).catch((_error: Error): void => {});
+      }
+    });
   }
 
   private finishSleep(atChapterEnd: boolean): void {

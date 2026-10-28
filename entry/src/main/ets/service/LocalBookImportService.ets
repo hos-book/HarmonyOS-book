@@ -569,7 +569,7 @@ export class LocalBookImportService {
           context.resourceManager.getStringSync($r('app.string.import_pdf_section').id, start + 1, end),
           tokens.join('\n'), writes);
       }
-      if (!book.cover) book.cover = `${directory}/image_0_0.img`;
+      // 未上传封面时保留空值，让书架与导入预览使用同一默认书名封面。
       book.contentType = 'comic';
       book.intro = context.resourceManager.getStringSync($r('app.string.import_pdf_intro').id);
     } catch (error) {
@@ -627,6 +627,7 @@ export class LocalBookImportService {
       prepareMs = parseStarted - started;
       if (file.ext === '.pdf') {
         await LocalBookImportService.importPdf(context, book, directory, file, size, report, writes);
+        if (epubMode === 'text') book.contentType = 'text';
       } else if (file.ext === '.mobi') {
         await LocalBookImportService.importMobi(context, book, directory, file, title, author, report, writes);
       } else if (file.ext === '.epub') {

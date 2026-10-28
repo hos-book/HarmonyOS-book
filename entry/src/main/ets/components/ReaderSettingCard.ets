@@ -1,4 +1,5 @@
 import { AppFont, AppRadius, AppSpace } from '../theme/Theme';
+import { VipFeatureBadge } from './VipFeatureBadge';
 
 /**
  * 设置分组卡片。
@@ -10,6 +11,7 @@ export struct ReaderSettingCard {
   @Param title: ResourceStr = '';
   @Param description: ResourceStr = '';
   @Param inline: boolean = false;
+  @Param showVip: boolean = false;
   @Param compact: boolean = false;
   @BuilderParam content: () => void = this.emptyContent;
 
@@ -21,10 +23,13 @@ export struct ReaderSettingCard {
     Column({ space: this.compact ? 4 : AppSpace.Sm }) {
       if (this.inline) {
         Row({ space: AppSpace.Sm }) {
-          Text(this.title)
-            .fontSize(AppFont.Body)
-            .fontColor($r('sys.color.font_primary'))
-            .layoutWeight(1)
+          Row({ space: AppSpace.Sm }) {
+            Text(this.title)
+              .fontSize(AppFont.Body)
+              .fontColor($r('sys.color.font_primary'))
+              .flexShrink(1)
+            if (this.showVip) { VipFeatureBadge() }
+          }.layoutWeight(1).alignItems(VerticalAlign.Center)
           this.content()
         }.width('100%').alignItems(VerticalAlign.Center)
       } else {

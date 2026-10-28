@@ -1114,7 +1114,7 @@ export struct HomePage {
   private homeSourceKindMenuOptions(): CustomPopupOptions {
     const options: CustomPopupOptions = {
       builder: this.buildHomeSourceKindMenu, placement: Placement.BottomRight,
-      popupColor: Color.Transparent, radius: AppRadius.Xl, enableArrow: false, focusable: true,
+      popupColor: AppMaterial.SheetBackground, radius: AppRadius.Xl, enableArrow: false, focusable: true,
       onStateChange: (event): void => { this.homeSourceKindMenuVisible = event.isVisible; }
     };
     if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
@@ -1200,7 +1200,7 @@ export struct HomePage {
       builder: this.buildHomeSourceMenu,
       width: this.homeSourceMenuWidth,
       placement: Placement.BottomRight,
-      popupColor: Color.Transparent,
+      popupColor: AppMaterial.SheetBackground,
       radius: AppRadius.Xl,
       enableArrow: false,
       focusable: true,

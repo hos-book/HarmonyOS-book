@@ -1,4 +1,5 @@
 import { deviceInfo } from '@kit.BasicServicesKit';
+import lazy { uiMaterial } from '@kit.ArkUI';
 
 /** 最低支持 API 20；按接口引入版本选择实现，不能用编译版本判断设备能力。 */
 export class PlatformCompat {
@@ -20,7 +21,10 @@ export class PlatformCompat {
   }
 
   static get immersiveMaterial(): boolean {
-    return PlatformCompat.supports(26);
+    // API 可用不代表设备支持材质；不支持时 systemMaterial 会静默失效。
+    if (!PlatformCompat.supports(26)) return false;
+    return uiMaterial.isImmersiveMaterialSupported() &&
+      uiMaterial.getMaterialInfo().state !== uiMaterial.MaterialState.DISABLE;
   }
 
   static get floatingTabs(): boolean {

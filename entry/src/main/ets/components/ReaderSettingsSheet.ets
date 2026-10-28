@@ -1,4 +1,5 @@
 import { ReaderSettingCard } from './ReaderSettingCard';
+import { ReaderAutoPageSettings } from './ReaderAutoPageSettings';
 import { ReaderTapPolicy } from '../utils/ReaderTapPolicy';
 import { ReaderImportedFont } from '../service/text/ReaderFontService';
 import { ReaderFontTabs } from './ReaderFontTabs';
@@ -156,7 +157,7 @@ struct ReaderCustomThemeSwatch {
 
 @ComponentV2
 struct ReaderMarginSlider {
-  @Param label: ResourceStr = '';
+  @Param label: Resource = $r('app.string.reader_margin_top');
   @Param value: number = 16;
   @Param max: number = 64;
   @Event onChange: (value: number, commit: boolean) => void = () => {};
@@ -182,18 +183,12 @@ struct ReaderMarginSlider {
     Row({ space: AppSpace.Sm }) {
       Text(this.label).fontSize(AppFont.Caption).width(36).fontColor($r('sys.color.font_primary'))
       this.stepper($r('sys.symbol.minus'), this.value > 0, -1)
-      Column() {
-        Slider({ value: this.value, min: 0, max: this.max, step: 1 })
-          .width('100%').selectedColor(AppColor.Brand)
-          .onChange((next: number, mode: SliderChangeMode): void => {
-            this.onChange(next, mode === SliderChangeMode.End || mode === SliderChangeMode.Click);
-          })
-        Row() {
-          Text('0').fontSize(10).fontColor($r('sys.color.font_secondary'))
-          Blank()
-          Text(`${this.max}`).fontSize(10).fontColor($r('sys.color.font_secondary'))
-        }.width('100%').padding({ left: 8, right: 8 })
-      }.layoutWeight(1).padding({ bottom: AppSpace.Xs })
+      Slider({ value: this.value, min: 0, max: this.max, step: 1 })
+        .layoutWeight(1).selectedColor(AppColor.Brand)
+        .accessibilityText(this.label)
+        .onChange((next: number, mode: SliderChangeMode): void => {
+          this.onChange(next, mode === SliderChangeMode.End || mode === SliderChangeMode.Click);
+        })
       this.stepper($r('sys.symbol.plus'), this.value < this.max, 1)
       Text(`${this.value}`).width(36).fontColor($r('sys.color.font_primary')).fontSize(AppFont.Caption)
     }.width('100%')
@@ -250,7 +245,40 @@ struct ReaderTapSizeSlider {
 }
 
 @ComponentV2
+struct ReaderEdgeTabs {
+  @Param selected: number = 0;
+  @Param groupId: string = '';
+  @Event onSelect: (index: number) => void = () => {};
+
+  build() {
+    Row({ space: 4 }) {
+      ForEach([$r('app.string.reader_margin_top'), $r('app.string.reader_margin_bottom'),
+        $r('app.string.reader_margin_left'), $r('app.string.reader_margin_right')], (label: Resource, index: number) => {
+        Button(label, { type: ButtonType.Capsule })
+          .id(`${this.groupId}-${index}`)
+          .layoutWeight(1).height(36).fontSize(AppFont.Body)
+          .fontColor(this.selected === index ? AppColor.Brand : $r('sys.color.font_primary'))
+          .backgroundColor(this.selected === index ? $r('sys.color.comp_background_primary') : Color.Transparent)
+          .accessibilitySelected(this.selected === index)
+          .onClick((): void => this.onSelect(index))
+      }, (label: Resource): string => `${label.id}`)
+    }.width('100%').padding(4).borderRadius(22)
+      .backgroundColor($r('sys.color.comp_background_tertiary'))
+  }
+}
+
+@ComponentV2
 export struct ReaderSettingsSheet {
+  @Param autoPageSeconds: number = 10;
+  @Param autoScrolling: boolean = false;
+  @Param autoScrollSpeed: number = 20;
+  @Event onAutoScrollSpeed: (speed: number) => void = (): void => {};
+  @Param autoPageRunning: boolean = false;
+  @Param autoPageAvailable: boolean = true;
+  @Event onAutoPageInterval: (seconds: number) => void = (): void => {};
+  @Event onAutoPageToggle: () => void = (): void => {};
+  @Local marginEdge: number = 0;
+  @Local tapSizeEdge: number = 0;
   @Param fontPanel: boolean = false;
   @Param supportsSpeech: boolean = false;
   @Event onSpeechSettings: () => void = () => {};
@@ -782,22 +810,29 @@ export struct ReaderSettingsSheet {
             100 - this.tapTopPercent - this.tapBottomPercent)
         }, (row: number): string => `row-${row}`)
         }.width('100%').height(210)
+        ReaderEdgeTabs({ selected: this.tapSizeEdge, groupId: 'reader-tap-edge',
+          onSelect: (index: number): void => { this.tapSizeEdge = index; } })
+        if (this.tapSizeEdge === 2) {
         ReaderTapSizeSlider({
           label: $r('app.string.reader_tap_left_width'), value: this.tapLeftPercent, other: this.tapRightPercent,
           onChange: (value: number, commit: boolean): void => this.onTapSizeChange('left', value, commit)
         })
+        } else if (this.tapSizeEdge === 3) {
         ReaderTapSizeSlider({
           label: $r('app.string.reader_tap_right_width'), value: this.tapRightPercent, other: this.tapLeftPercent,
           onChange: (value: number, commit: boolean): void => this.onTapSizeChange('right', value, commit)
         })
+        } else if (this.tapSizeEdge === 0) {
         ReaderTapSizeSlider({
           label: $r('app.string.reader_tap_top_height'), value: this.tapTopPercent, other: this.tapBottomPercent,
           onChange: (value: number, commit: boolean): void => this.onTapSizeChange('top', value, commit)
         })
+        } else {
         ReaderTapSizeSlider({
           label: $r('app.string.reader_tap_bottom_height'), value: this.tapBottomPercent, other: this.tapTopPercent,
           onChange: (value: number, commit: boolean): void => this.onTapSizeChange('bottom', value, commit)
         })
+        }
         Button($r('app.string.reader_tap_reset'))
           .fontSize(12).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
 .onClick((): void => this.onResetTapAreas())
@@ -896,23 +931,30 @@ export struct ReaderSettingsSheet {
   @Builder
   buildMarginSection() {
     ReaderSettingCard({ title: $r('app.string.reader_margins') }) {
-      Column() {
+      Column({ space: AppSpace.Sm }) {
+        ReaderEdgeTabs({ selected: this.marginEdge, groupId: 'reader-margin-edge',
+          onSelect: (index: number): void => { this.marginEdge = index; } })
+        if (this.marginEdge === 2) {
         ReaderMarginSlider({
           label: $r('app.string.reader_margin_left'), value: this.marginLeft,
           onChange: (value: number, commit: boolean): void => this.onMarginChange('left', value, commit)
         })
+        } else if (this.marginEdge === 3) {
         ReaderMarginSlider({
           label: $r('app.string.reader_margin_right'), value: this.marginRight,
           onChange: (value: number, commit: boolean): void => this.onMarginChange('right', value, commit)
         })
+        } else if (this.marginEdge === 0) {
         ReaderMarginSlider({
           label: $r('app.string.reader_margin_top'), value: this.marginTop, max: this.marginTopMax,
           onChange: (value: number, commit: boolean): void => this.onMarginChange('top', value, commit)
         })
+        } else {
         ReaderMarginSlider({
           label: $r('app.string.reader_margin_bottom'), value: this.marginBottom,
           onChange: (value: number, commit: boolean): void => this.onMarginChange('bottom', value, commit)
         })
+        }
       }.width('100%')
     }
   }
@@ -1082,6 +1124,9 @@ export struct ReaderSettingsSheet {
             this.buildFontAppearance()
           } else {
             this.buildPageTurnModeSection()
+            ReaderAutoPageSettings({ seconds: this.autoPageSeconds, running: this.autoPageRunning,
+              scrolling: this.autoScrolling, speed: this.autoScrollSpeed, onSpeed: this.onAutoScrollSpeed,
+              available: this.autoPageAvailable, onInterval: this.onAutoPageInterval, onToggle: this.onAutoPageToggle })
             if (this.supportsSpeech) {
               ReaderSettingCard({ title: $r('app.string.tts_custom_import'), inline: true }) {
                 Button($r('app.string.reader_tts_manage')).fontColor(AppColor.Brand)

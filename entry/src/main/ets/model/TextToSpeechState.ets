@@ -1,4 +1,5 @@
 import { CustomTtsConfig } from './CustomTtsConfig';
+import { SpeechSynthesisSettings } from './SpeechSynthesisSettings';
 
 @ObservedV2
 export class TextToSpeechState {
@@ -27,6 +28,7 @@ export class TextToSpeechState {
   @Trace customTtsId: string = '';
   @Trace customTtsConfigs: CustomTtsConfig[] = [];
   @Trace follow: boolean = true;
+  @Trace synthesis: SpeechSynthesisSettings = new SpeechSynthesisSettings();
   @Trace stopAtChapterEnd: boolean = false;
   @Trace remainingSeconds: number = 0;
 

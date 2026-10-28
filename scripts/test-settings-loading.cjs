@@ -22,17 +22,20 @@ function harness() {
     getColorMode: async () => { if (localFailure) throw new Error('local storage unavailable'); return 1; },
     getDefaultTab: async () => 2,
     getAutoPlayOnLaunch: async () => true,
-    getCoverSuperResolution: async () => true,
+    getStoredCoverSuperResolution: async () => true,
+    getCoverSuperResolution: () => { throw new Error('Settings must not query membership while loading'); },
     getAudioInterruptMode: async () => 1,
     getAudioAutoResume: async () => false,
     getDefaultPlaybackSpeed: async () => 1.5,
     getPreloadChapters: async () => 7,
-    getSearchConcurrency: () => search.promise
+    getStoredSearchConcurrency: () => search.promise,
+    getSearchConcurrency: () => { throw new Error('Settings must not query membership while loading'); }
   };
   const exports = {};
   const source = `class Settings {
     alive = true; preferencesLoadSerial = 0; isLoaded = false;
     membership = { hasAccess: true, confirmedInactive: false }; searchConcurrency = 3;
+    generalSettings = { jianjianCompanionEnabled: false };
     ${methods}
   } exports.Settings = Settings;`;
   vm.runInNewContext(ts.transpileModule(source, {
@@ -97,6 +100,6 @@ async function tick() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
   assert.equal(revoked.page.defaultPlaybackSpeed, 1.5, 'default speed is available without membership');
   const unknown = harness(); await unknown.page.loadPrefs();
   unknown.page.membership.hasAccess = false; unknown.search.resolve(3); await tick();
-  assert.equal(unknown.page.searchConcurrencyLoadFailed, true, 'unknown membership offers retry instead of a purchase gate');
+  assert.equal(unknown.page.searchConcurrencyLoadFailed, false, 'silent entitlement refresh does not turn stored preferences into a load error');
   console.log('PASS settings: slow membership isolation, local values, failure/retry, stale results, closed page and revoked access');
 })().catch(error => { console.error(error); process.exitCode = 1; });
