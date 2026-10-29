@@ -25,7 +25,7 @@ TTS 导入兼容逐行 `Name: Value` 请求头及顶层嵌套 JSON 正文，可�
 - 编译使用经确认的 Release SDK；当前配套为 DevEco Studio 26.0.0.821，编译版本与目标/最低版本分开管理。上传前检查 APP 内所有 HAP 的 `apiReleaseType = Release`，QuickJS HAR 也需用正式工具链重建。
 - Stage 模式，单模块 `entry/`，设备类型为 `phone`、`tablet`、`2in1`、`wearable`；前三者按实际窗口尺寸适配，标准手表使用独立圆屏页面；多端交互与待验证项目见 `docs/APP_UI.md`。
 - ArkTS + ArkUI V2；页面使用 `@Local` 和 Service 单例。
-- `bundleName = com.huan.listenbook`；当前邀测 `versionName = 1.0.4`、`versionCode = 1001004`，以 `AppScope/app.json5` 为准。
+- `bundleName = com.huan.listenbook`；当前正式版 `versionName = 1.0.0`、`versionCode = 1001005`；邀测为 `1.0.4 (1001004)`。以 `AppScope/app.json5` 为准。
 - 后台模式为 `audioPlayback`、`dataTransfer`，权限包括网络、振动和长时后台运行。
 - `entry/libs/quickjs.har` 为 arm64-v8a / x86_64 双 ABI 本地依赖；源码和构建脚本在 `third_party/quickjs/`、`scripts/build-quickjs.ps1`。
 - 签名在本机 DevEco Studio 配置，`build-profile.json5` 含私有签名信息，禁止提交其中的本机改动。
