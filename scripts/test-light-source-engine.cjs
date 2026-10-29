@@ -612,6 +612,32 @@ async function run() {
   assert.equal(JSON.parse(states.get(source.bookSourceUrl)).lightCookieRecords.length,0,'deleted/expired cookies cannot resurrect on flush');
   manager.fetchCookieSync = fetchCookies;
 
+  const scopedCookies = new LightCookieStore('https://cookie-fixture.test');
+  scopedCookies.load({'https://cookie-fixture.test':'session=plain; cf_clearance=bound; __cf_bm=bound'});
+  scopedCookies.copyCookies('https://cookie-fixture.test/', 'https://copy-fixture.test/');
+  assert.equal(scopedCookies.getCookie('https://copy-fixture.test/'), 'session=plain',
+    'website verification tokens must not be copied to another URL');
+  scopedCookies.attachBrowser();
+  const cookieCalls = [];
+  manager.fetchCookieSync = function(url, incognito, partitioned) {
+    assert.equal(incognito, true, 'source requests always use the incognito cookie jar');
+    cookieCalls.push({partitioned});
+    return fetchCookies.call(this, url) + (partitioned ? '; partitioned=first-party' : '');
+  };
+  const sdkInfo = stubs['@ohos.deviceInfo'].default;
+  sdkInfo.sdkApiVersion = 20;
+  assert.ok(!scopedCookies.getRequestCookie('https://cookie-fixture.test/').includes('partitioned='));
+  assert.ok(cookieCalls.every(call => call.partitioned === undefined), 'API 20 uses the old cookie overload');
+  sdkInfo.sdkApiVersion = 26;
+  assert.ok(scopedCookies.getRequestCookie('https://cookie-fixture.test/').includes('partitioned=first-party'));
+  assert.ok(!scopedCookies.getCookie('https://cookie-fixture.test/').includes('partitioned='),
+    'partitioned values are never flattened into ordinary persisted cookies');
+  scopedCookies.detachBrowser();
+  assert.ok(!scopedCookies.getRequestCookie('https://cookie-fixture.test/').includes('partitioned='));
+  sdkInfo.sdkApiVersion = 20;
+  manager.fetchCookieSync = fetchCookies;
+  console.log('PASS: API 20 fallback, API 26 incognito partitioned reads and scoped verification cookies');
+
   // Ordinary resolutions neither acquire Web sessions nor write unchanged state.
   await LightSourceRuntime.run(canonical,local,async () => {
     const request=new StageWebRuntimeRequest(); request.source=canonical; request.code='1+1';

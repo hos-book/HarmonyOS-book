@@ -1,115 +1,64 @@
 import { audio } from '@kit.AudioKit';
-import { hilog } from '@kit.PerformanceAnalysisKit';
+import { DiagnosticLogService } from './DiagnosticLogService';
 
-const DOMAIN = 0xFF00;
-const TAG = 'ListenBook_ExtMedia';
-
-/**
- * 监测系统里其他 App 的「视频/游戏/视频通话」音频流是否消失。
- *
- * 背景:抖音/B 站等视频应用抢焦点时,系统给我们下发 INTERRUPT_HINT_STOP,且
- * 视频结束后不会再下发 INTERRUPT_HINT_RESUME(华为官方焦点策略)。
- * 这个 watcher 用 AudioStreamManager.audioRendererChange 旁路监听,
- * 当观察到的外部 MEDIA 流从「有」变成「无」时,触发回调让 AudioService 续播。
- *
- * 只关心 MOVIE / GAME / VIDEO_COMMUNICATION 三类高优先级会强制打断 Music 的流。
- * MUSIC 不算 —— 别人在听音乐时不应该把人家抢回来。
- */
+/** STOP 无系统恢复通知时的 API 20 回退，只在本应用已暂停期间检查活动流。 */
 export class ExternalMediaWatcher {
   private streamMgr: audio.AudioStreamManager | null = null;
-  private armed: boolean = false;
   private callback: (() => void) | null = null;
-  private timeoutTimer: number = -1;
-  private hadExternalMedia: boolean = false;
-  private static readonly TIMEOUT_MS: number = 30_000;
+  private timer: number = -1;
+  private quietSince: number = 0;
+  private armedAt: number = 0;
+  private readonly usages: audio.StreamUsage[] = [
+    audio.StreamUsage.STREAM_USAGE_MUSIC, audio.StreamUsage.STREAM_USAGE_MOVIE,
+    audio.StreamUsage.STREAM_USAGE_AUDIOBOOK, audio.StreamUsage.STREAM_USAGE_GAME,
+    audio.StreamUsage.STREAM_USAGE_VOICE_COMMUNICATION, audio.StreamUsage.STREAM_USAGE_VIDEO_COMMUNICATION,
+    audio.StreamUsage.STREAM_USAGE_VOICE_MESSAGE, audio.StreamUsage.STREAM_USAGE_VOICE_ASSISTANT,
+    audio.StreamUsage.STREAM_USAGE_ALARM, audio.StreamUsage.STREAM_USAGE_RINGTONE,
+    audio.StreamUsage.STREAM_USAGE_NAVIGATION, audio.StreamUsage.STREAM_USAGE_ACCESSIBILITY,
+    audio.StreamUsage.STREAM_USAGE_NOTIFICATION
+  ];
+  private readonly listener = (_info: audio.AudioRendererChangeInfoArray): void => { this.check(); };
 
-  private listener: (arr: audio.AudioRendererChangeInfoArray) => void =
-    (arr: audio.AudioRendererChangeInfoArray) => this.onChange(arr);
-
-  /** arm 后,当外部 MEDIA 流从有变无时调一次 cb,然后自动 disarm */
-  arm(cb: () => void): void {
-    if (this.armed) {
-      this.disarm();
-    }
+  arm(callback: () => void): void {
+    this.disarm();
     try {
-      if (!this.streamMgr) {
-        this.streamMgr = audio.getAudioManager().getStreamManager();
-      }
+      this.streamMgr = audio.getAudioManager().getStreamManager();
       this.streamMgr.on('audioRendererChange', this.listener);
-    } catch (err) {
-      const e = err as Error;
-      hilog.error(DOMAIN, TAG, 'arm failed: %{public}s',
-        e?.message ?? JSON.stringify(err));
-      return;
-    }
-    this.armed = true;
-    hilog.info(DOMAIN, TAG, 'watch armed timeoutMs=%{public}d', ExternalMediaWatcher.TIMEOUT_MS);
-    this.callback = cb;
-    this.hadExternalMedia = false;
-    // 立即拍一次快照,把当前是否有外部 MEDIA 的状态记下来。
-    // 如果 arm 时已经无外部 MEDIA(可能视频已经结束但还没到这儿),
-    // 不立刻触发,等下一次 change 事件再判定 —— 否则空数组直接触发会误续播。
-    try {
-      const initial = this.streamMgr.getCurrentAudioRendererInfoArraySync();
-      this.evaluate(initial);
-    } catch (err) {
-      const e = err as Error;
-      hilog.warn(DOMAIN, TAG, 'initial snapshot failed: %{public}s',
-        e?.message ?? JSON.stringify(err));
-    }
-    this.timeoutTimer = setTimeout(() => {
-      hilog.info(DOMAIN, TAG, 'watch expired hadExternalMedia=%{public}s', String(this.hadExternalMedia));
+      this.callback = callback;
+      this.armedAt = Date.now();
+      // 暂停但未释放的 renderer 不代表仍在播放；活动查询覆盖这种情况。
+      this.timer = setInterval((): void => { this.check(); }, 1000);
+    } catch (error) {
       this.disarm();
-    }, ExternalMediaWatcher.TIMEOUT_MS);
+      DiagnosticLogService.failure('audio.focus.watch', error);
+    }
   }
 
   disarm(): void {
-    if (!this.armed) return;
-    hilog.info(DOMAIN, TAG, 'watch disarmed');
-    this.armed = false;
-    try {
-      this.streamMgr?.off('audioRendererChange', this.listener);
-    } catch (_e) { /* ignore */ }
-    if (this.timeoutTimer >= 0) {
-      clearTimeout(this.timeoutTimer);
-      this.timeoutTimer = -1;
-    }
+    if (this.timer >= 0) clearInterval(this.timer);
+    this.timer = -1;
     this.callback = null;
-    this.hadExternalMedia = false;
+    this.quietSince = 0;
+    try { this.streamMgr?.off('audioRendererChange', this.listener); } catch (_error) {}
   }
 
-  isArmed(): boolean {
-    return this.armed;
-  }
+  isArmed(): boolean { return this.callback !== null; }
 
-  private isExternalMediaUsage(usage: audio.StreamUsage): boolean {
-    return usage === audio.StreamUsage.STREAM_USAGE_MOVIE
-        || usage === audio.StreamUsage.STREAM_USAGE_GAME
-        || usage === audio.StreamUsage.STREAM_USAGE_VIDEO_COMMUNICATION;
-  }
-
-  private onChange(arr: audio.AudioRendererChangeInfoArray): void {
-    if (!this.armed) return;
-    this.evaluate(arr);
-  }
-
-  private evaluate(arr: audio.AudioRendererChangeInfoArray): void {
-    let externalMediaCount = 0;
-    for (let i = 0; i < arr.length; i++) {
-      const info = arr[i];
-      if (this.isExternalMediaUsage(info.rendererInfo.usage)) {
-        externalMediaCount++;
+  private check(): void {
+    if (this.callback === null || this.streamMgr === null || Date.now() - this.armedAt < 500) return;
+    try {
+      for (const usage of this.usages) {
+        if (this.streamMgr.isStreamActive(usage)) { this.quietSince = 0; return; }
       }
+    } catch (_error) {
+      this.quietSince = 0;
+      return; // 查询失败不能证明打断已结束。
     }
-    if (externalMediaCount > 0) {
-      this.hadExternalMedia = true;
-      return;
-    }
-    if (this.hadExternalMedia) {
-      hilog.info(DOMAIN, TAG, 'external media gone, request resume');
-      const cb = this.callback;
-      this.disarm();
-      if (cb) cb();
-    }
+    const now = Date.now();
+    if (this.quietSince === 0) { this.quietSince = now; return; }
+    if (now - this.quietSince < 600) return;
+    const callback = this.callback;
+    this.disarm();
+    callback();
   }
 }

@@ -2,6 +2,7 @@ import { HdsCompat } from '../utils/HdsCompat';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { curves, FrameCallback, LengthMetrics } from '@kit.ArkUI';
 import { ImmersiveTabComponent } from '../components/ImmersiveTabComponent';
+import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
   HdsNavigation, HdsNavigationTitleMode, HideMode, BottomBuilderParams, BuilderOptions, TitleBarContentOptions
@@ -39,6 +40,7 @@ import { EVT_HOME_SOURCE_CHANGED, EVT_FAVORITES_CHANGED, PreferenceService } fro
 import { HomeSourceCategory, HomeSourceContent, HomeSourceService } from '../service/rulesource/HomeSourceService';
 import { RankingHomePage } from './RankingHomePage';
 import { RankingService } from '../service/ranking/RankingService';
+import { ReleasePolicy } from '../utils/ReleasePolicy';
 
 class HomeCategoryDataSource implements IDataSource {
   private categories: HomeSourceCategory[] = [];
@@ -337,6 +339,7 @@ export struct HomePage {
   @Event onBlockMore: (block: HomeBlockSection) => void = () => {};
   @Event onScrollerReady: (scroller: Scroller) => void = () => {};
   @Event onSearchTap: () => void = () => {};
+  @Event onPodcastTap: () => void = () => {};
   @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
   /** 分类入口点击:跳到分类书单页(复用 blockMore 路由) */
   @Event onCategoryTap: (sourceUrl: string, sourceName: string, title: string, url: string) => void = () => {};
@@ -1331,6 +1334,12 @@ export struct HomePage {
       .backgroundColor(Color.Transparent)
       .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
       .onClick(() => this.onSearchTap())
+
+      if (ReleasePolicy.showPodcastEntry) {
+        ImmersiveCircleButton({ icon: $r('sys.symbol.mic'), label: $r('app.string.podcast_title'),
+          diameter: SEARCH_FIELD_HEIGHT, iconSize: 20, iconColor: AppColor.Brand,
+          onPress: (): void => this.onPodcastTap() }).id('home-podcast-button')
+      }
 
       Text(this.rankingMode ? $r('app.string.ranking_home') : this.homeSourceName || $r('app.string.home_source_setting'))
         .fontSize(13).fontWeight(FontWeight.Medium)

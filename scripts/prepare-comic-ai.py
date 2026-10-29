@@ -1,5 +1,7 @@
 """Build the pinned external engine into a HAR; never vendor its source into this project."""
 import argparse
+import base64
+import concurrent.futures
 import hashlib
 import json
 import os
@@ -31,6 +33,75 @@ def download_archive(revision, output):
 def sha256(path):
     with path.open('rb') as source:
         return hashlib.file_digest(source, 'sha256').hexdigest()
+
+
+def prepare_sources_from_existing_models(project):
+    """Verify every file against the pinned Git tree while reusing identical bundled model bytes."""
+    if not OUTPUT.exists():
+        return False
+    tree = json.loads(subprocess.check_output([
+        'gh', 'api', f'repos/{SPEC["repository"]}/git/trees/{SPEC["revision"]}?recursive=1'], timeout=60))
+    if tree.get('truncated'):
+        raise ValueError('Cannot verify a truncated AI source tree')
+    files = [entry for entry in tree['tree'] if entry['type'] == 'blob']
+    models = [entry for entry in files if entry['path'].startswith('models/comic-colorizer/') and entry['path'].endswith('.ms')]
+    if not models or any(entry['size'] > 8 * 1024 * 1024 for entry in files if entry not in models):
+        return False
+
+    def destination(entry):
+        target = (project / entry['path']).resolve()
+        if not target.is_relative_to(project.resolve()) or entry['mode'] not in ['100644', '100755']:
+            raise ValueError('Invalid AI source tree entry')
+        target.parent.mkdir(parents=True, exist_ok=True)
+        return target
+
+    with tarfile.open(OUTPUT) as package:
+        for entry in models:
+            member = 'package/src/main/resources/rawfile/comic-colorizer/' + Path(entry['path']).name
+            try:
+                source = package.extractfile(member)
+            except KeyError:
+                return False
+            digest = hashlib.sha1(f'blob {entry["size"]}\0'.encode(), usedforsecurity=False)
+            copied = 0
+            with source, destination(entry).open('wb') as target:
+                while chunk := source.read(1024 * 1024):
+                    digest.update(chunk)
+                    copied += len(chunk)
+                    target.write(chunk)
+            if copied != entry['size'] or digest.hexdigest() != entry['sha']:
+                return False
+
+    token = subprocess.check_output(['gh', 'auth', 'token'], timeout=30).decode().strip()
+    def fetch(entry):
+        request = urllib.request.Request(
+            f'https://api.github.com/repos/{SPEC["repository"]}/git/blobs/{entry["sha"]}',
+            headers={'Authorization': 'Bearer ' + token, 'User-Agent': 'HSDA-package-builder'})
+        for attempt in range(2):
+            try:
+                with urllib.request.urlopen(request, timeout=25) as response:
+                    blob = json.load(response)
+                break
+            except (OSError, ValueError):
+                if attempt:
+                    raise
+        if blob.get('encoding') != 'base64':
+            raise ValueError('Unexpected AI source blob encoding')
+        data = base64.b64decode(blob['content'])
+        actual = hashlib.sha1(f'blob {len(data)}\0'.encode() + data, usedforsecurity=False).hexdigest()
+        if len(data) != entry['size'] or actual != entry['sha']:
+            raise ValueError('AI source blob does not match the pinned Git tree: ' + entry['path'])
+        return entry, data
+
+    print(f'Reusing {len(models)} verified model files; fetching {len(files) - len(models)} source files.', flush=True)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+        for entry, data in pool.map(fetch, [entry for entry in files if entry not in models]):
+            target = destination(entry)
+            target.write_bytes(data)
+            if entry['mode'] == '100755':
+                target.chmod(0o755)
+    print('AI sources and reused models match the pinned Git tree.', flush=True)
+    return True
 
 
 def verify(path):
@@ -158,24 +229,26 @@ def build():
     with tempfile.TemporaryDirectory(prefix='hsda-ai-') as directory:
         temporary = Path(directory).resolve()
         archive = temporary / 'engine.zip'
-        download_archive(SPEC['revision'], archive)
         project = temporary / 'engine'
         project.mkdir()
-        with zipfile.ZipFile(archive) as package:
-            # Strip GitHub's long archive prefix to keep Windows native compiler paths short.
-            for member in package.infolist():
-                parts = Path(member.filename).parts[1:]
-                if not parts:
-                    continue
-                target = project.joinpath(*parts).resolve()
-                if not target.is_relative_to(project.resolve()):
-                    raise ValueError('Invalid source archive path')
-                if member.is_dir():
-                    target.mkdir(parents=True, exist_ok=True)
-                else:
-                    target.parent.mkdir(parents=True, exist_ok=True)
-                    with package.open(member) as source, target.open('wb') as output:
-                        shutil.copyfileobj(source, output)
+        if not prepare_sources_from_existing_models(project):
+            download_archive(SPEC['revision'], archive)
+        if archive.exists():
+            with zipfile.ZipFile(archive) as package:
+                # Strip GitHub's long archive prefix to keep Windows native compiler paths short.
+                for member in package.infolist():
+                    parts = Path(member.filename).parts[1:]
+                    if not parts:
+                        continue
+                    target = project.joinpath(*parts).resolve()
+                    if not target.is_relative_to(project.resolve()):
+                        raise ValueError('Invalid source archive path')
+                    if member.is_dir():
+                        target.mkdir(parents=True, exist_ok=True)
+                    else:
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with package.open(member) as source, target.open('wb') as output:
+                            shutil.copyfileobj(source, output)
         # Check the pinned upstream before applying our independently verified host calibration patch.
         subprocess.run([str(ide / 'tools/node/node.exe'), 'scripts/check.mjs'],
                        cwd=project, env=env, check=True, timeout=180)

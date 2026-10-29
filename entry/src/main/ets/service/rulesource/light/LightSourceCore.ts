@@ -517,7 +517,7 @@ export class LightSourceCore {
       const media = ComicImagePipeline.parse(audio || video ? content : '');
       if (imageUrls.length > 0) await ReaderCacheService.record(imageUrls);
       if (audio) {
-        const support = new LightAudioSupport();
+        const support = LightAudioSupport;
         media.url = support.resolveAudioUrl(content, chapter.url || book.bookUrl || source.bookSourceUrl);
         media.headers = support.audioHeaders(media.url, source, content);
         if (!media.url) throw new Error(support.invalidAudioAddressMessage(content));

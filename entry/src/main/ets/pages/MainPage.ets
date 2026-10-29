@@ -28,6 +28,7 @@ import { AppColor, HomeTheme, AppTheme } from '../theme/Theme';
 import { ThemeIcons, ThemeIconRole } from '../theme/ThemeIcons';
 import { BookSourceAudioWebRuntimeHost } from '../service/rulesource/light/BookSourceAudioWebRuntimeHost';
 import { RuleSourceImportWebHost } from '../service/rulesource/light/RuleSourceImportWebHost';
+import { MainTabPolicy } from '../utils/MainTabPolicy';
 
 /**
  * 全局事件:点击某本书时调,统一收口路由策略。
@@ -219,7 +220,7 @@ export struct MainPage {
     const v = data['index'];
     if (typeof v !== 'number') return;
     const idx = v as number;
-    if (idx < 0 || idx > 3) return;
+    if (idx < 0 || idx > 4) return;
     if (!this.tabsReady) {
       this.changeTab(idx);
       return;
@@ -242,7 +243,7 @@ export struct MainPage {
     if (this.pendingInitialTab !== -1) index = this.pendingInitialTab;
     if (!this.generalSettings.historyEnabled && index === 2) index = 0;
     this.currentTab = index;
-    this.nativeTabIndex = !this.generalSettings.historyEnabled && index === 3 ? 2 : index;
+    this.nativeTabIndex = MainTabPolicy.physical(index, this.generalSettings.historyEnabled);
     this.pendingInitialTab = -1;
     this.tabsReady = true;
   }
@@ -251,14 +252,14 @@ export struct MainPage {
    * 首屏挂载前保存目标页，挂载后的跳转使用 HdsTabs 原生切换。
    */
   private changeTab(index: number): void {
-    if (!Number.isInteger(index) || index < 0 || index > 3) return;
+    if (!Number.isInteger(index) || index < 0 || index > 4) return;
     if (!this.tabsReady) {
       this.pendingInitialTab = index;
       return;
     }
     if (!this.generalSettings.historyEnabled && index === 2) index = 0;
     if (index === this.currentTab) return;
-    this.tabController.changeIndex(!this.generalSettings.historyEnabled && index === 3 ? 2 : index);
+    this.tabController.changeIndex(MainTabPolicy.physical(index, this.generalSettings.historyEnabled));
   }
 
   private resetTabFade(): void {
@@ -269,7 +270,7 @@ export struct MainPage {
   }
 
   private requestTabFade(index: number): void {
-    const count: number = this.generalSettings.historyEnabled ? 4 : 3;
+    const count: number = MainTabPolicy.order(this.generalSettings.historyEnabled).length;
     if (!this.tabsReady || this.tabFadeRunning || !Number.isInteger(index) ||
       index < 0 || index >= count || index === this.nativeTabIndex) return;
     this.tabFadeRunning = true;
@@ -315,7 +316,7 @@ export struct MainPage {
     if (!this.tabsReady) return;
     this.resetTabFade();
     const logical = !this.generalSettings.historyEnabled && this.currentTab === 2 ? 0 : this.currentTab;
-    this.nativeTabIndex = !this.generalSettings.historyEnabled && logical === 3 ? 2 : logical;
+    this.nativeTabIndex = MainTabPolicy.physical(logical, this.generalSettings.historyEnabled);
     this.currentTab = logical;
     this.tabController.changeIndex(this.nativeTabIndex);
     this.lastTabClickIndex = -1;
@@ -411,7 +412,7 @@ export struct MainPage {
   private floatingBarStyle(): HdsTabsFloatingStyle | undefined {
     if (!PlatformCompat.floatingTabs) return undefined;
     return {
-      // 宽窗口保留底部导航习惯，避免四个入口和迷你播放条横跨整块屏幕。
+      // 宽窗口保留底部导航习惯，避免导航入口和迷你播放条横跨整块屏幕。
       barSideMargin: Math.max(16, (this.viewportWidth - 720) / 2),
       barBottomMargin: Math.max(this.bottomSafeVp, FLOATING_MIN_SAFE_BOTTOM) + FLOATING_BOTTOM,
       gradientMask: { maskColor: HomeTheme.FloatingBarMask, maskHeight: 92 },
@@ -459,6 +460,7 @@ export struct MainPage {
             },
             onBookTap: (id: string) => this.navigateToBook(id, '', 0, false),
             onSearchTap: () => this.navStack.pushPathByName('search', null),
+            onPodcastTap: (): void => { this.navStack.pushPathByName('podcast', null); },
             onBlockMore: (block: HomeBlockSection) => this.openBlockMore(block),
             onCategoryTap: (sourceUrl: string, sourceName: string, title: string, url: string) =>
               this.openCategory(sourceUrl, sourceName, title, url),
@@ -531,7 +533,7 @@ export struct MainPage {
         const DOUBLE_TAP_DELAY = 300;
         if (index === this.lastTabClickIndex && (now - this.lastTabClickTime) < DOUBLE_TAP_DELAY) {
           // 双击当前 Tab → 滚动回顶部
-          const scroller = this.scrollers.get(!this.generalSettings.historyEnabled && index === 2 ? 3 : index);
+          const scroller = this.scrollers.get(MainTabPolicy.logical(index, this.generalSettings.historyEnabled));
           if (scroller) {
             try { scroller.scrollEdge(Edge.Top); } catch (_e) { /* ignore */ }
           }
@@ -542,7 +544,7 @@ export struct MainPage {
       .onChange((index: number) => {
         const changed = this.nativeTabIndex !== index;
         this.nativeTabIndex = index;
-        this.currentTab = !this.generalSettings.historyEnabled && index === 2 ? 3 : index;
+        this.currentTab = MainTabPolicy.logical(index, this.generalSettings.historyEnabled);
         if (changed) this.finishTabFade();
       })
       // 淡出结束后原位换页，再淡入；底栏与迷你播放器不参与内容动画。

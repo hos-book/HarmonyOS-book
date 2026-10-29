@@ -1607,6 +1607,7 @@ export class WebBookService {
         console.warn(`[ReaderImage] 第 ${index + 1} 张图片处理失败: ${message}`);
         result = ReaderImageMarker.failureSource(message);
       }
+      imageRequest.hold(result);
       if (firstDoneMs < 0) firstDoneMs = Date.now() - started;
       if (timing.cacheHit) cacheHits++;
       downloadMs += timing.downloadMs;

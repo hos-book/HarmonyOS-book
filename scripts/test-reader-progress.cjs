@@ -17,6 +17,7 @@ const mocks = {
     KEYCODE_PAGE_UP: 2012, KEYCODE_PAGE_DOWN: 2013, KEYCODE_DPAD_LEFT: 2014, KEYCODE_DPAD_RIGHT: 2015 } },
   '@kit.BasicServicesKit': { emitter: events },
   '@kit.PerformanceAnalysisKit': { hilog: { info() {}, warn() {}, error() {} } },
+  '../../utils/PerformanceTrace': { PerformanceTrace: { begin: () => -1, end() {} } },
   '@kit.ArkData': { preferences: { getPreferences: async () => ({
     getSync: (key, fallback) => values.get(key) ?? fallback,
     putSync: (key, value) => values.set(key, value),
@@ -29,7 +30,8 @@ function compile(relative, source) {
   const exports = {};
   vm.runInNewContext(ts.transpileModule(source ?? fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
-  }).outputText, { exports, require: name => mocks[name] || {}, setTimeout, clearTimeout, KeyType: { Down: 0, Up: 1 }, ScrollAlign: { START: 0 } }, { filename });
+  }).outputText, { exports, require: name => mocks[name] || {}, setTimeout, clearTimeout, KeyType: { Down: 0, Up: 1 }, ScrollAlign: { START: 0 },
+    DataOperationType: { ADD: 'add', DELETE: 'delete', RELOAD: 'reload' } }, { filename });
   return exports;
 }
 const subscriptions = new Map();
@@ -143,7 +145,7 @@ bottomReader.alwaysShowStatusBar = true;
 bottomReader.topSafeVp = 30;
 assert.equal(bottomReader.readerTopInsetVp(), 30, 'always-visible status bar uses its measured height');
 const keyReader = Object.create(ReaderPage.prototype);
-Object.assign(keyReader, { volumeKeyPageTurn: false, readerVisible: true, leaving: false, loading: false,
+Object.assign(keyReader, { volumeKeyPageTurn: false, readerVisible: true, readingForeground: true, leaving: false, loading: false,
   autoPage: new ReaderAutoPageService(), autoPageRunning: false,
   readerError: '', keyTurnRequest: 0, screenOn: { touch() {} }, isOnlineTextBook: () => true });
 assert.equal(keyReader.canUseVolumeKeys(), false);
@@ -389,7 +391,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   let positioned = -1;
   let reported = -1;
   Object.assign(continuous, {
-    autoScroll: { stop() {} }, autoScrollReady: false,
+    autoScroll: { stop() {}, pause() {} }, autoScrollReady: false,
     contentWidth: 360, disposed: false, serial: 0, restoreTimer: -1, positionTimer: -1,
     chapters: [makeChapter(9), makeChapter(10), makeChapter(11)],
     chapterIndex: 10, charOffset: 150, content, source: new scrollModel.OnlineTextScrollDataSource(),
@@ -424,7 +426,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   continuous.aboutToDisappear();
   const short = Object.create(ReaderContinuousComponent.prototype);
   Object.assign(short, {
-    autoScroll: { stop() {} }, autoScrollReady: false,
+    autoScroll: { stop() {}, pause() {} }, autoScrollReady: false,
     contentWidth: 360, contentHeight: 800, rowHeight: 34, disposed: false, serial: 0,
     restoreTimer: -1, positionTimer: -1, chapters: [], chapterIndex: 0, charOffset: 0,
     chapterCount: 30, chapterStep: 1, content: '短章', source: new scrollModel.OnlineTextScrollDataSource(),

@@ -49,6 +49,13 @@ export interface NativeLoginState {
 }
 
 export interface NativeResponse {
+  errorCode?: string;
+  errorStage?: string;
+  statusCodeAvailable?: boolean;
+  hostWaitMs?: number;
+  queueMs?: number;
+  renderMs?: number;
+
   ok: boolean;
   status: number;
   body: string;
@@ -125,9 +132,9 @@ export interface NativeRunnerHost extends NativeExprHost {
   /** 脚本的 ui.refreshExplore。 */
   refreshExplore?(): Promise<void>;
   /** 脚本的 browser.verify / browser.open：wait 为 true 时等用户完成并返回页面。 */
-  openBrowser?(url: string, title: string, wait: boolean): Promise<NativeBrowserResult>;
+  openBrowser?(url: string, title: string, wait: boolean, userAgent?: string): Promise<NativeBrowserResult>;
   /** 非交互场景需要网页验证时，交给应用现有的「去验证」流程。 */
-  requestVerification?(url: string, title: string): void;
+  requestVerification?(url: string, title: string, userAgent?: string): void;
 }
 
 /** 设置页动态选项的结果：失败时 options 为空、error 为原因。 */
@@ -1250,6 +1257,14 @@ export class NativeSourceRunner {
       }
       scope.set(name, value === undefined ? null : value);
     }
+  }
+
+  async effectiveUserAgent(): Promise<string> {
+    const headers = await this.requestHeaders({}, await this.baseScope());
+    for (const name of Object.keys(headers)) {
+      if (name.toLowerCase() === 'user-agent') return headers[name];
+    }
+    return this.host.userAgent ? this.host.userAgent() : '';
   }
 
   private async baseScope(): Promise<NativeScope> {

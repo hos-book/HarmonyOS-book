@@ -54,8 +54,10 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     return readerSource.slice(start, readerSource.indexOf('\n  }', start) + 4);
   }).join('\n');
   const speechCalls = [];
+  const pausedCalls = [];
   const speech = { state: { active: true, bookId: 'book', playing: true, loading: false },
-    setReadingPageEnds() {}, initialize: async () => {}, start: async (...args) => { speechCalls.push(args); } };
+    setReadingPageEnds() {}, initialize: async () => {}, start: async (...args) => { speechCalls.push(args); },
+    followPausedReading: (...args) => pausedCalls.push(args) };
   const { ReaderNavigation } = compile('export class ReaderNavigation {\n' + methods + '\n}', {}, {
     TextToSpeechService: { getInstance: () => speech },
     PageTurnMode: { Vertical: 'vertical' },
@@ -87,6 +89,10 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   speech.state.playing = false;
   reader.followReadingWithSpeech();
   assert.equal(speechCalls.length, 1, 'paused session must not resume on navigation');
+  assert.deepEqual(pausedCalls.at(-1), ['book', 1, 120], 'paused turn updates the next resume position');
+  reader.onlineTextTurnPreview = preview;
+  reader.completeOnlineTextTurn(false);
+  assert.equal(pausedCalls.length, 1, 'cancelled turn preserves paused position');
   speech.state.loading = true;
   reader.followReadingWithSpeech();
   assert.equal(speechCalls.length, 2, 'new page replaces an in-flight speech request');

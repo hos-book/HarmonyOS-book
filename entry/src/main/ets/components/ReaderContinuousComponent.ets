@@ -86,19 +86,23 @@ export struct ReaderContinuousComponent {
   private syncAutoScroll(): void {
     this.autoScroll.stop();
     if (!this.autoScrollReady || this.disposed) { this.reportPosition(true); return; }
-    this.autoScroll.start(this.getUIContext(), (elapsed: number): void => this.advanceAutoScroll(elapsed));
+    this.autoScroll.start(this.getUIContext(), (): void => this.advanceAutoScroll());
   }
 
-  private advanceAutoScroll(elapsed: number): void {
-    if (!this.autoScrollReady || this.disposed || this.restoring || this.selectionActive || this.contentHeight <= 0) return;
+  private advanceAutoScroll(): void {
+    if (!this.autoScrollReady || this.disposed || this.restoring || this.selectionActive || this.contentHeight <= 0) {
+      this.autoScroll.pause();
+      return;
+    }
     if (this.scroller.isAtEnd()) {
+      this.autoScroll.pause();
       const last = this.chapters[this.chapters.length - 1];
       const next = last !== undefined ? last.index + this.chapterStep : -1;
       if (this.nextFailed || next < 0 || next >= this.chapterCount) this.onForwardEnd();
       else this.loadNeighbor(true);
       return;
     }
-    this.scroller.scrollBy(0, elapsed * this.autoScrollSpeed * this.rowHeight / 60);
+    this.autoScroll.move(this.scroller, this.autoScrollSpeed * this.rowHeight / 60);
     if (Date.now() - this.autoScrollSavedAt >= 1000) {
       this.autoScrollSavedAt = Date.now();
       this.reportPosition(true);
@@ -162,6 +166,7 @@ export struct ReaderContinuousComponent {
 
   private reset(): void {
     if (this.contentWidth <= 0 || this.disposed) return;
+    this.autoScroll.pause();
     const ticket = ++this.serial;
     if (this.restoreTimer !== -1) clearTimeout(this.restoreTimer);
     this.restoring = true;
@@ -341,7 +346,11 @@ export struct ReaderContinuousComponent {
             } else {
               ReaderSpeechText({
                 selectionEnabled: this.selectionEnabled,
-                onSelectionChange: (active: boolean): void => { this.selectionActive = active; this.onSelectionChange(active); },
+                onSelectionChange: (active: boolean): void => {
+                  this.selectionActive = active;
+                  if (active) this.autoScroll.pause();
+                  this.onSelectionChange(active);
+                },
                 onReadFrom: (offset: number): void => this.onReadFrom(row.chapterIndex, offset),
                 page: row.page, text: row.text, source: row.source, sourceStart: row.startOffset,
                 fontFamily: this.fontFamily, fontWeight: this.fontWeight,
@@ -374,6 +383,8 @@ export struct ReaderContinuousComponent {
       .onReachEnd((): void => { this.loadNeighbor(true); })
       .onReachStart((): void => { this.loadNeighbor(false); })
       .onTouch((event: TouchEvent): void => {
+        if (event.type === TouchType.Down) this.autoScroll.setTouching(true);
+        else if (event.type === TouchType.Up || event.type === TouchType.Cancel) this.autoScroll.setTouching(false);
         this.tapTracker.update(event);
         if (event.type === TouchType.Down) {
           this.followingSpeech = false;

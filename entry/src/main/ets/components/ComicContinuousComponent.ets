@@ -39,7 +39,6 @@ export struct ComicContinuousComponent {
   @Param autoScrollReady: boolean = false;
   @Param autoScrollSpeed: number = 30;
   private autoScroll: ReaderAutoScrollService = new ReaderAutoScrollService();
-  private autoScrollReportedAt: number = 0;
   @Event onForwardEnd: () => void = (): void => {};
   @Event onAutoPageDelay: () => void = (): void => {};
   @Event onToggle: (event: ClickEvent) => void = () => {};
@@ -74,22 +73,30 @@ export struct ComicContinuousComponent {
   private syncAutoScroll(): void {
     this.autoScroll.stop();
     if (!this.autoScrollReady || this.disposed) { this.reportPosition(); return; }
-    this.autoScroll.start(this.getUIContext(), (elapsed: number): void => this.advanceAutoScroll(elapsed));
+    this.autoScroll.start(this.getUIContext(), (): void => this.advanceAutoScroll());
   }
 
-  private advanceAutoScroll(elapsed: number): void {
-    if (!this.autoScrollReady || this.disposed || this.restoring || this.paged || this.zoomOwner.length > 0) return;
+  private advanceAutoScroll(): void {
+    if (!this.autoScrollReady || this.disposed || this.restoring || this.awaitingImage || this.paged || this.zoomOwner.length > 0) {
+      this.autoScroll.pause();
+      return;
+    }
     const row = this.source.getData(this.firstVisible);
     const ready = row !== undefined ? this.imageReady.get(`${row.chapterIndex}:${row.page.key}`) : undefined;
-    if (ready === false) this.onForwardEnd();
-    if (ready !== true) return;
+    if (ready !== true) {
+      this.autoScroll.pause();
+      if (ready === false) this.onForwardEnd();
+      return;
+    }
     if (this.scroller.isAtEnd()) {
+      this.autoScroll.pause();
       if (this.nextFailed || this.chapters[this.chapters.length - 1]?.index === (this.book?.chapters.length ?? 0) - 1) {
         this.onForwardEnd();
       } else this.loadNeighbor(true);
       return;
     }
-    this.scroller.scrollBy(0, elapsed * this.autoScrollSpeed);
+    this.autoScroll.move(this.scroller, this.autoScrollSpeed);
+    this.reportPosition();
   }
 
   @Monitor('resetToken')
@@ -148,6 +155,7 @@ export struct ComicContinuousComponent {
   }
 
   private reset(): void {
+    this.autoScroll.pause();
     this.serial++;
     this.reportedChapter = -1;
     this.reportedPage = -1;
@@ -168,6 +176,7 @@ export struct ComicContinuousComponent {
   }
 
   private restoreVisible(): void {
+    this.autoScroll.pause();
     this.restoring = true;
     const ticket = this.serial;
     const restoreTicket = ++this.restoreSerial;
@@ -272,6 +281,8 @@ export struct ComicContinuousComponent {
     if (this.disposed || this.restoring || this.awaitingImage || this.source.getData(first) === undefined) return;
     this.firstVisible = first;
     this.lastVisible = Math.min(last, this.source.totalCount() - 1);
+    const row = this.source.getData(first);
+    if (row !== undefined && this.imageReady.get(`${row.chapterIndex}:${row.page.key}`) !== true) this.autoScroll.pause();
     this.reportPosition();
     this.trimChapters();
     if (this.firstVisible < 3) this.loadNeighbor(false);
@@ -326,7 +337,10 @@ export struct ComicContinuousComponent {
               colorization: this.colorization, colorizationActive: this.colorizationActive,
               translation: this.translation, translationDirection: this.translationDirection,
               onColorError: (message: string): void => this.onColorError(message),
-              onZoomChange: (owner: string, active: boolean): void => this.onZoomChange(owner, active),
+              onZoomChange: (owner: string, active: boolean): void => {
+                if (active) this.autoScroll.pause();
+                this.onZoomChange(owner, active);
+              },
               onGeometryReady: (): void => this.imageGeometryReady(row),
               onAutoPageDelay: (): void => {
                 this.imageReady.set(`${row.chapterIndex}:${row.page.key}`, true);
@@ -334,7 +348,10 @@ export struct ComicContinuousComponent {
               },
               onAutoPageFailure: (): void => {
                 this.imageReady.set(`${row.chapterIndex}:${row.page.key}`, false);
-                if (this.source.getData(this.firstVisible) === row) this.onForwardEnd();
+                if (this.source.getData(this.firstVisible) === row) {
+                  this.autoScroll.pause();
+                  this.onForwardEnd();
+                }
               },
               onToggle: (event: ClickEvent): void => this.onToggle(event) })
           }.width('100%').align(Alignment.Center)
@@ -343,13 +360,10 @@ export struct ComicContinuousComponent {
         .enableScrollInteraction(!this.paged && this.zoomOwner.length === 0)
         .edgeEffect(EdgeEffect.None).maintainVisibleContentPosition(true)
         .onScrollIndex((first: number, last: number): void => this.visibleChanged(first, last))
-        .onDidScroll((): void => {
-          if (!this.autoScrollReady || Date.now() - this.autoScrollReportedAt >= 200) {
-            this.autoScrollReportedAt = Date.now();
-            this.reportPosition();
-          }
-        })
+        .onDidScroll(this.autoScrollReady ? undefined : (): void => this.reportPosition())
         .onTouch((event: TouchEvent): void => {
+          if (event.type === TouchType.Down) this.autoScroll.setTouching(true);
+          else if (event.type === TouchType.Up || event.type === TouchType.Cancel) this.autoScroll.setTouching(false);
           if (event.type === TouchType.Move && !this.restoring && !this.paged && this.zoomOwner.length === 0) this.awaitingImage = false;
         })
         .onReachEnd((): void => { this.loadNeighbor(true); })

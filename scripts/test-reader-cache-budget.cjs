@@ -30,6 +30,7 @@ function processCache() {
   vm.runInNewContext(code, { module, exports: module.exports, setTimeout: fn => { pendingTimer = fn; return 1; }, require: name => {
     if (name === '@kit.CoreFileKit') return { fileIo, fileUri: { FileUri: class { constructor(uri) { this.path = uri.slice(7); } } } };
     if (name === '@kit.BasicServicesKit') return { emitter: { emit() {} } };
+    if (name.endsWith('/PerformanceTrace')) return { PerformanceTrace: { begin: () => -1, end() {} } };
     throw Error(name);
   } });
   const manager = module.exports.ReaderCacheService;
@@ -155,4 +156,17 @@ function reset() {
   assert.equal(colorsCleared.releasedBytes, 80);
   for (const p of ignored) assert.ok(fs.existsSync(p), 'incomplete and unrelated files are excluded');
   console.log('PASS incremental HAR output registration, restart discovery, pins and cache cleanup');
+
+  reset(); cache = processCache();
+  const retainedSource = write(comicRoot + '/abc.jpg', 40);
+  const aiHost = colorHost(cache);
+  const releaseColor = aiHost.retainComicFile('file://' + retainedSource);
+  const releaseSuperResolution = aiHost.retainComicFile(retainedSource);
+  assert.equal((await cache.clear(1)).protectedCount, 1, 'queued AI work retains its original file');
+  releaseColor(); releaseColor();
+  assert.equal((await cache.clear(1)).protectedCount, 1, 'idempotent release keeps another AI consumer protected');
+  releaseSuperResolution();
+  assert.equal((await cache.clear(1)).removed, 1, 'completed or cancelled AI work releases its file');
+  assert.equal(fs.existsSync(retainedSource), false);
+  console.log('PASS AI source leases protect concurrent work and release exactly once');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => fs.rmSync(root, { recursive: true, force: true }));

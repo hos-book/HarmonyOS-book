@@ -14,6 +14,8 @@ import { LocalRuleSourceRepository } from './rulesource/LocalRuleSourceRepositor
 import { LocalRulePanelService } from './rulesource/LocalRulePanelService';
 import { LocalRuleDiagnostics } from './rulesource/LocalRuleDiagnostics';
 import { SearchCache } from '../utils/SearchCache';
+import { PodcastIdentity } from '../model/Podcast';
+import { PodcastSourceAdapter } from './rulesource/podcast/PodcastSourceAdapter';
 
 class BookCatalogLoad {
   book: Book;
@@ -100,6 +102,9 @@ export class BookSourceService {
       names.set(name, matches);
     }
     const find = (saved: Chapter): TocItem | undefined => {
+      if (PodcastSourceAdapter.matches(localSource)) {
+        return items.find((item: TocItem): boolean => item.url === (saved.originSourceValue || saved.source.value));
+      }
       const name = titleKey(saved.title);
       const indexed = items[saved.index - 1];
       if (indexed !== undefined && titleKey(indexed.name) === name) return indexed;
@@ -118,7 +123,8 @@ export class BookSourceService {
       for (let index = 0; index < items.length; index++) {
         const item = items[index];
         const restored: Chapter = {
-          id: `${book.id}-c${index}`, index: index + 1, title: item.name, duration: item.duration || 0,
+          id: PodcastSourceAdapter.matches(localSource) ? PodcastIdentity.chapterId(book.id, item.url) : `${book.id}-c${index}`,
+          index: index + 1, title: item.name, duration: item.duration || 0,
           source: { type: 'url', value: item.url }, originSourceValue: item.url, variables: item.variables
         };
         book.chapters.push(restored);
@@ -219,7 +225,8 @@ export class BookSourceService {
       for (const item of items) {
         const index = book.chapters.length;
         const chapter: Chapter = {
-          id: `${book.id}-c${index}`, index: index + 1, title: item.name, duration: item.duration || 0,
+          id: PodcastSourceAdapter.matches(source) ? PodcastIdentity.chapterId(book.id, item.url) : `${book.id}-c${index}`,
+          index: index + 1, title: item.name, duration: item.duration || 0,
           source: { type: 'url', value: item.url }, originSourceValue: item.url, variables: item.variables
         };
         book.chapters.push(chapter);

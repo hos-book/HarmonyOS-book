@@ -4,6 +4,7 @@ import { CookieStore } from '../http/CookieStore';
 import { WebJsAwaitScript } from './WebJsAwaitScript';
 
 export interface WebBookFetchRequest {
+  cancelCheck?: () => boolean;
   cookieSource?: string;
   url: string;
   method: string;
@@ -23,6 +24,11 @@ export interface WebBookFetchRequest {
 }
 
 export interface WebBookFetchResponse {
+  errorCode?: string;
+  errorStage?: string;
+  statusCodeAvailable?: boolean;
+  queueMs?: number;
+  renderMs?: number;
   url: string;
   statusCode: number;
   headers: Record<string, string>;
@@ -32,6 +38,9 @@ export interface WebBookFetchResponse {
 }
 
 class WebBookFetchTask {
+  queuedAt: number = Date.now();
+  startedAt: number = 0;
+  cancelId: number = -1;
   request: WebBookFetchRequest = { url: '', method: 'GET', headers: {} };
   resolve: ((value: WebBookFetchResponse) => void) | null = null;
   timeoutId: number = -1;
@@ -53,6 +62,7 @@ class WebBookFetchTask {
 export class WebBookFetchRuntime {
   private static instance: WebBookFetchRuntime | null = null;
   private controller: webview.WebviewController | null = null;
+  private controllers: webview.WebviewController[] = [];
   private ready: boolean = false;
   private static readonly WEB_JS_RETRY_INTERVAL_MS: number = 500;
   private static readonly WEB_JS_AWAIT_POLL_MS: number = 100;
@@ -66,6 +76,8 @@ export class WebBookFetchRuntime {
   }
 
   attach(controller: webview.WebviewController): void {
+    this.controllers = this.controllers.filter((item: webview.WebviewController): boolean => item !== controller);
+    this.controllers.push(controller);
     if (this.controller === controller) {
       this.recoverIdleController();
       return;
@@ -75,16 +87,21 @@ export class WebBookFetchRuntime {
     // a detail request submitted by aboutToAppear is cancelled by that very detail page's host.
     const migratingTask = this.active;
     if (migratingTask) {
-      if (migratingTask.timeoutId >= 0) clearTimeout(migratingTask.timeoutId);
-      if (migratingTask.inspectId >= 0) clearTimeout(migratingTask.inspectId);
-      migratingTask.timeoutId = -1;
-      migratingTask.inspectId = -1;
-      migratingTask.pageEnded = false;
-      migratingTask.stableCount = 0;
-      migratingTask.lastSignature = '';
-      migratingTask.webJsRun++;
-      this.active = null;
-      this.queue.unshift(migratingTask);
+      try { this.controller?.stop(); } catch (_) {}
+      if (migratingTask.request.method.toUpperCase() !== 'GET' || migratingTask.request.body) {
+        this.finishActive(this.failure(migratingTask.request.url, '网页宿主已切换，请重新发起操作', 'WEB_HOST_CHANGED', 'host'));
+      } else {
+        if (migratingTask.timeoutId >= 0) clearTimeout(migratingTask.timeoutId);
+        if (migratingTask.inspectId >= 0) clearTimeout(migratingTask.inspectId);
+        migratingTask.timeoutId = -1;
+        migratingTask.inspectId = -1;
+        migratingTask.pageEnded = false;
+        migratingTask.stableCount = 0;
+        migratingTask.lastSignature = '';
+        migratingTask.webJsRun++;
+        this.active = null;
+        this.queue.unshift(migratingTask);
+      }
     }
     this.controller = controller;
     // onControllerAttached means loadUrl/postUrl are already usable. Waiting for the initial
@@ -94,12 +111,19 @@ export class WebBookFetchRuntime {
   }
 
   detach(controller: webview.WebviewController): void {
+    this.controllers = this.controllers.filter((item: webview.WebviewController): boolean => item !== controller);
     if (this.controller !== controller) return;
-    if (this.active) this.finishActive(this.failure(this.active.request.url, '网页抓取环境已关闭'));
+    const previous = this.controllers[this.controllers.length - 1];
+    if (previous) {
+      this.attach(previous);
+      return;
+    }
+    if (this.active) this.finishActive(this.failure(this.active.request.url, '网页抓取环境已关闭', 'WEB_HOST_CLOSED', 'host'));
     while (this.queue.length > 0) {
       const task = this.queue.shift();
       if (task && task.deadlineId >= 0) clearTimeout(task.deadlineId);
-      if (task?.resolve) task.resolve(this.failure(task.request.url, '网页抓取环境已关闭'));
+      if (task && task.cancelId >= 0) clearInterval(task.cancelId);
+      if (task?.resolve) task.resolve(this.failure(task.request.url, '网页抓取环境已关闭', 'WEB_HOST_CLOSED', 'host'));
     }
     this.controller = null;
     this.ready = false;
@@ -133,10 +157,11 @@ export class WebBookFetchRuntime {
 
   isAttached(): boolean { return !!this.controller; }
 
-  async waitUntilAttached(timeoutMs: number = 8000): Promise<boolean> {
+  async waitUntilAttached(timeoutMs: number = 8000, cancelled?: () => boolean): Promise<boolean> {
     if (this.isAttached()) return true;
     const startedAt = Date.now();
     while (Date.now() - startedAt < Math.max(100, timeoutMs)) {
+      if (cancelled && cancelled()) return false;
       await new Promise<void>((resolve) => setTimeout(resolve, 50));
       if (this.isAttached()) return true;
     }
@@ -182,24 +207,46 @@ export class WebBookFetchRuntime {
         return;
       }
       const task = new WebBookFetchTask();
-      task.request = request;
+      // Queueing and controller migration share one bounded budget, even for legacy callers.
+      task.request = { ...request, deadlineAt: request.deadlineAt || Date.now() + Math.max(3000, Math.min(60000, request.timeoutMs || 20000)) };
+      request = task.request;
       task.resolve = resolve;
+      if (request.cancelCheck && request.cancelCheck()) {
+        resolve(this.failure(url, '书源请求已取消', 'CANCELLED', 'cancel'));
+        return;
+      }
       if (request.deadlineAt) {
         if (Date.now() >= request.deadlineAt) {
-          resolve(this.failure(url, 'WebView 请求超时 (2300028)'));
+          resolve(this.failure(url, '网页请求总等待超时 (2300028)', 'REQUEST_DEADLINE', 'deadline'));
           return;
         }
         task.deadlineId = setTimeout((): void => {
-          const failed = this.failure(url, 'WebView 请求超时 (2300028)');
+          const failed = this.failure(url, this.active === task ? '网页请求总等待超时 (2300028)' : '网页抓取排队超时 (2300028)',
+            this.active === task ? 'REQUEST_DEADLINE' : 'WEB_QUEUE_TIMEOUT', this.active === task ? 'deadline' : 'queue');
           if (this.active === task) this.finishActive(failed);
           else {
             const index = this.queue.indexOf(task);
             if (index >= 0) {
               this.queue.splice(index, 1);
+              if (task.cancelId >= 0) clearInterval(task.cancelId);
               task.resolve?.(failed);
             }
           }
         }, request.deadlineAt - Date.now());
+      }
+      if (request.cancelCheck) {
+        task.cancelId = setInterval((): void => {
+          if (!task.request.cancelCheck?.()) return;
+          const failed = this.failure(url, '书源请求已取消', 'CANCELLED', 'cancel');
+          if (this.active === task) this.finishActive(failed);
+          else {
+            const index = this.queue.indexOf(task);
+            if (index >= 0) this.queue.splice(index, 1);
+            clearInterval(task.cancelId);
+            if (task.deadlineId >= 0) clearTimeout(task.deadlineId);
+            task.resolve?.(failed);
+          }
+        }, 50);
       }
       this.queue.push(task);
       this.recoverIdleController();
@@ -221,18 +268,30 @@ export class WebBookFetchRuntime {
     if (!task) return;
     if (task.request.deadlineAt && Date.now() >= task.request.deadlineAt) {
       if (task.deadlineId >= 0) clearTimeout(task.deadlineId);
-      task.resolve?.(this.failure(task.request.url, 'WebView 请求超时 (2300028)'));
+      if (task.cancelId >= 0) clearInterval(task.cancelId);
+      task.resolve?.(this.failure(task.request.url, '网页抓取排队超时 (2300028)', 'WEB_QUEUE_TIMEOUT', 'queue'));
       this.runNext();
       return;
     }
     this.active = task;
+    if (!task.startedAt) task.startedAt = Date.now();
+    if (task.request.cancelCheck?.()) {
+      this.finishActive(this.failure(task.request.url, '书源请求已取消', 'CANCELLED', 'cancel'));
+      return;
+    }
     this.ready = false;
     const configuredTimeout = Math.max(3000, Math.min(60000, task.request.timeoutMs || 20000));
     const timeoutMs = task.request.deadlineAt ? Math.max(1, Math.min(configuredTimeout, task.request.deadlineAt - Date.now())) :
       configuredTimeout;
+    const deadlineLimited = timeoutMs < configuredTimeout;
     task.timeoutId = setTimeout((): void => {
       if (this.active === task) {
-        this.finishActive(this.failure(task.request.url, `WebView 请求超时（${timeoutMs}ms）`));
+        if (deadlineLimited) {
+          this.finishActive(this.failure(task.request.url, '网页请求总等待超时 (2300028)', 'REQUEST_DEADLINE', 'deadline'));
+          return;
+        }
+        this.finishActive(this.failure(task.request.url, task.webJsAttempts > 0 ? '网页等待条件未满足' : `网页加载超时（${timeoutMs}ms）`,
+          task.webJsAttempts > 0 ? 'WEB_WAIT_UNMET' : 'WEB_LOAD_TIMEOUT', task.webJsAttempts > 0 ? 'selector' : 'load'));
       }
     }, timeoutMs);
     try {
@@ -263,7 +322,7 @@ export class WebBookFetchRuntime {
     const script = `(function(){return JSON.stringify({url:String(location.href||''),title:String(document.title||''),` +
       `ready:String(document.readyState||''),html:String(document.documentElement?document.documentElement.outerHTML:'')})})()`;
     controller.runJavaScript(script).then((raw: string): void => {
-      if (this.active !== task) return;
+      if (this.active !== task || this.controller !== controller) return;
       const snapshot = this.parseSnapshot(raw);
       if (!snapshot || !snapshot['html']) {
         this.scheduleInspect(task, 400);
@@ -293,7 +352,7 @@ export class WebBookFetchRuntime {
       }
       this.resolveBody(task, snapshot['url'] || task.request.url, html);
     }).catch((error: Error): void => {
-      if (this.active === task) this.finishActive(this.failure(task.request.url, this.errorMessage(error)));
+      if (this.active === task && this.controller === controller) this.finishActive(this.failure(task.request.url, this.errorMessage(error)));
     });
   }
 
@@ -361,6 +420,7 @@ export class WebBookFetchRuntime {
       // The page did load: keep it (and a non-zero status) so callers judge a challenge or login gate
       // by its content instead of treating every unmet wait like a network failure.
       this.finishActive({ url: finalUrl, statusCode: 200, headers: {}, body: html, success: false,
+        statusCodeAvailable: false, errorCode: 'WEB_WAIT_UNMET', errorStage: 'selector',
         error: '网页等待条件未满足，未取得可用内容' });
       return;
     }
@@ -369,7 +429,7 @@ export class WebBookFetchRuntime {
 
   private failWebJs(task: WebBookFetchTask, run: number, finalUrl: string, message: string): void {
     if (this.active !== task || task.webJsRun !== run) return;
-    this.finishActive(this.failure(finalUrl, `webJs 执行失败: ${message}`));
+    this.finishActive(this.failure(finalUrl, `webJs 执行失败: ${message}`, 'WEB_JS_FAILED', 'script'));
   }
 
   private shouldRetryWebJs(task: WebBookFetchTask, value: string): boolean {
@@ -395,10 +455,16 @@ export class WebBookFetchRuntime {
     if (task.timeoutId >= 0) clearTimeout(task.timeoutId);
     if (task.deadlineId >= 0) clearTimeout(task.deadlineId);
     if (task.inspectId >= 0) clearTimeout(task.inspectId);
-    if (task.resolve) task.resolve(task.request.deadlineAt && Date.now() >= task.request.deadlineAt ?
-      this.failure(task.request.url, 'WebView 请求超时 (2300028)') : response);
+    if (task.cancelId >= 0) clearInterval(task.cancelId);
+    if (response.success && task.request.deadlineAt && Date.now() >= task.request.deadlineAt) {
+      response = this.failure(task.request.url, '网页请求总等待超时 (2300028)', 'REQUEST_DEADLINE', 'deadline');
+    }
+    if (task.resolve) task.resolve({ ...response,
+      queueMs: Math.max(0, (task.startedAt || Date.now()) - task.queuedAt),
+      renderMs: task.startedAt ? Math.max(0, Date.now() - task.startedAt) : 0 });
     try { this.controller?.stop(); } catch (_) {}
     try { this.controller?.loadUrl('about:blank'); } catch (_) {}
+    this.ready = !!this.controller;
     setTimeout((): void => this.runNext(), 0);
   }
 
@@ -445,11 +511,12 @@ export class WebBookFetchRuntime {
   }
 
   private success(url: string, body: string): WebBookFetchResponse {
-    return { url: url, statusCode: 200, headers: {}, body: body, success: true };
+    return { url: url, statusCode: 200, statusCodeAvailable: false, headers: {}, body: body, success: true };
   }
 
-  private failure(url: string, error: string): WebBookFetchResponse {
-    return { url: url, statusCode: 0, headers: {}, body: '', success: false, error: error };
+  private failure(url: string, error: string, errorCode: string = 'WEB_FAILED', errorStage: string = 'load'): WebBookFetchResponse {
+    return { url: url, statusCode: 0, statusCodeAvailable: false, headers: {}, body: '', success: false,
+      error: error, errorCode: errorCode, errorStage: errorStage };
   }
 
   private errorMessage(error: Object): string {

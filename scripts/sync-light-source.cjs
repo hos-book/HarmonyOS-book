@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const cp = require('node:child_process');
+const readerCacheBoundary = require('./light-reader-cache-boundary.cjs');
 const project = path.resolve(__dirname, '..');
 const args = process.argv.slice(2).filter(arg => arg !== '--check');
 if (args.length !== 2) throw new Error('Usage: node scripts/sync-light-source.cjs <engine-repository> <application-repository> [--check]');
@@ -31,7 +32,7 @@ function revision(root, paths) {
 const sources = {
   engine: { repository: 'https://github.com/wip3l/harmony-book-source-engine',
     commit: revision(engineSource, ['sourceengine', 'LICENSE', 'NOTICE']) },
-  application: { repository: 'https://github.com/wip3l/legado-harmony',
+  application: { repository: 'https://github.com/wip3l/qingye-reader',
     commit: revision(source, ['entry/src/main/ets', 'LICENSE']) }
 };
 const exportOwners = new Map();
@@ -74,6 +75,7 @@ const manifestPath = path.join(project, 'third_party/light-source/upstream.json'
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const excluded = new Set(['model/data/AppDatabase.ts']);
 const seeds = ['core/book/WebBookService.ts', 'core/book/SearchCoordinator.ts',
+  'core/book/AudioUrlResolver.ts',
   'core/nativesource/SourceCoverLoader.ts',
   'core/book/ExploreCoordinator.ts', 'core/nativesource/NativeSourceService.ts',
   'core/book/ReaderInteractionProvider.ts', 'core/book/BookSourceScriptRunner.ts',
@@ -87,7 +89,7 @@ const visit = name => {
   files.set(name, text);
   const dependencies = name === 'core/nativesource/NativeImageScriptRunner.ts' ?
     text.replace(/^import .* from '@devzeng\/quickjs';\n/m, '')
-      .replace(/^import .* from '\.\/NativeImageTransform';\n/m, '') : text;
+      .replace(/^import .* from '\.\/NativeImageTransform';\n/m, '') : readerCacheBoundary(name, text);
   for (const match of rewritePackageImports(name, name === 'core/book/ReaderCacheBudget.ts' ? '' : dependencies).matchAll(/(?:from\s*|import\s*)['"]([^'"]+)['"]/g)) {
     if (match[1].startsWith('@legado/sourceengine')) throw new Error(`Unsupported package import: ${match[1]}`);
     if (!match[1].startsWith('.')) continue;
@@ -113,7 +115,23 @@ const replaceMethod = (text, signature, body) => {
   return text.replace(expression, body);
 };
 function adapt(name, text) {
+  text = readerCacheBoundary(name, text);
   if (name === 'core/book/ComicImagePipeline.ts') text = require('./light-image-protection.cjs')(text);
+  if (name === 'core/book/ReaderCacheCoordinator.ts') {
+    text = "import { ReaderCacheService } from '../../../../../ReaderCacheService';\n" + text;
+    text = replaceMethod(text, 'static retainFile\\(', `  static retainFile(path: string): () => void {
+    const normalized = ReaderCacheCoordinator.path(path);
+    const release = ReaderCacheCoordinator.retain(ReaderCacheCoordinator.files, normalized);
+    ReaderCacheService.hold(normalized);
+    let released = false;
+    return (): void => {
+      if (released) return;
+      released = true;
+      release();
+      ReaderCacheService.unhold(normalized);
+    };
+  }`);
+  }
   if (name === 'core/book/ReaderCacheBudget.ts') return `
 import { ReaderCacheService } from '../../../../../ReaderCacheService';
 /** Cache lifetime belongs to the app, including active-reader holds and durable text chapters. */
@@ -188,6 +206,7 @@ generated.push({ name: 'NativeExprProgram.ts', original: exprOriginal,
 const cookieOriginal = files.get('core/http/CookieStore.ts');
 let cookieSemantics = cookieOriginal.replaceAll('CookieStore', 'LightCookieSemantics')
     .replace('fetchCookieSync(target)', 'fetchCookieSync(target, true)')
+    .replace('fetchCookieSync(target, false, true)', 'fetchCookieSync(target, true, true)')
     .replaceAll('configCookieSync(target, value, false, true)', 'configCookieSync(target, value, true, true)')
     .replaceAll('configCookieSync(target, value)', 'configCookieSync(target, value, true)')
     .replace('clearAllCookiesSync()', 'clearAllCookiesSync(true)')
@@ -211,26 +230,14 @@ generated.push({ name: 'LightSourceImport.ts', original: methods.join('\n'),
 generated.push({ name: 'LightNativeImport.ts', original: files.get('core/nativesource/NativeSourceImport.ts'),
   origin: locate('core/nativesource/NativeSourceImport.ts'), generated: true,
   text: "export { NativeSourceImport as NativeSourceService } from './core/nativesource/NativeSourceImport';\n" });
-// The upstream audio page performs a second parsing step after the rule engine:
-// unwrap JSON/HTML media results and carry the source's scoped stream headers.
-// Extract those methods verbatim so adapter behavior follows the pinned player.
-const audioPage = fs.readFileSync(path.join(sourceRoot, 'pages/AudioBook.ets'), 'utf8').replaceAll('\r\n', '\n');
-const audioMethods = ['resolveAudioUrl', 'audioUrlFromObject', 'invalidAudioAddressMessage',
-  'decodeAudioRuleValue', 'normalizeAudioCandidate', 'audioHeaders', 'sourceAudioHeaders'].map(name => {
-  const match = audioPage.match(new RegExp('^  (?:private )?' + name + '\\([\\s\\S]*?\\n  \\}', 'm'));
-  if (!match) throw new Error(`Source audio method changed: ${name}`);
-  return match[0];
-});
-generated.push({ name: 'LightAudioSupport.ts', original: audioMethods.join('\n'),
-  origin: path.join(sourceRoot, 'pages/AudioBook.ets'), generated: true, text:
-  `import { BookSource } from './model/data/Book';\n` +
-  `import { AudioRuleSupport } from './core/book/AudioRuleSupport';\n` +
-  `import { BookUrlResolver } from './core/book/BookUrlResolver';\n` +
-  `import { VerificationSupport } from './core/http/VerificationSupport';\n` +
-  `export class LightAudioSupport {\n${audioMethods.join('\n\n')}\n}\n` });
+// Upstream now shares the same resolver between playback and offline download; preserve the application alias.
+generated.push({ name: 'LightAudioSupport.ts', original: files.get('core/book/AudioUrlResolver.ts'),
+  origin: locate('core/book/AudioUrlResolver.ts'), generated: true,
+  text: "export { AudioUrlResolver as LightAudioSupport } from './core/book/AudioUrlResolver';\n" });
 const manifest = { schemaVersion: 2, sources, license: 'GPL-3.0',
   hashNormalization: 'LF',
-  patches: ['host-visible-image-scheduling-v1', 'host-reader-cache-budget-v1', 'host-image-protection-v1'],
+  patches: ['host-visible-image-scheduling-v1', 'host-reader-cache-budget-v1', 'host-image-protection-v1',
+    'host-reader-cache-boundary-v1', 'host-incognito-partitioned-cookies-v1'],
   files: generated.map(entry => ({ path: entry.name,
     ...provenance(entry.origin || locate(entry.name)),
     ...(entry.generated ? { generated: true } : {}),

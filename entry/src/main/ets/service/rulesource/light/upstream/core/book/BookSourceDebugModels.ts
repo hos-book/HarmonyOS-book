@@ -12,6 +12,12 @@ export class BookSourceDebugLimits {
 }
 
 export class BookSourceDebugNetworkTrace {
+  statusCodeAvailable: boolean = false;
+  errorCode: string = '';
+  errorStage: string = '';
+  hostWaitMs: number = 0;
+  queueMs: number = 0;
+  renderMs: number = 0;
   requestId: string = '';
   transport: string = '';
   retryAttempt: number = 0;

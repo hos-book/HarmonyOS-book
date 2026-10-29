@@ -1,3 +1,4 @@
+import deviceInfo from '@ohos.deviceInfo';
 import { webview } from '@kit.ArkWeb';
 import { util } from '@kit.ArkTS';
 import { LogText } from '../../utils/LogText';
@@ -8,6 +9,21 @@ export class LightCookieSemantics {
   /** Legacy unscoped callers keep the ArkWeb jar; source execution always supplies its identity. */
   static forSource(sourceUrl: string = ''): SourceCookieJar {
     return SourceEngineHost.cookies(sourceUrl) || LightCookieSemantics;
+  }
+
+  static getRequestCookie(url: string): string {
+    if (deviceInfo.sdkApiVersion < 26) return this.getCookie(url);
+    for (const target of this.targetUrls(url)) {
+      try {
+        const value = webview.WebCookieManager.fetchCookieSync(target, true, true) || '';
+        if (value) return this.withoutExpiredJwtCookies(value);
+      } catch (error) {
+        const code = Number((error as Record<string, Object>)['code'] || 0);
+        if (code === 801) return this.getCookie(url);
+        if (code !== 17100002) console.warn('[LightCookieSemantics] 分区 Cookie 读取失败，code=' + code);
+      }
+    }
+    return '';
   }
 
   private static readonly TOMBSTONE_VALUE = '__removed__';
@@ -47,6 +63,7 @@ export class LightCookieSemantics {
     for (const item of cookies.split(';')) {
       const pair = item.trim();
       if (!pair || !pair.includes('=')) continue;
+      if (/^(cf_clearance|__cf_bm)=/i.test(pair) && fromUrl !== toUrl) continue;
       this.setCookies(toUrl, pair);
     }
     this.saveAsync();
@@ -70,9 +87,11 @@ export class LightCookieSemantics {
 
   static removeCookie(url: string, name?: string): void {
     if (!url) return;
-    const current = this.getCookie(url);
+    const current = this.getRequestCookie(url);
+    const ordinaryNames = this.getCookie(url).split(';').map((part: string): string => part.trim().split('=')[0]);
     const names = name ? [name] : current.split(';').map(item => item.trim().split('=')[0]).filter(item => item.length > 0);
     for (const cookieName of names) {
+      if (ordinaryNames.indexOf(cookieName) < 0) continue;
       // ArkWeb refuses to store expired cookies ("if the cookie has expired, it will not be
       // stored"), so the classic Max-Age=0 write is a silent no-op and the cookie survives.
       // Verify after each step and escalate: first an empty-value tombstone (server sees an
@@ -83,6 +102,17 @@ export class LightCookieSemantics {
       }
       if (this.getCookieValue(url, cookieName)) {
         this.writeCookieVariants(url, `${cookieName}=${this.TOMBSTONE_VALUE}; Max-Age=31536000; Path=/`);
+      }
+    }
+    if (deviceInfo.sdkApiVersion >= 26 && /^https:/i.test(url)) {
+      for (const cookieName of names) {
+        // Partitioned writes remain partitioned; do not materialize them in the unpartitioned jar.
+        for (const path of ['', '; Path=/']) {
+          this.writeCookieVariants(url, `${cookieName}=; Secure; HttpOnly; SameSite=None; Partitioned${path}; Max-Age=0`);
+          if (this.getRequestCookie(url).split(';').some((pair: string): boolean => pair.trim().startsWith(cookieName + '='))) {
+            this.writeCookieVariants(url, `${cookieName}=${this.TOMBSTONE_VALUE}; Secure; HttpOnly; SameSite=None; Partitioned${path}; Max-Age=60`);
+          }
+        }
       }
     }
     this.saveAsync();

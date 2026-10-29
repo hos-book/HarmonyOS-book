@@ -64,7 +64,7 @@ struct RankingBookRow {
       CoverImage({ url: this.book.coverUrl, imgWidth: 58,
         aspectRatioValue: this.book.contentType === 'text' ? 0.75 : 1,
         useOriginalRatio: true, maxOriginalHeight: 78,
-        radius: AppRadius.Sm, imageFit: ImageFit.Contain, decodeW: 174, decodeH: 234 })
+        radius: AppRadius.Sm, imageFit: ImageFit.Contain })
         BookRatingBadge({ rating: this.book.rating, coverWidth: this.ratingCoverWidth })
       }
       .onSizeChange((_oldSize: SizeOptions, newSize: SizeOptions): void => {
@@ -160,7 +160,7 @@ struct RankingSection {
               Column({ space: 9 }) {
                 Stack({ alignContent: Alignment.BottomStart }) {
                   CoverImage({ url: book.coverUrl, imgWidth: 152, imgHeight: 152, useFixedHeight: true,
-                    radius: AppRadius.Sm, imageFit: ImageFit.Contain, decodeW: 456, decodeH: 456 })
+                    radius: AppRadius.Sm, imageFit: ImageFit.Contain })
                   Text(book.rank.toString().padStart(2, '0')).fontSize(30).fontWeight(FontWeight.Bold)
                     .fontColor(Color.White).textShadow({ radius: 10, color: '#66000000', offsetY: 2 })
                     .margin({ left: 10, bottom: 7 })

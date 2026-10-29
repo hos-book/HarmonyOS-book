@@ -26,7 +26,8 @@ class HdsTabClip implements AttributeModifier<CommonAttribute> {
  * 浮动栏要求明确宽度，所以按字宽估算胶囊宽度，保证整段文字完整显示。
  * 注意 width / height 是 CustomComponent 的保留名，参数只能另起名字。
  *
- * 只做展示，不挂 onClick（点了没反应比不能点更糟）。横向滑动则自己接管：
+ * 可通过 onPress 响应点击；事件必须挂在内部根节点，外层 onClick 会被 Block 命中策略挡住。
+ * 横向滑动自己接管：
  * 胶囊内部是 HdsTabs（Swiper + 自带可点的 TabBar），实测从胶囊上起手时外层 Scroll
  * 的横向拖动会被内部节点吃掉，只有从胶囊之间的空隙起手才滑得动。
  * 所以这里在胶囊根节点上挂 PanGesture，直接驱动外层 Scroll 的 Scroller，
@@ -48,6 +49,7 @@ export struct HdsImmersiveTab {
    * 所以胶囊自己接管横向拖动，用这个 Scroller 直接驱动外层滚动。
    */
   @Param scroller: Scroller = new Scroller();
+  @Event onPress: () => void = () => {};
   /** 上一帧的累计位移，用来把 PanGesture 的累计 offsetX 换算成增量。 */
   private panBase: number = 0;
 
@@ -136,6 +138,7 @@ export struct HdsImmersiveTab {
     // Block：根节点自己响应触摸测试，把子节点（HdsTabs 内部的 Swiper / 可点 TabBar）
     // 全部挡在命中测试之外，横向拖动才不会被它们抢走。
     .hitTestBehavior(HitTestMode.Block)
+    .onClick((): void => this.onPress())
     .gesture(
       PanGesture({ direction: PanDirection.Horizontal, distance: 4 })
         .onActionStart((): void => {

@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { image } from '@kit.ImageKit';
 import { MainPage } from './MainPage';
+import { PodcastPage } from './PodcastPage';
 import { WebEngineGate } from '../service/WebEngineGate';
 import { WebBookFetchRuntimeHost } from '../service/rulesource/light/WebBookFetchRuntimeHost';
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
@@ -43,7 +44,7 @@ import { emitter } from '@kit.BasicServicesKit';
 import { EVT_WIDGET_ROUTE, KEY_WIDGET_ROUTE, WidgetRoute } from '../entryability/EntryAbility';
 import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { HdsCompat } from '../utils/HdsCompat';
-import { AppRadius } from '../theme/Theme';
+import { AppRadius, AppTheme } from '../theme/Theme';
 import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
 import { WindowUtils } from '../utils/WindowUtils';
 import { JianjianCompanionComponent } from '../components/JianjianCompanionComponent';
@@ -464,6 +465,8 @@ struct Index {
       .systemTransition(NavigationSystemTransitionType.SLIDE_RIGHT)
     } else if (name === 'search') {
       SearchPage({ navStack: this.navStack, initialKeyword: this.resolveParam(param, 'keyword') })
+    } else if (name === 'podcast') {
+      PodcastPage({ navStack: this.navStack })
     } else if (name === 'readerKitVerify') {
       // 华为 ReaderKit 验证页面已禁用（需要 HMS Core ReaderService 依赖）
       NavDestination() {
@@ -547,8 +550,12 @@ struct Index {
         TechnicalSupportPage({ navStack: this.navStack })
       }
     } else if (name === 'guide') {
-      ProfileMenuDestination() {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
         GuidePage({ navStack: this.navStack })
+      }
+    } else if (name === 'guideDetail') {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
+        GuidePage({ navStack: this.navStack, topicId: String(param) })
       }
     } else if (name === 'import') {
       ProfileMenuDestination() {

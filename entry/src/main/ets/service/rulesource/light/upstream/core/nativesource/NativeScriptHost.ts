@@ -170,12 +170,12 @@ export class NativeScriptHost {
         return host.refreshExplore().then((): NativeValue => null);
       }
       case '@browserVerify':
-        return this.browserVerify(this.url(args[0]), this.text(args[1]));
+        return this.browserVerify(this.url(args[0]), this.text(args[1]), args[2]);
       case '@browserOpen': {
         const host = this.context.host;
         if (!this.context.interactive) throw new Error(NOT_INTERACTIVE);
         if (!host.openBrowser) throw new Error('当前环境不支持打开网页');
-        return host.openBrowser(this.url(args[0]), this.text(args[1]), false).then((): NativeValue => null);
+        return this.browserOpen(this.url(args[0]), this.text(args[1]));
       }
       case '@render':
         return this.render(this.url(args[0]), args[1]);
@@ -189,19 +189,34 @@ export class NativeScriptHost {
     }
   }
 
+  private async browserOpen(url: string, title: string): Promise<NativeValue> {
+    const host = this.context.host;
+    if (!host.openBrowser) throw new Error('当前环境不支持打开网页');
+    await host.openBrowser(url, title, false, await this.userAgent());
+    return null;
+  }
+
   /** 交互场景里打开网页等用户完成，返回页面；非交互场景提示「去验证」。 */
-  private async browserVerify(url: string, hint: string): Promise<NativeValue> {
+  private async browserVerify(url: string, hint: string, options: NativeValue): Promise<NativeValue> {
     if (!/^https?:/i.test(url)) throw new Error(`网页地址无效：${url}`);
+    if (options !== undefined && options !== null && (typeof options !== 'object' || Array.isArray(options))) {
+      throw new Error('browser.verify options 必须是对象');
+    }
+    const supplied = options ? (options as Record<string, NativeValue>)['userAgent'] : undefined;
+    if (supplied !== undefined && (typeof supplied !== 'string' || /[\r\n]/.test(supplied) || supplied.length > 2048)) {
+      throw new Error('browser.verify userAgent 必须是无换行的字符串（最多 2048 字符）');
+    }
+    const userAgent = supplied === undefined ? await this.userAgent() : String(supplied);
     const host = this.context.host;
     if (!this.context.interactive) {
-      if (host.requestVerification) host.requestVerification(url, hint || '网页验证');
+      if (host.requestVerification) host.requestVerification(url, hint || '网页验证', userAgent);
       throw new Error(`需要网页验证${hint ? `（${hint}）` : ''}，请点「去验证」后重试`);
     }
     if (!host.openBrowser) throw new Error('当前环境不支持打开网页');
     const startedAt = Date.now();
     this.trace(`browser.verify ${url}`, '等待用户在网页里完成', '');
     try {
-      const result = await host.openBrowser(url, hint, true);
+      const result = await host.openBrowser(url, hint, true, userAgent);
       if (result.error) throw new Error(result.error);
       return result.body;
     } finally {
@@ -311,6 +326,7 @@ export class NativeScriptHost {
       throw new Error(`脚本收到的数据超过上限（${Math.round(this.context.limits.bytes / 1024 / 1024)} MB）`);
     }
     return {
+      errorCode: response.errorCode || '', errorStage: response.errorStage || '', statusCodeAvailable: response.statusCodeAvailable === true,
       ok: response.ok, status: response.status, body: body, url: response.url || request.url,
       finalUrl: response.finalUrl || '', error: response.error || '',
       headers: HttpHeaderValues.normalize(response.headers || {}), headersAvailable: response.headersAvailable === true,

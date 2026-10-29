@@ -11,6 +11,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AppTheme, AppRadius, AppSpace, AppFont, AppColor } from '../theme/Theme';
 import { PreferenceService } from '../service/PreferenceService';
 import { AudioService } from '../service/AudioService';
+import { AudioFocusService } from '../service/AudioFocusService';
 import { ChapterCacheService } from '../service/ChapterCacheService';
 import { WidgetUpdater } from '../service/WidgetUpdater';
 import { WindowUtils } from '../utils/WindowUtils';
@@ -32,11 +33,6 @@ interface TabOption {
   label: string;
 }
 
-interface FocusModeOption {
-  mode: number;
-  label: string;
-}
-
 const THEME_OPTIONS: ThemeOption[] = [
   { mode: ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET, label: '跟随系统' },
   { mode: ConfigurationConstant.ColorMode.COLOR_MODE_LIGHT, label: '浅色模式' },
@@ -48,11 +44,6 @@ const TAB_OPTIONS: TabOption[] = [
   { idx: 1, label: '书架' },
   { idx: 2, label: '记录' },
   { idx: 3, label: '我的' }
-];
-
-const FOCUS_MODE_OPTIONS: FocusModeOption[] = [
-  { mode: 0, label: '共享焦点' },
-  { mode: 1, label: '独立焦点' }
 ];
 
 interface PreloadOption {
@@ -86,7 +77,6 @@ export struct SettingsPage {
   @Local isSavingAutoPlayOnLaunch: boolean = false;
   @Local focusMode: number = 0;
   @Local isSavingFocusMode: boolean = false;
-  @Local autoResume: boolean = true;
   @Local defaultPlaybackSpeed: number = 1;
   @Local defaultPlaybackSpeedDraft: number = 1;
   @Local isSavingDefaultPlaybackSpeed: boolean = false;
@@ -172,8 +162,7 @@ export struct SettingsPage {
       const defaultTab = await PreferenceService.getDefaultTab();
       const autoPlay = await PreferenceService.getAutoPlayOnLaunch();
       const coverResolution = await PreferenceService.getStoredCoverSuperResolution();
-      const focusMode = await PreferenceService.getAudioInterruptMode();
-      const autoResume = await PreferenceService.getAudioAutoResume();
+      const focusMode = await PreferenceService.getAudioFocusMode();
       const defaultPlaybackSpeed = await PreferenceService.getDefaultPlaybackSpeed();
       const preloadCount = await PreferenceService.getPreloadChapters();
       if (!this.alive || serial !== this.preferencesLoadSerial) return;
@@ -184,7 +173,6 @@ export struct SettingsPage {
       this.autoPlayOnLaunch = autoPlay;
       this.coverSuperResolution = coverResolution;
       this.focusMode = focusMode;
-      this.autoResume = autoResume;
       this.defaultPlaybackSpeed = defaultPlaybackSpeed;
       this.defaultPlaybackSpeedDraft = defaultPlaybackSpeed;
       this.preloadCount = preloadCount;
@@ -261,7 +249,7 @@ export struct SettingsPage {
     this.isSavingFocusMode = true;
     this.focusMode = mode;
     try {
-      await AudioService.getInstance().setInterruptMode(mode);
+      await AudioFocusService.getInstance().setMode(mode);
     } catch (error) {
       this.focusMode = previous;
       hilog.warn(0xFF00, 'SettingsPage', 'Save audio focus failed: %{public}s', String(error));
@@ -269,11 +257,6 @@ export struct SettingsPage {
     } finally {
       this.isSavingFocusMode = false;
     }
-  }
-
-  private async setAutoResume(enabled: boolean): Promise<void> {
-    this.autoResume = enabled;
-    await AudioService.getInstance().setAutoResume(enabled);
   }
 
   private async setDefaultPlaybackSpeed(speed: number): Promise<void> {
@@ -821,24 +804,20 @@ export struct SettingsPage {
 
         this.buildDivider()
 
-        this.buildSelectItem(
-          '音频焦点',
-          UIUtils.makeBinding<string>(() => this.focusMode === 1 ? '与本应用其他音频独立计算焦点' : '与系统其他音频互斥（推荐）'),
-          FOCUS_MODE_OPTIONS.map((opt: FocusModeOption): SelectOption => { return { value: opt.label }; }),
-          UIUtils.makeBinding<number>(() => FOCUS_MODE_OPTIONS.findIndex((opt: FocusModeOption) => opt.mode === this.focusMode)),
-          (index: number) => this.setFocusMode(FOCUS_MODE_OPTIONS[index].mode),
-          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.isSavingFocusMode)
-        )
-
-        this.buildDivider()
-
-        this.buildSwitchItem(
-          '失焦后自动恢复',
-          '被来电、导航、视频打断后自动续播',
-          UIUtils.makeBinding<boolean>(() => this.autoResume),
-          (isOn: boolean) => this.setAutoResume(isOn),
-          UIUtils.makeBinding<boolean>(() => this.isLoaded)
-        )
+        Column({ space: AppSpace.Sm }) {
+          Row({ space: AppSpace.Sm }) {
+            Text($r('app.string.settings_audio_focus_title'))
+              .fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).layoutWeight(1)
+            ImmersiveOptionTabs({
+              labels: [$r('app.string.settings_audio_focus_resume'), $r('app.string.settings_audio_focus_mix')],
+              selected: this.focusMode,
+              onSelect: (index: number): void => { this.setFocusMode(index); }
+            }).enabled(this.isLoaded && !this.isSavingFocusMode)
+          }.width('100%')
+          Text(this.focusMode === 1 ? $r('app.string.settings_audio_focus_mix_desc') :
+            $r('app.string.settings_audio_focus_resume_desc'))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).width('100%')
+        }.width('100%').padding(ROW_INDENT)
 
         this.buildDivider()
 

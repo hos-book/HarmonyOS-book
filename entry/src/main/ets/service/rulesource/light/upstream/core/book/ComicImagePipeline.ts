@@ -146,7 +146,7 @@ export class ComicImagePipeline {
     const cacheKey = spec.decodeScript ? digestHashHex('SHA256', JSON.stringify({
       version: 1, identity: cacheIdentity, js: scriptCode, config: scriptConfig, fn: spec.decodeScript,
       params: spec.decodeParams, plain: spec.processPlainImages, index: imageIndex
-    })) : (Object.keys(spec.headers).length ? digestHashHex('SHA256', cacheIdentity) : this.hashText(cacheIdentity));
+    })) : digestHashHex('SHA256', cacheIdentity);
     const basePath = `${dir}/${cacheKey}`;
     const existing = this.findExisting(basePath);
     if (existing) {
@@ -362,7 +362,8 @@ export class ComicImagePipeline {
     for (const ext of ['.jpg', '.png', '.gif', '.webp', '.bmp', '.avif', '.heic']) {
       const path = `${basePath}${ext}`;
       try {
-        if (fs.accessSync(path)) return path;
+        const stat = fs.statSync(path);
+        if (stat.isFile() && stat.size > 0) return path;
       } catch (_) {
       }
     }

@@ -9,6 +9,32 @@ import { CustomTtsConfigParser } from './CustomTtsConfigParser';
 /** 一次连续朗读复用同一个播放器，切段只 reset，停止时才 release。 */
 export class HttpTtsAudioOutput {
   private player: media.AVPlayer | null = null;
+  private onInterrupt: ((event: audio.InterruptEvent) => void) | null;
+  private onDeviceUnavailable: (() => void) | null;
+  private beforePlay: (() => Promise<boolean>) | null;
+
+  constructor(onInterrupt: ((event: audio.InterruptEvent) => void) | null = null,
+    onDeviceUnavailable: (() => void) | null = null, beforePlay: (() => Promise<boolean>) | null = null) {
+    this.onInterrupt = onInterrupt;
+    this.onDeviceUnavailable = onDeviceUnavailable;
+    this.beforePlay = beforePlay;
+  }
+
+  async preparePlayback(): Promise<boolean> {
+    return this.beforePlay === null ? true : await this.beforePlay();
+  }
+
+  handleInterrupt(event: audio.InterruptEvent): boolean {
+    if (this.onInterrupt === null) return false;
+    this.onInterrupt(event);
+    return true;
+  }
+
+  handleDeviceChange(info: audio.AudioStreamDeviceChangeInfo): void {
+    if (info.changeReason === audio.AudioStreamDeviceChangeReason.REASON_OLD_DEVICE_UNAVAILABLE) {
+      this.onDeviceUnavailable?.();
+    }
+  }
 
   async acquire(): Promise<media.AVPlayer> {
     if (this.player === null) this.player = await media.createAVPlayer();
@@ -20,6 +46,7 @@ export class HttpTtsAudioOutput {
       player.off('stateChange');
       player.off('error');
       player.off('audioInterrupt');
+      player.off('audioOutputDeviceChangeWithInfo');
       player.off('timeUpdate');
     } catch (_error) { reusable = false; }
     if (this.player !== player) return;
@@ -150,7 +177,7 @@ export class HttpTtsPlayer {
       this.check();
       player = await output.acquire();
       this.check();
-      await this.play(player, file.fd, written, speed, onStart, onProgress);
+      await this.play(player, file.fd, written, speed, onStart, onProgress, output);
       completed = true;
     } finally {
       this.rejectPlayback = null;
@@ -164,7 +191,7 @@ export class HttpTtsPlayer {
   }
 
   private play(player: media.AVPlayer, fd: number, length: number, speed: number, onStart: () => void,
-    onProgress: ((position: number, duration: number) => void) | null): Promise<void> {
+    onProgress: ((position: number, duration: number) => void) | null, output: HttpTtsAudioOutput): Promise<void> {
     let playbackTimeout = -1;
     return new Promise<void>((resolve, reject): void => {
       this.rejectPlayback = reject;
@@ -176,8 +203,13 @@ export class HttpTtsPlayer {
       }
       player.on('error', (): void => reject(new Error('TTS audio playback failed')));
       player.on('audioInterrupt', (event: audio.InterruptEvent): void => {
+        if (this.cancelled) return;
+        if (output.handleInterrupt(event)) return;
         if (event.hintType === audio.InterruptHint.INTERRUPT_HINT_PAUSE ||
           event.hintType === audio.InterruptHint.INTERRUPT_HINT_STOP) reject(new Error('TTS audio interrupted'));
+      });
+      player.on('audioOutputDeviceChangeWithInfo', (info: audio.AudioStreamDeviceChangeInfo): void => {
+        if (!this.cancelled) output.handleDeviceChange(info);
       });
       player.on('stateChange', (state: media.AVPlayerState): void => {
         if (this.cancelled) { reject(new Error('TTS cancelled')); return; }
@@ -194,7 +226,11 @@ export class HttpTtsPlayer {
             playbackTimeout = setTimeout((): void => reject(new Error('TTS playback timed out')),
               Math.max(30000, Math.min(7200000, duration + 30000)));
             player.setPlaybackRate(speed);
-            player.play().catch((): void => reject(new Error('TTS audio play failed')));
+            output.preparePlayback().then(async (ready: boolean): Promise<void> => {
+              this.check();
+              if (!ready) throw new Error('TTS focus cancelled');
+              await player.play();
+            }).catch((): void => reject(new Error('TTS audio play failed')));
           } catch (_error) { reject(new Error('TTS audio play failed')); }
         } else if (state === 'playing') {
           onStart();

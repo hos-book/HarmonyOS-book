@@ -38,6 +38,7 @@ const KEY_COVER_SUPER_RESOLUTION = 'cover_super_resolution';
 export const EVT_COVER_SUPER_RESOLUTION_CHANGED = 'app.cover.super_resolution.changed';
 const KEY_AUDIO_INTERRUPT_MODE = 'audio_interrupt_mode';
 const KEY_AUDIO_AUTO_RESUME = 'audio_auto_resume';
+const KEY_AUDIO_FOCUS_MODE = 'audio_focus_mode_v2';
 const KEY_DEFAULT_PLAYBACK_SPEED = 'default_playback_speed';
 const KEY_PRIVACY_AGREED_VERSION = 'privacy_agreed_version';
 const KEY_HOME_GRID_COLUMNS = 'home_grid_columns';
@@ -115,6 +116,7 @@ export class PreferenceBackupSnapshot {
   autoPlayOnLaunch: boolean = false;
   audioInterruptMode: number = 0;
   audioAutoResume: boolean = true;
+  audioFocusMode: number | undefined = undefined;
   defaultPlaybackSpeed: number = 1;
   homeGridColumns: number = 3;
   preloadChapters: number = 1;
@@ -251,6 +253,15 @@ export class PreferenceService {
   static async getComicVolumeKeyPageTurn(): Promise<boolean> {
     const store = await PreferenceService.ensureStore();
     return store.getSync('comic_volume_key_page_turn', false) === true;
+  }
+
+  static async getComicSmartKeyPageTurn(): Promise<boolean> {
+    const store = await PreferenceService.ensureStore();
+    return store.getSync('comic_smart_key_page_turn', false) === true;
+  }
+
+  static async setComicSmartKeyPageTurn(enabled: boolean): Promise<void> {
+    await PreferenceService.saveComicPreference('comic_smart_key_page_turn', enabled, false);
   }
 
   static async setComicVolumeKeyPageTurn(enabled: boolean): Promise<void> {
@@ -1144,7 +1155,25 @@ export class PreferenceService {
     }
   }
 
-  /** 0=共享焦点（默认，听书与其他音乐互斥）, 1=独立焦点（不与本应用其他音频互斥） */
+  /** 0=打断后自动恢复，1=共存播放。旧的共享/独立焦点不代表用户选择过混音。 */
+  static async getAudioFocusMode(): Promise<number> {
+    const store = await PreferenceService.ensureStore();
+    return await store.get(KEY_AUDIO_FOCUS_MODE, 0) === 1 ? 1 : 0;
+  }
+
+  static async setAudioFocusMode(mode: number): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const previous = await store.get(KEY_AUDIO_FOCUS_MODE, 0);
+    await store.put(KEY_AUDIO_FOCUS_MODE, mode === 1 ? 1 : 0);
+    try { await store.flush(); }
+    catch (error) {
+      await store.put(KEY_AUDIO_FOCUS_MODE, previous);
+      const failure: Error = error;
+      throw failure;
+    }
+  }
+
+  /** 仅供旧备份兼容；当前播放策略使用 getAudioFocusMode。 */
   static async getAudioInterruptMode(): Promise<number> {
     const s = await PreferenceService.ensureStore();
     return await s.get(KEY_AUDIO_INTERRUPT_MODE, 0) as number;
@@ -1645,6 +1674,7 @@ export class PreferenceService {
     snapshot.autoPlayOnLaunch = await PreferenceService.getAutoPlayOnLaunch();
     snapshot.audioInterruptMode = await PreferenceService.getAudioInterruptMode();
     snapshot.audioAutoResume = await PreferenceService.getAudioAutoResume();
+    snapshot.audioFocusMode = await PreferenceService.getAudioFocusMode();
     snapshot.defaultPlaybackSpeed = await PreferenceService.getDefaultPlaybackSpeed();
     snapshot.homeGridColumns = await PreferenceService.getHomeGridColumns();
     snapshot.preloadChapters = await PreferenceService.getPreloadChapters();
@@ -1752,6 +1782,7 @@ export class PreferenceService {
     await s.put(KEY_AUTO_PLAY_ON_LAUNCH, snapshot.autoPlayOnLaunch === true);
     await s.put(KEY_AUDIO_INTERRUPT_MODE, snapshot.audioInterruptMode);
     await s.put(KEY_AUDIO_AUTO_RESUME, snapshot.audioAutoResume);
+    await s.put(KEY_AUDIO_FOCUS_MODE, snapshot.audioFocusMode === 1 ? 1 : 0);
     await s.put(KEY_DEFAULT_PLAYBACK_SPEED,
       PreferenceService.normalizeDefaultPlaybackSpeed(snapshot.defaultPlaybackSpeed));
     await s.put(KEY_HOME_GRID_COLUMNS, snapshot.homeGridColumns);

@@ -40,14 +40,17 @@ export struct MiniPlayer {
           .width('100%')
           .height('100%')
           .objectFit(ImageFit.Cover)
-          .sourceSize({ width: 300, height: 400 })
+          .autoResize(true)
+          .interpolation(ImageInterpolation.Medium)
           .id('mini-player-cover-image')
       } else if (this.book.cover) {
-        // rawfile 分支不设 sourceSize:列表(BookCard/FavoritePage)的 rawfile 分支也没设,保持缓存一致
+        // 本地封面同样按迷你播放器的实际尺寸解码。
         Image($rawfile(this.book.cover))
           .width('100%')
           .height('100%')
           .objectFit(ImageFit.Cover)
+          .autoResize(true)
+          .interpolation(ImageInterpolation.Medium)
           .id('mini-player-cover-image')
       } else {
         CoverImage({ title: this.book.title, author: this.book.author,

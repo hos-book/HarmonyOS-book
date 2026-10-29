@@ -10,6 +10,7 @@ import { HttpProtocolPolicy } from './HttpProtocolPolicy';
 import { HttpFinalUrlObserver } from './HttpFinalUrlObserver';
 
 export interface HttpRequest {
+  automaticCookieHeader?: boolean;
   url: string;
   method: string;
   headers: Record<string, string>;
@@ -49,6 +50,13 @@ export interface HttpRequest {
 }
 
 export interface HttpResponse {
+  errorCode?: string;
+  errorStage?: string;
+  statusCodeAvailable?: boolean;
+  hostWaitMs?: number;
+  queueMs?: number;
+  renderMs?: number;
+
   url: string;
   headersAvailable?: boolean;
   requestId?: string;
@@ -87,6 +95,29 @@ export class HttpClient {
     'Connection': 'keep-alive'
   };
 
+  private applyRequestCookies(req: HttpRequest, headers: Record<string, string>): void {
+    if (req.useCookieJar === false) return;
+    const key = Object.keys(headers).find((name: string): boolean => name.toLowerCase() === 'cookie');
+    if (key && !req.automaticCookieHeader) return;
+    const jar = CookieStore.forSource(req.cookieSource);
+    const cookie = jar.getRequestCookie ? jar.getRequestCookie(req.url) : jar.getCookie(req.url);
+    if (!cookie) return;
+    const names = cookie.split(';').map((part: string): string => part.trim().split('=')[0]);
+    const extra = (key ? headers[key] : '').split(';').map((part: string): string => part.trim())
+      .filter((part: string): boolean => !!part && names.indexOf(part.split('=')[0]) < 0);
+    if (key) delete headers[key];
+    headers['Cookie'] = cookie + (extra.length ? '; ' + extra.join('; ') : '');
+  }
+
+  private requestHeaders(own: Record<string, string>): Record<string, string> {
+    const headers: Record<string, string> = { ...this.defaultHeaders };
+    for (const name of Object.keys(own || {})) {
+      for (const key of Object.keys(headers)) if (key.toLowerCase() === name.toLowerCase()) delete headers[key];
+      headers[name.toLowerCase() === 'user-agent' ? 'User-Agent' : name] = own[name];
+    }
+    return headers;
+  }
+
   constructor(timeout: number = 8000) {
     this.timeout = timeout;
   }
@@ -94,7 +125,7 @@ export class HttpClient {
   static readonly CANCELLED_ERROR: string = '书源请求已取消';
 
   static timeoutResponse(req: HttpRequest): HttpResponse {
-    return { url: req.url, statusCode: 0, headers: {}, body: '', success: false, error: '请求超时 (2300028)' };
+    return { url: req.url, statusCode: 0, headers: {}, body: '', success: false, error: '请求总等待超时 (2300028)', errorCode: 'REQUEST_DEADLINE', errorStage: 'deadline', statusCodeAvailable: false };
   }
 
   private timeoutFor(req: HttpRequest, configured?: number): number {
@@ -118,7 +149,7 @@ export class HttpClient {
   }
 
   private cancelledResponse(req: HttpRequest): HttpResponse {
-    return { url: req.url, statusCode: 0, headers: {}, body: '', success: false, error: HttpClient.CANCELLED_ERROR };
+    return { url: req.url, statusCode: 0, headers: {}, body: '', success: false, error: HttpClient.CANCELLED_ERROR, errorCode: 'CANCELLED', errorStage: 'cancel', statusCodeAvailable: false };
   }
 
   /** 宿主装了诊断端口（请求带 timingId）时才记录分段耗时；明细由回调生成，没装时不拼字符串。 */
@@ -151,6 +182,7 @@ export class HttpClient {
       response = { url: req.url || '', statusCode: 0, headers: {}, body: '', success: false,
         error: error instanceof Error ? error.message : String(error || 'network error') };
     }
+    response.statusCodeAvailable = response.statusCodeAvailable === undefined ? response.statusCode > 0 && !req.useWebView : response.statusCodeAvailable;
     response.headersAvailable = response.headersAvailable === undefined ? response.statusCode > 0 && !req.useWebView : response.headersAvailable;
     response.requestId = requestId;
     this.endTiming(req, 'http-total', startedAt,
@@ -161,6 +193,12 @@ export class HttpClient {
       trace.url = req.url || '';
       trace.finalUrl = response.finalUrl || '';
       trace.statusCode = response.statusCode || 0;
+      trace.statusCodeAvailable = response.statusCodeAvailable === true;
+      trace.errorCode = response.errorCode || '';
+      trace.errorStage = response.errorStage || '';
+      trace.hostWaitMs = response.hostWaitMs || 0;
+      trace.queueMs = response.queueMs || 0;
+      trace.renderMs = response.renderMs || 0;
       trace.requestId = requestId;
       trace.transport = req.useWebView ? 'WebView' : 'HTTP';
       trace.retryAttempt = req.retryAttempt || 0;
@@ -191,20 +229,24 @@ export class HttpClient {
         const runtime = WebBookFetchRuntime.get();
         // Only wait for the hidden ArkWeb host to attach. A busy host is healthy: fetch() queues
         // subsequent requests and runs them in order instead of misreporting it as "not ready".
-        const attached = await runtime.waitUntilAttached(this.timeoutFor(req, 8000));
+        const hostStarted = Date.now();
+        const attached = await runtime.waitUntilAttached(this.timeoutFor(req, 8000), req.cancelCheck);
+        const hostWaitMs = Date.now() - hostStarted;
+        if (req.cancelCheck?.()) return this.cancelledResponse(req);
         if (req.deadlineAt && Date.now() >= req.deadlineAt) return HttpClient.timeoutResponse(req);
         if (!attached) {
           return { url: req.url, statusCode: 0, headers: {}, body: '', success: false,
-            error: 'WebView 抓取环境未挂载，请重新进入当前页面' };
+            error: '网页抓取宿主不可用，请返回页面后重试', errorCode: 'WEB_HOST_UNAVAILABLE', errorStage: 'host', statusCodeAvailable: false, hostWaitMs: hostWaitMs };
         }
         if (req.cancelCheck && req.cancelCheck()) return this.cancelledResponse(req);
-        req.observedRequestHeaders = { ...this.defaultHeaders, ...req.headers };
+        req.observedRequestHeaders = this.requestHeaders(req.headers);
         req.diagnosticAttempts?.push('WebView');
         const response = await runtime.fetch({
           url: req.url,
           cookieSource: req.cookieSource,
+          cancelCheck: req.cancelCheck,
           method: req.method,
-          headers: { ...this.defaultHeaders, ...req.headers },
+          headers: this.requestHeaders(req.headers),
           body: req.body,
           webJs: req.webJs,
           webJsAcceptPattern: req.webJsAcceptPattern,
@@ -213,7 +255,7 @@ export class HttpClient {
           deadlineAt: req.deadlineAt,
           maxResponseBytes: req.maxResponseBytes
         });
-        return { ...response, headersAvailable: false, finalUrl: response.success ? response.url : '' };
+        return { ...response, hostWaitMs: hostWaitMs, statusCodeAvailable: false, headersAvailable: false, finalUrl: response.success ? response.url : '' };
       });
     }
     const forceHttp1 = HttpProtocolPolicy.prefersHttp1(req.url);
@@ -251,12 +293,9 @@ export class HttpClient {
     }, Math.max(1, req.deadlineAt - Date.now())) : -1;
     try {
       const method = this.resolveMethod(req.method);
-      const headers: Record<string, string> = { ...this.defaultHeaders, ...req.headers };
+      const headers: Record<string, string> = this.requestHeaders(req.headers);
       const requestData = this.requestData(req);
-      const cookie = req.useCookieJar === false ? '' : CookieStore.forSource(req.cookieSource).getCookie(req.url);
-      if (cookie && !headers['Cookie']) {
-        headers['Cookie'] = cookie;
-      }
+      this.applyRequestCookies(req, headers);
       req.observedRequestHeaders = headers;
       req.diagnosticAttempts?.push(forceHttp1 ? 'HTTP/1.1' : 'HTTP 默认协议');
       const maxResponseBytes = req.maxResponseBytes || 0;
@@ -497,10 +536,9 @@ export class HttpClient {
       }, 50);
     }
     try {
-      const headers: Record<string, string> = { ...this.defaultHeaders, ...req.headers };
+      const headers: Record<string, string> = this.requestHeaders(req.headers);
       const requestData = this.requestData(req);
-      const cookie = req.useCookieJar === false ? '' : CookieStore.forSource(req.cookieSource).getCookie(req.url);
-      if (cookie && !headers['Cookie']) headers['Cookie'] = cookie;
+      this.applyRequestCookies(req, headers);
       const options: http.HttpRequestOptions = {
         method: this.resolveMethod(req.method),
         header: headers,

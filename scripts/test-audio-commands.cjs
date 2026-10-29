@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const createFocusFixture = require('./audio-focus-fixture.cjs');
 
 const ide = process.env.DEVECO_HOME || process.env.DEVECO_PATH;
 if (!ide) throw new Error('Set DEVECO_HOME to the installed DevEco Studio directory');
@@ -28,14 +29,6 @@ const audio = {
     REASON_OLD_DEVICE_UNAVAILABLE: 2, REASON_OVERRODE: 3
   }
 };
-
-class Watcher {
-  armed = false;
-  callback = null;
-  arm(callback) { this.armed = true; this.callback = callback; }
-  disarm() { this.armed = false; this.callback = null; }
-  isArmed() { return this.armed; }
-}
 
 async function fixture(initialState = 'paused', realUsage = false) {
   const events = new Map();
@@ -126,6 +119,7 @@ async function fixture(initialState = 'paused', realUsage = false) {
     put: async (key, value) => preferenceValues.set(key, value),
     delete: async key => preferenceValues.delete(key), flush: async () => {}
   });
+  const focusFixture = createFocusFixture(preference, audio, platformCompat);
   const modules = {
     './ReadingSessionService': { ReadingSessionService: { checkpoint() {}, end() {} }, SessionLocation: { audio: () => ({}) } },
     './LiveAudioService': { LiveAudioService: { isLive: async () => false } },
@@ -144,7 +138,7 @@ async function fixture(initialState = 'paused', realUsage = false) {
         return source;
       }
     } },
-    '@kit.AudioKit': { audio },
+    '@kit.AudioKit': { audio: focusFixture.audio },
     '@kit.PerformanceAnalysisKit': { hilog: { info() {}, warn() {}, error() {} } },
     '@kit.BasicServicesKit': { emitter: { emit() {} },
       systemDateTime: { TimeType: { STARTUP: 0 }, getUptime: () => uptime } },
@@ -154,7 +148,7 @@ async function fixture(initialState = 'paused', realUsage = false) {
     '@kit.CoreFileKit': { fileIo: {} },
     '../utils/PlatformCompat': { PlatformCompat: platformCompat },
     '../model/PlayerState': { SleepMode: { Off: 0, Duration: 1, Chapters: 2 }, PlayMode: { Sequence: 0, SingleLoop: 1, ListLoop: 2 } },
-    './ExternalMediaWatcher': { ExternalMediaWatcher: Watcher },
+    './AudioFocusService': focusFixture.exports,
     './AVSessionService': { AVSessionService: { getInstance: () => session } },
     './PlaybackStore': { PlaybackStore: { getInstance: () => playbackStore } },
     './BackgroundTaskService': { BackgroundTaskService: background },
@@ -208,7 +202,9 @@ async function fixture(initialState = 'paused', realUsage = false) {
   }
   service.initAVSession();
   await service.ensurePlayer();
-  return { service, player, state, session, savedPositions, events, preference, cacheCalls, widgetUpdates,
+  if (initialState !== 'paused') await focusFixture.focus.acquire('audio',
+    () => service.pauseForFocus(), () => service.resumeFromInterrupt());
+  return { focusFixture, service, player, state, session, savedPositions, events, preference, cacheCalls, widgetUpdates,
     cache, mediaSources, platformCompat, usage, usageTimers, backgroundCalls, background,
     preloadTimers,
     advancePreload(ms) {
@@ -967,25 +963,39 @@ async function check(name, test) {
     assert.equal(f.state.isPlaying, false);
   });
   await check('session pause cancels external-media and delayed focus recovery', async () => {
-    const f = await fixture();
-    f.service.pausedByFocus = true;
-    f.service.pausedByExternalMedia = true;
-    const watcher = f.service.externalWatcher;
-    watcher.arm(() => f.service.resumeAfterExternalMedia());
+    const f = await fixture('playing');
+    f.focusFixture.emit(2);
+    const watcher = f.focusFixture.focus.watcher;
     const staleCallback = watcher.callback;
     f.session.callbacks.onPause();
-    f.player.emit('audioInterrupt', { forceType: 1, hintType: 1 });
+    f.focusFixture.emit(0);
     staleCallback();
     await flush();
     assert.equal(watcher.isArmed(), false);
     assert.equal(f.player.plays, 0);
   });
-  await check('focus recovery still resumes when no explicit pause was requested', async () => {
-    const f = await fixture();
-    f.player.emit('audioInterrupt', { forceType: 0, hintType: 2 });
-    f.player.emit('audioInterrupt', { forceType: 1, hintType: 1 });
+  await check('session recovery resumes at the interrupted position', async () => {
+    const f = await fixture('playing');
+    f.focusFixture.emit(1);
+    f.focusFixture.emit(0);
     await flush();
     assert.equal(f.player.plays, 1);
+    assert.equal(f.player.currentTime, 42000);
+  });
+  await check('paused state arriving before focus notification retains recovery', async () => {
+    const f = await fixture('playing');
+    f.player.transition('paused');
+    await flush();
+    f.focusFixture.emit(1);
+    f.focusFixture.emit(0);
+    await flush();
+    assert.equal(f.player.plays, 1);
+  });
+  await check('already paused audio never resumes on unsolicited focus events', async () => {
+    const f = await fixture();
+    f.focusFixture.emit(1); f.focusFixture.emit(0);
+    await flush();
+    assert.equal(f.player.plays, 0);
   });
   await check('shared pause and stop actually silence playback and preserve position', async () => {
     for (const hintType of [2, 3]) {
@@ -996,8 +1006,8 @@ async function check(name, test) {
       assert.equal(f.player.pauses, 1);
       assert.equal(f.state.isPlaying, false);
       assert.equal(f.state.progressMs, 42000);
-      assert.equal(f.service.pausedByFocus, hintType === 2);
-      assert.equal(f.service.pausedByExternalMedia, hintType === 3);
+      assert.equal(f.service.pausedByFocus, true);
+      assert.equal(f.focusFixture.focus.watcher.isArmed(), hintType === 3);
     }
   });
   await check('focus loss blocks late playback and automatic URL-error recovery', async () => {
@@ -1020,22 +1030,20 @@ async function check(name, test) {
       }
     }
   });
-  await check('a new interruption cancels focus and external-media recovery awaiting a player', async () => {
-    for (const external of [false, true]) {
-      const f = await fixture('stopped');
-      let resolvePlayer;
-      f.service.ensurePlayer = () => new Promise(resolve => { resolvePlayer = resolve; });
-      let resumes = 0;
-      f.service.resumeFromState = async () => { resumes++; };
-      f.service.pausedByExternalMedia = external;
-      const recovery = external ? f.service.resumeAfterExternalMedia() : f.service.resumeFromInterrupt();
-      f.player.emit('audioInterrupt', { forceType: 0, hintType: 2 });
-      resolvePlayer(f.player);
-      await recovery;
-      assert.equal(resumes, 0);
-      assert.equal(f.player.plays, 0);
-      assert.equal(f.service.pausedByFocus, true);
-    }
+  await check('a new interruption cancels recovery awaiting a player', async () => {
+    const f = await fixture('stopped');
+    let resolvePlayer;
+    f.service.ensurePlayer = () => new Promise(resolve => { resolvePlayer = resolve; });
+    let resumes = 0;
+    f.service.resumeFromState = async () => { resumes++; };
+    const recovery = f.service.resumeFromInterrupt();
+    await flush();
+    f.focusFixture.emit(1);
+    resolvePlayer(f.player);
+    await recovery;
+    assert.equal(resumes, 0);
+    assert.equal(f.player.plays, 0);
+    assert.equal(f.service.pausedByFocus, true);
   });
   await check('a late playing event is paused again after headset removal', async () => {
     const f = await fixture('initialized');

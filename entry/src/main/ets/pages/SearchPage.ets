@@ -1215,8 +1215,6 @@ export struct SearchPage {
             imgWidth: 92,
             aspectRatioValue: SEARCH_COVER_ASPECT_RATIO,
             radius: AppRadius.Md,
-            decodeW: 276,
-            decodeH: 368,
             highPriority: false
           })
         } else if (AppTheme.IllustratedPlaceholders) {

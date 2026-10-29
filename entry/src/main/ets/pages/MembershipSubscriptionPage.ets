@@ -8,6 +8,7 @@ import { AuthService } from '../service/AuthService';
 import { AccountAvatar } from '../components/AccountAvatar';
 import { MembershipBadge } from '../components/MembershipBadge';
 import { iap } from '@kit.IAPKit';
+import { ReleasePolicy } from '../utils/ReleasePolicy';
 
 export const MEMBERSHIP_BACKGROUND_TOP: string = '#E3D1A9';
 
@@ -34,6 +35,12 @@ export struct MembershipSubscriptionPage {
     try {
       return sendableContextManager.convertToUIAbilityContext(sendableContextManager.convertFromContext(host));
     } catch (_error) { return undefined; }
+  }
+
+  private purchase(plan: MembershipPlan): void {
+    if (!ReleasePolicy.membershipPurchaseEnabled || !this.agreed || !this.membership.supported) return;
+    const context = this.abilityContext();
+    if (context) this.membership.purchase(context, plan.id);
   }
 
   private restore(): void {
@@ -80,6 +87,27 @@ export struct MembershipSubscriptionPage {
   private isAnnualUpgrade(productId: string): boolean {
     return this.state.active && this.state.productId === 'iconMonth' && productId === 'iconYear' &&
       this.state.pendingProductId !== 'iconYear';
+  }
+
+  private shouldManagePlan(productId: string): boolean {
+    return this.state.active && productId !== 'lastVip' && !this.isAnnualUpgrade(productId);
+  }
+
+  private planAction(productId: string): Resource {
+    if (!ReleasePolicy.membershipPurchaseEnabled) return $r('app.string.membership_order_opening');
+    if (this.state.active && this.state.lifetime) return $r('app.string.membership_lifetime_owned');
+    if (this.isAnnualUpgrade(productId)) return $r('app.string.membership_upgrade_year');
+    if (this.shouldManagePlan(productId)) return $r('app.string.membership_manage');
+    return productId === 'lastVip' ? $r('app.string.membership_buy_lifetime') : $r('app.string.membership_subscribe');
+  }
+
+  private canSelectPlan(productId: string): boolean {
+    if (!ReleasePolicy.membershipPurchaseEnabled) return false;
+    if (this.membership.busy || !this.membership.supported || (this.state.active && this.state.lifetime)) return false;
+    if (!this.state.hasAccess && !this.state.confirmedInactive) return false;
+    if (this.isAnnualUpgrade(productId)) return this.agreed && this.membership.canUpgradeToYear();
+    if (this.shouldManagePlan(productId)) return true;
+    return this.agreed && this.findPlan(productId) !== undefined;
   }
 
   private hasPlanOffer(productId: string): boolean {
@@ -317,10 +345,18 @@ export struct MembershipSubscriptionPage {
               .fontColor('#30291F').layoutWeight(1)
           }.width('100%')
         }
-        Button($r('app.string.membership_order_opening')).width('100%').height(40)
+        Button(this.planAction(this.selectedPlan)).width('100%').height(40)
           .id('membership-purchase-button')
           .fontSize(15).fontWeight(FontWeight.Medium).backgroundColor('#B9905C').fontColor(Color.White)
-          .enabled(false)
+          .enabled(this.canSelectPlan(this.selectedPlan))
+          .onClick((): void => {
+            if (!ReleasePolicy.membershipPurchaseEnabled) return;
+            if (this.shouldManagePlan(this.selectedPlan)) this.manage();
+            else {
+              const plan = this.findPlan(this.selectedPlan);
+              if (plan) this.purchase(plan);
+            }
+          })
       }.width('100%').constraintSize({ maxWidth: 680 }).flexShrink(0)
       .padding({ left: AppSpace.Md, right: AppSpace.Md, top: 12,
         bottom: WindowUtils.getBottomSafeVp() + AppSpace.Sm })

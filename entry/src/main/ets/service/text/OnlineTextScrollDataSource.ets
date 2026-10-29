@@ -1,4 +1,5 @@
 import { OnlineTextPage } from './OnlineTextPaginator';
+import { PerformanceTrace } from '../../utils/PerformanceTrace';
 
 /** 连续阅读的可见行；字符偏移沿用原始正文，键不依赖列表位置。 */
 export class OnlineTextScrollRow {
@@ -51,20 +52,37 @@ export class OnlineTextScrollDataSource implements IDataSource {
   getData(index: number): OnlineTextScrollRow { return this.rows[index]; }
   reset(rows: OnlineTextScrollRow[]): void {
     this.rows = rows.slice();
-    this.listeners.forEach((listener: DataChangeListener): void => listener.onDataReloaded());
+    // 同一 LazyForEach 的批量通知不能与旧的 onDataAdd/onDataReloaded 混用。
+    const operation: DataOperation = { type: DataOperationType.RELOAD };
+    this.notify(operation);
   }
   insert(index: number, rows: OnlineTextScrollRow[]): void {
-    for (let offset = 0; offset < rows.length; offset++) {
-      const position = index + offset;
-      this.rows.splice(position, 0, rows[offset]);
-      this.listeners.forEach((listener: DataChangeListener): void => listener.onDataAdd(position));
+    if (rows.length === 0) return;
+    const position = Math.max(0, Math.min(index, this.rows.length));
+    const trace = PerformanceTrace.begin('reader.scroll.insert');
+    try {
+      this.rows = this.rows.slice(0, position).concat(rows, this.rows.slice(position));
+      const operation: DataOperation = { type: DataOperationType.ADD, index: position, count: rows.length };
+      this.notify(operation);
+    } finally {
+      PerformanceTrace.end('reader.scroll.insert', trace);
     }
   }
   remove(index: number, count: number): void {
-    for (let offset = 0; offset < count; offset++) {
-      this.rows.splice(index, 1);
-      this.listeners.forEach((listener: DataChangeListener): void => listener.onDataDelete(index));
+    const position = Math.max(0, Math.min(index, this.rows.length));
+    const removed = Math.max(0, Math.min(count, this.rows.length - position));
+    if (removed === 0) return;
+    const trace = PerformanceTrace.begin('reader.scroll.remove');
+    try {
+      this.rows.splice(position, removed);
+      const operation: DataOperation = { type: DataOperationType.DELETE, index: position, count: removed };
+      this.notify(operation);
+    } finally {
+      PerformanceTrace.end('reader.scroll.remove', trace);
     }
+  }
+  private notify(operation: DataOperation): void {
+    this.listeners.forEach((listener: DataChangeListener): void => listener.onDatasetChange([operation]));
   }
   findPosition(chapterIndex: number, offset: number): number {
     let last = -1;

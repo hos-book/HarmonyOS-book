@@ -359,7 +359,7 @@ async function main() {
       ${methods}
     } exports.SubscriptionPage = SubscriptionPage;`, {
       compilerOptions: { target: ts.ScriptTarget.ES2020 }
-    }).outputText, { exports, $r: name => name });
+    }).outputText, { exports, $r: name => name, ReleasePolicy: { membershipPurchaseEnabled: true } });
     const page = new exports.SubscriptionPage();
     page.state = s.state; page.membership = s.service;
     return page;
@@ -514,7 +514,7 @@ async function main() {
     assert.equal(await s.service.hasCurrentEntitlement(), true);
     assert.equal(s.queries.length, 4);
   });
-  function membershipPage(s, kind) {
+  function membershipPage(s, kind, purchaseEnabled = true) {
     // EntryAbility provides this context before routed pages are shown.
     s.service.abilityContext = context;
     const source = fs.readFileSync(path.join(root, `pages/${kind}.ets`), 'utf8');
@@ -550,7 +550,7 @@ async function main() {
     } exports.Page = Page;`, {
       compilerOptions: { target: ts.ScriptTarget.ES2020 }
     }).outputText, { exports, ui, PreferenceService: prefs, $r: name => name,
-      MembershipState: { featureEnabled: true },
+      MembershipState: { featureEnabled: true }, ReleasePolicy: { membershipPurchaseEnabled: purchaseEnabled },
       SEARCH_CONCURRENCY_OPTIONS: [3, 6, 9, 12], hilog: { warn() {} },
       sendableContextManager: { convertFromContext: c => c, convertToUIAbilityContext: c => c } });
     const page = new exports.Page();
@@ -589,6 +589,17 @@ async function main() {
     await Promise.all(actions);
     assert.equal(settings.saved.length, 0); assert.equal(backup.saved.length, 0);
     assert.equal(settings.routes.length + backup.routes.length, 0);
+  });
+  await test('Invite membership button stays disabled for every plan and never opens the cashier', async () => {
+    const s = session();
+    await s.service.load(context);
+    const h = membershipPage(s, 'MembershipSubscriptionPage', false);
+    for (const id of ['lastVip', 'iconYear', 'iconMonth']) {
+      assert.equal(h.page.planAction(id), 'app.string.membership_order_opening');
+      assert.equal(h.page.canSelectPlan(id), false);
+      h.page.purchase({ id });
+    }
+    assert.equal(s.purchaseCount(), 0);
   });
   await test('Membership center blocks unknown access and retry recovers without restoring orders', async () => {
     const s = session(); const h = membershipPage(s, 'MembershipSubscriptionPage');

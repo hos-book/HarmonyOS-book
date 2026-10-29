@@ -56,6 +56,7 @@ const SETTINGS_ITEMS: ProfileItem[] = [
 ];
 
 const SYSTEM_ITEMS: ProfileItem[] = [
+  new ProfileItem($r('sys.symbol.book'), $r('app.string.guide_title'), 'guide', $r('app.color.app_brand')),
   new ProfileItem($r('sys.symbol.doc_text'), $r('app.string.log_title'), 'logs', '#0A84FF'),
   new ProfileItem($r('sys.symbol.info_circle'), '关于', 'about', '#0A59F7')
 ];
@@ -95,6 +96,8 @@ export struct ProfilePage {
   private onItemTap(id: string): void {
     if (id === 'import') {
       this.navStack.pushPathByName('import', '');
+    } else if (id === 'guide') {
+      this.navStack.pushPathByName('guide', '');
     } else if (id === 'logs') {
       this.navStack.pushPathByName('logs', '');
     } else if (id === 'achievements') {

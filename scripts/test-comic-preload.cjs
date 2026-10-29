@@ -296,7 +296,8 @@ const context = { cacheDir: '/cache' };
     .replace('export struct ComicPageImage', 'export class ComicPageImage') + '\n}';
   const componentExports = {};
   const TouchType = { Down: 0, Up: 1, Move: 2, Cancel: 3 };
-  vm.runInNewContext(compile(componentSource), { exports: componentExports, console, TouchType, require: name => {
+  vm.runInNewContext(compile(componentSource), { exports: componentExports, console, TouchType,
+    Scroller: class { isAtEnd() { return false; } scrollBy() {} }, require: name => {
     if (name.endsWith('/ComicReaderService')) return { ComicReaderService: reader, ComicPage: class {} };
     if (name.endsWith('/ComicImageLoader')) return { ComicImageLoader: loader };
     if (name.endsWith('/ComicZoomGeometry')) return evaluate('utils/ComicZoomGeometry.ts', () => ({}));

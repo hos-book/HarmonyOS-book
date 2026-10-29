@@ -4,6 +4,7 @@ import { ReaderTapPolicy } from '../utils/ReaderTapPolicy';
 import { ReaderImportedFont } from '../service/text/ReaderFontService';
 import { ReaderFontTabs } from './ReaderFontTabs';
 import { ReaderThemeEditor } from './ReaderThemeEditor';
+import { MembershipState } from '../model/MembershipState';
 import { ImmersiveOptionTabs } from './ImmersiveOptionTabs';
 /**
  * ReaderSettingsSheet - 阅读设置面板
@@ -24,7 +25,7 @@ import {
   ReaderThemePreset,
   ReaderCustomTheme,
   READER_THEME_PRESETS,
-  hexLuminance
+  resolvePalette
 } from '../model/ReaderTheme';
 import { ReaderBackground } from './ReaderBackground';
 
@@ -95,34 +96,47 @@ struct ReaderThemeSwatch {
   @Param selected: boolean = false;
   @Event onSelect: () => void = () => {};
 
-  build() {
-    Column({ space: 6 }) {
-      Stack({ alignContent: Alignment.Center }) {
-        Column()
-          .width(40)
-          .height(40)
-          .borderRadius(20)
-          .backgroundColor(this.preset.background)
-          .border({
-            width: this.selected ? 2 : 0.5,
-            color: this.selected ? AppColor.Brand : AppColor.GlassSheetStroke
-          })
-        if (this.selected) {
-          SymbolGlyph($r('sys.symbol.checkmark'))
-            .fontSize(17)
-            .fontColor([this.preset.isDark ? '#FFFFFF' : '#2A2724'])
-        }
-      }
-      .width(44)
-      .height(44)
+  private themeLabel(): Resource {
+    return this.preset.id === ReaderThemeId.Black ? $r('app.string.reader_pure_black') :
+      this.preset.id === ReaderThemeId.Night ? $r('app.string.reader_theme_night') :
+        $r('app.string.reader_theme_parchment');
+  }
 
-      Text(this.preset.id === ReaderThemeId.Black ? $r('app.string.reader_pure_black') :
-        this.preset.id === ReaderThemeId.Night ? $r('app.string.reader_theme_night') : $r('app.string.reader_theme_parchment'))
-        .fontSize(10)
-        .fontColor(this.selected ? $r('sys.color.font_primary') : $r('sys.color.font_secondary'))
-        .maxLines(1)
+  build() {
+    Button({ type: ButtonType.Normal }) {
+      Column({ space: 6 }) {
+        Stack({ alignContent: Alignment.TopEnd }) {
+          Column({ space: 5 }) {
+            Text($r('app.string.reader_theme_sample_glyph'))
+              .fontSize(24).fontWeight(FontWeight.Medium).fontColor(this.preset.primary)
+            Row().width('70%').height(2).borderRadius(1).backgroundColor(this.preset.primary).opacity(0.2)
+            Row().width('48%').height(2).borderRadius(1).backgroundColor(this.preset.primary).opacity(0.12)
+          }.width('100%').height('100%').padding(12).alignItems(HorizontalAlign.Start)
+          if (this.selected) {
+            Stack() {
+              SymbolGlyph($r('sys.symbol.checkmark'))
+                .fontSize(10).fontColor([AppColor.OnBrand])
+            }.width(18).height(18).borderRadius(9).backgroundColor(AppColor.Brand)
+              .margin({ top: 6, right: 6 })
+          }
+        }
+        .width('100%').height(72).borderRadius(AppRadius.Md)
+        .backgroundColor(this.preset.background)
+        .border({ width: this.selected ? 2 : 0.5,
+          color: this.selected ? AppColor.Brand : AppColor.GlassSheetStroke })
+
+        Text(this.themeLabel())
+          .fontSize(AppFont.Caption)
+          .fontColor(this.selected ? AppColor.Brand : $r('sys.color.font_secondary'))
+          .fontWeight(this.selected ? FontWeight.Medium : FontWeight.Normal)
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .width('100%').textAlign(TextAlign.Center)
+      }
+      .width('100%').alignItems(HorizontalAlign.Center)
     }
-    .alignItems(HorizontalAlign.Center)
+    .layoutWeight(1).padding(0).borderRadius(AppRadius.Md).backgroundColor(Color.Transparent)
+    .accessibilityText(this.themeLabel()).accessibilitySelected(this.selected)
+    .id(`reader-theme-preset-${this.preset.id}`)
     .onClick(() => this.onSelect())
   }
 }
@@ -136,22 +150,43 @@ struct ReaderCustomThemeSwatch {
   @Event onEdit: () => void = () => {};
 
   build() {
-    Column({ space: 6 }) {
-      Button() {
-        Text(this.selected ? '✓' : 'Aa').fontSize(16).fontColor(this.theme.fontColor)
-      }.width(42).height(42).borderRadius(21).backgroundColor(this.theme.background)
-      .border({ width: this.selected ? 2 : 0.5, color: this.selected ? AppColor.Brand : AppColor.GlassSheetStroke })
-      .accessibilityText($r('app.string.reader_custom_theme_slot', this.theme.slot + 1))
+    Row({ space: AppSpace.Xs }) {
+      Button({ type: ButtonType.Normal }) {
+        Row({ space: AppSpace.Sm }) {
+          Stack() {
+            ReaderBackground({ palette: resolvePalette(ReaderThemeId.Custom, this.theme.background, this.theme.fontColor),
+              pattern: this.theme.backgroundImage.length > 0 ? ReaderPattern.Image : ReaderPattern.None,
+              bgImagePath: this.theme.backgroundImage, imageMode: this.theme.imageMode, overlayAlpha: this.theme.overlayAlpha })
+            Text($r('app.string.reader_theme_sample_glyph')).fontSize(24).fontColor(this.theme.fontColor)
+          }.width(48).height(56).borderRadius(AppRadius.Sm).clip(true)
+            .border({ width: 0.5, color: AppColor.GlassSheetStroke })
+          Column({ space: 4 }) {
+            Text(this.theme.name || $r('app.string.reader_custom_theme_slot', this.theme.slot + 1))
+              .fontSize(AppFont.Body).fontWeight(FontWeight.Medium).fontColor($r('sys.color.font_primary'))
+              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+            Text(this.selected ? $r('app.string.reader_theme_in_use') : $r('app.string.reader_theme_tap_to_use'))
+              .fontSize(11).fontColor(this.selected ? AppColor.Brand : $r('sys.color.font_secondary'))
+              .maxLines(1).width('100%')
+          }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+        }.width('100%').alignItems(VerticalAlign.Center)
+      }.layoutWeight(1).height(64).padding(0).borderRadius(AppRadius.Sm).backgroundColor(Color.Transparent)
+      .accessibilityText(this.theme.name || this.getUIContext().getHostContext()?.resourceManager.getStringSync(
+        $r('app.string.reader_custom_theme_slot').id, this.theme.slot + 1) || '')
+      .accessibilitySelected(this.selected).id(`reader-theme-custom-${this.theme.slot}`)
       .onClick((): void => this.onSelect())
-      Text($r('app.string.reader_custom_theme_slot', this.theme.slot + 1))
-        .fontSize(12).fontColor($r('sys.color.font_primary'))
-        .onClick((): void => this.onSelect())
-      Button($r('app.string.reader_theme_edit')).height(30).fontSize(12)
-        .padding({ left: 10, right: 10 }).fontColor($r('sys.color.font_secondary'))
+      Button({ type: ButtonType.Capsule }) {
+        Row({ space: 4 }) {
+          SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(12).fontColor([$r('sys.color.font_secondary')])
+          Text($r('app.string.reader_theme_edit')).fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+        }
+      }.height(40).padding({ left: 10, right: 10 })
         .backgroundColor(AppColor.GlassSheetControlTint)
         .accessibilityText($r('app.string.reader_custom_theme_edit_slot', this.theme.slot + 1))
+        .id(`reader-theme-edit-${this.theme.slot}`)
         .onClick((): void => this.onEdit())
-    }.layoutWeight(1)
+    }.width('100%').padding(8).borderRadius(AppRadius.Md).alignItems(VerticalAlign.Center)
+      .backgroundColor(AppColor.GlassSheetControlTint)
+      .border({ width: 1, color: this.selected ? AppColor.Brand : AppColor.GlassSheetStroke })
   }
 }
 
@@ -274,6 +309,7 @@ export struct ReaderSettingsSheet {
   @Param autoScrollSpeed: number = 20;
   @Event onAutoScrollSpeed: (speed: number) => void = (): void => {};
   @Param autoPageRunning: boolean = false;
+  @Param autoPagePaused: boolean = false;
   @Param autoPageAvailable: boolean = true;
   @Event onAutoPageInterval: (seconds: number) => void = (): void => {};
   @Event onAutoPageToggle: () => void = (): void => {};
@@ -293,13 +329,12 @@ export struct ReaderSettingsSheet {
   @Param fontName: string = '';
   @Param screenOnMinutes: number = 0;
   @Local editingThemeIndex: number = -1;
+  @Local membership: MembershipState = MembershipState.current;
   @Param customThemes: ReaderCustomTheme[] = ReaderCustomTheme.defaults();
   @Param customThemeIndex: number = 0;
-  @Param imageFontColor: string = '';
   @Param effectiveThemeId: string = ReaderThemeId.Parchment;
-  @Event onCustomThemeSave: (slot: number, background: string, fontColor: string) => void = () => {};
+  @Event onCustomThemeSave: (theme: ReaderCustomTheme) => Promise<boolean> = async () => false;
   @Event onCustomThemeSelect: (slot: number) => void = () => {};
-  @Event onImageTextChange: (light: boolean) => void = () => {};
   @Event onWeightChange: (weight: number, commit: boolean) => void = () => {};
   @Event onPickFont: () => void = () => {};
   @Event onSystemFont: () => void = () => {};
@@ -323,7 +358,6 @@ export struct ReaderSettingsSheet {
   @Param bgImagePath: string = '';
   @Param imageMode: ReaderImageMode = ReaderImageMode.Cover;
   @Param supportsImageMode: boolean = true;
-  @Event onImageModeChange: (mode: ReaderImageMode) => void = () => {};
   @Param overlayAlpha: number = TextReadingSettings.OVERLAY_DEFAULT;
   @Param tapRegions: string = ReaderTapPolicy.DEFAULT;
   @Param tapLeftPercent: number = 33;
@@ -355,12 +389,12 @@ export struct ReaderSettingsSheet {
   @Event onFontSizeChange: (value: number, commit: boolean) => void = () => {};
   @Event onLineHeightChange: (value: number, commit: boolean) => void = () => {};
   @Event onThemeChange: (themeId: string) => void = () => {};
-  @Event onOverlayChange: (value: number, commit: boolean) => void = () => {};
   @Event onPageTurnModeChange: (mode: string) => void = () => {};
   @Event onReadingStatusChange: (enabled: boolean) => void = () => {};
   @Event onStatusBarChange: (enabled: boolean) => void = () => {};
   /** 请求打开相册选图；由页面侧执行 picker + 落沙箱 */
-  @Event onPickImage: () => void = () => {};
+  @Event onPickImage: () => Promise<string> = async () => '';
+  @Event onDiscardImage: (path: string) => void = () => {};
   @Event onResetDefaults: () => void = () => {};
   @Event onClose: () => void = () => {};
 
@@ -590,7 +624,7 @@ export struct ReaderSettingsSheet {
     }
   }
 
-  /** 预设主题与自定义图片互斥，图片主题内保留换图和蒙层。 */
+  /** 图片属于自定义主题；可用数量随已核验的权益变化。 */
   @Builder
   buildThemeSection() {
     ReaderSettingCard({ title: $r('app.string.reader_theme_title') }) {
@@ -609,32 +643,43 @@ export struct ReaderSettingsSheet {
             },
             (preset: ReaderThemePreset) => `theme-${preset.id}`
           )
-          this.buildImageThemeSwatch()
         }
         .width('100%')
         .alignItems(VerticalAlign.Top)
-        .justifyContent(FlexAlign.SpaceBetween)
 
-        if (this.effectiveThemeId === ReaderThemeId.Image) {
-          this.buildImageControls()
-        }
-        Text($r('app.string.reader_custom_theme')).fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_secondary')).width('100%').margin({ top: AppSpace.Sm })
-        Row({ space: AppSpace.Sm }) {
-          ForEach(this.customThemes, (theme: ReaderCustomTheme) => {
-            ReaderCustomThemeSwatch({ theme: theme,
-              selected: this.effectiveThemeId === ReaderThemeId.Custom && this.customThemeIndex === theme.slot,
-              onSelect: (): void => this.onCustomThemeSelect(theme.slot),
-              onEdit: (): void => { this.editingThemeIndex = theme.slot; } })
+        Column({ space: 4 }) {
+          Row({ space: AppSpace.Xs }) {
+            Text($r('app.string.reader_custom_theme')).fontSize(AppFont.Caption)
+              .fontColor($r('sys.color.font_secondary')).layoutWeight(1)
+            Text($r('app.string.reader_custom_theme_available', ReaderCustomTheme.limit(this.membership.hasAccess)))
+              .fontSize(10).fontColor($r('sys.color.font_secondary'))
+          }.width('100%')
+          Text($r('app.string.reader_custom_theme_limit')).fontSize(11)
+            .fontColor($r('sys.color.font_secondary')).width('100%')
+        }.width('100%').alignItems(HorizontalAlign.Start).margin({ top: 4 })
+        List({ space: AppSpace.Xs }) {
+          ForEach(this.customThemes.filter((theme: ReaderCustomTheme): boolean =>
+            ReaderCustomTheme.canUse(theme.slot, this.membership.hasAccess)), (theme: ReaderCustomTheme) => {
+            ListItem() {
+              ReaderCustomThemeSwatch({ theme: this.customThemes[theme.slot],
+                selected: this.effectiveThemeId === ReaderThemeId.Custom && this.customThemeIndex === theme.slot,
+                onSelect: (): void => this.onCustomThemeSelect(theme.slot),
+                onEdit: (): void => {
+                  if (ReaderCustomTheme.canUse(theme.slot, this.membership.hasAccess)) this.editingThemeIndex = theme.slot;
+                } })
+            }.width(this.membership.hasAccess ? '88%' : '100%')
           }, (theme: ReaderCustomTheme): string => theme.id)
-        }.width('100%')
-        Row() {
-          Text($r('app.string.reader_follow_system')).layoutWeight(1)
+        }.width('100%').height(82).listDirection(Axis.Horizontal).scrollBar(BarState.Off)
+          .edgeEffect(EdgeEffect.Spring).id('reader-custom-theme-list')
+        Divider().strokeWidth(0.5).color(AppColor.GlassSheetStroke)
+        Row({ space: AppSpace.Sm }) {
+          Text($r('app.string.reader_follow_system')).fontSize(AppFont.Body).layoutWeight(1)
             .fontColor($r('sys.color.font_primary'))
           Toggle({ type: ToggleType.Switch, isOn: this.followSystemTheme })
             .selectedColor(AppColor.Brand)
+            .accessibilityText($r('app.string.reader_follow_system')).id('reader-theme-follow-system')
             .onChange((enabled: boolean): void => this.onFollowSystemChange(enabled))
-        }.width('100%')
+        }.width('100%').constraintSize({ minHeight: 40 }).alignItems(VerticalAlign.Center)
         if (this.followSystemTheme) {
           Text($r('app.string.reader_follow_system_theme_hint')).fontSize(AppFont.Caption)
             .fontColor($r('sys.color.font_secondary')).width('100%')
@@ -642,117 +687,6 @@ export struct ReaderSettingsSheet {
       }
       .width('100%')
     }
-  }
-
-  @Builder
-  buildImageThemeSwatch() {
-    Column({ space: 6 }) {
-      Column({ space: 6 }) {
-        Stack({ alignContent: Alignment.Center }) {
-          SymbolGlyph($r('sys.symbol.picture'))
-            .fontSize(20)
-            .fontColor([this.effectiveThemeId === ReaderThemeId.Image ? $r('sys.color.font_primary') : $r('sys.color.font_secondary')])
-        }
-        .width(40)
-        .height(40)
-        .borderRadius(20)
-        .backgroundColor(AppColor.GlassSheetControlTint)
-        .border({
-          width: this.effectiveThemeId === ReaderThemeId.Image ? 2 : 0.5,
-          color: this.effectiveThemeId === ReaderThemeId.Image ? AppColor.Brand : AppColor.GlassSheetStroke
-        })
-        .margin({ top: 2, bottom: 2 })
-
-        Text($r('app.string.reader_custom_image'))
-          .fontSize(10)
-          .fontColor(this.effectiveThemeId === ReaderThemeId.Image ? $r('sys.color.font_primary') : $r('sys.color.font_secondary'))
-          .maxLines(1)
-      }
-      .alignItems(HorizontalAlign.Center)
-      .onClick((): void => this.onThemeChange(ReaderThemeId.Image))
-
-      if (this.bgImagePath.length > 0) {
-        Button($r('app.string.reader_change_image'))
-          .fontSize(AppFont.Caption).fontColor($r('sys.color.font_primary'))
-          .height(32).padding({ left: 10, right: 10 })
-          .backgroundColor(AppColor.GlassSheetControlTint)
-          .onClick((): void => this.onPickImage())
-      }
-    }
-    .alignItems(HorizontalAlign.Center)
-  }
-
-  @Builder
-  buildImageControls() {
-    Column({ space: AppSpace.Sm }) {
-      Row({ space: AppSpace.Sm }) {
-        Text($r('app.string.reader_image_text')).fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_secondary')).layoutWeight(1)
-        ImmersiveOptionTabs({ labels: [$r('app.string.reader_text_dark'), $r('app.string.reader_text_light')],
-          selected: hexLuminance(this.imageFontColor.length > 0 ? this.imageFontColor : this.palette.primary) > 0.55 ? 1 : 0,
-          onSelect: (index: number): void => this.onImageTextChange(index === 1) })
-      }.width('100%')
-      if (this.supportsImageMode) {
-        Row({ space: AppSpace.Sm }) {
-          Text($r('app.string.reader_image_mode')).fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_secondary')).layoutWeight(1)
-          ImmersiveOptionTabs({
-            labels: [$r('app.string.reader_image_contain'), $r('app.string.reader_image_tile'),
-              $r('app.string.reader_image_stretch'), $r('app.string.reader_image_cover')],
-            selected: [ReaderImageMode.Contain, ReaderImageMode.Tile, ReaderImageMode.Stretch,
-              ReaderImageMode.Cover].indexOf(this.imageMode),
-            onSelect: (index: number): void => this.onImageModeChange(
-              [ReaderImageMode.Contain, ReaderImageMode.Tile, ReaderImageMode.Stretch,
-                ReaderImageMode.Cover][index] ?? ReaderImageMode.Cover)
-          })
-        }.width('100%')
-        Text(this.imageModeHint())
-          .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary')).width('100%')
-      }
-      Row({ space: AppSpace.Sm }) {
-        Text($r('app.string.reader_image_overlay'))
-          .fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_secondary'))
-          .width(30)
-        Slider({
-          value: this.overlayAlpha * 100,
-          min: TextReadingSettings.OVERLAY_MIN * 100,
-          max: TextReadingSettings.OVERLAY_MAX * 100,
-          step: 1,
-          style: SliderStyle.InSet
-        })
-          .layoutWeight(1)
-          .height(32)
-          .blockColor(AppColor.OnBrand)
-          .trackColor($r('sys.color.comp_divider'))
-          .selectedColor(AppColor.Brand)
-          .trackThickness(4)
-          .onChange((value: number, mode: SliderChangeMode): void => {
-            this.onOverlayChange(value / 100,
-              mode === SliderChangeMode.End || mode === SliderChangeMode.Click);
-          })
-        Text(`${Math.round(this.overlayAlpha * 100)}%`)
-          .fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_primary'))
-          .width(34)
-          .textAlign(TextAlign.End)
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-
-      Text($r('app.string.reader_image_overlay_hint'))
-        .fontSize(10)
-        .fontColor($r('sys.color.font_secondary'))
-        .width('100%')
-    }
-    .width('100%')
-  }
-
-  private imageModeHint(): ResourceStr {
-    if (this.imageMode === ReaderImageMode.Contain) return $r('app.string.reader_image_contain_hint');
-    if (this.imageMode === ReaderImageMode.Tile) return $r('app.string.reader_image_tile_hint');
-    if (this.imageMode === ReaderImageMode.Stretch) return $r('app.string.reader_image_stretch_hint');
-    return $r('app.string.reader_image_cover_hint');
   }
 
   @Builder
@@ -1065,14 +999,12 @@ export struct ReaderSettingsSheet {
   build() {
     Column() {
       if (this.editingThemeIndex >= 0) {
-        ReaderThemeEditor({ themeSlot: this.editingThemeIndex,
-          themeBackground: this.customThemes[this.editingThemeIndex].background,
-          fontColor: this.customThemes[this.editingThemeIndex].fontColor,
+        ReaderThemeEditor({ theme: this.customThemes[this.editingThemeIndex],
+          supportsImageMode: this.supportsImageMode,
+          onPickImage: (): Promise<string> => this.onPickImage(),
+          onDiscardImage: (path: string): void => this.onDiscardImage(path),
           fontSize: this.fontSize, fontFamily: this.fontFamily, fontWeight: this.fontWeight, lineHeight: this.lineHeight,
-          onSave: (background: string, fontColor: string): void => {
-            this.onCustomThemeSave(this.editingThemeIndex, background, fontColor);
-            this.editingThemeIndex = -1;
-          },
+          onSave: (theme: ReaderCustomTheme): Promise<boolean> => this.onCustomThemeSave(theme),
           onCancel: (): void => { this.editingThemeIndex = -1; } })
       } else {
 
@@ -1124,7 +1056,7 @@ export struct ReaderSettingsSheet {
             this.buildFontAppearance()
           } else {
             this.buildPageTurnModeSection()
-            ReaderAutoPageSettings({ seconds: this.autoPageSeconds, running: this.autoPageRunning,
+            ReaderAutoPageSettings({ seconds: this.autoPageSeconds, running: this.autoPageRunning, paused: this.autoPagePaused,
               scrolling: this.autoScrolling, speed: this.autoScrollSpeed, onSpeed: this.onAutoScrollSpeed,
               available: this.autoPageAvailable, onInterval: this.onAutoPageInterval, onToggle: this.onAutoPageToggle })
             if (this.supportsSpeech) {

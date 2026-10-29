@@ -26,7 +26,7 @@ import { WidgetUpdater } from './WidgetUpdater';
 import { PlaybackStore } from './PlaybackStore';
 import { BookUsageInput, StatsService } from './StatsService';
 import { getWebViewAudioExtractor } from './builtin/WebViewAudioExtractor';
-import { ExternalMediaWatcher } from './ExternalMediaWatcher';
+import { AudioFocusService } from './AudioFocusService';
 import { ChapterProgressPolicy } from './ChapterProgressPolicy';
 import { DiagnosticLogService } from './DiagnosticLogService';
 
@@ -81,7 +81,7 @@ export class AudioService {
   private recoverLiveBuffer(player: media.AVPlayer, generation: number): void {
     if (this.player !== player || generation !== this.playGen || !this.state?.isLive ||
       !this.state.isPlaying || this.pauseRequested || this.sleepPausePending || this.pausedByFocus ||
-      this.pausedByExternalMedia || PlaybackCoordinator.speechActive) return;
+      PlaybackCoordinator.speechActive) return;
     const book = this.state.currentBook;
     const chapter = this.state.currentChapter;
     if (!book || !chapter) return;
@@ -164,13 +164,13 @@ export class AudioService {
     DiagnosticLogService.info('audio.event',
       `event=${event}; state=${this.player?.state ?? 'none'}; foreground=${this.foreground}; ` +
       `position=${this.state?.progressMs ?? 0}; generation=${this.playGen}; pause=${this.pauseRequested}; ` +
-      `source=${this.pauseSource}; focus=${this.pausedByFocus}; external=${this.pausedByExternalMedia}; ` +
+      `source=${this.pauseSource}; focus=${this.pausedByFocus}; ` +
       `sleep=${this.sleepPausePending}; loading=${this.state?.isLoading ?? false}; bg=${BackgroundTaskService.isRunning()}`);
     hilog.info(DOMAIN, TAG,
-      'playback event=%{public}s state=%{public}s foreground=%{public}s pos=%{public}d gen=%{public}d pause=%{public}s source=%{public}s focus=%{public}s external=%{public}s sleep=%{public}s loading=%{public}s bg=%{public}s',
+      'playback event=%{public}s state=%{public}s foreground=%{public}s pos=%{public}d gen=%{public}d pause=%{public}s source=%{public}s focus=%{public}s sleep=%{public}s loading=%{public}s bg=%{public}s',
       event, this.player?.state ?? 'none', String(this.foreground), this.state?.progressMs ?? 0,
       this.playGen, String(this.pauseRequested), this.pauseSource, String(this.pausedByFocus),
-      String(this.pausedByExternalMedia), String(this.sleepPausePending), String(this.state?.isLoading ?? false),
+      String(this.sleepPausePending), String(this.state?.isLoading ?? false),
       String(BackgroundTaskService.isRunning()));
   }
 
@@ -191,17 +191,8 @@ export class AudioService {
   private resumeAfterSleepChapter: boolean = false;
   private isApplying: boolean = false;
   private currentFile: fileIo.File | null = null;
-  /** 用户偏好的焦点模式：0=共享(SHARE_MODE)、1=独立(INDEPENDENT_MODE) */
-  private interruptMode: number = 0;
-  /** 失去焦点被强制暂停后，收到 RESUME 是否自动续播 */
-  private autoResume: boolean = true;
-  /** 标识当前暂停是否由系统焦点变化引起（用于决定 RESUME 时是否自动续播） */
   private pausedByFocus: boolean = false;
-  /** 标识当前是否被外部 MEDIA(视频/游戏/视频通话) 抢焦点强制 STOP。
-   *  与 pausedByFocus 互斥:STOP 不会再下发 RESUME,要靠 ExternalMediaWatcher 旁路监测视频结束 */
-  private pausedByExternalMedia: boolean = false;
-  /** 视频结束监测器:被 STOP 后 arm,视频流消失即续播 */
-  private externalWatcher: ExternalMediaWatcher = new ExternalMediaWatcher();
+  private focusPausePromise: Promise<void> = Promise.resolve();
   /** 节流写入 progressMs 的最近一次时间戳。AVPlayer timeUpdate ~100ms 一次,
    *  但 progressMs 是 @Trace,会触发全局 V2 级联重渲染,降到 500ms 一次足够 UI 用 */
   private lastProgressWriteAt: number = 0;
@@ -300,57 +291,8 @@ export class AudioService {
   bind(state: PlayerState, context: common.UIAbilityContext): void {
     this.state = state;
     this.context = context;
-    this.loadFocusPrefs();
     this.loadSleepPreferences();
     this.initAVSession();
-  }
-
-  private async loadFocusPrefs(): Promise<void> {
-    try {
-      this.interruptMode = await PreferenceService.getAudioInterruptMode();
-      this.autoResume = await PreferenceService.getAudioAutoResume();
-      if (this.player) {
-        this.applyInterruptMode(this.player);
-      }
-    } catch (err) {
-      const e = err as Error;
-      hilog.error(DOMAIN, TAG, 'loadFocusPrefs failed: %{public}s',
-        e && e.message ? e.message : JSON.stringify(err));
-    }
-  }
-
-  /** 设置音频焦点模式：0=SHARE_MODE, 1=INDEPENDENT_MODE */
-  async setInterruptMode(mode: number): Promise<void> {
-    await PreferenceService.setAudioInterruptMode(mode);
-    this.interruptMode = mode;
-    if (this.player) {
-      this.applyInterruptMode(this.player);
-    }
-  }
-
-  /** 设置失焦自动恢复开关 */
-  async setAutoResume(enabled: boolean): Promise<void> {
-    this.autoResume = enabled;
-    await PreferenceService.setAudioAutoResume(enabled);
-  }
-
-  private applyInterruptMode(p: media.AVPlayer): void {
-    // audioInterruptMode 是属性 setter,鸿蒙限定必须在 prepared/playing/paused/completed
-    // 状态下调用,idle/initialized/error/stopped/released 都会抛 Operate Not Permit。
-    // 这里只在合法状态下设;非法状态由 stateChange 'prepared' 回调里再调一次兜底。
-    const s = p.state;
-    if (s !== 'prepared' && s !== 'playing' && s !== 'paused' && s !== 'completed') {
-      return;
-    }
-    try {
-      p.audioInterruptMode = this.interruptMode === 1
-        ? audio.InterruptMode.INDEPENDENT_MODE
-        : audio.InterruptMode.SHARE_MODE;
-    } catch (err) {
-      const e = err as Error;
-      hilog.error(DOMAIN, TAG, 'applyInterruptMode failed: %{public}s',
-        e && e.message ? e.message : JSON.stringify(err));
-    }
   }
 
   private initAVSession(): void {
@@ -459,7 +401,7 @@ export class AudioService {
         });
       } else if (newState === 'prepared') {
         // 此时 player 已进入合法状态,补一次焦点模式 setter(ensurePlayer 阶段不能设)
-        this.applyInterruptMode(p);
+        p.audioInterruptMode = audio.InterruptMode.SHARE_MODE;
         this.state.isLive = this.liveSource || (this.state.currentChapter?.source.type === 'url' && p.duration < 0);
         this.state.durationMs = this.state.isLive ? 0 : Math.max(0, p.duration);
         hilog.info(DOMAIN, TAG, 'prepared live=%{public}s duration=%{public}d', String(this.state.isLive), p.duration);
@@ -493,7 +435,7 @@ export class AudioService {
         }
         // 立即设置播放状态，让UI立即响应
         this.state.isPlaying = !this.sleepPausePending && !this.pauseRequested && !this.pausedByFocus &&
-          !this.pausedByExternalMedia && !PlaybackCoordinator.speechActive;
+          !PlaybackCoordinator.speechActive;
         if (this.state.isPlaying) {
           const generation = this.playerSourceGeneration;
           this.playPlayer(p).catch((error: BusinessError): void => {
@@ -506,7 +448,7 @@ export class AudioService {
         }
       } else if (newState === 'playing') {
         if (this.sleepPausePending || this.pauseRequested || this.pausedByFocus ||
-          this.pausedByExternalMedia || PlaybackCoordinator.speechActive) {
+          PlaybackCoordinator.speechActive) {
           p.pause().catch((err: Error): void => {
             hilog.warn(DOMAIN, TAG, 'Pending pause failed: %{public}s', err.message);
           });
@@ -546,7 +488,6 @@ export class AudioService {
       } else if (newState === 'completed') {
         this.state.isPlaying = false;
         this.recordSession();
-        this.recordPause();
         this.stopTick();
         this.syncPlaybackState();
         PlaybackStore.getInstance().setPlaying(false);
@@ -615,7 +556,7 @@ export class AudioService {
       // 加载/解析过的 URL 失效（缓存或上次解析的临时链接）:清缓存后自动重新解析一次再播，
       // loading 不会提前消失（playChapter 内会重新置 true）；重试仍失败则由限流阻止再次自动重试。
       if (book && ch && usingResolvedUrl && !this.pauseRequested && !this.sleepPausePending
-        && !this.pausedByFocus && !this.pausedByExternalMedia && !PlaybackCoordinator.speechActive
+        && !this.pausedByFocus && !PlaybackCoordinator.speechActive
         && this.canAutoRetryLoad(ch.id)) {
         this.autoRetryChapterId = ch.id;
         hilog.warn(DOMAIN, TAG, 'AVPlayer error with resolved URL, auto re-resolve chapter: %{public}s', ch.title);
@@ -702,6 +643,12 @@ export class AudioService {
   private async startPlayerWithBackground(player: media.AVPlayer, generation: number): Promise<void> {
     const context = this.context;
     if (!context || !this.canStartPlayer(player, generation)) return;
+    await AudioFocusService.getInstance().acquire('audio', (): void => this.pauseForFocus(),
+      (): Promise<void> => this.resumeFromInterrupt());
+    if (!this.canStartPlayer(player, generation)) {
+      this.finishCancelledPlayerStart(player, generation);
+      return;
+    }
     const sessionStartedAt = Date.now();
     try { await AVSessionService.getInstance().init(context); }
     finally { this.tracePlaybackDuration('avsession-ready', sessionStartedAt, generation); }
@@ -742,7 +689,7 @@ export class AudioService {
       this.playerSourceGeneration === generation &&
       (player.state === 'prepared' || player.state === 'paused' || player.state === 'completed' || player.state === 'playing') &&
       !this.pauseRequested && !this.sleepPausePending && !this.pausedByFocus &&
-      !this.pausedByExternalMedia && !PlaybackCoordinator.speechActive;
+      !PlaybackCoordinator.speechActive;
   }
 
   private handlePlayerOperationFailure(player: media.AVPlayer, generation: number,
@@ -760,129 +707,42 @@ export class AudioService {
   }
 
   private handleInterrupt(event: audio.InterruptEvent): void {
-    this.cancelLiveRecovery();
-    this.tracePlayback(`interrupt:type=${event.eventType}:force=${event.forceType}:hint=${event.hintType}:autoResume=${this.autoResume}`);
+    this.tracePlayback(`interrupt:type=${event.eventType}:force=${event.forceType}:hint=${event.hintType}`);
     if (PlaybackCoordinator.speechActive || this.pauseRequested || this.sleepPausePending) return;
-    // SHARE 的 PAUSE/STOP 由应用执行；FORCE 已由系统执行，但同样必须封住异步起播。
-    if (event.hintType === audio.InterruptHint.INTERRUPT_HINT_PAUSE ||
-      event.hintType === audio.InterruptHint.INTERRUPT_HINT_STOP) {
-      if (event.hintType === audio.InterruptHint.INTERRUPT_HINT_PAUSE) {
-        // 临时暂停（语音、电话、闹铃等）：标记为焦点暂停，等待系统后续下发 RESUME
-        // 旧的视频流 watcher 若残留,先 disarm 以免误触发(当前打断已被新事件接管)
-        this.cancelExternalMediaWatch();
-        this.pausedByFocus = true;
-        if (this.state) {
-          this.state.isPlaying = false;
-          this.state.isLoading = false;
-        }
-        this.stopTick();
-        this.persistHistory();
-        this.syncPlaybackState();
-        PlaybackStore.getInstance().setPlaying(false);
-      } else if (event.hintType === audio.InterruptHint.INTERRUPT_HINT_STOP) {
-        // 永久失去焦点:系统不会再下发 RESUME(典型场景:抖音/B 站等视频抢焦点)。
-        // 不再 reset player —— 留住 paused 状态,arm ExternalMediaWatcher,
-        // 监测到外部视频流消失时主动续播。30s 超时后 watcher 自动 disarm。
-        // 先把旧 watcher 清掉,避免被新一轮 STOP 重复 arm 留下双监听
-        this.cancelExternalMediaWatch();
-        this.pausedByFocus = false;
-        this.pausedByExternalMedia = true;
-        if (this.state) {
-          this.state.isPlaying = false;
-          this.state.isLoading = false;
-        }
-        this.stopTick();
-        // 立即把当前进度落盘:与 'paused' stateChange 分支同样的理由,
-        // 防止 STOP 后 tick 停了丢掉最近一段进度
-        this.persistHistory();
-        this.syncPlaybackState();
-        PlaybackStore.getInstance().setPlaying(false);
-        if (this.autoResume) {
-          this.externalWatcher.arm(() => this.resumeAfterExternalMedia());
-        }
-      }
-      const player = this.player;
-      if (event.forceType === audio.InterruptForceType.INTERRUPT_SHARE && player?.state === 'playing') {
-        player.pause().catch((error: BusinessError): void => {
-          DiagnosticLogService.failure('audio.interrupt-pause', error);
-        });
-      }
-      this.stopBackgroundIfIdle();
-      // DUCK / UNDUCK：系统仅做音量变化，播放未中断，无需处理状态
-    } else if (event.forceType === audio.InterruptForceType.INTERRUPT_SHARE) {
-      if (event.hintType === audio.InterruptHint.INTERRUPT_HINT_RESUME) {
-        // 此前因 PAUSE 临时失焦，现在系统下发可续播提示
-        if (this.autoResume && this.pausedByFocus) {
-          this.pausedByFocus = false;
-          this.resumeFromInterrupt();
-        } else {
-          this.pausedByFocus = false;
-        }
-      }
+    AudioFocusService.getInstance().handleInterrupt('audio', event);
+  }
+
+  private pauseForFocus(): void {
+    this.cancelLiveRecovery();
+    this.pausedByFocus = true;
+    this.capturePlayerPosition();
+    if (this.state) {
+      this.state.isPlaying = false;
+      this.state.isLoading = false;
     }
+    this.stopTick();
+    const player = this.player;
+    this.focusPausePromise = (player?.state === 'playing' ? player.pause() : Promise.resolve())
+      .then((): Promise<void> => this.persistHistory())
+      .catch((error: Error): void => { DiagnosticLogService.info('audio.focus.pause', error.message); });
+    this.syncPlaybackState();
+    PlaybackStore.getInstance().setPlaying(false);
+    this.stopBackgroundIfIdle();
   }
 
   private async resumeFromInterrupt(): Promise<void> {
     this.tracePlayback('resume:focus');
-    if (PlaybackCoordinator.speechActive || this.pauseRequested || this.sleepPausePending) return;
-    try {
-      const p = await this.ensurePlayer();
-      if (PlaybackCoordinator.speechActive || this.pauseRequested || this.sleepPausePending ||
-        this.pausedByFocus || this.pausedByExternalMedia) return;
-      if (p.state === 'paused') {
-        // 立即设置播放状态
-        if (this.state) {
-          this.state.isPlaying = true;
-        }
-        await this.playPlayer(p);
-      } else if (p.state === 'idle' || p.state === 'stopped') {
-        await this.resumeFromState();
-      }
-    } catch (err) {
-      const e = err as Error;
-      hilog.error(DOMAIN, TAG, 'resumeFromInterrupt failed: %{public}s',
-        e && e.message ? e.message : JSON.stringify(err));
-    }
+    this.pausedByFocus = false;
+    await this.focusPausePromise;
+    if (PlaybackCoordinator.speechActive || this.pauseRequested || this.sleepPausePending || this.pausedByFocus) return;
+    const player = await this.ensurePlayer();
+    if (PlaybackCoordinator.speechActive || this.pauseRequested || this.sleepPausePending || this.pausedByFocus) return;
+    if (player.state === 'paused' || player.state === 'prepared') await this.playPlayer(player);
+    else if (player.state === 'idle' || player.state === 'stopped' || player.state === 'error') await this.resumeFromState(true);
   }
 
-  /**
-   * 视频流消失后,ExternalMediaWatcher 回调走这里。
-   * 若用户在等待期间已经手动操作过(toggle/pause/play/playChapter),pausedByExternalMedia 已被清零,直接返回。
-   */
-  private async resumeAfterExternalMedia(): Promise<void> {
-    this.tracePlayback('resume:external-media');
-    if (!this.pausedByExternalMedia || !this.autoResume || this.pauseRequested || this.sleepPausePending) return;
-    this.pausedByExternalMedia = false;
-    try {
-      const p = await this.ensurePlayer();
-      if (PlaybackCoordinator.speechActive || this.pauseRequested || this.sleepPausePending ||
-        this.pausedByFocus || this.pausedByExternalMedia) return;
-      if (p.state === 'paused') {
-        if (this.state) {
-          this.state.isPlaying = true;
-        }
-        await this.playPlayer(p);
-      } else if (p.state === 'idle' || p.state === 'stopped') {
-        // 等待期间系统已经把 renderer 回收,走完整续播路径
-        await this.resumeFromState();
-      }
-    } catch (err) {
-      const e = err as Error;
-      hilog.warn(DOMAIN, TAG, 'resumeAfterExternalMedia failed: %{public}s',
-        e?.message ?? JSON.stringify(err));
-    }
-  }
-
-  /** 用户主动操作 / 重新被打断时调用,确保旧 watcher 不残留触发 */
-  private cancelExternalMediaWatch(): void {
-    this.pausedByExternalMedia = false;
-    if (this.externalWatcher.isArmed()) {
-      this.externalWatcher.disarm();
-    }
-  }
-
-  private recordPause(): void {
-    // AVSession 永远保持 activated,不再做 idle deactivate。保留空方法以兼容历史调用点。
+  private cancelFocusRecovery(): void {
+    AudioFocusService.getInstance().cancelRecovery('audio');
   }
 
   private startTick(): void {
@@ -1055,15 +915,16 @@ export class AudioService {
    * - 不同书: await 当前进度落盘 → reset → 拿新书 PlayProgress 兜底 savedDurationMs → 装载
    */
   async playChapter(book: Book, chapter: Chapter, automatic: boolean = false): Promise<void> {
-    if (automatic && PlaybackCoordinator.speechActive) return;
+    if (automatic && (PlaybackCoordinator.speechActive || this.pauseRequested || this.sleepPausePending || this.pausedByFocus)) return;
     if (!await PlaybackCoordinator.useAudio()) return;
+    if (automatic && (this.pauseRequested || this.sleepPausePending || this.pausedByFocus)) return;
     AVSessionService.getInstance().restoreAudioCallbacks();
     if (!this.state || !this.context) {
       throw new Error('AudioService not bound');
     }
     this.prepareSleepForPlayback(book, chapter, automatic);
     if (!automatic) this.autoRetryChapterId = '';
-    this.cancelExternalMediaWatch();
+    if (!automatic) this.cancelFocusRecovery();
 
     // ★ 同书+同章节短路:不 reset,直接 seek(0) + play,避免重新嗅探 URL
     if (this.canReuseSameChapter(book, chapter)) {
@@ -1644,13 +1505,13 @@ export class AudioService {
   }
 
   /** 按 state 中的 currentBook/currentChapter/progressMs 起播续播。url 类型 + 书源会先重解析地址。 */
-  async resumeFromState(): Promise<void> {
+  async resumeFromState(automatic: boolean = false): Promise<void> {
     if (!this.state || !this.state.currentBook || !this.state.currentChapter) return;
     const book = this.state.currentBook;
     const chapter = this.state.currentChapter;
     const seekMs = this.state.progressMs;
     // playChapterAndSeek 内部会做 URL 解析，这里不用重复
-    await this.playChapterAndSeek(book, chapter, seekMs);
+    await this.playChapterAndSeek(book, chapter, seekMs, automatic);
   }
 
   async seek(ms: number): Promise<void> {
@@ -1659,7 +1520,7 @@ export class AudioService {
     this.sleepPausePending = false;
     this.resumeAfterSleepChapter = false;
     this.chapterEndHandled = false;
-    this.cancelExternalMediaWatch();
+    this.cancelFocusRecovery();
     const p = await this.ensurePlayer();
     // 同步先把 state.progressMs 推到目标位置,避免 UI 滑块回弹
     if (this.state) {
@@ -1882,14 +1743,16 @@ export class AudioService {
       this.pauseSource = 'none';
       BackgroundTaskService.resumeAfterUserAction();
     }
-    this.pausedByFocus = false;
+    if (!automatic) this.pausedByFocus = false;
     const changed = this.state.currentBook?.id !== book.id || this.state.currentChapter?.id !== chapter.id;
     if (!automatic && changed && (this.state.sleepMode === SleepMode.Chapters || this.state.sleepWaitingForChapter)) {
       this.cancelSleepTimer();
       emitter.emit(EVT_SLEEP_CANCELLED, {});
     }
-    this.sleepPausePending = false;
-    this.resumeAfterSleepChapter = false;
+    if (!automatic) {
+      this.sleepPausePending = false;
+      this.resumeAfterSleepChapter = false;
+    }
     if (!automatic) this.autoSleepRequested = true;
   }
 
@@ -1918,6 +1781,8 @@ export class AudioService {
 
   private stopBackgroundIfIdle(): void {
     if (!this.context || this.state?.isPlaying || this.state?.isLoading || this.isApplying) return;
+    // 系统可能先回调 paused 再发送中断通知；此时不能提前清掉恢复意图。
+    if (!this.pausedByFocus && this.player?.state !== 'paused') AudioFocusService.getInstance().release('audio');
     const pending = this.historyWriteChain;
     // paused/焦点/定时停止都必须先完成续播快照，否则后台可能在 flush 中途被冻结。
     pending.catch((): void => {}).then((): void => {
@@ -1932,9 +1797,10 @@ export class AudioService {
     this.tracePlayback(`sleep-stop:chapterEnd=${atChapterEnd}`);
     this.cancelSleepTimer();
     this.sleepPausePending = true;
+    AudioFocusService.getInstance().release('audio');
     this.resumeAfterSleepChapter = atChapterEnd;
     this.pausedByFocus = false;
-    this.cancelExternalMediaWatch();
+    this.cancelFocusRecovery();
     this.pauseForSleep().catch((err: Error): void => {
       hilog.warn(DOMAIN, TAG, 'Sleep stop failed: %{public}s', err.message);
     });
@@ -1973,7 +1839,8 @@ export class AudioService {
     ChapterCacheService.getInstance().suspendPreload();
     this.cancelLiveRecovery();
     this.pauseRequested = true;
-    this.cancelExternalMediaWatch();
+    AudioFocusService.getInstance().release('audio');
+    this.cancelFocusRecovery();
     this.cancelSleepTimer();
     this.stopTick();
     if (this.state) {
@@ -2011,7 +1878,6 @@ export class AudioService {
     this.pendingSeek = 0;
     this.resumeTargetMs = 0;
     this.pausedByFocus = false;
-    this.pausedByExternalMedia = false;
     this.lastProgressWriteAt = 0;
     this.lastPersistAt = 0;
     AudioService.instance = null;
@@ -2021,7 +1887,7 @@ export class AudioService {
     this.frozenPersistGen = ++this.persistGen;
     this.stopTick();
     this.cancelSleepTimer();
-    this.cancelExternalMediaWatch();
+    this.cancelFocusRecovery();
   }
 
   unfreezePersist(): void {
@@ -2128,15 +1994,16 @@ export class AudioService {
    */
   async playChapterAndSeek(book: Book, chapter: Chapter, seekMs: number, automatic: boolean = false,
     forceReload: boolean = false): Promise<void> {
-    if (automatic && PlaybackCoordinator.speechActive) return;
+    if (automatic && (PlaybackCoordinator.speechActive || this.pauseRequested || this.sleepPausePending || this.pausedByFocus)) return;
     if (!await PlaybackCoordinator.useAudio()) return;
+    if (automatic && (this.pauseRequested || this.sleepPausePending || this.pausedByFocus)) return;
     AVSessionService.getInstance().restoreAudioCallbacks();
     if (!this.state || !this.context) {
       throw new Error('AudioService not bound');
     }
     this.prepareSleepForPlayback(book, chapter, automatic);
     if (!automatic) this.autoRetryChapterId = '';
-    this.cancelExternalMediaWatch();
+    if (!automatic) this.cancelFocusRecovery();
     // 重载必须重新解析；普通续播仍复用当前播放器。
     if (!forceReload && this.canReuseSameChapter(book, chapter)) {
       AVSessionService.getInstance().updateMetadata(book, chapter);
@@ -2287,8 +2154,9 @@ export class AudioService {
     this.pauseSource = source;
     this.tracePlayback('pause-request');
     this.pauseRequested = true;
+    AudioFocusService.getInstance().release('audio');
     this.pausedByFocus = false;
-    this.cancelExternalMediaWatch();
+    this.cancelFocusRecovery();
     this.stopTick();
     if (this.state) this.state.isPlaying = false;
     PlaybackStore.getInstance().setPlaying(false);
@@ -2313,7 +2181,7 @@ export class AudioService {
     this.pauseSource = 'none';
     this.pauseRequested = false;
     this.pausedByFocus = false;
-    this.cancelExternalMediaWatch();
+    this.cancelFocusRecovery();
     await this.loadSleepPreferences();
     if (this.pauseRequested) return;
     if (!await PlaybackCoordinator.useAudio()) return;

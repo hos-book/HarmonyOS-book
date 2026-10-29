@@ -1783,7 +1783,7 @@ export struct FavoritePage {
             ListItem() {
               Row({ space: 14 }) {
                 CoverImage({ url: item.cover, imgWidth: 52, imgHeight: 70, useFixedHeight: true,
-                  radius: 8, decodeW: 156, decodeH: 210 })
+                  radius: 8 })
                 Column({ space: 7 }) {
                   Text(item.title).fontSize(16).fontWeight(FontWeight.Medium)
                     .fontColor($r('sys.color.font_primary')).maxLines(2)
@@ -2138,7 +2138,7 @@ export struct FavoritePage {
           .clip(true)
         } else if (book.cover && book.cover.startsWith('http')) {
           CoverImage({ url: book.cover, imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO,
-            radius: 0, themedDecoration: false, decodeW: 300, decodeH: 400 })
+            radius: 0, themedDecoration: false })
             .hitTestBehavior(HitTestMode.Transparent)
         } else if (book.cover && (book.cover.startsWith('/data/') || book.cover.startsWith('file://'))) {
           Image('file://' + book.cover.replace(/^file:\/\//, ''))
@@ -2146,7 +2146,8 @@ export struct FavoritePage {
             .aspectRatio(BOOKSHELF_COVER_RATIO)
             .borderRadius(0)
             .objectFit(ImageFit.Cover)
-            .sourceSize({ width: 300, height: 400 })
+            .autoResize(true)
+            .interpolation(ImageInterpolation.Medium)
             .draggable(false)
             .hitTestBehavior(HitTestMode.Transparent)
         } else if (book.cover) {
@@ -2155,6 +2156,8 @@ export struct FavoritePage {
             .aspectRatio(BOOKSHELF_COVER_RATIO)
             .borderRadius(0)
             .objectFit(ImageFit.Cover)
+            .autoResize(true)
+            .interpolation(ImageInterpolation.Medium)
             .draggable(false)
             .hitTestBehavior(HitTestMode.Transparent)
         } else {
@@ -2277,7 +2280,7 @@ export struct FavoritePage {
       Stack({ alignContent: Alignment.TopStart }) {
         if (book.cover && book.cover.startsWith('http')) {
           CoverImage({ url: book.cover, imgWidth: 72, imgHeight: 100, useFixedHeight: true,
-            radius: 0, themedDecoration: false, decodeW: 300, decodeH: 400 })
+            radius: 0, themedDecoration: false })
             .hitTestBehavior(HitTestMode.Transparent)
         } else if (book.cover && (book.cover.startsWith('/data/') || book.cover.startsWith('file://'))) {
           Image('file://' + book.cover.replace(/^file:\/\//, ''))
@@ -2285,12 +2288,14 @@ export struct FavoritePage {
             .height(100)
             .borderRadius(0)
             .objectFit(ImageFit.Cover)
-            .sourceSize({ width: 300, height: 400 })
+            .autoResize(true)
+            .interpolation(ImageInterpolation.Medium)
             .draggable(false)
             .hitTestBehavior(HitTestMode.Transparent)
         } else if (book.cover) {
           Image($rawfile(book.cover)).width(72).height(100).borderRadius(0)
-            .objectFit(ImageFit.Cover).draggable(false).hitTestBehavior(HitTestMode.Transparent)
+            .objectFit(ImageFit.Cover).autoResize(true).interpolation(ImageInterpolation.Medium)
+            .draggable(false).hitTestBehavior(HitTestMode.Transparent)
         } else {
           CoverImage({ title: book.title, author: book.author, localPlaceholder: book.id.startsWith('import_'),
             imgWidth: 72, imgHeight: 100, useFixedHeight: true, radius: 0, themedDecoration: false })

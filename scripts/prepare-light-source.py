@@ -74,7 +74,7 @@ if __name__ == '__main__':
         temporary = Path(folder)
         engine = checkout(temporary, 'engine', 'wip3l/harmony-book-source-engine',
                           args.engine_revision or pins['engine']['commit'])
-        app = checkout(temporary, 'application', 'wip3l/legado-harmony',
+        app = checkout(temporary, 'application', 'wip3l/qingye-reader',
                        args.application_revision or pins['application']['commit'])
         node = Path(os.environ['DEVECO_HOME']) / 'tools/node/node.exe'
         command = [str(node), str(ROOT / 'scripts/sync-light-source.cjs'), str(engine), str(app)]

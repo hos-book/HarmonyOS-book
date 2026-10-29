@@ -12,12 +12,13 @@ import { ReaderHoldingHandService } from '../service/text/ReaderHoldingHandServi
 import { ReaderWidgetService } from '../service/ReaderWidgetService';
 import { ChapterSheetActions } from '../components/ChapterSheetActions';
 import { ReaderVolumeKeyService } from '../service/text/ReaderVolumeKeyService';
+import { ReaderSmartKeyService } from '../service/text/ReaderSmartKeyService';
 import { ReadingSessionService, SessionLocation } from '../service/ReadingSessionService';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { KeyCode } from '@kit.InputKit';
 import { ReaderTapPolicy } from '../utils/ReaderTapPolicy';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
-import { ImmersiveActionButton } from '../components/ImmersiveActionButton';
+import { ReaderAutoPageControls } from '../components/ReaderAutoPageControls';
 import { ChapterCacheIndicator } from '../components/ChapterCacheIndicator';
 import { BookSourceSwitchSheet } from '../components/BookSourceSwitchSheet';
 import { TextReaderRouteParams } from '../model/TextReading';
@@ -36,8 +37,9 @@ import { TextToSpeechState } from '../model/TextToSpeechState';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
-import { photoAccessHelper } from '@kit.MediaLibraryKit';
-import { image } from '@kit.ImageKit';
+import { ReaderBackgroundImageService } from '../service/text/ReaderBackgroundImageService';
+import { MembershipState } from '../model/MembershipState';
+import { MembershipService } from '../service/MembershipService';
 import { curves, SymbolGlyphModifier } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { bookParser } from '@hms.core.readerservice.bookParser';
@@ -140,6 +142,7 @@ export struct ReaderPage {
   @Local paragraphSpacing: number = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
   @Local previewParagraphSpacing: number = -1;
   @Local pickingBackgroundImage: boolean = false;
+  @Local membership: MembershipState = MembershipState.current;
   @Local followSystemTheme: boolean = false;
   @Local systemNightOverride: boolean = false;
   @Local marginLeft: number = 16;
@@ -183,10 +186,13 @@ export struct ReaderPage {
   @Local showChapterNumber: boolean = true;
   @Local showBookName: boolean = true;
   private volumeKeys: ReaderVolumeKeyService = new ReaderVolumeKeyService();
+  private smartKeys: ReaderSmartKeyService = new ReaderSmartKeyService();
   @Local readerVisible: boolean = false;
   @Local volumeKeyPageTurn: boolean = false;
+  @Local smartKeyPageTurn: boolean = false;
   @Local keyTurnRequest: number = 0;
   @Local autoPageRunning: boolean = false;
+  @Local autoPagePaused: boolean = false;
   @Local autoPageSeconds: number = ReaderAutoPageService.DEFAULT_SECONDS;
   @Local autoScrollSpeed: number = 20;
   @Local autoScrollReady: boolean = false;
@@ -313,6 +319,8 @@ export struct ReaderPage {
   private backgroundHandler = (): void => {
     this.stopAutoPage();
     this.readingForeground = false;
+    this.volumeKeys.dispose();
+    this.smartKeys.dispose();
     this.completeOnlineTextTurn(this.onlineTextTurnConfirmed);
     this.saveProgress();
     ReadingSessionService.end('reading');
@@ -324,6 +332,7 @@ export struct ReaderPage {
   private readingTime: ReadingTimeTracker = new ReadingTimeTracker();
   private foregroundHandler = (): void => {
     this.readingForeground = true;
+    this.syncVolumeKeys();
     if (this.readerVisible) { this.syncSpeechPosition(); this.saveProgress(); }
   };
 
@@ -403,6 +412,7 @@ export struct ReaderPage {
     ReaderCacheService.release(this.diskCacheOwner);
     this.readerVisible = false;
     this.volumeKeys.dispose();
+    this.smartKeys.dispose();
     this.screenOn.dispose();
     this.brightnessControl.dispose();
     this.holdingHand.setVisible(false);
@@ -877,7 +887,9 @@ export struct ReaderPage {
     if (index < 0) { this.showToast($r('app.string.reader_bookmark_missing')); return; }
     if (this.speechState.bookId === book.id) TextToSpeechService.getInstance().pause();
     this.showBookmarkSheet = false;
-    if (this.isOnlineTextBook()) await this.loadOnlineTextChapter(index, mark.charOffset, 0, false, false);
+    if (this.isOnlineTextBook()) {
+      if (await this.loadOnlineTextChapter(index, mark.charOffset, 0, false, false)) this.followReadingWithSpeech();
+    }
     else if (this.readerKitReady && this.readerKitController) {
       try { await this.readerKitController.startPlay(index, mark.domPos); }
       catch (_error) { this.showToast($r('app.string.reader_bookmark_missing')); }
@@ -1245,8 +1257,15 @@ export struct ReaderPage {
     const book = this.book;
     const speech = TextToSpeechService.getInstance();
     if (book === null || this.leaving || !this.isOnlineTextBook() ||
-      !speech.state.active || speech.state.bookId !== book.id ||
-      (!speech.state.playing && !speech.state.loading)) return;
+      !speech.state.active || speech.state.bookId !== book.id) return;
+    if (!speech.state.playing && !speech.state.loading) {
+      this.speechPageFloorChapter = this.currentResourceIndex;
+      this.speechPageFloor = this.currentOnlineTextCharOffset();
+      this.speechFollowOffset = -1;
+      this.updateSpeechPageEnds();
+      speech.followPausedReading(book.id, this.currentResourceIndex, this.currentRawCharOffset());
+      return;
+    }
     // start 内部以 generation 取消旧请求，连续翻页只保留最后一次目标。
     this.startReaderSpeech(book, this.currentResourceIndex, this.currentRawCharOffset(),
       this.currentOnlineTextCharOffset()).catch((_error: Error): void => {
@@ -1313,6 +1332,9 @@ export struct ReaderPage {
     if (currentContext === null) return;
     try {
       const settings = await TextReadingSettingsService.get(currentContext);
+      if (settings.themeId === ReaderThemeId.Custom && settings.customThemeIndex > 0) {
+        settings.applyCustomThemeAccess(await MembershipService.instance.hasCurrentEntitlement());
+      }
       this.autoPageSeconds = await PreferenceService.getAutoPageSeconds(false);
       this.autoScrollSpeed = await PreferenceService.getAutoScrollSpeed(false);
       this.followSystemTheme = settings.followSystemTheme;
@@ -1345,10 +1367,13 @@ export struct ReaderPage {
       this.backgroundPattern = settings.pattern;
       this.bgImagePath = settings.backgroundImage;
       this.backgroundImageMode = settings.backgroundImageMode;
-      if (this.bgImagePath.length > 0 && !await fileIo.access(this.bgImagePath)) {
-        this.bgImagePath = '';
-        this.backgroundPattern = ReaderPattern.None;
-        if (this.themeId === ReaderThemeId.Image) this.themeId = TextReadingSettings.THEME_DEFAULT;
+      if (this.bgImagePath.length > 0) {
+        let imageAvailable: boolean = false;
+        try { imageAvailable = await fileIo.access(this.bgImagePath); } catch (_e) { /* 缺图保留主题配色。 */ }
+        if (!imageAvailable) {
+          this.bgImagePath = '';
+          this.backgroundPattern = ReaderPattern.None;
+        }
       }
       this.overlayAlpha = settings.overlayAlpha;
       this.tapLeftPercent = settings.tapLeftPercent;
@@ -1368,6 +1393,8 @@ export struct ReaderPage {
       this.showBookName = settings.showBookName;
       this.tapRegions = settings.tapRegions;
       this.volumeKeyPageTurn = settings.volumeKeyPageTurn;
+      // 智控键入口暂时隐藏，旧配置也不再启用事件订阅。
+      this.smartKeyPageTurn = false;
       this.pageTurnMode = settings.pageTurnMode;
       this.showReadingStatus = settings.showReadingStatus;
       this.alwaysShowStatusBar = settings.alwaysShowStatusBar;
@@ -1427,6 +1454,7 @@ export struct ReaderPage {
     this.showBookName = true;
     this.tapRegions = ReaderTapPolicy.DEFAULT;
     this.volumeKeyPageTurn = false;
+    this.smartKeyPageTurn = false;
     this.pageTurnMode = TextReadingSettings.PAGE_TURN_MODE_DEFAULT;
     this.showReadingStatus = TextReadingSettings.SHOW_READING_STATUS_DEFAULT;
     this.alwaysShowStatusBar = TextReadingSettings.ALWAYS_SHOW_STATUS_BAR_DEFAULT;
@@ -1447,9 +1475,7 @@ export struct ReaderPage {
     WindowUtils.setReaderStatusBarLight(this.palette.isDark).catch((_e: Error): void => {});
   }
 
-  private saveReadingSettings(): void {
-    const currentContext = this.context;
-    if (currentContext === null) return;
+  private createReadingSettings(): TextReadingSettings {
     const settings = TextReadingSettings.ofAll(this.fontSize, this.lineHeight, this.themeId,
       this.customBackground, this.backgroundPattern, this.bgImagePath, this.overlayAlpha, this.pageTurnMode, this.showReadingStatus);
     settings.paragraphSpacing = this.paragraphSpacing;
@@ -1467,6 +1493,7 @@ export struct ReaderPage {
     settings.followSystemTheme = this.followSystemTheme;
     settings.alwaysShowStatusBar = this.alwaysShowStatusBar;
     settings.volumeKeyPageTurn = this.volumeKeyPageTurn;
+    settings.smartKeyPageTurn = this.smartKeyPageTurn;
     settings.tapRegions = this.tapRegions;
     settings.tapLeftPercent = this.tapLeftPercent;
     settings.tapRightPercent = this.tapRightPercent;
@@ -1487,7 +1514,13 @@ export struct ReaderPage {
     settings.marginRight = this.marginRight;
     settings.marginTop = this.marginTop;
     settings.marginBottom = this.marginBottom;
-    TextReadingSettingsService.save(currentContext, settings).catch((e: Error): void => {
+    return settings;
+  }
+
+  private saveReadingSettings(): void {
+    const currentContext = this.context;
+    if (currentContext === null) return;
+    TextReadingSettingsService.save(currentContext, this.createReadingSettings()).catch((e: Error): void => {
       hilog.warn(READER_LOG_DOMAIN, READER_LOG_TAG, 'save settings failed: %{public}s', e.message);
     });
   }
@@ -1571,43 +1604,80 @@ export struct ReaderPage {
     this.showToast($r('app.string.reader_follow_system_disabled'));
   }
 
-  private handleCustomThemeSelect(slot: number): void {
+  private applyCustomTheme(slot: number): void {
     this.customThemeIndex = ReaderCustomTheme.normalizeSlot(slot);
     const theme = this.customThemes[this.customThemeIndex];
     this.customBackground = theme.background;
     this.fontColor = theme.fontColor;
+    this.bgImagePath = theme.backgroundImage;
+    this.backgroundImageMode = theme.imageMode;
+    this.overlayAlpha = theme.overlayAlpha;
+    this.themeId = ReaderThemeId.Custom;
+    this.backgroundPattern = this.bgImagePath.length > 0 ? ReaderPattern.Image : ReaderPattern.None;
+  }
+
+  @Monitor('membership.confirmedInactive', 'membership.revalidating', 'membership.expiresAt', 'membership.developerAccess')
+  private onThemeMembershipChange(): void {
+    if (this.loading || this.membership.revalidating || this.membership.hasAccess ||
+      this.themeId !== ReaderThemeId.Custom || this.customThemeIndex === 0) return;
+    this.applyCustomTheme(0);
+    this.refreshPalette();
+    this.applyReadingSettings(false);
+  }
+
+  private async canUseCustomTheme(slot: number): Promise<boolean> {
+    if (ReaderCustomTheme.canUse(slot, false)) return true;
+    const allowed = ReaderCustomTheme.canUse(slot, await MembershipService.instance.hasCurrentEntitlement());
+    if (!allowed && !this.leaving) this.showToast($r('app.string.reader_custom_theme_membership_required'));
+    return allowed;
+  }
+
+  private async handleCustomThemeSelect(slot: number): Promise<void> {
+    if (!await this.canUseCustomTheme(slot) || this.leaving) return;
+    this.applyCustomTheme(slot);
     this.handleThemeChange(ReaderThemeId.Custom);
   }
 
-  private handleCustomThemeSave(slot: number, background: string, fontColor: string): void {
-    const selectedSlot = ReaderCustomTheme.normalizeSlot(slot);
-    this.customThemes = this.customThemes.map((theme: ReaderCustomTheme): ReaderCustomTheme =>
-      theme.slot === selectedSlot ? ReaderCustomTheme.of(selectedSlot, background, fontColor) : theme);
-    this.handleCustomThemeSelect(selectedSlot);
-  }
-
-  private handleImageTextChange(light: boolean): void {
-    this.imageFontColor = light ? '#F5F2EA' : '#2D2925';
-    this.imageBackground = light ? '#1C1F22' : TextReadingSettings.CUSTOM_BACKGROUND_DEFAULT;
-    this.handleThemeChange(ReaderThemeId.Image);
+  private async handleCustomThemeSave(draft: ReaderCustomTheme): Promise<boolean> {
+    const currentContext = this.context;
+    if (currentContext === null || !await this.canUseCustomTheme(draft.slot) || this.leaving) return false;
+    const theme = ReaderCustomTheme.copy(draft);
+    const previous = this.customThemes[theme.slot].backgroundImage;
+    const settings = this.createReadingSettings();
+    settings.customThemes = this.customThemes.map((current: ReaderCustomTheme): ReaderCustomTheme =>
+      current.slot === theme.slot ? theme : current);
+    settings.applyCustomTheme(theme.slot);
+    settings.followSystemTheme = false;
+    try {
+      await TextReadingSettingsService.save(currentContext, settings);
+    } catch (_e) {
+      // 回滚 Preferences 内存值，失败时编辑草稿和当前主题仍然保留。
+      await TextReadingSettingsService.save(currentContext, this.createReadingSettings()).catch((_error: Error): void => {});
+      if (!this.leaving) this.showToast($r('app.string.reader_theme_save_failed'));
+      return false;
+    }
+    this.customThemes = settings.customThemes;
+    if (!this.leaving) {
+      this.disableSystemTheme();
+      this.applyCustomTheme(ReaderCustomTheme.canUse(theme.slot, this.membership.hasAccess) ? theme.slot : 0);
+      this.refreshPalette();
+      this.applyReadingSettings(false);
+    }
+    if (previous && previous !== theme.backgroundImage &&
+      !this.customThemes.some((current: ReaderCustomTheme): boolean => current.backgroundImage === previous)) {
+      await ReaderBackgroundImageService.remove(currentContext, previous);
+    }
+    return true;
   }
 
   private handleThemeChange(themeId: string): void {
-    if (themeId === ReaderThemeId.Image && this.bgImagePath.length === 0) {
-      this.pickBackgroundImage();
-      return;
-    }
     this.disableSystemTheme();
     this.themeId = TextReadingSettings.normalizeThemeId(themeId);
-    this.backgroundPattern = this.themeId === ReaderThemeId.Image ? ReaderPattern.Image : ReaderPattern.None;
+    this.backgroundPattern = this.themeId === ReaderThemeId.Custom && this.bgImagePath.length > 0 ?
+      ReaderPattern.Image : ReaderPattern.None;
     this.refreshPalette();
     this.applyReadingSettings(false);
     this.saveReadingSettings();
-  }
-
-  private handleOverlayChange(value: number, commit: boolean): void {
-    this.overlayAlpha = TextReadingSettings.normalizeOverlay(value);
-    if (commit) this.saveReadingSettings();
   }
 
   private handlePageTurnModeChange(mode: string): void {
@@ -1662,94 +1732,26 @@ export struct ReaderPage {
     } finally { this.pickingFont = false; }
   }
 
-  private async pickBackgroundImage(): Promise<void> {
+  private async pickBackgroundImage(): Promise<string> {
     const currentContext = this.context;
-    if (currentContext === null || this.pickingBackgroundImage) return;
+    if (currentContext === null || this.pickingBackgroundImage) return '';
     this.pickingBackgroundImage = true;
-    let destination: string = '';
-    let applied: boolean = false;
     try {
-      const options = new photoAccessHelper.PhotoSelectOptions();
-      options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
-      options.maxSelectNumber = 1;
-      const result = await new photoAccessHelper.PhotoViewPicker().select(options);
-      if (result.photoUris.length === 0 || this.leaving) return;
-      const dir = `${currentContext.filesDir}/reader_bg`;
-      if (!await fileIo.access(dir)) await fileIo.mkdir(dir, true);
-      destination = `${dir}/bg_${Date.now()}.jpg`;
-      const src = await fileIo.open(result.photoUris[0], fileIo.OpenMode.READ_ONLY);
-      try {
-        await fileIo.copyFile(src.fd, destination);
-      } finally {
-        await fileIo.close(src);
+      const path = await ReaderBackgroundImageService.pick(currentContext);
+      if (this.leaving) {
+        await ReaderBackgroundImageService.remove(currentContext, path);
+        return '';
       }
-      // 验证图片可解码后再替换当前主题；取消或失败保留原图与原设置。
-      const imageSource = image.createImageSource(destination);
-      try {
-        await imageSource.getImageInfo();
-      } finally {
-        await imageSource.release();
-      }
-      if (this.leaving) return;
-      const previous = this.bgImagePath;
-      this.bgImagePath = destination;
-      this.disableSystemTheme();
-      this.themeId = ReaderThemeId.Image;
-      this.backgroundPattern = ReaderPattern.Image;
-      this.refreshPalette();
-      this.applyReadingSettings(false);
-      const settings = TextReadingSettings.ofAll(this.fontSize, this.lineHeight, this.themeId,
-        this.customBackground, this.backgroundPattern, this.bgImagePath, this.overlayAlpha, this.pageTurnMode, this.showReadingStatus);
-      settings.backgroundImageMode = this.backgroundImageMode;
-      settings.paragraphSpacing = this.paragraphSpacing;
-      settings.textAlignment = this.textAlignment;
-      settings.fontWeight = this.fontWeight;
-      settings.fontColor = this.fontColor;
-    settings.customThemes = this.customThemes;
-    settings.customThemeIndex = this.customThemeIndex;
-    settings.imageBackground = this.imageBackground;
-    settings.imageFontColor = this.imageFontColor;
-      settings.fontPath = this.fontPath;
-      settings.fontName = this.fontName;
-      settings.screenOnMinutes = this.screenOnMinutes;
-      settings.followSystemTheme = this.followSystemTheme;
-      settings.alwaysShowStatusBar = this.alwaysShowStatusBar;
-      settings.volumeKeyPageTurn = this.volumeKeyPageTurn;
-      settings.tapRegions = this.tapRegions;
-    settings.tapLeftPercent = this.tapLeftPercent;
-    settings.tapRightPercent = this.tapRightPercent;
-    settings.tapTopPercent = this.tapTopPercent;
-    settings.tapBottomPercent = this.tapBottomPercent;
-    settings.showChapterBar = this.showChapterBar;
-    settings.showBrightnessBar = this.showBrightnessBar;
-    settings.brightness = this.readingBrightness;
-    settings.showHeader = this.showHeader;
-    settings.cornerLayout = this.cornerLayout;
-    settings.showFooter = this.showFooter;
-    settings.showChapterTitle = this.showChapterTitle;
-    settings.showPageNumber = this.showPageNumber;
-    settings.showChapterNumber = this.showChapterNumber;
-    settings.showBookName = this.showBookName;
-
-      settings.marginLeft = this.marginLeft;
-      settings.marginRight = this.marginRight;
-      settings.marginTop = this.marginTop;
-      settings.marginBottom = this.marginBottom;
-      applied = true;
-      await TextReadingSettingsService.save(currentContext, settings);
-      // 新路径持久化成功后才删除上一张，避免重启仍引用已删文件。
-      if (previous.length > 0 && previous !== destination) {
-        fileIo.unlink(previous).catch((_e: Error): void => {});
-      }
-    } catch (e) {
-      hilog.warn(READER_LOG_DOMAIN, READER_LOG_TAG, 'pick background failed: %{public}s',
-        e instanceof Error ? e.message : String(e));
+      return path;
+    } catch (_e) {
       this.showToast($r('app.string.reader_image_apply_failed'));
-    } finally {
-      this.pickingBackgroundImage = false;
-      if (!applied && destination.length > 0) {
-        fileIo.unlink(destination).catch((_e: Error): void => {});
-      }
+      return '';
+    } finally { this.pickingBackgroundImage = false; }
+  }
+
+  private discardBackgroundImage(path: string): void {
+    if (this.context !== null && !this.customThemes.some((theme: ReaderCustomTheme): boolean => theme.backgroundImage === path)) {
+      ReaderBackgroundImageService.remove(this.context, path);
     }
   }
 
@@ -2016,9 +2018,10 @@ export struct ReaderPage {
   }
 
   private toggleAutoPage(): void {
-    if (this.autoPageRunning) { this.stopAutoPage(); return; }
+    if (this.autoPageRunning) { this.pauseAutoPage(); return; }
     if (!this.autoPageAvailable()) return;
     this.autoPageRunning = true;
+    this.autoPagePaused = false;
     this.autoPageKitPosition = '';
     this.showSettingsSheet = false;
     this.hideReaderBar();
@@ -2027,11 +2030,22 @@ export struct ReaderPage {
     this.syncAutoPage();
   }
 
+  private pauseAutoPage(): void {
+    if (!this.autoPageRunning) return;
+    this.autoPage.stop();
+    this.autoScrollReady = false;
+    this.autoPageRunning = false;
+    this.autoPagePaused = true;
+    this.autoPageKitPosition = '';
+    this.screenOn.configure(this.screenOnMinutes);
+  }
+
   private stopAutoPage(): void {
     this.autoPage.stop();
     this.autoScrollReady = false;
-    if (!this.autoPageRunning) return;
+    if (!this.autoPageRunning && !this.autoPagePaused) return;
     this.autoPageRunning = false;
+    this.autoPagePaused = false;
     this.autoPageKitPosition = '';
     this.screenOn.configure(this.screenOnMinutes);
   }
@@ -2059,7 +2073,7 @@ export struct ReaderPage {
   private syncAutoPage(): void {
     if (!this.readerVisible || this.speechState.active || this.readerError.length > 0) this.stopAutoPage();
     const ready = this.autoPageRunning && this.readingForeground && this.canTurnWithKeyboard() &&
-      !this.readerBarVisible && !this.onlineTextLoading && this.onlineTextTurnPreview === null && !this.selectingText;
+      !this.onlineTextLoading && this.onlineTextTurnPreview === null && !this.selectingText;
     this.autoScrollReady = ready && this.isAutoScrollMode();
     this.autoPage.setReady(ready && !this.isAutoScrollMode());
   }
@@ -2067,7 +2081,7 @@ export struct ReaderPage {
   private advanceAutoPage(): void {
     this.syncAutoPage();
     if (!this.autoPageRunning || !this.readingForeground || !this.canTurnWithKeyboard() ||
-      this.readerBarVisible || this.onlineTextLoading || this.onlineTextTurnPreview !== null || this.selectingText) return;
+      this.onlineTextLoading || this.onlineTextTurnPreview !== null || this.selectingText) return;
     if (this.isOnlineTextBook()) {
       this.keyTurnRequest = Math.abs(this.keyTurnRequest) + 1;
     } else if (this.readerKitReady) {
@@ -2084,15 +2098,18 @@ export struct ReaderPage {
   }
 
   private canTurnWithKeyboard(): boolean {
-    return this.readerVisible && !this.leaving && !this.loading &&
+    return this.readerVisible && this.readingForeground && !this.leaving && !this.loading &&
       this.readerError.length === 0 && !this.showChapterSheet && !this.showSettingsSheet &&
       !this.showSpeechSheet && !this.showSourceSwitch && !this.showBookmarkSheet && !this.showReplaceSheet && !this.showReaderMenu && !this.pickingFont && !this.pickingBackgroundImage;
   }
 
-  @Monitor('volumeKeyPageTurn', 'readerVisible', 'loading', 'readerError', 'showChapterSheet',
+  @Monitor('volumeKeyPageTurn', 'smartKeyPageTurn', 'readerVisible', 'loading', 'readerError', 'showChapterSheet',
     'showSettingsSheet', 'showSpeechSheet', 'showSourceSwitch', 'showBookmarkSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont', 'pickingBackgroundImage')
   syncVolumeKeys(): void {
     this.volumeKeys.setEnabled(this.canUseVolumeKeys(), (forward: boolean): void => this.handleVolumePageTurn(forward));
+    this.smartKeys.setEnabled(this.smartKeyPageTurn && this.canTurnWithKeyboard(), (forward: boolean): void => {
+      if (this.smartKeyPageTurn && this.canTurnWithKeyboard()) this.turnPageFromKey(forward);
+    });
   }
 
   private handleVolumePageTurn(forward: boolean): void {
@@ -2110,7 +2127,8 @@ export struct ReaderPage {
   }
 
   private turnPageFromKey(forward: boolean): void {
-    this.stopAutoPage();
+    this.autoPage.restart();
+    this.autoPageKitPosition = '';
     this.screenOn.touch();
     if (this.isOnlineTextBook()) {
       this.keyTurnRequest = (Math.abs(this.keyTurnRequest) + 1) * (forward ? 1 : -1);
@@ -2701,16 +2719,25 @@ export struct ReaderPage {
       if (this.book !== null && (this.readerBarVisible || this.readerError.length > 0)) {
         this.buildSourceActions()
       }
-      if (this.autoPageRunning) {
-        Stack({ alignContent: Alignment.BottomEnd }) {
-          ImmersiveActionButton({
-            label: this.isAutoScrollMode() ? $r('app.string.reader_auto_scroll_stop') : $r('app.string.reader_auto_page_stop'),
-            buttonHeight: 40,
-            onPress: (): void => this.stopAutoPage()
-          }).width(148)
-            .margin({ right: this.rightSafeVp + 16, bottom: this.readerTextBottomPaddingVp() + 30 })
-            .id('reader-auto-page-stop')
-        }.width('100%').height('100%').hitTestBehavior(HitTestMode.Transparent)
+      if (this.autoPageRunning || this.autoPagePaused) {
+        // 仅按钮区域参与命中测试，避免全屏 Transparent 宿主把点击透传给正文。
+        ReaderAutoPageControls({
+          paused: this.autoPagePaused, scrolling: this.isAutoScrollMode(),
+          onToggle: (): void => this.toggleAutoPage(),
+          onClose: (): void => this.stopAutoPage()
+        })
+          .position({
+            x: this.holdingHandSide === 1 ? this.leftSafeVp + 16 : Math.max(this.leftSafeVp + 16,
+              (this.readerViewportWidthVp > 0 ? this.readerViewportWidthVp : WindowUtils.getWindowWidthVp()) -
+                this.rightSafeVp - 16 - 136),
+            y: Math.max(this.readerTopInsetVp(),
+              (this.readerViewportHeightVp > 0 ? this.readerViewportHeightVp : WindowUtils.getWindowHeightVp()) - 40 -
+                (this.readerBarVisible ? Math.max(this.readerTextBottomPaddingVp() + 30,
+                  Math.max(this.bottomSafeVp, READER_MIN_SAFE_BOTTOM) + READER_BAR_HEIGHT +
+                    (this.showChapterBar ? 76 : READER_FLOATING_BOTTOM + 12)) : this.readerTextBottomPaddingVp() + 30))
+          })
+          .hitTestBehavior(HitTestMode.Default)
+          .id('reader-auto-page-controls')
       }
     }
     .width('100%')
@@ -2728,10 +2755,6 @@ export struct ReaderPage {
         this.showChapterSheet = false;
         if (!this.leaving && !this.showSettingsSheet) this.showReaderBar();
       }
-    })
-    .onTouchIntercept((event: TouchEvent): HitTestMode => {
-      if (event.type === TouchType.Down) this.stopAutoPage();
-      return HitTestMode.Default;
     })
     .onTouch((event: TouchEvent): void => { if (event.type === TouchType.Down) this.screenOn.touch(); })
     .onKeyEvent((event: KeyEvent): void => this.handleReaderKey(event))
@@ -2803,7 +2826,7 @@ export struct ReaderPage {
         CoverImage({ url: this.speechState.cover, title: this.book?.title ?? '',
           author: this.book?.author ?? '', localPlaceholder: this.book?.id.startsWith('import_') ?? false,
           imgWidth: 40, imgHeight: 40, useFixedHeight: true, radius: 20,
-          decodeW: 120, decodeH: 120 })
+          })
       }.width(40).height(40).padding(0).backgroundColor(Color.Transparent)
         .accessibilityText($r('app.string.tts_title')).id('reader-speech-cover')
         .onClick((): void => { this.openSpeechPlayer(true); })
@@ -3209,7 +3232,7 @@ export struct ReaderPage {
   @Builder
   buildSettingsSheet(): void {
     ReaderSettingsSheet({
-      autoPageSeconds: this.autoPageSeconds, autoPageRunning: this.autoPageRunning,
+      autoPageSeconds: this.autoPageSeconds, autoPageRunning: this.autoPageRunning, autoPagePaused: this.autoPagePaused,
       autoScrolling: this.isAutoScrollMode(), autoScrollSpeed: this.autoScrollSpeed,
       onAutoScrollSpeed: (speed: number): void => this.setAutoScrollSpeed(speed),
       autoPageAvailable: this.autoPageAvailable(),
@@ -3233,18 +3256,10 @@ export struct ReaderPage {
       },
       customThemes: this.customThemes,
       customThemeIndex: this.customThemeIndex,
-      imageFontColor: this.imageFontColor,
       effectiveThemeId: this.effectiveThemeId,
-      onCustomThemeSave: (slot: number, background: string, fontColor: string): void => {
-        this.handleCustomThemeSave(slot, background, fontColor);
-      },
-      onCustomThemeSelect: (slot: number): void => this.handleCustomThemeSelect(slot),
-      onImageTextChange: (light: boolean): void => this.handleImageTextChange(light),
+      onCustomThemeSave: (theme: ReaderCustomTheme): Promise<boolean> => this.handleCustomThemeSave(theme),
+      onCustomThemeSelect: (slot: number): void => { this.handleCustomThemeSelect(slot); },
       supportsImageMode: this.isOnlineTextBook(),
-      onImageModeChange: (mode: ReaderImageMode): void => {
-        this.backgroundImageMode = mode;
-        this.saveReadingSettings();
-      },
       onPickFont: (): void => { this.pickReaderFont(); },
       onSystemFont: (): void => {
         this.fontFamily = ''; this.fontPath = ''; this.fontName = '';
@@ -3356,9 +3371,6 @@ export struct ReaderPage {
       onThemeChange: (themeId: string): void => {
         this.handleThemeChange(themeId);
       },
-      onOverlayChange: (value: number, commit: boolean): void => {
-        this.handleOverlayChange(value, commit);
-      },
       textAlignment: this.textAlignment,
       onTextAlignmentChange: (value: string): void => {
         this.textAlignment = TextReadingSettings.normalizeTextAlignment(value);
@@ -3372,9 +3384,8 @@ export struct ReaderPage {
         this.applyReadingSettings();
         this.saveReadingSettings();
       },
-      onPickImage: (): void => {
-        this.pickBackgroundImage();
-      },
+      onPickImage: (): Promise<string> => this.pickBackgroundImage(),
+      onDiscardImage: (path: string): void => this.discardBackgroundImage(path),
       onResetDefaults: (): void => {
         this.handleResetDefaults();
       },

@@ -122,8 +122,6 @@ export struct BookCard {
             imageFit: this.coverImageFit,
             radius: this.coverRadius,
             themedDecoration: false,
-            decodeW: 300,
-            decodeH: this.coverAspectRatio < 1 ? 400 : 300,
             highPriority: this.indexHint < 24,
             onImageSize: (url: string, width: number, height: number): void =>
               this.rememberCoverSize(url, width, height)
@@ -134,8 +132,8 @@ export struct BookCard {
             .aspectRatio(this.displayCoverRatio())
             .borderRadius(this.coverRadius)
             .objectFit(this.coverImageFit)
-            .sourceSize(this.coverImageFit === ImageFit.Contain ? undefined :
-              { width: 300, height: this.coverAspectRatio < 1 ? 400 : 300 })
+            .autoResize(true)
+            .interpolation(ImageInterpolation.Medium)
             .onComplete((event) => {
               if (event?.loadingStatus === 0) this.rememberCoverSize(this.book.cover, event.width, event.height);
             })
@@ -146,6 +144,8 @@ export struct BookCard {
             .aspectRatio(this.displayCoverRatio())
             .borderRadius(this.coverRadius)
             .objectFit(this.coverImageFit)
+            .autoResize(true)
+            .interpolation(ImageInterpolation.Medium)
             .onComplete((event) => {
               if (event?.loadingStatus === 0) this.rememberCoverSize(this.book.cover, event.width, event.height);
             })

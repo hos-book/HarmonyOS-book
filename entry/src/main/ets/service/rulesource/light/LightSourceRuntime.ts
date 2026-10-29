@@ -348,6 +348,10 @@ export class LightCookieStore {
     const match = /^https?:\/\/[^/?#]+/i.exec(url || '');
     return match ? match[0].toLowerCase() : '';
   }
+  getRequestCookie(url: string): string {
+    if (this.browserActive) return LightCookieSemantics.getRequestCookie(url);
+    return this.getCookie(url);
+  }
   getCookie(url: string): string {
     const origin = this.origin(url);
     if (this.browserActive) {
@@ -423,7 +427,11 @@ export class LightCookieStore {
       (!!name && record.cookie.split('=')[0].trim() !== name));
     this.dirty.add(this.origin(url));
   }
-  copyCookies(from: string, to: string): void { this.setCookies(to, this.getCookie(from)); }
+  copyCookies(from: string, to: string): void {
+    const cookies = this.getCookie(from).split(';').map(pair => pair.trim())
+      .filter(pair => pair && (from === to || !/^(cf_clearance|__cf_bm)=/i.test(pair)));
+    this.setCookies(to, cookies.join('; '));
+  }
   saveAsync(): void { /* Flushed before the source lease is released. */ }
   saveSync(): void { this.saveAsync(); }
   clearAll(): void {

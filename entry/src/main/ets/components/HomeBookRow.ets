@@ -77,8 +77,6 @@ export struct HomeBookRow {
               useFixedHeight: true,
               imageFit: ImageFit.Contain,
               radius: AppRadius.Sm,
-              decodeW: 162,
-              decodeH: 216,
               highPriority: true,
               onImageSize: (url: string, width: number, height: number): void =>
                 this.rememberCoverSize(url, width, height)
@@ -165,8 +163,6 @@ export struct HomeBookRow {
             useFixedHeight: true,
             imageFit: ImageFit.Contain,
             radius: AppRadius.Sm,
-            decodeW: 216,
-            decodeH: 288,
             highPriority: true,
             onImageSize: (url: string, width: number, height: number): void =>
               this.rememberCoverSize(url, width, height)

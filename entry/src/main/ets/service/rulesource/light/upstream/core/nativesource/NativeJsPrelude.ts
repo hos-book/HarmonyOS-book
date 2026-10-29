@@ -135,8 +135,8 @@ ${script ? NativeJsPrelude.SCRIPT_API : NativeJsPrelude.EXPRESSION_STUBS}
     refreshExplore: function () { call('@refreshExplore', []); }
   }));
   define('browser', Object.freeze({
-    verify: function (url, hint) {
-      return call('@browserVerify', [String(url), hint === undefined || hint === null ? '' : String(hint)]);
+    verify: function (url, hint, options) {
+      return call('@browserVerify', [String(url), hint === undefined || hint === null ? '' : String(hint), options || {}]);
     },
     open: function (url, title) {
       call('@browserOpen', [String(url), title === undefined || title === null ? '' : String(title)]);

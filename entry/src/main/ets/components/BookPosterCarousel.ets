@@ -272,7 +272,7 @@ export struct BookPosterCarousel {
                 aspectRatioValue: item.aspectRatio,
                 useOriginalRatio: this.useOriginalCoverRatio, maxOriginalHeight: 160,
                 radius: AppRadius.Sm, compositeEdges: true,
-                imageFit: ImageFit.Contain, decodeW: 480, decodeH: 640 })
+                imageFit: ImageFit.Contain })
                 BookRatingBadge({ rating: item.rating, sizeScale: 0.85,
                   coverWidth: this.useOriginalCoverRatio ? Math.min(BOOK_POSTER_COVER_WIDTH, 160 * item.aspectRatio) : BOOK_POSTER_COVER_WIDTH })
               }

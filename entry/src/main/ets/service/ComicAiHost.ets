@@ -95,6 +95,16 @@ export class ComicAiHost implements AiHost {
     ReaderCacheService.record([path]).catch((): void => {});
   }
 
+  retainComicFile(path: string): () => void {
+    ReaderCacheService.hold(path);
+    let released: boolean = false;
+    return (): void => {
+      if (released) return;
+      released = true;
+      ReaderCacheService.unhold(path);
+    };
+  }
+
   noteComicWrite(): void {
     // 成功结果由着色/超分宿主按返回路径登记；失败时再 reconcile。
     // 每张图都使索引失效，会让结果返回等待整个阅读缓存重新扫描。

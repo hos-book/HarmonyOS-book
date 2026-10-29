@@ -44,6 +44,7 @@ const cryptoFramework = {
   }
 };
 const fileIo = { OpenMode: { CREATE: 1, WRITE_ONLY: 2, TRUNC: 4 }, mkdirSync() {},
+  statSync: filename => { if (!files.has(filename)) throw Error('missing'); return { isFile: () => true, size: files.get(filename).length }; },
   accessSync: filename => files.has(filename), unlinkSync: filename => files.delete(filename),
   openSync(filename) { handles.set(++nextHandle, filename); files.set(filename, Buffer.alloc(0)); return { fd: nextHandle }; },
   writeSync(fd, bytes) {

@@ -19,6 +19,7 @@ import { Book } from '../../model/Book';
 import { SpeechPosition, SpeechVoice, TextToSpeechState } from '../../model/TextToSpeechState';
 import { StatsService } from '../StatsService';
 import { AudioService } from '../AudioService';
+import { AudioFocusService } from '../AudioFocusService';
 import { AVSessionCallbacks, AVSessionService } from '../AVSessionService';
 import { BackgroundTaskService } from '../BackgroundTaskService';
 import { PlaybackCoordinator } from '../PlaybackCoordinator';
@@ -51,7 +52,10 @@ export class TextToSpeechService {
   private httpPlayer: HttpTtsPlayer | null = null;
   private httpPlaybackChain: Promise<void> = Promise.resolve();
   private httpTasks: Map<number, HttpTtsPlayer> = new Map();
-  private httpOutput: HttpTtsAudioOutput = new HttpTtsAudioOutput();
+  private httpOutput: HttpTtsAudioOutput = new HttpTtsAudioOutput(
+    (event: audio.InterruptEvent): void => AudioFocusService.getInstance().handleInterrupt('speech', event),
+    (): void => this.pause(),
+    (): Promise<boolean> => AudioFocusService.getInstance().ensureActive('speech'));
   private pcm: SpeechPcmBuffer = new SpeechPcmBuffer();
   private pcmPlaybackId: string = '';
   private lastAudioLogAt: number = 0;
@@ -85,19 +89,13 @@ export class TextToSpeechService {
   private spokenSince: number = -1;
   private pendingListenMs: number = 0;
   private listeners: Set<() => void> = new Set();
-  private audioSession: audio.AudioSessionManager | null = null;
+  private focusPaused: boolean = false;
   private routing: audio.AudioRoutingManager | null = null;
   private focusChain: Promise<void> = Promise.resolve();
   private prefetchedKey: string = '';
   private prefetchedText: string = '';
-  private readonly onDeactivated = (event: audio.AudioSessionDeactivatedEvent): void => {
-    hilog.info(0x0000, 'TextToSpeech', 'audio session deactivated reason=%{public}d', event.reason);
-    // 系统 TTS 在独立进程出声；本进程空闲会话 60 秒超时不是来电/焦点抢占。
-    if (event.reason === audio.AudioSessionDeactivatedReason.DEACTIVATED_TIMEOUT) return;
-    if (this.state.playing || this.state.loading) this.pause();
-  };
   private readonly onDeviceChange = (event: audio.DeviceChangeAction): void => {
-    if (event.type === audio.DeviceChangeType.DISCONNECT && (this.state.playing || this.state.loading)) {
+    if (event.type === audio.DeviceChangeType.DISCONNECT && (this.state.playing || this.state.loading || this.focusPaused)) {
       this.pause();
     }
   };
@@ -407,6 +405,8 @@ export class TextToSpeechService {
     if (context === null || book.contentType !== 'text' || book.chapters.length === 0) return;
     this.pause();
     if (this.book !== null && this.book.id !== book.id) { this.setSleep(0); this.pendingListenMs = 0; }
+    this.focusPaused = false;
+    AudioFocusService.getInstance().cancelRecovery('speech');
     const ticket = ++this.generation;
     PlaybackCoordinator.speechActive = true;
     this.state.active = true;
@@ -446,8 +446,39 @@ export class TextToSpeechService {
     }
   }
 
+  /** 暂停时手动阅读只移动续读位置，不启动合成；系统媒体键也沿用此位置。 */
+  followPausedReading(bookId: string, chapterIndex: number, rawOffset: number): void {
+    if (!this.state.active || this.state.playing || this.state.loading || this.book === null ||
+      this.book.id !== bookId || !Number.isInteger(chapterIndex) || chapterIndex < 0 ||
+      chapterIndex >= this.book.chapters.length || !Number.isFinite(rawOffset)) return;
+    AudioFocusService.getInstance().cancelRecovery('speech');
+    this.focusPaused = false;
+    this.generation++;
+    this.clearHttpPrefetch();
+    if (chapterIndex !== this.state.chapterIndex) {
+      this.chapterContent = '';
+      this.textDocument = null;
+      this.state.contentLength = 0;
+    }
+    this.state.chapterIndex = chapterIndex;
+    this.state.chapterTitle = this.book.chapters[chapterIndex].title;
+    this.state.charOffset = this.textDocument?.toDisplay(Math.max(0, rawOffset)) ?? Math.max(0, rawOffset);
+    this.state.playbackOffset = this.state.charOffset;
+    this.segments = [];
+    this.segmentIndex = 0;
+    this.state.sentence = '';
+    this.state.highlightOffset = -1;
+    this.state.highlightEnd = -1;
+    this.state.error = '';
+    this.savePosition(true, false);
+    this.publishMetadata();
+    this.notify();
+  }
+
   async resume(): Promise<void> {
     if (this.state.playing || this.state.loading || this.book === null) return;
+    this.focusPaused = false;
+    AudioFocusService.getInstance().cancelRecovery('speech');
     const ticket = ++this.generation;
     PlaybackCoordinator.speechActive = true;
     this.state.active = true;
@@ -468,7 +499,9 @@ export class TextToSpeechService {
     }
   }
 
-  pause(): void {
+  pause(forFocus: boolean = false): void {
+    this.focusPaused = forFocus;
+    if (!forFocus) this.releaseFocus();
     this.state.charOffset = Math.max(this.state.charOffset, this.state.playbackOffset);
     DiagnosticLogService.info('tts.pause', `foreground=${this.foreground}; offset=${this.state.charOffset}; bg=${BackgroundTaskService.isRunning()}`);
     this.recordSpokenTime();
@@ -488,7 +521,6 @@ export class TextToSpeechService {
     this.syncSession();
     ReadingSessionService.end('tts');
     if (this.context !== null) BackgroundTaskService.stopSpeech(this.context);
-    this.releaseFocus();
     this.notify();
   }
 
@@ -1019,15 +1051,17 @@ export class TextToSpeechService {
 
   hasSavedPosition(book: Book): boolean { return this.savedPosition(book) !== null; }
 
-  private savePosition(force: boolean): void {
+  private savePosition(force: boolean, updateSession: boolean = true): void {
     const book = this.book;
     const store = this.store;
     if (store === null || book === null || (!force && Date.now() - this.lastSaveAt < 5000)) return;
     const chapter = book.chapters[this.state.chapterIndex];
     if (chapter === undefined) return;
-    ReadingSessionService.end('reading');
-    ReadingSessionService.checkpoint('tts', SessionLocation.audio(book, chapter,
-      this.currentRawOffset(), this.textDocument?.rawLength ?? this.state.contentLength), this.state.playing);
+    if (updateSession) {
+      ReadingSessionService.end('reading');
+      ReadingSessionService.checkpoint('tts', SessionLocation.audio(book, chapter,
+        this.currentRawOffset(), this.textDocument?.rawLength ?? this.state.contentLength), this.state.playing);
+    }
     const value = new SpeechPosition();
     value.sourceUrl = book.sourceUrl;
     value.bookUrl = book.bookUrl;
@@ -1143,31 +1177,28 @@ export class TextToSpeechService {
   private acquireFocus(ticket: number): Promise<void> {
     const task = this.focusChain.catch((): void => {}).then(async (): Promise<void> => {
       if (!this.valid(ticket)) return;
-      if (this.audioSession === null) {
-        this.audioSession = audio.getAudioManager().getSessionManager();
-        this.audioSession.on('audioSessionDeactivated', this.onDeactivated);
-      }
       if (this.routing === null) {
         this.routing = audio.getAudioManager().getRoutingManager();
         this.routing.on('deviceChange', audio.DeviceFlag.OUTPUT_DEVICES_FLAG, this.onDeviceChange);
       }
-      await this.audioSession.activateAudioSession({ concurrencyMode: audio.AudioConcurrencyMode.CONCURRENCY_DEFAULT });
+      await AudioFocusService.getInstance().acquire('speech', (): void => {
+        if (this.state.playing || this.state.loading) this.pause(true);
+      }, async (): Promise<void> => {
+        if (!this.focusPaused || !PlaybackCoordinator.speechActive) return;
+        this.focusPaused = false;
+        await this.resume();
+      });
     });
     this.focusChain = task;
     return task;
   }
 
   private releaseFocus(): void {
-    this.focusChain = this.focusChain.catch((): void => {}).then(async (): Promise<void> => {
-      if (this.audioSession !== null) {
-        this.audioSession.off('audioSessionDeactivated', this.onDeactivated);
-        await this.audioSession.deactivateAudioSession().catch((): void => {});
-        this.audioSession = null;
-      }
-      if (this.routing !== null) {
-        this.routing.off('deviceChange', this.onDeviceChange);
-        this.routing = null;
-      }
-    }).catch((error: Error): void => this.report(error));
+    const release = AudioFocusService.getInstance().release('speech');
+    if (this.routing !== null) {
+      this.routing.off('deviceChange', this.onDeviceChange);
+      this.routing = null;
+    }
+    this.focusChain = this.focusChain.catch((): void => {}).then((): Promise<void> => release);
   }
 }

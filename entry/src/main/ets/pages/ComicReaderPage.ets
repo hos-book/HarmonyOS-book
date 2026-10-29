@@ -4,6 +4,7 @@ import { ReaderBrightnessBar } from '../components/ReaderBrightnessBar';
 import { ReaderBrightnessService } from '../service/text/ReaderBrightnessService';
 import { ReaderHoldingHandService } from '../service/text/ReaderHoldingHandService';
 import { ReaderVolumeKeyService } from '../service/text/ReaderVolumeKeyService';
+import { ReaderSmartKeyService } from '../service/text/ReaderSmartKeyService';
 import { curves } from '@kit.ArkUI';
 import { ChapterSheetActions } from '../components/ChapterSheetActions';
 import { ChapterSegmentGrid } from '../components/ChapterSegmentGrid';
@@ -42,7 +43,7 @@ import { ComicTranslationModelService } from '../service/ComicTranslationModelSe
 import { ComicContinuousComponent } from '../components/ComicContinuousComponent';
 import { ChapterCacheIndicator } from '../components/ChapterCacheIndicator';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
-import { ImmersiveActionButton } from '../components/ImmersiveActionButton';
+import { ReaderAutoPageControls } from '../components/ReaderAutoPageControls';
 import { BookSourceSwitchSheet } from '../components/BookSourceSwitchSheet';
 import { ChapterDataSource } from '../utils/ChapterDataSource';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
@@ -89,8 +90,10 @@ export struct ComicReaderPage {
   @Local translationDirection: string = 'ja-zh';
   @Local translationConfigured: boolean = false;
   @Local volumeKeyPageTurn: boolean = false;
+  @Local smartKeyPageTurn: boolean = false;
   @Local keyTurnRequest: number = 0;
   @Local autoPageRunning: boolean = false;
+  @Local autoPagePaused: boolean = false;
   @Local autoPageRequest: number = 0;
   @Local autoPageSeconds: number = ReaderAutoPageService.DEFAULT_SECONDS;
   @Local autoScrollSpeed: number = 30;
@@ -101,6 +104,7 @@ export struct ComicReaderPage {
   @Local imagePreloadCount: number = 5;
   private imagePreloadGeneration: number = 0;
   private volumeKeys: ReaderVolumeKeyService = new ReaderVolumeKeyService();
+  private smartKeys: ReaderSmartKeyService = new ReaderSmartKeyService();
   private touchX: number = 0;
   private touchY: number = 0;
   private touchPageIndex: number = 0;
@@ -194,7 +198,7 @@ export struct ComicReaderPage {
     this.translationIntent++;
     ComicColorizationService.release();
     this.imagePreloadGeneration++;
-    this.savePosition(); this.foreground = false; this.volumeKeys.dispose(); ReadingSessionService.end('reading');
+    this.savePosition(); this.foreground = false; this.volumeKeys.dispose(); this.smartKeys.dispose(); ReadingSessionService.end('reading');
   };
   private foregroundHandler = (): void => {
     this.foreground = true; this.syncVolumeKeys(); this.savePosition(); this.updateImagePreload();
@@ -278,6 +282,7 @@ export struct ComicReaderPage {
     this.translationIntent++;
     ComicColorizationService.release();
     this.volumeKeys.dispose();
+    this.smartKeys.dispose();
     ReaderCacheService.release(this.diskCacheOwner);
     ReaderCacheService.release(`${this.diskCacheOwner}-lists`);
     this.readerVisible = false;
@@ -326,6 +331,8 @@ export struct ComicReaderPage {
       this.imagePreloadCount = imagePreloadCount;
       this.showChapterBar = showChapterBar;
       this.volumeKeyPageTurn = volumeKeyPageTurn;
+      // 智控键入口暂时隐藏，旧配置也不再启用事件订阅。
+      this.smartKeyPageTurn = false;
       this.showBrightnessBar = showBrightnessBar;
       this.readingBrightness = brightness;
       this.brightnessControl.configure(brightness);
@@ -576,9 +583,10 @@ export struct ComicReaderPage {
   }
 
   private toggleAutoPage(): void {
-    if (this.autoPageRunning) { this.stopAutoPage(); return; }
+    if (this.autoPageRunning) { this.pauseAutoPage(); return; }
     if (this.busy || this.failed || this.pageCount === 0 || this.zoomActive) return;
     this.autoPageRunning = true;
+    this.autoPagePaused = false;
     this.showSettings = false;
     this.chrome = false;
     WindowUtils.setReaderStatusBarVisible(false);
@@ -603,11 +611,21 @@ export struct ComicReaderPage {
     else this.autoPage.restart();
   }
 
+  private pauseAutoPage(): void {
+    if (!this.autoPageRunning) return;
+    this.autoPage.stop();
+    this.autoScrollReady = false;
+    this.autoPageRunning = false;
+    this.autoPagePaused = true;
+    this.screenOn.configure(0);
+  }
+
   private stopAutoPage(): void {
     this.autoPage.stop();
     this.autoScrollReady = false;
-    if (!this.autoPageRunning) return;
+    if (!this.autoPageRunning && !this.autoPagePaused) return;
     this.autoPageRunning = false;
+    this.autoPagePaused = false;
     this.screenOn.configure(0);
   }
 
@@ -620,7 +638,7 @@ export struct ComicReaderPage {
 
   private canAutoPage(): boolean {
     return this.autoPageRunning && this.alive && this.foreground && this.readerVisible &&
-      !this.busy && !this.failed && this.pageCount > 0 && !this.chrome && !this.showSettings &&
+      !this.busy && !this.failed && this.pageCount > 0 && !this.showSettings &&
       !this.showChapters && !this.showSourceSwitch && !this.sheetPresented && !this.zoomActive &&
       !this.showReaderMenu && !this.showTranslationMenu && !this.chapterSliderDragging && !this.chapterSliderConfirming;
   }
@@ -666,20 +684,31 @@ export struct ComicReaderPage {
   }
 
   private canUseVolumeKeys(): boolean {
-    return this.alive && this.foreground && this.readerVisible && this.volumeKeyPageTurn &&
+    return this.volumeKeyPageTurn && this.canTurnWithHardwareKeys();
+  }
+
+  private canTurnWithHardwareKeys(): boolean {
+    return this.alive && this.foreground && this.readerVisible &&
       !this.busy && !this.failed && this.pageCount > 0 && !this.showChapters && !this.showSettings &&
       !this.showSourceSwitch && !this.zoomActive && !this.sheetPresented && !this.chapterSliderDragging && !this.chapterSliderConfirming;
   }
 
-  @Monitor('volumeKeyPageTurn', 'readerVisible', 'busy', 'failed', 'pageCount', 'showChapters',
+  @Monitor('volumeKeyPageTurn', 'smartKeyPageTurn', 'readerVisible', 'busy', 'failed', 'pageCount', 'showChapters',
     'showSettings', 'showSourceSwitch', 'zoomActive', 'sheetPresented', 'chapterSliderDragging', 'chapterSliderConfirming')
   private syncVolumeKeys(): void {
     this.volumeKeys.setEnabled(this.canUseVolumeKeys(), (forward: boolean): void => this.handleVolumePageTurn(forward));
+    this.smartKeys.setEnabled(this.smartKeyPageTurn && this.canTurnWithHardwareKeys(), (forward: boolean): void => {
+      if (this.smartKeyPageTurn) this.handleHardwarePageTurn(forward);
+    });
   }
 
   private handleVolumePageTurn(forward: boolean): void {
-    if (!this.canUseVolumeKeys() || this.turning || this.restoreTimer >= 0) return;
-    this.stopAutoPage();
+    if (this.canUseVolumeKeys()) this.handleHardwarePageTurn(forward);
+  }
+
+  private handleHardwarePageTurn(forward: boolean): void {
+    if (!this.canTurnWithHardwareKeys() || this.turning || this.restoreTimer >= 0) return;
+    this.autoPage.restart();
     if (this.usesContinuousPages()) {
       this.keyTurnRequest = (Math.abs(this.keyTurnRequest) + 1) * (forward ? 1 : -1);
     } else {
@@ -880,8 +909,6 @@ export struct ComicReaderPage {
             iconColor: this.colorization && this.membership.hasAccess ? AppColor.Brand : $r('sys.color.font_primary'),
             onPress: (): void => { this.setColorization(!this.colorization); } })
             .id('comic-colorization-toggle').enabled(ComicColorizationService.supported())
-          ImmersiveCircleButton({ icon: $r('sys.symbol.arrow_left_arrow_right'), label: $r('app.string.source_switch_title'),
-            onPress: (): void => { this.showSourceSwitch = true; } }).enabled(!this.busy && this.book !== undefined)
           ImmersiveCircleButton({ icon: $r('sys.symbol.square_grid_2x2'), label: $r('app.string.reader_more'),
             onPress: (): void => { this.showReaderMenu = !this.showReaderMenu; } })
             .id('comic-reader-functions')
@@ -923,22 +950,22 @@ export struct ComicReaderPage {
           // 与底栏一致，弹框期间停止被遮挡亮度条的实时材质采样；保留节点及亮度状态。
           .visibility(this.sheetPresented ? Visibility.Hidden : Visibility.Visible)
       }
-      if (this.autoPageRunning) {
-        Stack({ alignContent: Alignment.BottomStart }) {
-          ImmersiveActionButton({
-            label: this.mode === 0 ? $r('app.string.reader_auto_scroll_stop') : $r('app.string.reader_auto_page_stop'),
-            buttonHeight: 40,
-            onPress: (): void => this.stopAutoPage()
-          }).width(148)
-            .margin({ left: this.leftSafe + 16, bottom: Math.max(12, this.bottomSafe) })
-            .id('comic-auto-page-stop')
-        }.width('100%').height('100%').hitTestBehavior(HitTestMode.Transparent)
+      if (this.autoPageRunning || this.autoPagePaused) {
+        // 控件独立命中，正文不参与暂停、继续和关闭按钮的手势竞争。
+        ReaderAutoPageControls({
+          paused: this.autoPagePaused, scrolling: this.mode === 0,
+          onToggle: (): void => this.toggleAutoPage(),
+          onClose: (): void => this.stopAutoPage()
+        })
+          .position({ x: this.holdingHandLeft ? this.leftSafe + 16 :
+            Math.max(this.leftSafe + 16, this.widthVp - this.rightSafe - 16 - 136),
+            y: Math.max(this.topSafe, this.heightVp - 40 - Math.max(12, this.bottomSafe) -
+              (this.chrome ? 76 + (this.showChapterBar && this.pageCount > 0 ? 56 : 0) + (this.saveFailed ? 20 : 0) :
+                (this.holdingHandLeft ? 0 : 40))) })
+          .hitTestBehavior(HitTestMode.Default)
+          .id('comic-auto-page-controls')
       }
     }.width('100%').height('100%').backgroundColor('#121212')
-    .onTouchIntercept((event: TouchEvent): HitTestMode => {
-      if (event.type === TouchType.Down) this.stopAutoPage();
-      return HitTestMode.Default;
-    })
     .onVisibleAreaChange([0, 1], (visible: boolean): void => {
       this.readerVisible = visible;
       if (!visible) this.stopAutoPage();
@@ -981,6 +1008,9 @@ export struct ComicReaderPage {
   @Builder
   private readerMenu(): void {
     Menu() {
+      MenuItem({ content: $r('app.string.source_switch_title') })
+        .enabled(!this.busy && this.book !== undefined)
+        .onClick((): void => { this.showReaderMenu = false; this.showSourceSwitch = true; })
       if (this.book?.id.startsWith('import_') && !this.book?.sourceUrl) {
         MenuItem({ content: $r('app.string.comic_switch_text') })
           .enabled(!this.busy && !this.switchingText)
@@ -1648,7 +1678,7 @@ export struct ComicReaderPage {
   settingsSheet() {
     Scroll() {
     Column({ space: 12 }) {
-      ReaderAutoPageSettings({ seconds: this.autoPageSeconds, running: this.autoPageRunning,
+      ReaderAutoPageSettings({ seconds: this.autoPageSeconds, running: this.autoPageRunning, paused: this.autoPagePaused,
         scrolling: this.mode === 0, comic: true, speed: this.autoScrollSpeed,
         onSpeed: (speed: number): void => this.setAutoScrollSpeed(speed),
         available: !this.busy && !this.failed && this.pageCount > 0 && !this.zoomActive,

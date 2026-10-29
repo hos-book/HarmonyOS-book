@@ -1570,7 +1570,7 @@ export struct PlayerPage {
       if (this.book && this.book.cover) {
         if (this.book.cover.startsWith('http')) {
           CoverImage({ url: this.book.cover, useFixedHeight: true, imgHeight: '100%', radius: 0,
-            themedDecoration: false, decodeW: 120, decodeH: 120 })
+            themedDecoration: false })
             .width('100%')
             .height('100%')
             .blur(40)

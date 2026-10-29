@@ -19,6 +19,8 @@ export interface SourceImageScripts {
 
 /** 按书源隔离的 Cookie 存储。方法与 CookieStore 的静态方法一一对应。 */
 export interface SourceCookieJar {
+  /** Matching first-party partitioned cookies, when supported; never used for cross-host copying. */
+  getRequestCookie?(url: string): string;
   getCookie(url: string): string;
   getCookieValue(url: string, name: string): string;
   setCookies(url: string, value: string): void;

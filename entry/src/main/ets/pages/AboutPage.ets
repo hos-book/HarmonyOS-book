@@ -108,7 +108,7 @@ export struct AboutPage {
           Divider().color('#F0F0F0').margin({ left: AppSpace.Lg, right: AppSpace.Lg })
 
           Row() {
-            Text('使用说明')
+            Text($r('app.string.guide_title'))
               .fontSize(AppFont.BodyL)
               .fontColor($r('sys.color.font_secondary'))
             Blank()

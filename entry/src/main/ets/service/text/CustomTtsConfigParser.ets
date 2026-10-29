@@ -11,7 +11,7 @@ class TtsImportEntry {
   enabled: boolean = true;
   url: string = '';
   method: string = '';
-  body: string = '';
+  body: string | TtsBody = '';
   header: string | TtsHeaders = '';
   loginUrl: string = '';
   loginUi: string = '';
@@ -49,10 +49,12 @@ export class CustomTtsConfigParser {
     config.name = entry.name.trim();
     config.enabled = entry.enabled !== false;
     config.url = entry.url.trim();
-    config.method = typeof entry.method === 'string' && entry.method ? entry.method.toUpperCase() : 'GET';
-    config.body = typeof entry.body === 'string' ? entry.body : '';
+    config.method = typeof entry.method === 'string' && entry.method.trim() ? entry.method.trim().toUpperCase() : 'GET';
+    if (entry.body !== undefined && entry.body !== null) {
+      config.body = typeof entry.body === 'string' ? entry.body : JSON.stringify(entry.body);
+    }
     config.contentType = typeof entry.contentType === 'string' ? entry.contentType : '';
-    if (entry.header) config.header = typeof entry.header === 'string' ? entry.header : JSON.stringify(entry.header);
+    if (entry.header) config.header = CustomTtsConfigParser.normalizeHeaders(entry.header);
     const optionsAt = CustomTtsConfigParser.optionsIndex(config.url);
     if (optionsAt >= 0) {
       const options: TtsUrlOptions = JSON.parse(config.url.substring(optionsAt + 1));
@@ -60,12 +62,12 @@ export class CustomTtsConfigParser {
         throw new Error('Unsupported TTS options');
       }
       config.url = config.url.substring(0, optionsAt).trim();
-      if (typeof options.method === 'string') config.method = options.method.toUpperCase();
+      if (typeof options.method === 'string' && options.method.trim()) config.method = options.method.trim().toUpperCase();
       if (options.body !== undefined && options.body !== null) {
         config.body = typeof options.body === 'string' ? options.body : JSON.stringify(options.body);
       }
       if (options.headers) {
-        const extra = typeof options.headers === 'string' ? options.headers : JSON.stringify(options.headers);
+        const extra = CustomTtsConfigParser.normalizeHeaders(options.headers);
         config.header = CustomTtsConfigParser.mergeHeaders(config.header, extra);
       }
     }
@@ -97,6 +99,30 @@ export class CustomTtsConfigParser {
     const a = first.trim().slice(1, -1).trim();
     const b = second.trim().slice(1, -1).trim();
     return `{${a}${a && b ? ',' : ''}${b}}`;
+  }
+
+  /** 兼容 JSON 字典和逐行 Name: Value；冒号后的 URL、令牌等内容原样保留。 */
+  private static normalizeHeaders(value: string | TtsHeaders): string {
+    const text = typeof value === 'string' ? value.trim() : JSON.stringify(value);
+    if (text.length > 16384) throw new Error('TTS headers too large');
+    if (!text) return '{}';
+    if (text.startsWith('{')) {
+      const headers: TtsHeaders = JSON.parse(text);
+      if (!headers || typeof headers !== 'object' || Array.isArray(headers)) throw new Error('Invalid TTS headers');
+      return JSON.stringify(headers);
+    }
+    const fields: string[] = [];
+    for (const line of text.split(/\r?\n/)) {
+      if (!line.trim()) continue;
+      const colon = line.indexOf(':');
+      const name = line.substring(0, colon).trim();
+      const content = line.substring(colon + 1).trim();
+      if (colon <= 0 || !/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\r\n]/.test(content)) {
+        throw new Error('Invalid TTS header line');
+      }
+      fields.push(`${JSON.stringify(name)}:${JSON.stringify(content)}`);
+    }
+    return `{${fields.join(',')}}`;
   }
 
   private static optionsIndex(value: string): number {

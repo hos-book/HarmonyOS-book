@@ -1,61 +1,485 @@
 {
   "string": [
-    { "name": "reader_auto_page_title", "value": "自动翻页" },
-    { "name": "reader_auto_page_start", "value": "开始" },
-    { "name": "reader_auto_page_stop", "value": "停止自动翻页" },
-    { "name": "reader_auto_page_interval", "value": "每 %d 秒翻页" },
-    { "name": "reader_auto_page_hint", "value": "按间隔逐页翻动。运行时保持亮屏，触摸、切后台或离开阅读页即停止；朗读时请使用跟读翻页。" },
-    { "name": "reader_auto_scroll_title", "value": "自动滚动" },
-    { "name": "reader_auto_scroll_hint", "value": "按所选速度连续滚动，加载时等待，不跳过正文。运行时保持亮屏，触摸、切后台或离开阅读页即停止。" },
-    { "name": "reader_auto_scroll_speed", "value": "每分钟 %d 行" },
-    { "name": "reader_auto_scroll_comic_speed", "value": "滚动速度 %d" },
-    { "name": "reader_auto_scroll_stop", "value": "停止自动滚动" },
-    { "name": "tts_synthesis_title", "value": "合成配置" },
-    { "name": "tts_synthesis_hint", "value": "短句合并后提前合成下一段，减少段间等待。系统音色每段最多 300 字并提前准备下一段；网络音色支持以下字数、超时、重试和并发设置，接口限流时请降低并发。" },
-    { "name": "tts_synthesis_paragraphs", "value": "单次合成段落数上限" },
-    { "name": "tts_synthesis_max_chars", "value": "单次合成最大字数" },
-    { "name": "tts_synthesis_timeout", "value": "网络请求超时（秒）" },
-    { "name": "tts_synthesis_retries", "value": "失败重试次数" },
-    { "name": "tts_synthesis_concurrency", "value": "网络预合成并发数" },
-    { "name": "tts_synthesis_filter", "value": "过滤特殊字符" },
-    { "name": "tts_synthesis_rules", "value": "朗读替换规则" },
-    { "name": "tts_synthesis_rules_hint", "value": "每行：原词=>读法。例如：行长=>航长。右侧留空表示不读该词；只影响朗读，不修改正文。" },
-    { "name": "tts_synthesis_rules_error", "value": "请按“原词=>读法”填写，每项不超过 128 字，最多 64 条。" },
-    { "name": "tts_synthesis_apply", "value": "保存并应用" },
-    { "name": "tts_synthesis_saved", "value": "合成配置已保存" },
-    { "name": "tts_synthesis_save_error", "value": "保存失败，请检查替换后文本是否过长并重试" },
-    { "name": "settings_jianjian_companion", "value": "简简陪伴" },
-    { "name": "settings_limited_trial", "value": "限时体验" },
-    { "name": "settings_jianjian_companion_desc", "value": "让简简陪你阅听，点击互动，长按拖动" },
-    { "name": "jianjian_reply_shy", "value": "一被你发现，就有点害羞啦。" },
-    { "name": "jianjian_reply_surprised", "value": "哇！故事里是不是出现新惊喜了？" },
-    { "name": "jianjian_reply_crying", "value": "遇到难过的情节，简简陪你缓一缓。" },
-    { "name": "jianjian_reply_angry", "value": "哼，故事里的坏家伙可别得意太早！" },
-    { "name": "jianjian_reply_wink", "value": "今天的好心情，也分给你一份。" },
-    { "name": "jianjian_reply_reading", "value": "翻开下一页吧，我和你一起看。" },
-    { "name": "jianjian_reply_heart", "value": "送你一颗小红心，谢谢你来陪我。" },
-    { "name": "jianjian_interact", "value": "简简，点击互动，长按拖动" },
-    { "name": "jianjian_reply_hello", "value": "嗨，我是简简！今天也想陪你读一本好书。" },
-    { "name": "jianjian_reply_company", "value": "你慢慢看，我在这里陪着你呀。" },
-    { "name": "jianjian_reply_happy", "value": "被你发现啦！送你一份好心情。" },
-    { "name": "jianjian_reply_rest", "value": "故事可以慢慢听，也记得让眼睛休息一下哦。" },
-    { "name": "import_epub_mode", "value": "阅读类型" },
-    { "name": "import_epub_auto", "value": "自动识别" },
-    { "name": "import_epub_text", "value": "电子书" },
-    { "name": "import_epub_comic", "value": "漫画" },
-    { "name": "import_epub_mode_hint", "value": "适用于本批 EPUB 和 PDF（含 ZIP 内文件）。自动模式识别 EPUB 内容，PDF 默认按漫画导入；也可手动选择电子书或漫画。PDF 保留原版页面，扫描件不会自动转换为文字。EPUB 单文件最大 3 GiB，PDF 最大 128 MiB；大文件导入需要更多时间和存储空间。" },
-    { "name": "comic_switch_text", "value": "切为阅读模式" },
-    { "name": "comic_switch_text_open_failed", "value": "已切换为电子书，请返回书架重新打开。" },
-    { "name": "import_epub_size_limit", "value": "EPUB 文件超过 3 GiB，请拆分后导入。" },
-    { "name": "import_epub_expanded_limit", "value": "EPUB 解压内容超过 6 GiB，请拆分后导入。" },
-    { "name": "import_epub_images_limit", "value": "EPUB 正文图片累计超过 6 GiB，请拆分后导入。" },
-    { "name": "import_epub_images_failed", "value": "有 %d 张漫画图片无法提取，未保存本书。请检查原文件；单张图片需不超过 20 MiB、3200 万像素。" },
-    { "name": "import_epub_no_images", "value": "未找到可读取的漫画图片，请选择电子书类型或检查 EPUB 原文件。" },
-    { "name": "import_local_comic", "value": "本地漫画" },
-    { "name": "reader_switch_comic", "value": "切换为漫画阅读" },
-    { "name": "reader_switch_comic_no_images", "value": "这本书没有已保存的可读图片，暂时无法切换为漫画阅读。" },
-    { "name": "reader_switch_comic_failed", "value": "切换阅读类型失败，请重试。" },
-    { "name": "reader_switch_comic_open_failed", "value": "已切换为漫画，请返回书架重新打开。" },
+    {
+      "name": "podcast_curated",
+      "value": "★ 精选"
+    },
+    {
+      "name": "podcast_growth",
+      "value": "自我成长"
+    },
+    {
+      "name": "podcast_business",
+      "value": "商业财经"
+    },
+    {
+      "name": "podcast_culture",
+      "value": "人文历史"
+    },
+    {
+      "name": "podcast_tech",
+      "value": "科技新知"
+    },
+    {
+      "name": "podcast_life",
+      "value": "生活方式"
+    },
+    {
+      "name": "podcast_hero_eyebrow",
+      "value": "精选播客 · 此刻开听"
+    },
+    {
+      "name": "podcast_for_you",
+      "value": "猜你喜欢"
+    },
+    {
+      "name": "podcast_shuffle",
+      "value": "换一组"
+    },
+    {
+      "name": "podcast_top_list",
+      "value": "TOP LIST"
+    },
+    {
+      "name": "podcast_latest_chart",
+      "value": "新鲜单集"
+    },
+    {
+      "name": "podcast_treasures",
+      "value": "宝藏播客"
+    },
+    {
+      "name": "podcast_more",
+      "value": "为你推荐更多"
+    },
+    {
+      "name": "podcast_feed_too_large",
+      "value": "节目订阅文件超过 500 MB"
+    },
+    {
+      "name": "podcast_timeout",
+      "value": "连接节目服务器超时，请稍后重试"
+    },
+    {
+      "name": "podcast_title",
+      "value": "播客"
+    },
+    {
+      "name": "podcast_subscribe_play",
+      "value": "订阅并播放"
+    },
+    {
+      "name": "podcast_platform_xyz",
+      "value": "小宇宙"
+    },
+    {
+      "name": "podcast_platform_xm",
+      "value": "喜马拉雅"
+    },
+    {
+      "name": "podcast_platform_qt",
+      "value": "蜻蜓"
+    },
+    {
+      "name": "podcast_platform_lz",
+      "value": "荔枝"
+    },
+    {
+      "name": "podcast_tagline",
+      "value": "在声音里，遇见更大的世界"
+    },
+    {
+      "name": "podcast_discover",
+      "value": "发现"
+    },
+    {
+      "name": "podcast_subscriptions",
+      "value": "我的订阅"
+    },
+    {
+      "name": "podcast_updates",
+      "value": "最新单集"
+    },
+    {
+      "name": "podcast_featured",
+      "value": "值得一听"
+    },
+    {
+      "name": "podcast_popular",
+      "value": "热门播客"
+    },
+    {
+      "name": "podcast_add",
+      "value": "添加播客"
+    },
+    {
+      "name": "podcast_add_hint",
+      "value": "粘贴节目的 RSS 订阅地址，预览后即可订阅。支持最大 500 MB 的 RSS 文件。"
+    },
+    {
+      "name": "podcast_url_placeholder",
+      "value": "https://…/feed.xml"
+    },
+    {
+      "name": "podcast_preview",
+      "value": "预览节目"
+    },
+    {
+      "name": "podcast_subscribe",
+      "value": "订阅节目"
+    },
+    {
+      "name": "podcast_subscribed",
+      "value": "已订阅"
+    },
+    {
+      "name": "podcast_unsubscribe",
+      "value": "取消订阅"
+    },
+    {
+      "name": "podcast_refresh",
+      "value": "刷新播客"
+    },
+    {
+      "name": "podcast_loading",
+      "value": "正在寻找好声音…"
+    },
+    {
+      "name": "podcast_search",
+      "value": "搜索播客"
+    },
+    {
+      "name": "podcast_empty_title",
+      "value": "把喜欢的声音，留在这里"
+    },
+    {
+      "name": "podcast_empty_hint",
+      "value": "从发现页挑选节目，或添加 RSS 地址。订阅后，新单集会出现在这里。"
+    },
+    {
+      "name": "podcast_no_results",
+      "value": "没有找到匹配的节目"
+    },
+    {
+      "name": "podcast_episode_count",
+      "value": "%d 个单集"
+    },
+    {
+      "name": "podcast_subscription_count",
+      "value": "%d 个订阅"
+    },
+    {
+      "name": "podcast_minutes",
+      "value": "%d 分钟"
+    },
+    {
+      "name": "podcast_play",
+      "value": "播放单集"
+    },
+    {
+      "name": "podcast_playing",
+      "value": "正在播放"
+    },
+    {
+      "name": "podcast_back",
+      "value": "返回播客"
+    },
+    {
+      "name": "podcast_all",
+      "value": "全部"
+    },
+    {
+      "name": "podcast_directory_credit",
+      "value": "节目目录来自 getpodcast.xyz"
+    },
+    {
+      "name": "podcast_directory_failed",
+      "value": "暂时没能获取节目目录，可以下拉重试或添加 RSS 订阅。"
+    },
+    {
+      "name": "podcast_invalid_url",
+      "value": "请输入有效的 HTTP 或 HTTPS 订阅地址"
+    },
+    {
+      "name": "podcast_invalid_feed",
+      "value": "这个地址没有返回可用的 RSS 或 Atom 节目，请检查订阅地址"
+    },
+    {
+      "name": "podcast_no_audio",
+      "value": "节目中暂时没有可播放的公开音频"
+    },
+    {
+      "name": "podcast_load_failed",
+      "value": "节目暂时加载失败，请稍后重试"
+    },
+    {
+      "name": "podcast_storage_failed",
+      "value": "播客订阅保存失败，请重试"
+    },
+    {
+      "name": "podcast_subscription_failed",
+      "value": "节目已解析，但订阅未能完成，请重试"
+    },
+    {
+      "name": "podcast_programme_count",
+      "value": "%d 个节目"
+    },
+    {
+      "name": "podcast_source_conflict",
+      "value": "这个地址已用于其他书源，请换一个 RSS 地址"
+    },
+    {
+      "name": "podcast_source_missing",
+      "value": "节目的内容源已被删除，请重新订阅"
+    },
+    {
+      "name": "podcast_partial_refresh",
+      "value": "部分节目未能更新，已保留原有单集"
+    },
+    {
+      "name": "podcast_rss_unavailable",
+      "value": "这个节目暂未提供可用的 RSS 地址"
+    },
+    {
+      "name": "podcast_preview_required",
+      "value": "请先订阅节目，再播放单集"
+    },
+    {
+      "name": "podcast_try_again",
+      "value": "重新加载"
+    },
+    {
+      "name": "reader_auto_page_title",
+      "value": "自动翻页"
+    },
+    {
+      "name": "reader_auto_page_start",
+      "value": "开始"
+    },
+    {
+      "name": "reader_auto_page_pause",
+      "value": "暂停"
+    },
+    {
+      "name": "reader_auto_page_resume",
+      "value": "继续"
+    },
+    {
+      "name": "reader_auto_page_stop",
+      "value": "停止自动翻页"
+    },
+    {
+      "name": "reader_auto_page_interval",
+      "value": "每 %d 秒翻页"
+    },
+    {
+      "name": "reader_auto_page_hint",
+      "value": "按间隔逐页翻动。点“暂停”暂停，点“继续”恢复，点 × 关闭；触摸正文不暂停。运行时保持亮屏，切后台或离开阅读页停止；朗读时请使用跟读翻页。"
+    },
+    {
+      "name": "reader_auto_scroll_title",
+      "value": "自动滚动"
+    },
+    {
+      "name": "reader_auto_scroll_hint",
+      "value": "按所选速度连续滚动，加载时等待，不跳过正文。点“暂停”暂停，点“继续”恢复，点 × 关闭；触摸正文不暂停。运行时保持亮屏，切后台或离开阅读页停止。"
+    },
+    {
+      "name": "reader_auto_scroll_speed",
+      "value": "每分钟 %d 行"
+    },
+    {
+      "name": "reader_auto_scroll_comic_speed",
+      "value": "滚动速度 %d"
+    },
+    {
+      "name": "reader_auto_scroll_stop",
+      "value": "停止自动滚动"
+    },
+    {
+      "name": "tts_synthesis_title",
+      "value": "合成配置"
+    },
+    {
+      "name": "tts_synthesis_hint",
+      "value": "短句合并后提前合成下一段，减少段间等待。系统音色每段最多 300 字并提前准备下一段；网络音色支持以下字数、超时、重试和并发设置，接口限流时请降低并发。"
+    },
+    {
+      "name": "tts_synthesis_paragraphs",
+      "value": "单次合成段落数上限"
+    },
+    {
+      "name": "tts_synthesis_max_chars",
+      "value": "单次合成最大字数"
+    },
+    {
+      "name": "tts_synthesis_timeout",
+      "value": "网络请求超时（秒）"
+    },
+    {
+      "name": "tts_synthesis_retries",
+      "value": "失败重试次数"
+    },
+    {
+      "name": "tts_synthesis_concurrency",
+      "value": "网络预合成并发数"
+    },
+    {
+      "name": "tts_synthesis_filter",
+      "value": "过滤特殊字符"
+    },
+    {
+      "name": "tts_synthesis_rules",
+      "value": "朗读替换规则"
+    },
+    {
+      "name": "tts_synthesis_rules_hint",
+      "value": "每行：原词=>读法。例如：行长=>航长。右侧留空表示不读该词；只影响朗读，不修改正文。"
+    },
+    {
+      "name": "tts_synthesis_rules_error",
+      "value": "请按“原词=>读法”填写，每项不超过 128 字，最多 64 条。"
+    },
+    {
+      "name": "tts_synthesis_apply",
+      "value": "保存并应用"
+    },
+    {
+      "name": "tts_synthesis_saved",
+      "value": "合成配置已保存"
+    },
+    {
+      "name": "tts_synthesis_save_error",
+      "value": "保存失败，请检查替换后文本是否过长并重试"
+    },
+    {
+      "name": "settings_jianjian_companion",
+      "value": "简简陪伴"
+    },
+    {
+      "name": "settings_limited_trial",
+      "value": "限时体验"
+    },
+    {
+      "name": "settings_jianjian_companion_desc",
+      "value": "让简简陪你阅听，点击互动，长按拖动"
+    },
+    {
+      "name": "jianjian_reply_shy",
+      "value": "一被你发现，就有点害羞啦。"
+    },
+    {
+      "name": "jianjian_reply_surprised",
+      "value": "哇！故事里是不是出现新惊喜了？"
+    },
+    {
+      "name": "jianjian_reply_crying",
+      "value": "遇到难过的情节，简简陪你缓一缓。"
+    },
+    {
+      "name": "jianjian_reply_angry",
+      "value": "哼，故事里的坏家伙可别得意太早！"
+    },
+    {
+      "name": "jianjian_reply_wink",
+      "value": "今天的好心情，也分给你一份。"
+    },
+    {
+      "name": "jianjian_reply_reading",
+      "value": "翻开下一页吧，我和你一起看。"
+    },
+    {
+      "name": "jianjian_reply_heart",
+      "value": "送你一颗小红心，谢谢你来陪我。"
+    },
+    {
+      "name": "jianjian_interact",
+      "value": "简简，点击互动，长按拖动"
+    },
+    {
+      "name": "jianjian_reply_hello",
+      "value": "嗨，我是简简！今天也想陪你读一本好书。"
+    },
+    {
+      "name": "jianjian_reply_company",
+      "value": "你慢慢看，我在这里陪着你呀。"
+    },
+    {
+      "name": "jianjian_reply_happy",
+      "value": "被你发现啦！送你一份好心情。"
+    },
+    {
+      "name": "jianjian_reply_rest",
+      "value": "故事可以慢慢听，也记得让眼睛休息一下哦。"
+    },
+    {
+      "name": "import_epub_mode",
+      "value": "阅读类型"
+    },
+    {
+      "name": "import_epub_auto",
+      "value": "自动识别"
+    },
+    {
+      "name": "import_epub_text",
+      "value": "电子书"
+    },
+    {
+      "name": "import_epub_comic",
+      "value": "漫画"
+    },
+    {
+      "name": "import_epub_mode_hint",
+      "value": "适用于本批 EPUB 和 PDF（含 ZIP 内文件）。自动模式识别 EPUB 内容，PDF 默认按漫画导入；也可手动选择电子书或漫画。PDF 保留原版页面，扫描件不会自动转换为文字。EPUB 单文件最大 3 GiB，PDF 最大 128 MiB；大文件导入需要更多时间和存储空间。"
+    },
+    {
+      "name": "comic_switch_text",
+      "value": "切为阅读模式"
+    },
+    {
+      "name": "comic_switch_text_open_failed",
+      "value": "已切换为电子书，请返回书架重新打开。"
+    },
+    {
+      "name": "import_epub_size_limit",
+      "value": "EPUB 文件超过 3 GiB，请拆分后导入。"
+    },
+    {
+      "name": "import_epub_expanded_limit",
+      "value": "EPUB 解压内容超过 6 GiB，请拆分后导入。"
+    },
+    {
+      "name": "import_epub_images_limit",
+      "value": "EPUB 正文图片累计超过 6 GiB，请拆分后导入。"
+    },
+    {
+      "name": "import_epub_images_failed",
+      "value": "有 %d 张漫画图片无法提取，未保存本书。请检查原文件；单张图片需不超过 20 MiB、3200 万像素。"
+    },
+    {
+      "name": "import_epub_no_images",
+      "value": "未找到可读取的漫画图片，请选择电子书类型或检查 EPUB 原文件。"
+    },
+    {
+      "name": "import_local_comic",
+      "value": "本地漫画"
+    },
+    {
+      "name": "reader_switch_comic",
+      "value": "切换为漫画阅读"
+    },
+    {
+      "name": "reader_switch_comic_no_images",
+      "value": "这本书没有已保存的可读图片，暂时无法切换为漫画阅读。"
+    },
+    {
+      "name": "reader_switch_comic_failed",
+      "value": "切换阅读类型失败，请重试。"
+    },
+    {
+      "name": "reader_switch_comic_open_failed",
+      "value": "已切换为漫画，请返回书架重新打开。"
+    },
     {
       "name": "theme_bundle_mist_name",
       "value": "雾蓝"
@@ -621,6 +1045,22 @@
       "value": "编辑"
     },
     {
+      "name": "reader_theme_sample_glyph",
+      "value": "阅"
+    },
+    {
+      "name": "reader_theme_in_use",
+      "value": "使用中"
+    },
+    {
+      "name": "reader_theme_tap_to_use",
+      "value": "点击使用"
+    },
+    {
+      "name": "reader_custom_theme_available",
+      "value": "%d 套可用"
+    },
+    {
       "name": "reader_custom_theme_edit",
       "value": "编辑自定义主题"
     },
@@ -759,6 +1199,14 @@
     {
       "name": "reader_volume_key_hint",
       "value": "音量加上一页，音量减下一页；上下滚动模式按屏滚动"
+    },
+    {
+      "name": "reader_smart_key_turn",
+      "value": "智控键翻页"
+    },
+    {
+      "name": "reader_smart_key_hint",
+      "value": "上滑上一页，下滑下一页；滚动模式按屏滚动，需设备支持智控键"
     },
     {
       "name": "reader_alignment_title",
@@ -1234,11 +1682,11 @@
     },
     {
       "name": "guide_reader_speech_action",
-      "value": "底栏 → 朗读"
+      "value": "点击阅读页的「听」按钮"
     },
     {
       "name": "guide_reader_speech_desc",
-      "value": "从当前页或上次位置开始，可调倍速和正文跟随。"
+      "value": "呼出工具栏后，点击旁边的「听」开始朗读并进入播放页；同一本书会接续已有朗读位置。播放页可暂停、切章、调倍速和音色；阅读设置可管理语音引擎与自定义 TTS。图片型 PDF 不支持朗读。"
     },
     {
       "name": "import_help_expand",
@@ -2514,7 +2962,7 @@
     },
     {
       "name": "guide_group_home",
-      "value": "首页"
+      "value": "首页与搜索"
     },
     {
       "name": "guide_home_search_action",
@@ -2522,7 +2970,7 @@
     },
     {
       "name": "guide_home_search_desc",
-      "value": "输入书名或作者，选择搜索结果。"
+      "value": "输入书名开始搜索，点击结果进入详情。搜索框旁的筛选按钮可指定书源、开启精准搜索或搜索作者，也可筛选电子书、有声书和漫画。找不到内容时，先检查书源和筛选条件。"
     },
     {
       "name": "guide_home_refresh_action",
@@ -2530,7 +2978,7 @@
     },
     {
       "name": "guide_home_refresh_desc",
-      "value": "刷新推荐和分类。"
+      "value": "下拉可刷新当前推荐和分类。全网榜单中的书籍需要在已导入的书源中匹配版本，选择可用结果后才能阅读或收听。"
     },
     {
       "name": "guide_home_top_action",
@@ -2542,7 +2990,7 @@
     },
     {
       "name": "guide_group_common",
-      "value": "通用"
+      "value": "设置与快捷操作"
     },
     {
       "name": "guide_common_top_action",
@@ -2558,11 +3006,11 @@
     },
     {
       "name": "guide_favorite_open_action",
-      "value": "点击电子书"
+      "value": "从书架继续阅听"
     },
     {
       "name": "guide_favorite_open_desc",
-      "value": "继续上次阅读。"
+      "value": "点击电子书或漫画可继续阅读；有声书可从收听入口继续播放。长按书卡选择「查看详情」可查看简介与目录。顶部支持按内容类型、书名、分组和连载状态查找。"
     },
     {
       "name": "guide_favorite_refresh_action",
@@ -2574,11 +3022,11 @@
     },
     {
       "name": "guide_favorite_remove_action",
-      "value": "长按书籍并拖到底部删除区"
+      "value": "长按书卡管理或删除"
     },
     {
       "name": "guide_favorite_remove_desc",
-      "value": "移出书架，按需删除本地文件。"
+      "value": "长按打开菜单，可置顶、查看详情或进入「管理」批量选择。「仅删除书架」保留本地文件；「删除书架及本地」同时清理这本书的本地副本和下载，确认前请看清选项。"
     },
     {
       "name": "guide_group_record",
@@ -2594,15 +3042,15 @@
     },
     {
       "name": "guide_record_play_action",
-      "value": "点击记录右侧播放按钮"
+      "value": "从记录继续阅听"
     },
     {
       "name": "guide_record_play_desc",
-      "value": "继续上次收听。"
+      "value": "选择书籍记录，继续上次阅读或收听；有声书也可点击右侧播放按钮。如果底部没有「记录」，可到「我的 → 设置」检查历史记录开关。"
     },
     {
       "name": "guide_group_player",
-      "value": "播放页"
+      "value": "有声书播放"
     },
     {
       "name": "guide_player_chapter_action",
@@ -2610,7 +3058,7 @@
     },
     {
       "name": "guide_player_chapter_desc",
-      "value": "选择要播放的章节。"
+      "value": "打开目录后选择章节；上一章、下一章按钮可快速切换。拖动进度条定位时间，快退与快进按钮每次跳转 15 秒；播放进度会自动保存。直播内容不能拖动进度。"
     },
     {
       "name": "guide_player_speed_action",
@@ -2622,19 +3070,19 @@
     },
     {
       "name": "guide_player_sleep_action",
-      "value": "点击「定时」"
+      "value": "点击底部闹钟图标设置定时"
     },
     {
       "name": "guide_player_sleep_desc",
-      "value": "按分钟或章节设置停止，也可输入自定义数值；长按取消。"
+      "value": "按时长或章节设置停止，也可填写自定义数值，选中后立即生效。按章节会计入正在播放的这一章；长按闹钟图标可取消定时。"
     },
     {
       "name": "guide_player_skip_action",
-      "value": "点击或长按「跳过」"
+      "value": "设置跳过片头、片尾"
     },
     {
       "name": "guide_player_skip_desc",
-      "value": "设置片头、片尾时长，长按清除。"
+      "value": "点击播放页底部的跳过头尾按钮，设置片头和片尾秒数，后续按该书设置播放；长按按钮可清除。电子书朗读使用独立的朗读控制，不适用音频片头片尾。"
     },
     {
       "name": "guide_player_cast_action",
@@ -2654,7 +3102,7 @@
     },
     {
       "name": "guide_reader_open_desc",
-      "value": "向前或向后翻页，顶部 10% 区域留给下拉状态栏。"
+      "value": "默认点击左侧上一页、右侧下一页，也可按所选翻页方式滑动。点击区域可在阅读设置中自定义；退出后再次打开，会恢复已保存的章节与阅读位置。"
     },
     {
       "name": "guide_reader_toolbar_action",
@@ -2662,19 +3110,19 @@
     },
     {
       "name": "guide_reader_toolbar_desc",
-      "value": "打开或收起底栏，再选择章节、设置或朗读。"
+      "value": "默认轻点正文中央打开或收起工具栏，底部依次为章节、设置、字体。若修改过点击区域，请轻点自己设置的「工具栏」区域。"
     },
     {
       "name": "guide_reader_settings_action",
-      "value": "打开「设置」"
+      "value": "调整「设置」与「字体」"
     },
     {
       "name": "guide_reader_settings_desc",
-      "value": "调整字号、行距、四边边距、翻页方式和背景，自动保存。"
+      "value": "「字体」中可调整字号、行距、字重、文字颜色和阅读主题，也可导入字体。「设置」中可调整边距、翻页方式、点击区域、音量键翻页及状态栏等选项，修改后自动保存。"
     },
     {
       "name": "guide_group_source",
-      "value": "书源"
+      "value": "书源导入与管理"
     },
     {
       "name": "guide_source_import_action",
@@ -2682,7 +3130,7 @@
     },
     {
       "name": "guide_source_import_desc",
-      "value": "选择 JSON 文件、粘贴内容或输入书源链接。"
+      "value": "点击右下角加号，选择文件导入、链接或粘贴、扫码导入。使用自己的书源 JSON 文件、规则内容或订阅链接，查看导入结果后返回列表；书源规则文件与小说正文文件的入口不同。"
     },
     {
       "name": "guide_source_test_action",
@@ -2690,7 +3138,7 @@
     },
     {
       "name": "guide_source_test_desc",
-      "value": "测试搜索或发现/阅读，通过后启用书源。"
+      "value": "展开书源可进行单源测试，也可使用批量校验，选择搜索或发现/阅读模式。查看失败原因，确认需要的书源已启用并参与搜索；测试不会自动替你修改启用状态。"
     },
     {
       "name": "guide_source_login_action",
@@ -2698,7 +3146,7 @@
     },
     {
       "name": "guide_source_login_desc",
-      "value": "按书源提示完成登录。"
+      "value": "展开需要登录的书源，按其提供的主账号或网站登录入口操作，完成后返回重试。书源网站账号与简听的华为账号是两套账号，登录简听不会自动登录书源网站。"
     },
     {
       "name": "guide_mini_cover_action",
@@ -2738,7 +3186,327 @@
     },
     {
       "name": "guide_footer",
-      "value": "遇到问题，可在「我的」加入简听交流群。"
+      "value": "本教程可离线查看。仍有问题，可在「我的」加入简听交流群，说明操作步骤和出现的提示。"
+    },
+    {
+      "name": "guide_title",
+      "value": "使用教程"
+    },
+    {
+      "name": "guide_start_eyebrow",
+      "value": "新手入门"
+    },
+    {
+      "name": "guide_start_headline",
+      "value": "从第一本书开始"
+    },
+    {
+      "name": "guide_start_summary",
+      "value": "三步上手，开始自在阅听"
+    },
+    {
+      "name": "guide_start_cta",
+      "value": "查看入门步骤"
+    },
+    {
+      "name": "guide_topics_heading",
+      "value": "功能指南"
+    },
+    {
+      "name": "guide_topics_hint",
+      "value": "按需探索"
+    },
+    {
+      "name": "guide_topic_find",
+      "value": "书源与找书"
+    },
+    {
+      "name": "guide_topic_find_summary",
+      "value": "导入书源，发现好书"
+    },
+    {
+      "name": "guide_topic_read",
+      "value": "阅读与朗读"
+    },
+    {
+      "name": "guide_topic_read_summary",
+      "value": "翻页、主题与文字朗读"
+    },
+    {
+      "name": "guide_topic_listen",
+      "value": "听书与播放"
+    },
+    {
+      "name": "guide_topic_listen_summary",
+      "value": "倍速、定时与播放控制"
+    },
+    {
+      "name": "guide_topic_shelf",
+      "value": "书架与记录"
+    },
+    {
+      "name": "guide_topic_shelf_summary",
+      "value": "整理收藏，接着阅听"
+    },
+    {
+      "name": "guide_topic_local",
+      "value": "本地与下载"
+    },
+    {
+      "name": "guide_topic_local_summary",
+      "value": "文件导入与离线使用"
+    },
+    {
+      "name": "guide_topic_settings",
+      "value": "备份与设置"
+    },
+    {
+      "name": "guide_topic_settings_summary",
+      "value": "保存数据，调整偏好"
+    },
+    {
+      "name": "guide_help_summary",
+      "value": "搜索、播放、导入遇到问题"
+    },
+    {
+      "name": "guide_offline_hint",
+      "value": "教程保存在本地，无网络也能查看"
+    },
+    {
+      "name": "guide_offline_label",
+      "value": "离线可用"
+    },
+    {
+      "name": "guide_back_to_topics",
+      "value": "返回功能指南"
+    },
+    {
+      "name": "guide_intro",
+      "value": "欢迎使用简听阅读。这里按实际操作介绍找书、阅读、听书和管理方法。第一次使用，建议从「快速上手」开始。"
+    },
+    {
+      "name": "guide_contents",
+      "value": "目录"
+    },
+    {
+      "name": "guide_contents_hint",
+      "value": "点击分类直达教程，右上角「目录」可随时回到这里。"
+    },
+    {
+      "name": "guide_group_start",
+      "value": "快速上手"
+    },
+    {
+      "name": "guide_start_source_action",
+      "value": "准备书源或本地文件"
+    },
+    {
+      "name": "guide_start_source_desc",
+      "value": "在线阅读和听书需要先在「我的 → 书源管理」导入并启用自己的书源。已有音频或电子书文件，可直接前往「我的 → 本地导入」，无需配置书源。"
+    },
+    {
+      "name": "guide_start_book_action",
+      "value": "找到书籍并开始阅听"
+    },
+    {
+      "name": "guide_start_book_desc",
+      "value": "在首页点击搜索框输入书名，打开结果查看简介和目录，再选择章节开始阅读或播放。本地文件导入成功后，到「书架」打开即可。"
+    },
+    {
+      "name": "guide_start_continue_action",
+      "value": "加入书架，下次继续"
+    },
+    {
+      "name": "guide_start_continue_desc",
+      "value": "在书籍详情页点击收藏，将在线书籍加入书架。阅读与播放会保存位置，下次可从书架或记录继续；本地导入的书籍会自动入架。"
+    },
+    {
+      "name": "guide_source_manage_action",
+      "value": "分组、停用与删除书源"
+    },
+    {
+      "name": "guide_source_manage_desc",
+      "value": "可按名称或分组查找书源，通过菜单设置分组、置顶、锁定或导出。关闭参与搜索后，已收藏书籍仍可使用原书源；删除会移除规则及其登录信息，原书籍可能无法继续访问。锁定的书源需先解锁才能修改或删除。"
+    },
+    {
+      "name": "guide_home_source_action",
+      "value": "在首页顶部切换内容来源"
+    },
+    {
+      "name": "guide_home_source_desc",
+      "value": "可选择全网榜单，或已启用且支持发现内容的电子书、有声书源，浏览该来源的推荐与分类。导入书源后未出现在这里时，检查是否启用了发现功能，以及书源是否提供发现内容。"
+    },
+    {
+      "name": "guide_favorite_add_action",
+      "value": "在详情页收藏书籍"
+    },
+    {
+      "name": "guide_favorite_add_desc",
+      "value": "搜索或浏览找到书籍后，在详情页点击收藏，之后可在「书架」统一查看。不同来源的同名书可能有不同版本，收藏前可先试读或试听。"
+    },
+    {
+      "name": "guide_favorite_group_action",
+      "value": "用分组整理书架"
+    },
+    {
+      "name": "guide_favorite_group_desc",
+      "value": "详情页的分组入口可为单本书选择分组，书架「管理」中可批量设置。每本书属于一个分组，未指定时归入「未分组」；顶部的分组筛选可快速切换查看。"
+    },
+    {
+      "name": "guide_player_source_action",
+      "value": "刷新当前章节或换源"
+    },
+    {
+      "name": "guide_player_source_desc",
+      "value": "在线内容加载失败时，可点击右上角刷新重新获取当前章，或点击换源搜索其他已启用来源。选择新版本后核对章节再继续；不同版本的章节划分可能不同。本地文件没有在线换源入口。"
+    },
+    {
+      "name": "guide_reader_bookmark_action",
+      "value": "添加书签与切换来源"
+    },
+    {
+      "name": "guide_reader_bookmark_desc",
+      "value": "打开工具栏，点击右上角四宫格菜单添加或查看书签。在线电子书还提供刷新和换源入口；换源后先核对目录，避免不同版本章节不一致。"
+    },
+    {
+      "name": "guide_group_comic",
+      "value": "漫画阅读"
+    },
+    {
+      "name": "guide_comic_read_action",
+      "value": "导入漫画书源并打开漫画"
+    },
+    {
+      "name": "guide_comic_read_desc",
+      "value": "启用漫画类型的书源，在搜索筛选中选择漫画，打开详情并选择章节。已收藏的漫画也可从书架的漫画分类继续阅读。"
+    },
+    {
+      "name": "guide_comic_settings_action",
+      "value": "呼出工具栏调整阅读方式"
+    },
+    {
+      "name": "guide_comic_settings_desc",
+      "value": "轻点画面呼出工具栏，可查看章节并打开漫画设置，按习惯选择翻页方式、调整亮度与显示选项。漫画阅读进度会保存，图片加载失败时可检查网络后重试。"
+    },
+    {
+      "name": "guide_group_import",
+      "value": "本地文件导入"
+    },
+    {
+      "name": "guide_import_files_action",
+      "value": "我的 → 本地导入 → 选择文件"
+    },
+    {
+      "name": "guide_import_files_desc",
+      "value": "音频支持 MP3、M4A、FLAC、WAV、OGG、AAC；电子书支持 TXT、EPUB、MOBI、PDF、HTML/HTM，也可选择 ZIP 压缩包。点击「选择文件」旁的说明图标，可查看格式与大小限制。"
+    },
+    {
+      "name": "guide_import_save_action",
+      "value": "核对信息后点击「开始导入」"
+    },
+    {
+      "name": "guide_import_save_desc",
+      "value": "按需要设置类型、书名、作者、封面和分组，确认后开始导入，完成后到书架打开。多段音频可组成一本书；ZIP 中的电子书会逐本入架。也可在系统文件管理器中用简听阅读打开支持的文件。"
+    },
+    {
+      "name": "guide_import_formats_action",
+      "value": "了解不同文件的阅读效果"
+    },
+    {
+      "name": "guide_import_formats_desc",
+      "value": "TXT 等文字电子书可调整字体和排版；EPUB 支持文字及可提取的内嵌图片，不完全还原原书排版。PDF 按页面图片阅读，保留版式但不能重排文字或朗读。MOBI 支持未加密的 MOBI6，纯 KF8/AZW3、加密或不支持的压缩格式会提示无法导入。"
+    },
+    {
+      "name": "guide_group_download",
+      "value": "离线下载与导出"
+    },
+    {
+      "name": "guide_download_chapter_action",
+      "value": "播放页 → 章节 → 长按章节"
+    },
+    {
+      "name": "guide_download_chapter_desc",
+      "value": "在线有声书可长按章节加入下载队列，完成后可离线收听。正在下载的章节需等待完成；长按已下载的章节可按提示删除该章下载。直播内容不支持下载。"
+    },
+    {
+      "name": "guide_download_export_action",
+      "value": "从下载通知进入下载管理"
+    },
+    {
+      "name": "guide_download_export_desc",
+      "value": "下载管理可查看任务、暂停、继续或重试，并将已完成的音频导出到系统文件选择器指定的位置。导出后应用内的下载仍保留；尚未完成的章节和电子书朗读不会生成可导出的音频。"
+    },
+    {
+      "name": "guide_group_backup",
+      "value": "备份与恢复"
+    },
+    {
+      "name": "guide_backup_local_action",
+      "value": "我的 → 顶部头像或昵称 → 本地备份"
+    },
+    {
+      "name": "guide_backup_local_desc",
+      "value": "无需登录即可点击「导出备份」，选择位置保存书源、在线书架、阅听记录、进度和常规设置。恢复时选择「从文件恢复」，核对备份时间和内容后确认；普通书源 JSON 应到书源管理导入。"
+    },
+    {
+      "name": "guide_backup_cloud_action",
+      "value": "登录后使用华为云空间备份"
+    },
+    {
+      "name": "guide_backup_cloud_desc",
+      "value": "在账号页登录华为账号，并在系统云空间开启简听阅读的应用数据同步，再按页面提示立即备份或恢复同一账号的备份。恢复前核对内容并确认；云备份用于保存与恢复数据，不会实时同步每次阅读操作。"
+    },
+    {
+      "name": "guide_backup_files_action",
+      "value": "换设备前另存本地文件"
+    },
+    {
+      "name": "guide_backup_files_desc",
+      "value": "备份不包含下载音频、本地导入书籍、自定义背景和字体文件，也不包含书源登录凭证。请另行保管原始书籍与文件，新设备恢复后按需重新导入、下载或登录书源。"
+    },
+    {
+      "name": "guide_common_settings_action",
+      "value": "我的 → 设置"
+    },
+    {
+      "name": "guide_common_settings_desc",
+      "value": "可调整外观、启动页面、播放、搜索及历史记录等偏好；阅读页的字体和翻页设置在阅读工具栏中调整。「我的 → 主题」可选择主题图标和主题套装，具体可用项以页面提示为准。"
+    },
+    {
+      "name": "guide_group_problems",
+      "value": "常见问题"
+    },
+    {
+      "name": "guide_problems_search_action",
+      "value": "搜索不到书，或首页没有内容"
+    },
+    {
+      "name": "guide_problems_search_desc",
+      "value": "先确认已导入并启用合适类型的书源，再检查指定源、精准搜索、作者和类型筛选。尝试缩短关键词并测试书源；首页还需要所选来源提供发现内容，只有搜索功能的来源不一定有推荐。"
+    },
+    {
+      "name": "guide_problems_content_action",
+      "value": "章节打不开、播放失败或内容不全"
+    },
+    {
+      "name": "guide_problems_content_desc",
+      "value": "检查网络并刷新当前章，按书源提示登录后重试；也可测试书源或换用其他已启用来源。在线章节是否可用取决于对应网站和书源规则，搜索有结果不代表每章都能读取。"
+    },
+    {
+      "name": "guide_problems_import_action",
+      "value": "本地文件导入失败"
+    },
+    {
+      "name": "guide_problems_import_desc",
+      "value": "查看导入页的具体提示，确认文件完整、未加密、格式受支持且存储空间充足。可先单独导入一个文件定位问题；需要更多线索时，先开启日志，再重新执行导入。"
+    },
+    {
+      "name": "guide_problems_logs_action",
+      "value": "我的 → 日志管理 → 记录日志"
+    },
+    {
+      "name": "guide_problems_logs_desc",
+      "value": "日志默认关闭。遇到问题先开启「记录日志」，重复出现问题的操作，再返回日志页刷新并复制日志；也可点击「运行检测」。反馈时附上操作步骤和错误提示，排查结束后可关闭记录日志。"
     },
     {
       "name": "rule_source_title",
@@ -5194,7 +5962,7 @@
     },
     {
       "name": "membership_order_opening",
-      "value": "11月1日 00:00 开放订购"
+      "value": "11.1开始订阅"
     },
     {
       "name": "membership_lifetime_renewal_notice",
@@ -6343,6 +7111,54 @@
     {
       "name": "settings_ebook_cache_cleared",
       "value": "电子书缓存清理好啦"
+    },
+    {
+      "name": "settings_audio_focus_title",
+      "value": "音频播放方式"
+    },
+    {
+      "name": "settings_audio_focus_resume",
+      "value": "自动恢复"
+    },
+    {
+      "name": "settings_audio_focus_mix",
+      "value": "共存播放"
+    },
+    {
+      "name": "settings_audio_focus_resume_desc",
+      "value": "有声书与电子书朗读被其他音频打断后，从原位置继续播放"
+    },
+    {
+      "name": "settings_audio_focus_mix_desc",
+      "value": "有声书与电子书朗读可与其他应用的音频同时播放，来电等中断仍遵循系统规则"
+    },
+    {
+      "name": "reader_theme_name",
+      "value": "主题名称"
+    },
+    {
+      "name": "reader_theme_background_image",
+      "value": "背景图"
+    },
+    {
+      "name": "reader_theme_import_image",
+      "value": "导入图片"
+    },
+    {
+      "name": "reader_theme_remove_image",
+      "value": "移除"
+    },
+    {
+      "name": "reader_custom_theme_limit",
+      "value": "免费 1 套 · 会员 5 套"
+    },
+    {
+      "name": "reader_custom_theme_membership_required",
+      "value": "第 2～5 个自定义主题需要有效会员"
+    },
+    {
+      "name": "reader_theme_save_failed",
+      "value": "主题保存失败，请重试"
     }
   ]
 }

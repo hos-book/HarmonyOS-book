@@ -6,6 +6,7 @@
  */
 
 export interface NativeBrowserRequest {
+  userAgent?: string;
   url: string;
   title: string;
   sourceUrl: string;

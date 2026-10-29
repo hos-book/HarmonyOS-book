@@ -182,7 +182,7 @@ class NativeHost implements NativeRunnerHost {
     }
     // 没拿到响应且请求层报的是明确的网络错误（域名解析、超时、连不上等）：与登录无关，直接给出真实原因。
     // 否则配置了登录入口的书源会把断网也报成“需要登录或网页验证”，还会拉起验证流程。
-    if (response.statusCode === 0 && !response.success) {
+    if (response.statusCode === 0 && !response.success && !response.errorCode) {
       const networkReason = NetworkErrorText.describe(response.error || '', request.url);
       if (networkReason) {
         console.warn(`[NativeSource] 网络请求失败 source=${this.source.bookSourceName} error=${response.error || ''}`);
@@ -191,16 +191,16 @@ class NativeHost implements NativeRunnerHost {
       }
     }
     // 主请求拿到的是人机验证或登录拦截页时，沿用应用现有的「去验证」流程，而不是当成没有结果。
-    if (request.primary && VerificationSupport.shouldRequestBrowserVerification(this.source, response.body || '',
+    if (request.primary && !(response.errorCode && response.statusCode === 0) && VerificationSupport.shouldRequestBrowserVerification(this.source, response.body || '',
       response.statusCode, '')) {
       // 状态码 0（超时、连不上）在配置了登录入口的书源上也会落到这里，记下真实原因便于区分。
       console.warn(`[NativeSource] 主请求判定为需要验证 source=${this.source.bookSourceName} ` +
         `status=${response.statusCode} error=${response.error || ''} bodyLength=${(response.body || '').length}`);
       VerificationSupport.requestVerification(
         VerificationSupport.pickVerificationUrl(this.source, request.url, ''),
-        `${this.source.bookSourceName} 验证`, this.source);
+        `${this.source.bookSourceName} 验证`, this.source, this.requestUserAgent(request.headers));
       return {
-        ok: false, status: response.statusCode, body: '', url: request.url,
+        ok: false, status: response.statusCode, statusCodeAvailable: response.statusCodeAvailable, body: '', url: request.url,
         headers: response.headersAvailable ? HttpHeaderValues.normalize(response.headers || {}) : {},
         headersAvailable: response.headersAvailable === true, requestId: response.requestId || '',
         error: NativeSourceService.VERIFICATION_REASON
@@ -208,6 +208,8 @@ class NativeHost implements NativeRunnerHost {
     }
     return {
       ok: response.success,
+      errorCode: response.errorCode, errorStage: response.errorStage, statusCodeAvailable: response.statusCodeAvailable,
+      hostWaitMs: response.hostWaitMs, queueMs: response.queueMs, renderMs: response.renderMs,
       status: response.statusCode,
       body: response.body || '',
       url: BookUrlResolver.effectiveBase(response, request.url, this.source.bookSourceUrl),
@@ -241,7 +243,13 @@ class NativeHost implements NativeRunnerHost {
 
   cookieGet(url: string, name: string): string {
     const jar = CookieStore.forSource(this.source.bookSourceUrl);
-    return name ? jar.getCookieValue(url, name) : jar.getCookie(url);
+    const cookie = jar.getRequestCookie ? jar.getRequestCookie(url) : jar.getCookie(url);
+    if (!name) return cookie;
+    for (const part of cookie.split(';')) {
+      const index = part.indexOf('=');
+      if (index > 0 && part.substring(0, index).trim() === name) return part.substring(index + 1).trim();
+    }
+    return '';
   }
 
   cookieSet(url: string, value: string): void {
@@ -277,17 +285,17 @@ class NativeHost implements NativeRunnerHost {
     await handler.refreshExplore(this.source.bookSourceUrl);
   }
 
-  async openBrowser(url: string, title: string, wait: boolean): Promise<NativeBrowserResult> {
+  async openBrowser(url: string, title: string, wait: boolean, userAgent: string = ''): Promise<NativeBrowserResult> {
     const handler = NativeSourceInteraction.handler();
     if (!handler) return { body: '', error: '当前环境不支持打开网页' };
     return await handler.openBrowser({
       url: url, title: title || this.source.bookSourceName || '网页',
-      sourceUrl: this.source.bookSourceUrl, sourceName: this.source.bookSourceName || ''
+      userAgent: userAgent || this.userAgent(), sourceUrl: this.source.bookSourceUrl, sourceName: this.source.bookSourceName || ''
     }, wait);
   }
 
-  requestVerification(url: string, title: string): void {
-    VerificationSupport.requestVerification(url, title, this.source);
+  requestVerification(url: string, title: string, userAgent: string = ''): void {
+    VerificationSupport.requestVerification(url, title, this.source, userAgent || this.userAgent());
   }
 
   deviceId(): string {
@@ -296,6 +304,11 @@ class NativeHost implements NativeRunnerHost {
     } catch (e) {
       return '';
     }
+  }
+
+  private requestUserAgent(headers: Record<string, string>): string {
+    for (const name of Object.keys(headers)) if (name.toLowerCase() === 'user-agent') return headers[name];
+    return this.userAgent();
   }
 
   userAgent(): string {
@@ -526,8 +539,12 @@ export class NativeSourceService {
     if (!login.url) return false;
     const names = Array.isArray(login.cookies) ? login.cookies : [];
     const jar = CookieStore.forSource(source.bookSourceUrl);
-    if (names.length === 0) return !!jar.getCookie(login.url);
-    return names.every((name: string): boolean => !!jar.getCookieValue(login.url, String(name)));
+    const cookies = jar.getRequestCookie ? jar.getRequestCookie(login.url) : jar.getCookie(login.url);
+    if (names.length === 0) return !!cookies;
+    return names.every((name: string): boolean => cookies.split(';').some((part: string): boolean => {
+      const pair = part.trim();
+      return pair.startsWith(String(name) + '=') && !!pair.substring(pair.indexOf('=') + 1);
+    }));
   }
 
   static logout(source: BookSource): void {
@@ -546,8 +563,12 @@ export class NativeSourceService {
     NativeSourceService.clearCache(source.bookSourceUrl);
   }
 
-  static async checkLogin(source: BookSource, http: HttpClient): Promise<NativeLoginState> {
-    return await NativeSourceService.runner(source, http, (): boolean => false).checkLogin();
+  static async browserUserAgent(source: BookSource, http: HttpClient): Promise<string> {
+    return await NativeSourceService.runner(source, http, (): boolean => false).effectiveUserAgent();
+  }
+
+  static async checkLogin(source: BookSource, http: HttpClient, cancelled: () => boolean = (): boolean => false): Promise<NativeLoginState> {
+    return await NativeSourceService.runner(source, http, cancelled).checkLogin();
   }
 
   /**
@@ -637,29 +658,29 @@ export class NativeSourceService {
   }
 
   /** 书源设置页的动态选项（vars 里写了 optionsScript 的变量）。 */
-  static async varOptions(source: BookSource, http: HttpClient, key: string = ''): Promise<Record<string, NativeVarOptions>> {
-    return await NativeSourceService.runner(source, http, (): boolean => false).varOptions(key);
+  static async varOptions(source: BookSource, http: HttpClient, key: string = '', cancelled: () => boolean = (): boolean => false): Promise<Record<string, NativeVarOptions>> {
+    return await NativeSourceService.runner(source, http, cancelled).varOptions(key);
   }
 
   static async submitLogin(source: BookSource, http: HttpClient,
-    form: Record<string, string>): Promise<NativeLoginResult> {
-    const result = await NativeSourceService.runner(source, http, (): boolean => false).submitLogin(form);
+    form: Record<string, string>, cancelled: () => boolean = (): boolean => false): Promise<NativeLoginResult> {
+    const result = await NativeSourceService.runner(source, http, cancelled).submitLogin(form);
     if (result.ok) NativeSourceService.clearCache(source.bookSourceUrl);
     return result;
   }
 
-  static async sendLoginCode(source: BookSource, http: HttpClient, form: Record<string, string>): Promise<string> {
-    return await NativeSourceService.runner(source, http, (): boolean => false).sendLoginCode(form);
+  static async sendLoginCode(source: BookSource, http: HttpClient, form: Record<string, string>, cancelled: () => boolean = (): boolean => false): Promise<string> {
+    return await NativeSourceService.runner(source, http, cancelled).sendLoginCode(form);
   }
 
   // ---------- 动作按钮 ----------
 
-  static async actions(source: BookSource, http: HttpClient): Promise<NativeActionEntry[]> {
-    return await NativeSourceService.runner(source, http, (): boolean => false).actions();
+  static async actions(source: BookSource, http: HttpClient, cancelled: () => boolean = (): boolean => false): Promise<NativeActionEntry[]> {
+    return await NativeSourceService.runner(source, http, cancelled).actions();
   }
 
-  static async runAction(source: BookSource, http: HttpClient, index: number): Promise<string> {
-    return await NativeSourceService.runner(source, http, (): boolean => false).runAction(index);
+  static async runAction(source: BookSource, http: HttpClient, index: number, cancelled: () => boolean = (): boolean => false): Promise<string> {
+    return await NativeSourceService.runner(source, http, cancelled).runAction(index);
   }
 
   /** 正文里的请求按钮：阅读器点击后把标记里的地址交回这里执行。 */

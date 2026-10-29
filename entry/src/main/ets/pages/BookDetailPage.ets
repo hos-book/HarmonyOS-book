@@ -973,7 +973,7 @@ export struct BookDetailPage {
     if (this.book!.cover && this.book!.cover.startsWith('http')) {
       CoverImage({ url: this.book!.cover, imgWidth: '100%',
         imgHeight: this.detailHeroHeight() / 2, useFixedHeight: true,
-        radius: 0, themedDecoration: false, decodeW: 100, decodeH: 140 })
+        radius: 0, themedDecoration: false })
         .width('100%').height(this.detailHeroHeight() / 2)
         .blur(55 / 4)
     } else if (this.book!.cover && this.book!.cover.startsWith('file://')) {
@@ -1062,8 +1062,6 @@ export struct BookDetailPage {
             radius: AppRadius.Sm,
             themedDecoration: false,
             imageFit: ImageFit.Contain,
-            decodeW: 300,
-            decodeH: 400,
             highPriority: true,
             onImageSize: (url: string, width: number, height: number): void =>
               this.rememberCoverSize(url, width, height),

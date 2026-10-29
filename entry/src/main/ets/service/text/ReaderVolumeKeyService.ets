@@ -8,28 +8,36 @@ export class ReaderVolumeKeyService {
   private onTurn: (forward: boolean) => void = (): void => {};
   private readonly upHandler = (): void => { this.onTurn(false); };
   private readonly downHandler = (): void => { this.onTurn(true); };
+  private upKey: KeyCode;
+  private downKey: KeyCode;
 
-  setEnabled(enabled: boolean, onTurn: (forward: boolean) => void): void {
+  constructor(upKey: KeyCode = KeyCode.KEYCODE_VOLUME_UP, downKey: KeyCode = KeyCode.KEYCODE_VOLUME_DOWN) {
+    this.upKey = upKey;
+    this.downKey = downKey;
+  }
+
+  setEnabled(enabled: boolean, onTurn: (forward: boolean) => void): boolean {
     this.onTurn = onTurn;
     if (!enabled) {
       this.dispose();
-      return;
+      return false;
     }
-    if (this.upRegistered && this.downRegistered) return;
+    if (this.upRegistered && this.downRegistered) return true;
     try {
       // action=1 与 isRepeat=false 在 API 20 可用；按下一次翻一页，长按不连翻。
       if (!this.upRegistered) {
-        inputConsumer.on('keyPressed', { key: KeyCode.KEYCODE_VOLUME_UP, action: 1, isRepeat: false }, this.upHandler);
+        inputConsumer.on('keyPressed', { key: this.upKey, action: 1, isRepeat: false }, this.upHandler);
         this.upRegistered = true;
       }
       if (!this.downRegistered) {
-        inputConsumer.on('keyPressed', { key: KeyCode.KEYCODE_VOLUME_DOWN, action: 1, isRepeat: false }, this.downHandler);
+        inputConsumer.on('keyPressed', { key: this.downKey, action: 1, isRepeat: false }, this.downHandler);
         this.downRegistered = true;
       }
     } catch (error) {
       this.dispose();
       hilog.warn(0, 'ReaderVolumeKey', 'subscribe failed: %{public}s', String(error));
     }
+    return this.upRegistered && this.downRegistered;
   }
 
   dispose(): void {

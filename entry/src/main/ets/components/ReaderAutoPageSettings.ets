@@ -10,6 +10,7 @@ export struct ReaderAutoPageSettings {
   @Param comic: boolean = false;
   @Param speed: number = 20;
   @Param running: boolean = false;
+  @Param paused: boolean = false;
   @Param available: boolean = true;
   @Event onInterval: (seconds: number) => void = (): void => {};
   @Event onSpeed: (speed: number) => void = (): void => {};
@@ -28,8 +29,9 @@ export struct ReaderAutoPageSettings {
   }
 
   private toggleLabel(): Resource {
+    if (this.paused) return $r('app.string.reader_auto_page_resume');
     if (!this.running) return $r('app.string.reader_auto_page_start');
-    return this.scrolling ? $r('app.string.reader_auto_scroll_stop') : $r('app.string.reader_auto_page_stop');
+    return $r('app.string.reader_auto_page_pause');
   }
 
   build() {

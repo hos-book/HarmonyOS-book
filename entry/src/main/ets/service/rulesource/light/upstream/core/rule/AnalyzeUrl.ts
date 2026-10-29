@@ -486,6 +486,7 @@ export class AnalyzeUrl {
       cancelCheck: (): boolean =>
         SourceEngineHost.isCancelled(this.source) || (!!this.cancelCheck && this.cancelCheck()),
       timingId: SourceEngineHost.id(this.source),
+      automaticCookieHeader: !cookieHeaderName && !!merged['Cookie'],
       cookieSource: this.source?.bookSourceUrl || '',
       url: this.config.url,
       method: this.config.method,

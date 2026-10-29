@@ -31,6 +31,7 @@ export class ReadingSettingsBackup {
   showChapterNumber: boolean = true;
   showBookName: boolean = true;
   volumeKeyPageTurn: boolean = false;
+  smartKeyPageTurn: boolean = false;
   pageTurnMode: string = 'cover';
   showReadingStatus: boolean = true;
   alwaysShowStatusBar: boolean = true;
@@ -87,6 +88,7 @@ export class ReadingBackupService {
     saved.showBookName = settings.showBookName;
     saved.tapRegions = settings.tapRegions;
     saved.volumeKeyPageTurn = settings.volumeKeyPageTurn;
+    saved.smartKeyPageTurn = settings.smartKeyPageTurn;
     saved.pageTurnMode = settings.pageTurnMode;
     saved.showReadingStatus = settings.showReadingStatus;
     saved.alwaysShowStatusBar = settings.alwaysShowStatusBar;
@@ -149,6 +151,7 @@ export class ReadingBackupService {
     settings.showBookName = saved.showBookName !== false;
     settings.tapRegions = ReaderTapPolicy.normalize(typeof saved.tapRegions === 'string' ? saved.tapRegions : ReaderTapPolicy.DEFAULT);
     settings.volumeKeyPageTurn = saved.volumeKeyPageTurn === true;
+    settings.smartKeyPageTurn = saved.smartKeyPageTurn === true;
     settings.pageTurnMode = saved.pageTurnMode;
     settings.showReadingStatus = saved.showReadingStatus;
     settings.alwaysShowStatusBar = saved.alwaysShowStatusBar;
@@ -205,6 +208,7 @@ export class ReadingBackupService {
       (settings.themeId === undefined || findThemePreset(settings.themeId) !== null) &&
       ['cover', 'none', 'simulation', 'slide', 'vertical'].includes(settings.pageTurnMode) &&
       (settings.volumeKeyPageTurn === undefined || typeof settings.volumeKeyPageTurn === 'boolean') &&
+      (settings.smartKeyPageTurn === undefined || typeof settings.smartKeyPageTurn === 'boolean') &&
       typeof settings.showReadingStatus === 'boolean' && typeof settings.alwaysShowStatusBar === 'boolean' &&
       typeof settings.followSystemTheme === 'boolean' &&
       [settings.marginLeft, settings.marginRight, settings.marginBottom]

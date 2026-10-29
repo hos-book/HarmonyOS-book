@@ -5,6 +5,10 @@ const vm = require('node:vm');
 const ide = process.env.DEVECO_HOME;
 if (!ide) throw new Error('Set DEVECO_HOME to the installed Release IDE');
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
+const policyExports = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname, '../entry/src/main/ets/utils/MainTabPolicy.ets'), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
+}).outputText, { exports: policyExports });
 const source = fs.readFileSync(path.join(__dirname, '../entry/src/main/ets/pages/MainPage.ets'), 'utf8');
 const methods = source.slice(source.indexOf('  private async restoreDefaultTab'), source.indexOf("  @Monitor('generalSettings.historyEnabled')"));
 const tabOptions = source.match(/HdsTabs\((\{[\s\S]*?\})\)\s*\{/)[1];
@@ -19,7 +23,7 @@ function page(read, historyEnabled = true) {
   }`, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
   }).outputText, { exports, PreferenceService: { getDefaultTab: read }, Curve: { EaseOut: 'ease-out' },
-    GestureJudgeResult: { CONTINUE: 0, REJECT: 1 } });
+    MainTabPolicy: policyExports.MainTabPolicy, GestureJudgeResult: { CONTINUE: 0, REJECT: 1 } });
   const value = new exports.Page();
   Object.assign(value, { tabsReady: false, defaultTabRequest: 0, pendingInitialTab: -1,
     tabFadeRunning: false, tabFadeCommitIndex: -1, tabFadeGeneration: 0, tabContentOpacity: 1,
@@ -37,7 +41,7 @@ function page(read, historyEnabled = true) {
       await work;
       assert.equal(p.tabsReady, true);
       assert.equal(p.currentTab, !history && index === 2 ? 0 : index);
-      assert.equal(p.renderTabs().index, !history && index === 3 ? 2 : p.currentTab);
+      assert.equal(p.renderTabs().index, (history ? [0, 1, 2, 3] : [0, 1, 0, 2])[index]);
       assert.deepEqual(p.switches, [], 'initial selection must not animate through home');
     }
   }
@@ -153,6 +157,13 @@ function page(read, historyEnabled = true) {
   assert.equal(finishes.length, 0);
   fade.handleTabSwipe({ offsetX: -100, offsetY: 0 });
   finishes.shift()(); finishes.shift()();
+  assert.equal(fade.currentTab, 3, 'profile follows shelf when history is hidden');
+  fade.generalSettings.historyEnabled = true;
+  fade.onHistoryVisibilityChanged();
+  assert.equal(fade.currentTab, 3, 'showing history preserves profile');
+  assert.equal(fade.renderTabs().index, 3);
+  fade.generalSettings.historyEnabled = false;
+  fade.onHistoryVisibilityChanged();
   assert.equal(fade.currentTab, 3, 'enabled swipe follows visible tab order with history hidden');
   fade.handleTabSwipe({ offsetX: -100, offsetY: 0 });
   assert.equal(finishes.length, 0, 'last tab does not wrap');

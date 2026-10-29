@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { emitter } from '@kit.BasicServicesKit';
+import { PerformanceTrace } from '../utils/PerformanceTrace';
 
 export enum ReaderCacheKind { Text, Comic }
 
@@ -37,6 +38,7 @@ export class ReaderCacheService {
   private static sequence: number = 0;
   private static textBytes: number = 0;
   private static comicBytes: number = 0;
+  private static readonly SCAN_CONCURRENCY: number = 4;
 
   static owner(): string { return `reader-cache-${++ReaderCacheService.sequence}`; }
 
@@ -170,6 +172,15 @@ export class ReaderCacheService {
   }
 
   private static async scan(): Promise<void> {
+    const trace = PerformanceTrace.begin('reader.cache.scan');
+    try {
+      await ReaderCacheService.scanIndex();
+    } finally {
+      PerformanceTrace.end('reader.cache.scan', trace);
+    }
+  }
+
+  private static async scanIndex(): Promise<void> {
     const context = ReaderCacheService.context;
     if (!context) return;
     const next = new Map<string, ReaderCacheEntry>();
@@ -178,19 +189,28 @@ export class ReaderCacheService {
     for (const root of roots) {
       let names: string[];
       try { names = await fileIo.listFile(root); } catch (_error) { continue; }
-      for (const name of names) {
-        const path = `${root}/${name}`;
-        if (ReaderCacheService.kind(path) === undefined) continue;
-        try {
-          const stat = await fileIo.stat(path);
-          if (!stat.isFile()) continue;
-          const entry = new ReaderCacheEntry();
-          entry.path = path;
-          entry.bytes = stat.size;
-          entry.usedAt = ReaderCacheService.entries.get(path)?.usedAt ?? stat.mtime * 1000;
-          next.set(path, entry);
-        } catch (_error) { /* Concurrent cache deletion is a cache miss. */ }
+      // 只保留四个在途 stat，避免大缓存逐文件串行等待或创建全量 Promise。
+      let cursor = 0;
+      const scanNext = async (): Promise<void> => {
+        while (cursor < names.length) {
+          const path = `${root}/${names[cursor++]}`;
+          if (ReaderCacheService.kind(path) === undefined) continue;
+          try {
+            const stat = await fileIo.stat(path);
+            if (!stat.isFile()) continue;
+            const entry = new ReaderCacheEntry();
+            entry.path = path;
+            entry.bytes = stat.size;
+            entry.usedAt = ReaderCacheService.entries.get(path)?.usedAt ?? stat.mtime * 1000;
+            next.set(path, entry);
+          } catch (_error) { /* Concurrent cache deletion is a cache miss. */ }
+        }
+      };
+      const workers: Promise<void>[] = [];
+      for (let worker = 0; worker < Math.min(ReaderCacheService.SCAN_CONCURRENCY, names.length); worker++) {
+        workers.push(scanNext());
       }
+      await Promise.all(workers);
     }
     ReaderCacheService.entries = next;
     ReaderCacheService.textBytes = 0;

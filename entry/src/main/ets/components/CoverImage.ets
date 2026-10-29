@@ -48,8 +48,6 @@ export struct CoverImage {
   // 旋转封面先统一裁剪再合成，避免图片与占位的裁剪边缘叠加。
   @Param compositeEdges: boolean = false;
   @Param imageFit: ImageFit = ImageFit.Cover;
-  @Param decodeW: number = 300;
-  @Param decodeH: number = 400;
   @Param highPriority: boolean = true;
   @Event onImageSize: (url: string, width: number, height: number) => void = () => {};
   @Event onImageReady: (url: string) => void = () => {};
@@ -168,7 +166,9 @@ export struct CoverImage {
         .borderRadius(this.compositeEdges ? 0 : this.radius)
         .clip(!this.compositeEdges)
         .objectFit(this.imageFit)
-        .sourceSize(this.imageFit === ImageFit.Contain ? undefined : { width: this.decodeW, height: this.decodeH })
+        // 按布局尺寸和 objectFit 等比降采样；sourceSize 的数字单位是 vp，不能传像素预算。
+        .autoResize(true)
+        .interpolation(ImageInterpolation.Medium)
         .opacity(this.imageReady ? 1 : 0)
         .onComplete((event) => {
           // 数据加载阶段为原图尺寸；不能用 sourceSize 缩略解码后的尺寸覆盖它。
@@ -194,7 +194,8 @@ export struct CoverImage {
         .borderRadius(this.compositeEdges ? 0 : this.radius)
         .clip(!this.compositeEdges)
         .objectFit(this.imageFit)
-        .sourceSize(this.imageFit === ImageFit.Contain ? undefined : { width: this.decodeW, height: this.decodeH })
+        .autoResize(true)
+        .interpolation(ImageInterpolation.Medium)
         .opacity(this.imageReady ? 1 : 0)
         .onComplete((event) => {
           if (!this.appeared || this.url !== url) return;
@@ -226,6 +227,7 @@ export struct CoverImage {
         .borderRadius(this.compositeEdges ? 0 : this.radius)
         .clip(!this.compositeEdges)
         .objectFit(ImageFit.Cover)
+        .autoResize(true)
     } else {
       Image(CoverTheme.placeholder(this.themeBundleId))
         .draggable(false)
@@ -234,6 +236,7 @@ export struct CoverImage {
         .borderRadius(this.compositeEdges ? 0 : this.radius)
         .clip(!this.compositeEdges)
         .objectFit(ImageFit.Cover)
+        .autoResize(true)
     }
   }
 
@@ -254,7 +257,8 @@ export struct CoverImage {
           .draggable(false)
           .width(this.displayWidth()).height(this.useFixedHeight ? this.imgHeight : undefined)
           .aspectRatio(this.useFixedHeight ? undefined : this.displayRatio()).objectFit(this.imageFit)
-          .borderRadius(this.radius).sourceSize({ width: this.decodeW, height: this.decodeH })
+          .borderRadius(this.radius).autoResize(true)
+          .interpolation(ImageInterpolation.Medium)
       }
     }
     .width(this.displayWidth())

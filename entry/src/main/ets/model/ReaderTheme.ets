@@ -1,7 +1,7 @@
 /**
  * ReaderTheme - 阅读页主题与背景模型
  *
- * 预设、自定义配色与图片主题互斥生效，各自保存颜色。
+ * 预设与自定义主题互斥生效；每个自定义主题独立保存名称、配色和图片。
  * Paper/Cloth 图案值仅供旧偏好迁移。
  */
 
@@ -91,12 +91,16 @@ export class ReaderThemePreset {
   }
 }
 
-/** 固定五个可编辑槽位，id 在重排与编辑时保持稳定。 */
+/** 最多五个主题；第一个免费，其余需要有效会员，权益变化不删除数据。 */
 export class ReaderCustomTheme {
   id: string = '';
   slot: number = 0;
   background: string = '#F5F2EA';
   fontColor: string = '#2D2925';
+  name: string = '';
+  backgroundImage: string = '';
+  imageMode: ReaderImageMode = ReaderImageMode.Cover;
+  overlayAlpha: number = 0.35;
 
   static of(slot: number, background: string, fontColor: string): ReaderCustomTheme {
     const theme = new ReaderCustomTheme();
@@ -115,6 +119,28 @@ export class ReaderCustomTheme {
 
   static normalizeSlot(slot: number): number {
     return Number.isInteger(slot) && slot >= 0 && slot < 5 ? slot : 0;
+  }
+
+  static limit(hasMembership: boolean): number {
+    return hasMembership ? 5 : 1;
+  }
+
+  static canUse(slot: number, hasMembership: boolean): boolean {
+    return Number.isInteger(slot) && slot >= 0 && slot < ReaderCustomTheme.limit(hasMembership);
+  }
+
+  static normalizeName(name: string): string {
+    return typeof name === 'string' ? name.trim().substring(0, 20) : '';
+  }
+
+  static copy(source: ReaderCustomTheme): ReaderCustomTheme {
+    const theme = ReaderCustomTheme.of(ReaderCustomTheme.normalizeSlot(source.slot), source.background, source.fontColor);
+    theme.name = ReaderCustomTheme.normalizeName(source.name);
+    theme.backgroundImage = typeof source.backgroundImage === 'string' ? source.backgroundImage : '';
+    theme.imageMode = source.imageMode === ReaderImageMode.Contain || source.imageMode === ReaderImageMode.Tile ||
+      source.imageMode === ReaderImageMode.Stretch ? source.imageMode : ReaderImageMode.Cover;
+    theme.overlayAlpha = Number.isFinite(source.overlayAlpha) ? Math.round(Math.max(0, Math.min(0.85, source.overlayAlpha)) * 100) / 100 : 0.35;
+    return theme;
   }
 }
 

@@ -29,7 +29,8 @@ function method(name) {
 let now = 1000;
 const scope = { ...policyExports, TouchType, Date: { now: () => now }, Curve: { EaseInOut: 0 } };
 const handlers = ['onContentTap', 'contentTouch', 'turnPage', 'adjacent', 'canChange',
-  'canUseVolumeKeys', 'syncVolumeKeys', 'handleVolumePageTurn', 'usesContinuousPages', 'usesJoinedPages'].map(method).join('\n');
+  'canUseVolumeKeys', 'canTurnWithHardwareKeys', 'syncVolumeKeys', 'handleVolumePageTurn',
+  'handleHardwarePageTurn', 'usesContinuousPages', 'usesJoinedPages'].map(method).join('\n');
 vm.runInNewContext(compile(`class ComicInput { ${handlers} }\nglobalThis.ComicInput = ComicInput;`), scope);
 function reader(mode = 1) {
   const r = new scope.ComicInput();
@@ -37,8 +38,8 @@ function reader(mode = 1) {
     leftSafe: 0, rightSafe: 0, tapLeftPercent: 33, tapRightPercent: 33,
     tapTopPercent: 33, tapBottomPercent: 33, generation: 1, restoreTimer: -1,
     touchTracker: new policyExports.ReaderTouchTracker(), chapterIndex: 0,
-    book: { chapters: [{}, {}] }, turns: [], chapters: [], toggles: 0,
-    toggleChrome() { this.toggles++; }, scheduleSave() {}, continueScroll() {},
+    book: { chapters: [{}, {}] }, turns: [], chapters: [], toggles: 0, autoPage: { restart() {} },
+    toggleChrome() { this.toggles++; }, scheduleSave() {}, continueScroll() {}, pauseAutoPage() {},
     loadChapter(index) { this.chapters.push(index); },
     getUIContext() { return { animateTo(options, update) { update(); options.onFinish(); } }; }
   });
@@ -99,6 +100,7 @@ assert.equal(joined.keyTurnRequest, -2, 'zoom locks joined viewport turns');
 
 const keys = reader();
 Object.assign(keys, { alive: true, foreground: true, readerVisible: true, volumeKeyPageTurn: false,
+  smartKeyPageTurn: false, smartKeys: { setEnabled(enabled, callback) { keys.smartSubscribed = enabled; keys.smartCallback = callback; } },
   keyTurnRequest: 0, volumeKeys: { setEnabled(enabled, callback) { keys.subscribed = enabled; keys.keyCallback = callback; } } });
 keys.syncVolumeKeys();
 assert.equal(keys.subscribed, false);
@@ -137,3 +139,12 @@ keys.pageIndex = 3;
 keys.handleVolumePageTurn(true);
 assert.deepEqual(keys.chapters, [1], 'last image advances to the next chapter');
 console.log('PASS: comic volume keys default off, both directions/modes, chapter crossing and lifecycle/overlay subscription guards');
+keys.volumeKeyPageTurn = false; keys.smartKeyPageTurn = true; keys.pageIndex = 1;
+keys.syncVolumeKeys();
+assert.equal(keys.smartSubscribed, true);
+assert.equal(keys.subscribed, false, 'smart key does not capture volume keys');
+keys.smartCallback(true); assert.equal(keys.pageIndex, 2);
+keys.smartCallback(false); assert.equal(keys.pageIndex, 1);
+keys.foreground = false; keys.syncVolumeKeys();
+assert.equal(keys.smartSubscribed, false);
+keys.smartCallback(true); assert.equal(keys.pageIndex, 1, 'late smart callbacks cannot turn in background');

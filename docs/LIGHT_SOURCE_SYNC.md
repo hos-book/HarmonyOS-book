@@ -4,6 +4,20 @@
 
 ## 固定版本与维护边界
 
+### 公共包与应用辅助子包更新（2026-10-29）
+
+公共书源内核固定到 `536a6fd156712da29a8f5fd4ba2465a70475dfaf`，应用辅助代码固定到 `327beffe57bf32840c5c05634444b13e76bff256`，AI HAR 固定到 `8fa0a428ee1643b0e89948a0713b54c78cbde062`；与该轻页应用提交记录的两个子模块一致。轻页应用仓库已更名为 `wip3l/qingye-reader`，准备和同步工具同步使用新地址。清单包含 96 个生成文件。
+
+吸收网页验证上下文、请求 Cookie 合并、原生脚本、音频网页宿主和图片缓存标识更新。上游音频解析已提取成 `AudioUrlResolver.ts`，`LightAudioSupport` 直接导出该实现，不再从 `AudioBook.ets` 页面抽取方法。网页请求在 API 26+、当前书源持有 Web 会话时读取无痕分区 Cookie；API 20 使用普通无痕 Cookie 接口，分区结果不降格写入普通 Cookie 存储，验证 Cookie 不复制到另一地址。
+
+上游应用新建的离线图片数据库与目录迁移由 `scripts/light-reader-cache-boundary.cjs` 显式隔离：简听继续使用 `ComicReaderService` 的源绑定原始标记与缺图重取、现有 `comic_images` 目录和 `ReaderCacheService`。同步补丁保留图片 20 MiB 限制、取消、分块短写和失败清理；上游请求的文件持有期与 AI 的 `retainComicFile` 均接入同一宿主缓存引用计数，重复释放不会提前清理其他任务的原图。不直接编辑生成文件。
+
+验证：96 个生成文件的同步 `--check` 通过；书源引擎、图片脚本、漫画预取、缓存预算、着色、翻译、网页等待和 Web 会话共 8 项定向回归通过，AI 上游完整检查及宿主包回归通过。Release SDK 26.0.0.105 构建新版 release HAR 和主应用 debug HAP 成功；核验产物为 Release 渠道、最低 API 20 / 目标 API 26，HAP 内两个 ABI 的 AI 原生库与新 HAR 散列一致，编译模块包含 `retainComicFile`。MCP 构建工具遇到本机 ohpm 批处理递归故障后，使用正式 IDE 的 Node/ohpm/Hvigor CLI（`--no-daemon`）完成构建。
+
+已覆盖安装并启动手机 `62T0225B13006276`；安装后取得真实书源详情和漫画图片节点，当前进程日志记录着色结果 `status=ready` 及 `image-complete`。实机页面同时受到其他操作切换，本轮未完成独立的搜索→详情→阅读/播放、下载导出，以及 AI 画质/性能完整流程验证；现场日志只证明对应着色请求完成。
+
+本轮实际读取 [ArkTS 语法规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md) 及规则参考、[ArkUI 检索指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md) 和 [Hvigor 构建指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)。V2 观察参考正文返回 HTTP 403；本轮没有修改 UI 装饰器。Cookie 新重载的 API 26 标注已用安装的 Release SDK `@ohos.web.webview.d.ts` 核对。
+
 ### 公共包与应用辅助子包更新（2026-10-28）
 
 按轻页应用 `345fef5cf80ed5b26238da83aec3fe21e8ea1907` 记录的子模块版本成套同步：公共书源引擎为 `6ac9bb67decfc3e92d94df4f5279e90a025a1d63`，AI HAR 为 `174cd66b40851a62126c418578a2dc5c96a0771d`。这些提交领先于引擎仓库的 `main`，不能仅比较 `main` 判断是否已更新。迁入源码仍由 `prepare-light-source.py` / `sync-light-source.cjs` 生成，AI HAR 仍通过 `prepare-comic-ai.py` 构建。

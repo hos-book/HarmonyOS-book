@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
+const createFocusFixture = require('./audio-focus-fixture.cjs');
 const ide = process.env.DEVECO_HOME || process.env.DEVECO_PATH;
 if (!ide) throw new Error('Set DEVECO_HOME');
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
@@ -44,13 +45,14 @@ const book = (id = 'book', texts = ['第一句。第二句！', '第三句。'])
 function harness(memory = new Map()) {
   let uptime = 0;
   const engines = [], spoken = [], timers = new Map(), cached = new Map(), stats = [], httpSpoken = [], httpPrepared = [], systemSpoken = [], widgets = [];
-  let id = 0, failContent = false, createDeferred = null, focusCallback = null, deviceCallback = null;
+  let id = 0, failContent = false, createDeferred = null, deviceCallback = null;
   const coordinator = load('service/PlaybackCoordinator.ets');
   const session = { callbacks: null, paused: false, setSpeechCallbacks(cbs) { this.callbacks = cbs; },
     restoreAudioCallbacks() {}, endSpeechPlayback() { this.paused = true; },
     init: async () => {}, updateMetadata: async () => {}, updatePlaybackState: async () => {} };
-  const audioSession = { on: (_event, cb) => { focusCallback = cb; }, off: () => { focusCallback = null; },
-    activateAudioSession: async () => {}, deactivateAudioSession: async () => {} };
+  const focusPreference = { getAudioFocusMode: async () => memory.get('audioFocusMode') ?? 0,
+    setAudioFocusMode: async mode => memory.set('audioFocusMode', mode) };
+  const focusFixture = createFocusFixture(focusPreference);
   const routing = { on: (_event, _flag, cb) => { deviceCallback = cb; }, off: () => { deviceCallback = null; } };
   const tts = { listVoices: async () => [{ person: 13, language: 'zh-CN', style: 'interaction-broadcast', description: 'female', status: 'INSTALLED' }],
     createEngine: async () => {
@@ -114,8 +116,10 @@ function harness(memory = new Map()) {
     '@kit.ArkData': { preferences: { getPreferences: async () => ({ getSync: (key, fallback) => memory.get(key) ?? fallback,
       putSync: (key, value) => memory.set(key, value), deleteSync: key => memory.delete(key), flush: async () => {} }) } },
     '@kit.CoreSpeechKit': { textToSpeech: tts },
-    '@kit.AudioKit': { audio: { getAudioManager: () => ({ getSessionManager: () => audioSession, getRoutingManager: () => routing }),
-      AudioSessionDeactivatedReason: { DEACTIVATED_TIMEOUT: 1 }, DeviceFlag: { OUTPUT_DEVICES_FLAG: 1 }, DeviceChangeType: { DISCONNECT: 1 }, AudioConcurrencyMode: { CONCURRENCY_DEFAULT: 0 } } },
+    '../AudioFocusService': focusFixture.exports,
+    '@kit.AudioKit': { audio: { ...focusFixture.audio,
+      getAudioManager: () => ({ getRoutingManager: () => routing }),
+      DeviceFlag: { OUTPUT_DEVICES_FLAG: 1 }, DeviceChangeType: { DISCONNECT: 1 } } },
     '@kit.PerformanceAnalysisKit': { hilog: { warn() {}, info() {} } },
     '../../model/TextToSpeechState': model,
     '../AudioService': { AudioService: { getInstance: () => ({ suspendForSpeech: async () => {} }) } },
@@ -151,11 +155,11 @@ function harness(memory = new Map()) {
   });
   const service = TextToSpeechService.getInstance();
   const context = { resourceManager: { getStringSync: key => key } };
-  return { service, tts, memory, spoken, systemSpoken, engines, timers, session, httpSpoken, httpPrepared, stats, widgets,
+  return { focusFixture, service, tts, memory, spoken, systemSpoken, engines, timers, session, httpSpoken, httpPrepared, stats, widgets,
     advance: ms => { uptime += ms; }, coordinator: coordinator.PlaybackCoordinator,
     init: () => service.initialize(context), reloadSettings: () => TextToSpeechService.reloadSettings(context),
     failContent: value => { failContent = value; },
-    deferEngine: value => { createDeferred = value; }, focus: (reason = 0) => focusCallback?.({ reason }),
+    deferEngine: value => { createDeferred = value; }, focus: (reason = 0) => focusFixture.emit(reason === 1 ? 3 : 1),
     unplug: () => deviceCallback?.({ type: 1 }),
     async complete(type = 1, request = spoken.find(item => item.id === service.requestId)) {
       if (type === 0) { request.engine.listener.onComplete(request.id, { type }); return; }
@@ -578,7 +582,7 @@ async function check(name, action) {
     await h.complete(); assert.equal(h.spoken.length, 1); assert.equal(h.service.state.playing, false);
     assert.equal(h.service.state.remainingSeconds, 0); h.service.stop();
   });
-  await check('会话空闲超时不停止独立进程 TTS，真实抢占仍暂停', async () => {
+  await check('会话空闲超时不误判抢占，真实中断暂停朗读', async () => {
     const h = harness(); await h.init(); await h.service.start(book(), 0, 0);
     h.focus(1); assert.equal(h.service.state.playing, true);
     await h.complete(); assert.equal(h.spoken.length, 2);
@@ -638,6 +642,35 @@ async function check(name, action) {
     assert.equal(restored.service.state.customTtsId, '');
     assert.equal(restored.service.state.customTtsConfigs.length, 1);
     h.service.stop(); restored.service.stop();
+  });
+  await check('暂停翻页仅更新续读位置，同章、跨章和媒体键恢复均从新位置朗读', async () => {
+    for (const custom of [false, true]) {
+      const h = harness(); await h.init();
+      if (custom) await h.service.importCustomTts(CustomTtsConfigParser.parse('{"name":"测试","url":"https://tts.example?text={{text}}"}'));
+      const value = book('paused-reader', ['旧页。\n新页。', '旧章。\n目标页。']);
+      await h.service.start(value, 0, 0); await settle();
+      if (custom) h.httpSpoken.at(-1).onStart();
+      h.service.pause();
+      const count = h.spoken.length + h.httpSpoken.length;
+      h.service.followPausedReading(value.id, 0, 4);
+      await settle();
+      assert.equal(h.spoken.length + h.httpSpoken.length, count, 'paused navigation never synthesizes');
+      assert.equal(h.service.state.playing, false);
+      assert.equal(h.service.currentRawOffset(), 4);
+      h.service.followPausedReading('other-book', 1, 0);
+      assert.equal(h.service.state.chapterIndex, 0, 'other books cannot move this session');
+      await h.service.resume(); await settle();
+      assert.equal((custom ? h.httpSpoken : h.spoken).at(-1).text, '新页。');
+      if (custom) h.httpSpoken.at(-1).onStart();
+      h.service.pause();
+      h.service.followPausedReading(value.id, 1, 4);
+      assert.equal(h.service.state.chapterIndex, 1);
+      assert.equal(h.service.currentRawOffset(), 4);
+      assert.equal(JSON.parse(h.memory.get('position_paused-reader')).charOffset, 4);
+      h.session.callbacks.onPlay(); await settle();
+      assert.equal((custom ? h.httpSpoken : h.spoken).at(-1).text, '目标页。');
+      h.service.stop();
+    }
   });
   await check('音色禁用持久化、重导入保留状态、禁止选择与重新启用', async () => {
     const h = harness(); await h.init();
@@ -859,6 +892,40 @@ async function check(name, action) {
     assert.equal(h.stats.reduce((n, item) => n + item[0], 0), 4);
     h.advance(60000); h.service.pause();
     assert.equal(h.stats.reduce((n, item) => n + item[0], 0), 4);
+  });
+  await check('系统与 HTTP 朗读暂停恢复保留字符位置，手动暂停撤销恢复', async () => {
+    for (const custom of [false, true]) {
+      const h = harness(); await h.init();
+      if (custom) await h.service.importCustomTts(CustomTtsConfigParser.parse('{"name":"测试","url":"https://tts.example?text={{speakText}}"}'));
+      await h.service.start(book('focus', ['这是一个足够长的段落。这里继续讲故事。']), 0, 0); await settle();
+      if (custom) h.httpSpoken.at(-1).onStart();
+      h.service.state.playbackOffset = 5;
+      h.focusFixture.emit(1); await settle();
+      assert.equal(h.service.state.playing, false);
+      assert.equal(h.service.state.charOffset, 5);
+      assert.equal(h.service.state.error, '');
+      h.focusFixture.emit(0); await settle();
+      if (custom) h.httpSpoken.at(-1).onStart();
+      assert.equal(h.service.state.playing, true);
+      assert.equal(h.service.state.charOffset, 5);
+      h.focusFixture.emit(1); h.service.pause(); h.focusFixture.emit(0); await settle();
+      assert.equal(h.service.state.playing, false);
+      h.service.stop();
+    }
+  });
+  await check('HTTP 朗读永久失焦超过 30 秒后仍恢复，耳机断开取消恢复', async () => {
+    const h = harness(); await h.init();
+    await h.service.importCustomTts(CustomTtsConfigParser.parse('{"name":"测试","url":"https://tts.example?text={{speakText}}"}'));
+    await h.service.start(book(), 0, 0); await settle(); h.httpSpoken.at(-1).onStart();
+    h.focusFixture.active.add(h.focusFixture.audio.StreamUsage.STREAM_USAGE_MUSIC);
+    h.focusFixture.emit(2); h.focusFixture.advance(120000); await settle();
+    assert.equal(h.service.state.playing, false);
+    assert.equal(h.focusFixture.focus.watcher.isArmed(), true);
+    h.focusFixture.active.clear(); h.focusFixture.advance(2000); await settle();
+    h.httpSpoken.at(-1).onStart(); assert.equal(h.service.state.playing, true);
+    h.focusFixture.emit(1); h.unplug(); h.focusFixture.emit(0); await settle();
+    assert.equal(h.service.state.playing, false);
+    h.service.stop();
   });
   console.log(`${passed} TTS regressions passed`);
 })().catch(error => { console.error(error); process.exitCode = 1; });

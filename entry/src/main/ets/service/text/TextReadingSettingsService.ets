@@ -94,6 +94,7 @@ export class TextReadingSettingsService {
     result.alwaysShowStatusBar = typeof statusBar === 'boolean' ? statusBar :
       TextReadingSettings.ALWAYS_SHOW_STATUS_BAR_DEFAULT;
     result.volumeKeyPageTurn = store.getSync('volume_key_page_turn', false) === true;
+    result.smartKeyPageTurn = store.getSync('smart_key_page_turn', false) === true;
     result.followSystemTheme = store.getSync('follow_system_theme', true) !== false;
     const marginLeft = store.getSync('marginLeft', 16);
     result.marginLeft = TextReadingSettings.normalizeMargin(typeof marginLeft === 'number' ? marginLeft : 16, 16);
@@ -114,6 +115,9 @@ export class TextReadingSettingsService {
     const imageFontColor = store.getSync('image_font_color', result.fontColor);
     result.imageFontColor = typeof imageFontColor === 'string' && imageFontColor.length > 0 ?
       normalizeHex(imageFontColor) : '';
+    // 更早版本用 custom + image 表示图片主题；新版 custom 的图片已经归属各自槽位。
+    if (store.getSync('custom_themes_version', 0) !== 2 && themeId === ReaderThemeId.Custom &&
+      pattern === ReaderPattern.Image && image.length > 0) result.themeId = ReaderThemeId.Image;
     // 旧全局字色转换为一套自定义主题，保留升级前的可见效果；预设今后保持原配色。
     if (store.getSync('theme_config_version', 0) !== 1 && result.themeId !== ReaderThemeId.Image &&
       result.themeId !== ReaderThemeId.Custom && result.fontColor.length > 0) {
@@ -132,13 +136,33 @@ export class TextReadingSettingsService {
       customThemes[slot] = ReaderCustomTheme.of(slot,
         typeof savedBackground === 'string' ? savedBackground : fallback.background,
         typeof savedFontColor === 'string' ? savedFontColor : fallback.fontColor);
+      const name = store.getSync(`custom_theme_${slot}_name`, '');
+      const backgroundImage = store.getSync(`custom_theme_${slot}_image`, '');
+      const mode = store.getSync(`custom_theme_${slot}_image_mode`, 'cover');
+      const alpha = store.getSync(`custom_theme_${slot}_overlay`, TextReadingSettings.OVERLAY_DEFAULT);
+      customThemes[slot].name = ReaderCustomTheme.normalizeName(typeof name === 'string' ? name : '');
+      customThemes[slot].backgroundImage = typeof backgroundImage === 'string' ? backgroundImage : '';
+      customThemes[slot].imageMode = TextReadingSettings.normalizeBackgroundImageMode(typeof mode === 'string' ? mode : '');
+      customThemes[slot].overlayAlpha = TextReadingSettings.normalizeOverlay(typeof alpha === 'number' ? alpha : NaN);
     }
     result.customThemes = customThemes;
-    // 旧版单套配色进入第一个槽位。兼容字段始终镜像当前槽位。
-    if (store.getSync('custom_themes_version', 0) === 1) {
-      result.customBackground = customThemes[result.customThemeIndex].background;
-      result.fontColor = customThemes[result.customThemeIndex].fontColor;
+    // 旧图片正在使用时迁入免费主题；未选中的旧图片不能覆盖当前纯色主题的显示。
+    if (store.getSync('custom_themes_version', 0) !== 2 && image.length > 0) {
+      const imageSlot = result.themeId === ReaderThemeId.Custom && result.customThemeIndex === 0 ? 1 : 0;
+      customThemes[imageSlot].backgroundImage = image;
+      customThemes[imageSlot].imageMode = result.backgroundImageMode;
+      customThemes[imageSlot].overlayAlpha = result.overlayAlpha;
+      if (result.themeId === ReaderThemeId.Image) {
+        customThemes[0].background = result.imageBackground;
+        customThemes[0].fontColor = resolvePalette(ReaderThemeId.Image, result.customBackground,
+          result.fontColor, result.imageBackground, result.imageFontColor).primary;
+        result.customThemeIndex = 0;
+        result.themeId = ReaderThemeId.Custom;
+      }
     }
+    result.customBackground = customThemes[result.customThemeIndex].background;
+    result.fontColor = customThemes[result.customThemeIndex].fontColor;
+    if (result.themeId === ReaderThemeId.Custom) result.applyCustomTheme(result.customThemeIndex);
     const fontPath = store.getSync('font_path', '');
     result.fontPath = typeof fontPath === 'string' ? fontPath : '';
     const fontName = store.getSync('font_name', '');
@@ -181,6 +205,7 @@ export class TextReadingSettingsService {
     store.putSync(KEY_SHOW_READING_STATUS, settings.showReadingStatus);
     store.putSync(KEY_ALWAYS_SHOW_STATUS_BAR, settings.alwaysShowStatusBar);
     store.putSync('volume_key_page_turn', settings.volumeKeyPageTurn);
+    store.putSync('smart_key_page_turn', settings.smartKeyPageTurn);
     store.putSync('follow_system_theme', settings.followSystemTheme);
     store.putSync('marginLeft', TextReadingSettings.normalizeMargin(settings.marginLeft, 16));
     store.putSync('marginRight', TextReadingSettings.normalizeMargin(settings.marginRight, 16));
@@ -195,13 +220,21 @@ export class TextReadingSettingsService {
     const selectedCustomTheme = ReaderCustomTheme.normalizeSlot(settings.customThemeIndex);
     const fallbackThemes = ReaderCustomTheme.defaults();
     for (let slot = 0; slot < 5; slot++) {
-      const theme = slot === selectedCustomTheme ? ReaderCustomTheme.of(slot, settings.customBackground, settings.fontColor) :
-        (settings.customThemes[slot] ?? fallbackThemes[slot]);
+      const theme = ReaderCustomTheme.copy(settings.customThemes[slot] ?? fallbackThemes[slot]);
+      if (slot === selectedCustomTheme) {
+        theme.background = normalizeHex(settings.customBackground);
+        theme.fontColor = settings.fontColor.length > 0 ? normalizeHex(settings.fontColor) :
+          resolvePalette(ReaderThemeId.Custom, theme.background).primary;
+      }
       store.putSync(`custom_theme_${slot}_background`, normalizeHex(theme.background));
       store.putSync(`custom_theme_${slot}_font_color`, normalizeHex(theme.fontColor));
+      store.putSync(`custom_theme_${slot}_name`, theme.name);
+      store.putSync(`custom_theme_${slot}_image`, theme.backgroundImage);
+      store.putSync(`custom_theme_${slot}_image_mode`, theme.imageMode);
+      store.putSync(`custom_theme_${slot}_overlay`, theme.overlayAlpha);
     }
     store.putSync('custom_theme_index', selectedCustomTheme);
-    store.putSync('custom_themes_version', 1);
+    store.putSync('custom_themes_version', 2);
     store.putSync('font_path', settings.fontPath);
     store.putSync('font_name', settings.fontName);
     store.putSync('screen_on_minutes', TextReadingSettings.normalizeScreenOnMinutes(settings.screenOnMinutes));

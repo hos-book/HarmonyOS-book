@@ -153,7 +153,7 @@ export class TextReadingSettings {
   fontWeight: number = 400;
   /** 自定义主题字色；空值使用按背景推荐的默认色。 */
   fontColor: string = '';
-  /** 图片主题配置与自定义主题配色分开保存。 */
+  /** 旧版独立图片主题的迁移字段。 */
   imageBackground: string = TextReadingSettings.CUSTOM_BACKGROUND_DEFAULT;
   imageFontColor: string = '';
   customThemeIndex: number = 0;
@@ -173,7 +173,7 @@ export class TextReadingSettings {
   fontSize: number = TextReadingSettings.FONT_SIZE_DEFAULT;
   lineHeight: number = TextReadingSettings.LINE_HEIGHT_DEFAULT;
   paragraphSpacing: number = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
-  /** 预设主题 id，或 ReaderThemeId.Image 表示自定义图片 */
+  /** 预设主题或 Custom；Image 仅用于旧偏好迁移。 */
   themeId: string = TextReadingSettings.THEME_DEFAULT;
   /** 自定义主题底色 */
   customBackground: string = TextReadingSettings.CUSTOM_BACKGROUND_DEFAULT;
@@ -193,6 +193,7 @@ export class TextReadingSettings {
   overlayAlpha: number = TextReadingSettings.OVERLAY_DEFAULT;
   /** 音量加上一页、音量减下一页；默认保留系统音量行为。 */
   volumeKeyPageTurn: boolean = false;
+  smartKeyPageTurn: boolean = false;
   /** 翻页模式 */
   pageTurnMode: string = TextReadingSettings.PAGE_TURN_MODE_DEFAULT;
   /** 底部居中显示电量和时间，不影响正文视口。 */
@@ -222,15 +223,35 @@ export class TextReadingSettings {
       TextReadingSettings.SHOW_READING_STATUS_DEFAULT;
     // 旧版「主题 + 相册图案」合并为图片主题，保留原蒙层配色与浓度。
     if (value.pattern === ReaderPattern.Image && value.backgroundImage.length > 0
-      && value.themeId !== ReaderThemeId.Image) {
+      && value.themeId !== ReaderThemeId.Image && value.themeId !== ReaderThemeId.Custom) {
       value.customBackground = resolvePalette(value.themeId, value.customBackground).background;
       value.themeId = ReaderThemeId.Image;
     }
     if (value.themeId === ReaderThemeId.Image && value.backgroundImage.length === 0) {
       value.themeId = TextReadingSettings.THEME_DEFAULT;
     }
-    value.pattern = value.themeId === ReaderThemeId.Image ? ReaderPattern.Image : ReaderPattern.None;
+    value.pattern = (value.themeId === ReaderThemeId.Image ||
+      (value.themeId === ReaderThemeId.Custom && value.pattern === ReaderPattern.Image)) &&
+      value.backgroundImage.length > 0 ? ReaderPattern.Image : ReaderPattern.None;
     return value;
+  }
+
+  applyCustomTheme(slot: number): void {
+    this.customThemeIndex = ReaderCustomTheme.normalizeSlot(slot);
+    const theme = this.customThemes[this.customThemeIndex];
+    this.themeId = ReaderThemeId.Custom;
+    this.customBackground = theme.background;
+    this.fontColor = theme.fontColor;
+    this.backgroundImage = theme.backgroundImage;
+    this.backgroundImageMode = theme.imageMode;
+    this.overlayAlpha = theme.overlayAlpha;
+    this.pattern = theme.backgroundImage.length > 0 ? ReaderPattern.Image : ReaderPattern.None;
+  }
+
+  applyCustomThemeAccess(hasMembership: boolean): void {
+    if (this.themeId === ReaderThemeId.Custom && !ReaderCustomTheme.canUse(this.customThemeIndex, hasMembership)) {
+      this.applyCustomTheme(0);
+    }
   }
 
   static normalizeThemeId(value: string): string {

@@ -8,6 +8,7 @@ import { LocalRuleContentResult, LocalRuleExecutionLimits } from './LocalRuleRun
 import { LocalRuleExploreResult } from '../../model/LocalRulePanel';
 import { LightSourceBridge } from './light/LightSourceBridge';
 import { LightSourceRequest } from './light/LightSourceRequestPolicy';
+import { PodcastSourceAdapter } from './podcast/PodcastSourceAdapter';
 
 export class LocalRuleDispatcher {
   static async cacheComicImages(source: LocalRuleSource, urls: string[], request?: LightSourceRequest): Promise<string[]> {
@@ -73,6 +74,7 @@ export class LocalRuleDispatcher {
     variables: Record<string, string> = {}, request?: LightSourceRequest): Promise<BookInfo | null> {
     if (request?.isCancelled()) return null;
     LocalRuleDispatcher.requireSource(source);
+    if (PodcastSourceAdapter.matches(source)) return PodcastSourceAdapter.detail(source);
     return LightSourceBridge.detail(source, bookUrl, variables, request);
   }
 
@@ -80,7 +82,8 @@ export class LocalRuleDispatcher {
     variables: Record<string, string> = {},
     onBatch?: (items: TocItem[]) => void): Promise<TocItem[]> {
     LocalRuleDispatcher.requireSource(source);
-    const items = await LightSourceBridge.toc(source, tocUrl, variables);
+    const items = PodcastSourceAdapter.matches(source) ? await PodcastSourceAdapter.toc(source)
+      : await LightSourceBridge.toc(source, tocUrl, variables);
     if (onBatch !== undefined) onBatch(items);
     return items;
   }
@@ -89,6 +92,7 @@ export class LocalRuleDispatcher {
     variables: Record<string, string> = {}, request?: LightSourceRequest,
     deferReaderImages: boolean = false): Promise<LocalRuleContentResult> {
     LocalRuleDispatcher.requireSource(source);
+    if (PodcastSourceAdapter.matches(source)) return PodcastSourceAdapter.content(source, chapterUrl);
     return LightSourceBridge.content(source, chapterUrl, variables, request, deferReaderImages);
   }
 

@@ -3,7 +3,35 @@ import { BookSourceScriptRunner } from '../book/BookSourceScriptRunner';
 import { CookieStore } from './CookieStore';
 import { NetworkErrorText } from './NetworkErrorText';
 
+interface VerificationContext {
+  token: string;
+  url: string;
+  sourceUrl: string;
+  userAgent: string;
+}
+
 export class VerificationSupport {
+  private static contexts: VerificationContext[] = [];
+  private static sequence: number = 0;
+
+  static createContext(url: string, sourceUrl: string, userAgent: string): string {
+    const token = 'verify-' + Date.now() + '-' + (++this.sequence);
+    this.contexts.push({ token: token, url: this.cleanUrl(url), sourceUrl: sourceUrl,
+      userAgent: /[\r\n]/.test(userAgent) ? '' : userAgent.substring(0, 2048) });
+    if (this.contexts.length > 64) this.contexts.shift();
+    return token;
+  }
+
+  static contextUserAgent(token: string, url: string): string {
+    const context = this.contexts.find((item: VerificationContext): boolean => item.token === token && item.url === this.cleanUrl(url));
+    return context?.userAgent || '';
+  }
+
+  static contextSource(token: string, url: string): string {
+    const context = this.contexts.find((item: VerificationContext): boolean => item.token === token && item.url === this.cleanUrl(url));
+    return context?.sourceUrl || '';
+  }
+
   static isChallengeResponse(body: string): boolean {
     if (!body) return false;
     const sample = body.substring(0, Math.min(body.length, 4000));
@@ -72,9 +100,10 @@ export class VerificationSupport {
     }
   }
 
-  static requestVerification(url: string, title: string, source?: BookSource): void {
+  static requestVerification(url: string, title: string, source?: BookSource, userAgent: string = ''): void {
     const cleanUrl = this.cleanUrl(url);
     if (!cleanUrl) return;
+    AppStorage.setOrCreate('pendingVerificationContextToken', this.createContext(cleanUrl, source?.bookSourceUrl || '', userAgent));
     AppStorage.setOrCreate('pendingVerificationUrl', cleanUrl);
     AppStorage.setOrCreate('pendingVerificationTitle', title || '网页验证');
     AppStorage.setOrCreate('pendingVerificationTime', Date.now());
