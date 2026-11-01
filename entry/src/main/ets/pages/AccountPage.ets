@@ -341,6 +341,7 @@ export struct AccountPage {
     switch (code) {
       case CloudBackupErrorCode.UNAVAILABLE: return $r('app.string.cloud_error_unavailable');
       case CloudBackupErrorCode.NOT_READY: return $r('app.string.cloud_error_not_ready');
+      case CloudBackupErrorCode.SYSTEM_SERVICE: return $r('app.string.cloud_error_system_service');
       case CloudBackupErrorCode.NETWORK: return $r('app.string.cloud_error_network');
       case CloudBackupErrorCode.BATTERY: return $r('app.string.cloud_error_battery');
       case CloudBackupErrorCode.CLOUD_FULL: return $r('app.string.cloud_error_cloud_full');

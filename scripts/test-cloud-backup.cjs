@@ -80,6 +80,21 @@ async function retryStart(h) {
   }
 
   const unavailable = harness();
+  // A system IPC outage must not be reported as a disabled account/cloud switch.
+  for (const operation of ['backup', 'restore']) {
+    const ipc = harness();
+    ipc.seed();
+    const previous = fs.readFileSync(ipc.cloudPath(), 'utf8');
+    ipc.control.startError = 13600001;
+    await assert.rejects(ipc.service[operation](ipc.context, async () => true), error =>
+      error.code === ipc.codes.SYSTEM_SERVICE && error.systemCode === 13600001);
+    assert.equal(ipc.control.cloudWrites, 0);
+    assert.equal(ipc.control.localRestores, 0);
+    assert.equal(ipc.service.lastBackupAt, 0);
+    assert.equal(fs.readFileSync(ipc.cloudPath(), 'utf8'), previous);
+    ipc.settled();
+  }
+
   unavailable.control.initialCompleted = true;
   unavailable.control.startError = 22400001;
   const unavailableTask = unavailable.service.backup(unavailable.context);

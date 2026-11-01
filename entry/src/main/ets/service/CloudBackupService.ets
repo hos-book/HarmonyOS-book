@@ -24,7 +24,8 @@ export enum CloudBackupErrorCode {
   RESTORE_FAILED,
   CLOUD_FILE_FAILURE,
   EXISTING_BACKUP,
-  NOT_READY
+  NOT_READY,
+  SYSTEM_SERVICE
 }
 
 export class CloudBackupError extends Error {
@@ -539,8 +540,10 @@ export class CloudBackupService {
     fallback: CloudBackupErrorCode = CloudBackupErrorCode.SERVER): CloudBackupError {
     if (error instanceof CloudBackupError) return error;
     const code = typeof error.code === 'number' ? error.code : 0;
+    // IPC 故障不等于应用未开通云同步，不能引导用户反复切换账号/开关。
+    if (code === 13600001) return new CloudBackupError(CloudBackupErrorCode.SYSTEM_SERVICE, code);
     if (code === 22400001) return new CloudBackupError(CloudBackupErrorCode.NOT_READY, code);
-    if (code === 201 || code === 801 || code === 13900012 || code === 13600001) {
+    if (code === 201 || code === 801 || code === 13900012) {
       return new CloudBackupError(CloudBackupErrorCode.UNAVAILABLE, code);
     }
     if (code === 22400002 || code === 13900044) return new CloudBackupError(CloudBackupErrorCode.NETWORK, code);

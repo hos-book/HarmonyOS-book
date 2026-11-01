@@ -26,7 +26,7 @@ TTS 导入兼容逐行 `Name: Value` 请求头及顶层嵌套 JSON 正文，可�
 - Stage 模式，单模块 `entry/`，设备类型为 `phone`、`tablet`、`2in1`、`wearable`；前三者按实际窗口尺寸适配，标准手表使用独立圆屏页面；多端交互与待验证项目见 `docs/APP_UI.md`。
 - ArkTS + ArkUI V2；页面使用 `@Local` 和 Service 单例。
 - 折叠屏/大窗口按实际 Navigation 容器宽度适配平行视界：720vp 起，已有普通目的页时左右分栏，MainPage 常驻 NavBar，空栈首页仍全宽。阅读/漫画/播放器/书源网页登录及其后续路由保持全宽，返回恢复分栏；缩放不清理导航栈。首页不再作为 `home` 目的页入栈，回首页使用空栈语义。
-- `bundleName = com.huan.listenbook`；当前正式版 `versionName = 1.0.1`、`versionCode = 1001006`；历史邀测为 `1.0.4 (1001004)`。以 `AppScope/app.json5` 为准。
+- `bundleName = com.huan.listenbook`；当前正式版 `versionName = 1.0.1`、`versionCode = 1001007`；历史邀测为 `1.0.4 (1001004)`。以 `AppScope/app.json5` 为准。
 - 后台模式为 `audioPlayback`、`dataTransfer`，权限包括网络、振动和长时后台运行。
 - `entry/libs/quickjs.har` 为 arm64-v8a / x86_64 双 ABI 本地依赖；源码和构建脚本在 `third_party/quickjs/`、`scripts/build-quickjs.ps1`。
 - 签名在本机 DevEco Studio 配置，`build-profile.json5` 含私有签名信息，禁止提交其中的本机改动。
