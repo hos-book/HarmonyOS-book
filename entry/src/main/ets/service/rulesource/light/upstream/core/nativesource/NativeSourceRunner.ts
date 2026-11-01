@@ -49,6 +49,9 @@ export interface NativeLoginState {
 }
 
 export interface NativeResponse {
+  bodyIsSnapshot?: boolean;
+  snapshotTruncated?: boolean;
+  waitStage?: string;
   errorCode?: string;
   errorStage?: string;
   statusCodeAvailable?: boolean;
@@ -1240,13 +1243,24 @@ export class NativeSourceRunner {
           // 后面的缓存还没取到，引用它们的顶层请求头这次先不带。
           const request = await this.buildRequest(spec, scope, '', false, '', true);
           if (request.url) {
+            // 缓存取不到时照常往下走（值为 null），但调试记录里要看得到原因。
+            let failure = '';
             try {
               const response = await this.host.fetch(request);
               if (response.ok && response.body) {
-                value = (await this.value(spec.value, this.responseScope(scope, response.body, response.url || request.url)));
+                value = (await this.value(spec.value, this.responseScope(scope, response.body, response.url || request.url),
+                  false, `cache.${name}.value`));
+              } else {
+                failure = response.error || (response.ok ? '响应为空' : `HTTP ${response.status}`);
               }
             } catch (e) {
               value = null;
+              // 取值规则出错时 fieldError 已经记过一条。
+              if (!(e instanceof NativeSourceError)) failure = e instanceof Error ? e.message : String(e);
+            }
+            if (failure && this.host.trace) {
+              this.host.trace({ field: `cache.${name}.url`, rule: NativeExpr.toText(spec.url), type: this.ruleType(spec.url),
+                count: 0, preview: '', error: failure });
             }
             if (value !== null && value !== undefined && value !== '' && this.host.cachePut) {
               const ttl = Math.max(1, Math.min(Number(spec.ttl) || 600, 7 * 24 * 3600));

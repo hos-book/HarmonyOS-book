@@ -46,7 +46,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   assert.deepEqual(progressCalls, [60, 25], 'book change during drag discards stale target');
   // Execute the actual ReaderPage navigation methods without its ArkUI builder.
   const readerSource = fs.readFileSync(path.join(root, 'pages/ReaderPage.ets'), 'utf8');
-  const methodNames = ['syncSpeechPosition', 'followReadingWithSpeech', 'beginContinuousSpeechTurn',
+  const methodNames = ['syncSpeechPosition', 'followReadingWithSpeech', 'detachSpeechBrowsing', 'returnToSpeech', 'beginContinuousSpeechTurn',
     'updateContinuousPosition', 'completeOnlineTextTurn', 'readFromParagraph', 'startReaderSpeech'];
   const methods = methodNames.map(name => {
     const start = readerSource.search(new RegExp('  private (?:async )?' + name + '\\('));
@@ -69,7 +69,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
     'service/text/ReaderAutoPageService.ets'), 'utf8'), {}, { setTimeout, clearTimeout });
   reader.autoPage = new ReaderAutoPageService();
   Object.assign(reader, { book: { id: 'book' }, bookId: 'book', readerVisible: true, speechNavigationSerial: 0,
-    speechState: speech.state, readingTime: { checkpoint() {} }, currentResourceIndex: 0,
+    speechState: speech.state, speechFollowPage: true, speechBrowsing: false, readingTime: { checkpoint() {} }, currentResourceIndex: 0,
     onlineTextContent: 'text', onlineTextPages: [], onlineTextPageIndex: 0,
     isOnlineTextBook: () => true, currentRawCharOffset: () => 120,
     currentOnlineTextCharOffset: () => 0, hideReaderBar() {}, saveProgress() {},
@@ -134,6 +134,31 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   reader.syncSpeechPosition();
   assert.equal(reader.onlineTextPageIndex, 3, 'natural speech progression automatically turns to next page');
   assert.equal(reader.speechFollowOffset, 310, 'continuous reader follows the same speech coordinate');
+  reader.speechFollowPage = false;
+  const beforeBrowseCalls = speechCalls.length;
+  reader.followReadingWithSpeech();
+  assert.equal(reader.speechBrowsing, true, 'independent mode detaches only during active speech');
+  assert.equal(speechCalls.length, beforeBrowseCalls, 'browsing never regenerates online TTS');
+  speech.state.charOffset = 510;
+  reader.syncSpeechPosition();
+  assert.equal(reader.onlineTextPageIndex, 3, 'speech callbacks cannot pull browsing back');
+  reader.beginContinuousSpeechTurn();
+  assert.equal(speechCalls.length, beforeBrowseCalls, 'continuous browsing preserves audio too');
+  reader.speechScrollPending = false;
+  reader.loadOnlineTextChapter = async () => true;
+  speech.currentRawOffset = () => 510;
+  await reader.returnToSpeech();
+  assert.equal(reader.speechBrowsing, false);
+  assert.equal(reader.onlineTextPageIndex, 5, 'return follows current speech without restarting it');
+  assert.equal(speechCalls.length, beforeBrowseCalls);
+  speech.state.playing = false;
+  reader.followReadingWithSpeech();
+  assert.equal(reader.speechBrowsing, false, 'paused browsing keeps existing follow behavior');
+  assert.deepEqual(pausedCalls.at(-1), ['book', 1, 120]);
+  reader.speechFollowPage = true;
+  speech.state.playing = true;
+  speech.state.charOffset = 310;
+  reader.syncSpeechPosition();
   reader.speechScrollPending = true;
   speech.state.charOffset = 410;
   reader.syncSpeechPosition();

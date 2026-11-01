@@ -21,114 +21,95 @@ function load(name, mocks, globals = {}) {
   return exports[name];
 }
 
-function prefetchFixture(api = 26) {
-  const success = new Map();
-  const failure = new Map();
-  const timers = new Map();
-  const downloads = [];
-  let nextTimer = 0;
-  const add = (map, url, callback) => {
-    if (!map.has(url)) map.set(url, new Set());
-    map.get(url).add(callback);
-  };
-  const off = (map, url, callback) => {
-    if (callback) map.get(url)?.delete(callback);
-    else map.delete(url);
-    if (map.get(url)?.size === 0) map.delete(url);
-  };
-  const cacheDownload = {
-    CacheStrategy: { LAZY: 1 },
-    onDownloadSuccess: (url, callback) => add(success, url, callback),
-    onDownloadError: (url, callback) => add(failure, url, callback),
-    offDownloadSuccess: (url, callback) => off(success, url, callback),
-    offDownloadError: (url, callback) => off(failure, url, callback),
-    download: url => downloads.push(url), cancel() {}, getDownloadInfo() {},
-    setFileCacheSize() {}, setMemoryCacheSize() {}, setDownloadInfoListSize() {}
-  };
-  const service = load('CoverPrefetcher', {
-    './SourceCoverService': { SourceCoverService: { isEncoded: () => false } },
-    '@kit.PerformanceAnalysisKit': { hilog }, '@kit.BasicServicesKit': { cacheDownload },
-    './http/HttpClient': { HttpClient: { preconnect() {} } },
-    '../utils/PlatformCompat': { PlatformCompat: { supports: version => api >= version } }
-  }, {
-    setTimeout(callback, delay) { const id = ++nextTimer; timers.set(id, { callback, delay }); return id; },
-    clearTimeout: id => timers.delete(id)
-  });
-  const complete = url => [...(success.get(url) || [])].forEach(callback => callback());
-  const runTimer = delay => {
-    const entry = [...timers].find(([, timer]) => timer.delay === delay);
-    assert.ok(entry, `expected a ${delay}ms timer`);
-    timers.delete(entry[0]); entry[1].callback();
-  };
-  return { service, success, failure, timers, downloads, complete, runTimer, cacheDownload };
+function prefetchFixture() {
+  const requests = [], timers = [], disk = new Map();
+  let revision = 0;
+  const service = load('CoverLoader', {
+    './SourceCoverService': { SourceCoverService: {
+      isEncoded: value => value.includes('/encoded/'), cached: () => '',
+      resolve: async value => { requests.push({ url: value }); return 'file:///source-' + revision; }, invalidate() {}
+    } },
+    './rulesource/LocalRuleSourceRepository': { LocalRuleSourceRepository: { getCoverRevision: () => revision } },
+    './rulesource/light/LightSourceCoverCache': { LightSourceCoverCache: { materialize: async (key, download) => {
+      if (!disk.has(key)) { await download(); disk.set(key, 'file:///cover/' + disk.size); }
+      return disk.get(key);
+    } } },
+    '@ohos.file.fs': { default: { accessSync: () => true } },
+    '@kit.NetworkKit': { http: { HttpDataType: { ARRAY_BUFFER: 1 }, createHttp: () => ({
+      request: (url, options) => new Promise((resolve, reject) => requests.push({ url, options, resolve, reject })), destroy() {}
+    }) } }
+  }, { Uint8Array, Error, setTimeout: callback => { timers.push(callback); return timers.length; } });
+  const complete = (i = 0) => requests[i].resolve({ responseCode: 200, result: new ArrayBuffer(16) });
+  return { service, requests, timers, complete, disk, revision: () => revision++ };
 }
 
-test('repeated image errors share the current download and its listeners', () => {
-  const f = prefetchFixture();
-  const url = 'https://cover.test/book.jpg';
+test('visible consumers share a single download and cached file with speculative work', async () => {
+  const f = prefetchFixture(), url = 'https://cover.test/shared';
   f.service.prefetch(url);
-  const oldSuccess = [...f.success.get(url)][0];
-  const oldFailure = [...f.failure.get(url)][0];
-  for (let i = 0; i < 20; i++) f.service.retry(url);
-  assert.equal(f.success.get(url).size, 1);
-  assert.equal(f.failure.get(url).size, 1);
-  assert.equal(f.downloads.length, 1, 'image errors must not restart an in-flight download');
-  assert.equal([...f.success.get(url)][0], oldSuccess);
-  oldSuccess(); oldFailure();
-  assert.equal(f.service.inFlight.size, 0);
-  assert.equal(f.success.size + f.failure.size + f.timers.size, 0);
+  const one = f.service.acquire(url), two = f.service.acquire(url);
+  assert.equal(f.requests.length, 1);
+  one.cancel(); f.complete();
+  assert.equal(await two.promise, await one.promise);
+  await flush();
+  assert.equal(await f.service.acquire(url).promise, 'file:///cover/0');
+  assert.equal(f.requests.length, 1); assert.equal(f.service.active, 0);
 });
 
-test('successful browsing does not retain watchdogs or unlimited cover metadata', () => {
+test('speculation reserves foreground slots and visible queued jobs outrank prefetch', async () => {
   const f = prefetchFixture();
-  for (let i = 0; i < 1600; i++) {
-    const url = `https://cover${i}.test/book.jpg`;
-    f.service.registerHeaders(url, { Referer: `https://source${i}.test/` });
-    f.service.prefetch(url); f.complete(url);
-  }
-  assert.equal(f.timers.size, 0, 'completed downloads must cancel their watchdog timers');
-  assert.equal(f.success.size + f.failure.size, 0);
-  assert.ok(f.service.succeeded.size <= 512);
-  assert.ok(f.service.attemptCount.size <= 512);
-  assert.ok(f.service.requestHeaders.size <= 512);
-  assert.ok(f.service.warmedOrigins.size <= 64);
+  f.service.prefetchMany(Array.from({ length: 100 }, (_, i) => 'https://cover.test/bg' + i));
+  assert.equal(f.requests.length, 1);
+  const handles = Array.from({ length: 4 }, (_, i) => f.service.acquire('https://cover.test/visible' + i));
+  assert.equal(f.requests.length, 4);
+  f.complete(1); await flush();
+  assert.equal(f.requests[4].url, 'https://cover.test/visible3');
+  assert.ok(f.service.queue.length <= 3);
+  handles.forEach(handle => handle.cancel());
 });
 
-test('pending covers are bounded and a newly visible cover keeps priority', () => {
+test('leaving removes unneeded queued work without cancelling another subscriber', async () => {
   const f = prefetchFixture();
-  for (let i = 0; i < 2000; i++) f.service.prefetch(`https://cover.test/${i}.jpg`);
-  assert.equal(f.downloads.length, 4);
-  assert.ok(f.service.pending.length <= 128);
-  const visible = 'https://cover.test/visible.jpg';
-  f.service.prefetch(visible, true);
-  f.complete(f.downloads[0]);
-  assert.equal(f.downloads.at(-1), visible);
-  assert.equal(f.service.inFlight.size, 4);
+  for (let i = 0; i < 4; i++) f.service.acquire('https://cover.test/active' + i);
+  const first = f.service.acquire('https://cover.test/shared');
+  const second = f.service.acquire('https://cover.test/shared');
+  first.cancel(); assert.equal(f.service.queue.length, 1);
+  second.cancel(); assert.equal(f.service.queue.length, 0);
+  assert.equal(await first.promise, '');
+  f.complete(); await flush(); assert.equal(f.requests.length, 4);
 });
 
-test('synchronous cache hits leave no watchdog and failures stop at the retry limit', () => {
-  const hit = prefetchFixture();
-  hit.cacheDownload.download = url => hit.complete(url);
-  hit.service.prefetch('https://cover.test/hit.jpg');
-  assert.equal(hit.timers.size, 0);
-  const f = prefetchFixture();
-  f.cacheDownload.download = url => { f.downloads.push(url); throw new Error('offline'); };
-  f.service.prefetch('https://cover.test/offline.jpg');
-  for (let i = 0; i < 4; i++) f.runTimer(1500);
-  assert.equal(f.downloads.length, 5);
-  for (let i = 0; i < 20; i++) f.service.retry('https://cover.test/offline.jpg');
-  assert.equal(f.downloads.length, 5, 'image errors cannot bypass the prefetch retry limit');
-  assert.equal(f.timers.size + f.success.size + f.failure.size + f.service.inFlight.size, 0);
+test('network errors retry once then cool down, with no extra UI download path', async () => {
+  const f = prefetchFixture(), url = 'https://cover.test/offline';
+  const handle = f.service.acquire(url);
+  const rejected = assert.rejects(handle.promise);
+  f.requests[0].reject(new Error('offline')); await flush();
+  assert.equal(f.timers.length, 1); f.timers.shift()(); await flush();
+  f.requests[1].reject(new Error('offline')); await rejected; await flush();
+  await assert.rejects(f.service.acquire(url).promise);
+  assert.equal(f.requests.length, 2); assert.equal(f.service.active, 0);
 });
 
-test('API 20 polling and watchdogs are cleared when a download finishes', () => {
-  const f = prefetchFixture(20);
-  f.service.prefetch('https://cover.test/legacy.jpg');
-  f.cacheDownload.getDownloadInfo = () => ({ resource: { size: 128 } });
-  f.runTimer(250);
-  assert.equal(f.service.inFlight.size, 0);
-  assert.equal(f.timers.size + f.service.successHandlers.size + f.service.errorHandlers.size, 0);
+test('an abandoned failed download does not retry or poison a later visible request', async () => {
+  const f = prefetchFixture(), url = 'https://cover.test/leaving';
+  const handle = f.service.acquire(url); const rejected = assert.rejects(handle.promise);
+  handle.cancel(); f.requests[0].reject(new Error('offline')); await rejected; await flush();
+  assert.equal(f.timers.length, 0); assert.equal(f.service.failures.size, 0);
+  const next = f.service.acquire(url); f.complete(1); await next.promise;
 });
+
+test('request headers and source revision isolate shared cover identities', async () => {
+  const f = prefetchFixture(), url = 'https://cover.test/same';
+  f.service.registerHeaders(url, { Authorization: 'first' }); const first = f.service.acquire(url);
+  f.service.registerHeaders(url, { Authorization: 'second' }); const second = f.service.acquire(url);
+  assert.equal(f.requests.length, 2);
+  assert.equal(f.requests[0].options.header.authorization, 'first');
+  assert.equal(f.requests[1].options.header.authorization, 'second');
+  f.complete(0); f.complete(1); await Promise.all([first.promise, second.promise]); await flush();
+  const encoded = 'https://cover.test/encoded/book';
+  assert.equal(await f.service.acquire(encoded).promise, 'file:///source-0');
+  f.revision(); assert.equal(await f.service.acquire(encoded).promise, 'file:///source-1');
+});
+
 
 function sessionFixture() {
   const sources = [];

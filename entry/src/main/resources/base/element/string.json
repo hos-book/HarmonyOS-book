@@ -362,7 +362,7 @@
     },
     {
       "name": "settings_jianjian_companion_desc",
-      "value": "让简简陪你阅听，点击互动，长按拖动"
+      "value": "让简简陪你阅听，点击互动，直接拖动"
     },
     {
       "name": "jianjian_reply_shy",
@@ -394,7 +394,7 @@
     },
     {
       "name": "jianjian_interact",
-      "value": "简简，点击互动，长按拖动"
+      "value": "简简，点击互动，直接拖动"
     },
     {
       "name": "jianjian_reply_hello",
@@ -1991,6 +1991,22 @@
     {
       "name": "home_source_load_failed",
       "value": "这次没加载好首页，下拉重试或在书源管理中换个首页源吧"
+    },
+    {
+      "name": "home_channel_all",
+      "value": "综合"
+    },
+    {
+      "name": "home_channel_accessibility",
+      "value": "首页频道切换"
+    },
+    {
+      "name": "home_channel_unsupported",
+      "value": "暂不支持影视内容，请切换其他频道"
+    },
+    {
+      "name": "home_channel_save_failed",
+      "value": "频道偏好保存失败，下次进入可能恢复原频道"
     },
     {
       "name": "home_recommendations",
@@ -4677,6 +4693,10 @@
       "value": "仿真"
     },
     {
+      "name": "appearance_material_system",
+      "value": "跟随系统"
+    },
+    {
       "name": "appearance_material_strong",
       "value": "强"
     },
@@ -7159,6 +7179,146 @@
     {
       "name": "reader_theme_save_failed",
       "value": "主题保存失败，请重试"
+    },
+    {
+      "name": "source_latest_chapter",
+      "value": "最新：%s"
+    },
+    {
+      "name": "reader_speech_follow_page",
+      "value": "朗读跟随翻页"
+    },
+    {
+      "name": "reader_speech_follow_page_hint",
+      "value": "默认开启。关闭后，朗读中翻页不打断声音，可返回朗读位置或从此听；暂停时仍跟随翻页。"
+    },
+    {
+      "name": "reader_speech_return",
+      "value": "返回"
+    },
+    {
+      "name": "reader_speech_from_here",
+      "value": "从此听"
+    },
+    {
+      "name": "settings_search_recommendations",
+      "value": "搜索推荐"
+    },
+    {
+      "name": "settings_search_recommendations_desc",
+      "value": "默认开启，关闭后搜索页不显示或加载推荐书籍"
+    },
+    {
+      "name": "home_categories_search",
+      "value": "搜索分类名称"
+    },
+    {
+      "name": "home_categories_close",
+      "value": "关闭分类"
+    },
+    {
+      "name": "home_categories_all_tag",
+      "value": "全部"
+    },
+    {
+      "name": "home_categories_no_match",
+      "value": "没有找到匹配的分类"
+    },
+    {
+      "name": "webdav_title",
+      "value": "WebDAV 备份"
+    },
+    {
+      "name": "webdav_description",
+      "value": "备份到自己的网盘或 NAS，无需登录华为账号。填写已有 WebDAV 文件夹地址，备份保存为 listenbook-backup.json。建议使用 HTTPS。"
+    },
+    {
+      "name": "webdav_address",
+      "value": "服务器文件夹地址"
+    },
+    {
+      "name": "webdav_address_hint",
+      "value": "https://dav.example.com/dav/"
+    },
+    {
+      "name": "webdav_username",
+      "value": "用户名"
+    },
+    {
+      "name": "webdav_password",
+      "value": "密码或应用专用密码"
+    },
+    {
+      "name": "webdav_save",
+      "value": "保存"
+    },
+    {
+      "name": "webdav_test",
+      "value": "测试连接"
+    },
+    {
+      "name": "webdav_clear",
+      "value": "清除配置"
+    },
+    {
+      "name": "webdav_upload",
+      "value": "备份到 WebDAV"
+    },
+    {
+      "name": "webdav_restore",
+      "value": "从 WebDAV 恢复"
+    },
+    {
+      "name": "webdav_upload_confirm",
+      "value": "将当前书架、进度、设置和书源备份到已配置的文件夹。上传成功后会替换该文件夹中的上一份简听备份，是否继续？"
+    },
+    {
+      "name": "webdav_saved",
+      "value": "配置已保存，账号密码仅加密保存在本机。"
+    },
+    {
+      "name": "webdav_cleared",
+      "value": "本机配置已清除，远程备份保留。"
+    },
+    {
+      "name": "webdav_connected",
+      "value": "连接成功，可访问该 WebDAV 文件夹。上传权限将在备份时验证。"
+    },
+    {
+      "name": "webdav_settings_failed",
+      "value": "无法读取或保存 WebDAV 配置，请重试。"
+    },
+    {
+      "name": "webdav_config_error",
+      "value": "请填写有效的 HTTP/HTTPS 文件夹地址、用户名和密码。地址中不要包含账号、查询参数或锚点。"
+    },
+    {
+      "name": "webdav_auth_error",
+      "value": "认证失败或没有访问权限，请检查用户名、应用专用密码和文件夹权限。"
+    },
+    {
+      "name": "webdav_not_found",
+      "value": "文件夹或简听备份不存在，请检查地址，或先在另一台设备上传备份。"
+    },
+    {
+      "name": "webdav_network_error",
+      "value": "连接失败，请检查网络、服务器地址及证书后重试。"
+    },
+    {
+      "name": "webdav_server_error",
+      "value": "服务器未完成操作。请检查 WebDAV 地址、存储空间，以及上传和移动文件权限。"
+    },
+    {
+      "name": "webdav_connecting",
+      "value": "正在测试连接…"
+    },
+    {
+      "name": "webdav_uploading",
+      "value": "正在上传备份…"
+    },
+    {
+      "name": "webdav_uploaded",
+      "value": "备份完成，已保存到你的 WebDAV 文件夹。"
     }
   ]
 }

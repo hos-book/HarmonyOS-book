@@ -196,10 +196,19 @@ export struct BookSourceSwitchSheet {
         List() {
           LazyForEach(this.results, (book: Book): void => {
             ListItem() {
-              Column({ space: 6 }) {
-                Text(book.narrator).fontColor($r('sys.color.font_primary')).fontSize(16).fontWeight(FontWeight.Medium)
-                Text(book.title + ' · ' + book.author).fontSize(13).fontColor($r('sys.color.font_secondary'))
-              }.alignItems(HorizontalAlign.Start).width('100%').padding(16)
+              Row({ space: 12 }) {
+                Column({ space: 6 }) {
+                  Text(book.narrator).fontColor($r('sys.color.font_primary')).fontSize(16).fontWeight(FontWeight.Medium)
+                    .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  Text(book.title + ' · ' + book.author).fontSize(13).fontColor($r('sys.color.font_secondary'))
+                    .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                if (book.latestChapterTitle) {
+                  Text($r('app.string.source_latest_chapter', book.latestChapterTitle))
+                    .fontSize(12).fontColor($r('sys.color.font_secondary')).maxLines(2)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis }).textAlign(TextAlign.End).width('42%')
+                }
+              }.width('100%').padding(16)
             }.enabled(!this.busy).onClick((): void => { this.chooseBook(book); })
           }, (book: Book): string => book.id)
         }.width('100%').layoutWeight(1)

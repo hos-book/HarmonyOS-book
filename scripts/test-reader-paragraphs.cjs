@@ -86,18 +86,42 @@ assert.ok(built.at(-1).text.includes('&nbsp;'), 'replacement output is literal t
 native.OnlineTextPaginator.invalidateLayouts();
 localImages.LocalTextImage.setRoot('/files');
 const token = localImages.LocalTextImage.token('/files/ebooks/import_fixture/image_0_0.img');
-const mixedBody = '图前正文很长\n' + token + '\n图后正文很长';
+localImages.LocalTextImage.rememberSize('/files/ebooks/import_fixture/image_0_0.img', 80, 40);
+const mixedBody = '图前正文有很多文字\n' + token + '\n图后正文有很多文字';
 const mixedPages = native.OnlineTextPaginator.paginate(mixedBody, 300, 200, 18, 1.9);
-const imagePage = mixedPages.find(page => page.imageUrl);
+assert.equal(mixedPages.length, 1, 'short text before and after a small image shares one page');
+const imagePage = mixedPages[0].parts.find(page => page.imageUrl);
 assert.ok(imagePage);
 assert.equal(imagePage.startOffset, mixedBody.indexOf(token));
 assert.equal(imagePage.endOffset, mixedBody.indexOf(token) + token.length);
-assert.equal(imagePage.layoutHeight, 200);
+assert.equal(imagePage.layoutHeight, 40);
+assert.equal(imagePage.imageWidth, 80, 'small images are never enlarged');
+assert.equal(mixedPages[0].parts.length, 3, 'adjacent text lines remain one selectable paragraph fragment');
+assert.equal(mixedPages[0].parts[0].lineMetrics.length, 3);
+assert.equal(mixedPages[0].parts[2].lineMetrics.length, 3);
+assert.equal(mixedPages[0].layoutHeight, 160);
 assert.equal(mixedPages.at(-1).endOffset, mixedBody.length);
 assert.equal(localImages.LocalTextImage.speechContent(mixedBody).length, mixedBody.length);
 const badToken = localImages.LocalTextImage.token('/files/secret');
 assert.equal(native.OnlineTextPaginator.paginate(badToken, 300, 200, 18, 1.9).length, 0, 'invalid markers cannot create blank page loops');
-console.log('PASS EPUB images reserve one stable page, retain source offsets and reject external paths');
+const splitMixed = native.OnlineTextPaginator.paginate(mixedBody, 300, 90, 18, 1.9);
+assert.ok(splitMixed.length > 1);
+splitMixed.forEach(page => assert.ok(page.layoutHeight <= 90));
+assert.equal(splitMixed[0].endOffset, splitMixed[1].startOffset);
+assert.ok(splitMixed[1].parts.some(part => part.imageUrl));
+assert.ok(splitMixed[1].parts.some(part => part.paragraph));
+assert.equal(native.OnlineTextPaginator.pageIndexForOffset(splitMixed, mixedBody.indexOf(token)), 1);
+localImages.LocalTextImage.rememberSize('/files/ebooks/import_fixture/image_0_0.img', 1200, 600);
+const scaled = native.OnlineTextPaginator.paginate(token, 300, 200, 18, 1.9)[0].parts[0];
+assert.equal(scaled.imageWidth, 300); assert.equal(scaled.layoutHeight, 150);
+localImages.LocalTextImage.rememberSize('/files/ebooks/import_fixture/image_0_0.img', 100, 1000);
+const tall = native.OnlineTextPaginator.paginate(token, 300, 200, 18, 1.9)[0].parts[0];
+assert.equal(tall.imageWidth, 20); assert.equal(tall.layoutHeight, 200);
+const scrollImage = native.OnlineTextPaginator.paginate(token, 300, 1, 18, 1.9)[0];
+assert.equal(scrollImage.layoutHeight, 1000, 'continuous mode does not impose a full-page box');
+const pair = native.OnlineTextPage.spreads(mixedBody, splitMixed);
+assert.equal(pair[0].columns[1], splitMixed[1]);
+console.log('PASS EPUB mixed text/images, intrinsic size, aspect ratio, overflow, scrolling, columns and stable source offsets');
 for (const [alignment, expected] of [['justify', 3], ['start', 0], ['center', 2], ['end', 1]]) {
   const pages = native.OnlineTextPaginator.paginate('甲乙丙丁戊己庚辛壬癸', 100, 20, 18, 1.9, '', 400, alignment);
   assert.equal(pages.length, 3);
@@ -151,9 +175,10 @@ page.paragraph.getRectsForRange = range => {
 graphicsText.RectWidthStyle = { TIGHT: 0 };
 graphicsText.RectHeightStyle = { TIGHT: 0 };
 let frameInvalidations = 0;
+let highlightColor;
 const nodeModule = load('main/ets/service/text/ReaderParagraphNode.ets', {
   '@kit.ArkGraphics2D': { text: graphicsText, drawing: {
-    ClipOp: { INTERSECT: 0 }, Brush: class { setColor() {} }
+    ClipOp: { INTERSECT: 0 }, Brush: class { setColor(value) { highlightColor = value; } }
   } },
   '@ohos.arkui.node': { FrameNode: class { invalidate() { frameInvalidations++; } getRenderNode() { return { invalidate() {} }; } }, NodeController: class {} },
   './OnlineTextPaginator': native,
@@ -171,14 +196,15 @@ node.onDraw({ canvas: {
   save() {}, restore() {}, clipRect(rect) { clips.push(rect); },
   attachBrush() {}, detachBrush() {}, drawRect() {}
 } });
-assert.equal(paints.length, 2, 'base paragraph and inverted speech highlight are painted');
+assert.equal(paints.length, 2, 'base paragraph and translucent speech highlight are painted');
 assert.equal(paints[0].index, 1, 'scroll row paints only its own line, not the complete chapter');
 assert.equal(paints[1].index, 1, 'highlight redraws only that same line');
 assert.equal(paints[0].x, 0, 'native lines already retain horizontal alignment');
 assert.equal(paints[0].y, -page.layoutTop, 'native line coordinates remain relative to the original paragraph');
 assert.equal(clips[0].bottom, 20, 'only the current row is visible');
 assert.equal(ranges[0].start, page.displayStart, 'highlight uses full paragraph display coordinates');
-assert.equal(paints[1].color.red, 255);
+assert.equal(paints[1].color.red, 17, 'highlight keeps readable original text instead of inverted white blocks');
+assert.equal(highlightColor.alpha, 51, 'speech highlight is 80 percent transparent');
 assert.equal(paintedColor.red, 17, 'shared paragraph color is restored before another row paints');
 const nextPage = native.OnlineTextPaginator.paginate('甲乙丙丁戊己庚辛壬癸', 100, 20, 18, 1.9)[2];
 const invalidationsBeforeTurn = frameInvalidations;
@@ -192,6 +218,20 @@ paints.length = 0;
 node.onDraw({ canvas: { save() {}, restore() {}, clipRect() {} } });
 assert.equal(paints[0].index, 1, 'previous page / canceled preview redraws the original page');
 console.log('PASS native paragraph clipping and speech highlight preserve measured geometry');
+
+const spreadContent = '甲乙丙丁戊己庚辛壬癸';
+const columnPages = native.OnlineTextPaginator.paginate(spreadContent, 100, 20, 18, 1.9);
+const spreads = native.OnlineTextPage.spreads(spreadContent, columnPages);
+assert.equal(spreads.length, Math.ceil(columnPages.length / 2));
+assert.equal(spreads[0].columns[0], columnPages[0], 'spread retains native left-column layout');
+assert.equal(spreads[0].columns[1], columnPages[1], 'right column retains its own native offsets');
+assert.equal(spreads.at(-1).endOffset, spreadContent.length, 'odd last column is not dropped');
+for (let offset = 0; offset < spreadContent.length; offset++) {
+  const index = native.OnlineTextPaginator.pageIndexForOffset(spreads, offset);
+  assert.ok(spreads[index].startOffset <= offset && spreads[index].endOffset > offset,
+    'single/double-column reflow restores every source character');
+}
+console.log('PASS dual-column spreads preserve native layouts and character-position restore');
 
 const cacheText = '缓存复用验证甲乙丙丁戊己庚辛壬癸';
 const beforeBuilds = built.length;
@@ -276,3 +316,28 @@ node.onDraw({ canvas: { save() {}, restore() {}, clipRect() {} } });
 assert.equal(nativeHighlight.start, 2);
 assert.equal(nativeHighlight.end, 3);
 console.log('PASS API 26 native first-line margins, native/display offset mapping and unindented continuation lines');
+
+(async () => {
+  let reads = 0, releases = 0;
+  const sizing = load('main/ets/service/text/LocalTextImageSizing.ets', {
+    '@kit.ImageKit': { image: { createImageSource: path => ({
+      getImageInfo: async () => {
+        reads++;
+        if (path.includes('image_9_0')) throw new Error('broken image');
+        return { size: { width: 240, height: 120 } };
+      },
+      release: async () => { releases++; }
+    }) } }
+  }).LocalTextImageSizing;
+  const valid = '/files/ebooks/import_fixture/image_8_0.img';
+  const broken = '/files/ebooks/import_fixture/image_9_0.img';
+  const content = [valid, valid, broken, '/files/secret'].map(localImages.LocalTextImage.token).join('\n');
+  await Promise.all([sizing.prepare(content), sizing.prepare(content)]);
+  assert.equal(reads, 2, 'concurrent prepares share metadata probes and reject outside paths');
+  assert.equal(releases, 2, 'image sources release on both success and failure');
+  assert.equal(localImages.LocalTextImage.size(valid).width, 240);
+  assert.equal(localImages.LocalTextImage.size(broken).width, 0);
+  await sizing.prepare(content);
+  assert.equal(reads, 2, 'cached dimensions do not reread images during reflow');
+  console.log('PASS image metadata preparation, deduplication, bounded path access and release');
+})().catch(error => { console.error(error); process.exitCode = 1; });

@@ -4,6 +4,20 @@
 
 ## 固定版本与维护边界
 
+### 公共包更新（2026-11-01）
+
+公共书源内核更新到 `06f6491426c84fd0bab318d7822abfbf855889a7`，应用辅助代码更新到 `351a535226f2123bc5311722306adf5dea0bd3ab`，与本次查询的轻页最新应用及其书源子模块一致。AI 子模块仍为 `8fa0a428ee1643b0e89948a0713b54c78cbde062`，本地 HAR 的版本与哈希校验通过，无需重建。
+
+通过 `prepare-light-source.py` 校验上游 Git tree 后调用 `sync-light-source.cjs` 生成 96 个文件。本轮吸收网页等待、失败快照和脚本诊断优化、HTTP 总期限耗尽后停止重试、原生 `chars()` 按 Unicode 码点拆分，以及无 JS 定义的未声明函数导入检查。含 JS 的静态函数检查仍受现有宿主 `NativeJsLibrary.check` 适配限制，不宣称与上游同步 QuickJS 检查完全等价；执行仍通过宿主有界隔离环境。
+
+主机验证：`test-light-source-engine.cjs`（含 native JS host 回归）、`test-comic-web-wait.cjs`、`test-source-file-import.cjs` 通过。历史 `test-native-rule-boundaries.cjs` 依赖已删除的 `test-native-rule-pipeline.cjs`，无法运行，不计为通过。
+
+同步脚本同步调整 `NativeJsLibrary.check` 的第 4 个可选参数，兼容新版导入调用；保持既有隔离执行策略。
+
+Release SDK 增量 debug HAP 构建通过，产物元数据确认 `apiReleaseType=Release`、最低 API 20、目标 API 26。MCP 构建遇到本机 ohpm 批处理递归错误，改用 Release IDE Node/Ohpm/Hvigor 直接入口，并仅为构建进程指定 `HVIGOR_USER_HOME=D:\DevCaches\hsda-hvigor`，绕过默认用户缓存目录写入失败。已通过 `start_app` 安装并启动到模拟器 `127.0.0.1:5555`；未完成本轮真实书源导入→搜索→详情→阅读/播放及下载/导出实机回归，不将模拟器启动等同于功能验收。
+
+构建参考：[deveco-studio-hvigor](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[hmos-arkts-syntax-checker](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)。
+
 ### 公共包与应用辅助子包更新（2026-10-29）
 
 公共书源内核固定到 `536a6fd156712da29a8f5fd4ba2465a70475dfaf`，应用辅助代码固定到 `327beffe57bf32840c5c05634444b13e76bff256`，AI HAR 固定到 `8fa0a428ee1643b0e89948a0713b54c78cbde062`；与该轻页应用提交记录的两个子模块一致。轻页应用仓库已更名为 `wip3l/qingye-reader`，准备和同步工具同步使用新地址。清单包含 96 个生成文件。

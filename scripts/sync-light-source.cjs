@@ -173,7 +173,8 @@ export class ReaderCacheBudget {
   if (name === 'core/nativesource/NativeJsLibrary.ts') return `
 import type { NativeScriptLibrary } from './NativeExpr';
 export class NativeJsLibrary {
-  static check(_code: string, _names: string[], _functions: string[] = []): string { return ''; }
+  static check(_code: string, _names: string[], _functions: string[] = [],
+    _calls: Array<{ path: string, name: string }> = []): string { return ''; }
   static forCode(_code: string): NativeScriptLibrary {
     return { has: () => true, call: () => { throw new Error('Native JS requires the isolated host'); } };
   }

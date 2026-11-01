@@ -5,7 +5,7 @@ import { LocalBookCover } from './LocalBookCover';
 import { CoverPrefetcher } from '../service/CoverPrefetcher';
 import { CoverAspectRatio } from '../utils/CoverAspectRatio';
 import { PlatformCompat } from '../utils/PlatformCompat';
-import { SourceCoverService } from '../service/SourceCoverService';
+import { CoverLoadHandle } from '../service/CoverLoader';
 
 class CoverCompositeClip implements AttributeModifier<CommonAttribute> {
   private enabled: boolean;
@@ -59,6 +59,8 @@ export struct CoverImage {
   @Local originalRatio: number = 0.75;
   @Local resolvedUrl: string = '';
   private resolveGeneration: number = 0;
+  private loadHandle: CoverLoadHandle | undefined = undefined;
+  private visible: boolean = false;
 
   private displayRatio(): number {
     return this.useOriginalRatio ? this.originalRatio : this.aspectRatioValue;
@@ -84,6 +86,9 @@ export struct CoverImage {
 
   aboutToDisappear(): void {
     this.appeared = false;
+    this.visible = false;
+    this.loadHandle?.cancel();
+    this.loadHandle = undefined;
     this.resolveGeneration++;
     this.cancelRetry();
   }
@@ -95,32 +100,43 @@ export struct CoverImage {
 
   private resetCover(): void {
     this.cancelRetry();
+    this.loadHandle?.cancel();
+    this.loadHandle = undefined;
     this.originalRatio = CoverAspectRatio.get(this.url, this.aspectRatioValue);
     this.showImage = true;
-    const cached = SourceCoverService.isEncoded(this.url) ? SourceCoverService.cached(this.url) : '';
+    const cached = CoverPrefetcher.cached(this.url);
     this.imageReady = cached.length > 0;
     this.giveUp = (CoverImage.failedUntil.get(this.url) ?? 0) > Date.now();
     this.retryCount = 0;
-    this.resolvedUrl = SourceCoverService.isEncoded(this.url) ? cached : this.url;
+    this.resolvedUrl = cached;
     this.resolveGeneration++;
-    if (this.url.startsWith('http') && !this.giveUp) {
-      CoverImage.failedUntil.delete(this.url);
-      if (SourceCoverService.isEncoded(this.url)) {
-        if (!cached) this.resolveCover();
-      }
-      else CoverPrefetcher.prefetch(this.url, this.highPriority);
+    if (this.visible && this.url.startsWith('http') && !this.giveUp && !cached) this.resolveCover();
+  }
+
+  private visibilityChanged(visible: boolean): void {
+    this.visible = visible;
+    if (!visible) {
+      this.loadHandle?.cancel();
+      this.loadHandle = undefined;
+      this.resolveGeneration++;
+      this.cancelRetry();
+    } else if (!this.resolvedUrl && !this.giveUp && this.url.startsWith('http')) {
+      this.resolveCover();
     }
   }
 
   private resolveCover(): void {
     const raw = this.url;
     const generation = ++this.resolveGeneration;
-    SourceCoverService.resolve(raw).then((resolved: string): void => {
+    this.loadHandle?.cancel();
+    const handle = CoverPrefetcher.acquire(raw);
+    this.loadHandle = handle;
+    handle.promise.then((resolved: string): void => {
       if (!this.appeared || this.url !== raw || generation !== this.resolveGeneration) return;
       this.resolvedUrl = resolved;
       this.showImage = true;
     }).catch((): void => {
-      if (this.appeared && this.url === raw && generation === this.resolveGeneration) this.scheduleRetry();
+      if (this.appeared && this.url === raw && generation === this.resolveGeneration) this.giveUp = true;
     });
   }
 
@@ -142,17 +158,16 @@ export struct CoverImage {
       return;
     }
     this.retryCount = this.retryCount + 1;
-    if (SourceCoverService.isEncoded(this.url)) SourceCoverService.invalidate(this.url);
+    CoverPrefetcher.invalidate(this.url);
+    this.resolvedUrl = '';
     this.showImage = false;
     this.imageReady = false;
-    CoverPrefetcher.retry(this.url);
     const delayMs: number = Math.min(800 * this.retryCount, 5000);
     const url = this.url;
     this.retryTimer = setTimeout((): void => {
       this.retryTimer = -1;
       if (!this.appeared || this.url !== url) return;
-      if (SourceCoverService.isEncoded(url)) this.resolveCover();
-      else this.showImage = true;
+      if (this.visible) this.resolveCover();
     }, delayMs);
   }
 
@@ -266,6 +281,7 @@ export struct CoverImage {
     .aspectRatio(this.useFixedHeight ? undefined : this.displayRatio())
     .attributeModifier(new CoverCompositeClip(this.compositeEdges, this.radius))
     .overlay(this.coverDecoration(), { align: Alignment.Center })
+    .onVisibleAreaChange([0], (visible: boolean): void => this.visibilityChanged(visible))
   }
 
   @Builder

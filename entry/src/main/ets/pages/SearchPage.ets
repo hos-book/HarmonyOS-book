@@ -1,4 +1,5 @@
 import { BookCoverPolicy } from '../utils/BookCoverPolicy';
+import { GeneralSettings } from '../model/GeneralSettings';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { HdsCompat } from '../utils/HdsCompat';
 import { CompatibleGridInsets, PlatformCompat } from '../utils/PlatformCompat';
@@ -126,6 +127,7 @@ export struct SearchPage {
   @Local searchCollapseOffset: number = 0;
   @Local recommendationBooks: Book[] = [];
   @Local recommendationsLoading: boolean = true;
+  @Local generalSettings: GeneralSettings = GeneralSettings.current;
 
   @Local sourcePickerVisible: boolean = false;
   @Local sourceFilterEnabled: boolean = false;
@@ -273,7 +275,20 @@ export struct SearchPage {
     }
   }
 
+  @Monitor('generalSettings.searchRecommendations')
+  private onRecommendationsChanged(): void {
+    if (!this.generalSettings.searchRecommendations) {
+      this.cancelRecommendations();
+      this.recommendationBooks = [];
+      this.recommendationsLoaded = false;
+      this.recommendationsLoading = false;
+    } else {
+      this.scheduleRecommendations();
+    }
+  }
+
   private scheduleRecommendations(): void {
+    if (!this.generalSettings.searchRecommendations) return;
     if (!this.pageShown || this.leavingPage || this.hasSearched || this.recommendationsLoaded ||
       this.recommendationsStarted || this.recommendationTimerId >= 0) return;
     this.recommendationTimerId = setTimeout((): void => {
@@ -358,6 +373,7 @@ export struct SearchPage {
   }
 
   private async loadRecommendations(): Promise<void> {
+    if (!this.generalSettings.searchRecommendations) return;
     this.recommendationsStarted = true;
     this.recommendationGen++;
     const generation = this.recommendationGen;
@@ -939,8 +955,16 @@ export struct SearchPage {
             CoverImage({ url: book.cover, imgWidth: 60, aspectRatioValue: 0.75, radius: 8 })
             Column({ space: 6 }) {
               Text(book.title).fontColor($r('sys.color.font_primary')).fontSize(16)
+                .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
               Text(book.narrator || book.author).fontColor($r('sys.color.font_secondary')).fontSize(13)
+                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
             }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            if (book.latestChapterTitle) {
+              Text($r('app.string.source_latest_chapter', book.latestChapterTitle))
+                .fontSize(12).fontColor($r('sys.color.font_secondary'))
+                .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+                .textAlign(TextAlign.End).width('42%')
+            }
           }.width('100%').padding(12).onClick((): void => { this.openBookDetail(book); })
         }
       }, (book: Book): string => book.id)
@@ -1012,6 +1036,7 @@ export struct SearchPage {
           .height(WindowUtils.getStatusBarHeightVp() + SEARCH_HEADER_HEIGHT +
             (this.searchHistory.length > 0 ? this.historyTagsHeight + HISTORY_HEADING_HEIGHT + AppSpace.Xs : 0))
       }
+      if (this.generalSettings.searchRecommendations) {
       ListItem() {
         Column({ space: AppSpace.Md }) {
           Text($r('app.string.search_recommendations'))
@@ -1051,6 +1076,7 @@ export struct SearchPage {
         }
         .width('100%')
         .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Md })
+      }
       }
     }
     .layoutWeight(1)
@@ -1175,6 +1201,7 @@ export struct SearchPage {
           BookCard({
             book: book,
             indexHint: index,
+            showLatestChapter: true,
             coverAspectRatio: SEARCH_COVER_ASPECT_RATIO,
             onTap: () => this.openBook(book)
           })
@@ -1265,6 +1292,12 @@ export struct SearchPage {
       .layoutWeight(1)
       .alignItems(HorizontalAlign.Start)
       .justifyContent(FlexAlign.Center)
+      if (book.latestChapterTitle) {
+        Text($r('app.string.source_latest_chapter', book.latestChapterTitle))
+          .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+          .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .textAlign(TextAlign.End).width('32%')
+      }
     }
     .width('100%')
     .padding({ top: AppSpace.Sm, bottom: AppSpace.Sm })

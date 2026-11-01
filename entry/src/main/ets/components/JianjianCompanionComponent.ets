@@ -1,5 +1,6 @@
 import { AppTheme } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
+import { JianjianAvatarComponent } from './JianjianAvatarComponent';
 
 /** 根导航上的单实例人物；空白区域透传，路由切换时保留位置。 */
 @ComponentV2
@@ -10,16 +11,17 @@ export struct JianjianCompanionComponent {
   @Local viewportHeight: number = 0;
   @Local characterX: number = 0;
   @Local characterY: number = 0;
+  // -1 左边、0 自由位置、1 右边；互动展开期间仍保留停靠侧。
+  @Local dockSide: number = 0;
+  @Local peeking: boolean = false;
   private positioned: boolean = false;
   private dragStartX: number = 0;
   private dragStartY: number = 0;
   private suppressClickUntil: number = 0;
   @Local inViewport: boolean = false;
   @Local delighted: boolean = false;
-  @Local raised: boolean = false;
-  @Local idleLifted: boolean = false;
-  private idleAnimationRunning: boolean = false;
   @Local phraseIndex: number = -1;
+  @Local bubbleHeight: number = 76;
   private resetTimer: number = -1;
   private readonly phrases: Resource[] = [
     $r('app.string.jianjian_reply_hello'),
@@ -48,24 +50,12 @@ export struct JianjianCompanionComponent {
     this.clearReaction();
   }
 
-  @Monitor('active')
+  @Monitor('active', 'dragging')
   onActiveChanged(): void {
     if (!this.active) {
       this.stopReaction();
-      this.finishDrag();
+      this.finishDrag(false);
     }
-    this.syncIdleAnimation();
-  }
-
-  private syncIdleAnimation(): void {
-    const running: boolean = this.active && this.inViewport;
-    if (running === this.idleAnimationRunning) return;
-    this.idleAnimationRunning = running;
-    // 交给渲染侧做轻微呼吸起伏，隐藏时取消，不用 JS 定时器逐帧驱动。
-    this.getUIContext().animateTo({ duration: running ? 1800 : 0,
-      iterations: running ? -1 : 1, playMode: PlayMode.Alternate, curve: Curve.EaseInOut }, (): void => {
-      this.idleLifted = running;
-    });
   }
 
   private clearReaction(): void {
@@ -78,11 +68,27 @@ export struct JianjianCompanionComponent {
   private stopReaction(): void {
     this.clearReaction();
     this.delighted = false;
-    this.raised = false;
+    this.positionAtDock(false);
   }
 
   private clampX(positionX: number): number {
     return Math.max(8, Math.min(positionX, this.viewportWidth - 112));
+  }
+
+  private positionAtDock(animated: boolean): void {
+    if (this.dockSide === 0 || this.viewportWidth <= 0) return;
+    // 热区仍露出 52vp；人物另向外平移并绕脚底倾斜，只让头部探进窗口。
+    const target: number = this.delighted ? this.clampX(this.dockSide < 0 ? 8 : this.viewportWidth - 112) :
+      (this.dockSide < 0 ? -52 : this.viewportWidth - 52);
+    if (animated && this.active && this.inViewport) {
+      this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseOut }, (): void => {
+        this.characterX = target;
+        this.peeking = !this.delighted;
+      });
+    } else {
+      this.characterX = target;
+      this.peeking = !this.delighted;
+    }
   }
 
   private clampY(positionY: number): number {
@@ -102,13 +108,21 @@ export struct JianjianCompanionComponent {
       this.characterY = nextHeight - 124 - WindowUtils.getFloatingTabBottomVp() - 16;
       this.positioned = true;
     }
-    this.characterX = this.clampX(this.characterX);
+    this.finishDrag(false);
+    if (this.dockSide === 0) {
+      this.characterX = this.clampX(this.characterX);
+    } else {
+      this.positionAtDock(false);
+    }
     this.characterY = this.clampY(this.characterY);
-    this.finishDrag();
   }
 
   private beginDrag(): void {
-    this.stopReaction();
+    // 从当前显示位置拉出；不要先收起展开中的人物，避免按下时跳回边缘。
+    this.clearReaction();
+    this.delighted = false;
+    this.peeking = false;
+    this.dockSide = 0;
     this.dragStartX = this.characterX;
     this.dragStartY = this.characterY;
     this.dragging = true;
@@ -116,13 +130,25 @@ export struct JianjianCompanionComponent {
 
   private moveDrag(event: GestureEvent): void {
     if (!this.dragging) return;
-    this.characterX = this.clampX(this.dragStartX + event.offsetX);
+    this.characterX = Math.max(-52, Math.min(this.dragStartX + event.offsetX, this.viewportWidth - 52));
     this.characterY = this.clampY(this.dragStartY + event.offsetY);
   }
 
-  private finishDrag(): void {
-    if (this.dragging) this.suppressClickUntil = Date.now() + 300;
+  private finishDrag(animated: boolean = true): void {
+    if (!this.dragging) return;
+    this.suppressClickUntil = Date.now() + 300;
     this.dragging = false;
+    const center: number = this.characterX + 52;
+    // 距完整显示边界 24vp 内松手才吸附；中间区域保留自由放置。
+    if (center <= Math.min(76, this.viewportWidth / 2)) {
+      this.dockSide = -1;
+    } else if (center >= Math.max(this.viewportWidth - 76, this.viewportWidth / 2)) {
+      this.dockSide = 1;
+    } else {
+      this.dockSide = 0;
+      this.characterX = this.clampX(this.characterX);
+    }
+    this.positionAtDock(animated);
   }
 
   private bubbleX(): number {
@@ -135,51 +161,75 @@ export struct JianjianCompanionComponent {
   }
 
   private bubbleY(): number {
-    const above: number = this.characterY - 108;
-    const desired: number = above >= WindowUtils.getStatusBarHeightVp() + 8 ? above : this.characterY + 128;
-    return Math.max(8, Math.min(desired, this.viewportHeight - 108 - WindowUtils.getBottomSafeVp()));
+    const top: number = WindowUtils.getStatusBarHeightVp() + 8;
+    const desired: number = this.bubbleAbove() ? this.characterY - this.bubbleHeight - 16 : this.characterY + 140;
+    return Math.max(top, Math.min(desired, this.viewportHeight - this.bubbleHeight - WindowUtils.getBottomSafeVp() - 8));
+  }
+
+  private bubbleAbove(): boolean {
+    return this.characterY - this.bubbleHeight - 16 >= WindowUtils.getStatusBarHeightVp() + 8;
+  }
+
+  private bubbleTailX(): number {
+    return Math.max(28, Math.min(this.characterX + 52 - this.bubbleX() - 8, this.bubbleWidth() - 44));
   }
 
   private interact(): void {
-    if (this.dragging || Date.now() < this.suppressClickUntil) return;
+    if (!this.active || this.dragging || Date.now() < this.suppressClickUntil) return;
     this.clearReaction();
     this.phraseIndex = (this.phraseIndex + 1) % this.phrases.length;
     this.delighted = true;
-    this.getUIContext().animateTo({ duration: 240, curve: Curve.EaseInOut,
-      iterations: 2, playMode: PlayMode.Alternate }, (): void => {
-      this.raised = !this.raised;
-    });
+    this.positionAtDock(true);
     this.resetTimer = setTimeout((): void => {
       this.resetTimer = -1;
       this.delighted = false;
-      this.raised = false;
+      this.positionAtDock(true);
     }, 4000);
   }
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
       if (this.delighted) {
-        Row({ space: 8 }) {
-          Image(this.expressions[this.phraseIndex])
-            .width(48).height(48).objectFit(ImageFit.Contain).draggable(false)
-            .accessibilityLevel('no')
-          Text(this.phrases[this.phraseIndex])
-            .fontSize(13).fontColor(AppTheme.TextPrimary)
-            .maxLines(4).layoutWeight(1)
+        Stack({ alignContent: Alignment.TopStart }) {
+          // 尾巴与正文同色，接缝藏在圆角气泡内部，始终朝向简简。
+          Column() {}
+            .width(16).height(16).borderRadius(3)
+            .backgroundColor(AppTheme.Surface)
+            .rotate({ angle: 45 })
+            .position({ x: this.bubbleTailX(), y: this.bubbleAbove() ? this.bubbleHeight - 10 : -6 })
+          Row({ space: 10 }) {
+            Image(this.expressions[this.phraseIndex])
+              .width(40).height(40).objectFit(ImageFit.Contain).draggable(false)
+              .accessibilityLevel('no')
+            Text(this.phrases[this.phraseIndex])
+              .fontSize(14).fontColor(AppTheme.TextPrimary)
+              .maxLines(5).layoutWeight(1)
+          }
+          .padding({ left: 14, right: 16, top: 14, bottom: 14 })
+          .width(this.bubbleWidth()).constraintSize({ minHeight: 76 }).borderRadius(24)
+          .backgroundColor(AppTheme.Surface)
+          .onSizeChange((_oldSize: SizeOptions, newSize: SizeOptions): void => {
+            const height: number = Number(newSize.height);
+            if (Number.isFinite(height) && height > 0 && Math.abs(height - this.bubbleHeight) > 0.5) {
+              this.bubbleHeight = height;
+            }
+          })
         }
-        .padding(12).width(this.bubbleWidth()).height(100).borderRadius(18)
-        .backgroundColor(AppTheme.Surface)
+        .width(this.bubbleWidth())
         .position({ x: this.bubbleX(), y: this.bubbleY() })
         .hitTestBehavior(HitTestMode.None)
       }
       Button({ type: ButtonType.Normal }) {
         Stack() {
-          Image($r('app.media.jianjian_red_idle'))
-            .width(96).height(112).objectFit(ImageFit.Contain).draggable(false)
-            .translate({ y: this.idleLifted ? -2 : 0 })
+          JianjianAvatarComponent({
+            running: this.active && this.inViewport && !this.dragging,
+            reacting: this.delighted,
+            reactionIndex: this.phraseIndex
+          })
+            .rotate({ angle: this.peeking ? -42 * this.dockSide : 0,
+              centerX: '50%', centerY: '100%' })
+            .translate({ x: this.peeking ? 40 * this.dockSide : 0 })
         }
-        .translate({ y: this.raised ? -5 : 0 })
-        .rotate({ angle: this.raised ? -5 : 0 })
         .scale({ x: this.dragging ? 1.06 : 1, y: this.dragging ? 1.06 : 1 })
       }
       .width(104).height(124).padding(0).backgroundColor(Color.Transparent)
@@ -190,28 +240,33 @@ export struct JianjianCompanionComponent {
       .id('jianjian-companion')
       .onClick((): void => this.interact())
       .priorityGesture(
-        GestureGroup(GestureMode.Sequence,
-          LongPressGesture({ duration: 450, repeat: false })
-            .onAction((): void => this.beginDrag()),
-          PanGesture({ direction: PanDirection.All, distance: 1 })
-            .onActionUpdate((event: GestureEvent): void => this.moveDrag(event))
-            .onActionEnd((): void => this.finishDrag())
-        ).onCancel((): void => this.finishDrag())
+        PanGesture({ direction: PanDirection.All, distance: 5 })
+          .onActionStart((event: GestureEvent): void => {
+            this.beginDrag();
+            this.moveDrag(event);
+          })
+          .onActionUpdate((event: GestureEvent): void => this.moveDrag(event))
+          .onActionEnd((event: GestureEvent): void => {
+            this.moveDrag(event);
+            this.finishDrag();
+          })
+          .onActionCancel((): void => this.finishDrag(false))
       )
       .onTouch((event: TouchEvent): void => {
-        if (event.type === TouchType.Up || event.type === TouchType.Cancel) this.finishDrag();
+        // Up 由 PanGesture 的最终 offset 收尾，避免原始 Touch 提前结束拖动。
+        if (event.type === TouchType.Cancel) this.finishDrag(false);
       })
     }
     .width('100%').height('100%')
+    .clip(true)
     .hitTestBehavior(HitTestMode.Transparent)
     .onSizeChange((_oldSize: SizeOptions, newSize: SizeOptions): void => this.resize(newSize))
     .onVisibleAreaChange([0, 1], (visible: boolean): void => {
       this.inViewport = visible;
       if (!visible) {
         this.stopReaction();
-        this.finishDrag();
+        this.finishDrag(false);
       }
-      this.syncIdleAnimation();
     })
   }
 }

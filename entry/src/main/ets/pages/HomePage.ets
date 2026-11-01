@@ -24,9 +24,8 @@ import { CoverImage } from '../components/CoverImage';
 import { RankingPosterBackground } from '../components/RankingPosterBackground';
 import { HomeCoverCarousel, homeCoverCarouselHeight } from '../components/HomeCoverCarousel';
 import { BookPosterSkeleton } from '../components/BookPosterCarousel';
-import { HomeCategoryCard } from '../components/HomeCategoryCard';
+import { HomeCategorySheet } from '../components/HomeCategorySheet';
 import { HomeCategoryBookRow, HomeCategoryRowDataSource } from '../utils/HomeCategoryRowDataSource';
-import { HomeCategoryOverviewRow, HomeCategoryOverviewDataSource } from '../utils/HomeCategoryOverviewDataSource';
 import { HomeBlockDataSource } from '../utils/HomeBlockDataSource';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
 import { BookIdentity } from '../utils/BookIdentity';
@@ -109,8 +108,6 @@ const HOME_COVER_CARD_SIZE: number = 128;
 const HOME_FIRST_BLOCK_TITLE_OFFSET: number = AppSpace.Xxs;
 const HOME_BLOCK_TITLE_HEIGHT: number = 28;
 const CATEGORY_OVERVIEW_INDEX: number = -2;
-const CATEGORY_CARD_COLORS: string[] = ['#B84332', '#287EA2', '#6750AB', '#248279',
-  '#AA4169', '#9B632F', '#475EA8', '#54783A'];
 
 @ComponentV2
 struct HomeLoadingSkeleton {
@@ -311,6 +308,10 @@ export struct HomePage {
   @Local savingFavorite: boolean = false;
   private favoritesChangedHandler: () => void = (): void => { this.loadFavorites(); };
   @Local homeCategories: HomeSourceCategory[] = [];
+  @Local homeChannels: string[] = [];
+  @Local selectedHomeChannel: string = '';
+  private channelDataSource: HomeRecommendationDataSource<string> = new HomeRecommendationDataSource();
+  private channelSave: Promise<void> = Promise.resolve();
   private currentSource: LocalRuleSource | undefined = undefined;
   private lastSourceRevision: number = -1;
   private sourceChangedHandler: () => void = (): void => { this.reloadSource(); };
@@ -350,7 +351,7 @@ export struct HomePage {
   private categoryNavScroller: Scroller = new Scroller();
   private categoryDS: HomeCategoryRowDataSource = new HomeCategoryRowDataSource();
   private categoryNavDataSource: HomeCategoryDataSource = new HomeCategoryDataSource();
-  private categoryOverviewDataSource: HomeCategoryOverviewDataSource = new HomeCategoryOverviewDataSource();
+  @Local categorySheetVisible: boolean = false;
   private homeBlockDataSource: HomeBlockDataSource = new HomeBlockDataSource();
   private homeCoverDataSources: Map<string, HomeRecommendationDataSource<SearchResult>> = new Map();
   private emptyHomeCoverDataSource: HomeRecommendationDataSource<SearchResult> = new HomeRecommendationDataSource();
@@ -524,7 +525,8 @@ export struct HomePage {
     }
   }
 
-  private async loadHomeBlocks(preserveContent: boolean = false, forceRefresh: boolean = false): Promise<void> {
+  private async loadHomeBlocks(preserveContent: boolean = false, forceRefresh: boolean = false,
+    channelOverride?: string): Promise<void> {
     const generation = ++this.homeGen;
     this.loadingHome = true;
     this.categoryLoading = false;
@@ -532,6 +534,8 @@ export struct HomePage {
     if (!preserveContent) {
       this.updateHomeBlocks([]);
       this.updateHomeCategories([]);
+      this.updateHomeChannels([]);
+      this.selectedHomeChannel = '';
       this.currentSource = undefined;
       this.homeSourceName = '';
       this.homeSourceIndex = -1;
@@ -549,6 +553,8 @@ export struct HomePage {
       if (source === undefined || source.bookSourceUrl !== this.currentSource?.bookSourceUrl) {
         this.updateHomeBlocks([]);
         this.updateHomeCategories([]);
+        this.updateHomeChannels([]);
+        this.selectedHomeChannel = '';
       }
       this.currentSource = source;
       this.homeSourceName = source?.bookSourceName ?? '';
@@ -560,13 +566,20 @@ export struct HomePage {
         this.homeError = $r('app.string.home_source_no_discovery');
         return;
       }
+      const channel = channelOverride ?? (preserveContent ? this.selectedHomeChannel :
+        await PreferenceService.getHomeSourceChannel(source.bookSourceUrl));
+      if (generation !== this.homeGen) return;
       const content = await HomeSourceService.loadHome(source, forceRefresh,
         (partial: HomeSourceContent): void => {
           if (generation !== this.homeGen) return;
+          this.updateHomeChannels(partial.channels);
+          this.selectedHomeChannel = partial.channel;
+          this.homeError = HomeSourceService.isSupportedChannel(partial.channel) ? '' :
+            $r('app.string.home_channel_unsupported');
           if (this.homeCategories !== partial.categories) this.updateHomeCategories(partial.categories);
           // 刷新时保留现有书单；首次加载则哪个分类先完成就先展示。
           if (partial.blocks.length > 0 && this.homeBlocks !== partial.blocks) this.updateHomeBlocks(partial.blocks);
-        });
+        }, channel);
       if (generation !== this.homeGen) return;
       const blocks = content.blocks;
       this.updateHomeBlocks(blocks);
@@ -579,7 +592,8 @@ export struct HomePage {
       CoverPrefetcher.prefetchMany(covers, 12);
     } catch (error) {
       if (generation !== this.homeGen) return;
-      this.rankingMode = true;
+      // 已选源的频道请求失败时留在当前页，保留频道切换与重试入口。
+      this.rankingMode = this.currentSource === undefined;
       this.homeResolved = true;
       this.homeError = $r('app.string.home_source_load_failed');
       hilog.error(DOMAIN, TAG, 'loadHomeBlocks failed: %{public}s', String(error));
@@ -599,7 +613,31 @@ export struct HomePage {
   private updateHomeCategories(categories: HomeSourceCategory[]): void {
     this.homeCategories = categories;
     this.categoryNavDataSource.setCategories(categories);
-    this.categoryOverviewDataSource.setCategories(categories);
+
+  }
+
+  private updateHomeChannels(channels: string[]): void {
+    if (channels.length === this.homeChannels.length &&
+      channels.every((channel: string, index: number): boolean => channel === this.homeChannels[index])) return;
+    this.homeChannels = channels;
+    this.channelDataSource.setItems(channels);
+  }
+
+  private async switchHomeChannel(channel: string): Promise<void> {
+    const source = this.currentSource;
+    if (source === undefined || this.selectedHomeChannel === channel ||
+      (channel && !this.homeChannels.includes(channel))) return;
+    this.homeGen++;
+    this.selectedHomeChannel = channel;
+    this.selectCategoryTab(-1);
+    this.updateHomeBlocks([]);
+    this.updateHomeCategories([]);
+    this.categoryLoadOnReachEnd = false;
+    this.channelSave = this.channelSave.then((): Promise<void> =>
+      PreferenceService.setHomeSourceChannel(source.bookSourceUrl, channel)).catch((): void => {
+        this.showHomeSourceToast($r('app.string.home_channel_save_failed'));
+      });
+    await this.loadHomeBlocks(true, false, channel);
   }
 
   private revealCategoryTab(index: number, animated: boolean = false): void {
@@ -704,11 +742,21 @@ export struct HomePage {
   }
 
   private showCategoryOverview(): void {
-    if (this.selectedCategoryIndex === CATEGORY_OVERVIEW_INDEX) return;
-    // 首次加载仍需取得分类定义；已有分类书单请求则停止回写。
-    if (!this.loadingHome) this.homeGen++;
-    this.selectCategoryTab(CATEGORY_OVERVIEW_INDEX);
-    this.categoryLoading = false;
+    this.categorySheetVisible = true;
+  }
+
+  @Builder
+  private buildCategorySheet(): void {
+    HomeCategorySheet({
+      categories: this.homeCategories, loading: this.loadingHome,
+      selectedUrl: this.homeCategories[this.selectedCategoryIndex]?.url ?? '',
+      selectedGroup: this.homeCategories[this.selectedCategoryIndex]?.group ?? '',
+      onClose: (): void => { this.categorySheetVisible = false; },
+      onSelect: (category: HomeSourceCategory): void => {
+        this.categorySheetVisible = false;
+        this.switchCategoryByUrl(category.url, category.group);
+      }
+    })
   }
 
   /** 切换首页入口（-1=推荐，其他值为榜单或具体分类）。 */
@@ -779,8 +827,8 @@ export struct HomePage {
   }
 
   /** 通过 URL 切换分类 */
-  private async switchCategoryByUrl(url: string): Promise<void> {
-    const index = this.homeCategories.findIndex(cat => cat.url === url);
+  private async switchCategoryByUrl(url: string, group?: string): Promise<void> {
+    const index = this.homeCategories.findIndex(cat => cat.url === url && (group === undefined || cat.group === group));
     if (index !== -1) {
       await this.switchCategory(index);
     }
@@ -789,7 +837,7 @@ export struct HomePage {
   private isCategorySelected(cat: HomeSourceCategory): boolean {
     if (this.selectedCategoryIndex < 0) return false;
     const selected = this.homeCategories[this.selectedCategoryIndex];
-    return selected && selected.url === cat.url;
+    return selected && selected.url === cat.url && selected.group === cat.group;
   }
 
   @Local coverState: OneShotCoverState = OneShotTransitionCoordinator.getInstance().coverState;
@@ -963,6 +1011,16 @@ export struct HomePage {
   }
 
   @Computed
+  get homeCategoryNavHeight(): number {
+    return CATEGORY_NAV_ROW_HEIGHT + (this.homeChannels.length > 1 ? CATEGORY_NAV_ROW_HEIGHT : 0);
+  }
+
+  @Computed
+  get homeChannelHeight(): number {
+    return this.homeCategoryNavHeight - CATEGORY_NAV_ROW_HEIGHT;
+  }
+
+  @Computed
   get carouselFullHeight(): number {
     if (this.loadingHome && this.homeBlocks.length === 0) {
       return homeCoverCarouselHeight();
@@ -980,13 +1038,14 @@ export struct HomePage {
   get carouselViewportOpacity(): number {
     // Tab 吸顶时封面底部仍位于透明状态栏内，最后 64vp 淡出，连阴影一起退出。
     if (this.isSearchCollapsed) return 0;
-    const remaining: number = SEARCH_FIELD_ROW_HEIGHT + this.carouselFullHeight - this.headerScrollOffset;
+    const remaining: number = SEARCH_FIELD_ROW_HEIGHT + this.homeChannelHeight +
+      this.carouselFullHeight - this.headerScrollOffset;
     return Math.max(0, Math.min(1, remaining / HOME_CAROUSEL_SCROLL_FADE_DISTANCE));
   }
 
   @Computed
   get headerScrollRange(): number {
-    return SEARCH_FIELD_ROW_HEIGHT + this.carouselPanelHeight;
+    return SEARCH_FIELD_ROW_HEIGHT + this.homeChannelHeight + this.carouselPanelHeight;
   }
 
   @Computed
@@ -1019,7 +1078,7 @@ export struct HomePage {
   get homeTitleBarContent(): TitleBarContentOptions {
     const bottom: BottomBuilderParams = {
       builder: this.homeNavigationBottomBuilder,
-      height: this.carouselFullHeight + CATEGORY_NAV_ROW_HEIGHT
+      height: this.carouselFullHeight + this.homeCategoryNavHeight
     };
     const content: TitleBarContentOptions = {
       title: { mainTitle: '' },
@@ -1541,6 +1600,11 @@ export struct HomePage {
     })
     .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('page-type-swipe')
       .onActionEnd((event: GestureEvent): void => this.handleCategorySwipe(event)))
+    .bindSheet($$this.categorySheetVisible, this.buildCategorySheet(), {
+      height: '90%', detents: ['90%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
+      dragBar: true, showClose: false, backgroundColor: AppMaterial.SheetBackground,
+      blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick
+    })
     .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult =>
       info.tag === 'page-type-swipe' && GeneralSettings.current.swipeSwitchTabs ?
         GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
@@ -1553,7 +1617,7 @@ export struct HomePage {
         Column()
           .width('100%')
           .height(this.topSafeVp + SEARCH_FIELD_ROW_HEIGHT +
-            this.carouselFullHeight + CATEGORY_NAV_ROW_HEIGHT)
+            this.carouselFullHeight + this.homeCategoryNavHeight)
 
         Stack({ alignContent: Alignment.Top }) {
           if (this.refreshPullOffset > 0) {
@@ -1597,7 +1661,7 @@ export struct HomePage {
     // 标题栏只响应吸顶后的内层滚动；外层原生移动整个 HDS，避免每帧裁剪、重建轮播。
     .bindToScrollable([this.recommendationScroller, this.contentScroller])
     .width('100%')
-    .height(this.contentHeight + SEARCH_FIELD_ROW_HEIGHT + this.carouselFullHeight)
+    .height(this.contentHeight + SEARCH_FIELD_ROW_HEIGHT + this.homeChannelHeight + this.carouselFullHeight)
     .flexShrink(0)
     // 整个 HDS（轮播、Tab、书单）等距移动，内部高度和标题栏配置不参与动画。
     .translate({ y: (this.carouselExpansion - 1) * this.carouselFullHeight })
@@ -1626,7 +1690,8 @@ export struct HomePage {
               Column() {
                 ThemeIconComponent({ role: ThemeIconRole.Search, symbol: $r('sys.symbol.magnifyingglass'),
                   iconSize: 48, tint: AppTheme.TextTertiary })
-                Text($r('app.string.search_placeholder'))
+                Text(HomeSourceService.isSupportedChannel(this.selectedHomeChannel) ?
+                  $r('app.string.search_placeholder') : this.selectedHomeChannel)
                   .fontSize(AppFont.Body)
                   .fontColor(AppTheme.TextTertiary)
                   .margin({ top: AppSpace.Md })
@@ -1638,53 +1703,10 @@ export struct HomePage {
               .width('100%')
               .height(300)
               .justifyContent(FlexAlign.Center)
-              .onClick(() => this.onSearchTap())
+              .onClick(() => {
+                if (HomeSourceService.isSupportedChannel(this.selectedHomeChannel)) this.onSearchTap();
+              })
             }
-          }
-        } else if (this.selectedCategoryIndex === CATEGORY_OVERVIEW_INDEX) {
-          ListItem() {
-            Row() {
-              Text($r('app.string.home_categories_all'))
-                .fontSize(AppFont.Title).fontWeight(FontWeight.Bold)
-                .fontColor(AppTheme.TextPrimary)
-              Blank()
-              Text($r('app.string.home_categories_count', this.homeCategories.length))
-                .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
-            }
-            .width('100%').padding({ left: AppSpace.Md, right: AppSpace.Md,
-              top: AppSpace.Sm, bottom: AppSpace.Md })
-          }
-          if (this.homeCategories.length === 0) {
-            ListItem() {
-              Column({ space: AppSpace.Sm }) {
-                if (this.loadingHome) {
-                  LoadingProgress().width(32).height(32).color(AppColor.Brand)
-                } else {
-                  Text(this.homeError || $r('app.string.home_categories_empty'))
-                    .fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
-                    .textAlign(TextAlign.Center)
-                }
-              }
-              .width('100%').height(220).justifyContent(FlexAlign.Center).padding(AppSpace.Md)
-            }
-          } else {
-            LazyForEach(this.categoryOverviewDataSource, (row: HomeCategoryOverviewRow) => {
-              ListItem() {
-                Row({ space: AppSpace.Sm }) {
-                  ForEach(row.categories, (category: HomeSourceCategory, columnIndex: number) => {
-                    Column() {
-                      this.buildCategoryCard(category, row.startIndex + columnIndex)
-                    }
-                    .layoutWeight(1)
-                  }, (category: HomeSourceCategory) => category.url)
-                  if (row.categories.length < 2) {
-                    Column().layoutWeight(1)
-                  }
-                }
-                .width('100%').padding({ left: AppSpace.Md, right: AppSpace.Md })
-              }
-              .margin({ bottom: AppSpace.Sm })
-            }, (row: HomeCategoryOverviewRow) => `${this.currentSource?.bookSourceUrl}#${row.key}`)
           }
         } else if (this.categoryLoading && this.categoryBooks.length === 0) {
           ListItem() {
@@ -1921,20 +1943,19 @@ export struct HomePage {
     .width(HOME_COVER_CARD_SIZE)
   }
 
-  @Builder
-  buildCategoryCard(category: HomeSourceCategory, index: number) {
-    HomeCategoryCard({
-      label: category.name,
-      cardColor: CATEGORY_CARD_COLORS[index % CATEGORY_CARD_COLORS.length],
-      indexHint: index,
-      animateEntrance: !this.carouselTransitioning,
-      onTap: () => this.switchCategoryByUrl(category.url)
-    })
-  }
-
   @LocalBuilder
   buildHomeNavigationBottom() {
     Column() {
+      if (this.homeChannels.length > 1) {
+        Column() {
+          this.buildChannelTags()
+        }
+        .width('100%')
+        .height(this.homeChannelHeight)
+        // 分类切换仅折叠轮播；抵消外层位移，让频道继续留在搜索栏下方。
+        .translate({ y: (1 - this.carouselExpansion) * this.carouselFullHeight })
+        .zIndex(1)
+      }
       // 固定尺寸节点随整个导航移动，避免 HDS 在展开途中重新布局、裁掉封面。
       if (this.carouselFullHeight > 0) {
         Column() {
@@ -1969,7 +1990,38 @@ export struct HomePage {
       this.buildCategoryTags()
     }
     .width('100%')
-    .height(this.carouselFullHeight + CATEGORY_NAV_ROW_HEIGHT)
+    .height(this.carouselFullHeight + this.homeCategoryNavHeight)
+  }
+
+  @Builder
+  buildChannelTags() {
+    List({ space: AppSpace.Xs }) {
+      ListItem() {
+        ImmersiveTabComponent({
+          label: $r('app.string.home_channel_all'), fitContent: true,
+          selected: this.selectedHomeChannel === '',
+          onTap: () => this.switchHomeChannel('')
+        })
+      }
+      LazyForEach(this.channelDataSource, (channel: string) => {
+        ListItem() {
+          ImmersiveTabComponent({
+            label: channel, fitContent: true,
+            selected: this.selectedHomeChannel === channel,
+            onTap: () => this.switchHomeChannel(channel)
+          })
+        }
+      }, (channel: string) => `${this.currentSource?.bookSourceUrl}#channel#${channel}`)
+    }
+    .width('100%')
+    .height(CATEGORY_NAV_ROW_HEIGHT)
+    .padding({ left: AppSpace.Md, right: AppSpace.Md, top: 7, bottom: 7 })
+    .listDirection(Axis.Horizontal)
+    .scrollBar(BarState.Off)
+    .fadingEdge(true, { fadingEdgeLength: LengthMetrics.vp(CATEGORY_NAV_FADE_LENGTH) })
+    .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+    .cachedCount(1)
+    .accessibilityDescription($r('app.string.home_channel_accessibility'))
   }
 
   @Builder
@@ -1978,7 +2030,7 @@ export struct HomePage {
       ImmersiveTabComponent({
         label: $r('app.string.home_categories'),
         fitContent: true,
-        selected: this.selectedCategoryIndex === CATEGORY_OVERVIEW_INDEX,
+        selected: this.categorySheetVisible,
         onTap: () => this.showCategoryOverview()
       })
       List({ space: AppSpace.Xs, scroller: this.categoryNavScroller }) {
@@ -1993,13 +2045,14 @@ export struct HomePage {
         LazyForEach(this.categoryNavDataSource, (cat: HomeSourceCategory) => {
           ListItem() {
             ImmersiveTabComponent({
-              label: cat.name,
+              label: !this.selectedHomeChannel && this.homeChannels.length > 1 && cat.group ?
+                `${cat.group} · ${cat.name}` : cat.name,
               fitContent: true,
               selected: this.isCategorySelected(cat),
-              onTap: () => this.switchCategoryByUrl(cat.url)
+              onTap: () => this.switchCategoryByUrl(cat.url, cat.group)
             })
           }
-        }, (cat: HomeSourceCategory) => `${this.currentSource?.bookSourceUrl}#${cat.url}#${cat.name}`)
+        }, (cat: HomeSourceCategory) => `${this.currentSource?.bookSourceUrl}#${cat.group}#${cat.url}#${cat.name}`)
       }
       .layoutWeight(1)
       .height(CATEGORY_NAV_HEIGHT)

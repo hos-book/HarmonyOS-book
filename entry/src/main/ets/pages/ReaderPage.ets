@@ -6,6 +6,7 @@ import { ReaderToolsService } from '../service/text/ReaderToolsService';
 import { ReaderBookmarkSheet } from '../components/ReaderBookmarkSheet';
 import { ReaderReplaceSheet } from '../components/ReaderReplaceSheet';
 import { LocalTextImage } from '../service/text/LocalTextImage';
+import { LocalTextImageSizing } from '../service/text/LocalTextImageSizing';
 import { ReaderBrightnessBar } from '../components/ReaderBrightnessBar';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { ReaderHoldingHandService } from '../service/text/ReaderHoldingHandService';
@@ -31,6 +32,7 @@ import { HdsCompat, CompatibleTabsModifier } from '../utils/HdsCompat';
 import { PreferenceService } from '../service/PreferenceService';
 import { ReaderSpeechText } from '../components/ReaderSpeechText';
 import { ReaderSpeechSheet } from '../components/ReaderSpeechSheet';
+import { ImmersiveActionButton } from '../components/ImmersiveActionButton';
 import { ReadingTimeTracker } from '../service/text/ReadingTimeTracker';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { TextToSpeechState } from '../model/TextToSpeechState';
@@ -235,6 +237,8 @@ export struct ReaderPage {
   private openingSpeechPlayer: boolean = false;
   private speechSelectionSerial: number = 0;
   @Local speechNavigationPending: boolean = false;
+  @Local speechFollowPage: boolean = true;
+  @Local speechBrowsing: boolean = false;
   @Local speechFollowOffset: number = -1;
   private speechNavigationSerial: number = 0;
   private speechPageFloor: number = -1;
@@ -941,6 +945,7 @@ export struct ReaderPage {
     const generation = this.textRulesGeneration;
     const raw = await this.getRawOnlineTextChapterContent(book, resourceIndex, forceReload);
     const document = this.context ? await ReaderToolsService.render(this.context, book.id, raw) : ReaderTextDocument.original(raw);
+    await LocalTextImageSizing.prepare(document.content);
     if (generation !== this.textRulesGeneration) return this.getOnlineTextChapterContent(book, resourceIndex);
     this.textDocuments.set(resourceIndex, document);
     if (this.textDocuments.size > 8) {
@@ -1010,6 +1015,11 @@ export struct ReaderPage {
     return content;
   }
 
+  private useReaderColumns(): boolean {
+    return this.pageTurnMode !== PageTurnMode.Vertical && this.readerTextWidthVp >= 600 &&
+      this.readerViewportWidthVp > this.readerViewportHeightVp;
+  }
+
   private paginateOnlineTextContent(content: string): OnlineTextPage[] {
     const density = this.getUIContext().vp2px(1);
     const fontSizePx = this.getUIContext().fp2px(this.fontSize);
@@ -1025,8 +1035,10 @@ export struct ReaderPage {
     const contentHeightVp = this.readerTextHeightVp > 0 ?
       Math.max(1, this.readerTextHeightVp - READER_TEXT_LAYOUT_GUARD) :
       Math.max(80, viewportHeightVp - reservedHeightVp);
-    return OnlineTextPaginator.paginate(content, contentWidthVp * density,
+    const columns = this.useReaderColumns();
+    const pages = OnlineTextPaginator.paginate(content, (columns ? (contentWidthVp - 24) / 2 : contentWidthVp) * density,
       contentHeightVp * density, fontSizePx, this.lineHeight, this.fontFamily, this.fontWeight, this.textAlignment, this.paragraphSpacing);
+    return columns ? OnlineTextPage.spreads(content, pages) : pages;
   }
 
   private currentOnlineTextCharOffset(): number {
@@ -1211,7 +1223,7 @@ export struct ReaderPage {
     if (!this.readerVisible || this.leaving || this.loading || !this.book || !speech.active ||
       speech.bookId !== this.bookId || speech.loading || !this.isOnlineTextBook()) return;
     this.readingTime.checkpoint(this.book, !speech.playing && this.readingForeground);
-    if (!speech.playing || this.speechNavigationPending || this.speechScrollPending || this.selectingText ||
+    if (!speech.playing || this.speechBrowsing || this.speechNavigationPending || this.speechScrollPending || this.selectingText ||
       this.onlineTextLoading || this.onlineTextTurnPreview !== null) return;
     if (speech.chapterIndex !== this.currentResourceIndex) {
       this.loadOnlineTextChapter(speech.chapterIndex,
@@ -1232,6 +1244,7 @@ export struct ReaderPage {
   }
 
   private async startReaderSpeech(book: Book, chapterIndex: number, rawOffset: number, displayOffset: number): Promise<void> {
+    this.speechBrowsing = false;
     const ticket = ++this.speechNavigationSerial;
     this.speechNavigationPending = true;
     this.speechPageFloorChapter = chapterIndex;
@@ -1253,11 +1266,41 @@ export struct ReaderPage {
       this.pageTurnMode === PageTurnMode.Vertical ? [] : this.onlineTextPages.map((page: OnlineTextPage): number => page.endOffset));
   }
 
+  private detachSpeechBrowsing(): boolean {
+    const state = this.speechState;
+    if (this.speechFollowPage || !state.active || state.bookId !== this.bookId ||
+      (!state.playing && !state.loading)) return false;
+    this.speechBrowsing = true;
+    this.speechFollowOffset = -1;
+    return true;
+  }
+
+  private async returnToSpeech(): Promise<void> {
+    if (!this.book || this.onlineTextLoading || this.speechState.bookId !== this.bookId) return;
+    this.speechPageFloor = -1;
+    this.speechPageFloorChapter = -1;
+    const speech = TextToSpeechService.getInstance();
+    if (await this.loadOnlineTextChapter(speech.state.chapterIndex, speech.currentRawOffset(), 0, false, false)) {
+      this.speechBrowsing = false;
+      this.syncSpeechPosition();
+    }
+  }
+
+  private listenFromCurrentPage(): void {
+    if (!this.book || this.onlineTextLoading) return;
+    this.startReaderSpeech(this.book, this.currentResourceIndex, this.currentRawCharOffset(),
+      this.currentOnlineTextCharOffset()).catch((_error: Error): void => {
+      if (!this.leaving) this.showToast($r('app.string.tts_engine_error'));
+    });
+  }
+
   private followReadingWithSpeech(): void {
     const book = this.book;
     const speech = TextToSpeechService.getInstance();
     if (book === null || this.leaving || !this.isOnlineTextBook() ||
       !speech.state.active || speech.state.bookId !== book.id) return;
+    if (this.detachSpeechBrowsing()) return;
+    this.speechBrowsing = false;
     if (!speech.state.playing && !speech.state.loading) {
       this.speechPageFloorChapter = this.currentResourceIndex;
       this.speechPageFloor = this.currentOnlineTextCharOffset();
@@ -1298,6 +1341,7 @@ export struct ReaderPage {
   }
 
   private beginContinuousSpeechTurn(): void {
+    this.detachSpeechBrowsing();
     if (!this.speechScrollPending) {
       this.speechScrollChapter = this.currentResourceIndex;
       this.speechScrollOffset = this.currentOnlineTextCharOffset();
@@ -1396,6 +1440,7 @@ export struct ReaderPage {
       // 智控键入口暂时隐藏，旧配置也不再启用事件订阅。
       this.smartKeyPageTurn = false;
       this.pageTurnMode = settings.pageTurnMode;
+      this.speechFollowPage = settings.speechFollowPage;
       this.showReadingStatus = settings.showReadingStatus;
       this.alwaysShowStatusBar = settings.alwaysShowStatusBar;
       this.syncReaderStatusBar();
@@ -1410,6 +1455,8 @@ export struct ReaderPage {
 
   /** 读盘失败或用户点「恢复默认」时回到出厂配置 */
   private applyDefaultReadingSettings(): void {
+    this.speechFollowPage = true;
+    this.speechBrowsing = false;
     this.followSystemTheme = false;
     this.marginLeft = 16;
     this.marginRight = 16;
@@ -1478,6 +1525,7 @@ export struct ReaderPage {
   private createReadingSettings(): TextReadingSettings {
     const settings = TextReadingSettings.ofAll(this.fontSize, this.lineHeight, this.themeId,
       this.customBackground, this.backgroundPattern, this.bgImagePath, this.overlayAlpha, this.pageTurnMode, this.showReadingStatus);
+    settings.speechFollowPage = this.speechFollowPage;
     settings.paragraphSpacing = this.paragraphSpacing;
     settings.textAlignment = this.textAlignment;
     settings.fontWeight = this.fontWeight;
@@ -1852,6 +1900,7 @@ export struct ReaderPage {
     this.showChapterSheet = false;
     if (!keepReaderBar) this.hideReaderBar();
     if (this.isOnlineTextBook()) {
+      this.detachSpeechBrowsing();
       if (await this.loadOnlineTextChapter(resourceIndex, 0, 0, false, false)) this.followReadingWithSpeech();
       return;
     }
@@ -1971,6 +2020,11 @@ export struct ReaderPage {
     const preview = this.onlineTextTurnPreview;
     return (preview !== null ? preview.pages[preview.pageIndex] :
       this.onlineTextPages[this.onlineTextPageIndex]) ?? new OnlineTextPage();
+  }
+
+  private currentOnlineTextColumn(column: number): OnlineTextPage {
+    const page = this.currentOnlineTextPageLayout();
+    return page.columns[column] ?? (column === 0 ? page : new OnlineTextPage());
   }
 
   private currentOnlineTextPageContent(): string {
@@ -2602,6 +2656,12 @@ export struct ReaderPage {
   @Builder
   private buildSpeechSheet(): void {
     ReaderSpeechSheet({ state: this.speechState,
+      showReadingMode: true, speechFollowPage: this.speechFollowPage,
+      onFollowPageChange: (follow: boolean): void => {
+        this.speechFollowPage = follow;
+        this.saveReadingSettings();
+        if (follow && this.speechBrowsing) this.returnToSpeech();
+      },
       onClose: (): void => { this.showSpeechSheet = false; }
     })
   }
@@ -2685,6 +2745,16 @@ export struct ReaderPage {
             .width('100%')
             .height('100%')
           this.buildReaderTabs()
+          if (this.speechBrowsing && this.speechState.active && this.speechState.bookId === this.bookId &&
+            !this.readerBarVisible && !this.showChapterSheet && !this.showSettingsSheet && !this.showSpeechSheet) {
+            Row({ space: 8 }) {
+              ImmersiveActionButton({ label: $r('app.string.reader_speech_return'),
+                onPress: (): void => { this.returnToSpeech(); } }).width(72).id('reader-speech-return')
+              ImmersiveActionButton({ label: $r('app.string.reader_speech_from_here'),
+                onPress: (): void => this.listenFromCurrentPage() }).width(88).id('reader-speech-from-here')
+            }.enabled(!this.onlineTextLoading).hitTestBehavior(HitTestMode.Default)
+              .position({ bottom: this.readerTextBottomPaddingVp() + this.readerFooterHeight() + 8 })
+          }
           if (this.showBrightnessBar) { this.buildBrightnessBar() }
           if (this.readerBarVisible && this.speechState.active && this.speechState.bookId === this.bookId && this.isOnlineTextBook()) {
             this.buildSpeechMiniPlayer()
@@ -2908,6 +2978,25 @@ export struct ReaderPage {
   }
 
   @Builder
+  private buildReaderColumn(column: number): void {
+    Column() {
+      ReaderSpeechText({
+        onReadFrom: (offset: number): void => { this.readFromParagraph(this.onlineTextChapterIndex(), offset); },
+        selectionEnabled: this.onlineTextTurnPreview === null && !this.readerBarVisible && !this.showChapterSheet &&
+          !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet &&
+          !this.showReplaceSheet && !this.showReaderMenu,
+        onSelectionChange: (active: boolean): void => { this.selectingText = active; },
+        page: this.currentOnlineTextColumn(column), text: this.currentOnlineTextColumn(column).text,
+        source: (this.onlineTextTurnPreview?.content ?? this.onlineTextContent).substring(this.currentOnlineTextColumn(column).startOffset, this.currentOnlineTextColumn(column).endOffset),
+        sourceStart: this.currentOnlineTextColumn(column).startOffset, state: this.speechState,
+        highlightEnabled: this.speechState.bookId === this.bookId && this.speechState.chapterIndex === this.onlineTextChapterIndex(),
+        fontSize: this.fontSize, lineHeight: this.lineHeight, palette: this.palette,
+        fontFamily: this.fontFamily, fontWeight: this.fontWeight
+      })
+    }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
   buildOnlineTextPage(): void {
     Stack() {
       ReaderBackground({
@@ -2958,7 +3047,7 @@ export struct ReaderPage {
               keyTurnRequest: this.keyTurnRequest,
               autoScrollReady: this.autoScrollReady, autoScrollSpeed: this.autoScrollSpeed,
               speechState: this.speechState,
-              followOffset: this.speechNavigationPending || this.speechScrollPending || this.selectingText ? -1 : this.speechFollowOffset,
+              followOffset: this.speechBrowsing || this.speechNavigationPending || this.speechScrollPending || this.selectingText ? -1 : this.speechFollowOffset,
               revision: this.continuousRevision, chapterIndex: this.currentResourceIndex,
               content: this.onlineTextContent, charOffset: this.currentOnlineTextCharOffset(),
               chapterCount: this.book?.chapters.length ?? 0,
@@ -2981,20 +3070,12 @@ export struct ReaderPage {
               onAutoPageDelay: (): void => this.autoPage.restart()
             })
           } else {
-            ReaderSpeechText({
-              onReadFrom: (offset: number): void => { this.readFromParagraph(this.currentResourceIndex, offset); },
-              selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet && !this.showReplaceSheet && !this.showReaderMenu,
-              onSelectionChange: (active: boolean): void => { this.selectingText = active; },
-              page: this.currentOnlineTextPageLayout(),
-              text: this.currentOnlineTextPageContent(),
-              source: this.currentOnlineTextPageSource(),
-              sourceStart: this.onlineTextPages[this.onlineTextPageIndex]?.startOffset ?? 0,
-              state: this.speechState,
-              highlightEnabled: this.speechState.bookId === this.bookId &&
-                this.speechState.chapterIndex === this.currentResourceIndex,
-              fontSize: this.fontSize, lineHeight: this.lineHeight, palette: this.palette,
-              fontFamily: this.fontFamily, fontWeight: this.fontWeight
-            })
+            Row({ space: 24 }) {
+              this.buildReaderColumn(0)
+              if (this.currentOnlineTextPageLayout().columns.length > 0) {
+                this.buildReaderColumn(1)
+              }
+            }.width('100%').alignItems(VerticalAlign.Top)
           }
         }
         .width('100%')

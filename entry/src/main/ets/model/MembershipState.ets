@@ -27,6 +27,12 @@ export class MembershipState {
   @Trace verifiedAt: number = 0;
   @Trace private displaySnapshot: MembershipDisplaySnapshot | null = null;
 
+  /** 只供已保存主题的展示使用；hasAccess 仍以本进程核验结果为准。 */
+  get canDisplaySavedTheme(): boolean {
+    return this.hasAccess || (!this.confirmedInactive &&
+      (this.active || MembershipDisplaySnapshot.validForAppearance(this.displaySnapshot, Date.now())));
+  }
+
   get displayActive(): boolean {
     return MembershipState.featureEnabled &&
       (this.active || MembershipDisplaySnapshot.valid(this.displaySnapshot, Date.now()));
@@ -47,7 +53,7 @@ export class MembershipState {
   get displayLifetime(): boolean { return this.displayProductId === 'lastVip'; }
 
   restoreDisplay(snapshot: MembershipDisplaySnapshot | null): void {
-    this.displaySnapshot = MembershipDisplaySnapshot.valid(snapshot, Date.now()) ? snapshot : null;
+    this.displaySnapshot = MembershipDisplaySnapshot.validForAppearance(snapshot, Date.now()) ? snapshot : null;
   }
 
   createDisplaySnapshot(): MembershipDisplaySnapshot | null {

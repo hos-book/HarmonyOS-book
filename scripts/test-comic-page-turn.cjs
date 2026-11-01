@@ -72,6 +72,24 @@ touch(dissolve, TouchType.Down); now += 100; touch(dissolve, TouchType.Up);
 assert.equal(dissolve.pageIndex, 2, 'dissolve also starts on release');
 console.log('comic page input: immediate turn, no duplicate, center toolbar, hold/move/cancel and animation lock passed');
 
+const rtl = reader(2);
+touch(rtl, TouchType.Down, 20); now += 100; touch(rtl, TouchType.Up, 20);
+assert.equal(rtl.pageIndex, 2, 'manga left tap advances');
+rtl.onContentTap({ windowX: 20, windowY: 300 });
+assert.equal(rtl.turns.length, 1, 'manga native click cannot advance twice');
+touch(rtl, TouchType.Down, 280); now += 100; touch(rtl, TouchType.Up, 280);
+assert.equal(rtl.pageIndex, 1, 'manga right tap goes back');
+rtl.pageIndex = 3;
+touch(rtl, TouchType.Down, 20); now += 100; touch(rtl, TouchType.Up, 280);
+assert.deepEqual(rtl.chapters, [1], 'manga right swipe at last page opens next chapter');
+rtl.chapters = []; rtl.chapterIndex = 1; rtl.pageIndex = 0;
+touch(rtl, TouchType.Down, 280); now += 100; touch(rtl, TouchType.Up, 20);
+assert.deepEqual(rtl.chapters, [0], 'manga left swipe at first page opens previous chapter');
+rtl.chapters = []; rtl.chapterIndex = 0;
+touch(rtl, TouchType.Down, 280); now += 100; touch(rtl, TouchType.Up, 280);
+assert.deepEqual(rtl.chapters, [], 'manga cannot move before the first chapter');
+console.log('PASS: manga tap directions, duplicate isolation and chapter swipe boundaries');
+
 const zoomed = reader(); zoomed.zoomActive = true;
 touch(zoomed, TouchType.Down); now += 100; touch(zoomed, TouchType.Up);
 zoomed.onContentTap({ windowX: 150, windowY: 300 });
@@ -148,3 +166,32 @@ keys.smartCallback(false); assert.equal(keys.pageIndex, 1);
 keys.foreground = false; keys.syncVolumeKeys();
 assert.equal(keys.smartSubscribed, false);
 keys.smartCallback(true); assert.equal(keys.pageIndex, 1, 'late smart callbacks cannot turn in background');
+
+// Run the real preference accessors against a persisted value shared by fresh service instances.
+const prefSource = fs.readFileSync(path.join(root, 'service/PreferenceService.ets'), 'utf8');
+const prefMethods = ['getComicReadingMode', 'setComicReadingMode'].map(name => {
+  const match = prefSource.match(new RegExp(`  static async ${name}\\([^]*?\\n  }`));
+  assert.ok(match, name);
+  return match[0];
+}).join('\n');
+let savedMode = 0;
+function preferenceSession() {
+  const context = { store: { getSync: () => savedMode }, save: async (key, value) => { savedMode = value; } };
+  vm.runInNewContext(compile(`class PreferenceService {
+    static async ensureStore() { return store; }
+    static async saveComicPreference(key, value) { await save(key, value); }
+    ${prefMethods}
+  } globalThis.service = PreferenceService;`), context);
+  return context.service;
+}
+(async () => {
+  for (const mode of [0, 1, 2, 3]) {
+    await preferenceSession().setComicReadingMode(mode);
+    assert.equal(await preferenceSession().getComicReadingMode(), mode, 'reading mode survives reopening');
+  }
+  savedMode = 2;
+  assert.equal(await preferenceSession().getComicReadingMode(), 2, 'legacy manga mode remains enabled');
+  await preferenceSession().setComicReadingMode(99);
+  assert.equal(await preferenceSession().getComicReadingMode(), 0, 'invalid mode falls back to scrolling');
+  console.log('PASS: all comic modes persist, including legacy manga preference');
+})().catch(error => { console.error(error); process.exitCode = 1; });

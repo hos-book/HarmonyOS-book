@@ -1,6 +1,25 @@
+export class LocalTextImageSize {
+  width: number = 0;
+  height: number = 0;
+}
+
 /** 图片占位保留在字符坐标中；朗读使用等长空白，避免听读位置漂移。 */
 export class LocalTextImage {
   private static root: string = '';
+  private static sizes: Map<string, LocalTextImageSize> = new Map();
+
+  static size(path: string): LocalTextImageSize | undefined { return LocalTextImage.sizes.get(path); }
+
+  static rememberSize(path: string, width: number, height: number): void {
+    if (!LocalTextImage.resolve(path)) return;
+    const size = new LocalTextImageSize();
+    size.width = Number.isFinite(width) && width > 0 ? width : 0;
+    size.height = Number.isFinite(height) && height > 0 ? height : 0;
+    LocalTextImage.sizes.set(path, size);
+    if (LocalTextImage.sizes.size > 8192) {
+      for (const key of LocalTextImage.sizes.keys()) { LocalTextImage.sizes.delete(key); break; }
+    }
+  }
 
   static setRoot(filesDir: string): void { LocalTextImage.root = `${filesDir}/ebooks/`; }
 

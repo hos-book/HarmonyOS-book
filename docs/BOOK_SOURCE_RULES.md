@@ -17,6 +17,8 @@
 
 ## 执行链
 
+首页保留发现面板条目的 `group`，原生 `explore.menus` 的无目标标题由现有桥接层转换为分组。多个分组显示独立频道，综合预览轮询各组且最多四个分类；频道内保留全部分类。顶层 `type` 不代表每本作品类型，打开作品仍沿用列表/详情返回的类型。明确的视频分组从首页频道、分类和推荐中全部过滤，不请求内容。频道选择是按源保存的本机首页偏好，不改写源 JSON，也不自动改变 `vars.channel` 等搜索变量。
+
 `LocalRuleSourceImportParser → LocalRuleSourceRepository → BookSourceService / LocalRulePanelService → LocalRuleDispatcher / LightSourceBridge → LightSourceCore → 轻页原规则核心`
 
 规则组合、CSS、XPath、JSONPath、正则、URL选项、分页、登录脚本、原生源设置、图片、音频、视频和段评动作由上游核心处理，不再使用简听旧提取器、URL分析器或按站点的内容协议适配器。脚本经 `LightSourceSandbox → LocalRuleQuickJsRuntime.execute()` 在独立 taskpool 有界 QuickJS 中执行；原生 JS 的宿主调用通过 JSON 邮箱暂停、响应后继续，兼容源仍沿用阶段回放，网页渲染与嗅探使用轻页宿主协议。

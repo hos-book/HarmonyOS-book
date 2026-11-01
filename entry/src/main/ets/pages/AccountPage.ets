@@ -16,6 +16,7 @@ import {
 } from '../service/CloudBackupService';
 import { AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
+import { WebDavBackupCard } from '../components/WebDavBackupCard';
 
 @ComponentV2
 export struct AccountPage {
@@ -322,8 +323,9 @@ export struct AccountPage {
       this.getUIContext().showAlertDialog({
         title,
         message,
-        primaryButton: { value: confirmText, action: () => finish(true) },
-        secondaryButton: { value: $r('app.string.hw_auth_cancel'), action: () => finish(false) },
+        primaryButton: { value: confirmText, fontColor: AppColor.Brand, action: () => finish(true) },
+        secondaryButton: { value: $r('app.string.hw_auth_cancel'), fontColor: $r('sys.color.font_secondary'),
+          action: () => finish(false) },
         cancel: () => finish(false)
       });
     });
@@ -400,6 +402,10 @@ export struct AccountPage {
           Column({ space: AppSpace.Lg }) {
             this.profileCard()
             this.localBackupCard()
+            WebDavBackupCard({ available: this.manualAvailable(),
+              runManual: (action: () => Promise<void>): Promise<void> => this.runManual(action),
+              confirm: (title: ResourceStr, message: ResourceStr, button: ResourceStr): Promise<boolean> =>
+                this.confirmRestore(title, message, button) })
             this.backupCard()
             if (this.auth.isLoggedIn) {
               Button($r('app.string.hw_auth_logout_title'), { type: ButtonType.Normal })

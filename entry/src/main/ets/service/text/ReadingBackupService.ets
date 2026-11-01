@@ -35,6 +35,7 @@ export class ReadingSettingsBackup {
   pageTurnMode: string = 'cover';
   showReadingStatus: boolean = true;
   alwaysShowStatusBar: boolean = true;
+  speechFollowPage: boolean = true;
   followSystemTheme: boolean = false;
   marginLeft: number = 16;
   marginRight: number = 16;
@@ -92,6 +93,7 @@ export class ReadingBackupService {
     saved.pageTurnMode = settings.pageTurnMode;
     saved.showReadingStatus = settings.showReadingStatus;
     saved.alwaysShowStatusBar = settings.alwaysShowStatusBar;
+    saved.speechFollowPage = settings.speechFollowPage;
     saved.followSystemTheme = settings.followSystemTheme;
     saved.marginLeft = settings.marginLeft;
     saved.marginRight = settings.marginRight;
@@ -155,6 +157,7 @@ export class ReadingBackupService {
     settings.pageTurnMode = saved.pageTurnMode;
     settings.showReadingStatus = saved.showReadingStatus;
     settings.alwaysShowStatusBar = saved.alwaysShowStatusBar;
+    settings.speechFollowPage = saved.speechFollowPage !== false;
     settings.followSystemTheme = saved.followSystemTheme;
     settings.marginLeft = saved.marginLeft;
     settings.marginRight = saved.marginRight;

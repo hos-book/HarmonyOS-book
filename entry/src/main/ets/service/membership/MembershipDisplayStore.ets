@@ -9,7 +9,7 @@ export class MembershipDisplayStore {
     const raw = await store.get('snapshot', '');
     if (typeof raw !== 'string' || raw.length === 0 || raw.length > 512) return null;
     const value: MembershipDisplaySnapshot = JSON.parse(raw);
-    if (!MembershipDisplaySnapshot.valid(value, Date.now())) return null;
+    if (!MembershipDisplaySnapshot.validForAppearance(value, Date.now())) return null;
     const snapshot = new MembershipDisplaySnapshot();
     snapshot.productId = value.productId;
     snapshot.expiresAt = value.expiresAt;

@@ -26,6 +26,7 @@ export struct BookCard {
   @Param coverRadius: number = AppRadius.Md;
   @Param showSourceBadge: boolean = true;
   @Param showRating: boolean = false;
+  @Param showLatestChapter: boolean = false;
   @Event onTap: (id: string) => void = () => {};
 
   @Local coverState: OneShotCoverState = OneShotTransitionCoordinator.getInstance().coverState;
@@ -204,6 +205,11 @@ export struct BookCard {
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
+        if (this.showLatestChapter && this.book.latestChapterTitle) {
+          Text($r('app.string.source_latest_chapter', this.book.latestChapterTitle))
+            .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+            .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+        }
         Text(this.book.author)
           .fontSize(AppFont.Caption)
           .fontColor($r('sys.color.font_secondary'))

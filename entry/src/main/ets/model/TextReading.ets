@@ -87,6 +87,7 @@ export class ReaderCornerLayout {
 }
 
 export class TextReadingSettings {
+  speechFollowPage: boolean = true;
   showBrightnessBar: boolean = true;
   brightness: number = -1;
 

@@ -5,6 +5,14 @@ export class AdaptiveLayout {
   static readonly MEDIUM_WIDTH: number = 600;
   static readonly LARGE_WIDTH: number = 840;
 
+  /** 左栏至少 320vp，右栏至少 400vp；窄折叠窗口不强行压缩正文。 */
+  static navigationUsesColumns(width: number, paths: string[]): boolean {
+    if (!Number.isFinite(width) || width < 720 || paths.length === 0) return false;
+    // 沉浸页及其子页面沿用全宽，返回后再恢复双栏。
+    return !paths.some((name: string): boolean =>
+      name === 'reader' || name === 'comicReader' || name === 'player' || name === 'ruleSourceLogin');
+  }
+
   /** 保留手机三列基线，大窗口增加信息量而不是无限放大封面。 */
   static bookColumns(width: number): number {
     if (!Number.isFinite(width) || width <= 0) return 3;

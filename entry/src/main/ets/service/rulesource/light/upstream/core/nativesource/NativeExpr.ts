@@ -595,7 +595,7 @@ const BUILTIN_NAMES = ['str', 'num', 'int', 'bool', 'typeOf', 'len', 'trim', 'lo
   'values', 'entries', 'get', 'lookup', 'map', 'flatMap', 'filter', 'find', 'range', 'sum', 'min', 'max', 'abs', 'round', 'floor',
   'ceil', 'now', 'formatDate', 'stripHtml', 'htmlDecode', 'absUrl', 'sel', 'selAll', 'u32', 'imul', 'pow', 'toHex',
   'parseHex', 'charCode', 'fromCharCode', 'bytes', 'fromBytes', 'hexBytes', 'bytesHex', 'base64Bytes', 'bytesBase64',
-  'list', 'push', 'hash', 'hmac', 'encrypt', 'decrypt', 'rsaEncrypt', 'cookie'];
+  'list', 'push', 'hash', 'hmac', 'encrypt', 'decrypt', 'rsaEncrypt', 'cookie', 'chars'];
 
 const astCache: Map<string, Node> = new Map();
 
@@ -753,6 +753,45 @@ export class NativeExpr {
     } catch (e) {
       return (e as Error).message || '函数库语法错误';
     }
+  }
+
+  /** 表达式（template 时为模板里每个 {{ }}）调用到的函数名；语法有误时返回空列表。 */
+  static calledNames(source: string, template: boolean = false): string[] {
+    try {
+      const nodes: Node[] = template ? NativeExpr.splitTemplate(source)
+        .filter((part): boolean => part.expr).map((part): Node => parseExpression(part.text)) : [parseExpression(source)];
+      return NativeExpr.collectCalls(nodes);
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /** lib 里每个函数调用到的函数名；语法有误时返回空列表。 */
+  static libraryCalls(source: string | undefined): Array<{ fn: string, name: string }> {
+    if (!source || !source.trim()) return [];
+    try {
+      const calls: Array<{ fn: string, name: string }> = [];
+      for (const fn of NativeExpr.parseLibrary(source)) {
+        for (const name of NativeExpr.collectCalls([fn.body])) calls.push({ fn: fn.name, name: name });
+      }
+      return calls;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  private static collectCalls(nodes: Node[]): string[] {
+    const names: string[] = [];
+    while (nodes.length > 0) {
+      const node = nodes.pop() as Node;
+      if (node.t === 'call' && names.indexOf(node.name as string) < 0) names.push(node.name as string);
+      if (node.a) nodes.push(node.a);
+      if (node.b) nodes.push(node.b);
+      if (node.c) nodes.push(node.c);
+      if (node.args) for (const child of node.args) nodes.push(child);
+      if (node.keys) for (const child of node.keys) nodes.push(child);
+    }
+    return names;
   }
 
   private static parseLibrary(source: string): FunctionDecl[] {
@@ -1332,6 +1371,9 @@ export class NativeExpr {
         return this.regex(args[1], args.length > 2 ? text(2) : '').test(text(0));
       case 'split':
         return this.limitList(text(0).split(text(1)));
+      case 'chars':
+        // for 不会把字符串拆开，逐字处理用 chars；按码点拆，表情符号等不会被劈成两半。
+        return this.limitList(Array.from(text(0)));
       case 'lines':
         return text(0).split(/\r?\n/);
       case 'join':

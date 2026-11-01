@@ -93,6 +93,7 @@ export class TextReadingSettingsService {
     const statusBar = store.getSync(KEY_ALWAYS_SHOW_STATUS_BAR, TextReadingSettings.ALWAYS_SHOW_STATUS_BAR_DEFAULT);
     result.alwaysShowStatusBar = typeof statusBar === 'boolean' ? statusBar :
       TextReadingSettings.ALWAYS_SHOW_STATUS_BAR_DEFAULT;
+    result.speechFollowPage = store.getSync('speech_follow_page', true) !== false;
     result.volumeKeyPageTurn = store.getSync('volume_key_page_turn', false) === true;
     result.smartKeyPageTurn = store.getSync('smart_key_page_turn', false) === true;
     result.followSystemTheme = store.getSync('follow_system_theme', true) !== false;
@@ -204,6 +205,7 @@ export class TextReadingSettingsService {
     store.putSync(KEY_PAGE_TURN_MODE, TextReadingSettings.normalizePageTurnMode(settings.pageTurnMode));
     store.putSync(KEY_SHOW_READING_STATUS, settings.showReadingStatus);
     store.putSync(KEY_ALWAYS_SHOW_STATUS_BAR, settings.alwaysShowStatusBar);
+    store.putSync('speech_follow_page', settings.speechFollowPage);
     store.putSync('volume_key_page_turn', settings.volumeKeyPageTurn);
     store.putSync('smart_key_page_turn', settings.smartKeyPageTurn);
     store.putSync('follow_system_theme', settings.followSystemTheme);

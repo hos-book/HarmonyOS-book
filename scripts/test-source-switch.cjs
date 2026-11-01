@@ -37,7 +37,7 @@ const { SourceSwitchSearch } = load('service/BookSourceSwitchService.ets', {
     active--;
     if (cancel) task.cancelled = true;
     if (source.bookSourceUrl === 'bad') throw new Error('unavailable');
-    const item = { name: resultTitle, contentType: source.bookSourceType === 2 ? 'comic' : 'audio', bookUrl: '/book', author: '作者' };
+    const item = { name: resultTitle, contentType: source.bookSourceType === 2 ? 'comic' : 'audio', bookUrl: '/book', author: '作者', lastChapter: '第 123 章 更新' };
     return [item, item, { ...item, name: '其他书' }, { ...item, contentType: 'text', bookUrl: '/text' }];
   } } }
 });
@@ -51,6 +51,7 @@ const { SourceSwitchSearch } = load('service/BookSourceSwitchService.ets', {
   assert.equal(peak, 6);
   assert.equal(task.failed, 1);
   assert.equal(results.length, 12);
+  assert.ok(results.every(book => book.latestChapterTitle === '第 123 章 更新'));
   assert.equal(new Set(results.map(book => book.id)).size, 12);
   assert.ok(results.every(book => book.contentType === 'audio'));
   assert.ok(!calls.includes('current'));

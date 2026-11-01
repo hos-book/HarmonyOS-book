@@ -33,7 +33,9 @@ function createDisk(entries = []) {
 async function launch(disk, member = true) {
   const cache = new Map(disk.values);
   const controls = { failFlush: false, beforeFlush: undefined, member };
-  const membership = { MembershipState: { current: { get hasAccess() { return controls.member; } } } };
+  const membership = { MembershipState: { current: {
+    get hasAccess() { return controls.member; }, get canDisplaySavedTheme() { return controls.member; }
+  } } };
   const store = {
     getSync: (key, fallback) => cache.has(key) ? cache.get(key) : fallback,
     get: async (key, fallback) => cache.has(key) ? cache.get(key) : fallback,
@@ -100,7 +102,26 @@ function expectedSelection(id, accent, material) {
 
 (async () => {
   const disk = createDisk([['accent_color', '#123abc'], ['material_style', 5]]);
+  const systemDisk = createDisk();
+  let systemApp = await launch(systemDisk);
+  await systemApp.service.setMaterialStyle(6);
+  systemApp = await launch(systemDisk);
+  assert.equal(systemApp.appearance.material, 6, 'follow-system survives restart');
+  const systemBackup = await systemApp.service.exportBackupSnapshot();
+  const systemRestored = await launch(createDisk());
+  await systemRestored.service.restoreBackupSnapshot(JSON.parse(JSON.stringify(systemBackup)));
+  assert.equal(systemRestored.appearance.material, 6, 'follow-system survives backup restore');
+  const legacyDefault = await launch(createDisk([['material_style', 0]]));
+  assert.equal(legacyDefault.appearance.material, 3, 'legacy default keeps balanced material');
   let app = await launch(disk);
+  assert.equal((await app.service.exportBackupSnapshot()).searchRecommendations, true);
+  await app.service.setSearchRecommendations(false);
+  app = await launch(disk);
+  assert.equal((await app.service.exportBackupSnapshot()).searchRecommendations, false);
+  app.controls.failFlush = true;
+  await assert.rejects(app.service.setSearchRecommendations(true), /disk full/);
+  assert.equal(app.cache.get('search_recommendations'), false);
+  app.controls.failFlush = false;
   assert.deepEqual(appearanceOf(app), ['default', '#123ABC', 4], 'legacy custom appearance survives upgrade');
   assert.equal(disk.values.has(themeKey), false, 'initialization does not overwrite legacy preferences');
 

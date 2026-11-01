@@ -44,6 +44,8 @@ function load(relative) {
   const { TextReadingSettingsService: service } = load('service/text/TextReadingSettingsService');
   values.set('font_size', 22); // Existing installations have no new preference keys.
   const migrated = await service.get({});
+  assert.equal(migrated.speechFollowPage, true, 'existing readers retain page-following speech');
+  migrated.speechFollowPage = false;
   assert.equal(migrated.showBrightnessBar, true);
   assert.equal(migrated.brightness, -1, 'existing readers retain system brightness');
   assert.equal(migrated.cornerLayout, '0123', 'legacy settings keep their original four corners');
@@ -84,6 +86,7 @@ function load(relative) {
   migrated.marginBottom = 0;
   await service.save({}, migrated);
   const restored = await service.get({});
+  assert.equal(restored.speechFollowPage, false, 'independent browsing survives reload');
   assert.equal(restored.showBrightnessBar, false);
   assert.equal(restored.brightness, 0.37);
   assert.equal(restored.cornerLayout, '3120', 'corner order survives a preferences reload');
@@ -112,6 +115,7 @@ function load(relative) {
   assert.equal(sanitized.alwaysShowStatusBar, true, 'invalid status-bar preference falls back to visible');
   await service.save({}, new TextReadingSettings());
   const reset = await service.get({});
+  assert.equal(reset.speechFollowPage, true);
   assert.equal(reset.cornerLayout, '0123');
   assert.equal(reset.followSystemTheme, true);
   assert.equal(reset.volumeKeyPageTurn, false);

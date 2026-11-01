@@ -121,6 +121,7 @@ export class PreferenceBackupSnapshot {
   homeGridColumns: number = 3;
   preloadChapters: number = 1;
   searchConcurrency: number = 3;
+  searchRecommendations: boolean = true;
 }
 
 /**
@@ -220,6 +221,19 @@ export class PreferenceService {
     }
   }
 
+  static async setSearchRecommendations(enabled: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const previous = store.getSync('search_recommendations', true);
+    try {
+      await store.put('search_recommendations', enabled);
+      await store.flush();
+      GeneralSettings.current.searchRecommendations = enabled;
+    } catch (error) {
+      await store.put('search_recommendations', previous);
+      throw new Error(`Failed to save search recommendations: ${String(error)}`);
+    }
+  }
+
   static async setSwipeSwitchTabs(enabled: boolean): Promise<void> {
     const store = await PreferenceService.ensureStore();
     const previous = store.getSync('swipe_switch_tabs', true);
@@ -271,7 +285,7 @@ export class PreferenceService {
   static async getComicReadingMode(): Promise<number> {
     const store = await PreferenceService.ensureStore();
     const value = store.getSync('comic_reading_mode', 0);
-    return value === 1 || value === 3 ? value : 0;
+    return value === 1 || value === 2 || value === 3 ? value : 0;
   }
 
   static async getComicImagePreloadCount(): Promise<number> {
@@ -347,7 +361,7 @@ export class PreferenceService {
   }
 
   static async setComicReadingMode(mode: number): Promise<void> {
-    await PreferenceService.saveComicPreference('comic_reading_mode', mode === 1 || mode === 3 ? mode : 0, 0);
+    await PreferenceService.saveComicPreference('comic_reading_mode', mode === 1 || mode === 2 || mode === 3 ? mode : 0, 0);
   }
 
   static async getComicChapterBar(fallback: boolean = true): Promise<boolean> {
@@ -442,9 +456,11 @@ export class PreferenceService {
 
   static async init(context: common.BaseContext): Promise<void> {
     PreferenceService.widgetContext = context;
-    if (PreferenceService.store) {
+    if (PreferenceService.initPromise) {
+      await PreferenceService.initPromise;
       return;
     }
+    if (PreferenceService.store) return;
     if (!PreferenceService.initPromise) {
       ReadingSessionService.init(context);
       const options: preferences.Options = { name: STORE_NAME };
@@ -463,6 +479,7 @@ export class PreferenceService {
           if (typeof edits === 'string') BookPresentation.edits = JSON.parse(edits);
           if (typeof groups === 'string') BookPresentation.groups = JSON.parse(groups);
         } catch (_error) { /* 损坏的展示偏好不影响书籍和目录 */ }
+        GeneralSettings.current.searchRecommendations = s.getSync('search_recommendations', true) !== false;
         GeneralSettings.current.historyEnabled = s.getSync('history_enabled', true) !== false;
         GeneralSettings.current.showShelfSource = s.getSync('show_shelf_source', true) !== false;
         GeneralSettings.current.adaptiveHandedness = s.getSync('adaptive_handedness', true) !== false;
@@ -1315,6 +1332,19 @@ export class PreferenceService {
     emitter.emit(EVT_HOME_SOURCE_CHANGED);
   }
 
+  /** 频道是首页浏览偏好，不改动书源的搜索变量或定义。 */
+  static async getHomeSourceChannel(sourceUrl: string): Promise<string> {
+    const store = await PreferenceService.ensureStore();
+    const value = await store.get(`home_source_channel:${sourceUrl}`, '');
+    return typeof value === 'string' ? value : '';
+  }
+
+  static async setHomeSourceChannel(sourceUrl: string, channel: string): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    await store.put(`home_source_channel:${sourceUrl}`, channel);
+    await store.flush();
+  }
+
   /** 首页切源弹框列数，与首页书籍栅格设置独立。 */
   static async getHomeSourceMenuColumns(): Promise<number> {
     const store = await PreferenceService.ensureStore();
@@ -1679,6 +1709,7 @@ export class PreferenceService {
     snapshot.homeGridColumns = await PreferenceService.getHomeGridColumns();
     snapshot.preloadChapters = await PreferenceService.getPreloadChapters();
     snapshot.searchConcurrency = await PreferenceService.getSearchConcurrency();
+    snapshot.searchRecommendations = GeneralSettings.current.searchRecommendations;
     const s = await PreferenceService.ensureStore();
     const all = await s.getAll() as Record<string, Object>;
     for (const key of Object.keys(all)) {
@@ -1788,6 +1819,7 @@ export class PreferenceService {
     await s.put(KEY_HOME_GRID_COLUMNS, snapshot.homeGridColumns);
     await s.put(KEY_PRELOAD_CHAPTERS, Number.isFinite(snapshot.preloadChapters) ?
       Math.max(0, Math.min(50, Math.round(snapshot.preloadChapters))) : 1);
+    await s.put('search_recommendations', snapshot.searchRecommendations !== false);
     await s.put(KEY_SEARCH_CONCURRENCY, MembershipState.current.hasAccess && typeof snapshot.searchConcurrency === 'number' &&
       Number.isInteger(snapshot.searchConcurrency) && snapshot.searchConcurrency >= 1 &&
       snapshot.searchConcurrency <= 12 ? snapshot.searchConcurrency : 3);
@@ -1799,6 +1831,7 @@ export class PreferenceService {
       throw new Error(error instanceof Error ? error.message : 'Theme preferences restore failed');
     }
     PreferenceService.publishThemeSelection(selection);
+    GeneralSettings.current.searchRecommendations = snapshot.searchRecommendations !== false;
     PreferenceService.notifyFavoriteChanged();
     PreferenceService.notifyHistoryChanged();
     emitter.emit(EVT_FAVORITES_CHANGED, { data: { bookId: '' } });

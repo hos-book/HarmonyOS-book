@@ -8,7 +8,23 @@ export class OnlineTextPaintState {
 }
 
 export class OnlineTextPage {
+  parts: OnlineTextPage[] = [];
+  flowSpacing: number = 0;
+  columns: OnlineTextPage[] = [];
+
+  static spreads(content: string, pages: OnlineTextPage[]): OnlineTextPage[] {
+    const spreads: OnlineTextPage[] = [];
+    for (let index = 0; index < pages.length; index += 2) {
+      const columns = pages.slice(index, index + 2);
+      const spread = OnlineTextPage.of(content, columns[0].startOffset, columns[columns.length - 1].endOffset);
+      spread.columns = columns;
+      spreads.push(spread);
+    }
+    return spreads;
+  }
+
   imageUrl: string = '';
+  imageWidth: number = 0;
   firstLine: number = 0;
   // Each native line keeps its geometry; only paragraph boundaries add a vertical translation.
   lineShifts: number[] = [];
@@ -284,7 +300,7 @@ export class OnlineTextPaginator {
       const pages: OnlineTextPage[] = [];
       let start = 0;
       while (match !== null) {
-        OnlineTextPaginator.appendImageText(pages, content, start, match.index, widthPx, heightPx,
+        OnlineTextPaginator.appendImageText(pages, content, start, match.index, widthPx, 1,
           fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing);
         const page = OnlineTextPage.of(content, match.index, images.lastIndex);
         page.imageUrl = LocalTextImage.resolve(match[1]);
@@ -294,15 +310,22 @@ export class OnlineTextPaginator {
           continue;
         }
         page.text = '';
-        page.layoutHeight = heightPx <= 1 ? Math.max(fontSizePx, widthPx * 1.4) : Math.max(fontSizePx, heightPx);
+        const size = LocalTextImage.size(match[1]);
+        const naturalWidth = size !== undefined && size.width > 0 ? size.width : Math.min(widthPx, fontSizePx * 6);
+        const naturalHeight = size !== undefined && size.height > 0 ? size.height : fontSizePx * 4;
+        const scale = Math.min(1, Math.max(1, widthPx) / naturalWidth,
+          heightPx > 1 ? heightPx / naturalHeight : 1);
+        page.imageWidth = naturalWidth * scale;
+        page.layoutHeight = naturalHeight * scale;
         page.layoutWidth = widthPx;
+        page.trailingSpacing = fontSizePx * Math.max(0, Math.min(2, paragraphSpacing));
         pages.push(page);
         start = images.lastIndex;
         match = images.exec(content);
       }
-      OnlineTextPaginator.appendImageText(pages, content, start, content.length, widthPx, heightPx,
+      OnlineTextPaginator.appendImageText(pages, content, start, content.length, widthPx, 1,
         fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing);
-      return pages;
+      return heightPx <= 1 ? pages : OnlineTextPaginator.flowParts(content, pages, widthPx, heightPx);
     }
     const layout = OnlineTextPaginator.measure(content, widthPx, fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing);
     const displayed = layout.displayed;
@@ -345,6 +368,40 @@ export class OnlineTextPaginator {
     const textPages = OnlineTextPaginator.paginate(section.trim(), width, height, fontSize, lineHeight, family, weight, alignment, spacing);
     for (const page of textPages) { page.startOffset += sourceStart; page.endOffset += sourceStart; pages.push(page); }
     if (textPages.length > 0) textPages[textPages.length - 1].endOffset = end;
+  }
+
+  /** 以正文行和完整插图为单位装页；剩余空间不足才换页，不放大小图。 */
+  private static flowParts(content: string, parts: OnlineTextPage[], width: number, height: number): OnlineTextPage[] {
+    const pages: OnlineTextPage[] = [];
+    let page = OnlineTextPage.of(content, 0, 0);
+    let spacing = 0;
+    for (const part of parts) {
+      if (page.parts.length > 0 && page.layoutHeight + spacing + part.layoutHeight > Math.max(1, height)) {
+        page.endOffset = part.startOffset;
+        pages.push(page);
+        page = OnlineTextPage.of(content, part.startOffset, part.startOffset);
+        spacing = 0;
+      }
+      part.flowSpacing = page.parts.length > 0 ? spacing : 0;
+      const previous = page.parts[page.parts.length - 1];
+      if (previous !== undefined && part.paragraph !== null && previous.paragraph === part.paragraph) {
+        const shift = previous.layoutHeight + part.flowSpacing - (part.layoutTop - previous.layoutTop);
+        for (const value of part.lineShifts) previous.lineShifts.push(value + shift);
+        previous.lineMetrics.push(...part.lineMetrics);
+        previous.text += part.text;
+        previous.endOffset = part.endOffset;
+        previous.layoutHeight += part.flowSpacing + part.layoutHeight;
+        previous.trailingSpacing = part.trailingSpacing;
+      } else {
+        page.parts.push(part);
+      }
+      page.layoutWidth = width;
+      page.layoutHeight += part.flowSpacing + part.layoutHeight;
+      page.endOffset = part.endOffset;
+      spacing = part.trailingSpacing;
+    }
+    if (page.parts.length > 0) { page.endOffset = content.length; pages.push(page); }
+    return pages;
   }
 
   private static measure(content: string, widthPx: number, fontSizePx: number, lineHeight: number,

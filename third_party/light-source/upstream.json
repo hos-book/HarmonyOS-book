@@ -3,11 +3,11 @@
   "sources": {
     "engine": {
       "repository": "https://github.com/wip3l/harmony-book-source-engine",
-      "commit": "536a6fd156712da29a8f5fd4ba2465a70475dfaf"
+      "commit": "06f6491426c84fd0bab318d7822abfbf855889a7"
     },
     "application": {
       "repository": "https://github.com/wip3l/qingye-reader",
-      "commit": "327beffe57bf32840c5c05634444b13e76bff256"
+      "commit": "351a535226f2123bc5311722306adf5dea0bd3ab"
     }
   },
   "license": "GPL-3.0",
@@ -52,8 +52,8 @@
       "path": "core/nativesource/NativeSourceRunner.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceRunner.ts",
-      "upstreamSha256": "f8cb5c1c2519035e7389225c01d2c7cf8f14a95fc8b6a41824080f99be60c3db",
-      "sha256": "f8cb5c1c2519035e7389225c01d2c7cf8f14a95fc8b6a41824080f99be60c3db"
+      "upstreamSha256": "669dcc3266d289098f1009dab037c204b941830f0a2578b07655af2c340cb659",
+      "sha256": "669dcc3266d289098f1009dab037c204b941830f0a2578b07655af2c340cb659"
     },
     {
       "path": "core/concurrency/CooperativeScheduler.ts",
@@ -73,8 +73,8 @@
       "path": "core/nativesource/NativeExpr.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeExpr.ts",
-      "upstreamSha256": "e6925a478049097c0b3eafd9e9bd16fa3b713ed36d5e320131840eb0884a00ee",
-      "sha256": "e6925a478049097c0b3eafd9e9bd16fa3b713ed36d5e320131840eb0884a00ee"
+      "upstreamSha256": "d5649419e9ce66ddb476e7de1cffe948466aeed68344df957a5748960be798ef",
+      "sha256": "d5649419e9ce66ddb476e7de1cffe948466aeed68344df957a5748960be798ef"
     },
     {
       "path": "core/nativesource/SourceCoverUrl.ts",
@@ -94,8 +94,8 @@
       "path": "core/nativesource/NativeJsPrelude.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeJsPrelude.ts",
-      "upstreamSha256": "aae9d478b39c1029374ebce790b54de9f08511c93d85c98f475c3967cbf0928d",
-      "sha256": "aae9d478b39c1029374ebce790b54de9f08511c93d85c98f475c3967cbf0928d"
+      "upstreamSha256": "8ec0b900e4170e0ccace4ac0a67f25acf1188310ee8f7d9ac049c7d29987c553",
+      "sha256": "8ec0b900e4170e0ccace4ac0a67f25acf1188310ee8f7d9ac049c7d29987c553"
     },
     {
       "path": "core/nativesource/NativeCommentPage.ts",
@@ -108,8 +108,8 @@
       "path": "core/nativesource/NativeScriptHost.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeScriptHost.ts",
-      "upstreamSha256": "0b14863d84227405456744818b870f59d65eb25081096d2e7da161aaec9b96c6",
-      "sha256": "0b14863d84227405456744818b870f59d65eb25081096d2e7da161aaec9b96c6"
+      "upstreamSha256": "546093b193b3cc55e5bb23d80bcd25f8e3dbda19229f3a0f01bfc3d55fe22fce",
+      "sha256": "546093b193b3cc55e5bb23d80bcd25f8e3dbda19229f3a0f01bfc3d55fe22fce"
     },
     {
       "path": "core/http/HttpHeaderValues.ts",
@@ -122,8 +122,8 @@
       "path": "core/book/BookSourceDebugModels.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/book/BookSourceDebugModels.ts",
-      "upstreamSha256": "f2eafe57b92719ade8ffbc7b7731798357698122799f56f6eb83921e1ec3a718",
-      "sha256": "f2eafe57b92719ade8ffbc7b7731798357698122799f56f6eb83921e1ec3a718"
+      "upstreamSha256": "422a6fe6de7d72e29bed8593663de768174f66ad7a2fa651727889e1d27efa1f",
+      "sha256": "422a6fe6de7d72e29bed8593663de768174f66ad7a2fa651727889e1d27efa1f"
     },
     {
       "path": "core/nativesource/NativeSourceInteraction.ts",
@@ -136,15 +136,15 @@
       "path": "core/nativesource/NativeSourceSpec.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceSpec.ts",
-      "upstreamSha256": "433a97fdb043aeda16b9ff07e6c175fdd73b9e0c8a6d7242a9eaa9d58c5e8d73",
-      "sha256": "433a97fdb043aeda16b9ff07e6c175fdd73b9e0c8a6d7242a9eaa9d58c5e8d73"
+      "upstreamSha256": "dd39fa22b990837f295da2a9442cfc54cee1de1b525b90c8fb75924693f16d95",
+      "sha256": "dd39fa22b990837f295da2a9442cfc54cee1de1b525b90c8fb75924693f16d95"
     },
     {
       "path": "core/http/HttpClient.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/http/HttpClient.ts",
-      "upstreamSha256": "eb8da13f4439ba0d6791ab7ac86f0fac2075663de2862f1cd3aab5979c6c9215",
-      "sha256": "eb8da13f4439ba0d6791ab7ac86f0fac2075663de2862f1cd3aab5979c6c9215"
+      "upstreamSha256": "953b55fdfc1dc5703365ae92863eee9876187655990679173142362363f1258d",
+      "sha256": "953b55fdfc1dc5703365ae92863eee9876187655990679173142362363f1258d"
     },
     {
       "path": "core/http/CookieStore.ts",
@@ -178,8 +178,8 @@
       "path": "core/book/WebBookFetchRuntime.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/book/WebBookFetchRuntime.ts",
-      "upstreamSha256": "e982e5e6c9ca7ce8f637505a185775c24e20b0f3893f0a9c5af21085b6b0dd4d",
-      "sha256": "e982e5e6c9ca7ce8f637505a185775c24e20b0f3893f0a9c5af21085b6b0dd4d"
+      "upstreamSha256": "875462a18b5df2d26aa56ae6a5e8aee8a66757df9476791ffdd7ff0d544c6f96",
+      "sha256": "875462a18b5df2d26aa56ae6a5e8aee8a66757df9476791ffdd7ff0d544c6f96"
     },
     {
       "path": "core/book/WebJsAwaitScript.ts",
@@ -206,8 +206,8 @@
       "path": "core/rule/AnalyzeUrl.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/rule/AnalyzeUrl.ts",
-      "upstreamSha256": "404f425ad8ef24455768f2529ca9a423f2e2746d1ba135fa3834e17f06c42010",
-      "sha256": "404f425ad8ef24455768f2529ca9a423f2e2746d1ba135fa3834e17f06c42010"
+      "upstreamSha256": "81003e676eaad3757eeefe978e16b512914c0c4d93d563abc7fa63fbafd415b5",
+      "sha256": "81003e676eaad3757eeefe978e16b512914c0c4d93d563abc7fa63fbafd415b5"
     },
     {
       "path": "core/http/VerificationSupport.ts",
@@ -430,8 +430,8 @@
       "path": "core/nativesource/NativeSourceService.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceService.ts",
-      "upstreamSha256": "42370bcbb2ca7fcb215fe79963a54adfc5868d5cece01c5cdc18eee6494477c3",
-      "sha256": "42370bcbb2ca7fcb215fe79963a54adfc5868d5cece01c5cdc18eee6494477c3"
+      "upstreamSha256": "1810b177ca30668fc7030dcb5687f3311c0cd31bcf34fe09d55a72161d34e269",
+      "sha256": "1810b177ca30668fc7030dcb5687f3311c0cd31bcf34fe09d55a72161d34e269"
     },
     {
       "path": "core/http/DigestHash.ts",
@@ -451,8 +451,8 @@
       "path": "core/nativesource/NativeJsLibrary.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeJsLibrary.ts",
-      "upstreamSha256": "6535c5d55f2795cc1b6285d19def912565db78cfc7b7c94b50a6160c4b5e824b",
-      "sha256": "2b23879b8af9f39c4342094754efabb702a92e689b1d6c8eb3fe747939df0790"
+      "upstreamSha256": "512d776d7771b5f6b8703968ac8eddb9174d1fd444ae762f73e43a4d8acecd07",
+      "sha256": "16173a5c3ef6dbd76730c2f104e3d8d527b852494f55b4a8280d236d2044663d"
     },
     {
       "path": "core/nativesource/NativeSourceCrypto.ts",
@@ -633,8 +633,8 @@
       "path": "core/book/ExploreCoordinator.ts",
       "source": "application",
       "upstreamPath": "entry/src/main/ets/core/book/ExploreCoordinator.ts",
-      "upstreamSha256": "7ff4aab9dfe347f04fa9ab5a2fad3ca11cfb3371c4c3f2bb437b4aef5c273698",
-      "sha256": "68e21059590deefa1f6d8e07119ec65b499a24848a2e81e5fdd84cedda3e8d97"
+      "upstreamSha256": "d992137195adc7fecf41513d5bc507d29dda424baa897c5ad93c7fc3e461643f",
+      "sha256": "9b8aa5e4d704914b58ab5e209d135a6f037bac8d2919903bdbd10d20d7ad229e"
     },
     {
       "path": "core/book/ReaderInteractionProvider.ts",
@@ -662,8 +662,8 @@
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeExpr.ts",
       "generated": true,
-      "upstreamSha256": "61bcdcf19b05e4e525ac9e28cae6dc9b62f5ef65d3b649fe21d7b0a1e4af19a8",
-      "sha256": "144f2faa3ca161e50a6d42786374f01a670a9026bea51896af63ea7a52614baf"
+      "upstreamSha256": "24d8ca03a171f262a047b84836a9e2a5255a929f820074ceaa306f6acca0bcf7",
+      "sha256": "b64c34d0e11c4cd431e7088e84517861ccf5c34557916719d5250aa97e95c1af"
     },
     {
       "path": "core/http/LightCookieSemantics.ts",

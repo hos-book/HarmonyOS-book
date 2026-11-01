@@ -3,6 +3,7 @@
 export class GeneralSettings {
   static readonly current: GeneralSettings = new GeneralSettings();
   @Trace historyEnabled: boolean = true;
+  @Trace searchRecommendations: boolean = true;
   @Trace showShelfSource: boolean = true;
   @Trace adaptiveHandedness: boolean = true;
   @Trace swipeSwitchTabs: boolean = true;

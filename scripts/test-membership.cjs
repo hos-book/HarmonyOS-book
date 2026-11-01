@@ -760,6 +760,28 @@ async function main() {
     assert.equal(s.state.hasAccess, true); assert.equal(s.service.busy, false);
   });
   async function settleDisplay() { for (let i = 0; i < 20; i++) await Promise.resolve(); }
+  await test('Saved appearance restores before IAP, survives revalidation and never grants access', async () => {
+    const saved = { productId: 'iconYear', autoRenew: true,
+      expiresAt: now + 86400000, verifiedAt: now - 2 * 86400000 };
+    const cold = session(false, new Map([['snapshot', JSON.stringify(saved)]]));
+    let release; cold.setDisplayReadGate(new Promise(resolve => { release = resolve; }));
+    let ready = false;
+    const first = cold.service.prepareAppearance(context);
+    const second = cold.service.prepareAppearance(context).then(() => { ready = true; });
+    await settleDisplay(); assert.equal(ready, false);
+    release(); await Promise.all([first, second]);
+    assert.equal(cold.queries.length, 0);
+    assert.equal(cold.state.canDisplaySavedTheme, true);
+    assert.equal(cold.state.displayActive, false);
+    assert.equal(cold.state.hasAccess, false);
+    cold.state.revalidating = true;
+    assert.equal(cold.state.canDisplaySavedTheme, true);
+    cold.state.confirmedInactive = true;
+    assert.equal(cold.state.canDisplaySavedTheme, false);
+    cold.state.confirmedInactive = false;
+    now += 86400000;
+    assert.equal(cold.state.canDisplaySavedTheme, false);
+  });
   await test('A new process displays persisted membership before IAP completes but cannot use or buy membership', async () => {
     const first = session(); first.current.push(payload()); await first.service.refresh(context);
     const saved = JSON.parse(first.displayDisk.get('snapshot'));

@@ -50,6 +50,7 @@ const TAB_RESTORE_HEIGHT_GROWTH: number = 80;
 @ComponentV2
 export struct MainPage {
   @Param navStack: NavPathStack = new NavPathStack();
+  @Param allowPlayerDrag: boolean = true;
   @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
   @Event onHomeShownHandlerChange: (handler: (() => void) | undefined) => void = () => {};
   private pendingHomeResume: (() => void) | undefined = undefined;
@@ -613,7 +614,7 @@ export struct MainPage {
   private beginPlayerDrag(offsetY: number): void {
     const book = this.currentPlaybackBook();
     const paths = this.navStack.getAllPathName();
-    if (book === null || paths[paths.length - 1] !== 'home') return;
+    if (!this.allowPlayerDrag || book === null || paths.length > 0) return;
     const transition = PlayerDragTransition.getInstance();
     if (transition.state.active) return;
     const origin = transition.capture(this.getUIContext());

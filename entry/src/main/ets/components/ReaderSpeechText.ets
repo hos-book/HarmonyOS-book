@@ -5,9 +5,53 @@ import { OnlineTextPage } from '../service/text/OnlineTextPaginator';
 import { ReaderParagraphNodeController } from '../service/text/ReaderParagraphNode';
 import { ReaderTouchTracker } from '../utils/ReaderTapPolicy';
 
-/** 当前自然段整体高亮；仅范围或分页内容改变时重新计算，不按字刷新。 */
+/** 混排页沿用同一正文绘制组件，各片段保留自己的原文坐标。 */
 @ComponentV2
 export struct ReaderSpeechText {
+  @Param page: OnlineTextPage = new OnlineTextPage();
+  @Param text: string = '';
+  @Param source: string = '';
+  @Param state: TextToSpeechState = new TextToSpeechState();
+  @Param sourceStart: number = 0;
+  @Param highlightEnabled: boolean = false;
+  @Param selectionEnabled: boolean = true;
+  @Event onSelectionChange: (active: boolean) => void = () => {};
+  @Event onReadFrom: (offset: number) => void = () => {};
+  @Param fontFamily: string = '';
+  @Param fontWeight: number = 400;
+  @Param fontSize: number = 18;
+  @Param lineHeight: number = 1.9;
+  @Param palette: ReaderPalette = new ReaderPalette();
+
+  build() {
+    Column() {
+      if (this.page.parts.length > 0) {
+        ForEach(this.page.parts, (part: OnlineTextPage) => {
+          ReaderTextFragment({
+            page: part, text: part.text,
+            source: this.source.substring(part.startOffset - this.sourceStart, part.endOffset - this.sourceStart),
+            sourceStart: part.startOffset, state: this.state, highlightEnabled: this.highlightEnabled,
+            selectionEnabled: this.selectionEnabled, onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom,
+            fontFamily: this.fontFamily, fontWeight: this.fontWeight, fontSize: this.fontSize,
+            lineHeight: this.lineHeight, palette: this.palette
+          }).margin({ top: this.getUIContext().px2vp(part.flowSpacing) })
+        }, (part: OnlineTextPage): string => `${part.layoutKey}:${part.startOffset}:${part.endOffset}:${part.imageUrl}:${part.imageWidth}:${part.layoutHeight}:${part.flowSpacing}`)
+      } else {
+        ReaderTextFragment({
+          page: this.page, text: this.text, source: this.source, sourceStart: this.sourceStart,
+          state: this.state, highlightEnabled: this.highlightEnabled, selectionEnabled: this.selectionEnabled,
+          onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom,
+          fontFamily: this.fontFamily, fontWeight: this.fontWeight, fontSize: this.fontSize,
+          lineHeight: this.lineHeight, palette: this.palette
+        })
+      }
+    }.width('100%').alignItems(HorizontalAlign.Center)
+  }
+}
+
+/** 当前自然段整体高亮；仅范围或分页内容改变时重新计算，不按字刷新。 */
+@ComponentV2
+struct ReaderTextFragment {
   @Param page: OnlineTextPage = new OnlineTextPage();
   private paragraphNode: ReaderParagraphNodeController = new ReaderParagraphNodeController();
   private selectionTouch: ReaderTouchTracker = new ReaderTouchTracker();
@@ -110,7 +154,8 @@ export struct ReaderSpeechText {
 
   build() {
     if (this.page.imageUrl) {
-      Image(this.page.imageUrl).width('100%').height(this.getUIContext().px2vp(this.page.layoutHeight))
+      Image(this.page.imageUrl).width(this.getUIContext().px2vp(this.page.imageWidth))
+        .height(this.getUIContext().px2vp(this.page.layoutHeight))
         .objectFit(ImageFit.Contain).draggable(false)
     } else if (this.page.paragraph !== null) {
       Stack({ alignContent: Alignment.TopStart }) {
@@ -152,8 +197,8 @@ export struct ReaderSpeechText {
       if (this.highlightRange.start >= 0) {
         Span(this.text.substring(0, this.highlightRange.start))
         Span(this.text.substring(this.highlightRange.start, this.highlightRange.end))
-          .fontColor(this.palette.background)
-          .textBackgroundStyle({ color: this.palette.primary, radius: 3 })
+          .fontColor(this.palette.primary)
+          .textBackgroundStyle({ color: '#33' + this.palette.primary.substring(1), radius: 3 })
         Span(this.text.substring(this.highlightRange.end))
       } else {
         Span(this.text)

@@ -568,6 +568,7 @@ export class AnalyzeUrl {
       let response = await this.fetchFollowingRedirects(req);
       if (!['GET', 'HEAD'].includes(req.method.toUpperCase()) || req.body || req.bodyBytes) return response;
       for (let index = 0; index < policy.times && policy.onStatus!.includes(response.statusCode); index++) {
+        if (response.errorCode === 'REQUEST_DEADLINE') break;
         const delay = HttpRetryPolicy.delay(policy, index, response.headers, Date.now());
         if (delay < 0) { req.debugContext?.addLog('info', 'Retry-After 超过 maxDelay，停止重试'); break; }
         const cancelled = (): boolean => !!req.cancelCheck && req.cancelCheck();
@@ -582,7 +583,7 @@ export class AnalyzeUrl {
     }
     let response = await this.fetchFollowingRedirects(req);
     for (let i = 0; i < this.config.retry && !this.isUsableResponse(response); i++) {
-      if (req.deadlineAt && Date.now() >= req.deadlineAt) break;
+      if (response.errorCode === 'REQUEST_DEADLINE' || (req.deadlineAt && Date.now() >= req.deadlineAt)) break;
       response = await this.fetchFollowingRedirects({ ...req, retryAttempt: i + 1, retryReason: '数字 retry' });
     }
     return response;

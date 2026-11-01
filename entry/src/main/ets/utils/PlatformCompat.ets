@@ -23,8 +23,12 @@ export class PlatformCompat {
   static get immersiveMaterial(): boolean {
     // API 可用不代表设备支持材质；不支持时 systemMaterial 会静默失效。
     if (!PlatformCompat.supports(26)) return false;
-    return uiMaterial.isImmersiveMaterialSupported() &&
-      uiMaterial.getMaterialInfo().state !== uiMaterial.MaterialState.DISABLE;
+    try {
+      return uiMaterial.isImmersiveMaterialSupported() &&
+        uiMaterial.getMaterialInfo().state !== uiMaterial.MaterialState.DISABLE;
+    } catch (_error) {
+      return false;
+    }
   }
 
   static get floatingTabs(): boolean {

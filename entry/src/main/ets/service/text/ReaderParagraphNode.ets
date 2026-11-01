@@ -64,8 +64,10 @@ class ReaderParagraphFrameNode extends FrameNode {
         end: page.nativeOffsets?.nativeOffsetForDisplay(displayEnd) ?? displayEnd }, graphicsText.RectWidthStyle.TIGHT,
         graphicsText.RectHeightStyle.TIGHT);
       const brush = new drawing.Brush();
-      brush.setColor(foreground);
-      paragraph.updateColor(this.color(this.palette.background));
+      const highlight = this.color(this.palette.primary);
+      highlight.alpha = 51;
+      brush.setColor(highlight);
+      paragraph.updateColor(foreground);
       const highlightedLines = paragraph.getTextLines();
       for (const box of boxes) {
         // Range boxes are still in native paragraph coordinates. Translate each visible line

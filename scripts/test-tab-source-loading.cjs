@@ -29,6 +29,7 @@ let books = [1999, 1111, 1111, 1888, -1].map((index, i) => ({
 }));
 const preferences = {
   getHomeSourceUrl: async () => preferredUrl,
+  getHomeSourceChannel: async () => '',
   getShelfFavorites: async () => books.map(book => book.id),
   getPinnedFavorites: async () => [], getHistory: async () => [], getLastPlayed: async () => null
 };
@@ -93,7 +94,7 @@ const homeLoad = homeText.slice(homeText.indexOf('  private async loadHomeBlocks
 const menuLoad = homeText.slice(homeText.indexOf('  private filterHomeSources('),
   homeText.indexOf('  private homeSourceMenuOptions('));
 const { HomeHarness } = compile(`export class HomeHarness { ${homeLoad}\n${menuLoad} }`, {
-  HomeSourceService: homeService, SourceDataService: sources, $r: value => value,
+  HomeSourceService: homeService, SourceDataService: sources, PreferenceService: preferences, $r: value => value,
   CoverPrefetcher: { prefetchMany() {} }, hilog: { error() {} }, DOMAIN: 0, TAG: 'test',
   HomeLayoutReadyFrame: class { constructor(callback) { this.callback = callback; } },
   ScrollAlign: { START: 0, CENTER: 1 }
@@ -106,6 +107,7 @@ const home = Object.assign(new HomeHarness(), {
   categoryDS: { setBooks() {} }, onScrollerReady() {},
   updateHomeBlocks(value) { this.homeBlocks = value; },
   updateHomeCategories(value) { this.homeCategories = value; },
+  updateHomeChannels(value) { this.homeChannels = value; },
   homeSourceMenuData: { setItems() {} },
   homeSourceMenuScroller: { scrollTo() {}, scrollToIndex() {} },
   getUIContext: () => ({ postFrameCallback: frame => frame.callback() }), showHomeSourceToast() {}

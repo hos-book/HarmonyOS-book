@@ -4,6 +4,8 @@ import { MembershipState } from './MembershipState';
 @ObservedV2
 export class AppAppearance {
   static readonly defaultAccent: string = '#C4475B';
+  // 新值避免将旧版 0（默认均衡）静默迁移为另一种效果。
+  static readonly systemMaterial: number = 6;
   private static singleton: AppAppearance | null = null;
 
   static get current(): AppAppearance {
@@ -13,7 +15,7 @@ export class AppAppearance {
     return AppAppearance.singleton;
   }
 
-  /** 2 强、3 均衡、4 弱；兼容旧超薄/超厚偏好。 */
+  /** 2 强、3 均衡、4 弱、6 跟随系统；兼容旧超薄/超厚偏好。 */
   @Trace material: number = 3;
   /** 空字符串表示使用默认玫瑰红。 */
   @Trace accent: string = '';
@@ -21,12 +23,13 @@ export class AppAppearance {
   @Trace private selectedThemeBundleId: string = 'default';
 
   get themeBundleId(): string {
-    return MembershipState.current.hasAccess ? this.selectedThemeBundleId : 'default';
+    return MembershipState.current.canDisplaySavedTheme ? this.selectedThemeBundleId : 'default';
   }
 
   set themeBundleId(value: string) { this.selectedThemeBundleId = value; }
 
   static normalizeMaterial(value: number): number {
+    if (value === AppAppearance.systemMaterial) return AppAppearance.systemMaterial;
     if (value === 1 || value === 2) return 2;
     if (value === 4 || value === 5) return 4;
     return 3;

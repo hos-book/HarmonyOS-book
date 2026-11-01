@@ -234,9 +234,9 @@ export class NativeScriptHost {
     });
     request.webJs = this.text(options['js']).trim();
     this.count(1);
-    const response = await this.fetch(request) as Record<string, NativeValue>;
-    if (!response['ok']) throw new Error(`网页渲染失败：${response['error'] || `HTTP ${response['status']}`}`);
-    return response['body'];
+    // Return the envelope across the bridge; the JS prelude constructs the Error so its
+    // structured properties survive both QuickJS and the Node worker's string-only errors.
+    return await this.fetch(request);
   }
 
   private async http(raw: NativeValue): Promise<NativeValue> {
@@ -314,7 +314,10 @@ export class NativeScriptHost {
     try {
       response = await this.context.host.fetch(request);
     } catch (e) {
-      response = { ok: false, status: 0, body: '', url: request.url, error: (e as Error).message || '网络异常' };
+      const failure = e as Record<string, Object>;
+      response = { ok: false, status: 0, body: '', url: request.url, error: (e as Error).message || '网络异常',
+        errorCode: String(failure['errorCode'] || 'REQUEST_FAILED'),
+        errorStage: String(failure['errorStage'] || 'transport') };
     }
     if (this.context.cancelled()) throw new Error('已取消');
     const body = response.body || '';
@@ -326,7 +329,12 @@ export class NativeScriptHost {
       throw new Error(`脚本收到的数据超过上限（${Math.round(this.context.limits.bytes / 1024 / 1024)} MB）`);
     }
     return {
-      errorCode: response.errorCode || '', errorStage: response.errorStage || '', statusCodeAvailable: response.statusCodeAvailable === true,
+      errorCode: response.errorCode || (response.ok ? '' : response.status > 0 ? 'HTTP_STATUS' : 'REQUEST_FAILED'),
+      errorStage: response.errorStage || (response.ok ? '' : response.status > 0 ? 'response' : 'unknown'),
+      statusCodeAvailable: response.statusCodeAvailable === true,
+      hostWaitMs: response.hostWaitMs || 0, queueMs: response.queueMs || 0, renderMs: response.renderMs || 0,
+      waitStage: response.waitStage || '', bodyIsSnapshot: response.bodyIsSnapshot === true,
+      snapshotTruncated: response.snapshotTruncated === true,
       ok: response.ok, status: response.status, body: body, url: response.url || request.url,
       finalUrl: response.finalUrl || '', error: response.error || '',
       headers: HttpHeaderValues.normalize(response.headers || {}), headersAvailable: response.headersAvailable === true,

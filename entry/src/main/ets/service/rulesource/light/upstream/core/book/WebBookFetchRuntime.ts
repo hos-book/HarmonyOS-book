@@ -4,6 +4,9 @@ import { CookieStore } from '../http/CookieStore';
 import { WebJsAwaitScript } from './WebJsAwaitScript';
 
 export interface WebBookFetchRequest {
+  requestId?: string;
+  /** Explicit native selector: may be evaluated once the new DOM is interactive. */
+  webWaitFor?: string;
   cancelCheck?: () => boolean;
   cookieSource?: string;
   url: string;
@@ -24,6 +27,9 @@ export interface WebBookFetchRequest {
 }
 
 export interface WebBookFetchResponse {
+  bodyIsSnapshot?: boolean;
+  snapshotTruncated?: boolean;
+  waitStage?: string;
   errorCode?: string;
   errorStage?: string;
   statusCodeAvailable?: boolean;
@@ -38,6 +44,15 @@ export interface WebBookFetchResponse {
 }
 
 class WebBookFetchTask {
+  navigation: number = 0;
+  navigationUrl: string = '';
+  pageStarted: boolean = false;
+  earlyProbeSafe: boolean = false;
+  documentToken: string = '';
+  snapshot: string = '';
+  snapshotUrl: string = '';
+  snapshotTruncated: boolean = false;
+  waitStage: string = 'load';
   queuedAt: number = Date.now();
   startedAt: number = 0;
   cancelId: number = -1;
@@ -67,6 +82,7 @@ export class WebBookFetchRuntime {
   private static readonly WEB_JS_RETRY_INTERVAL_MS: number = 500;
   private static readonly WEB_JS_AWAIT_POLL_MS: number = 100;
   private webJsSlotSequence: number = 0;
+  private documentSequence: number = 0;
   private active: WebBookFetchTask | null = null;
   private queue: WebBookFetchTask[] = [];
 
@@ -98,6 +114,8 @@ export class WebBookFetchRuntime {
         migratingTask.pageEnded = false;
         migratingTask.stableCount = 0;
         migratingTask.lastSignature = '';
+        this.resetDocument(migratingTask);
+        migratingTask.earlyProbeSafe = false;
         migratingTask.webJsRun++;
         this.active = null;
         this.queue.unshift(migratingTask);
@@ -135,22 +153,63 @@ export class WebBookFetchRuntime {
     if (ready) this.runNext();
   }
 
-  onPageBegin(controller: webview.WebviewController): void {
+  onPageBegin(controller: webview.WebviewController, url: string = ''): void {
     if (this.controller !== controller || !this.active) return;
+    if (url && !/^https?:\/\//i.test(url)) return;
+    this.resetDocument(this.active);
+    this.active.pageStarted = true;
+    this.active.navigationUrl = url || this.active.request.url;
     this.active.pageEnded = false;
     this.active.stableCount = 0;
     this.active.lastSignature = '';
+    if (this.active.request.webWaitFor) this.scheduleInspect(this.active, 100);
   }
 
-  onPageEnd(controller: webview.WebviewController): void {
+  onPageEnd(controller: webview.WebviewController, url: string = ''): void {
     if (this.controller !== controller) return;
     if (!this.active) {
       this.ready = true;
       this.runNext();
       return;
     }
+    if (url && (!/^https?:\/\//i.test(url) ||
+      (this.active.navigationUrl && url !== this.active.navigationUrl))) return;
+    this.active.pageStarted = true;
+    if (!this.active.navigationUrl) this.active.navigationUrl = url || this.active.request.url;
     this.active.pageEnded = true;
-    this.scheduleInspect(this.active, 250);
+    // Do not interrupt a selector/Promise already running from the early DOM probe.
+    if (this.active.waitStage === 'load' || this.active.waitStage === 'stability') this.scheduleInspect(this.active, 250);
+  }
+
+  private resetDocument(task: WebBookFetchTask): void {
+    task.navigation++;
+    task.webJsRun++;
+    task.pageStarted = false;
+    task.pageEnded = false;
+    task.navigationUrl = '';
+    task.snapshot = '';
+    task.snapshotUrl = '';
+    task.snapshotTruncated = false;
+    task.waitStage = 'load';
+  }
+
+  /** Called by the outer HTTP deadline too, so it cannot replace the runtime's diagnostics. */
+  timeoutRequest(requestId: string): WebBookFetchResponse | null {
+    if (this.active?.request.requestId === requestId) {
+      const response = this.taskResponse(this.active, this.failure(this.active.request.url,
+        '网页请求总等待超时 (2300028)', 'REQUEST_DEADLINE', 'deadline'));
+      this.finishActive(response);
+      return response;
+    }
+    const index = this.queue.findIndex((task: WebBookFetchTask): boolean => task.request.requestId === requestId);
+    if (index < 0) return null;
+    const task = this.queue.splice(index, 1)[0];
+    if (task.deadlineId >= 0) clearTimeout(task.deadlineId);
+    if (task.cancelId >= 0) clearInterval(task.cancelId);
+    const response = this.taskResponse(task, this.failure(task.request.url,
+      '网页抓取排队超时 (2300028)', 'WEB_QUEUE_TIMEOUT', 'queue'));
+    task.resolve?.(response);
+    return response;
   }
 
   isAvailable(): boolean { return !!this.controller && this.ready; }
@@ -229,7 +288,7 @@ export class WebBookFetchRuntime {
             if (index >= 0) {
               this.queue.splice(index, 1);
               if (task.cancelId >= 0) clearInterval(task.cancelId);
-              task.resolve?.(failed);
+              task.resolve?.(this.taskResponse(task, failed));
             }
           }
         }, request.deadlineAt - Date.now());
@@ -244,7 +303,7 @@ export class WebBookFetchRuntime {
             if (index >= 0) this.queue.splice(index, 1);
             clearInterval(task.cancelId);
             if (task.deadlineId >= 0) clearTimeout(task.deadlineId);
-            task.resolve?.(failed);
+            task.resolve?.(this.taskResponse(task, failed));
           }
         }, 50);
       }
@@ -294,6 +353,38 @@ export class WebBookFetchRuntime {
           task.webJsAttempts > 0 ? 'WEB_WAIT_UNMET' : 'WEB_LOAD_TIMEOUT', task.webJsAttempts > 0 ? 'selector' : 'load'));
       }
     }, timeoutMs);
+    if (task.request.webWaitFor) {
+      // Mark the old document before navigating. A same-URL reload must not satisfy the
+      // selector using the previous document while the next navigation is still starting.
+      task.documentToken = `fetch-${++this.documentSequence}`;
+      const controller = this.controller;
+      try {
+        controller.runJavaScript(`globalThis.__legadoPreviousDocument=${JSON.stringify(task.documentToken)};''`)
+        .then((): void => {
+          if (this.active !== task || this.controller !== controller) return;
+          task.earlyProbeSafe = true;
+          this.navigate(task);
+        }).catch((): void => {
+          if (this.active === task && this.controller === controller) this.navigate(task);
+        });
+      } catch (_) {
+        this.navigate(task);
+      }
+    } else {
+      this.navigate(task);
+    }
+  }
+
+  private navigate(task: WebBookFetchTask): void {
+    if (this.active !== task || !this.controller) return;
+    if (task.request.cancelCheck?.()) {
+      this.finishActive(this.failure(task.request.url, '书源请求已取消', 'CANCELLED', 'cancel'));
+      return;
+    }
+    if (task.request.deadlineAt && Date.now() >= task.request.deadlineAt) {
+      this.finishActive(this.failure(task.request.url, '网页请求总等待超时 (2300028)', 'REQUEST_DEADLINE', 'deadline'));
+      return;
+    }
     try {
       const userAgent = this.headerValue(task.request.headers, 'user-agent');
       if (userAgent) this.controller.setCustomUserAgent(userAgent);
@@ -318,11 +409,17 @@ export class WebBookFetchRuntime {
 
   private inspect(task: WebBookFetchTask): void {
     const controller = this.controller;
-    if (this.active !== task || !controller || !task.pageEnded) return;
+    if (this.active !== task || !controller || !task.pageStarted) return;
+    if (!task.pageEnded && !task.earlyProbeSafe) {
+      this.scheduleInspect(task, 400);
+      return;
+    }
+    const navigation = task.navigation;
     const script = `(function(){return JSON.stringify({url:String(location.href||''),title:String(document.title||''),` +
+      `stale:String(globalThis.__legadoPreviousDocument===${JSON.stringify(task.documentToken)}),` +
       `ready:String(document.readyState||''),html:String(document.documentElement?document.documentElement.outerHTML:'')})})()`;
     controller.runJavaScript(script).then((raw: string): void => {
-      if (this.active !== task || this.controller !== controller) return;
+      if (this.active !== task || this.controller !== controller || task.navigation !== navigation) return;
       const snapshot = this.parseSnapshot(raw);
       if (!snapshot || !snapshot['html']) {
         this.scheduleInspect(task, 400);
@@ -333,7 +430,8 @@ export class WebBookFetchRuntime {
       // A newly attached routed-page host first completes its own about:blank navigation. That
       // callback can arrive after the pending request has migrated to it; never mistake the
       // 39-byte empty document for the requested source response.
-      if (!/^https?:\/\//i.test(snapshotUrl)) {
+      if (!/^https?:\/\//i.test(snapshotUrl) || snapshot['stale'] === 'true' ||
+        (task.navigationUrl && snapshotUrl !== task.navigationUrl)) {
         this.scheduleInspect(task, 400);
         return;
       }
@@ -342,17 +440,29 @@ export class WebBookFetchRuntime {
         this.finishActive(this.failure(snapshot['url'] || task.request.url, `response too large: >${maxBytes}`));
         return;
       }
+      // At most 64K UTF-16 units (<=192 KiB UTF-8), and never more than the response limit.
+      task.snapshot = html.substring(0, 65536);
+      task.snapshotTruncated = task.snapshot.length < html.length;
+      task.snapshotUrl = snapshotUrl;
+      if (task.request.webWaitFor && task.earlyProbeSafe &&
+        (snapshot['ready'] === 'interactive' || snapshot['ready'] === 'complete')) {
+        this.resolveBody(task, snapshotUrl, html);
+        return;
+      }
       const signature = `${snapshot['url']}|${snapshot['title']}|${snapshot['ready']}|${html.length}|` +
         `${html.substring(0, 160)}|${html.substring(Math.max(0, html.length - 160))}`;
       task.stableCount = signature === task.lastSignature ? task.stableCount + 1 : 0;
       task.lastSignature = signature;
-      if (task.stableCount < 2 || snapshot['ready'] !== 'complete') {
+      task.waitStage = 'stability';
+      if (!task.pageEnded || task.stableCount < 2 || snapshot['ready'] !== 'complete') {
         this.scheduleInspect(task, 400);
         return;
       }
       this.resolveBody(task, snapshot['url'] || task.request.url, html);
     }).catch((error: Error): void => {
-      if (this.active === task && this.controller === controller) this.finishActive(this.failure(task.request.url, this.errorMessage(error)));
+      if (this.active === task && this.controller === controller && task.navigation === navigation) {
+        this.finishActive(this.failure(task.request.url, this.errorMessage(error)));
+      }
     });
   }
 
@@ -364,6 +474,7 @@ export class WebBookFetchRuntime {
       return;
     }
     const run = ++task.webJsRun;
+    task.waitStage = task.request.webWaitFor ? 'selector' : 'script';
     const slot = `__legadoWebJs${++this.webJsSlotSequence}`;
     controller.runJavaScript(WebJsAwaitScript.start(webJs, slot)).then((raw: string): void => {
       if (this.active !== task || task.webJsRun !== run) return;
@@ -371,7 +482,7 @@ export class WebBookFetchRuntime {
       if (value === WebJsAwaitScript.BLOCKED) {
         // The page's CSP forbids eval; nothing has run yet, so execute the script as written.
         controller.runJavaScript(webJs).then((plain: string): void => {
-          if (this.active !== task || task.webJsRun !== run) return;
+          if (this.active !== task || task.webJsRun !== run || this.controller !== controller) return;
           this.acceptWebJsValue(task, finalUrl, html, this.unwrapJavaScriptResult(plain));
         }).catch((error: Error): void => this.failWebJs(task, run, finalUrl, this.errorMessage(error)));
         return;
@@ -389,7 +500,7 @@ export class WebBookFetchRuntime {
     task.inspectId = setTimeout((): void => {
       const controller = this.controller;
       // While the page navigates, inspect() restarts webJs once the new document has settled.
-      if (this.active !== task || task.webJsRun !== run || !controller || !task.pageEnded) return;
+      if (this.active !== task || task.webJsRun !== run || !controller || !task.pageStarted) return;
       controller.runJavaScript(WebJsAwaitScript.poll(slot)).then((raw: string): void => {
         if (this.active !== task || task.webJsRun !== run) return;
         const value = this.unwrapJavaScriptResult(raw);
@@ -412,14 +523,15 @@ export class WebBookFetchRuntime {
     task.webJsAttempts++;
     if (this.shouldRetryWebJs(task, value)) {
       // The overall request timeout still bounds the polling.
-      task.inspectId = setTimeout((): void => this.resolveBody(task, finalUrl, html),
-        WebBookFetchRuntime.WEB_JS_RETRY_INTERVAL_MS);
+      if (task.request.webWaitFor) this.scheduleInspect(task, WebBookFetchRuntime.WEB_JS_RETRY_INTERVAL_MS);
+      else task.inspectId = setTimeout((): void => this.resolveBody(task, finalUrl, html),
+          WebBookFetchRuntime.WEB_JS_RETRY_INTERVAL_MS);
       return;
     }
     if (!this.matchesWebJs(task, value)) {
       // The page did load: keep it (and a non-zero status) so callers judge a challenge or login gate
       // by its content instead of treating every unmet wait like a network failure.
-      this.finishActive({ url: finalUrl, statusCode: 200, headers: {}, body: html, success: false,
+      this.finishActive({ url: finalUrl, statusCode: 200, headers: {}, body: '', success: false,
         statusCodeAvailable: false, errorCode: 'WEB_WAIT_UNMET', errorStage: 'selector',
         error: '网页等待条件未满足，未取得可用内容' });
       return;
@@ -459,13 +571,24 @@ export class WebBookFetchRuntime {
     if (response.success && task.request.deadlineAt && Date.now() >= task.request.deadlineAt) {
       response = this.failure(task.request.url, '网页请求总等待超时 (2300028)', 'REQUEST_DEADLINE', 'deadline');
     }
-    if (task.resolve) task.resolve({ ...response,
-      queueMs: Math.max(0, (task.startedAt || Date.now()) - task.queuedAt),
-      renderMs: task.startedAt ? Math.max(0, Date.now() - task.startedAt) : 0 });
+    if (task.resolve) task.resolve(this.taskResponse(task, response));
     try { this.controller?.stop(); } catch (_) {}
     try { this.controller?.loadUrl('about:blank'); } catch (_) {}
     this.ready = !!this.controller;
     setTimeout((): void => this.runNext(), 0);
+  }
+
+  private taskResponse(task: WebBookFetchTask, response: WebBookFetchResponse): WebBookFetchResponse {
+    const retain = !response.success && !response.body && !!task.snapshot &&
+      ['deadline', 'load', 'selector', 'script'].includes(response.errorStage || '');
+    return { ...response,
+      body: retain ? task.snapshot : response.body,
+      url: retain ? task.snapshotUrl : response.url,
+      bodyIsSnapshot: retain || response.bodyIsSnapshot === true,
+      snapshotTruncated: retain ? task.snapshotTruncated : response.snapshotTruncated === true,
+      waitStage: task.startedAt ? task.waitStage : 'queue',
+      queueMs: Math.max(0, (task.startedAt || Date.now()) - task.queuedAt),
+      renderMs: task.startedAt ? Math.max(0, Date.now() - task.startedAt) : 0 };
   }
 
   private webHeaders(source: Record<string, string>): webview.WebHeader[] {

@@ -1,6 +1,7 @@
 import { ReaderReplaceRule } from '../model/ReaderTools';
 import { ReaderToolsService } from '../service/text/ReaderToolsService';
 import { ListDataSource } from '../utils/ListDataSource';
+import { AppColor } from '../theme/Theme';
 
 @ComponentV2
 export struct ReaderReplaceSheet {
@@ -128,8 +129,8 @@ export struct ReaderReplaceSheet {
                 .onChange((value: boolean): void => { this.allBooks = value; })
             }.width('100%')
             Text($r('app.string.reader_replace_hint')).fontSize(13).fontColor($r('sys.color.font_secondary')).width('100%')
-            Button($r('app.string.reader_replace_preview')).backgroundColor($r('sys.color.font_primary'))
-              .fontColor($r('sys.color.ohos_id_color_foreground_contrary')).enabled(!!this.pattern && !this.busy)
+            Button($r('app.string.reader_replace_preview')).backgroundColor(AppColor.Brand)
+              .fontColor(AppColor.OnBrand).enabled(!!this.pattern && !this.busy)
               .onClick((): void => { this.showPreview(); })
             if (this.previewReady) {
               Text(this.preview || $r('app.string.reader_replace_preview_empty')).fontSize(15)
@@ -139,10 +140,10 @@ export struct ReaderReplaceSheet {
         }.layoutWeight(1).width('100%')
         Row({ space: 12 }) {
           Button($r('app.string.common_cancel')).layoutWeight(1).enabled(!this.busy)
-            .backgroundColor($r('sys.color.font_primary')).fontColor($r('sys.color.ohos_id_color_foreground_contrary'))
+            .backgroundColor(AppColor.Brand).fontColor(AppColor.OnBrand)
             .onClick((): void => { this.editing = false; this.failed = ''; })
-          Button($r('app.string.common_save')).layoutWeight(1).backgroundColor($r('sys.color.font_primary'))
-            .fontColor($r('sys.color.ohos_id_color_foreground_contrary'))
+          Button($r('app.string.common_save')).layoutWeight(1).backgroundColor(AppColor.Brand)
+            .fontColor(AppColor.OnBrand)
             .enabled(!this.busy && !!this.pattern).onClick((): void => { this.change(this.draft()); })
         }.width('100%')
       } else {

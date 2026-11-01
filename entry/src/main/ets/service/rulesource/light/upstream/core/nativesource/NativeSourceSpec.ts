@@ -497,6 +497,12 @@ export class NativeSourceSpec {
     } else if (definition.js && definition.js.length > NativeJsPrelude.MAX_CODE_LENGTH) {
       errors.push(`js 太长：上限 ${Math.round(NativeJsPrelude.MAX_CODE_LENGTH / 1024)} KB`);
     }
+    if (typeof definition.js !== 'string' || !definition.js.trim()) {
+      // 函数名写错或漏定义时运行到才报错，有的位置（cache 等）出错还会被吞掉，所以导入时就拦下。
+      for (const call of NativeSourceSpec.undefinedCalls(definition).slice(0, 5)) {
+        errors.push(`${call.path}：没有名为 “${call.name}” 的函数，lib 和内置函数里都没有`);
+      }
+    }
     for (const ref of NativeSourceSpec.scriptRefs(definition)) {
       if (typeof ref.fn !== 'string' || !NativeJsPrelude.isIdentifier(ref.fn.trim())) {
         errors.push(`${ref.path} 必须是 js 里的函数名`);
@@ -763,8 +769,29 @@ export class NativeSourceSpec {
     if (!fields['bookUrl']) errors.push(`${name}.fields 缺少 bookUrl`);
   }
 
-  /** 递归检查每个字符串值：表达式和模板的语法，以及是否混入了脚本。 */
-  private static checkValues(value: NativeValue, path: string, errors: string[]): void {
+  /**
+   * 表达式和 lib 里调用了、但 lib 和内置函数里都没有的函数（按出现位置列出）。书源有 js 时这些名字还要到 js 里找，
+   * 导入时由 NativeJsLibrary.check 检查；没有 js 时 validate 直接报错。
+   */
+  static undefinedCalls(definition: NativeSourceDefinition): Array<{ path: string, name: string }> {
+    const found: Array<{ path: string, name: string }> = [];
+    const login = definition.login && typeof definition.login === 'object' ? definition.login : undefined;
+    const roots: Array<[NativeValue, string]> = [
+      [definition.let, 'let'], [definition.headers, 'headers'], [definition.coverHeaders, 'coverHeaders'],
+      [definition.cache, 'cache'], [definition.actions, 'actions'], [login ? login.submit : undefined, 'login.submit'],
+      [login ? login.sendCode : undefined, 'login.sendCode'], [login ? login.check : undefined, 'login.check'],
+      [definition.search, 'search'], [definition.explore, 'explore'], [definition.detail, 'detail'],
+      [definition.toc, 'toc'], [definition.content, 'content']
+    ];
+    for (const root of roots) NativeSourceSpec.checkValues(root[0], root[1], [], found);
+    for (const call of NativeExpr.libraryCalls(definition.lib)) found.push({ path: `lib 函数 ${call.fn}`, name: call.name });
+    const known = NativeExpr.builtinNames().concat(NativeExpr.libraryFunctionNames(definition.lib));
+    return found.filter((call): boolean => known.indexOf(call.name) < 0);
+  }
+
+  /** 递归检查每个字符串值：表达式和模板的语法，以及是否混入了脚本。calls 收集表达式里调用的函数名。 */
+  private static checkValues(value: NativeValue, path: string, errors: string[],
+    calls: Array<{ path: string, name: string }> = []): void {
     if (errors.length >= 20 || value === null || value === undefined) return;
     if (/^(search|explore|detail|toc|content|cache\.[^.]+|actions\[\d+\]|login\.(submit|sendCode|check))(\.(fetch\.[^.]+|dynamicMenus|menus\[\d+\]))?\.retry$/.test(path)) {
       try { HttpRetryPolicy.parse(value); } catch (e) { errors.push(`${path}：${(e as Error).message}`); }
@@ -773,25 +800,29 @@ export class NativeSourceSpec {
     if (typeof value === 'string') {
       const text = value.trim();
       let problem = '';
+      let names: string[] = [];
       if (text.startsWith('=')) {
         problem = NativeExpr.check(text.substring(1));
+        if (!problem) names = NativeExpr.calledNames(text.substring(1));
       } else if (/^@?js\s*:|<js>|@js\s*:/i.test(text)) {
         problem = '原生书源不支持脚本，请改用 = 表达式';
       } else if (text.indexOf('{{') >= 0) {
         problem = NativeExpr.checkTemplate(text);
+        if (!problem) names = NativeExpr.calledNames(text, true);
       }
       if (problem) errors.push(`${path}：${problem}`);
+      for (const name of names) calls.push({ path: path, name: name });
       return;
     }
     if (Array.isArray(value)) {
-      for (let i = 0; i < value.length; i++) NativeSourceSpec.checkValues(value[i], `${path}[${i}]`, errors);
+      for (let i = 0; i < value.length; i++) NativeSourceSpec.checkValues(value[i], `${path}[${i}]`, errors, calls);
       return;
     }
     if (typeof value === 'object') {
       for (const key of Object.keys(value)) {
         // replace 的 pattern/with 是正则与替换文本，不按规则语法检查。
         if (/\.replace\[\d+\]$/.test(path)) continue;
-        NativeSourceSpec.checkValues(value[key], `${path}.${key}`, errors);
+        NativeSourceSpec.checkValues(value[key], `${path}.${key}`, errors, calls);
       }
     }
   }

@@ -1,6 +1,6 @@
 import { CoverPrefetcher } from '../service/CoverPrefetcher';
 import { EnhancedPlayerCover } from './EnhancedPlayerCover';
-import { SourceCoverService } from '../service/SourceCoverService';
+import { CoverLoadHandle } from '../service/CoverLoader';
 import { CoverImage } from './CoverImage';
 import { CoverDecoration } from './CoverDecoration';
 import { CoverTheme } from '../theme/CoverTheme';
@@ -33,10 +33,11 @@ export struct PlayerCoverImage {
   @Local resolvedUrl: string = '';
   @Local resolvedFallback: string = '';
   private generation: number = 0;
+  private handles: CoverLoadHandle[] = [];
   private resizeTimer: number = -1;
 
   aboutToAppear(): void { this.reset(); }
-  aboutToDisappear(): void { this.cancelResize(); this.generation++; }
+  aboutToDisappear(): void { this.cancelResize(); this.generation++; this.releaseLoads(); }
 
   @Monitor('url', 'fallback')
   onCoverChanged(): void { this.reset(); }
@@ -46,20 +47,28 @@ export struct PlayerCoverImage {
     this.failedKey = '';
     this.previewFailed = false;
     const generation = ++this.generation;
-    this.resolvedUrl = SourceCoverService.isEncoded(this.url) ? '' : this.url;
-    this.resolvedFallback = SourceCoverService.isEncoded(this.fallback) ? '' : this.fallback;
-    if (SourceCoverService.isEncoded(this.url)) {
-      SourceCoverService.resolve(this.url).then((url: string): void => {
+    this.releaseLoads();
+    this.resolvedUrl = this.url.startsWith('http') ? CoverPrefetcher.cached(this.url) : this.url;
+    this.resolvedFallback = this.fallback.startsWith('http') ? CoverPrefetcher.cached(this.fallback) : this.fallback;
+    if (this.url.startsWith('http') && !this.resolvedUrl) {
+      const handle = CoverPrefetcher.acquire(this.url);
+      this.handles.push(handle);
+      handle.promise.then((url: string): void => {
         if (generation === this.generation) this.resolvedUrl = url;
       }).catch((): void => {});
     }
-    if (SourceCoverService.isEncoded(this.fallback)) {
-      SourceCoverService.resolve(this.fallback).then((url: string): void => {
+    if (this.fallback.startsWith('http') && !this.resolvedFallback) {
+      const handle = CoverPrefetcher.acquire(this.fallback);
+      this.handles.push(handle);
+      handle.promise.then((url: string): void => {
         if (generation === this.generation) this.resolvedFallback = url;
       }).catch((): void => {});
     }
-    CoverPrefetcher.prefetch(this.url, true);
-    if (this.fallback) CoverPrefetcher.prefetch(this.fallback, true);
+  }
+
+  private releaseLoads(): void {
+    for (const handle of this.handles) handle.cancel();
+    this.handles = [];
   }
 
   private cancelResize(): void {

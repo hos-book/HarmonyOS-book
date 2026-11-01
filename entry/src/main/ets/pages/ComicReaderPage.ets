@@ -735,7 +735,10 @@ export struct ComicReaderPage {
       if (this.mode !== 0 && this.touchTracker.canTap() && Date.now() - this.touchStartedAt < 300) {
         const action = ReaderTapPolicy.resolve(ReaderTapPolicy.DEFAULT, touch.windowX - this.leftSafe, touch.windowY,
           this.widthVp - this.leftSafe - this.rightSafe, this.heightVp, this.tapLeftPercent, this.tapRightPercent);
-        if (action === 0 || action === 2) this.turnPage(action === 2 ? 1 : -1);
+        if (action === 0 || action === 2) {
+          const forward = this.mode === 2 ? action === 0 : action === 2;
+          this.turnPage(forward ? 1 : -1);
+        }
         return;
       }
       if (this.mode !== 0 && Math.abs(dx) > 48 && Math.abs(dx) > Math.abs(dy)) {
@@ -1686,8 +1689,8 @@ export struct ComicReaderPage {
         onToggle: (): void => this.toggleAutoPage() })
       ReaderSettingCard({ title: $r('app.string.reader_turn_title'), inline: true }) {
         ImmersiveOptionTabs({ labels: [$r('app.string.comic_scroll'), $r('app.string.comic_paged'),
-          $r('app.string.comic_dissolve')], selected: [0, 1, 3].indexOf(this.mode),
-          onSelect: (index: number): void => { this.changeMode([0, 1, 3][index]); } }).enabled(!this.settingsSaving)
+          $r('app.string.comic_rtl'), $r('app.string.comic_dissolve')], selected: this.mode,
+          onSelect: (index: number): void => { this.changeMode(index); } }).enabled(!this.settingsSaving)
       }
       if (this.mode !== 0) {
         ReaderSettingCard({ title: $r('app.string.comic_page_layout'), inline: true,

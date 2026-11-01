@@ -10,6 +10,11 @@ import { HttpProtocolPolicy } from './HttpProtocolPolicy';
 import { HttpFinalUrlObserver } from './HttpFinalUrlObserver';
 
 export interface HttpRequest {
+  webRequestId?: string;
+  webWaitFor?: string;
+  webWaitStage?: string;
+  webHostStartedAt?: number;
+  webHostWaitMs?: number;
   automaticCookieHeader?: boolean;
   url: string;
   method: string;
@@ -50,6 +55,9 @@ export interface HttpRequest {
 }
 
 export interface HttpResponse {
+  bodyIsSnapshot?: boolean;
+  snapshotTruncated?: boolean;
+  waitStage?: string;
   errorCode?: string;
   errorStage?: string;
   statusCodeAvailable?: boolean;
@@ -125,6 +133,15 @@ export class HttpClient {
   static readonly CANCELLED_ERROR: string = '书源请求已取消';
 
   static timeoutResponse(req: HttpRequest): HttpResponse {
+    if (req.useWebView && req.webRequestId) {
+      const response = WebBookFetchRuntime.get().timeoutRequest(req.webRequestId);
+      const hostWaitMs = req.webHostWaitMs ?? (req.webHostStartedAt ? Date.now() - req.webHostStartedAt : 0);
+      if (response) return { ...response, hostWaitMs: hostWaitMs, headersAvailable: false,
+        finalUrl: response.bodyIsSnapshot ? response.url : '' };
+      return { url: req.url, statusCode: 0, headers: {}, body: '', success: false,
+        error: '网页请求总等待超时 (2300028)', errorCode: 'REQUEST_DEADLINE', errorStage: 'deadline',
+        waitStage: req.webWaitStage || 'session', hostWaitMs: hostWaitMs, statusCodeAvailable: false };
+    }
     return { url: req.url, statusCode: 0, headers: {}, body: '', success: false, error: '请求总等待超时 (2300028)', errorCode: 'REQUEST_DEADLINE', errorStage: 'deadline', statusCodeAvailable: false };
   }
 
@@ -142,7 +159,8 @@ export class HttpClient {
       const timer = setTimeout((): void => resolve(timedOut()), remaining);
       work().then((value: T): void => {
         clearTimeout(timer);
-        resolve(req.deadlineAt && Date.now() >= req.deadlineAt ? timedOut() : value);
+        // The Web runtime already enforces the same deadline and retains its last snapshot.
+        resolve(!req.useWebView && req.deadlineAt && Date.now() >= req.deadlineAt ? timedOut() : value);
       },
         (error: Error): void => { clearTimeout(timer); reject(error); });
     });
@@ -173,6 +191,10 @@ export class HttpClient {
   async execute(req: HttpRequest): Promise<HttpResponse> {
     req = { ...req, diagnosticAttempts: [] };
     const requestId = `http-${++HttpClient.requestSequence}`;
+    if (req.useWebView) {
+      req.webRequestId = requestId;
+      req.webWaitStage = 'session';
+    }
     const startedAt = Date.now();
     let response: HttpResponse;
     try {
@@ -196,6 +218,9 @@ export class HttpClient {
       trace.statusCodeAvailable = response.statusCodeAvailable === true;
       trace.errorCode = response.errorCode || '';
       trace.errorStage = response.errorStage || '';
+      trace.waitStage = response.waitStage || '';
+      trace.bodyIsSnapshot = response.bodyIsSnapshot === true;
+      trace.snapshotTruncated = response.snapshotTruncated === true;
       trace.hostWaitMs = response.hostWaitMs || 0;
       trace.queueMs = response.queueMs || 0;
       trace.renderMs = response.renderMs || 0;
@@ -230,8 +255,11 @@ export class HttpClient {
         // Only wait for the hidden ArkWeb host to attach. A busy host is healthy: fetch() queues
         // subsequent requests and runs them in order instead of misreporting it as "not ready".
         const hostStarted = Date.now();
+        req.webHostStartedAt = hostStarted;
+        req.webWaitStage = 'host';
         const attached = await runtime.waitUntilAttached(this.timeoutFor(req, 8000), req.cancelCheck);
         const hostWaitMs = Date.now() - hostStarted;
+        req.webHostWaitMs = hostWaitMs;
         if (req.cancelCheck?.()) return this.cancelledResponse(req);
         if (req.deadlineAt && Date.now() >= req.deadlineAt) return HttpClient.timeoutResponse(req);
         if (!attached) {
@@ -241,7 +269,10 @@ export class HttpClient {
         if (req.cancelCheck && req.cancelCheck()) return this.cancelledResponse(req);
         req.observedRequestHeaders = this.requestHeaders(req.headers);
         req.diagnosticAttempts?.push('WebView');
+        req.webWaitStage = 'queue';
         const response = await runtime.fetch({
+          requestId: req.webRequestId,
+          webWaitFor: req.webWaitFor,
           url: req.url,
           cookieSource: req.cookieSource,
           cancelCheck: req.cancelCheck,
@@ -255,7 +286,8 @@ export class HttpClient {
           deadlineAt: req.deadlineAt,
           maxResponseBytes: req.maxResponseBytes
         });
-        return { ...response, hostWaitMs: hostWaitMs, statusCodeAvailable: false, headersAvailable: false, finalUrl: response.success ? response.url : '' };
+        return { ...response, hostWaitMs: hostWaitMs, statusCodeAvailable: false, headersAvailable: false,
+          finalUrl: response.success || response.bodyIsSnapshot ? response.url : '' };
       });
     }
     const forceHttp1 = HttpProtocolPolicy.prefersHttp1(req.url);

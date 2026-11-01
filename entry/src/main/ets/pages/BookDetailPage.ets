@@ -949,14 +949,12 @@ export struct BookDetailPage {
     this.isStartingPlay = false;
   }
 
-  /** 从详情页进播放页前,清理栈避免重复 player。如果栈里已有 player,先 pop 到 home,再 push player */
+  /** 首页由 NavBar 承载；播放器再入详情时清理旧 player，避免重复播放页。 */
   private cleanStackBeforePushPlayer(): void {
     const names = this.navStack.getAllPathName();
     if (!names || names.length === 0) return;
-    // 栈结构:home, player?, detail, ...
-    // 如果 names[1] === 'player',说明从 player 进的 detail,需要 pop 到 home
-    if (names.length >= 2 && names[1] === 'player') {
-      this.navStack.popToName('home');
+    if (names.includes('player')) {
+      this.navStack.clear(false);
     }
   }
 

@@ -21,11 +21,12 @@ TTS 导入兼容逐行 `Name: Value` 请求头及顶层嵌套 JSON 正文，可�
 小说和漫画的“智控键翻页”设置入口暂时隐藏，读取旧配置时也保持关闭，不启用智控键事件订阅。原偏好字段、阅读备份字段和服务代码保留兼容；音量键翻页沿用现有独立设置。Mate 80 实体滑动仍触发系统通知栏，隔离问题尚未解决，注入事件翻页成功不能作为硬件验收结论；更新日志不再宣传此功能。
 
 - 最低 HarmonyOS 6.0 / API 20；`compatibleSdkVersion = 6.0.0(20)`，目标 HarmonyOS 26.0.0 / API 26，`targetSdkVersion = 26.0.0`。主工程 default / release 与 QuickJS HAR 的最低版本一致。
-- `PlatformCompat` 按设备 API 分流：API 23 起启用 HDS 浮动底栏，API 26 起启用正式版 `uiMaterial` 沉浸光感、媒体中心增强控制和浮动导航避让；较新系统模块延迟加载。API 20–22 使用固定底栏及独立迷你播放器，封面预下载通过下载信息轮询完成；API 20–25 的材质使用三档磨砂回退。
+- `PlatformCompat` 按设备 API 分流：API 23 起启用 HDS 浮动底栏，API 26 起启用正式版 `uiMaterial` 沉浸光感、媒体中心增强控制和浮动导航避让；较新系统模块延迟加载。API 20–22 使用固定底栏及独立迷你播放器，封面使用统一下载队列和本地文件缓存；API 20–25 的材质使用三档磨砂回退。
 - 编译使用经确认的 Release SDK；当前配套为 DevEco Studio 26.0.0.821，编译版本与目标/最低版本分开管理。上传前检查 APP 内所有 HAP 的 `apiReleaseType = Release`，QuickJS HAR 也需用正式工具链重建。
 - Stage 模式，单模块 `entry/`，设备类型为 `phone`、`tablet`、`2in1`、`wearable`；前三者按实际窗口尺寸适配，标准手表使用独立圆屏页面；多端交互与待验证项目见 `docs/APP_UI.md`。
 - ArkTS + ArkUI V2；页面使用 `@Local` 和 Service 单例。
-- `bundleName = com.huan.listenbook`；当前正式版 `versionName = 1.0.0`、`versionCode = 1001005`；邀测为 `1.0.4 (1001004)`。以 `AppScope/app.json5` 为准。
+- 折叠屏/大窗口按实际 Navigation 容器宽度适配平行视界：720vp 起，已有普通目的页时左右分栏，MainPage 常驻 NavBar，空栈首页仍全宽。阅读/漫画/播放器/书源网页登录及其后续路由保持全宽，返回恢复分栏；缩放不清理导航栈。首页不再作为 `home` 目的页入栈，回首页使用空栈语义。
+- `bundleName = com.huan.listenbook`；当前正式版 `versionName = 1.0.1`、`versionCode = 1001006`；历史邀测为 `1.0.4 (1001004)`。以 `AppScope/app.json5` 为准。
 - 后台模式为 `audioPlayback`、`dataTransfer`，权限包括网络、振动和长时后台运行。
 - `entry/libs/quickjs.har` 为 arm64-v8a / x86_64 双 ABI 本地依赖；源码和构建脚本在 `third_party/quickjs/`、`scripts/build-quickjs.ps1`。
 - 签名在本机 DevEco Studio 配置，`build-profile.json5` 含私有签名信息，禁止提交其中的本机改动。
@@ -273,6 +274,10 @@ scripts/                HAR 构建与图标工具
 
 本地备份仅保留在 `AccountPage`，未登录也可通过“我的”顶部账号行进入。`LocalBackupService` 使用 `DocumentViewPicker(context)` 的保存/选择接口及 `fileIo` 描述符读写，所有使用的 API 均兼容最低 API20。文件 URI 只在当前操作中使用，分块复制处理短读/短写及文件增长，保存完成后才报成功。本地备份为完整快照 JSON，不把独立书源数组当作恢复文件。恢复前保存并验证 `filesDir/backup/before_local_restore.json`；取消选择/确认不恢复业务数据，失败保留安全快照。本地操作通过 `AuthService.beginDataOperation(false)` 与云备份、资料授权、退出互斥。回归使用 `DEVECO_HOME=<Release IDE> node scripts/test-local-backup.cjs`，共享真实服务转译与文件模拟设施，并覆盖书源字段往返、无登录、取消、损坏/超限文件、失败和资源释放。
 
+`WebDavBackupService` 在账号与备份页提供独立折叠卡片，支持配置、连接测试、手动上传和恢复，不要求华为登录或会员。使用现有 WebDAV 文件夹，Basic 认证；建议 HTTPS，系统验证证书，禁止自动重定向。PROPFIND Depth 0 测试目录访问，PUT 临时文件后 MOVE 发布为 `listenbook-backup.json`，替换前由用户确认；失败/取消尽力删除本次临时文件，不回退为直接覆盖上传。响应流限制 32 MiB，复用 AppBackupService 校验和恢复，恢复前保存 `filesDir/backup/before_webdav_restore.json`。配置保存在独立加密 `webdav_credentials.db`，不进入备份白名单。手动操作与现有自动云备份互斥；当前 WebDAV 为手动备份。回归：`scripts/test-webdav-backup.cjs`。
+
+封面展示与预取通过 `CoverLoader` 共用四路队列，后台预取最多占一路、每批四张，可见组件订阅优先；离屏移除无人订阅的待执行任务，已开始请求可完成缓存但无人使用时不重试。网络最多两次尝试后冷却，普通封面按 URL 和请求头隔离缓存，源绑定封面继续使用 SourceCoverService 的书源/会话隔离及解密。`CoverPrefetcher` 保留兼容导出；首页、搜索和播放器 Image 读取本地文件，不另行下载。宿主 `LightSourceCoverCache` 异步读写，串行淘汰与提交限制磁盘 64 MiB，临时文件完成后发布；单张上限 8 MiB，保留原图供播放器超分。回归：`scripts/test-cover-lifecycle.cjs`、`scripts/test-source-cover-cache.cjs`。
+
 `AutoBackupService` 在账号页华为云空间卡片提供默认关闭的自动备份，支持 1/3/7 天间隔。服务初始化完成后在前台延迟 10 秒检查，前台每分钟检查到期条件，退后台清理定时器并取消本次自动传输；下次前台按退避时间补做。复用云备份互斥、完整快照校验及上传确认，内容 SHA-256 排除导出时间，无变化不生成新云版本；失败从 5 分钟指数退避至最多 6 小时。独立 `auto_backup_local` Preferences 以账号摘要为键保存开关、频率、成功时间、摘要和重试状态，不进入系统/本地/云备份白名单，JSON 字段保留混淆名称。新安装或该账号从未在本机备份/恢复时，先同步检查云目录，发现已有备份暂停自动上传；用户恢复成功或明确确认使用本机数据手动备份后解除保护。手动备份成功更新调度，云恢复不冒充上传成功；调度写入失败停止自动尝试并单独提示。手动操作先取消并等待自动任务释放，账号页退出不取消自动任务，系统换号后不沿用另一账号授权。隐私政策 v3.4.0 同步说明主动开启和前台执行边界。回归：`node scripts/test-auto-backup.cjs`，使用 Release IDE 的 Node 和 `DEVECO_HOME`。
 
 个人云空间配置：官方端云文件协同指南要求设备系统至少 HarmonyOS 6.0.0.115、云空间至少 6.0.0.300，使用 API21 以上正式版 SDK 构建（本工程已满足）。安装带有 `cloudFileSyncEnabled` 的应用后，在系统“设置 → 云空间”找到“简听阅读”并打开同步开关；跨设备恢复须使用同一华为账号。本路径无需接入开发者 AGC 存储桶。低于服务要求或没有开启应用同步时，页面提示云空间不可用，原有本地功能仍可使用。
@@ -323,6 +328,10 @@ scripts/                HAR 构建与图标工具
 
 ## 简简本地陪伴角色
 
+贴边交互：`JianjianCompanionComponent.dockSide` 记录左/右/自由状态，拖到边缘附近松手时吸附到 `x=-52` 或 `窗口宽-52`，人物向外平移 40vp、绕脚底向内倾斜 42°，根容器裁剪形成身体藏在边缘外、头部斜探的姿态；热区仍露出 52vp。点击临时转正展开，4 秒气泡结束恢复探头并收回原侧；拉出取消停靠与收回定时器，中间自由放置。窗口变化保留停靠侧；后台取消互动并收回。PanGesture 的结束事件处理最终位移，原始 Touch Up 不抢先结束拖动。`scripts/test-jianjian-docking.cjs` 覆盖两侧吸附、展开/回收、拖出、窗口变化和后台清理。
+
+人物由 ArkUI V2 `JianjianAvatarComponent` 与 `JianjianRenderController` 原生自绘节点渲染。`JianjianRig` 使用 24×40 连续网格，为头部、躯干、双手与书本、裙摆、两侧发梢、呆毛设置独立运动权重，颈部平滑衔接、脚底固定；待机歪头呼吸、发梢错相滞后摆动，点击触发点头与捧书起伏。`drawing.Canvas.drawPixelMapMesh` 自 API 12 可用，符合项目最低 API 20；不依赖 Web、Cubism Core 或 C++ 库。每 33ms 更新一次顶点并使原生节点失效，复用贴图及顶点数组，不逐帧重建 ArkUI 树或解码图片。底图和左右眼睑通过 `scripts/build-jianjian-native-assets.py` 从完整原图生成同坐标的 231×384 RGBA 贴图，眼睑跟随同一网格。自然眨眼间隔 2.6～5.2 秒；开心/比心短暂闭眼、眨眼文案触发单眼、困倦闭眼随气泡结束复位。拖动、退后台及不可见时暂停网格和眨眼调度；卸载取消定时器、处置节点及 PixelMap，异步解码过期结果必须释放。原图与 v2 PSD/零件保持原样。此为自研二维网格角色，不是 Cubism 模型；未实现面部透视转头、嘴型同步、挥手或走路。回归脚本 `test-jianjian-rig.cjs` 验证网格不翻折、脚底固定及局部运动，`test-jianjian-animation.cjs` 验证表情与定时器生命周期。
+
 设置 → 外观提供“简简陪伴”开关，标题旁显示“限时体验”，默认关闭；通过 `PreferenceService` 保存本机 `jianjian_companion_enabled`，先更新 `GeneralSettings` 共享状态，再发出变更事件通知 `Index` 更新 `@Local` 显示状态。点击后先立即更新人物显示，再异步落盘，失败回滚并提示；关闭时不创建人物、不运行动画或拦截触摸，重启沿用选择。
 
-开启后 `Index` 在根导航上方挂载单个 `JianjianCompanionComponent`，覆盖主界面各 Tab 及详情、阅读、播放、设置等应用内路由，页面切换不重置人物位置。人物来自用户提供的 `角色资产/简听娘-红色系列-透明底全套`：全身拿书站姿用于常驻人物，九张半身表情用于点击气泡，配套九句本地文案；不把半身和全身图混作眨眼帧。打包资源为裁去透明留白、最长边 384 像素的 RGBA PNG，保留原始素材。待机轻微呼吸起伏，点击轻晃。长按 450 毫秒后拖动，松手停留；拖动不触发点击气泡，位置随实际容器尺寸变化约束到窗口内，气泡靠近顶部时移至人物下方。没有缩小按钮，关闭或重启后再次显示时恢复右下方。根导航退后台或组件不可见时暂停动画并清理互动延迟。未接入独立手表入口、系统弹窗或应用外悬浮窗，不依赖播放服务、后端或 AI。
+开启后 `Index` 在根导航上方挂载单个 `JianjianCompanionComponent`，覆盖主界面各 Tab 及详情、阅读、播放、设置等应用内路由，页面切换不重置人物位置。人物来自用户提供的 `角色资产/简听娘-红色系列-透明底全套`：全身拿书站姿用于常驻人物，九张半身表情用于点击气泡，配套九句本地文案；不把半身和全身图混作眨眼帧。打包资源为裁去透明留白、最长边 384 像素的 RGBA PNG，保留原始素材。待机轻微呼吸起伏，点击轻晃。按住直接拖动，无需长按等待；移动超过 5vp 后识别拖动，轻点仍触发互动，松手停留；拖动不触发点击气泡，位置随实际容器尺寸变化约束到窗口内，气泡靠近顶部时移至人物下方。互动对话使用 24vp 圆角、随文字自适应高度的气泡，配有朝向人物的小尾巴；顶部空间不足时气泡移到人物下方并翻转尾巴，沿用主题色和触摸透传。没有缩小按钮，关闭或重启后再次显示时恢复右下方。根导航退后台或组件不可见时暂停动画并清理互动延迟。未接入独立手表入口、系统弹窗或应用外悬浮窗，不依赖播放服务、后端或 AI。

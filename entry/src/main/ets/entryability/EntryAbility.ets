@@ -522,6 +522,11 @@ export default class EntryAbility extends UIAbility {
       hilog.error(DOMAIN, TAG, 'Immersive setup failed: %{public}s', JSON.stringify(err));
     }
 
+    // 恢复本地主题和展示状态后再构建页面，避免首帧默认套装闪烁；不等待网络核验。
+    await Promise.all([
+      PreferenceService.init(this.context).catch((): void => {}),
+      MembershipService.instance.prepareAppearance(this.context)
+    ]);
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, TAG, 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));

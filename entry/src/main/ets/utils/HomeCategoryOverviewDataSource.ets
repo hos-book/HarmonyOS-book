@@ -1,18 +1,29 @@
 import { HomeSourceCategory } from '../service/rulesource/HomeSourceService';
 
-export class HomeCategoryOverviewRow {
-  categories: HomeSourceCategory[];
-  startIndex: number;
+export class HomeCategoryOverviewItem {
+  category: HomeSourceCategory;
+  label: string;
   key: string;
-
-  constructor(categories: HomeSourceCategory[], startIndex: number) {
-    this.categories = categories;
-    this.startIndex = startIndex;
-    this.key = categories.map((category: HomeSourceCategory): string => category.url).join('|');
+  constructor(category: HomeSourceCategory, label: string) {
+    this.category = category;
+    this.label = label;
+    this.key = JSON.stringify([category.group, category.url, category.name]);
   }
 }
 
-/** 分类总览按双列分行，复用首页 List 的滚动、刷新和安全区。 */
+export class HomeCategoryOverviewRow {
+  title: string;
+  channel: string;
+  categories: HomeCategoryOverviewItem[] = [];
+  key: string;
+  constructor(channel: string, title: string) {
+    this.channel = channel;
+    this.title = title;
+    this.key = JSON.stringify([channel, title]);
+  }
+}
+
+/** 书源分组优先；明确的“全部·大类”入口开启子分组，保留原 URL 与频道。 */
 export class HomeCategoryOverviewDataSource implements IDataSource {
   private rows: HomeCategoryOverviewRow[] = [];
   private listeners: DataChangeListener[] = [];
@@ -25,12 +36,40 @@ export class HomeCategoryOverviewDataSource implements IDataSource {
     return this.rows[index];
   }
 
-  setCategories(categories: HomeSourceCategory[]): void {
+  static group(categories: HomeSourceCategory[], query: string = ''): HomeCategoryOverviewRow[] {
     const rows: HomeCategoryOverviewRow[] = [];
-    for (let index: number = 0; index < categories.length; index += 2) {
-      rows.push(new HomeCategoryOverviewRow(categories.slice(index, index + 2), index));
+    const active = new Map<string, HomeCategoryOverviewRow>();
+    const seen = new Set<string>();
+    for (const category of categories) {
+      const key = JSON.stringify([category.group, category.url, category.name]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const heading = /^(?:全部|所有)\s*[·•:：／/]\s*(\S.*?)\s*$/.exec(category.name);
+      let row = active.get(category.group);
+      if (heading !== null || row === undefined) {
+        const title = heading !== null ? heading[1] : category.group;
+        row = rows.find((candidate: HomeCategoryOverviewRow): boolean =>
+          candidate.channel === category.group && candidate.title === title);
+        if (row === undefined) { row = new HomeCategoryOverviewRow(category.group, title); rows.push(row); }
+        active.set(category.group, row);
+      }
+      row.categories.push(new HomeCategoryOverviewItem(category, heading !== null ? '' : category.name));
     }
-    this.rows = rows;
+    const keyword = query.trim().toLocaleLowerCase();
+    if (!keyword) return rows;
+    const result: HomeCategoryOverviewRow[] = [];
+    for (const row of rows) {
+      const filtered = new HomeCategoryOverviewRow(row.channel, row.title);
+      const matchesGroup = `${row.channel} ${row.title}`.toLocaleLowerCase().includes(keyword);
+      filtered.categories = row.categories.filter((item: HomeCategoryOverviewItem): boolean =>
+        matchesGroup || item.category.name.toLocaleLowerCase().includes(keyword));
+      if (filtered.categories.length > 0) result.push(filtered);
+    }
+    return result;
+  }
+
+  setCategories(categories: HomeSourceCategory[], query: string = ''): void {
+    this.rows = HomeCategoryOverviewDataSource.group(categories, query);
     this.listeners.forEach((listener: DataChangeListener): void => listener.onDataReloaded());
   }
 

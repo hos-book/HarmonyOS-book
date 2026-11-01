@@ -23,6 +23,7 @@ class AccentChoice {
 }
 
 const MATERIAL_CHOICES: MaterialChoice[] = [
+  new MaterialChoice(AppAppearance.systemMaterial, $r('app.string.appearance_material_system')),
   new MaterialChoice(2, $r('app.string.appearance_material_strong')),
   new MaterialChoice(3, $r('app.string.appearance_material_balanced')),
   new MaterialChoice(4, $r('app.string.appearance_material_weak'))
@@ -165,7 +166,7 @@ export struct AppearanceSettingsComponent {
           labels: MATERIAL_CHOICES.map((choice: MaterialChoice): ResourceStr => choice.label),
           selected: MATERIAL_CHOICES.findIndex((choice: MaterialChoice): boolean => choice.value === this.appearance.material),
           onSelect: (index: number): void => { this.applyMaterial(MATERIAL_CHOICES[index].value); }
-        })
+        }).enabled(!this.saving)
       }.width('100%').padding(AppSpace.Md)
       this.divider()
       Row({ space: AppSpace.Sm }) {

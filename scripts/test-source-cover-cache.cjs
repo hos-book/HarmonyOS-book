@@ -20,6 +20,13 @@ const { SourceCoverUrl } = load('service/rulesource/light/upstream/core/nativeso
 async function run() {
   const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'source-cover-'));
   const fileApi = {
+    access: async p => fs.existsSync(p), mkdir: async p => fs.promises.mkdir(p, { recursive: true }),
+    listFile: fs.promises.readdir,
+    stat: async p => { const s = await fs.promises.stat(p); return { size: s.size, mtime: s.mtimeMs }; },
+    unlink: fs.promises.unlink, rename: fs.promises.rename,
+    open: async p => ({ fd: fs.openSync(p, 'w') }),
+    write: async (fd, buffer) => fs.writeSync(fd, Buffer.from(buffer), 0, Math.min(65536, Math.max(1, buffer.byteLength - 1))),
+    close: async file => fs.closeSync(typeof file === 'number' ? file : file.fd),
     accessSync: fs.existsSync, mkdirSync: p => fs.mkdirSync(p, { recursive: true }),
     listFileSync: fs.readdirSync,
     statSync: p => { const s = typeof p === 'number' ? fs.fstatSync(p) : fs.statSync(p); return { size: s.size, mtime: s.mtimeMs }; },
@@ -49,6 +56,14 @@ async function run() {
     fs.unlinkSync(first.replace('file://', ''));
     await restart().materialize('source-a:login-1:definition-1:url', download);
     assert.equal(downloads, 3, 'deleted cache is fetched again');
+
+    const cache = restart();
+    await Promise.all(Array.from({ length: 12 }, (_, i) => cache.materialize('large-' + i,
+      async () => new Uint8Array(6 * 1024 * 1024))));
+    const entries = fs.readdirSync(path.dirname(first.replace('file://', '')));
+    assert.ok(entries.reduce((n, name) => n + fs.statSync(path.join(temp, 'source_covers', name)).size, 0) <= 64 * 1024 * 1024);
+    assert.ok(entries.every(name => !name.endsWith('.tmp')), 'only complete images are published');
+    await assert.rejects(cache.materialize('oversized', async () => new Uint8Array(8 * 1024 * 1024 + 1)));
 
     let revision = 0, reads = 0, materializations = 0, installed = true;
     const raw = SourceCoverUrl.wrap('https://cover.test/a.jpg', 'https://source.test');

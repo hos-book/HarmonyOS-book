@@ -51,6 +51,7 @@ import { JianjianCompanionComponent } from '../components/JianjianCompanionCompo
 import { GeneralSettings } from '../model/GeneralSettings';
 import { EVT_JIANJIAN_COMPANION_CHANGED } from '../service/PreferenceService';
 import { PlatformCompat } from '../utils/PlatformCompat';
+import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { LocalImportRouteParams } from '../utils/FileOpenRouting';
 import { RuleSourceImportQueue } from '../service/rulesource/RuleSourceImportQueue';
 import {
@@ -80,6 +81,8 @@ struct Index {
   };
   @Local companionActive: boolean = true;
   @Local navStack: NavPathStack = new NavPathStack();
+  @Local navigationWidth: number = 0;
+  @Local parallelNavigation: boolean = false;
   @Local playerRenderGroup: boolean = false;
   @Local playerOpacity: number = 1;
   @Local playerDragState: PlayerDragState = PlayerDragTransition.getInstance().state;
@@ -119,8 +122,14 @@ struct Index {
     this.titleBarBridge.onChanged = (): void => {
       this.detailFavorite = this.titleBarBridge.isFavorite;
     };
-    // 先 push home 作为栈底,再消费 widget 路由,保证栈不空
-    this.navStack.pushPathByName('home', null, false);
+    // 首页常驻原生 NavBar；只切换布局，不搬移/重建首页和目的页。
+    this.navStack.setInterception({
+      willShow: (): void => { this.updateNavigationLayout(); },
+      didShow: (): void => {
+        this.updateNavigationLayout();
+        this.syncReaderWindowMode();
+      }
+    });
     LocalRuleBrowserLoginCoordinator.bindNavigation(this.browserLoginOpener);
 
     this.consumePendingWidgetRoute();
@@ -157,6 +166,30 @@ struct Index {
 
   onPageHide(): void {
     this.companionActive = false;
+  }
+
+  private updateNavigationLayout(): void {
+    this.parallelNavigation = AdaptiveLayout.navigationUsesColumns(
+      this.navigationWidth, this.navStack.getAllPathName());
+    if (this.parallelNavigation || this.navStack.size() === 0) this.homeCoveredByDetail = false;
+  }
+
+  onBackPress(): boolean {
+    if (this.navStack.size() > 0) return false;
+    if (this.homeBackHandler?.()) return true;
+    if (PlatformCompat.desktopWindow) {
+      WindowUtils.minimize();
+      return true;
+    }
+    // 根页返回仅移到后台，保留首页状态。
+    try {
+      const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      ctx.moveAbilityToBackground();
+      return true;
+    } catch (e) {
+      console.error(`[Index] moveAbilityToBackground error: ${e}`);
+      return false;
+    }
   }
 
   private resolveParam(param: object | null | undefined, key: string): string {
@@ -232,6 +265,11 @@ struct Index {
 
   private oneShotNavigationTransition(from: NavContentInfo, to: NavContentInfo,
     operation: NavigationOperation): NavigationAnimatedTransition | undefined {
+    // 双栏几何坐标与单栏封面展开不同，使用原生目的页转场。
+    if (this.navigationWidth >= 720) {
+      OneShotTransitionCoordinator.getInstance().discardPending();
+      return undefined;
+    }
     if (operation === NavigationOperation.PUSH && to.name === 'player' && this.playerDragState.active) {
       const drag = PlayerDragTransition.getInstance();
       const animation: NavigationAnimatedTransition = {
@@ -303,53 +341,17 @@ struct Index {
 
   @Builder
   routerMap(name: string, param: object) {
-    if (name === 'home') {
-      NavDestination() {
-        MainPage({
-          navStack: this.navStack,
-          onHomeShownHandlerChange: (handler: (() => void) | undefined): void => {
-            this.homeShownHandler = handler;
-          },
-          onBackHandlerChange: (handler: (() => boolean) | undefined): void => {
-            this.homeBackHandler = handler;
-          }
-        })
-        // 保留首页布局供返回封面定位，但不绘制被详情遮住的轮播与实时材质。
-        .visibility(this.homeCoveredByDetail ? Visibility.Hidden : Visibility.Visible)
-      }
-      .hideTitleBar(true)
-      .backgroundColor($r('sys.color.background_primary'))
-      .systemTransition(NavigationSystemTransitionType.NONE)
-      .onShown((): void => {
-        this.homeCoveredByDetail = false;
-        this.homeShownHandler?.();
-      })
-      .onBackPressed((): boolean => {
-        if (this.homeBackHandler?.()) return true;
-        if (PlatformCompat.desktopWindow) {
-          WindowUtils.minimize();
-          return true;
-        }
-        // 根页返回:移到后台而不是 pop,保证退出应用
-        try {
-          const ctx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-          ctx.moveAbilityToBackground();
-          return true;
-        } catch (e) {
-          console.error(`[Index] moveAbilityToBackground error: ${e}`);
-          return false;
-        }
-      })
-    } else if (name === 'detail') {
+    if (name === 'detail') {
       HdsNavDestination() {
         DetailPageWrapper({
           navStack: this.navStack,
           bookId: param as Object as string,
           contentScroller: this.detailScroller,
+          allowCoverTransition: this.navigationWidth < 720,
           onContentOpacityChange: (value: number): void => { this.detailTitleOpacity = value; },
           onTransitionStarted: (isPush: boolean): void => {
             this.detailOpaqueBackground = isPush;
-            this.homeCoveredByDetail = isPush;
+            this.homeCoveredByDetail = isPush && !this.parallelNavigation;
           },
           onTransitionFinished: (): void => { this.navigationEnabled = true; }
         })
@@ -610,9 +612,19 @@ struct Index {
   build() {
     Stack() {
     Navigation(this.navStack) {
-      // home 已在 aboutToAppear 中 push,根内容留空
+      MainPage({
+        navStack: this.navStack,
+        allowPlayerDrag: this.navigationWidth < 720,
+        onHomeShownHandlerChange: (handler: (() => void) | undefined): void => {
+          this.homeShownHandler = handler;
+        },
+        onBackHandlerChange: (handler: (() => boolean) | undefined): void => {
+          this.homeBackHandler = handler;
+        }
+      })
+        .visibility(this.homeCoveredByDetail && !this.parallelNavigation ? Visibility.Hidden : Visibility.Visible)
     }
-    .backgroundColor('#000000')
+    .backgroundColor($r('sys.color.background_primary'))
     .enabled(this.navigationEnabled)
     .navDestination(this.routerMap)
     .customNavContentTransition((from: NavContentInfo, to: NavContentInfo,
@@ -620,7 +632,20 @@ struct Index {
       return this.oneShotNavigationTransition(from, to, operation);
     })
     .hideTitleBar(true)
-    .mode(NavigationMode.Stack)
+    .mode(this.parallelNavigation ? NavigationMode.Split : NavigationMode.Stack)
+    .navBarWidth('42%')
+    .navBarWidthRange([320, 440])
+    .minContentWidth(400)
+    .onNavBarStateChange((visible: boolean): void => {
+      if (visible) {
+        this.homeCoveredByDetail = false;
+        this.homeShownHandler?.();
+      }
+    })
+    .onSizeChange((_oldSize: SizeOptions, size: SizeOptions): void => {
+      this.navigationWidth = Number(size.width);
+      this.updateNavigationLayout();
+    })
     .width('100%')
     .height('100%')
     .id(OneShotTransitionIds.ROOT_NAVIGATION)
@@ -638,6 +663,7 @@ struct Index {
 @ComponentV2
 struct DetailPageWrapper {
   @Param navStack: NavPathStack = new NavPathStack();
+  @Param allowCoverTransition: boolean = true;
   @Param bookId: string = '';
   /** 由详情 NavDestination 的 bindToScrollable 共用，用来驱动顶栏沉浸渐变模糊。 */
   @Param contentScroller: Scroller = new Scroller();
@@ -668,6 +694,10 @@ struct DetailPageWrapper {
     this.onTransitionStarted(true);
     this.setContentOpacity(1);
     OneShotTransitionCoordinator.getInstance().register(this.bookId, this.navigationRunner);
+    if (!this.allowCoverTransition) {
+      OneShotTransitionCoordinator.getInstance().discardPending();
+      return;
+    }
     const payload = OneShotTransitionCoordinator.getInstance().claim(this.bookId);
     if (payload === undefined || payload.snapshot === undefined) return;
     this.payload = payload;

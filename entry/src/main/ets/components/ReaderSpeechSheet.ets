@@ -12,6 +12,9 @@ import { SpeechSynthesisSettings } from '../model/SpeechSynthesisSettings';
 export struct ReaderSpeechSheet {
   @Param state: TextToSpeechState = new TextToSpeechState();
   @Param voiceOnly: boolean = false;
+  @Param showReadingMode: boolean = false;
+  @Param speechFollowPage: boolean = true;
+  @Event onFollowPageChange: (follow: boolean) => void = (): void => {};
   @Event onClose: () => void = (): void => {};
   @Local importing: boolean = false;
   @Local showPaste: boolean = false;
@@ -76,6 +79,17 @@ export struct ReaderSpeechSheet {
             .fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
         }.width('100%')
 
+        if (this.showReadingMode) {
+          Row({ space: 12 }) {
+            Column({ space: 4 }) {
+              Text($r('app.string.reader_speech_follow_page')).fontSize(16).fontColor($r('sys.color.font_primary'))
+              Text($r('app.string.reader_speech_follow_page_hint')).fontSize(12)
+                .fontColor($r('sys.color.font_secondary'))
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            Toggle({ type: ToggleType.Switch, isOn: this.speechFollowPage }).selectedColor(AppColor.Brand)
+              .onChange((value: boolean): void => this.onFollowPageChange(value)).id('reader-speech-follow-page')
+          }.width('100%')
+        }
         if (this.state.error) {
           Text(this.state.error).fontColor($r('sys.color.font_secondary')).fontSize(14).width('100%')
         }

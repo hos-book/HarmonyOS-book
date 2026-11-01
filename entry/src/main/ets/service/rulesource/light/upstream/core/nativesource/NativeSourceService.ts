@@ -134,6 +134,7 @@ class NativeHost implements NativeRunnerHost {
     analyzeUrl.parse(url);
     const webRequest = analyzeUrl.buildRequest();
     webRequest.useWebView = true;
+    webRequest.webWaitFor = request.webWaitFor;
     // 脚本的 browser.render 带了 js：在页面里求值注入的表达式（对象转成 JSON 文本）；没有 waitFor 时只求值一次。
     const result = request.webJs ?
       `var __r=(${request.webJs});return __r===undefined||__r===null?'':(typeof __r==='string'?__r:JSON.stringify(__r));` :
@@ -209,6 +210,7 @@ class NativeHost implements NativeRunnerHost {
     return {
       ok: response.success,
       errorCode: response.errorCode, errorStage: response.errorStage, statusCodeAvailable: response.statusCodeAvailable,
+      waitStage: response.waitStage, bodyIsSnapshot: response.bodyIsSnapshot, snapshotTruncated: response.snapshotTruncated,
       hostWaitMs: response.hostWaitMs, queueMs: response.queueMs, renderMs: response.renderMs,
       status: response.statusCode,
       body: response.body || '',
@@ -439,7 +441,7 @@ export class NativeSourceService {
     const definition = NativeSourceSpec.fromObject(value);
     if (definition.js && definition.js.trim()) {
       const problem = NativeJsLibrary.check(definition.js, NativeExpr.libraryFunctionNames(definition.lib),
-        NativeSourceSpec.scriptFunctions(definition));
+        NativeSourceSpec.scriptFunctions(definition), NativeSourceSpec.undefinedCalls(definition));
       if (problem) throw new Error(problem);
     }
     return NativeSourceService.toBookSource(definition, existing);
@@ -768,13 +770,15 @@ export class NativeSourceService {
   }
 
   static async exploreMenus(source: BookSource, http: HttpClient,
-    debugContext: BookSourceDebugContext | null = null): Promise<NativeMenuEntry[]> {
-    return await NativeSourceService.runner(source, http, (): boolean => false, 0, debugContext).exploreMenus();
+    debugContext: BookSourceDebugContext | null = null,
+    cancelled: () => boolean = (): boolean => false): Promise<NativeMenuEntry[]> {
+    return await NativeSourceService.runner(source, http, cancelled, 0, debugContext).exploreMenus();
   }
 
   static async explore(source: BookSource, http: HttpClient, target: string, page: number,
-    debugContext: BookSourceDebugContext | null = null): Promise<SearchBook[]> {
-    const records = await NativeSourceService.runner(source, http, (): boolean => false, 0, debugContext)
+    debugContext: BookSourceDebugContext | null = null,
+    cancelled: () => boolean = (): boolean => false): Promise<SearchBook[]> {
+    const records = await NativeSourceService.runner(source, http, cancelled, 0, debugContext)
       .explore(target, page);
     return records.map((record: NativeBookRecord): SearchBook => NativeSourceService.toSearchBook(source, record));
   }

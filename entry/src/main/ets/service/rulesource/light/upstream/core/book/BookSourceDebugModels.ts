@@ -12,6 +12,9 @@ export class BookSourceDebugLimits {
 }
 
 export class BookSourceDebugNetworkTrace {
+  waitStage: string = '';
+  bodyIsSnapshot: boolean = false;
+  snapshotTruncated: boolean = false;
   statusCodeAvailable: boolean = false;
   errorCode: string = '';
   errorStage: string = '';

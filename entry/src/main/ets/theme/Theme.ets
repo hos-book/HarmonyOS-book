@@ -124,7 +124,8 @@ export class AppMaterial {
       applyShadow: shadow,
       interactive: interactive,
       colorInvert: invert,
-      lightEffect: { color: lightColor }
+      lightEffect: !fixedStyle && AppAppearance.current.material === AppAppearance.systemMaterial ?
+        undefined : { color: lightColor }
     });
     AppMaterial.cache.set(key, material);
     return material;

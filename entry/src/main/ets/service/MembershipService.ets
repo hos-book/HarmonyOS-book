@@ -88,7 +88,7 @@ export class MembershipService {
   private sandboxTask: Promise<void> | null = null;
   private inForeground: boolean = true;
   private abilityContext: common.UIAbilityContext | null = null;
-  private displayRestoreStarted: boolean = false;
+  private displayRestoreTask: Promise<void> | null = null;
   private displayRevision: number = 0;
   private displayWriteTask: Promise<void> = Promise.resolve();
   private purchaseInProgress: boolean = false;
@@ -103,9 +103,18 @@ export class MembershipService {
   private accountCheckPending: boolean = false;
   private forceRefreshRequested: boolean = false;
 
-  private async restoreDisplay(context: common.UIAbilityContext): Promise<void> {
-    if (this.displayRestoreStarted) return;
-    this.displayRestoreStarted = true;
+  /** 首帧前只读本地展示记录，不等待账号、价格或 IAP 网络查询。 */
+  async prepareAppearance(context: common.UIAbilityContext): Promise<void> {
+    MembershipState.current.developerAccess = DeveloperMembership.allowed(context.applicationInfo.debug);
+    await this.restoreDisplay(context);
+  }
+
+  private restoreDisplay(context: common.UIAbilityContext): Promise<void> {
+    if (!this.displayRestoreTask) this.displayRestoreTask = this.restoreDisplayInner(context);
+    return this.displayRestoreTask;
+  }
+
+  private async restoreDisplayInner(context: common.UIAbilityContext): Promise<void> {
     const revision = this.displayRevision;
     try {
       const snapshot = await MembershipDisplayStore.read(context);

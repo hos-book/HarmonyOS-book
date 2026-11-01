@@ -530,7 +530,8 @@ export struct SettingsPage {
         }.width('100%').padding({ left: AppSpace.Md, right: AppSpace.Md, bottom: AppSpace.Sm })
       }
       Scroll() {
-        GridRow({ columns: this.viewportWidth >= AdaptiveLayout.LARGE_WIDTH ? 2 : 1,
+        // 设置分组始终铺满当前容器，避免横屏按行配对后短卡片下方出现大块留白。
+        GridRow({ columns: 1,
           gutter: AdaptiveLayout.sectionSpacing(this.viewportWidth, this.viewportHeight) }) {
           GridCol() { this.buildAppearanceGroup() }.enabled(this.isLoaded)
           GridCol() { this.buildLaunchGroup() }.enabled(this.isLoaded)
@@ -564,6 +565,15 @@ export struct SettingsPage {
     if (this.savingGeneral) return;
     this.savingGeneral = true;
     try { await PreferenceService.setAdaptiveHandedness(enabled); }
+    catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
+    } finally { this.savingGeneral = false; }
+  }
+
+  private async setSearchRecommendations(enabled: boolean): Promise<void> {
+    if (!this.isLoaded || this.savingGeneral || enabled === this.generalSettings.searchRecommendations) return;
+    this.savingGeneral = true;
+    try { await PreferenceService.setSearchRecommendations(enabled); }
     catch (_error) {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
     } finally { this.savingGeneral = false; }
@@ -864,6 +874,15 @@ export struct SettingsPage {
   buildSearchGroup() {
     Column() {
       this.buildGroupTitle($r('app.string.settings_search_group'))
+      Column() {
+        this.buildSwitchItem(
+          $r('app.string.settings_search_recommendations'),
+          $r('app.string.settings_search_recommendations_desc'),
+          UIUtils.makeBinding<boolean>(() => this.generalSettings.searchRecommendations),
+          (enabled: boolean): void => { this.setSearchRecommendations(enabled); },
+          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral)
+        )
+      }.width('100%').backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg).margin({ bottom: AppSpace.Sm })
 
       Column({ space: AppSpace.Sm }) {
         Row({ space: AppSpace.Sm }) {

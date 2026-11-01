@@ -141,7 +141,18 @@ ${script ? NativeJsPrelude.SCRIPT_API : NativeJsPrelude.EXPRESSION_STUBS}
     open: function (url, title) {
       call('@browserOpen', [String(url), title === undefined || title === null ? '' : String(title)]);
     },
-    render: function (url, options) { return call('@render', [String(url), options || {}]); }
+    render: function (url, options) {
+      var r = call('@render', [String(url), options || {}]);
+      if (!r.ok) {
+        var reason = [r.errorCode, r.errorStage, r.waitStage].filter(Boolean).join('/');
+        var e = new Error('网页渲染失败：' + (r.error || 'HTTP ' + r.status) + (reason ? ' [' + reason + ']' : ''));
+        ['errorCode','errorStage','waitStage','requestId','hostWaitMs','queueMs','renderMs',
+          'statusCodeAvailable','bodyIsSnapshot','snapshotTruncated'].forEach(function(k){e[k]=r[k];});
+        e.response = r;
+        throw e;
+      }
+      return r.body;
+    }
   }));
   define('page', function (body, url) {
     return { __nativePage: true, body: body === undefined || body === null ? '' : String(body),

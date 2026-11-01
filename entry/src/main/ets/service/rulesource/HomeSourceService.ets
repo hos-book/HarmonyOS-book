@@ -10,15 +10,19 @@ import { RankingService } from '../ranking/RankingService';
 export class HomeSourceCategory {
   name: string;
   url: string;
+  group: string;
 
-  constructor(name: string, url: string) {
+  constructor(name: string, url: string, group: string = '') {
     this.name = name;
     this.url = url;
+    this.group = group;
   }
 }
 
 export class HomeSourceContent {
   categories: HomeSourceCategory[] = [];
+  channels: string[] = [];
+  channel: string = '';
   blocks: HomeBlockSection[] = [];
   loadedAt: number = 0;
 }
@@ -48,9 +52,9 @@ export class HomeSourceService {
 
   /** 有界内存缓存；书源定义或登录状态变化即失效，下拉刷新绕过缓存。 */
   static async loadHome(source: LocalRuleSource, forceRefresh: boolean = false,
-    onUpdate: (content: HomeSourceContent) => void = (): void => {}): Promise<HomeSourceContent> {
+    onUpdate: (content: HomeSourceContent) => void = (): void => {}, channel: string = ''): Promise<HomeSourceContent> {
     const revision = HomeSourceService.syncRevision();
-    const key = source.bookSourceUrl;
+    const key = JSON.stringify([source.bookSourceUrl, channel]);
     const cached = HomeSourceService.cache.get(key);
     if (!forceRefresh && cached !== undefined && Date.now() - cached.loadedAt < HomeSourceService.CACHE_TTL_MS) {
       HomeSourceService.cache.delete(key);
@@ -61,13 +65,14 @@ export class HomeSourceService {
     const active = HomeSourceService.pending.get(key);
     if (active !== undefined) {
       active.listeners.push(onUpdate);
-      if (active.content.categories.length > 0 || active.content.blocks.length > 0) onUpdate(active.content);
+      if (active.content.channels.length > 0 || active.content.categories.length > 0 ||
+        active.content.blocks.length > 0) onUpdate(active.content);
       return active.promise;
     }
     const task = new HomeSourceLoad();
     task.listeners.push(onUpdate);
     HomeSourceService.pending.set(key, task);
-    task.promise = HomeSourceService.fetchHome(source, task).then((content: HomeSourceContent): HomeSourceContent => {
+    task.promise = HomeSourceService.fetchHome(source, task, channel).then((content: HomeSourceContent): HomeSourceContent => {
       if (revision === HomeSourceService.syncRevision() && HomeSourceService.pending.get(key) === task &&
         content.blocks.length > 0) {
         content.loadedAt = Date.now();
@@ -87,8 +92,16 @@ export class HomeSourceService {
     return task.promise;
   }
 
-  private static async fetchHome(source: LocalRuleSource, task: HomeSourceLoad): Promise<HomeSourceContent> {
-    task.content.categories = await HomeSourceService.getCategories(source);
+  private static async fetchHome(source: LocalRuleSource, task: HomeSourceLoad,
+    channel: string): Promise<HomeSourceContent> {
+    const categories = (await HomeSourceService.getCategories(source)).filter((category: HomeSourceCategory): boolean =>
+      HomeSourceService.isSupportedChannel(category.group));
+    task.content.channels = Array.from(new Set(categories.map((category: HomeSourceCategory): string => category.group)
+      .filter((group: string): boolean => group.length > 0)));
+    task.content.channel = task.content.channels.includes(channel) ? channel : '';
+    task.content.categories = categories.filter((category: HomeSourceCategory): boolean =>
+      HomeSourceService.isSupportedChannel(category.group) &&
+      (!task.content.channel || category.group === task.content.channel));
     HomeSourceService.notifyHome(task);
     task.content.blocks = await HomeSourceService.getHomeBlocks(source, task.content.categories,
       (blocks: HomeBlockSection[]): void => {
@@ -147,24 +160,57 @@ export class HomeSourceService {
     const panel = await LocalRulePanelService.load(source, false);
     const categories: HomeSourceCategory[] = [];
     const seen = new Set<string>();
+    let group: string = '';
     for (const entry of panel.entries) {
-      if (!entry.url.trim() || entry.action || seen.has(entry.url)) continue;
-      seen.add(entry.url);
-      categories.push(new HomeSourceCategory(entry.title, entry.url));
+      if (entry.action) continue;
+      if (entry.type === 'group') {
+        group = entry.title.trim();
+        continue;
+      }
+      if (!entry.url.trim()) continue;
+      const categoryGroup = (entry.group ?? '').trim() || group;
+      const key = JSON.stringify([categoryGroup, entry.url]);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      categories.push(new HomeSourceCategory(entry.title, entry.url, categoryGroup));
     }
     return categories;
+  }
+
+  /** 仅识别明确的视频分组，不从站点域名或分类 URL 猜测内容类型。 */
+  static isSupportedChannel(channel: string): boolean {
+    return !['影视', '视频', '电影', '电视剧', 'video'].includes(channel.trim().toLowerCase());
+  }
+
+  /** 综合页轮询各分组，避免前四项被同一频道占满；单频道仍沿用原顺序。 */
+  private static previewCategories(categories: HomeSourceCategory[]): HomeSourceCategory[] {
+    const groups = new Map<string, HomeSourceCategory[]>();
+    for (const category of categories) {
+      const items = groups.get(category.group) ?? [];
+      items.push(category);
+      groups.set(category.group, items);
+    }
+    const selected: HomeSourceCategory[] = [];
+    for (let index = 0; selected.length < Math.min(4, categories.length); index++) {
+      for (const items of groups.values()) {
+        if (items[index] !== undefined) selected.push(items[index]);
+        if (selected.length === 4) break;
+      }
+    }
+    return selected;
   }
 
   static async getHomeBlocks(source: LocalRuleSource,
     categories: HomeSourceCategory[],
     onUpdate: (blocks: HomeBlockSection[]) => void = (): void => {}): Promise<HomeBlockSection[]> {
-    // 只预览前四个发现分类；各分类独立失败，避免一个分类阻断整个首页。
+    // 总预览预算保持四组、两路并发，各分类独立失败。
     let failureMessage: string = '';
     let failed: boolean = false;
     let completed: number = 0;
-    const blocks: HomeBlockSection[] = categories.slice(0, 4).map((category: HomeSourceCategory): HomeBlockSection => {
+    const blocks: HomeBlockSection[] = HomeSourceService.previewCategories(categories).map((category: HomeSourceCategory): HomeBlockSection => {
       const block: HomeBlockSection = {
-        title: category.name, books: [], moreUrl: category.url, layout: 'horizontal',
+        title: category.group ? `${category.group} · ${category.name}` : category.name,
+        books: [], moreUrl: category.url, layout: 'horizontal',
         sourceName: source.bookSourceName, sourceUrl: source.bookSourceUrl
       };
       return block;

@@ -12,6 +12,11 @@ assert.ok(start >= 0 && end > start);
 const constants = source.slice(source.indexOf('const SEARCH_RECOMMENDATION_COUNT:'), source.indexOf('@ComponentV2'));
 const code = ts.transpileModule(`${constants}
 export class RecommendationQueue {
+  generalSettings = { searchRecommendations: true };
+  recommendationTimerId = -1;
+  pageShown = true;
+  leavingPage = false;
+  hasSearched = false;
   recommendationGen = 0;
   recommendationBooks = [];
   recommendationsLoading = false;
@@ -20,6 +25,7 @@ export class RecommendationQueue {
   prefetched = [];
   prefetchCovers(books) { this.prefetched.push(...books); }
   searchResultToBook(book) { return book; }
+  ${source.slice(source.indexOf('  private onRecommendationsChanged('), source.indexOf('  private clearSearch('))}
   ${source.slice(start, end)}
 }`, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 } }).outputText;
 
@@ -41,7 +47,7 @@ function harness(count = 6, home = false) {
   let update;
   const exports = {};
   vm.runInNewContext(code, {
-    exports, Set, LocalRuleSource, LocalRuleSourceStatus: { READY: 'READY' }, LightSourceRequest: class {},
+    exports, Set, setTimeout, clearTimeout, SEARCH_ENTRY_SETTLE_MS: 300, LocalRuleSource, LocalRuleSourceStatus: { READY: 'READY' }, LightSourceRequest: class {},
     hilog: { warn() {} }, DOMAIN: 0, TAG: 'RecommendationsTest',
     SourceDataService: { getEnabledSources: async () => sources },
     HomeSourceService: {
@@ -139,6 +145,25 @@ async function cancellationAndResume() {
 }
 
 (async () => {
+  const disabled = harness(1, true);
+  disabled.queue.generalSettings.searchRecommendations = false;
+  await disabled.queue.loadRecommendations();
+  assert.equal(disabled.started.length, 0);
+  disabled.queue.generalSettings.searchRecommendations = true;
+  const pending = disabled.queue.loadRecommendations();
+  await tick();
+  disabled.update([book(1)]);
+  disabled.queue.generalSettings.searchRecommendations = false;
+  disabled.queue.onRecommendationsChanged();
+  disabled.update([book(2)]);
+  disabled.discovery.resolve({ blocks: [{ books: [book(3)] }] });
+  await pending;
+  assert.equal(disabled.queue.recommendationBooks.length, 0);
+  assert.equal(disabled.started.length, 0);
+  disabled.queue.generalSettings.searchRecommendations = true;
+  disabled.queue.onRecommendationsChanged();
+  assert.notEqual(disabled.queue.recommendationTimerId, -1);
+  disabled.queue.cancelRecommendations();
   await searchProgress();
   await discoveryProgress();
   await cancellationAndResume();
