@@ -898,9 +898,7 @@ export struct SearchPage {
     this.resultGroupVisible = false;
     SearchCache.put(book);
     if (PlaybackStore.getInstance().isCurrentBook(book.id)) {
-      this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
-        this.navStack.pushPathByName('player', book.id, false);
-      });
+      this.navStack.pushPathByName('player', book.id);
       return;
     }
     this.navStack.pushPathByName('detail', book.id);

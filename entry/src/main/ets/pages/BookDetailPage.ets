@@ -930,9 +930,7 @@ export struct BookDetailPage {
       && PlaybackStore.getInstance().isCurrentChapter(this.book.id, target.id)) {
       // 详情页入口,清理栈避免重复 player
       this.cleanStackBeforePushPlayer();
-      this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
-        this.navStack.pushPathByName('player', this.bookId, false);
-      });
+      this.navStack.pushPathByName('player', this.bookId);
       this.isStartingPlay = false;
       return;
     }
@@ -943,9 +941,7 @@ export struct BookDetailPage {
     };
     // 详情页入口,清理栈避免重复 player
     this.cleanStackBeforePushPlayer();
-    this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
-      this.navStack.pushPathByName('player', playerParams, false);
-    });
+    this.navStack.pushPathByName('player', playerParams);
     this.isStartingPlay = false;
   }
 

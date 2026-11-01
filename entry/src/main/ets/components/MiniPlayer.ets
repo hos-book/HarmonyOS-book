@@ -88,11 +88,10 @@ export struct MiniPlayer {
           .borderRadius(this.collapsed ? 999 : 22)
           .backgroundColor($r('sys.color.comp_background_tertiary'))
           .clip(true)
-          .opacity(this.dragState.active ? 0 : 1)
+          .opacity(this.dragState.active && this.dragState.sourceNodeId === 'mini-player-bar' ? 0 : 1)
         }
         .width(this.collapsed ? '100%' : 44)
         .height(this.collapsed ? '100%' : 44)
-        .geometryTransition('player-cover')
         .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
         .onClick(() => {
           if (this.collapsed) {
@@ -147,7 +146,7 @@ export struct MiniPlayer {
       .width('100%')
       .height('100%')
       .id('mini-player-bar')
-      .opacity(this.dragState.sourceOpacity)
+      .opacity(this.dragState.sourceNodeId === 'mini-player-bar' ? this.dragState.sourceOpacity : 1)
       .gesture(PanGesture({ direction: PanDirection.Vertical, distance: 8 })
         .onActionStart((event: GestureEvent): void => {
           this.draggingPlayer = event.offsetY < 0;

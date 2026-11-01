@@ -23,9 +23,9 @@ struct PlayerCard {
     });
   }
 
-  /** 点击卡片信息区时打开当前书的播放页；无播放记录时回到应用主页。 */
-  private openPlayer(): void {
-    const target: string = this.hasBook && this.bookId.length > 0 ? 'player' : 'home';
+  /** 手机卡片只恢复应用原页面；手表保留已有入口。 */
+  private openApp(): void {
+    const target: string = this.wearableLayout && this.hasBook && this.bookId.length > 0 ? 'player' : 'resume';
     postCardAction(this, {
       action: 'router',
       abilityName: 'EntryAbility',
@@ -144,12 +144,12 @@ struct PlayerCard {
           .margin({ left: 10 })
         }
         .width('100%')
-        // 封面与标题打开播放页，播控按钮仍单独走 call。
-        .onClick(() => this.openPlayer())
+        // 封面与标题只唤起应用，播控按钮仍单独走 call。
+        .onClick(() => this.openApp())
 
         Blank()
           .width('100%')
-          .onClick(() => this.openPlayer())
+          .onClick(() => this.openApp())
 
         // 第二行:仅展示集数/章节名
         if (this.chapterTitle.length > 0) {
@@ -159,7 +159,7 @@ struct PlayerCard {
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
-            .onClick(() => this.openPlayer())
+            .onClick(() => this.openApp())
         }
 
         // 第三行:三按钮
@@ -182,7 +182,7 @@ struct PlayerCard {
           .backgroundColor(Color.White)
           .onClick(() => {
             if (!this.hasBook) {
-              this.openPlayer();
+              this.openApp();
               return;
             }
             this.postCall(this.isPlaying ? 'pause' : 'play');
@@ -213,7 +213,7 @@ struct PlayerCard {
         .fontWeight(FontWeight.Bold).fontColor('#FFFFFF')
         .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
         .textAlign(TextAlign.Center).width('100%').layoutWeight(1)
-        .onClick((): void => { this.openPlayer(); })
+        .onClick((): void => { this.openApp(); })
       Row() {
         this.WearableControl($r('sys.symbol.backward_end_fill'), 'prev', false)
         this.WearableControl(this.isPlaying ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'),
@@ -232,7 +232,7 @@ struct PlayerCard {
         .backgroundColor(primary ? '#FFFFFF' : Color.Transparent)
     }.layoutWeight(1).height('100%').onClick((): void => {
       if (this.hasBook) this.postCall(method);
-      else this.openPlayer();
+      else this.openApp();
     })
   }
 
@@ -248,7 +248,7 @@ struct PlayerCard {
     .height(36)
     .onClick(() => {
       if (!this.hasBook) {
-        this.openPlayer();
+        this.openApp();
         return;
       }
       this.postCall(method);

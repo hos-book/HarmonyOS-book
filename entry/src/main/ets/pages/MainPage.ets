@@ -196,9 +196,7 @@ export struct MainPage {
       return;
     }
     if (PlaybackStore.getInstance().isCurrentBook(bookId)) {
-      this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
-        this.navStack.pushPathByName('player', bookId, false);
-      });
+      this.navStack.pushPathByName('player', bookId);
       return;
     }
     if (chapterId) {
@@ -207,9 +205,7 @@ export struct MainPage {
         'chapterId': chapterId,
         'progressMs': progressMs
       };
-      this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
-        this.navStack.pushPathByName('player', params, false);
-      });
+      this.navStack.pushPathByName('player', params);
       return;
     }
     this.navStack.pushPathByName('detail', bookId);
@@ -617,19 +613,24 @@ export struct MainPage {
     if (!this.allowPlayerDrag || book === null || paths.length > 0) return;
     const transition = PlayerDragTransition.getInstance();
     if (transition.state.active) return;
-    const origin = transition.capture(this.getUIContext());
-    if (origin === undefined || !transition.begin(this.viewportHeight, offsetY, origin)) return;
-    // 必须保留 Navigation 动画，才能建立可取消的原生交互式路由。
-    this.navStack.pushPathByName('player', book.id);
+    // 松手确认后才压栈；短拖取消不进入原生 Navigation，避免 NavBar 残留禁用状态。
+    transition.beginGesture(this.viewportHeight, offsetY, (): void => this.navigateToPlayer());
   }
 
   private navigateToPlayer(): void {
     const book = this.currentPlaybackBook();
     if (book === null || PlayerDragTransition.getInstance().state.active) return;
+    if (this.allowPlayerDrag && this.navStack.size() === 0) {
+      const transition = PlayerDragTransition.getInstance();
+      const origin = transition.capture(this.getUIContext());
+      if (origin !== undefined && transition.beginTap(origin)) {
+        // 点击与上拖共用底部播控的真实矩形，保留 Navigation 自定义转场。
+        this.navStack.pushPathByName('player', book.id);
+        return;
+      }
+    }
     const bookId = book.id;
-    this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
-      this.navStack.pushPathByName('player', bookId, false);
-    });
+    this.navStack.pushPathByName('player', bookId);
   }
 
   private playNext(): void {

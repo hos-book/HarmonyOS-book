@@ -12,7 +12,7 @@ export class HomeCategoryBookRow {
   }
 }
 
-/** 按三本书分行，让 API 20 的 List 也能按可见行懒加载分类网格。 */
+/** 按列数分行，让 API 20 的 List 也能懒加载分类网格或单列书单。 */
 export class HomeCategoryRowDataSource implements IDataSource {
   private rows: HomeCategoryBookRow[] = [];
   private listeners: DataChangeListener[] = [];
@@ -25,10 +25,11 @@ export class HomeCategoryRowDataSource implements IDataSource {
     return this.rows[index];
   }
 
-  setBooks(books: Book[]): void {
+  setBooks(books: Book[], columns: number = 3): void {
+    const count = Math.max(1, Math.floor(columns));
     const rows: HomeCategoryBookRow[] = [];
-    for (let index: number = 0; index < books.length; index += 3) {
-      rows.push(new HomeCategoryBookRow(books.slice(index, index + 3), index));
+    for (let index: number = 0; index < books.length; index += count) {
+      rows.push(new HomeCategoryBookRow(books.slice(index, index + count), index));
     }
     this.rows = rows;
     this.listeners.forEach((listener: DataChangeListener): void => listener.onDataReloaded());

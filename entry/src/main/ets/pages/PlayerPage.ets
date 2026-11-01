@@ -1675,10 +1675,9 @@ export struct PlayerPage {
       .borderRadius(20)
       .attributeModifier(AppMaterial.modifier(AppMaterial.FloatingControl, AppColor.GlassSheetFallback))
       .onClick(() => {
+        if (PlayerDragTransition.getInstance().state.active) return;
         this.isLeaving = true;
-        this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutLinearIn }, () => {
-          this.navStack.pop(false);
-        });
+        this.navStack.pop();
       })
       Blank()
       if (this.isSpeechBook()) {
@@ -1783,7 +1782,6 @@ export struct PlayerPage {
       .aspectRatio(1)
       .borderRadius(16)
       .clip(true)
-      .geometryTransition('player-cover')
       .id('player-page-cover')
       .opacity(this.dragState.active ? 0 : 1)
     }

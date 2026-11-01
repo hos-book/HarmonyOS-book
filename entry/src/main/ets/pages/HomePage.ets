@@ -17,6 +17,7 @@ import { Book, Chapter } from '../model/Book';
 import { SearchResult, HomeBlockSection } from '../model/BookSource';
 import { SearchCache } from '../utils/SearchCache';
 import { BookCard } from '../components/BookCard';
+import { BrowseBookRow } from '../components/BrowseBookRow';
 import { HomeBookRow, FEATURED_ROW_HEIGHT, FEATURED_COVER_WIDTH, FEATURED_COVER_HEIGHT } from '../components/HomeBookRow';
 import { BOOK_COVER_ASPECT_RATIO } from '../utils/CoverAspectRatio';
 import { OneShotCoverState, OneShotTransitionCoordinator } from '../utils/OneShotTransition';
@@ -319,6 +320,7 @@ export struct HomePage {
   @Local selectedCategoryIndex: number = -1;
   /** 分类书单数据 */
   @Local categoryBooks: Book[] = [];
+  @Local categoryListMode: boolean = false;
   @Local categoryLoading: boolean = false;
   @Local categoryError: ResourceStr = '';
   @Local categoryHasMore: boolean = true;
@@ -808,7 +810,7 @@ export struct HomePage {
         newBooks.push(this.homeBookFromResult(item));
       }
       this.categoryBooks = append ? this.categoryBooks.concat(newBooks) : newBooks;
-      this.categoryDS.setBooks(this.categoryBooks);
+      this.categoryDS.setBooks(this.categoryBooks, this.categoryListMode ? 1 : 3);
       if (animateEntrance) this.animateContentEntrance();
       this.categoryNextUrl = page.nextUrl;
       this.categoryNextPage = page.nextPage ?? (pageNumber + 1);
@@ -838,6 +840,13 @@ export struct HomePage {
     if (this.selectedCategoryIndex < 0) return false;
     const selected = this.homeCategories[this.selectedCategoryIndex];
     return selected && selected.url === cat.url && selected.group === cat.group;
+  }
+
+  private toggleCategoryLayout(): void {
+    this.categoryLoadOnReachEnd = false;
+    this.contentScroller.scrollEdge(Edge.Top);
+    this.categoryListMode = !this.categoryListMode;
+    this.categoryDS.setBooks(this.categoryBooks, this.categoryListMode ? 1 : 3);
   }
 
   @Local coverState: OneShotCoverState = OneShotTransitionCoordinator.getInstance().coverState;
@@ -1743,23 +1752,27 @@ export struct HomePage {
               Row({ space: AppSpace.Sm }) {
                 ForEach(row.books, (book: Book, columnIndex: number) => {
                   Column() {
-                    BookCard({
-                      book: book,
-                      indexHint: row.startIndex + columnIndex,
-                      useOriginalCoverRatio: true,
-                      coverImageFit: ImageFit.Contain,
-                      coverRadius: AppRadius.Sm,
-                      showSourceBadge: false,
-                      showRating: true,
-                      onTap: () => this.openBook(book)
-                    })
+                    if (this.categoryListMode) {
+                      BrowseBookRow({ book: book, onTap: () => this.openBook(book) })
+                    } else {
+                      BookCard({
+                        book: book,
+                        indexHint: row.startIndex + columnIndex,
+                        useOriginalCoverRatio: true,
+                        coverImageFit: ImageFit.Contain,
+                        coverRadius: AppRadius.Sm,
+                        showSourceBadge: false,
+                        showRating: true,
+                        onTap: () => this.openBook(book)
+                      })
+                    }
                   }
                   .layoutWeight(1)
                 }, (book: Book) => book.id)
-                if (row.books.length < 3) {
+                if (!this.categoryListMode && row.books.length < 3) {
                   Column().layoutWeight(1)
                 }
-                if (row.books.length < 2) {
+                if (!this.categoryListMode && row.books.length < 2) {
                   Column().layoutWeight(1)
                 }
               }
@@ -1768,7 +1781,7 @@ export struct HomePage {
               .padding({ left: AppSpace.Md, right: AppSpace.Md })
             }
             .margin({ bottom: AppSpace.Md })
-          }, (row: HomeCategoryBookRow) => row.key)
+          }, (row: HomeCategoryBookRow) => `${this.categoryListMode ? 'list' : 'grid'}:${row.key}`)
           if (this.categoryBooks.length > 0 || this.categoryLoading || this.categoryHasMore || this.categoryError) {
             ListItem() {
               Row({ space: AppSpace.Xs }) {
@@ -2064,6 +2077,15 @@ export struct HomePage {
       .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       .cachedCount(1)
 
+      if (this.selectedCategoryIndex >= 0) {
+        ImmersiveCircleButton({
+          icon: this.categoryListMode ? $r('sys.symbol.square_grid_2x2') : $r('sys.symbol.list_bullet'),
+          label: this.categoryListMode ? $r('app.string.shelf_view_grid') : $r('app.string.shelf_view_list'),
+          diameter: 40,
+          iconSize: 21,
+          onPress: (): void => this.toggleCategoryLayout()
+        }).id('home-category-layout-button')
+      }
       if (this.isSearchCollapsed) {
         Stack() {
           Stack({ alignContent: Alignment.Center }) {

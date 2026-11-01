@@ -632,9 +632,7 @@ export struct ReadingStatsPage {
       'chapterId': item.chapterId,
       'progressMs': item.progressMs
     };
-    this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
-      this.navStack.pushPathByName('player', params, false);
-    });
+    this.navStack.pushPathByName('player', params);
   }
 
   private applyContentFilter(): void {

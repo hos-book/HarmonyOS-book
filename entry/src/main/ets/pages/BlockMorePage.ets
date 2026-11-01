@@ -1,7 +1,10 @@
 import { HdsCompat } from '../utils/HdsCompat';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { HdsNavigation, HdsNavigationTitleMode } from '@kit.UIDesignKit';
+import { HdsNavigation, HdsNavigationTitleMode, TitleBarContentOptions, BuilderOptions } from '@kit.UIDesignKit';
+import { PlatformCompat } from '../utils/PlatformCompat';
+import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
+import { BrowseBookRow } from '../components/BrowseBookRow';
 import { AppRadius, AppSpace, AppFont, AppColor } from '../theme/Theme';
 import { Book, Chapter } from '../model/Book';
 import { SearchResult } from '../model/BookSource';
@@ -30,6 +33,7 @@ export struct BlockMorePage {
 
   @Local books: Book[] = [];
   @Local bookColumns: number = 3;
+  @Local listMode: boolean = false;
   @Local loading: boolean = true;
   @Local loadingMore: boolean = false;
   @Local hasMore: boolean = true;
@@ -39,6 +43,42 @@ export struct BlockMorePage {
   private nextUrl: string = '';
   private nextPage: number = 2;
   private scroller: Scroller = new Scroller();
+  private readonly titleBuilder: CustomBuilder = (): void => this.buildBrowseTitle();
+
+  @Computed
+  get titleContent(): TitleBarContentOptions {
+    const content: TitleBarContentOptions = { stackBuilder: this.titleBuilder };
+    if (PlatformCompat.supports(26)) {
+      const builder: BuilderOptions = { builder: this.titleBuilder, updated: false };
+      content.stackBuilderContent = builder;
+    }
+    return content;
+  }
+
+  private toggleLayout(): void {
+    if (this.books.length > 0) this.scroller.scrollEdge(Edge.Top);
+    this.listMode = !this.listMode;
+  }
+
+  @Builder
+  buildBrowseTitle() {
+    Row({ space: AppSpace.Sm }) {
+      ImmersiveCircleButton({
+        icon: $r('sys.symbol.chevron_left'), label: $r('app.string.common_back'), useMaterial: false,
+        onPress: (): void => { this.navStack.pop(); }
+      })
+      Text(this.title).fontSize(AppFont.TitleL).fontWeight(FontWeight.Bold)
+        .fontColor($r('sys.color.font_primary')).layoutWeight(1).maxLines(1)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      ImmersiveCircleButton({
+        icon: this.listMode ? $r('sys.symbol.square_grid_2x2') : $r('sys.symbol.list_bullet'),
+        label: this.listMode ? $r('app.string.shelf_view_grid') : $r('app.string.shelf_view_list'),
+        useMaterial: false,
+        onPress: (): void => this.toggleLayout()
+      }).id('browse-layout-button')
+    }.width('100%').height(MINI_TITLE_BAR_HEIGHT)
+    .padding({ left: AppSpace.Md, right: AppSpace.Md })
+  }
 
   aboutToAppear(): void {
     this.nextUrl = this.moreUrl;
@@ -148,9 +188,7 @@ export struct BlockMorePage {
 
   private handleBookTap(bookId: string): void {
     if (PlaybackStore.getInstance().isCurrentBook(bookId)) {
-      this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
-        this.navStack.pushPathByName('player', bookId, false);
-      });
+      this.navStack.pushPathByName('player', bookId);
       return;
     }
     this.navStack.pushPathByName('detail', bookId);
@@ -165,6 +203,8 @@ export struct BlockMorePage {
           this.buildError()
         } else if (this.books.length === 0) {
           this.buildEmpty()
+        } else if (this.listMode) {
+          this.buildList()
         } else {
           this.buildGrid()
         }
@@ -176,15 +216,7 @@ export struct BlockMorePage {
     .mode(NavigationMode.Stack)
     .titleBar({
       avoidLayoutSafeArea: true,
-      content: {
-        title: {
-          mainTitle: this.title || '更多'
-        },
-        backIcon: {
-          icon: $r('sys.symbol.chevron_left'),
-          action: () => this.navStack.pop()
-        }
-      },
+      content: this.titleContent,
       style: {
         scrollEffectOpts: {
           scrollEffectType: HdsCompat.scrollEffect
@@ -221,7 +253,7 @@ export struct BlockMorePage {
       }
     })
     .titleMode(HdsNavigationTitleMode.MINI)
-    .hideBackButton(false)
+    .hideBackButton(true)
     .bindToScrollable([this.scroller])
     .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
     .width('100%')
@@ -292,6 +324,37 @@ export struct BlockMorePage {
     .width('100%')
     .layoutWeight(1)
     .justifyContent(FlexAlign.Center)
+  }
+
+  @Builder
+  buildList() {
+    List({ scroller: this.scroller, space: AppSpace.Sm }) {
+      LazyForEach(this.dataSource, (book: Book) => {
+        ListItem() {
+          BrowseBookRow({ book: book, onTap: (id: string): void => this.handleBookTap(id) })
+        }
+      }, (book: Book) => book.id)
+      if (this.loadingMore || !this.hasMore) {
+        ListItem() {
+          Row({ space: AppSpace.Xs }) {
+            if (this.loadingMore) {
+              LoadingProgress().width(20).height(20).color(AppColor.Brand)
+            }
+            Text(this.loadingMore ? $r('app.string.home_category_loading_more') :
+              $r('app.string.home_category_load_complete'))
+              .fontSize(AppFont.Caption).fontColor($r('sys.color.font_tertiary'))
+          }.height(48).width('100%').justifyContent(FlexAlign.Center)
+        }
+      }
+    }
+    .width('100%').layoutWeight(1).cachedCount(6)
+    .scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+    .padding({
+      left: AppSpace.Md, right: AppSpace.Md,
+      top: WindowUtils.getStatusBarHeightVp() + MINI_TITLE_BAR_HEIGHT + AppSpace.Sm,
+      bottom: WindowUtils.getBottomSafeVp() + AppSpace.Lg
+    })
+    .onReachEnd(() => this.loadNextPage())
   }
 
   @Builder

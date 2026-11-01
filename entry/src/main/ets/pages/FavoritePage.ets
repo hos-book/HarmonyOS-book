@@ -41,7 +41,8 @@ import { StatsService } from '../service/StatsService';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { PlaybackStore } from '../service/PlaybackStore';
 import { SearchCache } from '../utils/SearchCache';
-import { OneShotLayoutCallback } from '../utils/OneShotTransition';
+import { OneShotLayoutCallback, OneShotTransitionIds } from '../utils/OneShotTransition';
+import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
 import { WindowUtils } from '../utils/WindowUtils';
 import { BookDataSource } from '../utils/BookDataSource';
 import { ShelfBatchActions } from '../components/ShelfBatchActions';
@@ -59,6 +60,12 @@ const SHELF_FILTER_ROW_HEIGHT: number = 48;
 const SHELF_SEARCH_ROW_HEIGHT: number = 50;
 const SHELF_CONTENT_GAP: number = 12;
 const SHELF_SEARCH_GEOMETRY_ID: string = 'shelf-search-morph';
+
+class ShelfPlayerRoute {
+  bookId: string = '';
+  chapterId: string = '';
+  progressMs: number = 0;
+}
 
 function cloneChapter(ch: Chapter): Chapter {
   return {
@@ -127,6 +134,7 @@ function chaptersChanged(oldChapters: Chapter[], newChapters: Chapter[]): boolea
 
 @ComponentV2
 export struct FavoritePage {
+  @Local playerTransition: PlayerDragState = PlayerDragTransition.getInstance().state;
   @Local bookColumns: number = 3;
   @Local favoriteBooks: Book[] = [];
   @Local showShelfSource: boolean = GeneralSettings.current.showShelfSource;
@@ -1085,7 +1093,26 @@ export struct FavoritePage {
     this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
   }
 
-  private handleBookTap(book: Book): void {
+  private shelfCoverId(book: Book, list: boolean): string {
+    return (list ? 'shelf-list-' : 'shelf-grid-') + OneShotTransitionIds.sourceCover(book.id);
+  }
+
+  private openShelfPlayer(bookId: string, coverNodeId: string, onPop: () => void,
+    chapterId: string = '', progressMs: number = 0): void {
+    if (!this.visible || this.navStack.size() > 0) return;
+    const transition = PlayerDragTransition.getInstance();
+    if (transition.state.active) return;
+    // 在真正跳转时测量，异步目录加载期间封面可能已滚动或重排。
+    const origin = transition.captureCover(this.getUIContext(), coverNodeId, 5);
+    if (origin !== undefined) transition.beginTap(origin);
+    const params = new ShelfPlayerRoute();
+    params.bookId = bookId;
+    params.chapterId = chapterId;
+    params.progressMs = progressMs;
+    this.navStack.pushPathByName('player', params, onPop);
+  }
+
+  private handleBookTap(book: Book, coverNodeId: string): void {
     if (this.removingBook) return;
     if (this.isManaging) {
       this.toggleBookSelection(book.id);
@@ -1106,14 +1133,12 @@ export struct FavoritePage {
     }
     if (book.sourceUrl && !this.sourceNames.has(book.sourceUrl)) {
       // 旧来源已删除时仍能进入播放器，通过现有换源入口继续收听。
-      this.navStack.pushPathByName('player', book.id, onPop);
+      this.openShelfPlayer(book.id, coverNodeId, onPop);
       return;
     }
     // 当前正在播这本书:不重新解析 URL,不带 chapter 参数,直接进 player 复用 live state。
     if (PlaybackStore.getInstance().isCurrentBook(book.id)) {
-      this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
-        this.navStack.pushPathByName('player', book.id, onPop, false);
-      });
+      this.openShelfPlayer(book.id, coverNodeId, onPop);
       return;
     }
     // 直接用已缓存的 historyMap,避免每次点击都 IO
@@ -1126,7 +1151,7 @@ export struct FavoritePage {
     // 章节列表尚未加载 → 在线书源主动拉 toc 后恢复进度;否则交给详情页
     if (!book.chapters || book.chapters.length === 0) {
       if (book.bookUrl && book.sourceUrl && !book.id.startsWith('import_')) {
-        this.resumeOnlineWithToc(book, history, onPop);
+        this.resumeOnlineWithToc(book, history, onPop, coverNodeId);
       } else {
         this.navStack.pushPathByName('detail', book.id, onPop);
       }
@@ -1142,18 +1167,12 @@ export struct FavoritePage {
     // 用校正后的章节 id(idx 可能因 TOC 重排已被标题校正过),
     // 直接传 history.chapterId 会让播放器再按旧 id 找回错位置
     const resolved = book.chapters[idx];
-    const params: Record<string, Object> = {
-      'bookId': book.id as Object,
-      'chapterId': resolved.id as Object,
-      'progressMs': history.progressMs as Object
-    };
-    this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
-      this.navStack.pushPathByName('player', params, onPop, false);
-    });
+    this.openShelfPlayer(book.id, coverNodeId, onPop, resolved.id, history.progressMs);
   }
 
   /** 老收藏的在线书没缓存章节时,先拉 toc 再恢复进度;期间禁用重复点击 */
-  private async resumeOnlineWithToc(book: Book, history: PlayHistoryItem, onPop: () => void): Promise<void> {
+  private async resumeOnlineWithToc(book: Book, history: PlayHistoryItem, onPop: () => void,
+    coverNodeId: string): Promise<void> {
     if (this.resolvingTocId) return;
     this.resolvingTocId = book.id;
     try {
@@ -1167,14 +1186,7 @@ export struct FavoritePage {
           this.chapterIdxMap[book.id] = localIdx;
           SearchCache.put(book);
           const resolvedLocal = book.chapters[localIdx];
-          const localParams: Record<string, Object> = {
-            'bookId': book.id as Object,
-            'chapterId': resolvedLocal.id as Object,
-            'progressMs': history.progressMs as Object
-          };
-          this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
-            this.navStack.pushPathByName('player', localParams, onPop, false);
-          });
+          this.openShelfPlayer(book.id, coverNodeId, onPop, resolvedLocal.id, history.progressMs);
           return;
         }
         // 本地目录命中但定位不到章节(可能已下架/重排)→ 落到下面联网重拉刷新
@@ -1185,7 +1197,7 @@ export struct FavoritePage {
       } catch (_e) { /* ignore */ }
       const source = await SourceDataService.getSourceByUrl(book.sourceUrl);
       if (!source) {
-        this.navStack.pushPathByName('player', book.id, onPop);
+        this.openShelfPlayer(book.id, coverNodeId, onPop);
         return;
       }
       let tocUrl = book.bookUrl;
@@ -1227,14 +1239,7 @@ export struct FavoritePage {
       // 传校正后章节的 id:连载在头部插新章后,旧 -c{idx} 已指向别的章节,
       // 标题校正拿到正确 idx,再取它的当前 id 给播放器
       const resolved = book.chapters[idx];
-      const params: Record<string, Object> = {
-        'bookId': book.id as Object,
-        'chapterId': resolved.id as Object,
-        'progressMs': history.progressMs as Object
-      };
-    this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
-      this.navStack.pushPathByName('player', params, onPop, false);
-    });
+      this.openShelfPlayer(book.id, coverNodeId, onPop, resolved.id, history.progressMs);
     } catch (_e) {
       try {
         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.reader_chapter_load_failed') });
@@ -2182,6 +2187,9 @@ export struct FavoritePage {
       .border({ width: this.isManaging && this.selectedBookIds.has(book.id) ? 2 : 0,
         color: AppColor.Brand, radius: { topLeft: 3, bottomLeft: 3, topRight: 5, bottomRight: 5 } })
       .shadow({ radius: 6, color: '#26000000', offsetX: 2, offsetY: 3 })
+      .id(this.shelfCoverId(book, false))
+      .opacity(this.playerTransition.active &&
+        this.playerTransition.sourceNodeId === this.shelfCoverId(book, false) ? 0 : 1)
       // 展示子树不参与触摸命中，封面/占位图的原生长按不能抢走书卡菜单。
       .hitTestBehavior(HitTestMode.None)
 
@@ -2202,7 +2210,7 @@ export struct FavoritePage {
     .draggable(false)
     .bindContextMenu(this.bookActions(book), ResponseType.LongPress, this.bookMenuOptions())
     .onClick((): void => {
-      if (!this.showBookActions && !this.resolvingTocId) this.handleBookTap(book);
+      if (!this.showBookActions && !this.resolvingTocId) this.handleBookTap(book, this.shelfCoverId(book, false));
     })
     }
     .width('100%')
@@ -2309,6 +2317,9 @@ export struct FavoritePage {
       .borderRadius({ topLeft: 3, bottomLeft: 3, topRight: 5, bottomRight: 5 })
       .clip(true)
       .shadow({ radius: 5, color: '#26000000', offsetX: 2, offsetY: 2 })
+      .id(this.shelfCoverId(book, true))
+      .opacity(this.playerTransition.active &&
+        this.playerTransition.sourceNodeId === this.shelfCoverId(book, true) ? 0 : 1)
       .hitTestBehavior(HitTestMode.None)
 
       Column({ space: 4 }) {
@@ -2349,7 +2360,7 @@ export struct FavoritePage {
     .draggable(false)
     .bindContextMenu(this.bookActions(book), ResponseType.LongPress, this.bookMenuOptions())
     .onClick((): void => {
-      if (!this.showBookActions && !this.resolvingTocId) this.handleBookTap(book);
+      if (!this.showBookActions && !this.resolvingTocId) this.handleBookTap(book, this.shelfCoverId(book, true));
     })
     }
     .width('100%')

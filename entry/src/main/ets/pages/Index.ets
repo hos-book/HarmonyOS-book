@@ -166,6 +166,7 @@ struct Index {
 
   onPageHide(): void {
     this.companionActive = false;
+    PlayerDragTransition.getInstance().cancel();
   }
 
   private updateNavigationLayout(): void {
@@ -232,12 +233,21 @@ struct Index {
     }
     if (target === 'player') {
       if (bookId && bookId.length > 0) {
-        // 防止已经在播放页时又重复 push 一份空白的（widget 反复点击）
+        // 外部续播重复到达时不再压入第二份播放页。
         const cur = this.navStack.getAllPathName();
         if (cur && cur.length > 0 && cur[cur.length - 1] === 'player') return;
-        this.getUIContext().animateTo({ duration: 500, curve: Curve.FastOutSlowIn }, () => {
-          this.navStack.pushPathByName('player', bookId, false);
-        });
+        // 首页迁入 NavBar 后不能再依赖旧 geometryTransition 自动匹配封面。
+        // 等首帧布局，沿用从底部播控展开的效果，并记录当前窗口里的实际起点。
+        this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+          const paths = this.navStack.getAllPathName();
+          if (paths.length > 0 && paths[paths.length - 1] === 'player') return;
+          if (paths.length === 0) {
+            const transition = PlayerDragTransition.getInstance();
+            const origin = transition.capture(this.getUIContext());
+            if (origin !== undefined) transition.beginTap(origin);
+          }
+          this.navStack.pushPathByName('player', bookId);
+        }));
       }
       // 无 bookId 时停在主页,避免黑屏
     } else if (target === 'reader' || target === 'comicReader') {
@@ -265,35 +275,94 @@ struct Index {
 
   private oneShotNavigationTransition(from: NavContentInfo, to: NavContentInfo,
     operation: NavigationOperation): NavigationAnimatedTransition | undefined {
-    // 双栏几何坐标与单栏封面展开不同，使用原生目的页转场。
-    if (this.navigationWidth >= 720) {
-      OneShotTransitionCoordinator.getInstance().discardPending();
-      return undefined;
+    if (operation === NavigationOperation.POP && from.name === 'player' && this.navStack.size() === 0) {
+      const drag = PlayerDragTransition.getInstance();
+      let finished: boolean = false;
+      const animation: NavigationAnimatedTransition = {
+        timeout: 1400,
+        transition: (proxy: NavigationTransitionProxy): void => {
+          this.navigationEnabled = false;
+          this.playerRenderGroup = false;
+          this.playerOpacity = 1;
+          PlayerEntryDecider.markLeaving();
+          // POP 后先让首页浮动栏恢复布局，再测当前播控，而不是使用共享元素的旧坐标。
+          this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+            if (finished) return;
+            this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+              if (finished) return;
+              const origin = drag.prepareReturn(this.getUIContext());
+              this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+                if (finished) return;
+                this.getUIContext().animateTo({
+                  duration: 300,
+                  curve: Curve.FastOutSlowIn,
+                  onFinish: (): void => { if (!finished) proxy.finishTransition(); }
+                }, (): void => {
+                  if (origin === undefined) this.playerOpacity = 0;
+                  else drag.collapseToBar(origin);
+                });
+              }));
+            }));
+          }));
+        },
+        onTransitionEnd: (): void => {
+          finished = true;
+          drag.complete();
+          drag.clearReturnTarget();
+          this.playerOpacity = 1;
+          this.navigationEnabled = true;
+        }
+      };
+      return animation;
     }
     if (operation === NavigationOperation.PUSH && to.name === 'player' && this.playerDragState.active) {
       const drag = PlayerDragTransition.getInstance();
+      let finished: boolean = false;
       const animation: NavigationAnimatedTransition = {
-        isInteractive: true,
+        timeout: 1400,
         transition: (proxy: NavigationTransitionProxy): void => {
-          // 原生记录终态动画；进度由 MiniPlayer 的 PanGesture 驱动，不禁用源手势。
+          // 点击和上拖确认后都走同一段定时动画，不再让原生交互式补间决定耗时。
+          this.navigationEnabled = false;
           this.playerOpacity = 1;
           this.playerRenderGroup = false;
-          const viewport = PlayerDragTransition.measure(this.getUIContext(), 'player-drag-surface');
-          const cover = PlayerDragTransition.measure(this.getUIContext(), 'player-page-cover');
-          // 整个播放页从迷你栏的实际矩形/圆角展开，封面独立对齐播放页封面。
-          this.getUIContext().animateTo({ duration: 360, curve: Curve.Linear }, (): void => {
-            drag.expandToPlayer(cover, viewport);
-          });
-          this.getUIContext().animateTo({ duration: 160, curve: Curve.Linear }, (): void => {
-            this.playerDragState.contentOpacity = 1;
-          });
-          this.getUIContext().animateTo({ duration: 80, curve: Curve.Linear }, (): void => {
-            this.playerDragState.sourceOpacity = 0;
-          });
-          this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => drag.attach(proxy)));
+          // 目标封面属于刚创建的子树，必须等布局提交后读取；零尺寸不能作为动画终点。
+          this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+            if (finished) return;
+            this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+              if (finished) return;
+              const viewport = PlayerDragTransition.measure(this.getUIContext(), 'player-drag-surface');
+              const cover = PlayerDragTransition.measure(this.getUIContext(), 'player-page-cover');
+              if (!viewport.isValid() || !cover.isValid()) {
+                this.playerOpacity = 0;
+                drag.complete();
+                this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+                  if (finished) return;
+                  this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn,
+                    onFinish: (): void => { if (!finished) proxy.finishTransition(); }
+                  }, (): void => { this.playerOpacity = 1; });
+                }));
+                return;
+              }
+              console.info(`[PlayerTransition] target cover=${cover.leftPx},${cover.topPx},` +
+                `${cover.widthPx},${cover.heightPx}`);
+              this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn,
+                onFinish: (): void => { if (!finished) proxy.finishTransition(); }
+              }, (): void => { drag.expandToPlayer(cover, viewport); });
+              this.getUIContext().animateTo({ duration: 160, curve: Curve.Linear }, (): void => {
+                this.playerDragState.contentOpacity = 1;
+              });
+              this.getUIContext().animateTo({ duration: 80, curve: Curve.Linear }, (): void => {
+                this.playerDragState.sourceOpacity = 0;
+              });
+            }));
+          }));
         },
         onTransitionEnd: (success: boolean): void => {
+          finished = true;
           drag.complete();
+          this.navigationEnabled = true;
+          this.playerOpacity = 1;
+          this.playerRenderGroup = false;
           if (success) PlayerEntryDecider.markEntered();
           else PlayerEntryDecider.markLeaving();
         }
@@ -301,6 +370,18 @@ struct Index {
       return animation;
     }
     const toName = to.name ?? '';
+    if (operation === NavigationOperation.PUSH && toName === 'player') {
+      PlayerDragTransition.getInstance().clearReturnTarget();
+      return this.playerFadeTransition(true);
+    }
+    if (operation === NavigationOperation.POP && from.name === 'player') {
+      return this.playerFadeTransition(false);
+    }
+    // 详情采用双栏时使用原生转场；全宽播放器已在上方按窗口实际坐标处理。
+    if (this.navigationWidth >= 720) {
+      OneShotTransitionCoordinator.getInstance().discardPending();
+      return undefined;
+    }
     const coordinator = OneShotTransitionCoordinator.getInstance();
     if (!coordinator.canHandle(from, to, operation)) {
       if (operation === NavigationOperation.PUSH && toName !== 'detail') coordinator.discardPending();
@@ -318,6 +399,33 @@ struct Index {
       }
     };
     return animatedTransition;
+  }
+
+  private playerFadeTransition(isPush: boolean): NavigationAnimatedTransition {
+    let finished: boolean = false;
+    const animation: NavigationAnimatedTransition = {
+      timeout: 1400,
+      transition: (proxy: NavigationTransitionProxy): void => {
+        this.navigationEnabled = false;
+        this.playerOpacity = isPush ? 0 : 1;
+        this.playerRenderGroup = false;
+        // 无可见来源时保留原有淡入淡出，不凭空添加新的滑动方向。
+        console.info(`[PlayerTransition] ${isPush ? 'open' : 'close'} without visible source`);
+        this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+          if (finished) return;
+          this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn,
+            onFinish: (): void => { if (!finished) proxy.finishTransition(); }
+          }, (): void => { this.playerOpacity = isPush ? 1 : 0; });
+        }));
+      },
+      onTransitionEnd: (success: boolean): void => {
+        finished = true;
+        this.playerOpacity = 1;
+        this.navigationEnabled = true;
+        if (isPush && success) PlayerEntryDecider.markEntered();
+      }
+    };
+    return animation;
   }
 
   /**
@@ -399,56 +507,19 @@ struct Index {
         PlayerPageWrapper({ navStack: this.navStack, param: param as Object, deferEntry: this.playerDragState.active })
       }
       .hideTitleBar(true)
-      // 关闭系统默认转场,让 customTransition 接管上滑(进)/下滑(返回)
+      // 播放页统一由根 Navigation 调度，避免叠加默认转场和共享元素自动配对。
       .systemTransition(NavigationSystemTransitionType.NONE)
       // 抽屉(章节/定时/跳过)打开时,右滑/返回先关抽屉而不是退整页
       .onBackPressed((): boolean => {
         if (PlayerDragTransition.getInstance().cancel()) return true;
         if (PlayerBackInterceptor.consume()) return true;
         PlayerEntryDecider.markLeaving();
-        this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutLinearIn }, () => {
-          this.navStack.pop(false);
-        });
+        this.navStack.pop();
         return true;
       })
       .backgroundColor(this.playerDragState.active ? Color.Transparent : '#000000')
       .renderGroup(this.playerRenderGroup)
       .opacity(this.playerOpacity)
-      .customTransition((op: NavigationOperation, isEnter: boolean): Array<NavDestinationTransition> | undefined => {
-        if (op === NavigationOperation.PUSH && isEnter) {
-          this.playerRenderGroup = true;
-          this.playerOpacity = 0;
-          return [{
-            duration: 400,
-            curve: Curve.FastOutSlowIn,
-            event: () => {
-              this.playerOpacity = 1;
-            },
-            onTransitionEnd: () => {
-              this.playerRenderGroup = false;
-              PlayerEntryDecider.markEntered();
-            }
-          }];
-        } else if (op === NavigationOperation.POP && !isEnter) {
-          // 出:淡出下滑。不启用 renderGroup——共享元素转场的"源"(播放页封面)若被离屏
-          // 合成拍扁,框架无法从中抽取封面做回飞形变,会变成一卡一卡;
-          // pop 时页面内容静止,直接合成即可,不依赖离屏缓冲。
-          this.playerRenderGroup = false;
-          this.playerOpacity = 1;
-          return [{
-            duration: 300,
-            curve: Curve.FastOutLinearIn,
-            event: () => {
-              this.playerOpacity = 0;
-            },
-            onTransitionEnd: () => {
-              this.playerOpacity = 1;
-              this.playerRenderGroup = false;
-            }
-          }];
-        }
-        return undefined;
-      })
     } else if (name === 'comicReader') {
       NavDestination() {
         ComicReaderPage({ navStack: this.navStack,
@@ -626,6 +697,12 @@ struct Index {
     }
     .backgroundColor($r('sys.color.background_primary'))
     .enabled(this.navigationEnabled)
+    .onTouch((event: TouchEvent): void => {
+      // 根节点保持挂载，HDS 迷你栏重建/手势竞争时也能收到触摸结束。
+      if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+        PlayerDragTransition.getInstance().releaseTouch(event.type === TouchType.Cancel);
+      }
+    })
     .navDestination(this.routerMap)
     .customNavContentTransition((from: NavContentInfo, to: NavContentInfo,
       operation: NavigationOperation): NavigationAnimatedTransition | undefined => {
@@ -951,7 +1028,8 @@ struct PlayerPageWrapper {
       .translate({ x: this.dragState.active ? this.dragState.frameX : 0,
         y: this.dragState.active ? this.dragState.frameY : 0 })
       .borderRadius(this.dragState.active ? this.dragState.radius : 0)
-      .backgroundColor('#000000')
+      // HDS 底栏会采样上层背景，退场时不能留下随胶囊收缩的纯黑底板。
+      .backgroundColor(this.dragState.active ? Color.Transparent : '#000000')
       .clip(true)
     }
     .width('100%')

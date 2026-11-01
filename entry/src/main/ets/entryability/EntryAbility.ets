@@ -405,7 +405,9 @@ export default class EntryAbility extends UIAbility {
     if (!params) return;
     const from = params['from'] as string | undefined;
     if (from !== 'widget' && from !== 'download_notification') return;
-    const target = (params['target'] as string | undefined) ?? 'home';
+    let target = (params['target'] as string | undefined) ?? 'home';
+    // 桌面可能仍缓存旧卡片页面：旧 player 请求也只恢复应用，不再额外打开播放页。
+    if (from === 'widget' && target === 'player') target = 'resume';
     if (target === 'reader' || target === 'comicReader') this.startupPlaybackPending = false;
     const bookId = params['bookId'] as string | undefined;
     const route: WidgetRoute = { target, bookId, ts: Date.now() };
