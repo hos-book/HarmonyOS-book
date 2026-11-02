@@ -221,6 +221,23 @@ export class PreferenceService {
     }
   }
 
+  static async getAudioSubtitlesEnabled(): Promise<boolean> {
+    const store = await PreferenceService.ensureStore();
+    return store.getSync('audio_subtitles_enabled', false) === true;
+  }
+
+  static async setAudioSubtitlesEnabled(enabled: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const previous = store.getSync('audio_subtitles_enabled', false);
+    try {
+      await store.put('audio_subtitles_enabled', enabled);
+      await store.flush();
+    } catch (error) {
+      await store.put('audio_subtitles_enabled', previous);
+      throw new Error(String(error));
+    }
+  }
+
   static async setSearchRecommendations(enabled: boolean): Promise<void> {
     const store = await PreferenceService.ensureStore();
     const previous = store.getSync('search_recommendations', true);

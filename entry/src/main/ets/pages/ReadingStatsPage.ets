@@ -14,6 +14,7 @@ import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent
 import { ThemeBackgroundScene } from '../model/AppThemeVisual';
 import { ThemeIconRole } from '../theme/ThemeIcons';
 import { WindowUtils } from '../utils/WindowUtils';
+import { PlayerDragTransition, PlayerDragState } from '../utils/PlayerDragTransition';
 import {
   BookUsageStats,
   EVT_USAGE_STATS_UPDATED,
@@ -115,6 +116,7 @@ export struct ReadingStatsPage {
   @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
 
   @Local statsReady: boolean = false;
+  @Local playerTransition: PlayerDragState = PlayerDragTransition.getInstance().state;
   @Local dailyQuoteText: ResourceStr = $r('app.string.daily_quote_initial');
   @Local dailyQuoteSource: string = '';
   @Local dailyQuoteCardWidth: number = 0;
@@ -615,7 +617,7 @@ export struct ReadingStatsPage {
   }
 
   private async resumeRecord(item: ListenRecordView): Promise<void> {
-    if (!item.bookId) return;
+    if (!item.bookId || this.selectMode || this.playerTransition.active) return;
     if (item.isText) {
       const context = this.getUIContext().getHostContext();
       if (!context) return;
@@ -632,7 +634,15 @@ export struct ReadingStatsPage {
       'chapterId': item.chapterId,
       'progressMs': item.progressMs
     };
+    // 以当前行封面为起点，沿用书架与迷你栏的播放器转场；测量失败仍正常续播。
+    const transition = PlayerDragTransition.getInstance();
+    const origin = transition.captureCover(this.getUIContext(), this.recordCoverId(item), AppRadius.Sm);
+    if (origin !== undefined) transition.beginTap(origin);
     this.navStack.pushPathByName('player', params);
+  }
+
+  private recordCoverId(item: ListenRecordView): string {
+    return `record-cover-${this.inTab ? 'tab' : 'page'}-${this.onlyUnfavorited ? 'history' : 'saved'}-${item.bookId}`;
   }
 
   private applyContentFilter(): void {
@@ -931,7 +941,16 @@ export struct ReadingStatsPage {
           .hitTestBehavior(HitTestMode.None)
       }
 
-      this.buildCover(item)
+      Stack() {
+        this.buildCover(item)
+      }
+      .width(72)
+      .height(72)
+      .borderRadius(AppRadius.Sm)
+      .clip(true)
+      .id(this.recordCoverId(item))
+      .opacity(this.playerTransition.active &&
+        this.playerTransition.sourceNodeId === this.recordCoverId(item) ? 0 : 1)
 
       Column({ space: AppSpace.Xs }) {
         Row() {

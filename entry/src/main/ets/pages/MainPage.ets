@@ -5,7 +5,7 @@ import { TextToSpeechState } from '../model/TextToSpeechState';
 import { HdsCompat, CompatibleTabsModifier } from '../utils/HdsCompat';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { common } from '@kit.AbilityKit';
-import { AppStorageV2, SymbolGlyphModifier } from '@kit.ArkUI';
+import { AppStorageV2 } from '@kit.ArkUI';
 import { HdsTabs, HdsTabsController, HdsBarStyle, HdsTabsBarChangeMode, HdsTabsFloatingStyle } from '@kit.UIDesignKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { PlayerState, PLAYER_STATE_KEY } from '../model/PlayerState';
@@ -71,6 +71,7 @@ export struct MainPage {
   @Local playerState: PlayerState = AppStorageV2.connect(PlayerState, PLAYER_STATE_KEY, () => new PlayerState())!;
   /** 当前迷你栏样式,折叠态下让 MiniPlayer 只渲染封面 */
   @Local miniBarCollapsed: boolean = false;
+  @Local tabBarCollapsed: boolean = false;
   @Local speechState: TextToSpeechState = TextToSpeechService.getInstance().state;
   @Local viewportWidth: number = 0;
   @Local viewportHeight: number = 0;
@@ -159,6 +160,7 @@ export struct MainPage {
   private handleBarStyleChange(miniStyle: HdsBarStyle, tabStyle: HdsBarStyle,
     _miniBarWidth: number, _tabBarWidth: number, mode: HdsTabsBarChangeMode): void {
     this.miniBarCollapsed = miniStyle === HdsBarStyle.COLLAPSE;
+    this.tabBarCollapsed = tabStyle === HdsBarStyle.COLLAPSE;
     if (tabStyle === HdsBarStyle.EXPAND) {
       this.restoreTabBarOnWindowGrow = false;
       return;
@@ -344,23 +346,29 @@ export struct MainPage {
     );
   }
 
-  private buildTabBar(icon: Resource, label: string, role: ThemeIconRole): BottomTabBarStyle {
-    const themedIcon: Resource | undefined = ThemeIcons.resolve(role);
-    if (themedIcon !== undefined) {
-      return new BottomTabBarStyle(themedIcon, label)
-        .iconStyle({ unselectedColor: AppTheme.TextSecondary, selectedColor: AppColor.Brand })
-        .labelStyle({ unselectedColor: AppTheme.TextSecondary, selectedColor: AppColor.Brand });
+  @Builder
+  buildTabBar(icon: Resource, label: string, role: ThemeIconRole, index: number): void {
+    // 不使用 BottomTabBarStyle 的隐藏文字占位与内置图文间距。
+    // 使用内容固有尺寸；HDS 内部内容区小于外层 56vp，填满外层会溢出并向下偏移。
+    Column({ space: 2 }) {
+      if (ThemeIcons.resolve(role) !== undefined) {
+        Image(ThemeIcons.resolve(role))
+          .width(24).height(24)
+          .fillColor(this.currentTab === index ? AppColor.Brand : AppTheme.TextSecondary)
+      } else {
+        SymbolGlyph(icon)
+          .fontSize(this.currentTab === index ? 26 : 24)
+          .fontColor([this.currentTab === index ? AppColor.Brand : $r('sys.color.font_primary')])
+      }
+      if (!PlatformCompat.floatingTabs || !this.tabBarCollapsed) {
+        Text(label).fontSize(12).fontWeight(FontWeight.Medium)
+          .fontColor(this.currentTab === index ? AppColor.Brand : AppTheme.TextSecondary)
+          .maxLines(1)
+      }
     }
-    return new BottomTabBarStyle(
-      {
-        normal: new SymbolGlyphModifier(icon).fontColor([$r('sys.color.font_primary')]).fontSize(24),
-        selected: new SymbolGlyphModifier(icon).fontColor([AppColor.Brand]).fontSize(26)
-      },
-      label
-    ).labelStyle({
-      unselectedColor: $r('sys.color.font_primary'),
-      selectedColor: AppColor.Brand
-    });
+    .justifyContent(FlexAlign.Center)
+    .alignItems(HorizontalAlign.Center)
+    .accessibilityText(label)
   }
 
   /**
@@ -468,7 +476,7 @@ export struct MainPage {
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
         }
-        .tabBar(this.buildTabBar($r('sys.symbol.house_fill'), '首页', ThemeIconRole.Home))
+        .tabBar(this.buildTabBar($r('sys.symbol.house_fill'), '首页', ThemeIconRole.Home, 0))
 
         TabContent() {
           FavoritePage({
@@ -485,7 +493,7 @@ export struct MainPage {
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
         }
-        .tabBar(this.buildTabBar($r('sys.symbol.bookshelf'), '书架', ThemeIconRole.Shelf))
+        .tabBar(this.buildTabBar($r('sys.symbol.bookshelf'), '书架', ThemeIconRole.Shelf, 1))
 
         if (this.generalSettings.historyEnabled) {
         TabContent() {
@@ -503,7 +511,7 @@ export struct MainPage {
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
         }
-        .tabBar(this.buildTabBar($r('sys.symbol.calendar_fill'), '记录', ThemeIconRole.Record))
+        .tabBar(this.buildTabBar($r('sys.symbol.calendar_fill'), '记录', ThemeIconRole.Record, 2))
         }
 
         TabContent() {
@@ -516,7 +524,7 @@ export struct MainPage {
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
         }
-        .tabBar(this.buildTabBar($r('sys.symbol.person_fill'), '我的', ThemeIconRole.Profile))
+        .tabBar(this.buildTabBar($r('sys.symbol.person_fill'), '我的', ThemeIconRole.Profile, 3))
       }
       .barOverlap(true)
       .barPosition(BarPosition.End)

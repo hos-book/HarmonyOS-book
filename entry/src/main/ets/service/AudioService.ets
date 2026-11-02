@@ -29,6 +29,7 @@ import { getWebViewAudioExtractor } from './builtin/WebViewAudioExtractor';
 import { AudioFocusService } from './AudioFocusService';
 import { ChapterProgressPolicy } from './ChapterProgressPolicy';
 import { DiagnosticLogService } from './DiagnosticLogService';
+import { PlatformCompat } from '../utils/PlatformCompat';
 
 const DOMAIN = 0xFF00;
 const TAG = 'ListenBook_Audio';
@@ -400,6 +401,9 @@ export class AudioService {
           this.tracePlaybackDuration('prepare-call', prepareStartedAt, generation);
         });
       } else if (newState === 'prepared') {
+        if (PlatformCompat.supports(21) && this.state.loudnessGain > 0) {
+          this.setLoudnessGain(this.state.loudnessGain, true);
+        }
         // 此时 player 已进入合法状态,补一次焦点模式 setter(ensurePlayer 阶段不能设)
         p.audioInterruptMode = audio.InterruptMode.SHARE_MODE;
         this.state.isLive = this.liveSource || (this.state.currentChapter?.source.type === 'url' && p.duration < 0);
@@ -1575,6 +1579,50 @@ export class AudioService {
     return Math.min(4.0, Math.max(0.125, speed));
   }
 
+  async setLoudnessGain(gain: number, restoring: boolean = false): Promise<boolean> {
+    const player = this.player;
+    const state = this.state;
+    if (!PlatformCompat.supports(21) || !player || !state || !Number.isFinite(gain) ||
+      !Number.isInteger(gain) || gain < 0 || gain > 24 ||
+      !['prepared', 'playing', 'paused', 'completed'].includes(player.state)) return false;
+    const generation = this.playGen;
+    const operation = ++this.loudnessOperation;
+    const previousGain = state.loudnessGain;
+    const current = (): boolean => this.player === player && generation === this.playGen &&
+      operation === this.loudnessOperation;
+    let timer: number = -1;
+    state.loudnessBusy = true;
+    try {
+      // The native gain takes effect immediately. Some devices never settle its JS promise.
+      // Keep the requested value and bound acknowledgement waiting; never lock the controls on it.
+      const pending = player.setLoudnessGain(gain);
+      state.loudnessGain = gain;
+      const completion = pending.then((): boolean => true).catch((): boolean => {
+        if (current()) {
+          state.loudnessGain = restoring ? 0 : previousGain;
+          hilog.warn(DOMAIN, TAG, 'set loudness gain failed');
+        }
+        return false;
+      });
+      const bounded = new Promise<boolean>((resolve): void => {
+        timer = setTimeout((): void => { resolve(true); }, 1500);
+      });
+      const accepted = await Promise.race([completion, bounded]);
+      return current() && accepted;
+    } catch (_error) {
+      if (this.player === player && generation === this.playGen && operation === this.loudnessOperation) {
+        if (restoring) state.loudnessGain = 0;
+        hilog.warn(DOMAIN, TAG, 'set loudness gain failed');
+      }
+      return false;
+    } finally {
+      if (timer !== -1) clearTimeout(timer);
+      if (operation === this.loudnessOperation) state.loudnessBusy = false;
+    }
+  }
+
+  private loudnessOperation: number = 0;
+
   async setSpeed(speed: number): Promise<void> {
     if (this.state?.isLive) return;
     const p = await this.ensurePlayer();
@@ -2105,6 +2153,12 @@ export class AudioService {
   }
 
   private currentAudioHeaders: Record<string, string> = {};
+
+  /** Read-only request metadata for foreground subtitle caching; never resolves or replaces playback. */
+  subtitleHeaders(bookId: string, chapterId: string): Record<string, string> {
+    if (this.state?.currentBook?.id !== bookId || this.state?.currentChapter?.id !== chapterId) return {};
+    return this.currentAudioHeaders;
+  }
 
   private findChapterIndex(book: Book, chapter: Chapter | null): number {
     if (!book || !chapter) return -1;

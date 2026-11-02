@@ -1,0 +1,8 @@
+Test-only Chinese audio fixture (not included in the production HAP).
+Source: csukuangfj/sherpa-onnx-zipformer-ctc-zh-int8-2025-07-03, test_wavs/0.wav
+https://modelscope.cn/models/csukuangfj/sherpa-onnx-zipformer-ctc-zh-int8-2025-07-03
+Revision: ec0ba42ddef79fe0bd20c3563f14368f48e69a2c
+Original SHA256: 668bf8df51a10027b84d5d8816a1ce11ae93545538dc05cfe2aa6811d399c250
+License: Apache-2.0, per the publisher's model card. Full text is bundled in main rawfile/audio_subtitles/sherpa-onnx-LICENSE.
+Converted for a stereo resampling/seek regression:
+ffmpeg -stream_loop 3 -i 0.wav -ar 44100 -ac 2 audio-subtitle-fixture.mp3

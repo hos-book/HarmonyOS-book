@@ -275,7 +275,8 @@ struct Index {
 
   private oneShotNavigationTransition(from: NavContentInfo, to: NavContentInfo,
     operation: NavigationOperation): NavigationAnimatedTransition | undefined {
-    if (operation === NavigationOperation.POP && from.name === 'player' && this.navStack.size() === 0) {
+    if (operation === NavigationOperation.POP && from.name === 'player' &&
+      (this.navStack.size() === 0 || PlayerDragTransition.getInstance().canReturnTo(to.name ?? ''))) {
       const drag = PlayerDragTransition.getInstance();
       let finished: boolean = false;
       const animation: NavigationAnimatedTransition = {
@@ -285,7 +286,7 @@ struct Index {
           this.playerRenderGroup = false;
           this.playerOpacity = 1;
           PlayerEntryDecider.markLeaving();
-          // POP 后先让首页浮动栏恢复布局，再测当前播控，而不是使用共享元素的旧坐标。
+          // POP 后先让来源页恢复布局，再测详情封面或首页播控，不复用入场旧坐标。
           this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
             if (finished) return;
             this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {

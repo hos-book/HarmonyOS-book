@@ -45,6 +45,7 @@ async function fixture(initialState = 'paused', realUsage = false) {
     state: initialState, duration: 180000, currentTime: 42000,
     plays: 0, pauses: 0, seeks: [],
     rates: [], setPlaybackRate(rate) { this.rates.push(rate); },
+    gains: [], async setLoudnessGain(gain) { this.gains.push(gain); },
     on(name, callback) { events.set(name, callback); },
     off(name) { events.delete(name); },
     emit(name, ...values) { events.get(name)?.(...values); },
@@ -57,7 +58,7 @@ async function fixture(initialState = 'paused', realUsage = false) {
   const state = {
     isPlaying: initialState === 'playing', isLoading: initialState === 'initialized',
     sleepMode: 0, autoSleepEnabled: false, lastSleepMinutes: 30,
-    progressMs: 42000, durationMs: 180000, speed: 1,
+    progressMs: 42000, durationMs: 180000, speed: 1, loudnessGain: 0, loudnessBusy: false,
     currentBook: { id: 'book-1', chapters: [] },
     currentChapter: { id: 'chapter-1', duration: 180, source: { type: 'file', value: 'fixture' } }
   };
@@ -226,6 +227,61 @@ async function check(name, test) {
 }
 
 (async () => {
+  await check('loudness applies real gain, restores after prepare and can turn off', async () => {
+    const f = await fixture('paused');
+    assert.equal(await f.service.setLoudnessGain(6), true);
+    assert.equal(f.state.loudnessGain, 6);
+    f.player.transition('prepared'); await flush();
+    assert.deepEqual(f.player.gains, [6, 6]);
+    assert.equal(await f.service.setLoudnessGain(24), true);
+    assert.equal(f.state.loudnessGain, 24);
+    assert.equal(await f.service.setLoudnessGain(0), true);
+    assert.equal(f.state.loudnessGain, 0);
+  });
+  await check('loudness rejects unsupported systems and invalid gains without changing volume', async () => {
+    const f = await fixture('paused');
+    f.platformCompat.supports = () => false;
+    assert.equal(await f.service.setLoudnessGain(6), false);
+    f.platformCompat.supports = () => true;
+    for (const gain of [NaN, -3, 25, 4.5]) assert.equal(await f.service.setLoudnessGain(gain), false);
+    assert.equal(f.player.gains.length, 0);
+  });
+  await check('failed gain preserves active setting and stale chapter completion cannot change state', async () => {
+    const f = await fixture('paused');
+    await f.service.setLoudnessGain(3);
+    f.player.setLoudnessGain = async () => { throw Error('failed'); };
+    assert.equal(await f.service.setLoudnessGain(6), false);
+    assert.equal(f.state.loudnessGain, 3);
+    let finish;
+    f.player.setLoudnessGain = () => new Promise(resolve => { finish = resolve; });
+    const pending = f.service.setLoudnessGain(9);
+    f.service.playGen++; f.state.loudnessGain = 0; finish();
+    assert.equal(await pending, false);
+    assert.equal(f.state.loudnessGain, 0);
+    assert.equal(f.state.loudnessBusy, false);
+  });
+  await check('missing native gain acknowledgement cannot lock subsequent adjustment', async () => {
+    const f = await fixture('playing');
+    f.player.setLoudnessGain = () => new Promise(() => {});
+    assert.equal(await f.service.setLoudnessGain(18), true);
+    assert.equal(f.state.loudnessBusy, false);
+    assert.equal(f.state.loudnessGain, 18);
+    f.player.setLoudnessGain = async () => {};
+    assert.equal(await f.service.setLoudnessGain(6), true);
+    assert.equal(f.state.loudnessGain, 6);
+  });
+  await check('late failure from earlier adjustment cannot undo latest gain', async () => {
+    const f = await fixture('playing');
+    let rejectOld;
+    f.player.setLoudnessGain = () => new Promise((_resolve, reject) => { rejectOld = reject; });
+    const first = f.service.setLoudnessGain(18);
+    f.player.setLoudnessGain = async () => {};
+    assert.equal(await f.service.setLoudnessGain(6), true);
+    rejectOld(Error('late failure'));
+    assert.equal(await first, false);
+    assert.equal(f.state.loudnessGain, 6);
+    assert.equal(f.state.loudnessBusy, false);
+  });
   await check('background pause checkpoints native time before releasing the background task', async () => {
     for (const reason of ['sleep', 'session', 'focus']) {
       const f = await fixture('playing');

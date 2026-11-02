@@ -1,0 +1,8 @@
+Chinese idiom boundary protection
+Source: https://raw.githubusercontent.com/pwxcoo/chinese-xinhua/fe6d6c2e8baa82187f4c96bbe042e43f96c05666/data/idiom.json
+Revision: fe6d6c2e8baa82187f4c96bbe042e43f96c05666
+License: MIT (LICENSE.idioms.txt)
+Source SHA256: 1d4b4f454ce1c416d6a1ab2369d6e66c0ff99e04390172eef70790499e21ce19
+Derived file: idioms.txt; word fields only, deduplicated, 2-12 Chinese characters.
+Words: 30345
+SHA256: ebae801879c1621f81219fddc0108d444e61402ad4452579c11b329e68927039

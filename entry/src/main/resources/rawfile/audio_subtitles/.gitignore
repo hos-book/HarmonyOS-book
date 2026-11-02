@@ -1,0 +1,3 @@
+# Prepared by scripts/prepare-subtitle-assets.py; bundled in the app, not Git.
+/punctuation.int8.onnx
+/punctuation.int8.onnx.part

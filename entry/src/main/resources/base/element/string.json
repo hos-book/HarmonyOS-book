@@ -7323,6 +7323,93 @@
     {
       "name": "webdav_uploaded",
       "value": "备份完成，已保存到你的 WebDAV 文件夹。"
-    }
+    },
+    {
+      "name": "subtitle_wait_audio",
+      "value": "正在准备音频，稍后生成字幕"
+    },
+    {
+      "name": "subtitle_start_audio",
+      "value": "请先播放本章音频，再开启字幕"
+    },
+    {
+      "name": "subtitle_mode_on",
+      "value": "字幕 · 开"
+    },
+    {
+      "name": "subtitle_mode_off",
+      "value": "字幕 · 关"
+    },
+    {
+      "name": "subtitle_switch_cover",
+      "value": "关闭字幕，显示封面"
+    },
+    {
+      "name": "subtitle_switch_text",
+      "value": "开启字幕，边听边看"
+    },
+    {
+      "name": "subtitle_mode_save_failed",
+      "value": "字幕偏好保存失败，请重试"
+    },
+    {
+      "name": "subtitle_model_prompt",
+      "value": "开启边听边看需下载约 367 MB 中文离线模型。音频仅在本机识别，建议使用 WLAN 下载。"
+    },
+    {
+      "name": "subtitle_download_model",
+      "value": "下载模型并生成字幕"
+    },
+    {
+      "name": "subtitle_model_downloading",
+      "value": "正在下载字幕模型 %d%"
+    },
+    {
+      "name": "subtitle_audio_preparing",
+      "value": "正在缓存本章音频，播放不受影响…"
+    },
+    {
+      "name": "subtitle_preparing",
+      "value": "正在准备字幕…"
+    },
+    {
+      "name": "subtitle_recognizing",
+      "value": "正在识别当前片段…"
+    },
+    {
+      "name": "subtitle_silence",
+      "value": "当前片段暂无识别文字"
+    },
+    {
+      "name": "subtitle_failed",
+      "value": "字幕生成失败，可重试；音频仍可正常播放"
+    },
+    {
+      "name": "subtitle_unsupported",
+      "value": "本章暂不支持自动字幕，请使用本地音频或普通音频文件；直播和 HLS 暂不支持"
+    },
+    {
+      "name": "subtitle_space",
+      "value": "存储空间不足，请清理后重试"
+    },
+    {
+      "name": "subtitle_too_large",
+      "value": "本章音频过大，暂不支持自动字幕"
+    },
+    {
+      "name": "subtitle_ai_hint",
+      "value": "AI 识别 · 句段跟随，文字可能有误"
+    },
+    {
+      "name": "subtitle_follow",
+      "value": "回到当前句"
+    },
+    {
+      "name": "subtitle_retry",
+      "value": "重试"
+    },
+    {"name": "player_volume_boost", "value": "音量增幅"},
+    {"name": "player_volume_boost_off", "value": "关闭增幅"},
+    {"name": "player_volume_boost_failed", "value": "音量增幅设置失败，请在音频就绪后重试"}
   ]
 }

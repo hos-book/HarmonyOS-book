@@ -1,4 +1,5 @@
 import comicColorBackendTest from './ComicColorBackend.test';
+import audioSubtitleTest from './AudioSubtitle.test';
 import { abilityDelegatorRegistry } from '@kit.TestKit';
 import localBookImportTest from './LocalBookImport.test';
 import comicTranslationTest from './ComicTranslation.test';
@@ -18,7 +19,12 @@ import localRuleManagementIntegrationTest from './LocalRuleManagementIntegration
 import localRuleBrowserLoginCoordinatorTests from '../../../test/LocalRuleBrowserLoginCoordinator.test';
 
 export default function testsuite() {
-  const selectedSuite = abilityDelegatorRegistry.getArguments().parameters.class;
+  const args = abilityDelegatorRegistry.getArguments().parameters;
+  const selectedSuite = args['-s class'] ?? args.class;
+  if (selectedSuite === 'AudioSubtitleDevice' || selectedSuite === 'AudioSubtitleMp3Device') {
+    audioSubtitleTest();
+    return;
+  }
   if (selectedSuite === 'ComicColorBackendDevice') {
     comicColorBackendTest();
   }

@@ -9,9 +9,9 @@ import { ImmersiveOptionTabs } from './ImmersiveOptionTabs';
 /**
  * ReaderSettingsSheet - 阅读设置面板
  *
- * 按鸿蒙分组卡片规范重排：顶部实时预览 + 字号 / 行高 / 翻页 / 主题设置卡。
+ * 按鸿蒙分组卡片规范重排：字号 / 行高 / 翻页 / 主题设置卡。
  * 面板由父页面的原生 bindSheet 提供材质，内容文字跟随系统深浅模式。
- * 阅读纸张配色只影响正文与预览，不修改 App 的外观偏好。
+ * 阅读纸张配色只影响正文与主题色样，不修改 App 的外观偏好。
  *
  * 本组件只负责呈现与回调，不落盘；持久化由 ReaderPage 统一做。
  */
@@ -150,26 +150,26 @@ struct ReaderCustomThemeSwatch {
   @Event onEdit: () => void = () => {};
 
   build() {
-    Row({ space: AppSpace.Xs }) {
+    Column({ space: 4 }) {
       Button({ type: ButtonType.Normal }) {
-        Row({ space: AppSpace.Sm }) {
+        Column({ space: 4 }) {
           Stack() {
             ReaderBackground({ palette: resolvePalette(ReaderThemeId.Custom, this.theme.background, this.theme.fontColor),
               pattern: this.theme.backgroundImage.length > 0 ? ReaderPattern.Image : ReaderPattern.None,
               bgImagePath: this.theme.backgroundImage, imageMode: this.theme.imageMode, overlayAlpha: this.theme.overlayAlpha })
             Text($r('app.string.reader_theme_sample_glyph')).fontSize(24).fontColor(this.theme.fontColor)
-          }.width(48).height(56).borderRadius(AppRadius.Sm).clip(true)
+          }.width('100%').height(56).borderRadius(AppRadius.Sm).clip(true)
             .border({ width: 0.5, color: AppColor.GlassSheetStroke })
           Column({ space: 4 }) {
             Text(this.theme.name || $r('app.string.reader_custom_theme_slot', this.theme.slot + 1))
-              .fontSize(AppFont.Body).fontWeight(FontWeight.Medium).fontColor($r('sys.color.font_primary'))
-              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+              .fontSize(AppFont.Caption).fontWeight(FontWeight.Medium).fontColor($r('sys.color.font_primary'))
+              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').textAlign(TextAlign.Center)
             Text(this.selected ? $r('app.string.reader_theme_in_use') : $r('app.string.reader_theme_tap_to_use'))
               .fontSize(11).fontColor(this.selected ? AppColor.Brand : $r('sys.color.font_secondary'))
-              .maxLines(1).width('100%')
-          }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-        }.width('100%').alignItems(VerticalAlign.Center)
-      }.layoutWeight(1).height(64).padding(0).borderRadius(AppRadius.Sm).backgroundColor(Color.Transparent)
+              .maxLines(1).width('100%').textAlign(TextAlign.Center)
+          }.width('100%').alignItems(HorizontalAlign.Center)
+        }.width('100%').alignItems(HorizontalAlign.Center)
+      }.width('100%').height(104).padding(0).borderRadius(AppRadius.Sm).backgroundColor(Color.Transparent)
       .accessibilityText(this.theme.name || this.getUIContext().getHostContext()?.resourceManager.getStringSync(
         $r('app.string.reader_custom_theme_slot').id, this.theme.slot + 1) || '')
       .accessibilitySelected(this.selected).id(`reader-theme-custom-${this.theme.slot}`)
@@ -179,12 +179,12 @@ struct ReaderCustomThemeSwatch {
           SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(12).fontColor([$r('sys.color.font_secondary')])
           Text($r('app.string.reader_theme_edit')).fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
         }
-      }.height(40).padding({ left: 10, right: 10 })
+      }.width('100%').height(32).padding({ left: 4, right: 4 })
         .backgroundColor(AppColor.GlassSheetControlTint)
         .accessibilityText($r('app.string.reader_custom_theme_edit_slot', this.theme.slot + 1))
         .id(`reader-theme-edit-${this.theme.slot}`)
         .onClick((): void => this.onEdit())
-    }.width('100%').padding(8).borderRadius(AppRadius.Md).alignItems(VerticalAlign.Center)
+    }.width('100%').padding(6).borderRadius(AppRadius.Md).alignItems(HorizontalAlign.Center)
       .backgroundColor(AppColor.GlassSheetControlTint)
       .border({ width: 1, color: this.selected ? AppColor.Brand : AppColor.GlassSheetStroke })
   }
@@ -398,66 +398,6 @@ export struct ReaderSettingsSheet {
   @Event onResetDefaults: () => void = () => {};
   @Event onClose: () => void = () => {};
 
-  /** 实时预览：真实字号、行高、底色与图片，所见即所得 */
-  @Builder
-  buildPreview() {
-    Stack() {
-      ReaderBackground({
-        palette: this.palette,
-        pattern: this.pattern,
-        bgImagePath: this.bgImagePath,
-        imageMode: this.imageMode,
-        overlayAlpha: this.overlayAlpha
-      })
-
-      Column({ space: 6 }) {
-        Row() {
-          Text('第十二章 归客')
-            .fontSize(AppFont.Caption)
-            .fontColor(this.palette.primary)
-            .layoutWeight(1)
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text('3/24')
-            .fontSize(AppFont.Caption)
-            .fontColor(this.palette.primary)
-        }
-        .width('100%')
-
-        Column({ space: this.getUIContext().px2vp(this.getUIContext().fp2px(this.fontSize)) * this.paragraphSpacing }) {
-          ForEach([
-            $r('app.string.reader_paragraph_preview_first'),
-            $r('app.string.reader_paragraph_preview_second')
-          ], (paragraph: Resource) => {
-            Text(paragraph)
-              .width('100%')
-              .fontSize(this.fontSize)
-              .fontFamily(this.fontFamily.length > 0 ? this.fontFamily : undefined)
-              .fontWeight(this.fontWeight, { enableVariableFontWeight: true })
-              .fontColor(this.palette.primary)
-              .lineHeight(this.getUIContext().px2vp(this.getUIContext().fp2px(this.fontSize)) * this.lineHeight)
-              .textAlign(this.textAlignment === 'start' ? TextAlign.Start :
-                this.textAlignment === 'center' ? TextAlign.Center :
-                this.textAlignment === 'end' ? TextAlign.End : TextAlign.JUSTIFY)
-              .maxLines(2)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-          }, (paragraph: Resource): string => `${paragraph.id}`)
-        }
-        .width('100%')
-        .layoutWeight(1)
-        .clip(true)
-      }
-      .width('100%')
-      .height('100%')
-      .padding({ left: 18, right: 18, top: AppSpace.Sm, bottom: AppSpace.Sm })
-    }
-    .width('100%')
-    .height(180)
-    .borderRadius(AppRadius.Lg)
-    .clip(true)
-    .border({ width: 0.5, color: ReaderPalette.withAlpha(this.palette.primary, 0x1f) })
-  }
-
   /** 字号：左右步进 + 滑杆，步进按钮到边界自动置灰 */
   @Builder
   buildFontSizeSection() {
@@ -657,7 +597,7 @@ export struct ReaderSettingsSheet {
           Text($r('app.string.reader_custom_theme_limit')).fontSize(11)
             .fontColor($r('sys.color.font_secondary')).width('100%')
         }.width('100%').alignItems(HorizontalAlign.Start).margin({ top: 4 })
-        List({ space: AppSpace.Xs }) {
+        List({ space: 8 }) {
           ForEach(this.customThemes.filter((theme: ReaderCustomTheme): boolean =>
             ReaderCustomTheme.canUse(theme.slot, this.membership.hasAccess)), (theme: ReaderCustomTheme) => {
             ListItem() {
@@ -667,9 +607,9 @@ export struct ReaderSettingsSheet {
                 onEdit: (): void => {
                   if (ReaderCustomTheme.canUse(theme.slot, this.membership.hasAccess)) this.editingThemeIndex = theme.slot;
                 } })
-            }.width(this.membership.hasAccess ? '88%' : '100%')
+            }.width('calc((100% - 16vp) / 3)')
           }, (theme: ReaderCustomTheme): string => theme.id)
-        }.width('100%').height(82).listDirection(Axis.Horizontal).scrollBar(BarState.Off)
+        }.width('100%').height(152).listDirection(Axis.Horizontal).scrollBar(BarState.Off)
           .edgeEffect(EdgeEffect.Spring).id('reader-custom-theme-list')
         Divider().strokeWidth(0.5).color(AppColor.GlassSheetStroke)
         Row({ space: AppSpace.Sm }) {
@@ -1035,12 +975,6 @@ export struct ReaderSettingsSheet {
       .width('100%')
       .alignItems(VerticalAlign.Center)
       .padding({ left: AppSpace.Lg, right: AppSpace.Md, bottom: AppSpace.Sm })
-
-      if (this.fontPanel) {
-        Column() {
-          this.buildPreview()
-        }.width('100%').padding({ left: AppSpace.Lg, right: AppSpace.Lg, bottom: 8 })
-      }
 
       Scroll() {
         Column({ space: this.fontPanel ? 8 : AppSpace.Md }) {

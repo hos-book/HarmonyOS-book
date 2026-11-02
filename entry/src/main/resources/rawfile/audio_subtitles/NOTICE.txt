@@ -1,0 +1,20 @@
+有声书端侧字幕
+
+sherpa-onnx HarmonyOS HAR 1.13.3
+Copyright (c) the sherpa-onnx authors / next-gen Kaldi team.
+https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.3/harmony-os
+Apache-2.0; see sherpa-onnx-LICENSE.
+
+The HAR includes ONNX Runtime 1.16.3 (version string inspected in the distributed library).
+https://github.com/microsoft/onnxruntime/tree/v1.16.3
+MIT; see onnxruntime-LICENSE and onnxruntime-ThirdPartyNotices.txt.
+
+Chinese Zipformer CTC int8 model (downloaded on user request, not bundled):
+https://huggingface.co/csukuangfj/sherpa-onnx-zipformer-ctc-zh-int8-2025-07-03
+Revision: 824c678e9b80f301110e3ea8cee9819a7994c049
+Downloads use the publisher's identical ModelScope copy:
+https://modelscope.cn/models/csukuangfj/sherpa-onnx-zipformer-ctc-zh-int8-2025-07-03
+Revision: ec0ba42ddef79fe0bd20c3563f14368f48e69a2c
+Apache-2.0 per the publisher's model card (model-README.md).
+Apache-2.0 full text: sherpa-onnx-LICENSE.
+Model weights and tokens are used without modification. Asset hashes are pinned in SubtitleModelService.ets.

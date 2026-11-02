@@ -1,8 +1,12 @@
 {
   "apiType": "stageMode",
   "buildOption": {
+    "externalNativeOptions": {
+      "path": "./src/main/cpp/CMakeLists.txt",
+      "abiFilters": ["arm64-v8a", "x86_64"]
+    },
     "sourceOption": {
-      "workers": ["./src/main/ets/workers/ComicColorWorker.ets"]
+      "workers": ["./src/main/ets/workers/ComicColorWorker.ets", "./src/main/ets/workers/AudioSubtitleWorker.ets"]
     },
     "resOptions": {
       "copyCodeResource": {

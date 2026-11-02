@@ -28,6 +28,7 @@ import { TextReaderRouteParams, TextReadingPosition, EVT_READER_JUMP_CHAPTER, Re
 import { TextReadingProgressService, EVT_TEXT_READING_PROGRESS_CHANGED } from '../service/text/TextReadingProgressService';
 import { ReaderHoldingHandService } from '../service/text/ReaderHoldingHandService';
 import { OneShotLayoutCallback, OneShotTransitionIds } from '../utils/OneShotTransition';
+import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
 import { CoverImage } from '../components/CoverImage';
 import { CoverAspectRatio } from '../utils/CoverAspectRatio';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
@@ -183,6 +184,7 @@ export struct BookDetailPage {
   @Local holdingHandLeft: boolean = false;
   @Local primaryCtaWidth: number = 0;
   @Local playerState: PlayerState = AppStorageV2.connect(PlayerState, PLAYER_STATE_KEY, () => new PlayerState())!;
+  @Local playerTransition: PlayerDragState = PlayerDragTransition.getInstance().state;
   @Local isStartingPlay: boolean = false;
   @Local lastHistory: PlayHistoryItem | null = null;
   @Local textReadingProgress: TextReadingPosition | null = null;
@@ -894,7 +896,7 @@ export struct BookDetailPage {
   }
 
   private async startPlay(chapter?: Chapter): Promise<void> {
-    if (!this.book || this.isStartingPlay) return;
+    if (!this.book || this.isStartingPlay || this.playerTransition.active) return;
     this.isStartingPlay = true;
     // 起播使用任务持有的目录，后台追加章节会继续对播放器可见。
     const loadingBook = SearchCache.get(this.bookId);
@@ -923,35 +925,45 @@ export struct BookDetailPage {
     }
 
     SearchCache.put(this.book);
+    await this.cleanStackBeforePushPlayer();
+    const paths: string[] = this.navStack.getAllPathName();
+    if (!this.detailActive || paths[paths.length - 1] !== 'detail') {
+      this.isStartingPlay = false;
+      return;
+    }
+    // 保留详情页与封面，等旧播放器释放后再采集当前坐标，避免先清栈露出首页。
+    const transition = PlayerDragTransition.getInstance();
+    const origin = transition.captureCover(this.getUIContext(),
+      OneShotTransitionIds.detailCover(this.bookId), AppRadius.Sm);
+    if (origin !== undefined) transition.beginTap(origin, 'detail');
     // ★ 当前在播的就是同书「且就是当前这一章」:直接 push player 不带 chapter 参数,
     //   PlayerPage 复用 live state,避免 tryResumePlay 触发 playChapterAndSeek 重置。
     //   若用户点的是别的章(target 非当前章),则走下面带 chapterId 的分支,播放选中的章。
     if (PlaybackStore.getInstance().isCurrentBook(this.book.id)
       && PlaybackStore.getInstance().isCurrentChapter(this.book.id, target.id)) {
-      // 详情页入口,清理栈避免重复 player
-      this.cleanStackBeforePushPlayer();
       this.navStack.pushPathByName('player', this.bookId);
       this.isStartingPlay = false;
       return;
     }
     const playerParams: Record<string, Object> = {
-      'bookId': this.bookId as Object,
-      'chapterId': target.id as Object,
-      'progressMs': resumeProgressMs as Object
+      'bookId': this.bookId,
+      'chapterId': target.id,
+      'progressMs': resumeProgressMs
     };
-    // 详情页入口,清理栈避免重复 player
-    this.cleanStackBeforePushPlayer();
     this.navStack.pushPathByName('player', playerParams);
     this.isStartingPlay = false;
   }
 
-  /** 首页由 NavBar 承载；播放器再入详情时清理旧 player，避免重复播放页。 */
-  private cleanStackBeforePushPlayer(): void {
-    const names = this.navStack.getAllPathName();
-    if (!names || names.length === 0) return;
-    if (names.includes('player')) {
-      this.navStack.clear(false);
-    }
+  /** 只移除被详情盖住的旧播放器，保留当前详情作为转场起点和返回目标。 */
+  private async cleanStackBeforePushPlayer(): Promise<void> {
+    if (!this.navStack.getAllPathName().includes('player')) return;
+    this.navStack.removeByName('player');
+    // 旧页销毁会注销播放页的全局回调，完成后再创建新页，避免清掉新页的回调。
+    await new Promise<void>((resolve): void => {
+      this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+        this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => resolve()));
+      }));
+    });
   }
 
   // ==================== 沉浸光感背景 ====================
@@ -1105,7 +1117,8 @@ export struct BookDetailPage {
       .borderRadius(AppRadius.Sm)
       .clip(true)
       .id(OneShotTransitionIds.detailCover(this.bookId))
-      .opacity(this.transitionCoverHidden ? 0 : 1)
+      .opacity(this.transitionCoverHidden || (this.playerTransition.active &&
+        this.playerTransition.sourceNodeId === OneShotTransitionIds.detailCover(this.bookId)) ? 0 : 1)
       // 图片比例变化只调整图片本身，不把下方整页内容向下推。
       .margin({
         top: (AdaptiveLayout.detailCoverHeight(this.viewportWidth, this.viewportHeight) - this.detailCoverHeight()) / 2,

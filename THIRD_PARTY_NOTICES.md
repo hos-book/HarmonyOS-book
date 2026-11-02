@@ -1,5 +1,15 @@
 # 第三方软件声明
 
+## 有声书端侧字幕
+
+- 成语边界保护词库使用 [pwxcoo/chinese-xinhua](https://github.com/pwxcoo/chinese-xinhua) 的成语词条，MIT 许可，固定提交 `fe6d6c2e8baa82187f4c96bbe042e43f96c05666`；仅提取并去重 30,345 条中文成语，不含释义。来源、转换方式、SHA256 和许可全文随应用保存在 `rawfile/audio_subtitles/IDIOMS-NOTICE.txt`、`LICENSE.idioms.txt`。
+
+- CT-Transformer 中英文标点恢复 int8 模型（FunASR / sherpa-onnx，Apache-2.0），随包内置约 72 MiB；官方发布版本 `2024-04-12-int8`。来源、模型 SHA256 与许可全文见 `rawfile/audio_subtitles/PUNCTUATION-NOTICE.txt`、`LICENSE.punctuation.txt`。
+
+- sherpa-onnx 官方 HarmonyOS HAR 1.13.3：Apache-2.0，来源 https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.3/harmony-os 。HAR 内 ONNX Runtime 库版本字符串为 1.16.3，许可证 MIT。
+- 中文 Zipformer CTC int8 模型由 csukuangfj 发布，Apache-2.0；固定版本 `824c678e9b80f301110e3ea8cee9819a7994c049`，来源 https://huggingface.co/csukuangfj/sherpa-onnx-zipformer-ctc-zh-int8-2025-07-03 。模型按需下载且校验 SHA256，不随 HAP 打包。
+- 下载使用作者的[魔搭同款模型](https://modelscope.cn/models/csukuangfj/sherpa-onnx-zipformer-ctc-zh-int8-2025-07-03)，固定版本 `ec0ba42ddef79fe0bd20c3563f14368f48e69a2c`，权重及词表 SHA256 与上述版本一致。许可全文、ONNX Runtime 第三方声明、模型卡和来源随 HAP 保存在 `rawfile/audio_subtitles/`。
+
 ## 简听一语古诗词数据
 
 - 内置 1365 条古诗词摘句，其中新增 1000 条选自 [chinese-poetry](https://github.com/chinese-poetry/chinese-poetry) 的 `宋词/宋词三百首.json`，按原文去重并保留作者、词牌，以首句补充标题；不包含现代译文或赏析。

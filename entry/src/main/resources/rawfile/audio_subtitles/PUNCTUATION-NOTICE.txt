@@ -1,0 +1,13 @@
+Chinese/English CT-Transformer punctuation restoration, int8 ONNX.
+Upstream: FunASR (current source: MIT), https://github.com/modelscope/FunASR
+Conversion/distribution: sherpa-onnx / csukuangfj (Apache-2.0)
+Release: https://github.com/k2-fsa/sherpa-onnx/releases/download/punctuation-models/sherpa-onnx-punct-ct-transformer-zh-en-vocab272727-2024-04-12-int8.tar.bz2
+Model: punctuation.int8.onnx (renamed from model.int8.onnx; weights unchanged)
+Bytes: 75519198
+SHA256: 65a3fb9f5ad7bfb96bf69e0dc4481df97f6ee60513c1d94ce981ba6effd524b1
+License source: https://raw.githubusercontent.com/modelscope/FunASR/main/LICENSE
+Inference is local; audio and recognized text are not uploaded.
+
+Original model license: Apache License 2.0, declared in PUNCTUATION-MODEL-CARD.md
+Original model: https://modelscope.cn/models/iic/punc_ct-transformer_zh-cn-common-vocab272727-pytorch
+FunASR source MIT license is retained separately in LICENSE.FunASR-source.txt.

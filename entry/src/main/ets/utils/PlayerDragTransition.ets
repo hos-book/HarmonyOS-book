@@ -52,6 +52,7 @@ export class PlayerDragTransition {
   private generation: number = 0;
   private returnNodeId: string = 'mini-player-bar';
   private returnRadius: number = 0;
+  private returnPage: string = '';
 
   static getInstance(): PlayerDragTransition {
     return PlayerDragTransition.instance;
@@ -130,6 +131,11 @@ export class PlayerDragTransition {
   clearReturnTarget(): void {
     this.returnNodeId = 'mini-player-bar';
     this.returnRadius = 0;
+    this.returnPage = '';
+  }
+
+  canReturnTo(page: string): boolean {
+    return this.returnPage.length > 0 && this.returnPage === page;
   }
 
   begin(height: number, offsetY: number, origin: PlayerDragOrigin): boolean {
@@ -141,6 +147,7 @@ export class PlayerDragTransition {
     this.generation++;
     this.returnNodeId = origin.sourceNodeId;
     this.returnRadius = origin.radius;
+    this.returnPage = '';
     this.state.sourceNodeId = origin.sourceNodeId;
     this.progress = Math.min(1, Math.max(0, -offsetY / height));
     this.state.viewportWidth = origin.viewportWidth;
@@ -165,8 +172,10 @@ export class PlayerDragTransition {
     return true;
   }
 
-  beginTap(origin: PlayerDragOrigin): boolean {
-    return this.begin(origin.viewportHeight, 0, origin);
+  beginTap(origin: PlayerDragOrigin, returnPage: string = ''): boolean {
+    const started: boolean = this.begin(origin.viewportHeight, 0, origin);
+    if (started) this.returnPage = returnPage;
+    return started;
   }
 
   prepareReturn(uiContext: UIContext): PlayerDragOrigin | undefined {

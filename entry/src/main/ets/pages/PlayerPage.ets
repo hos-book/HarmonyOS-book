@@ -6,6 +6,8 @@ import { ChapterSegmentGrid } from '../components/ChapterSegmentGrid';
 import { PlaybackLoadingIndicator } from '../components/PlaybackLoadingIndicator';
 import { LocalTextImage } from '../service/text/LocalTextImage';
 import { PlayerCoverImage } from '../components/PlayerCoverImage';
+import { AudioSubtitlePanel } from '../components/AudioSubtitlePanel';
+import { SubtitleToggleIcon } from '../components/SubtitleToggleIcon';
 import { CoverImage } from '../components/CoverImage';
 import { BookSourceSwitchSheet } from '../components/BookSourceSwitchSheet';
 import { common } from '@kit.AbilityKit';
@@ -155,6 +157,8 @@ export struct PlayerPage {
   @Local sleepSmartStopDraft: boolean = false;
   @Local showSkipSheet: boolean = false;
   @Local showSpeedSheet: boolean = false;
+  @Local showVolumePopup: boolean = false;
+  @Local volumeGainValue: number = 0;
   @Local skipIntroValue: number = 0;
   @Local skipOutroValue: number = 0;
   /** 倍速滑块当前值(拖动时实时显示,松手才真正下发到 AudioService) */
@@ -238,6 +242,8 @@ export struct PlayerPage {
   private chapterLoadInProgress: boolean = false;
   private entryFinished: boolean = false;
   @Local highQualityCover: boolean = false;
+  @Local audioSubtitlesEnabled: boolean = false;
+  @Local savingSubtitleMode: boolean = false;
 
   /** 取消 pending 的延迟加载 timer,返回前调用避免阻塞返回响应 */
   private cancelPendingClearTimers(): void {
@@ -266,6 +272,9 @@ export struct PlayerPage {
     PlayerEntryDecider.setEntered(() => this.finishEntering());
     PlayerBackInterceptor.set((): boolean => this.handleBack());
     this.primeFromCache();
+    PreferenceService.getAudioSubtitlesEnabled().then((enabled: boolean): void => {
+      if (!this.isLeaving && !this.savingSubtitleMode) this.audioSubtitlesEnabled = enabled;
+    }).catch((): void => {});
     // 上拖预览期间只展示当前书籍，手势取消不能触发播放初始化或重载。
     if (!this.deferEntry) {
       this.deferredLoadTimerId = setTimeout(() => {
@@ -1103,6 +1112,58 @@ export struct PlayerPage {
     return DownloadService.getInstance().getChapterStatus(this.book.id, ch);
   }
 
+  private async changeLoudnessGain(gain: number): Promise<void> {
+    if (this.isSpeechBook() || !this.audioMatchesBook() || this.playerState.isLoading) {
+      this.volumeGainValue = this.playerState.loudnessGain;
+      return;
+    }
+    const operation = ++this.volumeGainOperation;
+    const success = await AudioService.getInstance().setLoudnessGain(gain);
+    if (operation !== this.volumeGainOperation || this.isLeaving) return;
+    this.volumeGainValue = this.playerState.loudnessGain;
+    if (!success && !this.isLeaving) this.showToast($r('app.string.player_volume_boost_failed'));
+  }
+
+  private volumeGainOperation: number = 0;
+
+  @Builder
+  buildVolumePopup() {
+    Column({ space: 8 }) {
+      Row() {
+        Text($r('app.string.player_volume_boost')).fontSize(14).fontColor($r('sys.color.font_primary'))
+        Blank()
+        Text(this.volumeGainValue === 0 ? $r('app.string.player_volume_boost_off') : `+${this.volumeGainValue} dB`)
+          .fontSize(13).fontColor($r('sys.color.font_secondary'))
+      }.width('100%')
+      Row({ space: 8 }) {
+        SymbolGlyph($r('sys.symbol.speaker_wave_2_fill')).fontSize(18).fontColor([$r('sys.color.font_secondary')])
+        Slider({ value: this.volumeGainValue, min: 0, max: 24, step: 1 })
+          .layoutWeight(1).selectedColor($r('sys.color.font_primary')).trackThickness(4)
+          .enabled(!this.playerState.isLoading && this.audioMatchesBook())
+          .accessibilityText($r('app.string.player_volume_boost'))
+          .onChange((value: number, mode: SliderChangeMode): void => {
+            this.volumeGainValue = Math.round(value);
+            if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) this.changeLoudnessGain(this.volumeGainValue);
+          }).id('player-volume-slider')
+      }.width('100%')
+    }.width(Math.min(280, this.viewportWidth - 32)).padding(16)
+  }
+
+  private volumePopupOptions(): CustomPopupOptions {
+    const options: CustomPopupOptions = {
+      builder: (): void => { this.buildVolumePopup(); },
+      placement: Placement.Bottom,
+      popupColor: AppMaterial.SheetBackground,
+      radius: AppRadius.Xl,
+      enableArrow: false,
+      focusable: true,
+      onStateChange: (event): void => { this.showVolumePopup = event.isVisible; }
+    };
+    if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
+    else options.backgroundBlurStyle = AppMaterial.SheetBlur;
+    return options;
+  }
+
   private showToast(message: ResourceStr): void {
     try {
       this.getUIContext().getPromptAction().showToast({ message });
@@ -1447,6 +1508,24 @@ export struct PlayerPage {
     this.navStack.pushPathByName('detail', id);
   }
 
+  private showAudioSubtitles(): boolean {
+    return this.audioSubtitlesEnabled && !this.isSpeechBook() && !this.isLiveBook();
+  }
+
+  private async toggleAudioSubtitles(): Promise<void> {
+    if (this.savingSubtitleMode) return;
+    this.savingSubtitleMode = true;
+    const previous = this.audioSubtitlesEnabled;
+    this.audioSubtitlesEnabled = !previous;
+    try { await PreferenceService.setAudioSubtitlesEnabled(!previous); }
+    catch (_error) {
+      if (!this.isLeaving) {
+        this.audioSubtitlesEnabled = previous;
+        this.showToast($r('app.string.subtitle_mode_save_failed'));
+      }
+    } finally { this.savingSubtitleMode = false; }
+  }
+
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       this.buildAmbientBackground()
@@ -1501,7 +1580,7 @@ export struct PlayerPage {
 
   @Builder
   buildLandscapePlayerContent() {
-    if (this.isSpeechBook()) {
+    if (this.isSpeechBook() || this.showAudioSubtitles()) {
       Scroll() {
         Column() {
           this.buildPlayerContent(true)
@@ -1544,15 +1623,20 @@ export struct PlayerPage {
   @Builder
   buildPlayerContent(scrollable: boolean) {
     this.buildTopBar()
-    if (this.isSpeechBook()) {
+    if (this.isSpeechBook() || this.showAudioSubtitles()) {
       this.buildSpeechBookHeader()
     } else {
       this.buildCover()
     }
     this.buildMeta()
     if (this.isSpeechBook()) { this.buildSpeechParagraphs(!scrollable) }
+    if (this.showAudioSubtitles()) {
+      AudioSubtitlePanel({ book: this.book, playerState: this.playerState })
+        .height(scrollable ? 240 : undefined).layoutWeight(scrollable ? 0 : 1)
+        .constraintSize({ minHeight: 160 }).margin({ top: 8 })
+    }
     // 仅滚动容器使用固定间距；可同屏显示时由 Blank 吸收余高，让播控贴合底部安全区。
-    if (this.isSpeechBook()) {
+    if (this.isSpeechBook() || this.showAudioSubtitles()) {
       Blank().height(AppSpace.Sm)
     } else if (scrollable) {
       Blank().height(AppSpace.Md)
@@ -1680,6 +1764,34 @@ export struct PlayerPage {
         this.navStack.pop();
       })
       Blank()
+      if (!this.isSpeechBook() && !this.isLiveBook()) {
+        Button({ type: ButtonType.Circle }) {
+          SubtitleToggleIcon({ active: this.audioSubtitlesEnabled })
+        }.width(40).height(40)
+          .backgroundColor(Color.Transparent)
+          .accessibilityText(this.audioSubtitlesEnabled ? $r('app.string.subtitle_switch_cover') : $r('app.string.subtitle_switch_text'))
+          .enabled(!this.savingSubtitleMode).margin({ right: 8 })
+          .onClick((): void => { this.toggleAudioSubtitles(); }).id('audio-subtitle-toggle')
+      }
+      if (!this.isSpeechBook() && PlatformCompat.supports(21)) {
+        Column({ space: 2 }) {
+          SymbolGlyph($r('sys.symbol.speaker_wave_2_fill')).fontSize(24)
+            .fontColor(['#FFFFFF'])
+          if (this.playerState.loudnessGain > 0) {
+            Text(`+${this.playerState.loudnessGain} dB`).fontSize(10).fontColor('#FFFFFF')
+          }
+        }.width(44).height(44).justifyContent(FlexAlign.Center)
+          .accessibilityText($r('app.string.player_volume_boost'))
+          .id('player-volume-boost')
+          .enabled(this.audioMatchesBook() && !this.playerState.isLoading)
+          .margin({ right: 8 })
+          .onClick((): void => {
+            this.volumeGainValue = this.playerState.loudnessGain;
+            this.showVolumePopup = !this.showVolumePopup;
+          })
+          .bindPopup(this.showVolumePopup, this.volumePopupOptions())
+      }
+
       if (this.isSpeechBook()) {
         Button({ type: ButtonType.Circle }) {
           SymbolGlyph($r('sys.symbol.book')).fontSize(24).fontColor(['#FFFFFF'])
@@ -1689,7 +1801,7 @@ export struct PlayerPage {
           .onClick((): void => { this.closeSpeechToReader(true); })
       }
       Button({ type: ButtonType.Circle }) {
-        SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(24).fontColor(['#FFFFFF'])
+        SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(22).fontColor(['#FFFFFF'])
       }
         .width(40).height(40).backgroundColor(Color.Transparent)
         .accessibilityText($r('app.string.content_reload'))
@@ -2069,14 +2181,14 @@ export struct PlayerPage {
         } else {
           SymbolGlyph(this.playbackPlaying()
             ? $r('sys.symbol.pause_round_triangle_fill') : $r('sys.symbol.play_round_triangle_fill'))
-            .fontSize(this.isCompactPlayer() ? 56 : 64)
+            .fontSize(this.isCompactPlayer() ? 60 : 68)
             .fontWeight(this.playbackPlaying() ? FontWeight.Medium : FontWeight.Normal)
             .fontColor(['#FFFFFF'])
             .symbolEffect(new ReplaceSymbolEffect(EffectScope.WHOLE), this.playbackPlaying() ? 1 : 0)
         }
       }
-      .width(this.isCompactPlayer() ? 56 : 64)
-      .height(this.isCompactPlayer() ? 56 : 64)
+      .width(this.isCompactPlayer() ? 60 : 68)
+      .height(this.isCompactPlayer() ? 60 : 68)
       .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
       .id('player-play-toggle')
       .accessibilityText(this.playbackPlaying() || this.playbackLoading()

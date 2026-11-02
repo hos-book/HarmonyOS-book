@@ -95,15 +95,16 @@ def main():
             'service/rulesource/light/upstream/core/nativesource/NativeSourceSpec.ts',
             'service/rulesource/LocalRuleRuntimeTypes.ets',
             'model/LocalRulePanel.ets',
+            'model/AudioSubtitle.ets',
         ]
-        wire_names = set()
+        wire_names = {'version', 'chunks', 'samples', 'sampleRate', 'decodeSubtitleAudio'}
         for contract in contracts:
             wire_names.update(re.findall(r'^  (\w+)\??\s*:',
                                          (source_root / contract).read_text(encoding='utf-8'), re.MULTILINE))
         renamed = sorted(key for key, value in properties.items() if key in wire_names and key != value)
         if renamed:
             for result in results:
-                result['errors'].append('Property obfuscation breaks dynamic source JSON/script contracts: ' +
+                result['errors'].append('Obfuscation breaks runtime JSON/native contracts: ' +
                                         ', '.join(renamed[:12]))
     print(json.dumps(results, ensure_ascii=False, indent=2))
     return 1 if any(result['errors'] for result in results) else 0
