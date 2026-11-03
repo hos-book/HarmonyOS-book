@@ -189,6 +189,7 @@ assert.equal(consumed, 2);
 // Real ReaderKit settings must follow the window, including density on an external display.
 const windowReader = Object.create(ReaderPage.prototype);
 Object.assign(windowReader, { readerViewportWidthVp: 1200, readerViewportHeightVp: 700,
+  pageTurnMode: PageTurnMode.Vertical,
   marginLeft: 16, marginRight: 24, leftSafeVp: 0, rightSafeVp: 0, marginTop: 12,
   fontSize: 20, lineHeight: 1.5, palette: { primary: '#000000', background: '#ffffff', isDark: false },
   getUIContext: () => ({ vp2px: value => value * 2, fp2px: value => value * 2.4 }),
@@ -203,6 +204,41 @@ assert.equal(windowSettings.viewPortWidth, (360 - 16 - 24) * 2, 'split window re
 assert.equal(windowSettings.viewPortHeight, (500 - 30 - 16 - 24) * 2);
 assert.equal(windowReader.marginLeft, 16, 'automatic gutter never overwrites user preferences');
 assert.equal(windowReader.marginRight, 24);
+// The tablet's automatic centering must not cancel the user's horizontal margin changes.
+const columnsReader = Object.create(ReaderPage.prototype);
+let marginSaves = 0;
+Object.assign(columnsReader, { readerViewportWidthVp: 1440, readerViewportHeightVp: 960,
+  pageTurnMode: PageTurnMode.Cover, marginLeft: 16, marginRight: 32,
+  leftSafeVp: 0, rightSafeVp: 0, marginTopMax: 480,
+  applyReadingSettings() {}, saveReadingSettings() { marginSaves++; } });
+assert.equal(columnsReader.readerLeftPadding(), 92);
+assert.equal(columnsReader.readerRightPadding(), 92);
+columnsReader.handleMarginChange('left', 8, false);
+assert.deepEqual([columnsReader.marginLeft, columnsReader.marginRight], [8, 8]);
+assert.deepEqual([columnsReader.readerLeftPadding(), columnsReader.readerRightPadding()], [68, 68],
+  'decreasing the smaller side must immediately reduce both visible margins');
+assert.equal(marginSaves, 0, 'dragging does not persist intermediate values');
+columnsReader.handleMarginChange('right', 48, true);
+assert.deepEqual([columnsReader.readerLeftPadding(), columnsReader.readerRightPadding()], [108, 108]);
+assert.equal(marginSaves, 1);
+for (const width of [1000, 1440, 2000]) {
+  columnsReader.readerViewportWidthVp = width;
+  columnsReader.leftSafeVp = 24;
+  columnsReader.handleMarginChange('left', 0, true);
+  const baseline = columnsReader.readerLeftPadding();
+  for (const margin of [8, 16, 32, 64, 16, 0]) {
+    columnsReader.handleMarginChange('right', margin, true);
+    assert.equal(columnsReader.readerLeftPadding(), baseline + margin,
+      `margin changes remain effective at window width ${width}`);
+    assert.equal(columnsReader.readerRightPadding(), columnsReader.readerLeftPadding(),
+      'one-sided camera clearance keeps columns centered');
+  }
+}
+columnsReader.readerViewportWidthVp = 360;
+columnsReader.handleMarginChange('left', 8, true);
+columnsReader.handleMarginChange('right', 24, true);
+assert.deepEqual([columnsReader.marginLeft, columnsReader.marginRight], [8, 24],
+  'single-column reading retains independent left/right controls');
 const content = '文'.repeat(300);
 const pages = starts => starts.map((startOffset, index) => ({
   startOffset, endOffset: starts[index + 1] ?? content.length,

@@ -98,6 +98,7 @@ const READER_BAR_MASK_HEIGHT: number = 92;
 const READER_CHAPTER_ROW_HEIGHT: number = 64;
 const READER_CHAPTER_JUMP_DISTANCE: number = 200;
 const READER_TEXT_HORIZONTAL_PADDING: number = 24;
+const READER_COLUMN_GAP: number = 48;
 const READER_TEXT_HEADER_HEIGHT: number = 22;
 const READER_TEXT_FOOTER_HEIGHT: number = 24;
 const READER_TEXT_LAYOUT_GUARD: number = 4;
@@ -1025,7 +1026,8 @@ export struct ReaderPage {
     const width = this.readerViewportWidthVp > 0 ? this.readerViewportWidthVp : WindowUtils.getWindowWidthVp();
     const height = this.readerViewportHeightVp > 0 ? this.readerViewportHeightVp : WindowUtils.getWindowHeightVp();
     return this.pageTurnMode !== PageTurnMode.Vertical && width > height &&
-      width - this.marginLeft - this.leftSafeVp - this.marginRight - this.rightSafeVp >= 664;
+      width - 2 * (Math.max(this.marginLeft, this.marginRight) + Math.max(this.leftSafeVp, this.rightSafeVp)) >=
+        640 + READER_COLUMN_GAP;
   }
 
   private paginateOnlineTextContent(content: string): OnlineTextPage[] {
@@ -1044,7 +1046,7 @@ export struct ReaderPage {
       Math.max(1, this.readerTextHeightVp - READER_TEXT_LAYOUT_GUARD) :
       Math.max(80, viewportHeightVp - reservedHeightVp);
     const columns = this.useReaderColumns();
-    const pages = OnlineTextPaginator.paginate(content, (columns ? (contentWidthVp - 24) / 2 : contentWidthVp) * density,
+    const pages = OnlineTextPaginator.paginate(content, (columns ? (contentWidthVp - READER_COLUMN_GAP) / 2 : contentWidthVp) * density,
       contentHeightVp * density, fontSizePx, this.lineHeight, this.fontFamily, this.fontWeight, this.textAlignment, this.paragraphSpacing, this.letterSpacing * density);
     return columns ? OnlineTextPage.spreads(content, pages) : pages;
   }
@@ -1630,6 +1632,22 @@ export struct ReaderPage {
       hilog.warn(READER_LOG_DOMAIN, READER_LOG_TAG, 'apply settings failed: %{public}s',
         e instanceof Error ? e.message : String(e));
     }
+  }
+
+  private handleMarginChange(edge: string, value: number, commit: boolean): void {
+    const margin = TextReadingSettings.normalizeMargin(value, 16,
+      edge === 'top' ? this.marginTopMax : TextReadingSettings.MARGIN_UI_MAX);
+    if (this.useReaderColumns() && (edge === 'left' || edge === 'right')) {
+      this.marginLeft = margin;
+      this.marginRight = margin;
+    } else {
+      if (edge === 'left') this.marginLeft = margin;
+      if (edge === 'right') this.marginRight = margin;
+    }
+    if (edge === 'top') this.marginTop = margin;
+    if (edge === 'bottom') this.marginBottom = margin;
+    this.applyReadingSettings();
+    if (commit) this.saveReadingSettings();
   }
 
   /** 拖动仅更新面板预览；松手一次性提交正文排版，避免每个 Slider 事件阻塞 UI。 */
@@ -2386,17 +2404,32 @@ export struct ReaderPage {
     }
   }
 
+  private readerSideInset(left: boolean): number {
+    const leftInset = this.marginLeft + this.leftSafeVp;
+    const rightInset = this.marginRight + this.rightSafeVp;
+    // 双栏以窗口中线对称，单侧挖孔/系统避让不能把整组正文推向另一侧。
+    if (this.useReaderColumns()) {
+      return Math.max(this.marginLeft, this.marginRight) + Math.max(this.leftSafeVp, this.rightSafeVp);
+    }
+    return left ? leftInset : rightInset;
+  }
+
   private readerGutter(): number {
     const width = this.readerViewportWidthVp > 0 ? this.readerViewportWidthVp : WindowUtils.getWindowWidthVp();
-    return AdaptiveLayout.readerGutter(width, this.marginLeft + this.leftSafeVp, this.marginRight + this.rightSafeVp, this.useReaderColumns());
+    if (this.useReaderColumns()) {
+      // 双栏基础留白只依赖窗口与安全区，不能抵消用户调整的左右边距。
+      const safeInset = Math.max(this.leftSafeVp, this.rightSafeVp);
+      return AdaptiveLayout.readerGutter(width, safeInset, safeInset, true);
+    }
+    return AdaptiveLayout.readerGutter(width, this.readerSideInset(true), this.readerSideInset(false));
   }
 
   private readerLeftPadding(): number {
-    return this.marginLeft + this.leftSafeVp + this.readerGutter();
+    return this.readerSideInset(true) + this.readerGutter();
   }
 
   private readerRightPadding(): number {
-    return this.marginRight + this.rightSafeVp + this.readerGutter();
+    return this.readerSideInset(false) + this.readerGutter();
   }
 
   private readerFooterHeight(): number {
@@ -3038,6 +3071,13 @@ export struct ReaderPage {
   }
 
   @Builder
+  private buildReaderPageRule(): void {
+    Divider().width('100%').height(0.5).strokeWidth(0.5)
+      .color(this.palette.primary).opacity(0.16)
+      .hitTestBehavior(HitTestMode.None)
+  }
+
+  @Builder
   buildOnlineTextPage(): void {
     Stack() {
       ReaderBackground({
@@ -3072,6 +3112,7 @@ export struct ReaderPage {
         .height(this.readerHeaderHeight())
         .visibility(this.readerHeaderHeight() > 0 ? Visibility.Visible : Visibility.None)
         .alignItems(VerticalAlign.Center)
+        .overlay(this.buildReaderPageRule(), { align: Alignment.Bottom })
 
         Column() {
           if (this.pageTurnMode === PageTurnMode.Vertical) {
@@ -3112,12 +3153,16 @@ export struct ReaderPage {
               onAutoPageDelay: (): void => this.autoPage.restart()
             })
           } else {
-            Row({ space: 24 }) {
+            Row() {
               this.buildReaderColumn(0)
               if (this.currentOnlineTextPageLayout().columns.length > 0) {
+                Stack() {
+                  Divider().vertical(true).height('calc(100% - 16vp)').strokeWidth(0.5)
+                    .color(this.palette.primary).opacity(0.16)
+                }.width(READER_COLUMN_GAP).height('100%').hitTestBehavior(HitTestMode.None)
                 this.buildReaderColumn(1)
               }
-            }.width('100%').alignItems(VerticalAlign.Top)
+            }.width('100%').height('100%').alignItems(VerticalAlign.Top)
           }
         }
         .width('100%')
@@ -3150,6 +3195,7 @@ export struct ReaderPage {
         .height(this.readerFooterHeight())
         .visibility(this.readerFooterHeight() > 0 ? Visibility.Visible : Visibility.None)
         .alignItems(VerticalAlign.Center)
+        .overlay(this.buildReaderPageRule(), { align: Alignment.Top })
       }
       .width('100%')
       .height('100%')
@@ -3481,7 +3527,9 @@ export struct ReaderPage {
       },
       palette: this.palette,
       followSystemTheme: this.followSystemTheme,
-      marginLeft: this.marginLeft, marginRight: this.marginRight,
+      linkedHorizontalMargins: this.useReaderColumns(),
+      marginLeft: this.useReaderColumns() ? Math.max(this.marginLeft, this.marginRight) : this.marginLeft,
+      marginRight: this.useReaderColumns() ? Math.max(this.marginLeft, this.marginRight) : this.marginRight,
       marginTop: this.marginTop, marginBottom: this.marginBottom,
       marginTopMax: this.marginTopMax,
       onFollowSystemChange: (enabled: boolean): void => {
@@ -3491,14 +3539,7 @@ export struct ReaderPage {
         this.saveReadingSettings();
       },
       onMarginChange: (edge: string, value: number, commit: boolean): void => {
-        const margin = TextReadingSettings.normalizeMargin(value, 16,
-          edge === 'top' ? this.marginTopMax : TextReadingSettings.MARGIN_UI_MAX);
-        if (edge === 'left') this.marginLeft = margin;
-        if (edge === 'right') this.marginRight = margin;
-        if (edge === 'top') this.marginTop = margin;
-        if (edge === 'bottom') this.marginBottom = margin;
-        this.applyReadingSettings();
-        if (commit) this.saveReadingSettings();
+        this.handleMarginChange(edge, value, commit);
       },
       onFontSizeChange: (value: number, commit: boolean): void => {
         this.handleFontSizeChange(value, commit);

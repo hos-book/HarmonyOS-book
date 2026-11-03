@@ -340,6 +340,7 @@ export struct ReaderSettingsSheet {
   @Event onSystemFont: () => void = () => {};
   @Event onScreenOnChange: (minutes: number) => void = () => {};
   @Param followSystemTheme: boolean = false;
+  @Param linkedHorizontalMargins: boolean = false;
   @Param marginLeft: number = 16;
   @Param marginRight: number = 16;
   @Param marginTop: number = 12;
@@ -812,6 +813,10 @@ export struct ReaderSettingsSheet {
       Column({ space: AppSpace.Sm }) {
         ReaderEdgeTabs({ selected: this.marginEdge, groupId: 'reader-margin-edge',
           onSelect: (index: number): void => { this.marginEdge = index; } })
+        if (this.linkedHorizontalMargins) {
+          Text($r('app.string.reader_margin_columns_linked'))
+            .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary')).width('100%')
+        }
         if (this.marginEdge === 2) {
         ReaderMarginSlider({
           label: $r('app.string.reader_margin_left'), value: this.marginLeft,

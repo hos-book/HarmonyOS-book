@@ -17,6 +17,7 @@ function load(relative, mocks = {}) {
   }).outputText;
   vm.runInNewContext(code, { exports, require: name => {
     if (name === './LocalTextImage') return localImages ??= load('main/ets/service/text/LocalTextImage.ets');
+    if (name === './ReaderDialogueHighlighter') return load('main/ets/service/text/ReaderDialogueHighlighter.ets');
     if (name === '../../utils/PlatformCompat') return { PlatformCompat: { supports: version => apiVersion >= version } };
     if (!(name in mocks)) throw new Error(`Unexpected dependency: ${name}`);
     return mocks[name];
@@ -56,7 +57,7 @@ const graphicsText = {
     constructor(style) { this.style = style; this.text = ''; this.indents = []; this.styles = []; }
     pushStyle(style) { this.styles.push(style); }
     addText(text) {
-      if (this.styles.at(-1)?.letterSpacing !== undefined) {
+      if (text === '  ' && this.styles.length > 1) {
         this.indents.push({ ...this.styles.at(-1), offset: this.text.length });
       }
       this.text += text;
@@ -189,7 +190,7 @@ const controller = new nodeModule.ReaderParagraphNodeController();
 const nativeRange = new highlighter.SpeechHighlightRange();
 nativeRange.start = 0; nativeRange.end = 2;
 const palette = paletteModule.ReaderPalette.of('#FFFFFF', '#112233', '#555555', false);
-controller.update(page, nativeRange, palette);
+controller.update(page, nativeRange, palette, 'highlight');
 const node = controller.makeNode({});
 const clips = [];
 node.onDraw({ canvas: {
@@ -281,7 +282,7 @@ whole.paragraph.getRectsForRange = () => [0, 1, 2].map(index => ({
 }));
 const allRange = new highlighter.SpeechHighlightRange();
 allRange.start = 0; allRange.end = whole.text.length;
-controller.update(whole, allRange, palette);
+controller.update(whole, allRange, palette, 'highlight');
 paints.length = 0;
 const highlighted = [];
 node.onDraw({ canvas: {

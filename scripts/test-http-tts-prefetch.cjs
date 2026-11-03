@@ -7,9 +7,11 @@ const ts = require(path.join(process.env.DEVECO_HOME, 'sdk/default/openharmony/e
 const source = fs.readFileSync(path.join(__dirname, '../entry/src/main/ets/service/text/HttpTtsPlayer.ets'), 'utf8');
 const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 } }).outputText;
 const requests = [], players = [], files = new Set();
+const gainRequests = [];
 const settle = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 const moduleMock = { exports: {} };
 vm.runInNewContext(code, { module: moduleMock, exports: moduleMock.exports, ArrayBuffer, setTimeout, clearTimeout, require(name) {
+  if (name === '../../utils/PlatformCompat') return { PlatformCompat: { supports: () => true } };
   if (name === '@kit.NetworkKit') return { http: { createHttp() {
     const req = { request(_url, options) { req.options = options; return new Promise((resolve, reject) => { req.resolve = resolve; req.reject = reject; }); },
       destroy() { req.destroyed = true; } };
@@ -27,14 +29,15 @@ vm.runInNewContext(code, { module: moduleMock, exports: moduleMock.exports, Arra
     InterruptHint: { INTERRUPT_HINT_PAUSE: 1, INTERRUPT_HINT_STOP: 2 } } };
   if (name === '@kit.MediaKit') return { media: { async createAVPlayer() {
     const listeners = new Map();
-    const player = { on: (event, callback) => listeners.set(event, callback),
+    const player = { state: 'idle', on: (event, callback) => listeners.set(event, callback),
       off: event => listeners.delete(event),
       set fdSrc(value) { listeners.get('stateChange')('initialized'); },
-      async prepare() { listeners.get('stateChange')('prepared'); },
+      async prepare() { this.state = 'prepared'; listeners.get('stateChange')('prepared'); },
+      setLoudnessGain(gain) { return new Promise((resolve, reject) => gainRequests.push({ gain, resolve, reject })); },
       setPlaybackRate(value) { this.rate = value; },
-      async play() { listeners.get('stateChange')('playing'); },
-      complete() { listeners.get('stateChange')('completed'); },
-      async reset() { this.resetCount = (this.resetCount || 0) + 1; },
+      async play() { this.state = 'playing'; listeners.get('stateChange')('playing'); },
+      complete() { this.state = 'completed'; listeners.get('stateChange')('completed'); },
+      async reset() { this.state = 'idle'; this.resetCount = (this.resetCount || 0) + 1; },
       async release() { this.released = true; } };
     players.push(player); return player;
   } } };
@@ -45,6 +48,7 @@ const respond = req => req.resolve({ responseCode: 200, result: new ArrayBuffer(
 (async () => {
   const task = new HttpTtsPlayer();
   const output = new HttpTtsAudioOutput();
+  assert.equal(await output.setLoudnessGain(12), true);
   const ready = task.prepare({}, '第一句。', 1.5); await settle();
   assert.equal(requests.length, 1); assert.equal(players.length, 0);
   respond(requests[0]); await ready;
@@ -53,6 +57,7 @@ const respond = req => req.resolve({ responseCode: 200, result: new ArrayBuffer(
   const playing = task.speak({ cacheDir: '/cache' }, {}, '第一句。', 1.5, 'first', () => started++, output);
   await settle();
   assert.equal(requests.length, 1); assert.equal(started, 1); assert.equal(players[0].rate, 1.5);
+  assert.equal(gainRequests[0].gain, 12, 'first segment starts while native gain promise remains pending');
   players[0].complete(); await playing;
   assert.equal(players[0].released, undefined); assert.equal(players[0].resetCount, 1);
   assert.equal(files.size, 0); assert.equal(task.ready, false);
@@ -61,6 +66,10 @@ const respond = req => req.resolve({ responseCode: 200, result: new ArrayBuffer(
   const nextSpeech = next.speak({ cacheDir: '/cache' }, {}, '下一段。', 1, 'next', () => started++, output);
   await settle(); respond(requests[1]); await settle();
   assert.equal(players.length, 1); assert.equal(started, 2);
+  assert.equal(gainRequests[1].gain, 12, 'next segment restores gain without waiting for either native promise');
+  gainRequests[0].reject(new Error('late native failure'));
+  gainRequests[1].resolve();
+  await settle();
   players[0].complete(); await nextSpeech;
   assert.equal(players[0].resetCount, 2); assert.equal(files.size, 0);
   await output.release(); assert.equal(players[0].released, true);
@@ -78,6 +87,8 @@ const respond = req => req.resolve({ responseCode: 200, result: new ArrayBuffer(
   const stoppedResult = assert.rejects(speech, /cancelled/);
   await settle(); respond(requests[3]); await settle();
   assert.equal(players[1].rate, 1); // synthesis already applied the speed
+  assert.equal(gainRequests[2].gain, 12, 'stale failure must not roll back a later gain restoration');
+  gainRequests[2].resolve();
   stopped.cancel(); await stoppedResult;
   assert.equal(players[1].released, true); assert.equal(files.size, 0);
   const retryStart = requests.length;

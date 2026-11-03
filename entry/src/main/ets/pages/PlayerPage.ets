@@ -12,7 +12,7 @@ import { SubtitleToggleIcon } from '../components/SubtitleToggleIcon';
 import { CoverImage } from '../components/CoverImage';
 import { BookSourceSwitchSheet } from '../components/BookSourceSwitchSheet';
 import { common } from '@kit.AbilityKit';
-import { AppStorageV2, curves, FrameCallback, LengthMetrics } from '@kit.ArkUI';
+import { AppStorageV2, curves, FrameCallback } from '@kit.ArkUI';
 import { text as graphicsText } from '@kit.ArkGraphics2D';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { emitter } from '@kit.BasicServicesKit';
@@ -2546,8 +2546,7 @@ export struct PlayerPage {
     .width('100%')
     .layoutWeight(1)
     .scrollBar(BarState.On)
-    .scrollBarWidth(8)
-    .scrollBarMargin({ start: LengthMetrics.vp(8), end: LengthMetrics.vp(56) })
+    // 与阅读目录一致保留默认扩展热区；显式设宽会把触摸热区收窄到滑块本身。
     .enableScrollInteraction(true)
     .cachedCount(5)
     .onTouch((event: TouchEvent): void => {

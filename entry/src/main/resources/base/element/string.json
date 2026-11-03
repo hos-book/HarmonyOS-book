@@ -1,5 +1,12 @@
 {
   "string": [
+    { "name": "settings_mini_player_hide", "value": "听书控件自动隐藏" },
+    { "name": "settings_mini_player_hide_desc", "value": "听书或电子书朗读暂停且未操作控件达到所选时间后隐藏，播放中保持显示；永久表示不自动隐藏。" },
+    { "name": "settings_mini_player_hide_never", "value": "永久" },
+    { "name": "settings_mini_player_hide_1", "value": "1 分钟" },
+    { "name": "settings_mini_player_hide_5", "value": "5 分钟" },
+    { "name": "settings_mini_player_hide_10", "value": "10 分钟" },
+    { "name": "settings_mini_player_hide_20", "value": "20 分钟" },
     {
       "name": "desktop_lyric_preparing",
       "value": "正在准备字幕…"
@@ -4679,6 +4686,10 @@
     {
       "name": "reader_margins",
       "value": "正文边距（vp）"
+    },
+    {
+      "name": "reader_margin_columns_linked",
+      "value": "双栏时左右边距同步调整"
     },
     {
       "name": "reader_margin_left",

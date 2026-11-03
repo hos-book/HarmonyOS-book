@@ -61,6 +61,7 @@ const PRELOAD_OPTIONS: PreloadOption[] = [
 
 const ROW_INDENT: number = AppSpace.Md;
 const SEARCH_CONCURRENCY_OPTIONS: number[] = [3, 6, 9, 12];
+const MINI_PLAYER_HIDE_MINUTES: number[] = [0, 1, 5, 10, 20];
 
 enum SettingsCacheKind { Text, Comic, Audio }
 
@@ -579,6 +580,17 @@ export struct SettingsPage {
     } finally { this.savingGeneral = false; }
   }
 
+  private async setMiniPlayerHideMinutes(index: number): Promise<void> {
+    const minutes = MINI_PLAYER_HIDE_MINUTES[index];
+    if (!this.isLoaded || this.savingGeneral || minutes === undefined ||
+      minutes === this.generalSettings.miniPlayerHideMinutes) return;
+    this.savingGeneral = true;
+    try { await PreferenceService.setMiniPlayerHideMinutes(minutes); }
+    catch (_error) {
+      if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
+    } finally { this.savingGeneral = false; }
+  }
+
   private async setSwipeSwitchTabs(enabled: boolean): Promise<void> {
     if (!this.isLoaded || this.savingGeneral || enabled === this.generalSettings.swipeSwitchTabs) return;
     this.savingGeneral = true;
@@ -791,6 +803,23 @@ export struct SettingsPage {
       this.buildGroupTitle('播放')
 
       Column() {
+        Column({ space: AppSpace.Sm }) {
+          Row({ space: AppSpace.Sm }) {
+            Text($r('app.string.settings_mini_player_hide')).fontSize(AppFont.BodyL)
+              .fontColor(AppTheme.TextPrimary).layoutWeight(1)
+            ImmersiveOptionTabs({
+              labels: [$r('app.string.settings_mini_player_hide_never'),
+                $r('app.string.settings_mini_player_hide_1'), $r('app.string.settings_mini_player_hide_5'),
+                $r('app.string.settings_mini_player_hide_10'), $r('app.string.settings_mini_player_hide_20')],
+              selected: Math.max(0, MINI_PLAYER_HIDE_MINUTES.indexOf(this.generalSettings.miniPlayerHideMinutes)),
+              onSelect: (index: number): void => { this.setMiniPlayerHideMinutes(index); }
+            }).enabled(this.isLoaded && !this.savingGeneral)
+          }.width('100%')
+          Text($r('app.string.settings_mini_player_hide_desc'))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).width('100%')
+        }.width('100%').padding(ROW_INDENT)
+        this.buildDivider()
+
         Column({ space: AppSpace.Sm }) {
           Row({ space: AppSpace.Sm }) {
             Text($r('app.string.settings_default_playback_speed')).fontSize(AppFont.BodyL)

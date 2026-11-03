@@ -251,6 +251,26 @@ export class PreferenceService {
     }
   }
 
+  static normalizeMiniPlayerHideMinutes(minutes: number): number {
+    return [0, 1, 5, 10, 20].includes(minutes) ? minutes : 0;
+  }
+
+  static async setMiniPlayerHideMinutes(minutes: number): Promise<void> {
+    if (PreferenceService.normalizeMiniPlayerHideMinutes(minutes) !== minutes) {
+      throw new Error('Invalid mini player hide duration');
+    }
+    const store = await PreferenceService.ensureStore();
+    const previous = store.getSync('mini_player_hide_minutes', 0);
+    try {
+      await store.put('mini_player_hide_minutes', minutes);
+      await store.flush();
+      GeneralSettings.current.miniPlayerHideMinutes = minutes;
+    } catch (error) {
+      await store.put('mini_player_hide_minutes', previous);
+      throw new Error(`Failed to save mini player hide duration: ${String(error)}`);
+    }
+  }
+
   static async setSwipeSwitchTabs(enabled: boolean): Promise<void> {
     const store = await PreferenceService.ensureStore();
     const previous = store.getSync('swipe_switch_tabs', true);
@@ -501,6 +521,9 @@ export class PreferenceService {
         GeneralSettings.current.showShelfSource = s.getSync('show_shelf_source', true) !== false;
         GeneralSettings.current.adaptiveHandedness = s.getSync('adaptive_handedness', true) !== false;
         GeneralSettings.current.swipeSwitchTabs = s.getSync('swipe_switch_tabs', true) !== false;
+        const miniPlayerHideMinutes = s.getSync('mini_player_hide_minutes', 0);
+        GeneralSettings.current.miniPlayerHideMinutes = PreferenceService.normalizeMiniPlayerHideMinutes(
+          typeof miniPlayerHideMinutes === 'number' ? miniPlayerHideMinutes : 0);
         GeneralSettings.current.jianjianCompanionEnabled = s.getSync(KEY_JIANJIAN_COMPANION_ENABLED, false) === true;
         emitter.emit(EVT_JIANJIAN_COMPANION_CHANGED);
         AppAppearance.current.verticalBottomTabs = s.getSync('vertical_bottom_tabs', false) === true;

@@ -50,6 +50,9 @@ export interface NavigateToBookPayload {
 
 const FLOATING_BOTTOM: number = 4;
 const FLOATING_MIN_SAFE_BOTTOM: number = 8;
+const FLOATING_SIDE_MARGIN: number = 16;
+const FLOATING_BAR_GAP: number = 8;
+const FLOATING_WIDE_BREAKPOINT: number = 600;
 const TAB_RESTORE_WIDTH_GROWTH: number = 48;
 const TAB_RESTORE_HEIGHT_GROWTH: number = 80;
 
@@ -66,6 +69,7 @@ export struct MainPage {
   @Local appearance: AppAppearance = AppAppearance.current;
   private useFloatingTabs(): boolean { return PlatformCompat.floatingTabs; }
   private useVerticalTabs(): boolean { return PlatformCompat.supports(24) && this.appearance.verticalBottomTabs; }
+  private useWideFloatingBars(): boolean { return this.useVerticalTabs() && this.viewportWidth >= FLOATING_WIDE_BREAKPOINT; }
   @Monitor('appearance.verticalBottomTabs')
   private onTabStyleChanged(): void {
     if (this.miniBarExpandTimer !== -1) clearTimeout(this.miniBarExpandTimer);
@@ -113,9 +117,16 @@ export struct MainPage {
   private miniChapterRequest: number = 0;
   @Local tabBarCollapsed: boolean = false;
   @Local speechState: TextToSpeechState = TextToSpeechService.getInstance().state;
+  @Local miniPlayerIdleHidden: boolean = false;
+  private miniPlayerIdleTimer: number = -1;
+  private miniPlayerIdleSince: number = 0;
+  private miniPlayerIdleBook: string = '';
+  private miniPlayerWasBusy: boolean = false;
+  private miniPlayerIdleAlive: boolean = false;
   @Local viewportWidth: number = 0;
   @Local viewportHeight: number = 0;
   @Local bottomSafeVp: number = WindowUtils.getBottomSafeVp();
+  @Local sideSafeVp: number = Math.max(WindowUtils.getLeftSafeVp(), WindowUtils.getRightSafeVp());
 
   /** 隐藏 Web 宿主的按需挂载门控:引擎首次被调用时置位,据此条件渲染对应 Host */
   private gate: WebEngineGate = WebEngineGate.instance;
@@ -135,11 +146,14 @@ export struct MainPage {
   private tabCollapseViewportHeight: number = 0;
   private safeAreaChangeHandler: (topVp: number, bottomVp: number) => void =
     (_topVp: number, bottomVp: number): void => {
+      this.sideSafeVp = Math.max(WindowUtils.getLeftSafeVp(), WindowUtils.getRightSafeVp());
       if (Math.abs(this.bottomSafeVp - bottomVp) < 0.1) return;
       this.bottomSafeVp = bottomVp;
     };
 
   aboutToAppear(): void {
+    this.miniPlayerIdleAlive = true;
+    this.refreshMiniPlayerIdle(true);
     this.onHomeShownHandlerChange((): void => {
       this.resetTabStyle();
       const resume = this.pendingHomeResume;
@@ -164,6 +178,8 @@ export struct MainPage {
   }
 
   aboutToDisappear(): void {
+    this.miniPlayerIdleAlive = false;
+    this.clearMiniPlayerIdleTimer();
     this.miniChapterRequest++;
     this.defaultTabRequest++;
     this.resetTabFade();
@@ -177,6 +193,56 @@ export struct MainPage {
     WindowUtils.removeSafeAreaListener(this.safeAreaChangeHandler);
     emitter.off(EVT_SWITCH_TAB, this.switchTabHandler);
     emitter.off(EVT_NAVIGATE_TO_BOOK, this.navigateBookHandler);
+  }
+
+  private clearMiniPlayerIdleTimer(): void {
+    if (this.miniPlayerIdleTimer !== -1) clearTimeout(this.miniPlayerIdleTimer);
+    this.miniPlayerIdleTimer = -1;
+  }
+
+  @Monitor('generalSettings.miniPlayerHideMinutes')
+  private onMiniPlayerHidePreferenceChanged(): void {
+    this.refreshMiniPlayerIdle(true);
+  }
+
+  @Monitor('playerState.currentBook', 'playerState.currentChapter', 'playerState.isPlaying', 'playerState.isLoading',
+    'speechState.active', 'speechState.bookId', 'speechState.playing', 'speechState.loading')
+  private onMiniPlayerPlaybackChanged(): void {
+    this.refreshMiniPlayerIdle();
+  }
+
+  private miniPlayerVisible(): boolean {
+    return !this.miniPlayerIdleHidden && (this.speechState.active || this.playerState.currentBook !== null);
+  }
+
+  private refreshMiniPlayerIdle(reset: boolean = false): void {
+    this.clearMiniPlayerIdleTimer();
+    if (!this.miniPlayerIdleAlive) return;
+    const bookKey: string = this.speechState.active ? `speech:${this.speechState.bookId}`
+      : this.playerState.currentBook?.id ?? '';
+    const busy: boolean = this.speechState.active ? this.speechState.playing || this.speechState.loading
+      : this.playerState.isPlaying || this.playerState.isLoading;
+    const minutes: number = this.generalSettings.miniPlayerHideMinutes;
+    const wasHidden: boolean = this.miniPlayerIdleHidden;
+    if (reset || busy || busy !== this.miniPlayerWasBusy || bookKey !== this.miniPlayerIdleBook ||
+      bookKey.length === 0 || minutes === 0) {
+      this.miniPlayerIdleSince = Date.now();
+      this.miniPlayerIdleHidden = false;
+    }
+    this.miniPlayerIdleBook = bookKey;
+    this.miniPlayerWasBusy = busy;
+    if (wasHidden && !this.miniPlayerIdleHidden) this.syncVerticalBars();
+    if (busy || minutes === 0 || bookKey.length === 0) return;
+    const remaining: number = minutes * 60000 - (Date.now() - this.miniPlayerIdleSince);
+    if (remaining <= 0) {
+      // 仅隐藏主页迷你控件，不清理播放状态、进度、会话或系统桌面歌词。
+      this.miniPlayerIdleHidden = true;
+      return;
+    }
+    this.miniPlayerIdleTimer = setTimeout((): void => {
+      this.miniPlayerIdleTimer = -1;
+      this.refreshMiniPlayerIdle();
+    }, remaining);
   }
 
   private cancelLayoutTimers(): void {
@@ -197,7 +263,7 @@ export struct MainPage {
   }
 
   private onContentScroll(tab: number, offset: number, state: ScrollState): void {
-    if (!this.useVerticalTabs() || tab !== this.currentTab || state !== ScrollState.Scroll ||
+    if (!this.useVerticalTabs() || this.useWideFloatingBars() || tab !== this.currentTab || state !== ScrollState.Scroll ||
       this.showMiniChapters || this.navStack.getAllPathName().length > 0 || Math.abs(offset) < 0.1) return;
     if (this.scrollDistance * offset < 0) this.scrollDistance = 0;
     this.scrollDistance += offset;
@@ -226,6 +292,7 @@ export struct MainPage {
       this.viewportHeight = height;
       WindowUtils.refreshAvoidArea();
       if (shouldRestoreTabBar) this.restoreExpandedTabBars();
+      this.syncVerticalBars();
     }, 0);
   }
 
@@ -234,7 +301,7 @@ export struct MainPage {
     this.miniBarCollapsed = miniStyle === HdsBarStyle.COLLAPSE;
     this.tabBarCollapsed = tabStyle === HdsBarStyle.COLLAPSE;
     if (this.useVerticalTabs()) {
-      if (mode === HdsTabsBarChangeMode.USER_CLICK) {
+      if (!this.useWideFloatingBars() && mode === HdsTabsBarChangeMode.USER_CLICK) {
         this.verticalBarCollapsed = tabStyle === HdsBarStyle.COLLAPSE;
         this.scrollDistance = 0;
       }
@@ -458,7 +525,7 @@ export struct MainPage {
    */
   @Builder
   miniBarBuilder(): void {
-    if (this.currentPlaybackBook() !== null) {
+    if (this.miniPlayerVisible() && this.currentPlaybackBook() !== null) {
       MiniPlayer({
         book: this.currentPlaybackBook(),
         chapterTitle: this.speechState.active ? this.speechState.error || this.speechState.chapterTitle
@@ -468,7 +535,7 @@ export struct MainPage {
         progressPercent: this.playbackProgressPercent(),
         collapsed: !this.useVerticalTabs() && this.miniBarCollapsed,
         verticalStyle: this.useVerticalTabs(),
-        compactControls: this.useVerticalTabs() && this.verticalBarCollapsed,
+        compactControls: this.useVerticalTabs() && (this.useWideFloatingBars() || this.verticalBarCollapsed),
         onChapters: (): void => { this.openMiniChapters(); },
         onPlayerPanStart: (offsetY: number): void => this.beginPlayerDrag(offsetY),
         onPlayerPanUpdate: (offsetY: number): void => PlayerDragTransition.getInstance().update(offsetY),
@@ -493,6 +560,9 @@ export struct MainPage {
           }
         }
       }).onAppear((): void => this.syncVerticalBars())
+        .onTouch((event: TouchEvent): void => {
+          if (event.type === TouchType.Down) this.refreshMiniPlayerIdle(true);
+        })
     }
   }
 
@@ -502,11 +572,11 @@ export struct MainPage {
     if (!this.useVerticalTabs()) return;
     this.miniBarExpandTimer = setTimeout((): void => {
       this.miniBarExpandTimer = -1;
-      if (!this.useVerticalTabs() || this.currentPlaybackBook() === null) return;
+      if (!this.useVerticalTabs() || !this.miniPlayerVisible() || this.currentPlaybackBook() === null) return;
       try {
-        // VERTICAL 下 COLLAPSE 显示双行，EXPAND 显示当前页签圆钮 + 完整横向播放器。
-        // 保持布局参数不变，由原生控制器完成两种状态的几何动画。
-        this.tabController.applyMiniBarStyle(this.verticalBarCollapsed ? HdsBarStyle.EXPAND : HdsBarStyle.COLLAPSE);
+        // 600vp 起原生两栏同时展开；窄容器才使用双行/圆页签的收展动画。
+        this.tabController.applyMiniBarStyle(this.useWideFloatingBars() || this.verticalBarCollapsed ?
+          HdsBarStyle.EXPAND : HdsBarStyle.COLLAPSE);
         hilog.info(0x0000, 'MainTabs', 'scroll collapsed=%{public}s', String(this.verticalBarCollapsed));
       } catch (_error) { /* 旧设备使用原有样式，不调用此分支。 */ }
     }, 80);
@@ -515,8 +585,8 @@ export struct MainPage {
   private floatingBarStyle(): HdsTabsFloatingStyle | undefined {
     if (!this.useFloatingTabs()) return undefined;
     const style: HdsTabsFloatingStyle = {
-      // 宽窗口保留底部导航习惯，避免导航入口和迷你播放条横跨整块屏幕。
-      barSideMargin: Math.max(16, (this.viewportWidth - 720) / 2),
+      // 旧版沿用系统宽度与侧边距，新版在下方按实际容器宽度配置两层。
+      barSideMargin: Math.max(FLOATING_SIDE_MARGIN, (this.viewportWidth - 720) / 2),
       barBottomMargin: Math.max(this.bottomSafeVp, FLOATING_MIN_SAFE_BOTTOM) + FLOATING_BOTTOM,
       gradientMask: { maskColor: HomeTheme.FloatingBarMask, maskHeight: 92 },
       systemMaterialEffect: HdsCompat.adaptiveMaterial,
@@ -525,9 +595,10 @@ export struct MainPage {
       // 智感握持:左右手自动跟手
       adaptToHandedness: this.generalSettings.adaptiveHandedness,
       // 迷你栏配置:HdsTabs 会自动管理折叠/展开
-      miniBar: (this.speechState.active || this.playerState.currentBook) ? {
+      miniBar: this.miniPlayerVisible() ? {
         miniBarBuilder: () => this.miniBarBuilder(),
-        miniBarStyle: this.useVerticalTabs() ? HdsBarStyle.COLLAPSE : undefined,
+        miniBarStyle: this.useVerticalTabs() ?
+          (this.useWideFloatingBars() ? HdsBarStyle.EXPAND : HdsBarStyle.COLLAPSE) : undefined,
         enableMiniBarBackground: true,
         enableMiniBarClip: true,
         // 系统切换样式时同步页签状态；新版两种状态都保留全部播控。
@@ -543,8 +614,26 @@ export struct MainPage {
         }
       } : undefined
     };
-    if (this.useVerticalTabs() && style.miniBar !== undefined) {
-      style.miniBar.barLayoutMode = HdsBarLayoutMode.VERTICAL;
+    if (this.useVerticalTabs()) {
+      style.barSideMargin = FLOATING_SIDE_MARGIN + this.sideSafeVp;
+      // VERTICAL 的双行和单行需要不同宽度：由原生布局给圆页签预留空间。
+      // 固定整行 miniBarWidth 会覆盖其收展宽度，导致播放器与页签重叠。
+      if (this.useWideFloatingBars()) {
+        // 宽容器中原生页签/迷你栏同时展开，必须分配同一份可用宽度。
+        const availableWidth: number = Math.max(1,
+          this.viewportWidth - 2 * (FLOATING_SIDE_MARGIN + this.sideSafeVp));
+        const barWidth: number = style.miniBar !== undefined ?
+          Math.max(1, (availableWidth - FLOATING_BAR_GAP) / 2) : availableWidth;
+        style.barWidth = { smallWidth: barWidth, mediumWidth: barWidth, largeWidth: barWidth };
+        if (style.miniBar !== undefined) {
+          style.miniBar.miniBarWidth = {
+            smallWidth: barWidth, mediumWidth: barWidth, largeWidth: barWidth
+          };
+        }
+      }
+      if (style.miniBar !== undefined) {
+        style.miniBar.barLayoutMode = this.useWideFloatingBars() ? HdsBarLayoutMode.HORIZONTAL : HdsBarLayoutMode.VERTICAL;
+      }
     }
     return style;
   }
@@ -716,7 +805,7 @@ export struct MainPage {
       }
       }
 
-      if (this.tabsReady && !this.useFloatingTabs() && (this.speechState.active || this.playerState.currentBook)) {
+      if (this.tabsReady && !this.useFloatingTabs() && this.miniPlayerVisible()) {
         Column() {
           this.miniBarBuilder()
         }

@@ -33,8 +33,10 @@ export class HttpTtsAudioOutput {
     } finally { if (timer !== -1) clearTimeout(timer); }
   }
 
-  async restoreLoudness(): Promise<void> {
-    if (this.loudnessGain > 0) await this.setLoudnessGain(this.loudnessGain);
+  restoreLoudness(): void {
+    // 部分设备已应用增幅但 Promise 不返回；切段不能等待 1500ms 的设置超时。
+    // 设置方法自行处理失败及过期回调，仍在 play 前提交增幅。
+    if (this.loudnessGain > 0) this.setLoudnessGain(this.loudnessGain);
   }
 
   private player: media.AVPlayer | null = null;
@@ -258,7 +260,7 @@ export class HttpTtsPlayer {
             output.preparePlayback().then(async (ready: boolean): Promise<void> => {
               this.check();
               if (!ready) throw new Error('TTS focus cancelled');
-              await output.restoreLoudness();
+              output.restoreLoudness();
               this.check();
               await player.play();
             }).catch((): void => reject(new Error('TTS audio play failed')));
