@@ -9,6 +9,7 @@ import { common, wantAgent } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { Book, Chapter } from '../model/Book';
+import { DesktopLyricState } from '../model/DesktopLyric';
 
 const DOMAIN = 0xFF00;
 const TAG = 'ListenBook_AVSession';
@@ -46,6 +47,23 @@ const MEDIA_CENTER_CONTROLS: avSession.AVMediaCenterControlType[] = [
 ];
 
 export class AVSessionService {
+  readonly desktopLyric: DesktopLyricState = new DesktopLyricState();
+  private desktopLyricEnabled: boolean = false;
+  private desktopLyricGeneration: number = 0;
+  private desktopLyricClosing: Promise<void> = Promise.resolve();
+  private desktopLyricListeners: Set<() => void> = new Set();
+  private lyricAssetId: string = '';
+  private lyricText: string = '';
+  private metadataSpeech: boolean = false;
+  private metadataChain: Promise<void> = Promise.resolve();
+  private readonly lyricVisibilityChanged = (visible: boolean): void => {
+    if (visible && !this.desktopLyricEnabled) return;
+    this.desktopLyric.visible = visible;
+    this.notifyDesktopLyric();
+  };
+  private readonly lyricStateChanged = (state: avSession.DesktopLyricState): void => {
+    this.desktopLyric.locked = state.isLocked;
+  };
   private static instance: AVSessionService | null = null;
   private session: avSession.AVSession | null = null;
   private context: common.UIAbilityContext | null = null;
@@ -103,7 +121,13 @@ export class AVSessionService {
     this.applyCallbacks(cbs);
   }
 
-  endSpeechPlayback(): void {
+  endSpeechPlayback(closeLyrics: boolean = true): void {
+    if (closeLyrics) this.closeDesktopLyric();
+    else {
+      this.lyricAssetId = '';
+      this.lyricText = '';
+      this.refreshLyricMetadata();
+    }
     if (!this.session || !PlaybackCoordinator.speechActive) return;
     const state: avSession.AVPlaybackState = { state: avSession.PlaybackState.PLAYBACK_STATE_PAUSE };
     this.session.setAVPlaybackState(state).catch((error: Error): void => {
@@ -146,6 +170,7 @@ export class AVSessionService {
       this.configureMediaCenter();
       this.configureUrlCasting();
       await this.setupLaunchAbility(context);
+      await this.configureDesktopLyric();
     } catch (err) {
       const e = err as Error;
       hilog.error(DOMAIN, TAG, 'AVSession init failed: %{public}s',
@@ -159,6 +184,151 @@ export class AVSessionService {
       await this.initPromise;
     }
     return this.session !== null;
+  }
+
+  private async configureDesktopLyric(): Promise<void> {
+    if (!PlatformCompat.supports(23) || PlatformCompat.wearable || !this.session) {
+      this.desktopLyric.checked = true;
+      return;
+    }
+    try {
+      this.desktopLyric.supported = await avSession.isDesktopLyricSupported();
+      if (this.desktopLyric.supported && this.session) {
+        this.session.onDesktopLyricVisibilityChanged(this.lyricVisibilityChanged);
+        this.session.onDesktopLyricStateChanged(this.lyricStateChanged);
+      }
+    } catch (error) {
+      this.desktopLyric.supported = false;
+      this.logMediaCenterWarning('desktopLyric.support', error);
+    } finally { this.desktopLyric.checked = true; }
+  }
+
+  addDesktopLyricListener(listener: () => void): void {
+    this.desktopLyricListeners.add(listener);
+  }
+
+  private notifyDesktopLyric(): void {
+    this.desktopLyricListeners.forEach((listener: () => void): void => listener());
+  }
+
+  async setDesktopLyricVisible(visible: boolean): Promise<boolean> {
+    if (this.desktopLyric.busy || !PlatformCompat.supports(23)) return false;
+    this.desktopLyric.busy = true;
+    const generation = ++this.desktopLyricGeneration;
+    try {
+      await this.desktopLyricClosing;
+      if (!await this.ensureReady() || !this.session || !this.desktopLyric.supported) return false;
+      const session = this.session;
+      if (generation !== this.desktopLyricGeneration) return false;
+      if (visible) {
+        if (!this.currentBook || !this.currentChapter) return false;
+        const assetId = `${this.metadataSpeech}:${this.currentBook.id}_${this.currentChapter.id}`;
+        if (this.lyricAssetId !== assetId || !this.lyricText) {
+          this.lyricAssetId = assetId;
+          this.lyricText = '[00:00.00]' + (this.context?.resourceManager.getStringSync(
+            $r('app.string.desktop_lyric_preparing').id) ?? this.currentChapter.title);
+        }
+        this.refreshLyricMetadata();
+        await this.metadataChain;
+      }
+      if (generation !== this.desktopLyricGeneration || session !== this.session) return false;
+      if (!this.desktopLyricEnabled) {
+        if (!visible) return true;
+        await session.enableDesktopLyric(true);
+        this.desktopLyricEnabled = true;
+      }
+      if (generation !== this.desktopLyricGeneration || session !== this.session) {
+        await session.enableDesktopLyric(false);
+        this.desktopLyricEnabled = false;
+        return false;
+      }
+      await session.setDesktopLyricVisible(visible);
+      if (generation !== this.desktopLyricGeneration || session !== this.session) return false;
+      this.desktopLyric.visible = await session.isDesktopLyricVisible();
+      this.desktopLyric.locked = (await session.getDesktopLyricState()).isLocked;
+      this.notifyDesktopLyric();
+      return this.desktopLyric.visible === visible;
+    } catch (error) {
+      if (generation !== this.desktopLyricGeneration) this.desktopLyricEnabled = false;
+      this.logMediaCenterWarning('desktopLyric.visible', error);
+      return false;
+    } finally { this.desktopLyric.busy = false; }
+  }
+
+  async setDesktopLyricLocked(locked: boolean): Promise<boolean> {
+    if (!PlatformCompat.supports(23) || !this.desktopLyricEnabled || !this.session || this.desktopLyric.busy) return false;
+    this.desktopLyric.busy = true;
+    try {
+      await this.session.setDesktopLyricState({ isLocked: locked });
+      this.desktopLyric.locked = (await this.session.getDesktopLyricState()).isLocked;
+      return this.desktopLyric.locked === locked;
+    } catch (error) {
+      this.logMediaCenterWarning('desktopLyric.lock', error);
+      return false;
+    } finally { this.desktopLyric.busy = false; }
+  }
+
+  /** 仅真正停止/清空播放时关闭；暂停、退页、进入后台均保留系统窗口。 */
+  closeDesktopLyric(): Promise<void> {
+    this.desktopLyricGeneration++;
+    this.desktopLyric.visible = false;
+    this.notifyDesktopLyric();
+    this.lyricAssetId = '';
+    this.lyricText = '';
+    const session = this.session;
+    const enabled = this.desktopLyricEnabled;
+    this.desktopLyricEnabled = false;
+    this.desktopLyric.locked = false;
+    this.refreshLyricMetadata();
+    const task = this.desktopLyricClosing.then(async (): Promise<void> => {
+      if (PlatformCompat.supports(23) && enabled && session) {
+        try {
+          await session.setDesktopLyricVisible(false);
+          await session.enableDesktopLyric(false);
+        } catch (error) { this.logMediaCenterWarning('desktopLyric.close', error); }
+      }
+    });
+    this.desktopLyricClosing = task;
+    return task;
+  }
+
+  updateDesktopLyric(bookId: string, chapterId: string, lyric: string, speech: boolean = false): void {
+    if (!PlatformCompat.supports(23) || speech !== PlaybackCoordinator.speechActive) return;
+    const assetId = `${speech}:${bookId}_${chapterId}`;
+    if (this.lyricAssetId === assetId && this.lyricText === lyric) return;
+    this.lyricAssetId = assetId;
+    this.lyricText = lyric;
+    if (this.desktopLyric.visible && this.currentBook?.id === bookId &&
+      this.currentChapter?.id === chapterId && this.metadataSpeech === speech) {
+      this.refreshLyricMetadata();
+    }
+  }
+
+  private refreshLyricMetadata(): void {
+    if (!this.session || !this.currentBook || !this.currentChapter) return;
+    const metadata: avSession.AVMetadata = {
+      assetId: `${this.currentBook.id}_${this.currentChapter.id}`,
+      title: this.currentChapter.title, artist: this.currentBook.title, author: this.currentBook.author,
+      mediaImage: this.currentMediaImage
+    };
+    // TTS 没有整章音频时长；原生接口会拒绝显式存在但值为 undefined 的 duration。
+    if (this.currentDurationMs > 0) metadata.duration = this.currentDurationMs;
+    this.writeMetadata(metadata, this.metadataSpeech).catch((error: Error): void => {
+      this.logMediaCenterWarning('desktopLyric.metadata', error);
+    });
+  }
+
+  /** 封面、时长与歌词共用串行写入，避免晚到的封面请求覆盖新歌词或切章结果。 */
+  private writeMetadata(metadata: avSession.AVMetadata, speech: boolean): Promise<void> {
+    const serial = this.metadataSerial;
+    const session = this.session;
+    const task = this.metadataChain.catch((): void => {}).then(async (): Promise<void> => {
+      if (!session || session !== this.session || serial !== this.metadataSerial || speech !== PlaybackCoordinator.speechActive) return;
+      metadata.lyric = this.lyricAssetId === `${speech}:${metadata.assetId}` ? this.lyricText : '';
+      await session.setAVMetadata(metadata);
+    });
+    this.metadataChain = task;
+    return task;
   }
 
   private async setupLaunchAbility(context: common.UIAbilityContext): Promise<void> {
@@ -287,6 +457,7 @@ export class AVSessionService {
     }
     this.currentBook = book;
     this.currentChapter = chapter;
+    this.metadataSpeech = speech;
     this.currentMediaImage = mediaImage;
     const metadata: avSession.AVMetadata = {
       assetId: `${book.id}_${chapter.id}`,
@@ -297,7 +468,7 @@ export class AVSessionService {
     };
     if (chapter.duration > 0) metadata.duration = chapter.duration * 1000;
     try {
-      await this.session.setAVMetadata(metadata);
+      await this.writeMetadata(metadata, speech);
     } catch (err) {
       const e = err as Error;
       hilog.error(DOMAIN, TAG, 'setAVMetadata failed: %{public}s',
@@ -310,7 +481,7 @@ export class AVSessionService {
           artist: book.title,
           mediaImage: mediaImage,
         };
-        await this.session.setAVMetadata(fallback);
+        await this.writeMetadata(fallback, speech);
       } catch (err2) {
         const e2 = err2 as Error;
         hilog.error(DOMAIN, TAG, 'setAVMetadata fallback also failed: %{public}s',
@@ -327,7 +498,7 @@ export class AVSessionService {
     metadata.mediaImage = pixelMap;
     if (this.currentDurationMs > 0) metadata.duration = this.currentDurationMs;
     try {
-      await this.session.setAVMetadata(metadata);
+      await this.writeMetadata(metadata, speech);
     } catch (error) {
       hilog.warn(DOMAIN, TAG, 'cover metadata update failed: %{public}s', String(error));
     }
@@ -352,7 +523,7 @@ export class AVSessionService {
       mediaImage: this.currentMediaImage,
     };
     try {
-      await this.session.setAVMetadata(metadata);
+      await this.writeMetadata(metadata, false);
     } catch (err) {
       const e = err as Error;
       hilog.error(DOMAIN, TAG, 'updateMetadataDuration failed: %{public}s',
@@ -599,12 +770,17 @@ export class AVSessionService {
   }
 
   async destroy(): Promise<void> {
+    await this.closeDesktopLyric();
     this.metadataSerial++;
     this.coverGeneration++;
     this.coverLoads.clear();
     const session = this.session;
     this.session = null;
     if (session) {
+      if (PlatformCompat.supports(23) && this.desktopLyric.supported) {
+        try { session.offDesktopLyricVisibilityChanged(this.lyricVisibilityChanged); } catch (_e) {}
+        try { session.offDesktopLyricStateChanged(this.lyricStateChanged); } catch (_e) {}
+      }
       try { session.off('outputDeviceChange', this.outputDeviceChangeHandler); } catch (_e) {}
       try { await session.deactivate(); } catch (_e) {}
       try { await session.destroy(); }
@@ -638,6 +814,7 @@ export class AVSessionService {
     this.onSetLoopMode = null;
     this.onCollection = null;
     this.onCastConnected = null;
+    this.desktopLyricListeners.clear();
     AVSessionService.instance = null;
   }
 }

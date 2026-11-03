@@ -28,6 +28,8 @@ const { SpeechTextSegmenter } = load('service/text/SpeechTextSegmenter.ets', {
 const { SpeechPcmBuffer } = load('service/text/SpeechPcmBuffer.ets');
 const pcmFormat = { audioType: 'pcm', sampleRate: 16000, sampleBit: 16, audioChannel: 1 };
 const model = load('model/TextToSpeechState.ets', { './SpeechSynthesisSettings': synthesisModel });
+const subtitleModel = load('model/AudioSubtitle.ets');
+const desktopLyricModel = load('model/DesktopLyric.ets', { './AudioSubtitle': subtitleModel });
 const readerToolsModel = load('model/ReaderTools.ets');
 const { SpeechTextHighlighter } = load('service/text/SpeechTextHighlighter.ets');
 const { CustomTtsConfig } = load('model/CustomTtsConfig.ets');
@@ -48,6 +50,7 @@ function harness(memory = new Map()) {
   let id = 0, failContent = false, createDeferred = null, deviceCallback = null;
   const coordinator = load('service/PlaybackCoordinator.ets');
   const session = { callbacks: null, paused: false, setSpeechCallbacks(cbs) { this.callbacks = cbs; },
+    addDesktopLyricListener() {}, updateDesktopLyric() {},
     restoreAudioCallbacks() {}, endSpeechPlayback() { this.paused = true; },
     init: async () => {}, updateMetadata: async () => {}, updatePlaybackState: async () => {} };
   const focusPreference = { getAudioFocusMode: async () => memory.get('audioFocusMode') ?? 0,
@@ -73,6 +76,9 @@ function harness(memory = new Map()) {
       engines.push(engine); return engine;
     } };
   const dependencies = {
+    '../../model/DesktopLyric': desktopLyricModel,
+    './ReaderFloatingService': { ReaderFloatingService: { update() {} } },
+    '../../utils/PlatformCompat': { PlatformCompat: { supports: () => true } },
     '../../model/SpeechSynthesisSettings': synthesisModel,
     '../WidgetUpdater': { WidgetUpdater: { updateSpeechCard: async (book, state) => widgets.push({
       bookId: book.id, chapterIndex: state.chapterIndex, charOffset: state.charOffset,
@@ -85,7 +91,7 @@ function harness(memory = new Map()) {
     '@kit.BasicServicesKit': { systemDateTime: { TimeType: { STARTUP: 0 }, getUptime: () => uptime } },
     '../../model/CustomTtsConfig': { CustomTtsConfig },
     './CustomTtsConfigParser': { CustomTtsConfigParser },
-    './HttpTtsPlayer': { HttpTtsAudioOutput: class { async release() {} }, HttpTtsPlayer: class {
+    './HttpTtsPlayer': { HttpTtsAudioOutput: class { async release() {} async setLoudnessGain() {} }, HttpTtsPlayer: class {
       ready = false;
       async speakAudio(_ctx, buffer, speed, id, onStart, _output, onProgress) {
         assert(speed >= 1 && speed <= 1.5);

@@ -10,6 +10,10 @@ import { ChapterCacheService } from '../ChapterCacheService';
 import { DownloadService } from '../DownloadService';
 import { DownloadPolicy } from '../DownloadPolicy';
 import { SubtitleFiles } from './SubtitleFiles';
+import { PlayerState } from '../../model/PlayerState';
+import { DesktopLyricText } from '../../model/DesktopLyric';
+import { AVSessionService } from '../AVSessionService';
+import { PlaybackCoordinator } from '../PlaybackCoordinator';
 import { SubtitleModelService } from './SubtitleModelService';
 
 class SubtitleCache {
@@ -52,6 +56,57 @@ export class AudioSubtitleService {
   private book: Book | null = null;
   private chapterId: string = '';
   private lexiconReady: boolean = false;
+  private panelActive: boolean = false;
+  private desktopActive: boolean = false;
+  private desktopKey: string = '';
+  private activeKey: string = '';
+
+  showPanel(context: common.Context, book: Book, chapter: Chapter, durationMs: number,
+    positionMs: number, downloadModel: boolean = false): void {
+    this.panelActive = true;
+    this.ensure(context, book, chapter, durationMs, positionMs, downloadModel);
+  }
+
+  /** 桌面歌词与页面共用同一个识别任务；页面卸载只释放自己的使用权。 */
+  syncDesktop(context: common.Context, state: PlayerState): void {
+    const session = AVSessionService.getInstance();
+    const wanted = session.desktopLyric.visible && !PlaybackCoordinator.speechActive && !state.isLive;
+    if (!wanted || !state.currentBook || !state.currentChapter) {
+      if (!this.desktopActive) return;
+      this.desktopActive = false;
+      this.desktopKey = '';
+      if (!this.panelActive) this.release();
+      return;
+    }
+    this.desktopActive = true;
+    const book = state.currentBook;
+    const chapter = state.currentChapter;
+    if (state.isLoading || state.durationMs <= 0) {
+      this.desktopKey = '';
+      session.updateDesktopLyric(book.id, chapter.id,
+        '[00:00.00]' + context.resourceManager.getStringSync($r('app.string.subtitle_wait_audio').id));
+      return;
+    }
+    const key = `${book.id}:${chapter.id}:${chapter.source.value}:${state.durationMs}`;
+    if (key !== this.desktopKey) {
+      this.desktopKey = key;
+      this.ensure(context, book, chapter, state.durationMs, state.progressMs);
+    }
+    this.tick(state.progressMs);
+    this.publishDesktop();
+  }
+
+  private publishDesktop(): void {
+    if (!this.desktopActive || !this.context || !this.book || PlaybackCoordinator.speechActive) return;
+    let lyric = DesktopLyricText.audio(this.state.cues, this.positionMs);
+    if (!lyric) {
+      let message = $r('app.string.subtitle_recognizing');
+      if (this.state.phase === 'needsModel') message = $r('app.string.desktop_lyric_needs_model');
+      else if (this.state.phase === 'error') message = $r('app.string.subtitle_failed');
+      lyric = '[00:00.00]' + this.context.resourceManager.getStringSync(message.id);
+    }
+    AVSessionService.getInstance().updateDesktopLyric(this.book.id, this.chapterId, lyric);
+  }
 
   stop(): void {
     this.generation++;
@@ -69,9 +124,20 @@ export class AudioSubtitleService {
     this.ownedTemporary = '';
   }
 
+  private ensure(context: common.Context, book: Book, chapter: Chapter, durationMs: number,
+    positionMs: number, downloadModel: boolean = false): void {
+    const key = `${book.id}:${chapter.id}:${chapter.source.value}:${durationMs}`;
+    if (key === this.activeKey && !downloadModel && this.state.phase !== 'idle' && this.state.phase !== 'error') {
+      this.tick(positionMs);
+      return;
+    }
+    this.begin(context, book, chapter, durationMs, positionMs, downloadModel);
+  }
+
   begin(context: common.Context, book: Book, chapter: Chapter, durationMs: number,
     positionMs: number, downloadModel: boolean = false): void {
     this.stop();
+    this.activeKey = `${book.id}:${chapter.id}:${chapter.source.value}:${durationMs}`;
     const generation = this.generation;
     this.context = context; this.book = book; this.chapterId = chapter.id;
     this.state.phase = 'preparing'; this.state.percent = 0; this.state.error = '';
@@ -87,7 +153,7 @@ export class AudioSubtitleService {
         if (this.durationMs <= 0 || DownloadPolicy.isHls(chapter.source.value, '')) throw new Error('subtitle_unsupported');
         if (!await SubtitleModelService.ready(context, active)) {
           if (!active()) return;
-          if (!downloadModel) { this.state.phase = 'needsModel'; return; }
+          if (!downloadModel) { this.state.phase = 'needsModel'; this.publishDesktop(); return; }
           this.state.phase = 'model';
           await SubtitleModelService.ensure(context, active, (percent: number): void => {
             if (active()) this.state.percent = percent;
@@ -181,7 +247,10 @@ export class AudioSubtitleService {
   private ownedTemporary: string = '';
 
   release(): void {
+    this.panelActive = false;
+    if (this.desktopActive) return;
     this.stop();
+    this.activeKey = '';
     this.state.phase = 'idle';
     this.state.cues = [];
     this.state.revision++;
@@ -320,11 +389,17 @@ export class AudioSubtitleService {
   }
 
   private fail(error: string): void {
+    const context = this.context;
+    const book = this.book;
     this.stop();
     hilog.warn(0xFF00, 'AudioSubtitle', 'subtitle task failed: %{public}s',
       /^subtitle_[a-z_]+$/.test(error) ? error : 'subtitle_recognition_failed');
     this.state.error = error;
     this.state.phase = 'error';
+    if (this.desktopActive && context && book && !PlaybackCoordinator.speechActive) {
+      AVSessionService.getInstance().updateDesktopLyric(book.id, this.chapterId,
+        '[00:00.00]' + context.resourceManager.getStringSync($r('app.string.subtitle_failed').id));
+    }
   }
 
   private publish(): void {
@@ -333,6 +408,7 @@ export class AudioSubtitleService {
     if (this.preview && !this.chunks.has(this.preview.index)) chunks.push(this.preview);
     this.state.cues = SubtitleSegmenter.timeline(chunks);
     this.state.revision++;
+    this.publishDesktop();
   }
 
   private restore(cachePath: string = this.cachePath, chunks: Map<number, SubtitleChunk> = this.chunks): void {

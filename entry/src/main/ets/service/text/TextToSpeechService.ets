@@ -1,4 +1,5 @@
 import { ReaderFloatingService } from './ReaderFloatingService';
+import { DesktopLyricText } from '../../model/DesktopLyric';
 import { PlatformCompat } from '../../utils/PlatformCompat';
 import { TextReadingPosition } from '../../model/TextReading';
 import { ReaderTextDocument } from '../../model/ReaderTools';
@@ -113,7 +114,8 @@ export class TextToSpeechService {
 
   initialize(context: common.UIAbilityContext): Promise<void> {
     this.context = context;
-    PlaybackCoordinator.stopSpeech = (): Promise<void> => { this.stop(); return this.focusChain; };
+    AVSessionService.getInstance().addDesktopLyricListener(this.syncDesktopLyric);
+    PlaybackCoordinator.stopSpeech = (): Promise<void> => { this.stop(true); return this.focusChain; };
     if (this.store !== null) return Promise.resolve();
     if (this.initPromise !== null) return this.initPromise;
     this.initPromise = this.loadSettings(context).finally((): void => { this.initPromise = null; });
@@ -163,12 +165,22 @@ export class TextToSpeechService {
   }
 
   private notify(): void {
+    this.syncDesktopLyric();
     if (this.state.active) ReaderFloatingService.update(this.state.bookTitle, this.chapterContent,
       Math.max(0, this.state.highlightOffset), true);
     this.syncPlayerCard();
     if (!this.foreground) return;
     this.listeners.forEach((listener: () => void): void => listener());
   }
+
+  private readonly syncDesktopLyric = (): void => {
+    if (!this.state.active || !this.book || !PlaybackCoordinator.speechActive) return;
+    const chapter = this.book.chapters[this.state.chapterIndex];
+    if (!chapter) return;
+    const text = DesktopLyricText.speech(this.chapterContent, this.state.playbackOffset);
+    AVSessionService.getInstance().updateDesktopLyric(this.book.id, chapter.id,
+      text ? '[00:00.00]' + text : '', true);
+  };
 
   private syncPlayerCard(): void {
     const book = this.book;
@@ -543,13 +555,13 @@ export class TextToSpeechService {
     this.notify();
   }
 
-  stop(): void {
+  stop(preserveDesktopLyric: boolean = false): void {
     this.pause();
     this.setSleep(0);
     this.releaseEngine();
-    AVSessionService.getInstance().endSpeechPlayback();
-    PlaybackCoordinator.speechActive = false;
     this.state.active = false;
+    AVSessionService.getInstance().endSpeechPlayback(!preserveDesktopLyric);
+    PlaybackCoordinator.speechActive = false;
     this.state.highlightOffset = -1;
     this.state.highlightEnd = -1;
     AVSessionService.getInstance().restoreAudioCallbacks();
@@ -898,6 +910,7 @@ export class TextToSpeechService {
     const offset = Math.min(segment.end - 1,
       readStart + Math.floor((segment.end - readStart) * Math.min(1, position / duration)));
     if (offset > this.state.playbackOffset) this.state.playbackOffset = offset;
+    this.syncDesktopLyric();
     const previousParagraph = this.state.highlightOffset;
     this.highlightParagraph();
     if (this.state.highlightOffset !== previousParagraph && this.state.highlightOffset >= 0) {
@@ -1183,6 +1196,7 @@ export class TextToSpeechService {
 
   private publishMetadata(): void {
     if (this.book === null) return;
+    this.syncDesktopLyric();
     AVSessionService.getInstance().updateMetadata(this.book, this.book.chapters[this.state.chapterIndex], true);
   }
 

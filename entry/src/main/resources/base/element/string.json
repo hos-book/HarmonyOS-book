@@ -1,6 +1,42 @@
 {
   "string": [
     {
+      "name": "desktop_lyric_preparing",
+      "value": "正在准备字幕…"
+    },
+    {
+      "name": "desktop_lyric_title",
+      "value": "桌面歌词"
+    },
+    {
+      "name": "desktop_lyric_show",
+      "value": "显示桌面歌词"
+    },
+    {
+      "name": "desktop_lyric_hide",
+      "value": "隐藏桌面歌词"
+    },
+    {
+      "name": "desktop_lyric_lock",
+      "value": "锁定歌词位置"
+    },
+    {
+      "name": "desktop_lyric_unlock",
+      "value": "解锁歌词位置"
+    },
+    {
+      "name": "desktop_lyric_unsupported",
+      "value": "当前设备不支持桌面歌词"
+    },
+    {
+      "name": "desktop_lyric_failed",
+      "value": "桌面歌词设置失败，请重试"
+    },
+    {
+      "name": "desktop_lyric_needs_model",
+      "value": "请先在播放页的 AI 字幕中下载识别模型"
+    },
+    {
       "name": "podcast_curated",
       "value": "★ 精选"
     },

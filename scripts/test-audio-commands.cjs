@@ -64,6 +64,7 @@ async function fixture(initialState = 'paused', realUsage = false) {
   };
   const session = {
     callbacks: null,
+    addDesktopLyricListener() {}, async closeDesktopLyric() {},
     setCallbacks(callbacks) { this.callbacks = callbacks; },
     restoreAudioCallbacks() {}, async updateMetadata() {},
     async init() {}, async destroy() {}, async updateMetadataDuration() {}
@@ -151,6 +152,7 @@ async function fixture(initialState = 'paused', realUsage = false) {
     '../model/PlayerState': { SleepMode: { Off: 0, Duration: 1, Chapters: 2 }, PlayMode: { Sequence: 0, SingleLoop: 1, ListLoop: 2 } },
     './AudioFocusService': focusFixture.exports,
     './AVSessionService': { AVSessionService: { getInstance: () => session } },
+    './subtitle/AudioSubtitleService': { AudioSubtitleService: { instance: { syncDesktop() {} } } },
     './PlaybackStore': { PlaybackStore: { getInstance: () => playbackStore } },
     './BackgroundTaskService': { BackgroundTaskService: background },
     './DiagnosticLogService': { DiagnosticLogService: { info() {}, failure() {} } },

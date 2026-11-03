@@ -16,6 +16,7 @@ import { SourceDataService } from './SourceDataService';
 import { AudioRequestInfo, BookSourceService } from './BookSourceService';
 import { DataService } from './DataService';
 import { AVSessionService, AVSessionCallbacks } from './AVSessionService';
+import { AudioSubtitleService } from './subtitle/AudioSubtitleService';
 import { BackgroundTaskService } from './BackgroundTaskService';
 import { ReadingSessionService, SessionLocation } from './ReadingSessionService';
 import { ChapterCacheService } from './ChapterCacheService';
@@ -298,6 +299,7 @@ export class AudioService {
 
   private initAVSession(): void {
     if (!this.context) return;
+    AVSessionService.getInstance().addDesktopLyricListener(this.syncDesktopLyric);
     const cbs: AVSessionCallbacks = {
       onPlay: () => {
         this.play().catch((err: Error): void => {
@@ -330,8 +332,13 @@ export class AudioService {
     this.syncPlaybackStateNow(false);
   }
 
+  private readonly syncDesktopLyric = (): void => {
+    if (this.context && this.state) AudioSubtitleService.instance.syncDesktop(this.context, this.state);
+  };
+
   private async syncPlaybackStateNow(forceWidget: boolean): Promise<void> {
     if (!this.state) return;
+    this.syncDesktopLyric();
     // 卡片不等待媒体中心 IPC 或收藏查询；调用时即截取当前书籍状态。
     const widgetUpdate = this.syncPlayerCard(forceWidget);
     try {
@@ -526,6 +533,7 @@ export class AudioService {
       if (force || now - this.lastProgressWriteAt >= AudioService.PROGRESS_WRITE_INTERVAL_MS) {
         this.state.progressMs = ms;
         this.lastProgressWriteAt = now;
+        this.syncDesktopLyric();
       }
       // 先更新进度，再处理片尾停止，确保落盘的是本次章尾位置。
       this.checkSkipOutro(ms);
@@ -1943,6 +1951,7 @@ export class AudioService {
   }
 
   async stopForClear(): Promise<void> {
+    await AVSessionService.getInstance().closeDesktopLyric();
     this.playGen++;
     this.cancelPreloadStart();
     this.playerSourceGeneration = -1;

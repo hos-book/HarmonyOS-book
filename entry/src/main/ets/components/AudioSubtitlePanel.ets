@@ -91,7 +91,7 @@ export struct AudioSubtitlePanel {
     const key = `${this.book.id}:${chapter.id}:${chapter.source.value}:${this.playerState.durationMs}`;
     if (key === this.chapterKey && !downloadModel) return;
     this.chapterKey = key; this.following = true; this.activeId = ''; this.source.update([]);
-    AudioSubtitleService.instance.begin(this.context, this.book, chapter, this.playerState.durationMs,
+    AudioSubtitleService.instance.showPanel(this.context, this.book, chapter, this.playerState.durationMs,
       this.playerState.progressMs, downloadModel);
   }
 

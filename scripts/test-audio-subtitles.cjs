@@ -18,10 +18,14 @@ function load(name, imports) {
   vm.runInNewContext(code, { module: mod, exports: mod.exports, require: n => {
     if (!(n in imports)) throw new Error(`Missing mock ${n}`);
     return imports[n];
-  }, setTimeout, clearTimeout, console });
+  }, setTimeout, clearTimeout, console, $r: id => ({ id }) });
   return mod.exports;
 }
 const model = load('model/AudioSubtitle.ets', {});
+const desktopModel = load('model/DesktopLyric.ets', { './AudioSubtitle': model });
+const desktopSession = { desktopLyric: { visible: false }, lyrics: [],
+  updateDesktopLyric(...values) { this.lyrics.push(values); } };
+const coordinator = { speechActive: false };
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'audio-subtitle-test-'));
 const hosts = [];
 let ready = async () => true;
@@ -55,6 +59,9 @@ const { AudioSubtitleService } = load('service/subtitle/AudioSubtitleService.ets
     util: { TextDecoder: { create: () => ({ decodeToString: b => Buffer.from(b).toString('utf8') }) } } },
   '@kit.PerformanceAnalysisKit': { hilog: { warn() {} } },
   '../../model/AudioSubtitle': model,
+  '../../model/DesktopLyric': desktopModel,
+  '../AVSessionService': { AVSessionService: { getInstance: () => desktopSession } },
+  '../PlaybackCoordinator': { PlaybackCoordinator: coordinator },
   '../AudioService': { AudioService: { getInstance: () => ({ subtitleHeaders: () => ({}) }) } },
   '../ChapterCacheService': { ChapterCacheService: { getInstance: () => ({ getAudioFilePath: () => null,
     isPreloadEnabled: () => preloadEnabled, getChapterDuration: () => cachedDuration }) } },
@@ -70,6 +77,7 @@ const { AudioSubtitleService } = load('service/subtitle/AudioSubtitleService.ets
 });
 const service = AudioSubtitleService.instance;
 const context = { filesDir: dir, cacheDir: dir, resourceManager: {
+  getStringSync: id => id,
   getRawFileContent: async name => fs.readFileSync(path.join(root, '../resources/rawfile', name))
 } };
 const chapter = { id: 'chapter-a', source: { type: 'file', value: '/fixture/audio.mp3' } };
@@ -325,6 +333,25 @@ function check(name, fn) { fn(); passed++; console.log(`PASS ${name}`); }
   check('unsupported streaming source fails without worker', () => {
     assert.equal(service.state.error, 'subtitle_unsupported'); assert.equal(hosts.length, count);
   });
+  service.release(); ready = async () => true;
+  desktopSession.desktopLyric.visible = true;
+  const desktopBook = { ...book, id: 'desktop-owner' };
+  const playback = { currentBook: desktopBook, currentChapter: chapter, isLive: false,
+    isLoading: false, durationMs: 180000, progressMs: 1000 };
+  service.syncDesktop(context, playback); await service.setup;
+  const desktopHost = hosts.at(-1);
+  service.showPanel(context, desktopBook, chapter, 180000, 1000); await service.setup;
+  check('page and desktop share one recognition worker', () => assert.equal(hosts.at(-1), desktopHost));
+  service.release();
+  check('leaving page retains recognition while desktop lyrics are visible', () => assert.equal(desktopHost.stopped, false));
+  desktopHost.respond('后台字幕');
+  check('background recognition publishes timed LRC', () => assert(desktopSession.lyrics.at(-1)[2].includes('后台字幕')));
+  desktopSession.desktopLyric.visible = false;
+  service.syncDesktop(context, playback);
+  check('hiding desktop lyrics releases the final recognition consumer', () => assert.equal(desktopHost.stopped, true));
+  const revision = service.state.revision;
+  service.syncDesktop(context, playback);
+  check('disabled desktop lyrics do not continually reset page state', () => assert.equal(service.state.revision, revision));
   console.log(`${passed} audio subtitle checks passed`);
 })().catch(e => { console.error(e); process.exitCode = 1; }).finally(() => {
   service.release(); fs.rmSync(dir, { recursive: true, force: true });

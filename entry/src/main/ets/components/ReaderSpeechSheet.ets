@@ -1,4 +1,5 @@
 import { PlatformCompat } from '../utils/PlatformCompat';
+import { DesktopLyricButton } from './DesktopLyricButton';
 import { TextToSpeechState, SpeechVoice } from '../model/TextToSpeechState';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { AppColor } from '../theme/Theme';
@@ -84,9 +85,12 @@ export struct ReaderSpeechSheet {
         }.width('100%')
 
         if (this.showReadingMode) {
+          Row({ space: 12 }) {
           Button($r('app.string.reader_floating_paragraph')).fontColor(AppColor.Brand)
             .backgroundColor($r('sys.color.comp_background_tertiary'))
             .onClick((): void => this.onFloatingOpen()).id('reader-floating-paragraph')
+          DesktopLyricButton({ available: this.state.active, color: AppColor.Brand })
+          }.width('100%').justifyContent(FlexAlign.Center)
           Text($r('app.string.reader_speech_mark')).fontColor($r('sys.color.font_primary')).fontSize(16)
           Row({ space: 6 }) {
             ForEach(['color', 'highlight', 'underline'], (mark: string) => {

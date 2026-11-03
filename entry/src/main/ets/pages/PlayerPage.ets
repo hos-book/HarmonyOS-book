@@ -7,6 +7,7 @@ import { PlaybackLoadingIndicator } from '../components/PlaybackLoadingIndicator
 import { LocalTextImage } from '../service/text/LocalTextImage';
 import { PlayerCoverImage } from '../components/PlayerCoverImage';
 import { AudioSubtitlePanel } from '../components/AudioSubtitlePanel';
+import { DesktopLyricButton } from '../components/DesktopLyricButton';
 import { SubtitleToggleIcon } from '../components/SubtitleToggleIcon';
 import { CoverImage } from '../components/CoverImage';
 import { BookSourceSwitchSheet } from '../components/BookSourceSwitchSheet';
@@ -1851,12 +1852,9 @@ export struct PlayerPage {
             blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick
           })
       }
-      Button({ type: ButtonType.Circle }) {
-        SymbolGlyph($r('sys.symbol.info_circle')).fontSize(24).fontColor(['#FFFFFF'])
+      if (!this.isLiveBook()) {
+        DesktopLyricButton({ available: this.book !== null && !this.playbackLoading(), compact: true, color: '#FFFFFF' })
       }
-        .width(40).height(40).backgroundColor(Color.Transparent)
-        .accessibilityText($r('app.string.reader_details'))
-        .onClick((): void => { this.openBookDetail(); })
     }
     .width('100%')
     .height(48)
@@ -1870,6 +1868,8 @@ export struct PlayerPage {
         fallback: this.book!.coverFallback ?? '', highQuality: this.highQualityCover, radius: 12 })
         .width(this.isCompactPlayer() ? 88 : 104).aspectRatio(1).borderRadius(12).clip(true)
         .id('player-page-cover').opacity(this.dragState.active ? 0 : 1)
+        .accessibilityText($r('app.string.reader_details'))
+        .onClick((): void => { if (!this.dragState.active) this.openBookDetail(); })
       Column({ space: AppSpace.Sm }) {
         Text(this.sourceName).fontSize(AppFont.Caption).fontColor('#CCFFFFFF')
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -1912,6 +1912,8 @@ export struct PlayerPage {
       .clip(true)
       .id('player-page-cover')
       .opacity(this.dragState.active ? 0 : 1)
+      .accessibilityText($r('app.string.reader_details'))
+      .onClick((): void => { if (!this.dragState.active) this.openBookDetail(); })
     }
     .width('100%')
     .alignItems(HorizontalAlign.Center)

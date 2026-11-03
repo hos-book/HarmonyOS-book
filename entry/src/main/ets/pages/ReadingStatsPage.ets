@@ -15,6 +15,7 @@ import { ThemeBackgroundScene } from '../model/AppThemeVisual';
 import { ThemeIconRole } from '../theme/ThemeIcons';
 import { WindowUtils } from '../utils/WindowUtils';
 import { PlayerDragTransition, PlayerDragState } from '../utils/PlayerDragTransition';
+import { OneShotCoverState, OneShotTransitionCoordinator } from '../utils/OneShotTransition';
 import {
   BookUsageStats,
   EVT_USAGE_STATS_UPDATED,
@@ -118,6 +119,7 @@ export struct ReadingStatsPage {
 
   @Local statsReady: boolean = false;
   @Local playerTransition: PlayerDragState = PlayerDragTransition.getInstance().state;
+  @Local detailCoverState: OneShotCoverState = OneShotTransitionCoordinator.getInstance().coverState;
   @Local dailyQuoteText: ResourceStr = $r('app.string.daily_quote_initial');
   @Local dailyQuoteSource: string = '';
   @Local dailyQuoteCardWidth: number = 0;
@@ -138,6 +140,7 @@ export struct ReadingStatsPage {
   private scroller: Scroller = new Scroller();
   private recordDataSource: ListeningRecordDataSource = new ListeningRecordDataSource();
   private recoveryRunning: boolean = false;
+  private openingDetail: boolean = false;
   private recoveryActive: boolean = false;
   private recoveryAttempted: Set<string> = new Set();
   private loadingStats: boolean = false;
@@ -612,13 +615,26 @@ export struct ReadingStatsPage {
     await this.loadStats();
   }
 
-  private openDetail(item: ListenRecordView): void {
-    if (!item.bookId || this.selectMode) return;
-    this.navStack.pushPathByName('detail', item.bookId);
+  private async openDetail(item: ListenRecordView): Promise<void> {
+    if (!item.bookId || this.selectMode || this.openingDetail || this.playerTransition.active) return;
+    this.openingDetail = true;
+    const bookId = item.bookId;
+    const stackSize = this.navStack.size();
+    const transition = OneShotTransitionCoordinator.getInstance();
+    try {
+      await transition.captureAsync(this.getUIContext(), bookId, this.recordCoverId(item), AppRadius.Sm);
+      if (!this.recoveryActive || !this.visible || this.selectMode || this.navStack.size() !== stackSize) {
+        transition.discardPending();
+        return;
+      }
+      this.navStack.pushPathByName('detail', bookId);
+    } finally {
+      this.openingDetail = false;
+    }
   }
 
   private async resumeRecord(item: ListenRecordView): Promise<void> {
-    if (!item.bookId || this.selectMode || this.playerTransition.active) return;
+    if (!item.bookId || this.selectMode || this.openingDetail || this.playerTransition.active) return;
     if (item.isText) {
       const context = this.getUIContext().getHostContext();
       if (!context) return;
@@ -951,8 +967,8 @@ export struct ReadingStatsPage {
       .borderRadius(AppRadius.Sm)
       .clip(true)
       .id(this.recordCoverId(item))
-      .opacity(this.playerTransition.active &&
-        this.playerTransition.sourceNodeId === this.recordCoverId(item) ? 0 : 1)
+      .opacity(this.detailCoverState.hiddenSourceId === this.recordCoverId(item) ||
+        (this.playerTransition.active && this.playerTransition.sourceNodeId === this.recordCoverId(item)) ? 0 : 1)
 
       Column({ space: AppSpace.Xs }) {
         Row() {
