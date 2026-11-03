@@ -113,6 +113,7 @@ export struct ReadingStatsPage {
   /** 记录 Tab 只展示收藏书籍；时钟入口打开未收藏历史模式。 */
   @Param onlyUnfavorited: boolean = false;
   @Event onScrollerReady: (scroller: Scroller) => void = () => {};
+  @Event onContentScroll: (offset: number, state: ScrollState) => void = () => {};
   @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
 
   @Local statsReady: boolean = false;
@@ -764,6 +765,7 @@ export struct ReadingStatsPage {
           .cachedCount(5)
           .onScrollStart((): void => { this.listScrolling = true; })
           .onScrollStop((): void => this.finishRecordScroll())
+           .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
           .scrollBar(BarState.Off)
           .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
           .padding({

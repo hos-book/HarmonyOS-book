@@ -1113,15 +1113,31 @@ export struct PlayerPage {
   }
 
   private async changeLoudnessGain(gain: number): Promise<void> {
-    if (this.isSpeechBook() || !this.audioMatchesBook() || this.playerState.isLoading) {
-      this.volumeGainValue = this.playerState.loudnessGain;
+    if (!this.canChangeLoudnessGain()) {
+      this.volumeGainValue = this.currentLoudnessGain();
       return;
     }
     const operation = ++this.volumeGainOperation;
-    const success = await AudioService.getInstance().setLoudnessGain(gain);
+    let success: boolean = false;
+    if (this.isSpeechBook()) {
+      await TextToSpeechService.getInstance().setLoudnessGain(gain);
+      success = this.speechState.loudnessGain === Math.round(gain);
+    } else {
+      success = await AudioService.getInstance().setLoudnessGain(gain);
+    }
     if (operation !== this.volumeGainOperation || this.isLeaving) return;
-    this.volumeGainValue = this.playerState.loudnessGain;
+    this.volumeGainValue = this.currentLoudnessGain();
     if (!success && !this.isLeaving) this.showToast($r('app.string.player_volume_boost_failed'));
+  }
+
+  private currentLoudnessGain(): number {
+    return this.isSpeechBook() ? this.speechState.loudnessGain : this.playerState.loudnessGain;
+  }
+
+  private canChangeLoudnessGain(): boolean {
+    if (!PlatformCompat.supports(21)) return false;
+    return this.isSpeechBook() ? this.speechMatchesBook() && !this.speechState.loudnessBusy :
+      this.audioMatchesBook() && !this.playerState.isLoading;
   }
 
   private volumeGainOperation: number = 0;
@@ -1139,7 +1155,7 @@ export struct PlayerPage {
         SymbolGlyph($r('sys.symbol.speaker_wave_2_fill')).fontSize(18).fontColor([$r('sys.color.font_secondary')])
         Slider({ value: this.volumeGainValue, min: 0, max: 24, step: 1 })
           .layoutWeight(1).selectedColor($r('sys.color.font_primary')).trackThickness(4)
-          .enabled(!this.playerState.isLoading && this.audioMatchesBook())
+          .enabled(this.canChangeLoudnessGain())
           .accessibilityText($r('app.string.player_volume_boost'))
           .onChange((value: number, mode: SliderChangeMode): void => {
             this.volumeGainValue = Math.round(value);
@@ -1773,20 +1789,20 @@ export struct PlayerPage {
           .enabled(!this.savingSubtitleMode).margin({ right: 8 })
           .onClick((): void => { this.toggleAudioSubtitles(); }).id('audio-subtitle-toggle')
       }
-      if (!this.isSpeechBook() && PlatformCompat.supports(21)) {
+      if (PlatformCompat.supports(21)) {
         Column({ space: 2 }) {
           SymbolGlyph($r('sys.symbol.speaker_wave_2_fill')).fontSize(24)
             .fontColor(['#FFFFFF'])
-          if (this.playerState.loudnessGain > 0) {
-            Text(`+${this.playerState.loudnessGain} dB`).fontSize(10).fontColor('#FFFFFF')
+          if (this.currentLoudnessGain() > 0) {
+            Text(`+${this.currentLoudnessGain()} dB`).fontSize(10).fontColor('#FFFFFF')
           }
         }.width(44).height(44).justifyContent(FlexAlign.Center)
           .accessibilityText($r('app.string.player_volume_boost'))
           .id('player-volume-boost')
-          .enabled(this.audioMatchesBook() && !this.playerState.isLoading)
+          .enabled(this.canChangeLoudnessGain())
           .margin({ right: 8 })
           .onClick((): void => {
-            this.volumeGainValue = this.playerState.loudnessGain;
+            this.volumeGainValue = this.currentLoudnessGain();
             this.showVolumePopup = !this.showVolumePopup;
           })
           .bindPopup(this.showVolumePopup, this.volumePopupOptions())

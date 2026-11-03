@@ -226,8 +226,11 @@ class CompatibleMaterialModifier implements AttributeModifier<CommonAttribute> {
 
   applyNormalAttribute(instance: CommonAttribute): void {
     if (PlatformCompat.immersiveMaterial && this.material !== undefined) {
+      instance.backgroundColor(Color.Transparent).backgroundBlurStyle(BlurStyle.NONE);
       instance.systemMaterial(this.material);
     } else {
+      // 清除上一次绑定的原生材质，否则受限设备/切换档位时可能覆盖回退背景。
+      if (PlatformCompat.supports(26)) instance.systemMaterial(uiMaterial.Material.empty);
       instance.backgroundColor(this.fallbackColor).backgroundBlurStyle(this.blur);
       if (this.fallbackShadow !== undefined) {
         instance.shadow(this.fallbackShadow);

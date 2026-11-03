@@ -1,3 +1,4 @@
+import { AppAppearance } from '../model/AppAppearance';
 import { window } from '@kit.ArkUI';
 import { display } from '@kit.ArkUI';
 import { ConfigurationConstant } from '@kit.AbilityKit';
@@ -293,6 +294,7 @@ export class WindowUtils {
   static getFloatingTabBottomVp(bottomSafeVp?: number): number {
     const safeBottom = bottomSafeVp !== undefined ? bottomSafeVp : WindowUtils.getBottomSafeVp();
     return safeBottom +
+           (PlatformCompat.supports(24) && AppAppearance.current.verticalBottomTabs ? 72 : 0) +
            WindowUtils.FLOATING_BOTTOM +
            WindowUtils.FLOATING_TAB_HEIGHT +
            WindowUtils.FLOATING_GAP;

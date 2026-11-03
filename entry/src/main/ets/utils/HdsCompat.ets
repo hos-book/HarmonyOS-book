@@ -5,6 +5,11 @@ import { AppTheme } from '../theme/Theme';
 import { AppAppearance } from '../model/AppAppearance';
 
 export class HdsCompat {
+  static get materialSupported(): boolean {
+    if (!PlatformCompat.floatingTabs) return false;
+    return HdsCompat.resolveMaterialType(false) !== hdsMaterial.MaterialType.NONE;
+  }
+
   static get scrollEffect(): ScrollEffectType {
     return PlatformCompat.floatingTabs ? ScrollEffectType.IMMERSIVE_GRADIENT_BLUR : ScrollEffectType.GRADIENT_BLUR;
   }
@@ -42,10 +47,7 @@ export class HdsCompat {
 
   static get adaptiveMaterial(): SystemMaterialParams | undefined {
     if (!PlatformCompat.floatingTabs) return undefined;
-    return {
-      materialType: HdsCompat.resolveMaterialType(true),
-      materialLevel: HdsCompat.materialLevel
-    };
+    return HdsCompat.material;
   }
 }
 
@@ -62,7 +64,13 @@ export class CompatibleTabsModifier implements AttributeModifier<HdsTabsAttribut
   applyNormalAttribute(instance: HdsTabsAttribute): void {
     if (PlatformCompat.floatingTabs && this.style !== undefined) {
       instance.barFloatingStyle(this.style);
+      if (!HdsCompat.materialSupported) {
+        instance.barBackgroundColor(AppTheme.Surface).barBackgroundBlurStyle(BlurStyle.COMPONENT_REGULAR);
+      } else {
+        instance.barBackgroundColor(Color.Transparent).barBackgroundBlurStyle(BlurStyle.NONE);
+      }
     } else {
+      if (PlatformCompat.floatingTabs) instance.barFloatingStyle(undefined);
       instance.barHeight(this.fallbackHeight)
         .barBackgroundColor(AppTheme.Surface);
     }

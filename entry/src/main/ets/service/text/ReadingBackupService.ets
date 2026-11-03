@@ -16,6 +16,9 @@ export class ReadingSettingsBackup {
   textAlignment: string = 'justify';
   fontSize: number = 18;
   lineHeight: number = 1.9;
+  letterSpacing: number = 0;
+  dialogueHighlight: boolean = false;
+  speechMark: string = 'color';
   paragraphSpacing: number = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
   fontWeight: number = 400;
   themeId: string | undefined = undefined;
@@ -73,6 +76,9 @@ export class ReadingBackupService {
     saved.textAlignment = settings.textAlignment;
     saved.fontSize = settings.fontSize;
     saved.lineHeight = settings.lineHeight;
+    saved.letterSpacing = settings.letterSpacing;
+    saved.dialogueHighlight = settings.dialogueHighlight;
+    saved.speechMark = settings.speechMark;
     saved.paragraphSpacing = settings.paragraphSpacing;
     saved.fontWeight = settings.fontWeight;
     if (findThemePreset(settings.themeId) !== null) saved.themeId = settings.themeId;
@@ -132,6 +138,9 @@ export class ReadingBackupService {
     settings.textAlignment = TextReadingSettings.normalizeTextAlignment(saved.textAlignment);
     settings.fontSize = saved.fontSize;
     settings.lineHeight = saved.lineHeight;
+    settings.letterSpacing = TextReadingSettings.normalizeLetterSpacing(saved.letterSpacing);
+    settings.dialogueHighlight = saved.dialogueHighlight === true;
+    settings.speechMark = TextReadingSettings.normalizeSpeechMark(saved.speechMark);
     settings.paragraphSpacing = TextReadingSettings.normalizeParagraphSpacing(saved.paragraphSpacing);
     settings.fontWeight = saved.fontWeight;
     if (saved.themeId !== undefined) {

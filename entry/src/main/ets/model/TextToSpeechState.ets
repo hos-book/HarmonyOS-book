@@ -3,6 +3,8 @@ import { SpeechSynthesisSettings } from './SpeechSynthesisSettings';
 
 @ObservedV2
 export class TextToSpeechState {
+  @Trace loudnessGain: number = 0;
+  @Trace loudnessBusy: boolean = false;
   @Trace active: boolean = false;
   @Trace bookId: string = '';
   @Trace bookTitle: string = '';

@@ -6173,6 +6173,10 @@
       "value": "透明玻璃"
     },
     {
+      "name": "app_icon_iridescent",
+      "value": "虹彩"
+    },
+    {
       "name": "app_icon_lifewhite",
       "value": "夜曲·白"
     },
@@ -6998,7 +7002,7 @@
     },
     {
       "name": "comic_translation_downloading",
-      "value": "简简正在准备语言资源 %d%%"
+      "value": "简简正在准备语言资源 %d%"
     },
     {
       "name": "common_content_loading",
@@ -7408,8 +7412,89 @@
       "name": "subtitle_retry",
       "value": "重试"
     },
-    {"name": "player_volume_boost", "value": "音量增幅"},
-    {"name": "player_volume_boost_off", "value": "关闭增幅"},
-    {"name": "player_volume_boost_failed", "value": "音量增幅设置失败，请在音频就绪后重试"}
+    {
+      "name": "player_volume_boost",
+      "value": "音量增幅"
+    },
+    {
+      "name": "player_volume_boost_off",
+      "value": "关闭增幅"
+    },
+    {
+      "name": "player_volume_boost_failed",
+      "value": "音量增幅设置失败，请在音频就绪后重试"
+    },
+    {
+      "name": "reader_letter_spacing",
+      "value": "字距"
+    },
+    {
+      "name": "reader_dialogue_highlight",
+      "value": "对话高亮"
+    },
+    {
+      "name": "reader_dialogue_highlight_hint",
+      "value": "将中文双引号、直双引号及「」『』内的对话使用强调色显示。"
+    },
+    {
+      "name": "reader_speech_mark",
+      "value": "朗读标识"
+    },
+    {
+      "name": "reader_mark_color",
+      "value": "更改颜色"
+    },
+    {
+      "name": "reader_mark_highlight",
+      "value": "高亮"
+    },
+    {
+      "name": "reader_mark_underline",
+      "value": "下划线"
+    },
+    {
+      "name": "tts_volume_boost_unsupported",
+      "value": "当前系统暂不支持朗读音量增幅"
+    },
+    {
+      "name": "appearance_floating_bottom_tabs",
+      "value": "新版双行底栏"
+    },
+    {
+      "name": "appearance_floating_bottom_tabs_hint",
+      "value": "关闭使用原版单行悬浮底栏；开启默认双行，向下浏览折叠、向上浏览展开。需要 HarmonyOS API 24 及以上。"
+    },
+    {
+      "name": "ranking_qqcomic",
+      "value": "腾讯漫画"
+    },
+    {
+      "name": "ranking_comic_hot",
+      "value": "漫画人气榜"
+    },
+    {
+      "name": "reader_floating_paragraph",
+      "value": "悬浮段落"
+    },
+    {
+      "name": "reader_float_permission_denied",
+      "value": "未开启悬浮窗权限，可重新点击并授权"
+    },
+    {
+      "name": "reader_float_permission_reason",
+      "value": "用于在悬浮小窗显示当前阅读或朗读段落"
+    },
+    {"name": "ranking_bilicomic", "value": "哔哩哔哩漫画"},
+    {"name": "ranking_comic_top100", "value": "漫画 TOP100"},
+    {"name": "ranking_comic_month", "value": "漫画月票榜"},
+    {"name": "ranking_comic_rising", "value": "漫画飙升榜"},
+    {"name": "ranking_comic_new", "value": "漫画新作榜"},
+    {"name": "ranking_comic_sales", "value": "漫画畅销榜"},
+    {"name": "ranking_comic_male", "value": "漫画男生榜"},
+    {"name": "ranking_comic_female", "value": "漫画女生榜"},
+    {"name": "ranking_comic_chinese", "value": "国漫榜"},
+    {"name": "ranking_comic_japanese", "value": "日漫榜"},
+    {"name": "ranking_comic_korean", "value": "韩漫榜"},
+    {"name": "ranking_comic_finished", "value": "漫画完结榜"}
   ]
 }

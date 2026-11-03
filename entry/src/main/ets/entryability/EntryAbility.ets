@@ -1,3 +1,4 @@
+import { ReaderFloatingService } from '../service/text/ReaderFloatingService';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import lazy { WearableRuntime } from '../service/wearable/WearableRuntime';
 import lazy { MedalService } from '../service/MedalService';
@@ -471,6 +472,7 @@ export default class EntryAbility extends UIAbility {
   }
 
   async onDestroy(): Promise<void> {
+    await ReaderFloatingService.close();
     DiagnosticLogService.info('app.destroy', `foreground=${this.isInForeground}`);
     if (PlatformCompat.wearable) {
       await WearableRuntime.instance.destroy();

@@ -1,5 +1,6 @@
 import { text as graphicsText } from '@kit.ArkGraphics2D';
 import { PlatformCompat } from '../../utils/PlatformCompat';
+import { ReaderDialogueHighlighter, ReaderDialogueRange } from './ReaderDialogueHighlighter';
 import { LocalTextImage } from './LocalTextImage';
 
 export class OnlineTextPaintState {
@@ -8,6 +9,7 @@ export class OnlineTextPaintState {
 }
 
 export class OnlineTextPage {
+  dialogueRanges: ReaderDialogueRange[] = [];
   parts: OnlineTextPage[] = [];
   flowSpacing: number = 0;
   columns: OnlineTextPage[] = [];
@@ -293,7 +295,7 @@ export class OnlineTextPaginator {
 
   static paginate(content: string, widthPx: number, heightPx: number,
     fontSizePx: number, lineHeight: number, fontFamily: string = '', fontWeight: number = 400,
-    alignment: string = 'justify', paragraphSpacing: number = 0): OnlineTextPage[] {
+    alignment: string = 'justify', paragraphSpacing: number = 0, letterSpacingPx: number = 0): OnlineTextPage[] {
     const images = LocalTextImage.pattern();
     let match = images.exec(content);
     if (match !== null) {
@@ -301,7 +303,7 @@ export class OnlineTextPaginator {
       let start = 0;
       while (match !== null) {
         OnlineTextPaginator.appendImageText(pages, content, start, match.index, widthPx, 1,
-          fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing);
+          fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx);
         const page = OnlineTextPage.of(content, match.index, images.lastIndex);
         page.imageUrl = LocalTextImage.resolve(match[1]);
         if (!page.imageUrl) {
@@ -324,19 +326,24 @@ export class OnlineTextPaginator {
         match = images.exec(content);
       }
       OnlineTextPaginator.appendImageText(pages, content, start, content.length, widthPx, 1,
-        fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing);
+        fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx);
       return heightPx <= 1 ? pages : OnlineTextPaginator.flowParts(content, pages, widthPx, heightPx);
     }
-    const layout = OnlineTextPaginator.measure(content, widthPx, fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing);
+    const layout = OnlineTextPaginator.measure(content, widthPx, fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx);
     const displayed = layout.displayed;
     const metrics = layout.metrics;
     const pages = OnlineTextPaginator.paginateMeasuredLines(displayed.text, layout.lines, heightPx);
+    const dialogueRanges = ReaderDialogueHighlighter.ranges(displayed.text);
     let lineIndex = 0;
     for (const page of pages) {
       page.paragraph = layout.paragraph;
       page.paintState = layout.paintState;
       page.layoutKey = layout.serial;
       page.displayStart = page.startOffset;
+      page.dialogueRanges = dialogueRanges.filter((range: ReaderDialogueRange): boolean =>
+        range.end > page.startOffset && range.start < page.endOffset).map((range: ReaderDialogueRange): ReaderDialogueRange =>
+          new ReaderDialogueRange(Math.max(0, range.start - page.startOffset),
+            Math.min(page.text.length, range.end - page.startOffset)));
       page.nativeOffsets = layout.nativeIndents ? displayed : null;
       page.layoutWidth = layout.width;
       page.firstLine = lineIndex;
@@ -361,11 +368,11 @@ export class OnlineTextPaginator {
 
   private static appendImageText(pages: OnlineTextPage[], content: string, start: number, end: number,
     width: number, height: number, fontSize: number, lineHeight: number, family: string, weight: number,
-    alignment: string, spacing: number): void {
+    alignment: string, spacing: number, letterSpacingPx: number): void {
     const section = content.substring(start, end);
     if (!section.trim()) return;
     const sourceStart = start + section.length - section.trimStart().length;
-    const textPages = OnlineTextPaginator.paginate(section.trim(), width, height, fontSize, lineHeight, family, weight, alignment, spacing);
+    const textPages = OnlineTextPaginator.paginate(section.trim(), width, height, fontSize, lineHeight, family, weight, alignment, spacing, letterSpacingPx);
     for (const page of textPages) { page.startOffset += sourceStart; page.endOffset += sourceStart; pages.push(page); }
     if (textPages.length > 0) textPages[textPages.length - 1].endOffset = end;
   }
@@ -405,9 +412,9 @@ export class OnlineTextPaginator {
   }
 
   private static measure(content: string, widthPx: number, fontSizePx: number, lineHeight: number,
-    fontFamily: string, fontWeight: number, alignment: string, paragraphSpacing: number): OnlineTextLayout {
+    fontFamily: string, fontWeight: number, alignment: string, paragraphSpacing: number, letterSpacingPx: number): OnlineTextLayout {
     const spacing = Number.isFinite(paragraphSpacing) ? Math.max(0, Math.min(2, paragraphSpacing)) : 0;
-    const key = `${widthPx}:${fontSizePx}:${lineHeight}:${fontWeight}:${alignment}:${fontFamily}:${spacing}`;
+    const key = `${widthPx}:${fontSizePx}:${lineHeight}:${fontWeight}:${alignment}:${fontFamily}:${spacing}:${letterSpacingPx}`;
     const cachedIndex = OnlineTextPaginator.layouts.findIndex((item: OnlineTextLayout): boolean =>
       item.key === key && item.source === content);
     if (cachedIndex >= 0) {
@@ -427,6 +434,7 @@ export class OnlineTextPaginator {
     const safeLineHeight = Math.max(1, lineHeight);
     const textStyle: graphicsText.TextStyle = {
       fontSize: safeFontSize,
+      letterSpacing: Math.max(0, letterSpacingPx),
       fontWeight: Math.max(0, Math.min(8, Math.round(fontWeight / 100) - 1)),
       // 空列表由全局字体集合匹配用户当前的系统字体。
       fontFamilies: fontFamily.length > 0 ? [fontFamily] : [],

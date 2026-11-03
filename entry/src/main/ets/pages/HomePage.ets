@@ -341,6 +341,7 @@ export struct HomePage {
   @Event onBookTap: (id: string) => void = () => {};
   @Event onBlockMore: (block: HomeBlockSection) => void = () => {};
   @Event onScrollerReady: (scroller: Scroller) => void = () => {};
+  @Event onContentScroll: (offset: number, state: ScrollState) => void = () => {};
   @Event onSearchTap: () => void = () => {};
   @Event onPodcastTap: () => void = () => {};
   @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
@@ -1486,7 +1487,7 @@ export struct HomePage {
       } else if (this.rankingMode) {
         RankingHomePage({ visible: this.visible, headerBuilder: (): void => this.buildSearchTitleBar(), onBookTap: this.onRankingBookTap,
           onSearchTap: this.onSearchTap, onManageSources: this.onManageSources,
-          onScrollerReady: this.onScrollerReady,
+          onScrollerReady: this.onScrollerReady, onContentScroll: this.onContentScroll,
           onBackHandlerChange: (handler: (() => boolean) | undefined): void => { this.rankingBackHandler = handler; }
         })
       } else {
@@ -1545,7 +1546,9 @@ export struct HomePage {
           .enableScrollInteraction(!this.carouselTransitioning)
           .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
           .clip(false)
-          .onDidScroll(() => this.syncHeaderScrollState())
+          .onDidScroll((_x: number, y: number, state: ScrollState): void => {
+              this.syncHeaderScrollState(); this.onContentScroll(y, state);
+            })
         }
         .onRefreshing(() => this.handleHomeRefresh())
         .onOffsetChange((offset: number) => { this.refreshPullOffset = Math.max(0, offset); })
@@ -1817,6 +1820,7 @@ export struct HomePage {
     .scrollBar(BarState.Off)
     .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
     .cachedCount(recommendations ? 1 : 5)
+    .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
     .onScrollFrameBegin((offset: number, state: ScrollState) => {
       if (!recommendations && this.selectedCategoryIndex >= 0 && !this.categoryLoading &&
         state === ScrollState.Scroll && offset > 0) {

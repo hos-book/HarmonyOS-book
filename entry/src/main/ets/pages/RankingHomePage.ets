@@ -15,6 +15,7 @@ import { PlatformCompat } from '../utils/PlatformCompat';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
 import { SearchCache } from '../utils/SearchCache';
 import { RankingService } from '../service/ranking/RankingService';
+import { RankingComicMetadata } from '../service/ranking/RankingComicMetadata';
 import { RankingPreferences, RankingCategorySetting } from '../service/ranking/RankingPreferences';
 import { BookMatchService, RankingMatch, RankingMatchProgress } from '../service/ranking/BookMatchService';
 import { DataService } from '../service/DataService';
@@ -55,6 +56,14 @@ struct RankingBookRow {
   @Param book: RankingBook = new RankingBook();
   @Event onChoose: (book: RankingBook) => void = () => {};
 
+  aboutToAppear(): void { this.loadMetadata(); }
+
+  @Monitor('book')
+  private loadMetadata(): void {
+    const context = this.getUIContext().getHostContext();
+    if (context !== undefined) RankingComicMetadata.hydrate(context, this.book);
+  }
+
   build() {
     Row({ space: 14 }) {
       Text(this.book.rank.toString().padStart(2, '0'))
@@ -62,7 +71,7 @@ struct RankingBookRow {
         .fontColor(this.book.rank <= 3 ? AppColor.Brand : AppTheme.TextTertiary).width(34)
       Stack({ alignContent: Alignment.BottomEnd }) {
       CoverImage({ url: this.book.coverUrl, imgWidth: 58,
-        aspectRatioValue: this.book.contentType === 'text' ? 0.75 : 1,
+        aspectRatioValue: this.book.contentType !== 'audio' ? 0.75 : 1,
         useOriginalRatio: true, maxOriginalHeight: 78,
         radius: AppRadius.Sm, imageFit: ImageFit.Contain })
         BookRatingBadge({ rating: this.book.rating, coverWidth: this.ratingCoverWidth })
@@ -139,7 +148,7 @@ struct RankingSection {
       if (this.board.books.length === 0) {
         Text(this.board.unavailable ? $r('app.string.ranking_unavailable') : $r('app.string.ranking_loading'))
           .fontSize(13).fontColor(AppTheme.TextTertiary).width('100%').height(90)
-      } else if (this.board.books[0]?.contentType === 'text') {
+      } else if (this.board.books[0]?.contentType !== 'audio') {
         // 一屏一列（上下两本），prevMargin 提供左侧内边距，nextMargin 露出下一列。
         Swiper() {
           ForEach(this.columns, (column: RankingColumn) => {
@@ -213,6 +222,7 @@ export struct RankingHomePage {
   @Event onSearchTap: () => void = () => {};
   @Event onManageSources: (resume: () => void) => void = () => {};
   @Event onScrollerReady: (scroller: Scroller) => void = () => {};
+  @Event onContentScroll: (offset: number, state: ScrollState) => void = () => {};
   @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
   @Local boards: RankingBoard[] = [];
   @Local platformId: string = '';
@@ -280,7 +290,7 @@ export struct RankingHomePage {
   get posterDeckItems(): BookPosterItem[] {
     return this.posterItems.map((item: RankingPosterItem): BookPosterItem => new BookPosterItem(
       item.book.id, item.book.title, item.book.author || item.book.narrator, item.book.intro,
-      item.book.coverUrl, item.book.contentType === 'text' ? 0.75 : 1, item.book.rating));
+      item.book.coverUrl, item.book.contentType !== 'audio' ? 0.75 : 1, item.book.rating));
   }
 
   private categoryScroller: Scroller = new Scroller();
@@ -378,6 +388,12 @@ export struct RankingHomePage {
         if (book === undefined || seen.has(book.id) || posters.length >= 6) continue;
         seen.add(book.id);
         posters.push(new RankingPosterItem(book));
+        const context = this.getUIContext().getHostContext();
+        if (context !== undefined) {
+          RankingComicMetadata.hydrate(context, book).then((): void => {
+            if (this.posterItems[0]?.book.id === book.id && !this.posterCover) this.posterCover = book.coverUrl;
+          });
+        }
       }
     }
     const posterIdentity = posters.map((item: RankingPosterItem): string => item.book.id).join('|');
@@ -686,7 +702,7 @@ export struct RankingHomePage {
     Column({ space: 16 }) {
         Row({ space: 14 }) {
           CoverImage({ url: this.selectedBook.coverUrl, imgWidth: 54,
-            aspectRatioValue: this.selectedBook.contentType === 'text' ? 0.75 : 1,
+            aspectRatioValue: this.selectedBook.contentType !== 'audio' ? 0.75 : 1,
             useOriginalRatio: true, maxOriginalHeight: 72,
             radius: AppRadius.Sm, imageFit: ImageFit.Contain })
           Column({ space: 7 }) {
@@ -918,6 +934,7 @@ export struct RankingHomePage {
       }
     }.width('100%').height(Math.max(1, this.contentHeight - this.topSafe - 48))
     .scrollBar(BarState.Off).cachedCount(1)
+    .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
     .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
     .nestedScroll({ scrollForward: NestedScrollMode.PARENT_FIRST, scrollBackward: NestedScrollMode.SELF_FIRST })
     // 外层抵消整页下拉以固定海报和分类；仅正文下移，为分类下方的刷新指示器留出空间。
@@ -962,6 +979,7 @@ export struct RankingHomePage {
           }
         }.width('100%').height('100%').contentStartOffset(this.topSafe + 56)
         .scrollBar(BarState.Off).cachedCount(1)
+    .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
         .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       }.width('100%').height('100%').onRefreshing(() => this.load(true))
       .onOffsetChange((offset: number): void => { this.refreshPullOffset = Math.max(0, offset); })
@@ -1011,7 +1029,9 @@ export struct RankingHomePage {
               .translate({ y: -this.refreshPullOffset })
           }.width('100%').height('100%').scrollBar(BarState.Off)
             .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true }).clip(false)
-            .onDidScroll((): void => this.syncHeaderScroll())
+            .onDidScroll((_x: number, y: number, state: ScrollState): void => {
+              this.syncHeaderScroll(); this.onContentScroll(y, state);
+            })
         }.onRefreshing(() => this.load(true)).width('100%').height('100%')
         .onOffsetChange((offset: number): void => { this.refreshPullOffset = Math.max(0, offset); })
         .refreshOffset(96).pullDownRatio(0.5)

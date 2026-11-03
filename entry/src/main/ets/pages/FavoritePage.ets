@@ -211,6 +211,7 @@ export struct FavoritePage {
   @Param navStack: NavPathStack = new NavPathStack();
   @Event onBookTap: (id: string) => void = () => {};
   @Event onScrollerReady: (scroller: Scroller) => void = () => {};
+  @Event onContentScroll: (offset: number, state: ScrollState) => void = () => {};
   @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
 
   private context: common.UIAbilityContext | null = null;
@@ -1569,6 +1570,7 @@ export struct FavoritePage {
               }
             }.width('100%').height('100%').scrollBar(BarState.Off)
             .contentEndOffset(WindowUtils.getFloatingTabBottomVp() + (this.isManaging ? 72 : 0))
+             .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
             .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
           } else if (this.viewMode === 0) {
             // 三列书卡复用 List 的首尾边界，内容不足一屏时回弹后仍停留在安全起点。
@@ -1592,6 +1594,7 @@ export struct FavoritePage {
               right: AppSpace.Md
             })
             .contentEndOffset(WindowUtils.getFloatingTabBottomVp() + (this.isManaging ? 72 : 0))
+             .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
             .scrollBar(BarState.Off)
             // 内容不足一屏时也提供原生回弹。
             .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
@@ -1620,6 +1623,7 @@ export struct FavoritePage {
               right: AppSpace.Md
             })
             .contentEndOffset(WindowUtils.getFloatingTabBottomVp() + (this.isManaging ? 72 : 0))
+             .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
             .scrollBar(BarState.Off)
             .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
             .backgroundColor(Color.Transparent)

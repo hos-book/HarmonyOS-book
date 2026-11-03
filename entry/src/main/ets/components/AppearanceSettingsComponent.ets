@@ -1,3 +1,4 @@
+import { PlatformCompat } from '../utils/PlatformCompat';
 import { ImmersiveActionButton } from './ImmersiveActionButton';
 import { ImmersiveOptionTabs } from './ImmersiveOptionTabs';
 import { AppAppearance } from '../model/AppAppearance';
@@ -158,6 +159,17 @@ export struct AppearanceSettingsComponent {
 
   build() {
     Column() {
+      Row({ space: AppSpace.Sm }) {
+        Text($r('app.string.appearance_floating_bottom_tabs')).fontSize(AppFont.BodyL)
+          .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+        Toggle({ type: ToggleType.Switch, isOn: this.appearance.verticalBottomTabs }).selectedColor(AppColor.Brand)
+          .enabled(PlatformCompat.supports(24))
+          .onChange((enabled: boolean): void => {
+            PreferenceService.setVerticalBottomTabs(enabled).catch((): void => {
+              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.tts_save_error') });
+            });
+          }).id('appearance-floating-bottom-tabs')
+      }.width('100%').padding(AppSpace.Md)
       this.divider()
       Row({ space: AppSpace.Sm }) {
         Text($r('app.string.appearance_material')).fontSize(AppFont.BodyL)

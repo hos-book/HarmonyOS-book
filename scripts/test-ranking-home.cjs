@@ -12,6 +12,7 @@ function load(relative, modules = {}) {
   }).outputText;
   const module = { exports: {} };
   vm.runInNewContext(code, { module, exports: module.exports, $r: value => value,
+    ObservedV2: target => target, Trace: () => {},
     require: name => { assert.ok(modules[name], `Unexpected import: ${name}`); return modules[name]; }
   }, { filename });
   return module.exports;
@@ -132,6 +133,56 @@ const qidian = '<a href="//m.qidian.com/book/123/" class="_bookItem_x"><img data
   assert.equal(RankingParser.parse('qidian', 'qd-reading',
     page([{ bid: 200, bName: '榜单书', rankNum: 21 }]))[0].rank, 21);
   assert.equal(RankingParser.imageUrl('javascript:alert(1)'), '');
+  const qqRow = (rank, id, title) => `<li><em class="ui-border-em">${rank}</em><a href="/Comic/ComicInfo/id/${id}">${title}</a></li>`;
+  const qqPanel = rows => `<div class="rank-tabcon cur-month-data"><ul class="rank-ul">${rows}</ul>`;
+  const qqBooks = RankingParser.parse('qqcomic', 'qqcomic-top',
+    qqPanel(qqRow(1, 123, '漫画甲') + qqRow(2, 124, '漫画乙') + qqRow(3, 123, '重复甲')) +
+    '<div class="rank-tabcon prev-month-data"><ul class="rank-ul">' + qqRow(1, 999, '上期书') + '</ul>');
+  assert.deepEqual(Array.from(qqBooks, b => b.id), ['qqcomic:123', 'qqcomic:124']);
+  assert.equal(qqBooks[0].contentType, 'comic');
+  assert.equal(RankingParser.parse('qqcomic', 'qqcomic-top', '<li class="ret-search-item">全部漫画不是排行榜</li>').length, 0);
+  const biliPage = (rank, records) => '<script id="vike_pageContext" type="application/json">' + JSON.stringify({
+    pageId: '/pages/ranking', routeParams: { page_id: rank }, data: { rankListInfo: records }
+  }) + '</script>';
+  const biliRaw = biliPage('1', [{ comic_id: 100, title: '国漫甲', author: ['作者甲', '作者乙'],
+    vertical_cover: 'http://i0.hdslb.com/bfs/manga-static/cover.jpg', comic_introduction: '官方简介', last_rank: 99 }]);
+  const biliBooks = RankingParser.parse('bilicomic', 'bilicomic-1', biliRaw);
+  assert.equal(biliBooks[0].author, '作者甲 / 作者乙');
+  assert.equal(biliBooks[0].rank, 1, 'use current order, not previous rank');
+  assert.equal(biliBooks[0].coverUrl, 'https://i0.hdslb.com/bfs/manga-static/cover.jpg');
+  assert.equal(RankingParser.parse('bilicomic', 'bilicomic-0', biliRaw).length, 0, 'redirect to another board is not valid data');
+  assert.equal(RankingService.headers('qqcomic')['User-Agent'].includes('Windows'), true);
+  assert.equal(Object.keys(RankingService.headers('qidian')).length, 0);
+  const comicDetail = id => '<script type="application/ld+json">' + JSON.stringify({
+    '@type': 'ComicSeries', url: `https://ac.qq.com/Comic/comicInfo/id/${id}`,
+    image: `https://manhua.acimg.cn/vertical/${id}.jpg/420`, author: { name: '官方作者' },
+    description: '作品简介', aggregateRating: { ratingValue: 9.1 }
+  }) + '</script>';
+  assert.equal(RankingParser.qqComicMetadata('qqcomic:123', comicDetail(123)).rating, 9.1);
+  assert.equal(RankingParser.qqComicMetadata('qqcomic:999', comicDetail(123)), null);
+  let detailCalls = 0, detailRunning = 0, detailPeak = 0;
+  const metadataModules = {
+    '../../model/Ranking': model, '../builtin/JsonValue': json, './RankingParser': parser,
+    './RankingStorage': storage, './RankingService': { RankingService },
+    '../http/HttpClient': { HttpClient: { request: async url => {
+      detailCalls++; detailRunning++; detailPeak = Math.max(detailPeak, detailRunning);
+      await new Promise(resolve => setTimeout(resolve, 2)); detailRunning--;
+      return { statusCode: 200, body: comicDetail(url.split('/').pop()) };
+    } } }
+  };
+  const { RankingComicMetadata } = load('service/ranking/RankingComicMetadata.ets', metadataModules);
+  const comic = id => Object.assign(new model.RankingBook(), { id: `qqcomic:${id}`, platformId: 'qqcomic' });
+  const visibleComics = Array.from({ length: 10 }, (_, i) => comic(900 + i));
+  const duplicateComic = comic(900);
+  await Promise.all([...visibleComics, duplicateComic].map(book => RankingComicMetadata.hydrate({}, book)));
+  assert.equal(detailCalls, 10, 'same comic in two rankings shares one metadata request');
+  assert.ok(detailPeak <= 3, 'metadata requests are bounded');
+  assert.equal(duplicateComic.author, '官方作者');
+  const reloadedMetadata = load('service/ranking/RankingComicMetadata.ets', metadataModules).RankingComicMetadata;
+  const cachedComic = comic(900);
+  await reloadedMetadata.hydrate({}, cachedComic);
+  assert.equal(detailCalls, 10, 'fresh disk metadata avoids repeated requests');
+  assert.equal(cachedComic.rating, 9.1, 'preserve decimal scores in metadata cache');
   assert.equal(RankingParser.parse('qidian', 'qd-month', 'x'.repeat(2 * 1024 * 1024 + 1)).length, 0);
   const lr = RankingParser.parse('lrts', 'lr-hot', '<li class="book-item"><a href="/book/42"><img src="https://bookpic.lrts.me/42.png"></a><a class="book-item-name">夜无疆|多人有声剧</a><a class="author">辰东</a>主播：<a>演播甲</a><p class="book-item-desc weaken">简介</p></li>');
   assert.equal(lr[0].narrator, '演播甲');
@@ -296,7 +347,34 @@ const qidian = '<a href="//m.qidian.com/book/123/" class="_bookItem_x"><img data
   assert.equal(called, 1, 'cancel prevents additional source scheduling');
   assert.equal(progressCount, before, 'late results do not overwrite new selection');
 
-  if (process.argv[2] === '--expanded-live') {
+  if (process.argv[2] === '--comic-live') {
+    const { execFile } = require('node:child_process');
+    const { promisify } = require('node:util');
+    const run = promisify(execFile);
+    const boards = RankingService.boards().filter(b => ['qqcomic', 'bilicomic'].includes(b.platformId));
+    assert.equal(boards.length, 12);
+    let cursor = 0;
+    await Promise.all(Array.from({ length: 3 }, async () => {
+      while (cursor < boards.length) {
+        const board = boards[cursor++];
+        const args = ['-sS', '-L', '--fail', '--max-time', '25'];
+        for (const [name, value] of Object.entries(RankingService.headers(board.platformId))) args.push('-H', `${name}: ${value}`);
+        const { stdout } = await run('curl.exe', [...args, board.endpoint], { encoding: 'utf8', maxBuffer: 3 * 1024 * 1024 });
+        const books = RankingParser.parse(board.platformId, board.id, stdout);
+        assert.ok(books.length >= 10 && books.length <= 99, `${board.id}: actual official ranking records`);
+        assert.equal(new Set(books.map(b => b.id)).size, books.length);
+        assert.ok(books.every(b => b.title && b.contentType === 'comic' && b.originalUrl.startsWith('https://')));
+        if (board.platformId === 'bilicomic') assert.ok(books.every(b => b.coverUrl.startsWith('https://')));
+        console.log(`LIVE ${board.id}: ${books.length} comics; first: ${books[0].title}`);
+        if (board.id === 'qqcomic-top') {
+          const { stdout: detail } = await run('curl.exe', [...args, books[0].originalUrl], { encoding: 'utf8', maxBuffer: 3 * 1024 * 1024 });
+          const metadata = RankingParser.qqComicMetadata(books[0].id, detail);
+          assert.ok(metadata && metadata.coverUrl.startsWith('https://') && metadata.author);
+          console.log(`LIVE Tencent official cover and author: ${metadata.author}`);
+        }
+      }
+    }));
+  } else if (process.argv[2] === '--expanded-live') {
     const boards = RankingService.boards().filter(board => ['fanqie', 'faloo'].includes(board.platformId));
     const results = new Map();
     let cursor = 0;

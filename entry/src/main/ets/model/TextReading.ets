@@ -173,6 +173,15 @@ export class TextReadingSettings {
 
   fontSize: number = TextReadingSettings.FONT_SIZE_DEFAULT;
   lineHeight: number = TextReadingSettings.LINE_HEIGHT_DEFAULT;
+  letterSpacing: number = 0;
+  dialogueHighlight: boolean = false;
+  speechMark: string = 'color';
+  static normalizeLetterSpacing(value: number): number {
+    return Number.isFinite(value) ? Math.round(Math.max(0, Math.min(10, value)) * 2) / 2 : 0;
+  }
+  static normalizeSpeechMark(value: string): string {
+    return value === 'highlight' || value === 'underline' ? value : 'color';
+  }
   paragraphSpacing: number = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
   /** 预设主题或 Custom；Image 仅用于旧偏好迁移。 */
   themeId: string = TextReadingSettings.THEME_DEFAULT;

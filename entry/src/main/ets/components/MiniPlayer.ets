@@ -1,4 +1,4 @@
-import { AppColor, AppSpace, AppFont, HomeTheme } from '../theme/Theme';
+import { AppColor, AppSpace, AppFont, HomeTheme, AppMotion, AppCurve } from '../theme/Theme';
 import { Book } from '../model/Book';
 import { PlaybackLoadingIndicator } from './PlaybackLoadingIndicator';
 import { CoverImage } from './CoverImage';
@@ -13,6 +13,10 @@ export struct MiniPlayer {
   @Param loading: boolean = false;
   @Param progressPercent: number = 0;
   @Param collapsed: boolean = true;
+  @Param verticalStyle: boolean = false;
+  /** 新版单行态保留全部播控，封面随系统迷你栏放大。 */
+  @Param compactControls: boolean = false;
+  @Event onChapters: () => void = () => {};
   @Event onTapBody: () => void = () => {};
   @Event onToggle: () => void = () => {};
   @Event onNext: () => void = () => {};
@@ -90,8 +94,9 @@ export struct MiniPlayer {
           .clip(true)
           .opacity(this.dragState.active && this.dragState.sourceNodeId === 'mini-player-bar' ? 0 : 1)
         }
-        .width(this.collapsed ? '100%' : 44)
-        .height(this.collapsed ? '100%' : 44)
+        .width(this.collapsed ? '100%' : this.verticalStyle && !this.compactControls ? 32 : 44)
+        .height(this.collapsed ? '100%' : this.verticalStyle && !this.compactControls ? 32 : 44)
+        .animation(this.verticalStyle ? { duration: AppMotion.Slow, curve: AppCurve.Standard } : undefined)
         .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
         .onClick(() => {
           if (this.collapsed) {
@@ -104,14 +109,14 @@ export struct MiniPlayer {
         if (!this.collapsed) {
           Column({ space: 2 }) {
             Text(this.book.title)
-              .fontSize(AppFont.Body)
+              .fontSize(this.verticalStyle ? 14 : AppFont.Body)
               .fontColor($r('sys.color.font_primary'))
               .fontWeight(FontWeight.Medium)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
 
             Text(this.chapterTitle || '--')
-              .fontSize(AppFont.Caption)
+              .fontSize(this.verticalStyle ? 11 : AppFont.Caption)
               .fontColor($r('sys.color.font_secondary'))
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -120,19 +125,31 @@ export struct MiniPlayer {
           .layoutWeight(1)
           .alignItems(HorizontalAlign.Start)
           .onClick(() => this.onTapBody())
+          .transition(this.verticalStyle ? TransitionEffect.OPACITY.animation({ duration: AppMotion.Fast }) : undefined)
 
           Stack() {
             if (this.loading) {
               PlaybackLoadingIndicator({ indicatorSize: 24 })
+            } else if (this.verticalStyle) {
+              SymbolGlyph(this.playing
+                ? $r('sys.symbol.pause_round_triangle_fill')
+                : $r('sys.symbol.play_round_triangle_fill'))
+                .fontSize(30)
+                .fontWeight(this.playing ? FontWeight.Medium : FontWeight.Normal)
+                .fontColor([$r('sys.color.font_primary')])
+                .symbolEffect(new ReplaceSymbolEffect(EffectScope.WHOLE), this.playing ? 1 : 0)
             } else {
               SymbolGlyph(this.playing ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'))
-                .fontSize(24).fontColor([$r('sys.color.font_primary')])
+                .fontSize(24)
+                .fontColor([$r('sys.color.font_primary')])
             }
-          }.width(24).height(24).id('mini-player-toggle')
+          }.width(this.verticalStyle ? 30 : 24).height(this.verticalStyle ? 30 : 24)
+            .id('mini-player-toggle')
             .hitTestBehavior(HitTestMode.Block)
             .accessibilityText(this.playing || this.loading ? $r('app.string.tts_pause') : $r('app.string.tts_play'))
             .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
             .onClick(() => this.onToggle())
+            .transition(this.verticalStyle ? TransitionEffect.OPACITY.animation({ duration: AppMotion.Fast }) : undefined)
 
           SymbolGlyph($r('sys.symbol.forward_end_fill'))
             .fontSize(22)
@@ -141,6 +158,16 @@ export struct MiniPlayer {
             .id('mini-player-next').accessibilityText($r('app.string.tts_next'))
             .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
             .onClick(() => this.onNext())
+            .transition(this.verticalStyle ? TransitionEffect.OPACITY.animation({ duration: AppMotion.Fast }) : undefined)
+
+          if (this.verticalStyle) {
+            SymbolGlyph($r('sys.symbol.music_note_list'))
+              .fontSize(22).fontColor([$r('sys.color.font_primary')])
+              .width(28).height(32).hitTestBehavior(HitTestMode.Block)
+              .id('mini-player-chapters').accessibilityText($r('app.string.reader_catalog'))
+              .onClick((): void => this.onChapters())
+              .transition(TransitionEffect.OPACITY.animation({ duration: AppMotion.Fast }))
+          }
         }
       }
       .width('100%')
@@ -164,7 +191,7 @@ export struct MiniPlayer {
           this.draggingPlayer = false;
         }))
       .padding({
-        left: this.collapsed ? 0 : AppSpace.Xs,
+        left: this.collapsed ? 0 : this.verticalStyle ? (this.compactControls ? 8 : 4) : AppSpace.Xs,
         right: this.collapsed ? 0 : AppSpace.Md
       })
     }

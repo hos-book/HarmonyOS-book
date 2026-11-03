@@ -10,13 +10,17 @@ class ReaderParagraphFrameNode extends FrameNode {
   private page: OnlineTextPage = new OnlineTextPage();
   private range: SpeechHighlightRange = new SpeechHighlightRange();
   private palette: ReaderPalette = new ReaderPalette();
+  private speechMark: string = 'color';
+  private dialogueHighlight: boolean = false;
 
   constructor(context: UIContext) { super(context); }
 
-  update(page: OnlineTextPage, range: SpeechHighlightRange, palette: ReaderPalette): void {
+  update(page: OnlineTextPage, range: SpeechHighlightRange, palette: ReaderPalette, speechMark: string = 'color', dialogueHighlight: boolean = false): void {
     this.page = page;
     this.range = range;
     this.palette = palette;
+    this.speechMark = speechMark;
+    this.dialogueHighlight = dialogueHighlight;
     // onDraw 属于 FrameNode，必须使自绘节点失效才能更新已挂载的正文。
     this.invalidate();
   }
@@ -56,47 +60,56 @@ class ReaderParagraphFrameNode extends FrameNode {
       page.paintState.color = this.palette.primary;
     }
     this.paintLines(canvas, page.paintState.lines);
-    if (this.range.start >= 0 && this.range.end > this.range.start) {
-      const displayStart = page.displayStart + this.range.start;
-      const displayEnd = page.displayStart + this.range.end;
-      const boxes = paragraph.getRectsForRange({
-        start: page.nativeOffsets?.nativeOffsetForDisplay(displayStart) ?? displayStart,
-        end: page.nativeOffsets?.nativeOffsetForDisplay(displayEnd) ?? displayEnd }, graphicsText.RectWidthStyle.TIGHT,
-        graphicsText.RectHeightStyle.TIGHT);
-      const brush = new drawing.Brush();
-      const highlight = this.color(this.palette.primary);
-      highlight.alpha = 51;
-      brush.setColor(highlight);
-      paragraph.updateColor(foreground);
-      const highlightedLines = paragraph.getTextLines();
-      for (const box of boxes) {
-        // Range boxes are still in native paragraph coordinates. Translate each visible line
-        // exactly like the text, keeping paragraph gaps outside the speech highlight.
-        for (let index = 0; index < page.lineMetrics.length; index++) {
-          const metric = page.lineMetrics[index];
-          const nativeTop = Math.max(box.rect.top, metric.baseline - metric.ascent);
-          const nativeBottom = Math.min(box.rect.bottom, metric.baseline + metric.descent);
-          if (nativeBottom <= nativeTop) continue;
-          const shift = page.lineShifts[index] ?? 0;
-          const top = Math.max(0, nativeTop - page.layoutTop + shift);
-          const bottom = Math.min(page.layoutHeight, nativeBottom - page.layoutTop + shift);
-          if (bottom <= top) continue;
-          canvas.save();
-          canvas.clipRect({ left: box.rect.left, top: top, right: box.rect.right, bottom: bottom },
-            drawing.ClipOp.INTERSECT, true);
-          canvas.attachBrush(brush);
-          canvas.drawRect(box.rect.left, top, box.rect.right, bottom);
-          canvas.detachBrush();
-          this.paintLines(canvas, highlightedLines);
-          canvas.restore();
-        }
-      }
-      // Paragraphs are shared by all visible rows. Never leave a highlight color on the shared layout.
-      paragraph.updateColor(foreground);
-      page.paintState.lines = paragraph.getTextLines();
+    if (this.dialogueHighlight) {
+      for (const range of page.dialogueRanges) this.paintRange(canvas, range.start, range.end, 'color');
     }
+    this.paintRange(canvas, this.range.start, this.range.end, this.speechMark);
+    // 排版对象在可见行之间共享，绘制结束恢复正文色。
+    paragraph.updateColor(foreground);
+    page.paintState.lines = paragraph.getTextLines();
     canvas.restore();
   }
+  private paintRange(canvas: drawing.Canvas, start: number, end: number, mark: string): void {
+    const page = this.page;
+    const paragraph = page.paragraph;
+    if (paragraph === null || start < 0 || end <= start) return;
+    const displayStart = page.displayStart + start;
+    const displayEnd = page.displayStart + end;
+    const boxes = paragraph.getRectsForRange({
+      start: page.nativeOffsets?.nativeOffsetForDisplay(displayStart) ?? displayStart,
+      end: page.nativeOffsets?.nativeOffsetForDisplay(displayEnd) ?? displayEnd
+    }, graphicsText.RectWidthStyle.TIGHT, graphicsText.RectHeightStyle.TIGHT);
+    const accent = this.color(this.palette.isDark ? '#FFB4A8' : '#A33245');
+    const brush = new drawing.Brush();
+    const tint = this.color(this.palette.primary);
+    tint.alpha = 51;
+    brush.setColor(mark === 'highlight' ? tint : accent);
+    paragraph.updateColor(mark === 'color' ? accent : this.color(this.palette.primary));
+    const lines = paragraph.getTextLines();
+    for (const box of boxes) {
+      for (let index = 0; index < page.lineMetrics.length; index++) {
+        const metric = page.lineMetrics[index];
+        const nativeTop = Math.max(box.rect.top, metric.baseline - metric.ascent);
+        const nativeBottom = Math.min(box.rect.bottom, metric.baseline + metric.descent);
+        if (nativeBottom <= nativeTop) continue;
+        const shift = page.lineShifts[index] ?? 0;
+        const top = Math.max(0, nativeTop - page.layoutTop + shift);
+        const bottom = Math.min(page.layoutHeight, nativeBottom - page.layoutTop + shift);
+        if (bottom <= top) continue;
+        canvas.save();
+        canvas.clipRect({ left: box.rect.left, top: top, right: box.rect.right, bottom: bottom }, drawing.ClipOp.INTERSECT, true);
+        if (mark !== 'color') {
+          canvas.attachBrush(brush);
+          canvas.drawRect(box.rect.left, mark === 'underline' ? Math.max(top, bottom - Math.max(1, metric.ascent / 18)) : top,
+            box.rect.right, bottom);
+          canvas.detachBrush();
+        }
+        if (mark !== 'underline') this.paintLines(canvas, lines);
+        canvas.restore();
+      }
+    }
+  }
+
 }
 
 export class ReaderParagraphNodeController extends NodeController {
@@ -104,21 +117,25 @@ export class ReaderParagraphNodeController extends NodeController {
   private page: OnlineTextPage = new OnlineTextPage();
   private range: SpeechHighlightRange = new SpeechHighlightRange();
   private palette: ReaderPalette = new ReaderPalette();
+  private speechMark: string = 'color';
+  private dialogueHighlight: boolean = false;
 
   makeNode(context: UIContext): FrameNode {
     this.node = new ReaderParagraphFrameNode(context);
-    this.node.update(this.page, this.range, this.palette);
+    this.node.update(this.page, this.range, this.palette, this.speechMark, this.dialogueHighlight);
     return this.node;
   }
 
-  update(page: OnlineTextPage, range: SpeechHighlightRange, palette: ReaderPalette): void {
+  update(page: OnlineTextPage, range: SpeechHighlightRange, palette: ReaderPalette, speechMark: string = 'color', dialogueHighlight: boolean = false): void {
     if (this.page === page && this.range.start === range.start && this.range.end === range.end &&
-      this.palette.primary === palette.primary && this.palette.background === palette.background) return;
+      this.palette.primary === palette.primary && this.palette.background === palette.background && this.speechMark === speechMark && this.dialogueHighlight === dialogueHighlight) return;
     this.page = page;
     this.range = range;
     this.palette = palette;
+    this.speechMark = speechMark;
+    this.dialogueHighlight = dialogueHighlight;
     // Keep the mounted native node and atomically replace its retained paragraph.
-    this.node?.update(page, range, palette);
+    this.node?.update(page, range, palette, speechMark, dialogueHighlight);
   }
 
   release(): void {

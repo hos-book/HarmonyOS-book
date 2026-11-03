@@ -23,6 +23,8 @@ export class RankingService {
 
   static platforms(): RankingPlatform[] {
     return [new RankingPlatform('', $r('app.string.home_recommendations')),
+      new RankingPlatform('qqcomic', $r('app.string.ranking_qqcomic')),
+      new RankingPlatform('bilicomic', $r('app.string.ranking_bilicomic')),
       new RankingPlatform('qidian', $r('app.string.ranking_qidian')),
       new RankingPlatform('lrts', $r('app.string.ranking_lrts')),
       new RankingPlatform('ximalaya', $r('app.string.ranking_ximalaya')),
@@ -40,6 +42,30 @@ export class RankingService {
         'https://b.faloo.com/y_0_0_0_0_3_15_1.html'),
       new RankingBoard('fl-flowers', 'faloo', $r('app.string.ranking_faloo'), $r('app.string.ranking_month_flowers'),
         'https://b.faloo.com/y_0_0_0_0_3_5_1.html'),
+      new RankingBoard('qqcomic-top', 'qqcomic', $r('app.string.ranking_qqcomic'), $r('app.string.ranking_comic_top100'),
+        'https://ac.qq.com/Rank/comicRank/type/top'),
+      new RankingBoard('qqcomic-mt', 'qqcomic', $r('app.string.ranking_qqcomic'), $r('app.string.ranking_comic_month'),
+        'https://ac.qq.com/Rank/comicRank/type/mt'),
+      new RankingBoard('qqcomic-rise', 'qqcomic', $r('app.string.ranking_qqcomic'), $r('app.string.ranking_comic_rising'),
+        'https://ac.qq.com/Rank/comicRank/type/rise'),
+      new RankingBoard('qqcomic-new', 'qqcomic', $r('app.string.ranking_qqcomic'), $r('app.string.ranking_comic_new'),
+        'https://ac.qq.com/Rank/comicRank/type/new'),
+      new RankingBoard('qqcomic-pay', 'qqcomic', $r('app.string.ranking_qqcomic'), $r('app.string.ranking_comic_sales'),
+        'https://ac.qq.com/Rank/comicRank/type/pay'),
+      new RankingBoard('qqcomic-male', 'qqcomic', $r('app.string.ranking_qqcomic'), $r('app.string.ranking_comic_male'),
+        'https://ac.qq.com/Rank/comicRank/type/male'),
+      new RankingBoard('qqcomic-female', 'qqcomic', $r('app.string.ranking_qqcomic'), $r('app.string.ranking_comic_female'),
+        'https://ac.qq.com/Rank/comicRank/type/female'),
+      new RankingBoard('bilicomic-1', 'bilicomic', $r('app.string.ranking_bilicomic'), $r('app.string.ranking_comic_chinese'),
+        'https://manga.bilibili.com/ranking/1'),
+      new RankingBoard('bilicomic-0', 'bilicomic', $r('app.string.ranking_bilicomic'), $r('app.string.ranking_comic_japanese'),
+        'https://manga.bilibili.com/ranking/0'),
+      new RankingBoard('bilicomic-2', 'bilicomic', $r('app.string.ranking_bilicomic'), $r('app.string.ranking_comic_korean'),
+        'https://manga.bilibili.com/ranking/2'),
+      new RankingBoard('bilicomic-7', 'bilicomic', $r('app.string.ranking_bilicomic'), $r('app.string.ranking_comic_new'),
+        'https://manga.bilibili.com/ranking/7'),
+      new RankingBoard('bilicomic-13', 'bilicomic', $r('app.string.ranking_bilicomic'), $r('app.string.ranking_comic_finished'),
+        'https://manga.bilibili.com/ranking/13'),
       new RankingBoard('lr-hot', 'lrts', $r('app.string.ranking_lrts'), $r('app.string.ranking_hot'),
         'https://www.lrts.me/rank/hot/week'),
       new RankingBoard('qd-month', 'qidian', $r('app.string.ranking_qidian'), $r('app.string.ranking_month'),
@@ -176,12 +202,23 @@ export class RankingService {
     return task;
   }
 
+  /** 漫画榜使用官网桌面页面；手机 UA 会重定向到不同结构的移动站。 */
+  static headers(platform: string): Record<string, string> {
+    if (platform !== 'qqcomic' && platform !== 'bilicomic') return {};
+    return {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+      'Referer': platform === 'qqcomic' ? 'https://ac.qq.com/Rank' : 'https://manga.bilibili.com/',
+      'Accept': 'text/html,application/xhtml+xml'
+    };
+  }
+
   private static async fetch(context: common.Context, board: RankingBoard): Promise<RankingBoard> {
     const next = new RankingBoard(board.id, board.platformId, board.platformName, board.title, board.endpoint);
     next.books = board.books;
     next.fetchedAt = board.fetchedAt;
     try {
       const response = await HttpClient.request(board.endpoint, { timeout: 12000,
+        headers: RankingService.headers(board.platformId),
         charset: board.platformId === 'faloo' ? 'gb18030' : 'utf-8' });
       if (response.statusCode !== 200) throw new Error(`Ranking HTTP ${response.statusCode}`);
       const books = RankingParser.parse(board.platformId, board.id, response.body);

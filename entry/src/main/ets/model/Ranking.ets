@@ -1,16 +1,17 @@
 /** 发现元数据，不能直接用于详情、目录或播放分发。 */
+@ObservedV2
 export class RankingBook {
   id: string = '';
   platformId: string = '';
   title: string = '';
-  author: string = '';
+  @Trace author: string = '';
   narrator: string = '';
-  contentType: 'text' | 'audio' = 'text';
-  coverUrl: string = '';
+  contentType: 'text' | 'audio' | 'comic' = 'text';
+  @Trace coverUrl: string = '';
   originalUrl: string = '';
-  intro: string = '';
+  @Trace intro: string = '';
   rank: number = 0;
-  rating: number = 0;
+  @Trace rating: number = 0;
 }
 
 export class RankingBoard {

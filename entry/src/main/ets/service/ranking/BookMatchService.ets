@@ -112,7 +112,8 @@ export class BookMatchService {
     const sources = await SourceDataService.getEnabledSources();
     const concurrency = await PreferenceService.getSearchConcurrency();
     if (generation !== this.generation) return;
-    const eligible = sources.filter((source: BookSource): boolean => source.bookSourceType !== 2);
+    const eligible = sources.filter((source: BookSource): boolean =>
+      target.contentType === 'comic' ? source.bookSourceType === 2 : source.bookSourceType !== 2);
     // 上次选择的来源优先搜索；仍重新执行规则验证，不复用过期结果或自动跳转。
     eligible.sort((left: BookSource, right: BookSource): number =>
       Number(right.bookSourceUrl === remembered?.sourceUrl) - Number(left.bookSourceUrl === remembered?.sourceUrl));
@@ -130,6 +131,7 @@ export class BookMatchService {
             if (!result.bookUrl || !result.sourceUrl) continue;
             const type: 'text' | 'audio' | 'comic' = result.contentType ??
               (source.bookSourceType === 0 || source.bookSourceType === 3 ? 'text' : source.bookSourceType === 2 ? 'comic' : 'audio');
+            if (target.contentType === 'comic' && type !== 'comic') continue;
             const score = BookMatchService.score(target, result);
             const key = `${result.sourceUrl}\u001f${result.bookUrl}`;
             if (score <= 0 || seen.has(key) || progress.matches.length >= 150) continue;

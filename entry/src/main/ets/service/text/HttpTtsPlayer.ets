@@ -1,3 +1,4 @@
+import { PlatformCompat } from '../../utils/PlatformCompat';
 import { common } from '@kit.AbilityKit';
 import { http } from '@kit.NetworkKit';
 import { media } from '@kit.MediaKit';
@@ -8,6 +9,34 @@ import { CustomTtsConfigParser } from './CustomTtsConfigParser';
 
 /** 一次连续朗读复用同一个播放器，切段只 reset，停止时才 release。 */
 export class HttpTtsAudioOutput {
+  private loudnessGain: number = 0;
+  private gainOperation: number = 0;
+
+  async setLoudnessGain(gain: number): Promise<boolean> {
+    if (!PlatformCompat.supports(21) || !Number.isFinite(gain) || gain < 0 || gain > 24) return false;
+    const previous = this.loudnessGain;
+    this.loudnessGain = Math.round(gain);
+    const operation = ++this.gainOperation;
+    const player = this.player;
+    if (player === null || !['prepared', 'playing', 'paused', 'completed'].includes(player.state)) return true;
+    let timer: number = -1;
+    try {
+      const completion = player.setLoudnessGain(this.loudnessGain).then((): boolean => true).catch((): boolean => {
+        if (operation === this.gainOperation) this.loudnessGain = previous;
+        return false;
+      });
+      const bounded = new Promise<boolean>((resolve): void => { timer = setTimeout((): void => resolve(true), 1500); });
+      return await Promise.race([completion, bounded]);
+    } catch (_error) {
+      if (operation === this.gainOperation) this.loudnessGain = previous;
+      return false;
+    } finally { if (timer !== -1) clearTimeout(timer); }
+  }
+
+  async restoreLoudness(): Promise<void> {
+    if (this.loudnessGain > 0) await this.setLoudnessGain(this.loudnessGain);
+  }
+
   private player: media.AVPlayer | null = null;
   private onInterrupt: ((event: audio.InterruptEvent) => void) | null;
   private onDeviceUnavailable: (() => void) | null;
@@ -229,6 +258,8 @@ export class HttpTtsPlayer {
             output.preparePlayback().then(async (ready: boolean): Promise<void> => {
               this.check();
               if (!ready) throw new Error('TTS focus cancelled');
+              await output.restoreLoudness();
+              this.check();
               await player.play();
             }).catch((): void => reject(new Error('TTS audio play failed')));
           } catch (_error) { reject(new Error('TTS audio play failed')); }

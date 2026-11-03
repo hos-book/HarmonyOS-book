@@ -26,8 +26,8 @@ export class AdaptiveLayout {
   }
 
   /** 正文限宽，额外缩进不写入用户的阅读边距设置。 */
-  static readerGutter(width: number, leftInset: number, rightInset: number): number {
-    return Math.max(0, (width - leftInset - rightInset - 760) / 2);
+  static readerGutter(width: number, leftInset: number, rightInset: number, columns: boolean = false): number {
+    return Math.max(0, (width - leftInset - rightInset - (columns ? 1320 : 760)) / 2);
   }
 
   private static readonly COMPACT_WIDTH: number = 360;

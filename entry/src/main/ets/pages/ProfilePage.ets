@@ -75,6 +75,7 @@ export struct ProfilePage {
   @Local appearance: AppAppearance = AppAppearance.current;
   @Param navStack: NavPathStack = new NavPathStack();
   @Event onScrollerReady: (scroller: Scroller) => void = () => {};
+  @Event onContentScroll: (offset: number, state: ScrollState) => void = () => {};
   @Local medalService: MedalService = MedalService.instance;
   @Local auth: AuthService = AuthService.instance;
   @Local membership: MembershipState = MembershipState.current;
@@ -169,6 +170,7 @@ export struct ProfilePage {
         .width('100%')
         .height('100%')
         .scrollBar(BarState.Off)
+        .onDidScroll((_x: number, y: number, state: ScrollState): void => this.onContentScroll(y, state))
         .edgeEffect(EdgeEffect.Spring)
         .backgroundColor(Color.Transparent)
         .align(Alignment.Top)

@@ -1,3 +1,4 @@
+import { PlatformCompat } from '../utils/PlatformCompat';
 import { TextToSpeechState, SpeechVoice } from '../model/TextToSpeechState';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { AppColor } from '../theme/Theme';
@@ -11,6 +12,9 @@ import { SpeechSynthesisSettings } from '../model/SpeechSynthesisSettings';
 @ComponentV2
 export struct ReaderSpeechSheet {
   @Param state: TextToSpeechState = new TextToSpeechState();
+  @Event onFloatingOpen: () => void = () => {};
+  @Param speechMark: string = 'color';
+  @Event onSpeechMarkChange: (value: string) => void = () => {};
   @Param voiceOnly: boolean = false;
   @Param showReadingMode: boolean = false;
   @Param speechFollowPage: boolean = true;
@@ -80,6 +84,21 @@ export struct ReaderSpeechSheet {
         }.width('100%')
 
         if (this.showReadingMode) {
+          Button($r('app.string.reader_floating_paragraph')).fontColor(AppColor.Brand)
+            .backgroundColor($r('sys.color.comp_background_tertiary'))
+            .onClick((): void => this.onFloatingOpen()).id('reader-floating-paragraph')
+          Text($r('app.string.reader_speech_mark')).fontColor($r('sys.color.font_primary')).fontSize(16)
+          Row({ space: 6 }) {
+            ForEach(['color', 'highlight', 'underline'], (mark: string) => {
+              Button(mark === 'color' ? $r('app.string.reader_mark_color') : mark === 'highlight' ?
+                $r('app.string.reader_mark_highlight') : $r('app.string.reader_mark_underline'))
+                .layoutWeight(1).fontSize(14)
+                .fontColor(this.speechMark === mark ? AppColor.Brand : $r('sys.color.font_primary'))
+                .backgroundColor($r('sys.color.comp_background_tertiary'))
+                .accessibilitySelected(this.speechMark === mark)
+                .onClick((): void => this.onSpeechMarkChange(mark))
+            }, (mark: string): string => mark)
+          }.width('100%')
           Row({ space: 12 }) {
             Column({ space: 4 }) {
               Text($r('app.string.reader_speech_follow_page')).fontSize(16).fontColor($r('sys.color.font_primary'))
@@ -89,6 +108,20 @@ export struct ReaderSpeechSheet {
             Toggle({ type: ToggleType.Switch, isOn: this.speechFollowPage }).selectedColor(AppColor.Brand)
               .onChange((value: boolean): void => this.onFollowPageChange(value)).id('reader-speech-follow-page')
           }.width('100%')
+        }
+        if (!this.voiceOnly) {
+          Row() {
+            Text($r('app.string.player_volume_boost')).fontColor($r('sys.color.font_primary')).layoutWeight(1)
+            Text(`+${this.state.loudnessGain} dB`).fontColor(AppColor.Brand)
+          }.width('100%')
+          Slider({ value: this.state.loudnessGain, min: 0, max: 24, step: 1 })
+            .width('100%').selectedColor(AppColor.Brand).enabled(PlatformCompat.supports(21) && !this.state.loudnessBusy)
+            .onChange((value: number, mode: SliderChangeMode): void => {
+              if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) this.service.setLoudnessGain(Math.round(value));
+            }).id('tts-volume-boost')
+          if (!PlatformCompat.supports(21)) {
+            Text($r('app.string.tts_volume_boost_unsupported')).fontSize(12).fontColor($r('sys.color.font_secondary'))
+          }
         }
         if (this.state.error) {
           Text(this.state.error).fontColor($r('sys.color.font_secondary')).fontSize(14).width('100%')

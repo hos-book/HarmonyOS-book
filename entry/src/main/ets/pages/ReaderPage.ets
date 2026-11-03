@@ -31,6 +31,8 @@ import { HdsTabs, HdsTabsFloatingStyle } from '@kit.UIDesignKit';
 import { HdsCompat, CompatibleTabsModifier } from '../utils/HdsCompat';
 import { PreferenceService } from '../service/PreferenceService';
 import { ReaderSpeechText } from '../components/ReaderSpeechText';
+import { ReaderFloatingService } from '../service/text/ReaderFloatingService';
+import { ReaderFloatingLyrics } from '../components/ReaderFloatingLyrics';
 import { ReaderSpeechSheet } from '../components/ReaderSpeechSheet';
 import { ImmersiveActionButton } from '../components/ImmersiveActionButton';
 import { ReadingTimeTracker } from '../service/text/ReadingTimeTracker';
@@ -141,6 +143,10 @@ export struct ReaderPage {
   @Local currentChapterTitle: string = '';
   @Local fontSize: number = TextReadingSettings.FONT_SIZE_DEFAULT;
   @Local lineHeight: number = TextReadingSettings.LINE_HEIGHT_DEFAULT;
+  @Local letterSpacing: number = 0;
+  @Local previewLetterSpacing: number = -1;
+  @Local dialogueHighlight: boolean = false;
+  @Local speechMark: string = 'color';
   @Local paragraphSpacing: number = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
   @Local previewParagraphSpacing: number = -1;
   @Local pickingBackgroundImage: boolean = false;
@@ -1016,8 +1022,10 @@ export struct ReaderPage {
   }
 
   private useReaderColumns(): boolean {
-    return this.pageTurnMode !== PageTurnMode.Vertical && this.readerTextWidthVp >= 600 &&
-      this.readerViewportWidthVp > this.readerViewportHeightVp;
+    const width = this.readerViewportWidthVp > 0 ? this.readerViewportWidthVp : WindowUtils.getWindowWidthVp();
+    const height = this.readerViewportHeightVp > 0 ? this.readerViewportHeightVp : WindowUtils.getWindowHeightVp();
+    return this.pageTurnMode !== PageTurnMode.Vertical && width > height &&
+      width - this.marginLeft - this.leftSafeVp - this.marginRight - this.rightSafeVp >= 664;
   }
 
   private paginateOnlineTextContent(content: string): OnlineTextPage[] {
@@ -1037,7 +1045,7 @@ export struct ReaderPage {
       Math.max(80, viewportHeightVp - reservedHeightVp);
     const columns = this.useReaderColumns();
     const pages = OnlineTextPaginator.paginate(content, (columns ? (contentWidthVp - 24) / 2 : contentWidthVp) * density,
-      contentHeightVp * density, fontSizePx, this.lineHeight, this.fontFamily, this.fontWeight, this.textAlignment, this.paragraphSpacing);
+      contentHeightVp * density, fontSizePx, this.lineHeight, this.fontFamily, this.fontWeight, this.textAlignment, this.paragraphSpacing, this.letterSpacing * density);
     return columns ? OnlineTextPage.spreads(content, pages) : pages;
   }
 
@@ -1401,6 +1409,9 @@ export struct ReaderPage {
       }
       this.fontSize = settings.fontSize;
       this.lineHeight = settings.lineHeight;
+      this.letterSpacing = settings.letterSpacing;
+      this.dialogueHighlight = settings.dialogueHighlight;
+      this.speechMark = settings.speechMark;
       this.paragraphSpacing = settings.paragraphSpacing;
       this.themeId = settings.themeId;
       this.customBackground = settings.customBackground;
@@ -1473,6 +1484,9 @@ export struct ReaderPage {
     this.screenOn.configure(0);
     this.fontSize = TextReadingSettings.FONT_SIZE_DEFAULT;
     this.lineHeight = TextReadingSettings.LINE_HEIGHT_DEFAULT;
+    this.letterSpacing = 0;
+    this.dialogueHighlight = false;
+    this.speechMark = 'color';
     this.paragraphSpacing = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
     this.themeId = TextReadingSettings.THEME_DEFAULT;
     this.customBackground = TextReadingSettings.CUSTOM_BACKGROUND_DEFAULT;
@@ -1526,6 +1540,9 @@ export struct ReaderPage {
     const settings = TextReadingSettings.ofAll(this.fontSize, this.lineHeight, this.themeId,
       this.customBackground, this.backgroundPattern, this.bgImagePath, this.overlayAlpha, this.pageTurnMode, this.showReadingStatus);
     settings.speechFollowPage = this.speechFollowPage;
+    settings.letterSpacing = this.letterSpacing;
+    settings.dialogueHighlight = this.dialogueHighlight;
+    settings.speechMark = this.speechMark;
     settings.paragraphSpacing = this.paragraphSpacing;
     settings.textAlignment = this.textAlignment;
     settings.fontWeight = this.fontWeight;
@@ -2052,7 +2069,7 @@ export struct ReaderPage {
   }
 
   private onlineTextTurnRevision(): string {
-    return `${this.currentResourceIndex}:${this.onlineTextPageIndex}:${this.fontSize}:${this.lineHeight}:${this.paragraphSpacing}:` +
+    return `${this.currentResourceIndex}:${this.onlineTextPageIndex}:${this.fontSize}:${this.lineHeight}:${this.paragraphSpacing}:${this.letterSpacing}:` +
       `${this.cornerLayout}:${this.showChapterTitle}:${this.showPageNumber}:${this.showChapterNumber}:${this.showBookName}:${this.showReadingStatus}:` +
       `${this.textAlignment}:${this.fontFamily}:${this.systemTypographyRevision}:${this.fontWeight}:${this.fontColor}:${this.themeId}:${this.customBackground}:${this.backgroundPattern}:${this.bgImagePath}:${this.backgroundImageMode}:${this.overlayAlpha}:` +
       `${this.readerHeaderHeight()}:${this.readerFooterHeight()}:${this.readerTopInsetVp()}:${this.leftSafeVp}:${this.rightSafeVp}:${this.topSafeVp}:${this.readerBottomInsetVp()}:${this.marginLeft}:${this.marginRight}:${this.marginTop}:${this.marginBottom}:${this.palette.background}:${this.palette.primary}`;
@@ -2371,7 +2388,7 @@ export struct ReaderPage {
 
   private readerGutter(): number {
     const width = this.readerViewportWidthVp > 0 ? this.readerViewportWidthVp : WindowUtils.getWindowWidthVp();
-    return AdaptiveLayout.readerGutter(width, this.marginLeft + this.leftSafeVp, this.marginRight + this.rightSafeVp);
+    return AdaptiveLayout.readerGutter(width, this.marginLeft + this.leftSafeVp, this.marginRight + this.rightSafeVp, this.useReaderColumns());
   }
 
   private readerLeftPadding(): number {
@@ -2653,9 +2670,31 @@ export struct ReaderPage {
     }
   }
 
+  private async openFloatingParagraph(): Promise<void> {
+    if (this.context === null) return;
+    const speaking = this.speechState.active && this.speechState.bookId === this.bookId;
+    const title = speaking ? this.speechState.bookTitle : this.book?.title ?? '';
+    const content = speaking ? this.speechState.sentence : this.onlineTextContent;
+    const offset = speaking ? 0 : this.currentOnlineTextCharOffset();
+    const opened = await ReaderFloatingService.open(this.context, title, content, offset, speaking);
+    if (!opened) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.reader_float_permission_denied') });
+    else this.showSpeechSheet = false;
+  }
+
+  @Monitor('currentPosition', 'onlineTextPageIndex', 'onlineTextContent')
+  private updateFloatingParagraph(): void {
+    ReaderFloatingService.update(this.book?.title ?? '', this.onlineTextContent, this.currentOnlineTextCharOffset(), false);
+  }
+
   @Builder
   private buildSpeechSheet(): void {
     ReaderSpeechSheet({ state: this.speechState,
+      onFloatingOpen: (): void => { this.openFloatingParagraph(); },
+      speechMark: this.speechMark,
+      onSpeechMarkChange: (value: string): void => {
+        this.speechMark = TextReadingSettings.normalizeSpeechMark(value);
+        this.saveReadingSettings();
+      },
       showReadingMode: true, speechFollowPage: this.speechFollowPage,
       onFollowPageChange: (follow: boolean): void => {
         this.speechFollowPage = follow;
@@ -2668,6 +2707,7 @@ export struct ReaderPage {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
+      ReaderFloatingLyrics().zIndex(100).align(Alignment.Center)
       Column().width(0).height(0)
         .bindSheet($$this.showBookmarkSheet, this.buildBookmarkSheet(), {
           height: '82%', detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM, showClose: true,
@@ -2990,6 +3030,7 @@ export struct ReaderPage {
         source: (this.onlineTextTurnPreview?.content ?? this.onlineTextContent).substring(this.currentOnlineTextColumn(column).startOffset, this.currentOnlineTextColumn(column).endOffset),
         sourceStart: this.currentOnlineTextColumn(column).startOffset, state: this.speechState,
         highlightEnabled: this.speechState.bookId === this.bookId && this.speechState.chapterIndex === this.onlineTextChapterIndex(),
+        letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, speechMark: this.speechMark,
         fontSize: this.fontSize, lineHeight: this.lineHeight, palette: this.palette,
         fontFamily: this.fontFamily, fontWeight: this.fontWeight
       })
@@ -3052,6 +3093,7 @@ export struct ReaderPage {
               content: this.onlineTextContent, charOffset: this.currentOnlineTextCharOffset(),
               chapterCount: this.book?.chapters.length ?? 0,
               fontSize: this.fontSize, lineHeight: this.lineHeight, paragraphSpacing: this.paragraphSpacing, palette: this.palette,
+              letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, speechMark: this.speechMark,
               textAlignment: this.textAlignment,
               fontFamily: this.fontFamily, fontWeight: this.fontWeight,
               bookId: this.bookId,
@@ -3353,6 +3395,21 @@ export struct ReaderPage {
       lineHeight: this.previewLineHeight || this.lineHeight,
       paragraphSpacing: this.previewParagraphSpacing >= 0 ? this.previewParagraphSpacing : this.paragraphSpacing,
       paragraphSpacingEnabled: this.isOnlineTextBook(),
+      letterSpacing: this.previewLetterSpacing >= 0 ? this.previewLetterSpacing : this.letterSpacing,
+      dialogueHighlight: this.dialogueHighlight,
+      onDialogueHighlightChange: (enabled: boolean): void => {
+        this.dialogueHighlight = enabled;
+        this.saveReadingSettings();
+      },
+      onLetterSpacingChange: (value: number, commit: boolean): void => {
+        this.previewLetterSpacing = TextReadingSettings.normalizeLetterSpacing(value);
+        if (!commit) return;
+        this.letterSpacing = this.previewLetterSpacing;
+        this.previewLetterSpacing = -1;
+        this.cancelReaderSettingsRefresh();
+        this.applyReadingSettings();
+        this.saveReadingSettings();
+      },
       onParagraphSpacingChange: (value: number, commit: boolean): void => {
         this.handleParagraphSpacingChange(value, commit);
       },

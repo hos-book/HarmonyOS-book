@@ -1,3 +1,5 @@
+import { ReaderFloatingService } from './ReaderFloatingService';
+import { PlatformCompat } from '../../utils/PlatformCompat';
 import { TextReadingPosition } from '../../model/TextReading';
 import { ReaderTextDocument } from '../../model/ReaderTools';
 import { ReaderToolsService } from './ReaderToolsService';
@@ -125,6 +127,10 @@ export class TextToSpeechService {
 
   private async loadSettings(context: common.Context): Promise<void> {
     this.store = await preferences.getPreferences(context, { name: 'text_to_speech' });
+    const gain = this.store.getSync('loudnessGain', 0);
+    this.state.loudnessGain = PlatformCompat.supports(21) && typeof gain === 'number' && Number.isFinite(gain) ?
+      Math.max(0, Math.min(24, Math.round(gain))) : 0;
+    await this.httpOutput.setLoudnessGain(this.state.loudnessGain);
     const speed = this.store.getSync('speed', 1);
     const person = this.store.getSync('person', 13);
     const language = this.store.getSync('language', 'zh-CN');
@@ -157,6 +163,8 @@ export class TextToSpeechService {
   }
 
   private notify(): void {
+    if (this.state.active) ReaderFloatingService.update(this.state.bookTitle, this.chapterContent,
+      Math.max(0, this.state.highlightOffset), true);
     this.syncPlayerCard();
     if (!this.foreground) return;
     this.listeners.forEach((listener: () => void): void => listener());
@@ -348,6 +356,17 @@ export class TextToSpeechService {
         reject(error instanceof Error ? error : new Error(String(error)));
       }
     });
+  }
+
+  async setLoudnessGain(gain: number): Promise<void> {
+    if (this.state.loudnessBusy) return;
+    this.state.loudnessBusy = true;
+    try {
+      if (await this.httpOutput.setLoudnessGain(gain)) {
+        this.state.loudnessGain = Math.round(gain);
+        this.saveSettings();
+      } else this.state.error = this.message($r('app.string.player_volume_boost_failed'));
+    } finally { this.state.loudnessBusy = false; }
   }
 
   setSpeed(speed: number): void {
@@ -1083,6 +1102,7 @@ export class TextToSpeechService {
   private saveSettings(): void {
     if (this.store === null) return;
     try {
+    this.store.putSync('loudnessGain', this.state.loudnessGain);
     this.store.putSync('speed', this.state.speed);
     this.store.putSync('person', this.state.person);
     this.store.putSync('language', this.state.language);

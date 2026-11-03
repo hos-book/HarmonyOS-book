@@ -60,6 +60,11 @@ export class TextReadingSettingsService {
       TextReadingSettings.SHOW_READING_STATUS_DEFAULT;
     const result = TextReadingSettings.ofAll(fontSize, lineHeight, themeId, background, pattern, image, overlay,
       pageTurnMode, showReadingStatus);
+    const letterSpacing = store.getSync('letter_spacing', 0);
+    result.letterSpacing = TextReadingSettings.normalizeLetterSpacing(typeof letterSpacing === 'number' ? letterSpacing : 0);
+    result.dialogueHighlight = store.getSync('dialogue_highlight', false) === true;
+    const speechMark = store.getSync('speech_mark', 'color');
+    result.speechMark = TextReadingSettings.normalizeSpeechMark(typeof speechMark === 'string' ? speechMark : 'color');
     const paragraphSpacing = store.getSync(KEY_PARAGRAPH_SPACING, TextReadingSettings.PARAGRAPH_SPACING_DEFAULT);
     result.paragraphSpacing = TextReadingSettings.normalizeParagraphSpacing(
       typeof paragraphSpacing === 'number' ? paragraphSpacing : TextReadingSettings.PARAGRAPH_SPACING_DEFAULT);
@@ -195,6 +200,9 @@ export class TextReadingSettingsService {
     store.putSync('text_alignment', TextReadingSettings.normalizeTextAlignment(settings.textAlignment));
     store.putSync(KEY_FONT_SIZE, TextReadingSettings.normalizeFontSize(settings.fontSize));
     store.putSync(KEY_LINE_HEIGHT, TextReadingSettings.normalizeLineHeight(settings.lineHeight));
+    store.putSync('letter_spacing', TextReadingSettings.normalizeLetterSpacing(settings.letterSpacing));
+    store.putSync('dialogue_highlight', settings.dialogueHighlight);
+    store.putSync('speech_mark', TextReadingSettings.normalizeSpeechMark(settings.speechMark));
     store.putSync(KEY_PARAGRAPH_SPACING, TextReadingSettings.normalizeParagraphSpacing(settings.paragraphSpacing));
     store.putSync(KEY_THEME_ID, TextReadingSettings.normalizeThemeId(settings.themeId));
     store.putSync(KEY_CUSTOM_BACKGROUND, normalizeHex(settings.customBackground));

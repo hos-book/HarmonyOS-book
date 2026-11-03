@@ -53,7 +53,8 @@ export class AppIconService {
       new AppIconOption('waveorange', $r('app.string.app_icon_waveorange'), $r('app.media.app_icon_waveorange_legacy')),
       new AppIconOption('wavegraphite', $r('app.string.app_icon_wavegraphite'), $r('app.media.app_icon_wavegraphite_legacy')),
       new AppIconOption('wavepurple', $r('app.string.app_icon_wavepurple'), $r('app.media.app_icon_wavepurple_legacy')),
-      new AppIconOption('waveclear', $r('app.string.app_icon_waveclear'), $r('app.media.app_icon_waveclear_legacy'))
+      new AppIconOption('waveclear', $r('app.string.app_icon_waveclear'), $r('app.media.app_icon_waveclear_legacy')),
+      new AppIconOption('iridescent', $r('app.string.app_icon_iridescent'), $r('app.media.app_icon_iridescent_legacy'))
     ];
   }
 

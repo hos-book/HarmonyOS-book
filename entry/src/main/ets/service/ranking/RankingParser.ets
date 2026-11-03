@@ -37,8 +37,82 @@ export class RankingParser {
     return clean.startsWith('https://') ? clean : '';
   }
 
+  private static qqcomic(body: string): RankingBook[] {
+    // 只读当前榜期的 rank-ul，不能混入上期排名、侧边推荐或全部漫画目录。
+    const panels = body.split(/<div\b[^>]*class=["'][^"']*\brank-tabcon\b[^"']*["'][^>]*>/i);
+    const lists = panels.length >= 2
+      ? panels[1].match(/<ul\b[^>]*class=["']rank-ul["'][^>]*>[\s\S]*?<\/ul>/gi) ?? []
+      : body.match(/<ol\b[^>]*class=["'][^"']*\bmod-rank-month-list\b[^"']*["'][^>]*>[\s\S]*?<\/ol>/gi) ?? [];
+    const books: RankingBook[] = [];
+    const seen = new Set<string>();
+    for (const list of lists) {
+      const rows = list.match(/<li\b[^>]*>[\s\S]*?<\/li>/gi) ?? [];
+      for (const html of rows) {
+        if (books.length >= 99) return books;
+        const link = /<a\b[^>]*href=["']\/Comic\/ComicInfo\/id\/(\d+)["'][^>]*>([\s\S]*?)<\/a>/i.exec(html);
+        if (link === null || seen.has(link[1])) continue;
+        const title = RankingParser.text(link[2]);
+        const rank = Number(RankingParser.capture(html, /<(?:em|sub)\b[^>]*>(\d+)<\/(?:em|sub)>/i));
+        if (!title || !Number.isInteger(rank) || rank <= 0) continue;
+        const book = new RankingBook();
+        book.id = `qqcomic:${link[1]}`;
+        book.platformId = 'qqcomic';
+        book.contentType = 'comic';
+        book.title = title;
+        book.rank = rank;
+        book.originalUrl = `https://ac.qq.com/Comic/comicInfo/id/${link[1]}`;
+        // 腾讯完整榜单仅提供书名和名次，不编造作者或封面地址。
+        seen.add(link[1]);
+        books.push(book);
+      }
+    }
+    return books;
+  }
+
+  private static bilicomic(boardId: string, body: string): RankingBook[] {
+    const data = /<script\b[^>]*id=["']vike_pageContext["'][^>]*>([\s\S]*?)<\/script>/i.exec(body)?.[1] ?? '';
+    if (!data) return [];
+    try {
+      const root = new JsonObj(JSON.parse(data));
+      if (root.getString('pageId') !== '/pages/ranking' ||
+        root.getObj('routeParams').getString('page_id') !== boardId.substring('bilicomic-'.length)) return [];
+      const page = root.getObj('data');
+      const list = page.getArr('rankListInfo');
+      const books: RankingBook[] = [];
+      const seen = new Set<string>();
+      for (let index = 0; index < Math.min(list.length(), 99); index++) {
+        const item = list.getObj(index);
+        const id = item.getString('comic_id');
+        const title = RankingParser.text(item.getString('title'));
+        if (!/^\d+$/.test(id) || !title || seen.has(id)) continue;
+        const book = new RankingBook();
+        book.id = `bilicomic:${id}`;
+        book.platformId = 'bilicomic';
+        book.contentType = 'comic';
+        book.title = title;
+        book.rank = index + 1;
+        const authors = item.getArr('author');
+        const names: string[] = [];
+        for (let authorIndex = 0; authorIndex < Math.min(authors.length(), 10); authorIndex++) {
+          const author = RankingParser.text(authors.getString(authorIndex));
+          if (author) names.push(author);
+        }
+        book.author = names.join(' / ');
+        book.intro = RankingParser.text(item.getString('comic_introduction'));
+        book.coverUrl = RankingParser.imageUrl(item.getString('vertical_cover')
+          .replace(/^http:\/\/(i[0-9]+\.hdslb\.com)\//, 'https://$1/'));
+        book.originalUrl = `https://manga.bilibili.com/detail/mc${id}`;
+        seen.add(id);
+        books.push(book);
+      }
+      return books;
+    } catch (_error) { return []; }
+  }
+
   static parse(platform: string, boardId: string, body: string): RankingBook[] {
     if (!body || body.length > 2 * 1024 * 1024) return [];
+    if (platform === 'qqcomic') return RankingParser.qqcomic(body);
+    if (platform === 'bilicomic') return RankingParser.bilicomic(boardId, body);
     if (platform === 'ximalaya') return RankingParser.ximalaya(boardId, body);
     if (platform === 'qimao') return RankingParser.qimao(body);
     if (platform === 'jjwxc') return RankingParser.jjwxc(body);
@@ -86,6 +160,29 @@ export class RankingParser {
       books.push(book);
     }
     return books;
+  }
+
+  static qqComicMetadata(id: string, body: string): RankingBook | null {
+    if (!/^qqcomic:\d+$/.test(id) || body.length > 2 * 1024 * 1024) return null;
+    const scripts = body.match(/<script\b[^>]*type=["']application\/ld\+json["'][^>]*>[\s\S]*?<\/script>/gi) ?? [];
+    for (const script of scripts) {
+      try {
+        const text = />([\s\S]*?)<\/script>/i.exec(script)?.[1] ?? '';
+        const item = new JsonObj(JSON.parse(text));
+        if (item.getString('@type') !== 'ComicSeries' ||
+          item.getString('url').toLowerCase() !== `https://ac.qq.com/comic/comicinfo/id/${id.substring(8)}`) continue;
+        const cover = RankingParser.imageUrl(item.getString('image'));
+        if (!cover) continue;
+        const book = new RankingBook();
+        book.id = id;
+        book.coverUrl = cover;
+        book.author = RankingParser.text(item.getObj('author').getString('name'));
+        book.intro = RankingParser.text(item.getString('description'));
+        book.rating = BookMetadataPolicy.rating(item.getObj('aggregateRating').getString('ratingValue'));
+        return book;
+      } catch (_error) { /* 单个无关结构化块损坏不影响作品信息。 */ }
+    }
+    return null;
   }
 
   private static fanqie(boardId: string, body: string): RankingBook[] {

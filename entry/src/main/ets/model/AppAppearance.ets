@@ -17,6 +17,7 @@ export class AppAppearance {
 
   /** 2 强、3 均衡、4 弱、6 跟随系统；兼容旧超薄/超厚偏好。 */
   @Trace material: number = 3;
+  @Trace verticalBottomTabs: boolean = false;
   /** 空字符串表示使用默认玫瑰红。 */
   @Trace accent: string = '';
   /** 当前套装；继续与阅读纸张和桌面应用图标独立保存。 */

@@ -503,6 +503,7 @@ export class PreferenceService {
         GeneralSettings.current.swipeSwitchTabs = s.getSync('swipe_switch_tabs', true) !== false;
         GeneralSettings.current.jianjianCompanionEnabled = s.getSync(KEY_JIANJIAN_COMPANION_ENABLED, false) === true;
         emitter.emit(EVT_JIANJIAN_COMPANION_CHANGED);
+        AppAppearance.current.verticalBottomTabs = s.getSync('vertical_bottom_tabs', false) === true;
         const material = await s.get(KEY_MATERIAL_STYLE, 0);
         const accent = await s.get(KEY_ACCENT_COLOR, '');
         const rawTheme = await s.get(KEY_THEME_SELECTION, '');
@@ -1011,6 +1012,13 @@ export class PreferenceService {
     const s = await PreferenceService.ensureStore();
     await s.put(KEY_COLOR_MODE, mode);
     await s.flush();
+  }
+
+  static async setVerticalBottomTabs(enabled: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    await store.put('vertical_bottom_tabs', enabled);
+    await store.flush();
+    AppAppearance.current.verticalBottomTabs = enabled;
   }
 
   static async setMaterialStyle(value: number): Promise<void> {

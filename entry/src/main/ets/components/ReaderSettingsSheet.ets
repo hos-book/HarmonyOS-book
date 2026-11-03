@@ -351,6 +351,10 @@ export struct ReaderSettingsSheet {
   @Param fontSize: number = TextReadingSettings.FONT_SIZE_DEFAULT;
   @Param lineHeight: number = TextReadingSettings.LINE_HEIGHT_DEFAULT;
   @Param paragraphSpacing: number = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
+  @Param letterSpacing: number = 0;
+  @Param dialogueHighlight: boolean = false;
+  @Event onLetterSpacingChange: (value: number, commit: boolean) => void = () => {};
+  @Event onDialogueHighlightChange: (enabled: boolean) => void = () => {};
   @Param paragraphSpacingEnabled: boolean = true;
   @Event onParagraphSpacingChange: (value: number, commit: boolean) => void = () => {};
   @Param themeId: string = ReaderThemeId.Parchment;
@@ -984,6 +988,21 @@ export struct ReaderSettingsSheet {
             this.buildLineHeightSection()
             if (this.paragraphSpacingEnabled) {
               this.buildParagraphSpacingSection()
+              ReaderSettingCard({ title: $r('app.string.reader_letter_spacing'), compact: true }) {
+                Row({ space: 8 }) {
+                  Slider({ value: this.letterSpacing, min: 0, max: 10, step: 0.5 })
+                    .layoutWeight(1).selectedColor(AppColor.Brand)
+                    .onChange((value: number, mode: SliderChangeMode): void =>
+                      this.onLetterSpacingChange(value, mode === SliderChangeMode.End || mode === SliderChangeMode.Click))
+                    .id('reader-letter-spacing')
+                  Text(`${this.letterSpacing.toFixed(1)} vp`).fontColor($r('sys.color.font_primary')).fontSize(14)
+                }.width('100%')
+              }
+              ReaderSettingCard({ title: $r('app.string.reader_dialogue_highlight'), inline: true }) {
+                Toggle({ type: ToggleType.Switch, isOn: this.dialogueHighlight }).selectedColor(AppColor.Brand)
+                  .onChange((value: boolean): void => this.onDialogueHighlightChange(value))
+              }
+              Text($r('app.string.reader_dialogue_highlight_hint')).fontSize(12).fontColor($r('sys.color.font_secondary'))
             }
             this.buildFontWeightSection()
             this.buildTextAlignmentSection()

@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="0.34" cy="0.22" r="1.0">
+      <stop offset="0" stop-color="#1C1C22"/><stop offset="1" stop-color="#08080A"/>
+    </radialGradient>
+    <linearGradient id="irid" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#4E82FF"/><stop offset="0.5" stop-color="#8A5BFF"/>
+      <stop offset="1" stop-color="#C774FF"/>
+    </linearGradient>
+    <linearGradient id="rim" x1="0" y1="0" x2="0.7" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.34"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0"/>
+      <stop offset="1" stop-color="#000000" stop-opacity="0.18"/>
+    </linearGradient>
+    <filter id="ds" x="-50%" y="-50%" width="200%" height="200%">
+      <feDropShadow dx="6" dy="10" stdDeviation="16" flood-color="#000000" flood-opacity="0.5"/>
+    </filter>
+    <filter id="blur" x="-120%" y="-120%" width="340%" height="340%">
+      <feGaussianBlur stdDeviation="26"/>
+    </filter>
+  </defs>
+
+  <rect width="1024" height="1024" rx="231" fill="url(#bg)"/>
+
+  <!-- 缝隙虹彩：藏在条与条之间 -->
+  <g filter="url(#blur)" stroke-linecap="round" stroke-width="46" opacity="0.55">
+    <line x1="330" y1="470" x2="470" y2="330" stroke="url(#irid)"/>
+    <line x1="470" y1="600" x2="600" y2="470" stroke="url(#irid)"/>
+  </g>
+
+  <!-- 四条纸片：单色系四阶明度 -->
+  <g stroke-linecap="round" stroke-width="108" filter="url(#ds)">
+    <line x1="282" y1="386" x2="386" y2="282" stroke="#C9CDD7"/>
+    <line x1="285" y1="621" x2="621" y2="285" stroke="#FBFBFE"/>
+    <line x1="449" y1="693" x2="693" y2="449" stroke="#A2A8B6"/>
+    <line x1="638" y1="742" x2="742" y2="638" stroke="#5F6472"/>
+  </g>
+
+  <!-- 柔光叠加 -->
+  <g stroke-linecap="round" stroke-width="108" stroke="url(#rim)">
+    <line x1="282" y1="386" x2="386" y2="282"/>
+    <line x1="285" y1="621" x2="621" y2="285"/>
+    <line x1="449" y1="693" x2="693" y2="449"/>
+    <line x1="638" y1="742" x2="742" y2="638"/>
+  </g>
+</svg>
