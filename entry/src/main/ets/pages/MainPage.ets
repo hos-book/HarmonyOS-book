@@ -575,6 +575,7 @@ export struct MainPage {
         verticalStyle: this.useVerticalTabs(),
         compactControls: this.useVerticalTabs() && (this.useWideFloatingBars() || this.verticalBarCollapsed),
         onChapters: (): void => { this.openMiniChapters(); },
+        onInteract: (): void => this.refreshMiniPlayerIdle(true),
         onPlayerPanStart: (offsetY: number): void => this.beginPlayerDrag(offsetY),
         onPlayerPanUpdate: (offsetY: number): void => PlayerDragTransition.getInstance().update(offsetY),
         onPlayerPanEnd: (offsetY: number, velocityY: number): void =>
@@ -602,9 +603,6 @@ export struct MainPage {
         this.syncVerticalBars();
       })
         .onDisAppear((): void => { hilog.info(0x0000, 'MainTabs', 'mini unmount'); })
-        .onTouch((event: TouchEvent): void => {
-          if (event.type === TouchType.Down) this.refreshMiniPlayerIdle(true);
-        })
     }
   }
 
@@ -1016,7 +1014,21 @@ export struct MainPage {
     const transition = PlayerDragTransition.getInstance();
     if (transition.state.active) return;
     // 松手确认后才压栈；短拖取消不进入原生 Navigation，避免 NavBar 残留禁用状态。
-    transition.beginGesture(this.viewportHeight, offsetY, (): void => this.navigateToPlayer());
+    // 双层播放栏不要求拖过整屏的 18%；普通上拖约 58vp 即可展开，大窗口也保持可达。
+    const gestureHeight: number = this.useVerticalTabs() ? Math.min(this.viewportHeight, 320) : this.viewportHeight;
+    if (this.useVerticalTabs()) {
+      const origin = transition.capture(this.getUIContext());
+      if (origin !== undefined) {
+        transition.beginPreviewGesture(gestureHeight, offsetY, origin, book.id,
+          (): void => { this.navStack.pushPathByName('player', book.id); },
+          (finish: () => void): void => {
+            this.getUIContext().animateTo({ duration: 220, curve: Curve.FastOutSlowIn, onFinish: finish },
+              (): void => transition.collapsePreview());
+          });
+        return;
+      }
+    }
+    transition.beginGesture(gestureHeight, offsetY, (): void => this.navigateToPlayer());
   }
 
   private navigateToPlayer(): void {

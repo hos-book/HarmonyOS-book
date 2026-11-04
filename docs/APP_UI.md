@@ -27,6 +27,12 @@ API 21 及以上的普通有声书播放页顶部提供喇叭图标，与右侧�
 
 ## 底部页签新旧样式
 
+播放页向下拖动缩回与双层播放栏向上展开共用同一套几何插值：同一停留位置下的页面矩形、圆角、封面位置/尺寸及正文透明度完全一致，方向反转时沿原轨迹返回。下拖期间展示进入播放页前的真实底页快照，不重建首页；确认松手后保留当前几何，等底页恢复布局再测量目标播放栏并继续收起；短拖、回拖和系统取消则回弹全屏。封面禁用系统图片拖拽，避免按住后由系统拖放接管。点击收起与系统返回继续复用原有导航转场。
+
+2026-11-04：定向回归覆盖拖动中的几何变化、反向回拖、取消回弹、上下行同位置参数一致及导航衔接；ArkTS 检查无错误，Release SDK 26.0.0.105 构建通过。最终版本已在恢复调试连接后成功覆盖安装并启动于 Mate 80；安装启动不等同于逐帧视觉验收。
+
+双层模式的上方播放栏支持按住向上拖动跟手展开：拖动期间在根层渲染只读播放页预览，顶缘随手指等距移动，宽高、圆角和封面连续插值；回拖可逆，松手不足阈值或系统取消时以 220ms 动画回到播放栏。慢拖约 58vp 松手或快速上甩确认后才压栈，并将当前几何和封面快照交给现有播放页转场继续展开，不重置到播放栏。预览仅展示缓存/当前书籍，不注册正式播放页回调、不初始化播放、不写历史或改变状态栏；销毁预览不清理正式播放页的全局回调。播放栏根节点使用 API 20 的 `HitTestMode.BLOCK_HIERARCHY` 隔离 HDS 祖先收展手势，保留子播控点击；触摸交互重置空闲隐藏计时，并在栏内提供 Up/Cancel 收尾。旧版手势行为保持不变。接口依据：[ArkUI 手势响应规则](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/18-arkts-rules/arkts-interaction-rules.md)。
+
 外观设置的“新版双行底栏”默认关闭：旧版保留原有 HdsTabs 横向悬浮页签与 MiniBar，不是固定的不悬浮底栏。开启后，MainPage 实际容器小于 600vp 时使用系统 HdsTabsMiniBar.barLayoutMode = HdsBarLayoutMode.VERTICAL。进入主页、返回主页和切换页签先显示双行：上面完整播放器，下面全部导航页签。向下浏览收成单行：左侧仅当前页签的圆按钮，右侧完整播放器，保留标题/章节、播放暂停、下一章和目录；向上浏览恢复双行。600vp 起使用 HORIZONTAL，导航与完整播放器并排常显，不跟随滚动收展。双行封面 32vp、左侧内边距 4vp，单行及宽容器封面 44vp、左侧内边距 8vp。新版播放暂停使用播放页同款 play_round_triangle_fill/pause_round_triangle_fill 系统图标，保留圆角三角形底形；旧版保持原图标。目录按钮在当前主页弹出共用 ChapterSheet，按需补全目录，选章直接切换音频/朗读而不跳播放页。
 
 首页（含嵌套榜单列表）、书架、记录、我的通过实际纵向 onDidScroll 回调驱动新版窄容器收展，仅响应 ScrollState.Scroll，同方向累计 24vp 后切换，忽略惯性/回弹、非当前页、目录弹层及子路由期间的滚动。窄容器收展始终保持 VERTICAL，不用切换布局参数模拟动画。实机 API26 在原生 COLLAPSE 下显示双行（miniBarWidth/tabBarWidth = 328/328vp）；原生 EXPAND 下显示单行（264/56vp）。通过 applyMiniBarStyle 在这两种原生状态间切换，使用系统几何动画；封面 32↔44vp 使用 350ms 过渡。产品“收起”指页签收成圆按钮，不等同于 HdsBarStyle.COLLAPSE，不能将新版播放器内容缩成孤立封面。点击原生圆页签恢复双行时同步页面状态。禁止调用 applyHideAnimation 隐藏整组底栏。新版 HdsTabs 直接设置 barFloatingStyle；旧版独立分支保留 CompatibleTabsModifier 渲染链，API 20–22 由其回退为固定栏，共用页签内容。开关切换时重建原生控制器并初始化对应状态；旧版返回主页、切换页签不执行新版展开重置，只镜像系统状态，保留圆封面点击展开和展开体进入播放页的行为。保留 Scroller 注册用于双击页签回顶部。保留 barOverlap(true)、barPosition(End)、vertical(false) 三项前提及原生材质绑定。API 24 以下不开放双行开关；API 23 保留横向悬浮栏。双行模式增加内容尾部避让，切换不停止播放。

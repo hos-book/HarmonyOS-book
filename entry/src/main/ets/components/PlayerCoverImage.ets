@@ -104,6 +104,7 @@ export struct PlayerCoverImage {
           useFixedHeight: true, imgHeight: '100%', imageFit: ImageFit.Contain, themedDecoration: false })
       } else {
       Image(this.source(this.previewFailed ? this.resolvedUrl : (this.resolvedFallback || this.resolvedUrl)))
+        .draggable(false)
         .width('100%').height('100%').objectFit(ImageFit.Cover)
         .sourceSize({ width: 300, height: 300 })
         .alt(CoverTheme.playerPlaceholder())
@@ -111,6 +112,7 @@ export struct PlayerCoverImage {
       if (this.highQuality && this.resolvedUrl) {
         ForEach([new PlayerCoverRequest(this.resolvedUrl, this.decodeSize)], (request: PlayerCoverRequest) => {
           Image(this.source(request.url))
+            .draggable(false)
             .width('100%').height('100%').objectFit(ImageFit.Cover)
             .sourceSize({ width: request.size, height: request.size })
             .interpolation(ImageInterpolation.Medium)

@@ -136,6 +136,7 @@ export struct PlayerPage {
   @Param navStack: NavPathStack = new NavPathStack();
   @Param bookId: string = '';
   @Param deferEntry: boolean = false;
+  @Param previewOnly: boolean = false;
   @Local dragState: PlayerDragState = PlayerDragTransition.getInstance().state;
   @Param resumeChapterId: string = '';
   @Param resumeProgressMs: number = 0;
@@ -268,6 +269,10 @@ export struct PlayerPage {
   }
 
   aboutToAppear(): void {
+    if (this.previewOnly) {
+      this.primeFromCache();
+      return;
+    }
     LibrarySyncActivity.playing.add(this.bookId);
     this.isLeaving = false;
     WindowUtils.addSafeAreaListener(this.safeAreaChangeHandler);
@@ -327,6 +332,11 @@ export struct PlayerPage {
   }
 
   aboutToDisappear(): void {
+    if (this.previewOnly) {
+      this.isLeaving = true;
+      this.cancelViewportUpdateTimer();
+      return;
+    }
     LibrarySyncActivity.playing.delete(this.bookId);
     this.isLeaving = true;
     this.cancelChapterPosition();

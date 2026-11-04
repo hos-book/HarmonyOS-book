@@ -177,6 +177,10 @@ struct Index {
   }
 
   onBackPress(): boolean {
+    if (this.playerDragState.previewing) {
+      PlayerDragTransition.getInstance().cancel();
+      return true;
+    }
     if (this.navStack.size() > 0) return false;
     if (this.homeBackHandler?.()) return true;
     if (PlatformCompat.desktopWindow) {
@@ -292,7 +296,9 @@ struct Index {
             if (finished) return;
             this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
               if (finished) return;
-              const origin = drag.prepareReturn(this.getUIContext());
+              // 下拖确认时保留手指位置，不能重新把播放页重置到全屏。
+              const origin = drag.state.dismissing ? drag.captureReturnTarget(this.getUIContext())
+                : drag.prepareReturn(this.getUIContext());
               this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
                 if (finished) return;
                 this.getUIContext().animateTo({
@@ -732,6 +738,24 @@ struct Index {
     .width('100%')
     .height('100%')
     .id(OneShotTransitionIds.ROOT_NAVIGATION)
+    if (this.playerDragState.previewing) {
+      PlayerPageWrapper({ navStack: this.navStack, param: this.playerDragState.previewBookId,
+        deferEntry: true, previewOnly: true })
+        .width('100%').height('100%')
+        .enabled(false)
+        .hitTestBehavior(HitTestMode.None)
+        .onAppear((): void => {
+          this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+            this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+              const drag = PlayerDragTransition.getInstance();
+              if (!drag.state.previewing) return;
+              drag.setPreviewTarget(
+                PlayerDragTransition.measure(this.getUIContext(), 'player-page-cover'),
+                PlayerDragTransition.measure(this.getUIContext(), 'player-drag-surface'));
+            }));
+          }));
+        })
+    }
     // Keep the rendering transport active when the home NavDestination is hidden.
     if (WebEngineGate.instance.needRuleBrowser) {
       WebBookFetchRuntimeHost()
@@ -980,7 +1004,9 @@ struct PlayerPageWrapper {
   @Param navStack: NavPathStack = new NavPathStack();
   @Param param: Object = '';
   @Param deferEntry: boolean = false;
+  @Param previewOnly: boolean = false;
   @Local dragState: PlayerDragState = PlayerDragTransition.getInstance().state;
+  private draggingDismiss: boolean = false;
 
   private resolveBookId(): string {
     if (typeof this.param === 'string') return this.param as string;
@@ -1003,11 +1029,17 @@ struct PlayerPageWrapper {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
+      if (this.dragState.dismissing && this.dragState.backdropSnapshot !== undefined) {
+        Image(this.dragState.backdropSnapshot)
+          .width('100%').height('100%').objectFit(ImageFit.Fill)
+          .hitTestBehavior(HitTestMode.None)
+      }
       Stack({ alignContent: Alignment.TopStart }) {
         PlayerPage({
           navStack: this.navStack,
           bookId: this.resolveBookId(),
           deferEntry: this.deferEntry,
+          previewOnly: this.previewOnly,
           resumeChapterId: this.resolveChapterId(),
           resumeProgressMs: this.resolveProgressMs()
         })
@@ -1041,6 +1073,29 @@ struct PlayerPageWrapper {
     .width('100%')
     .height('100%')
     .id('player-drag-surface')
+    .gesture(PanGesture({ direction: PanDirection.Vertical, distance: 8 })
+      .onActionStart((event: GestureEvent): void => {
+        this.draggingDismiss = !this.previewOnly && !this.dragState.active && event.offsetY > 0;
+        if (!this.draggingDismiss) return;
+        const drag = PlayerDragTransition.getInstance();
+        drag.beginDismissGesture(this.getUIContext(), event.offsetY,
+          (): void => { this.navStack.pop(); },
+          (finish: () => void): void => {
+            this.getUIContext().animateTo({ duration: 220, curve: Curve.FastOutSlowIn, onFinish: finish },
+              (): void => drag.restoreDismiss());
+          });
+      })
+      .onActionUpdate((event: GestureEvent): void => {
+        if (this.draggingDismiss) PlayerDragTransition.getInstance().update(event.offsetY);
+      })
+      .onActionEnd((event: GestureEvent): void => {
+        if (this.draggingDismiss) PlayerDragTransition.getInstance().end(event.offsetY, event.velocityY);
+        this.draggingDismiss = false;
+      })
+      .onActionCancel((): void => {
+        if (this.draggingDismiss) PlayerDragTransition.getInstance().cancel();
+        this.draggingDismiss = false;
+      }))
   }
 }
 

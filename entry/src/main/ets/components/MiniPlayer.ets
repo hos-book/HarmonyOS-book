@@ -21,6 +21,7 @@ export struct MiniPlayer {
   @Event onToggle: () => void = () => {};
   @Event onNext: () => void = () => {};
   @Event onExpand: () => void = () => {};
+  @Event onInteract: () => void = () => {};
   @Event onPlayerPanStart: (offsetY: number) => void = () => {};
   @Event onPlayerPanUpdate: (offsetY: number) => void = () => {};
   @Event onPlayerPanEnd: (offsetY: number, velocityY: number) => void = () => {};
@@ -41,6 +42,7 @@ export struct MiniPlayer {
         && (this.book.cover.startsWith('/') || this.book.cover.startsWith('file://'))) {
         // 判断条件与 BookCard.isLocalFile 对齐:file:// 前缀的本地封面不能掉进 $rawfile 分支
         Image('file://' + this.book.cover.replace(/^file:\/\//, ''))
+          .draggable(false)
           .width('100%')
           .height('100%')
           .objectFit(ImageFit.Cover)
@@ -50,6 +52,7 @@ export struct MiniPlayer {
       } else if (this.book.cover) {
         // 本地封面同样按迷你播放器的实际尺寸解码。
         Image($rawfile(this.book.cover))
+          .draggable(false)
           .width('100%')
           .height('100%')
           .objectFit(ImageFit.Cover)
@@ -174,6 +177,15 @@ export struct MiniPlayer {
       .height('100%')
       .id('mini-player-bar')
       .opacity(this.dragState.sourceNodeId === 'mini-player-bar' ? this.dragState.sourceOpacity : 1)
+      // 双层栏由内容自行处理上拖，隔离 HDS 祖先的原生收展手势；子播控仍正常命中。
+      .hitTestBehavior(this.verticalStyle ? HitTestMode.BLOCK_HIERARCHY : HitTestMode.Default)
+      .onTouch((event: TouchEvent): void => {
+        if (event.type === TouchType.Down) this.onInteract();
+        // 双层栏隔离祖先命中后，根 Navigation 的触摸兜底不会收到此次松手。
+        if (this.draggingPlayer && (event.type === TouchType.Up || event.type === TouchType.Cancel)) {
+          PlayerDragTransition.getInstance().releaseTouch(event.type === TouchType.Cancel);
+        }
+      })
       .gesture(PanGesture({ direction: PanDirection.Vertical, distance: 8 })
         .onActionStart((event: GestureEvent): void => {
           this.draggingPlayer = event.offsetY < 0;

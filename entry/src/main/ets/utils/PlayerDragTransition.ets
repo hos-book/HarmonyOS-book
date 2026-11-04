@@ -23,6 +23,10 @@ export class PlayerDragOrigin {
 
 @ObservedV2
 export class PlayerDragState {
+  @Trace dismissing: boolean = false;
+  @Trace backdropSnapshot: image.PixelMap | undefined = undefined;
+  @Trace previewing: boolean = false;
+  @Trace previewBookId: string = '';
   @Trace sourceNodeId: string = 'mini-player-bar';
   @Trace viewportWidth: number = 0;
   @Trace viewportHeight: number = 0;
@@ -42,7 +46,7 @@ export class PlayerDragState {
   @Trace snapshot: image.PixelMap | undefined = undefined;
 }
 
-/** 手势确认与页面转场分离：短拖不压栈，确认后统一执行定时展开。 */
+/** 跟手预览不压栈，松手确认后将当前几何交给现有 Navigation 展开。 */
 export class PlayerDragTransition {
   private static readonly instance: PlayerDragTransition = new PlayerDragTransition();
   readonly state: PlayerDragState = new PlayerDragState();
@@ -53,6 +57,15 @@ export class PlayerDragTransition {
   private returnNodeId: string = 'mini-player-bar';
   private returnRadius: number = 0;
   private returnPage: string = '';
+  private previewOrigin: PlayerDragOrigin | undefined = undefined;
+  private previewCover: OneShotRect | undefined = undefined;
+  private previewViewport: OneShotRect | undefined = undefined;
+  private previewOffsetY: number = 0;
+  private previewCancel: ((finish: () => void) => void) | undefined = undefined;
+  private dismissCover: OneShotRect | undefined = undefined;
+  private dismissViewport: OneShotRect | undefined = undefined;
+  private returnGeometry: PlayerDragOrigin | undefined = undefined;
+  private dismissOrigin: PlayerDragOrigin | undefined = undefined;
 
   static getInstance(): PlayerDragTransition {
     return PlayerDragTransition.instance;
@@ -91,7 +104,15 @@ export class PlayerDragTransition {
       origin.viewportLeftPx = viewport.leftPx;
       origin.viewportTopPx = viewport.topPx;
       // 截取未被父容器圆形裁剪的图片，放大时才能连续变成播放页圆角封面。
-      if (withSnapshot) origin.snapshot = uiContext.getComponentSnapshot().getSync('mini-player-cover-image');
+      if (withSnapshot) {
+        origin.snapshot = uiContext.getComponentSnapshot().getSync('mini-player-cover-image');
+        // 收起跟手时以进入播放页前的真实底页作背景，不重建首页或切换其状态。
+        try {
+          const backdrop = uiContext.getComponentSnapshot().getSync(OneShotTransitionIds.ROOT_NAVIGATION);
+          OneShotTransitionCoordinator.releaseSnapshot(this.state.backdropSnapshot);
+          this.state.backdropSnapshot = backdrop;
+        } catch (_error) { /* 背景快照失败不影响播控和封面转场。 */ }
+      }
       return origin;
     } catch (_error) {
       return undefined;
@@ -132,6 +153,9 @@ export class PlayerDragTransition {
     this.returnNodeId = 'mini-player-bar';
     this.returnRadius = 0;
     this.returnPage = '';
+    this.returnGeometry = undefined;
+    OneShotTransitionCoordinator.releaseSnapshot(this.state.backdropSnapshot);
+    this.state.backdropSnapshot = undefined;
   }
 
   canReturnTo(page: string): boolean {
@@ -146,6 +170,7 @@ export class PlayerDragTransition {
     this.distance = height;
     this.generation++;
     this.returnNodeId = origin.sourceNodeId;
+    this.returnGeometry = origin;
     this.returnRadius = origin.radius;
     this.returnPage = '';
     this.state.sourceNodeId = origin.sourceNodeId;
@@ -179,8 +204,7 @@ export class PlayerDragTransition {
   }
 
   prepareReturn(uiContext: UIContext): PlayerDragOrigin | undefined {
-    const origin = this.returnNodeId === 'mini-player-bar' ? this.capture(uiContext, false)
-      : this.captureCover(uiContext, this.returnNodeId, this.returnRadius, false);
+    const origin = this.captureReturnTarget(uiContext);
     if (origin === undefined) return undefined;
     try {
       const viewport = PlayerDragTransition.measure(uiContext, 'player-drag-surface');
@@ -210,6 +234,11 @@ export class PlayerDragTransition {
     } catch (_error) {
       return undefined;
     }
+  }
+
+  captureReturnTarget(uiContext: UIContext): PlayerDragOrigin | undefined {
+    return this.returnNodeId === 'mini-player-bar' ? this.capture(uiContext, false)
+      : this.captureCover(uiContext, this.returnNodeId, this.returnRadius, false);
   }
 
   collapseToBar(origin: PlayerDragOrigin): void {
@@ -248,9 +277,113 @@ export class PlayerDragTransition {
     this.update(offsetY);
   }
 
+  beginPreviewGesture(height: number, offsetY: number, origin: PlayerDragOrigin, bookId: string,
+    commit: () => void, cancelAnimation: (finish: () => void) => void): void {
+    if (!this.begin(height, 0, origin)) return;
+    this.gestureCommit = commit;
+    this.previewOrigin = origin;
+    this.previewCancel = cancelAnimation;
+    this.state.previewBookId = bookId;
+    this.state.previewing = true;
+    this.state.sourceOpacity = 0;
+    this.update(offsetY);
+  }
+
+  setPreviewTarget(cover: OneShotRect, viewport: OneShotRect): void {
+    if (!this.state.previewing || !cover.isValid() || !viewport.isValid()) return;
+    this.previewCover = cover;
+    this.previewViewport = viewport;
+    this.update(this.previewOffsetY);
+  }
+
+  collapsePreview(): void {
+    if (this.previewOrigin !== undefined) this.collapseToBar(this.previewOrigin);
+  }
+
+  beginDismissGesture(uiContext: UIContext, offsetY: number, commit: () => void,
+    cancelAnimation: (finish: () => void) => void): void {
+    if (this.state.active || offsetY <= 0) return;
+    try {
+      const viewport = PlayerDragTransition.measure(uiContext, 'player-drag-surface');
+      const cover = PlayerDragTransition.measure(uiContext, 'player-page-cover');
+      if (!viewport.isValid() || !cover.isValid()) return;
+      const snapshot = uiContext.getComponentSnapshot().getSync('player-page-cover');
+      this.generation++;
+      this.dismissCover = cover;
+      this.dismissViewport = viewport;
+      this.dismissOrigin = this.returnGeometry ?? this.captureReturnTarget(uiContext);
+      if (this.dismissOrigin === undefined) {
+        const fallback = new PlayerDragOrigin();
+        fallback.top = WindowUtils.pxToVp(viewport.heightPx);
+        fallback.width = WindowUtils.pxToVp(viewport.widthPx);
+        fallback.viewportWidth = fallback.width;
+        fallback.viewportHeight = fallback.top;
+        fallback.coverLeft = WindowUtils.pxToVp(cover.leftPx - viewport.leftPx);
+        fallback.coverTop = fallback.top;
+        fallback.coverWidth = WindowUtils.pxToVp(cover.widthPx);
+        fallback.coverHeight = WindowUtils.pxToVp(cover.heightPx);
+        this.dismissOrigin = fallback;
+      }
+      this.state.viewportWidth = WindowUtils.pxToVp(viewport.widthPx);
+      this.state.viewportHeight = WindowUtils.pxToVp(viewport.heightPx);
+      this.distance = Math.min(this.state.viewportHeight, 480);
+      this.gestureCommit = commit;
+      this.previewCancel = cancelAnimation;
+      this.expandToPlayer(cover, viewport);
+      this.state.snapshot = snapshot;
+      this.state.contentOpacity = 1;
+      this.state.sourceOpacity = 0;
+      this.state.dismissing = true;
+      this.state.active = true;
+      this.update(offsetY);
+    } catch (_error) { /* 无有效布局时保持完整播放页。 */ }
+  }
+
+  restoreDismiss(): void {
+    if (this.dismissCover !== undefined && this.dismissViewport !== undefined) {
+      this.expandToPlayer(this.dismissCover, this.dismissViewport);
+      this.state.contentOpacity = 1;
+    }
+  }
+
   update(offsetY: number): void {
     if (this.gestureCommit === undefined) return;
+    if (this.state.dismissing) {
+      const offset: number = Math.max(0, offsetY);
+      this.progress = Math.min(1, offset / this.distance);
+      const origin = this.dismissOrigin;
+      if (origin !== undefined) {
+        const fraction: number = 1 - Math.min(1, offset / Math.max(1, origin.top));
+        this.applyGestureGeometry(origin, fraction, this.dismissCover, this.dismissViewport);
+      }
+      return;
+    }
     this.progress = Math.min(1, Math.max(0, -offsetY / this.distance));
+    this.previewOffsetY = offsetY;
+    const origin = this.previewOrigin;
+    if (origin === undefined) return;
+    // 顶缘与手指等距移动，宽度、圆角和封面随展开比例插值，不在移动时压栈。
+    const fraction: number = Math.min(1, Math.max(0, -offsetY / Math.max(1, origin.top)));
+    this.applyGestureGeometry(origin, fraction, this.previewCover, this.previewViewport);
+  }
+
+  private applyGestureGeometry(origin: PlayerDragOrigin, fraction: number,
+    cover: OneShotRect | undefined, viewport: OneShotRect | undefined): void {
+    this.state.frameX = origin.left * (1 - fraction);
+    this.state.frameY = origin.top * (1 - fraction);
+    this.state.frameWidth = origin.width + (origin.viewportWidth - origin.width) * fraction;
+    this.state.frameHeight = origin.height + (origin.viewportHeight - origin.height) * fraction;
+    this.state.radius = origin.radius * (1 - fraction);
+    this.state.contentOpacity = Math.min(1, fraction * 3);
+    if (cover !== undefined && viewport !== undefined) {
+      this.state.coverX = origin.coverLeft +
+        (WindowUtils.pxToVp(cover.leftPx - viewport.leftPx) - origin.coverLeft) * fraction;
+      this.state.coverY = origin.coverTop +
+        (WindowUtils.pxToVp(cover.topPx - viewport.topPx) - origin.coverTop) * fraction;
+      this.state.coverWidth = origin.coverWidth + (WindowUtils.pxToVp(cover.widthPx) - origin.coverWidth) * fraction;
+      this.state.coverHeight = origin.coverHeight + (WindowUtils.pxToVp(cover.heightPx) - origin.coverHeight) * fraction;
+      this.state.coverRadius = origin.coverWidth / 2 + (16 - origin.coverWidth / 2) * fraction;
+    }
   }
 
   releaseTouch(cancelled: boolean): void {
@@ -266,6 +399,11 @@ export class PlayerDragTransition {
   end(offsetY: number, velocityY: number): void {
     if (this.gestureCommit === undefined) return;
     this.update(offsetY);
+    if (this.state.dismissing) {
+      this.finishGesture(velocityY > -650 &&
+        (this.progress >= 0.18 || (offsetY >= 24 && velocityY >= 900)));
+      return;
+    }
     // 长拖或明确的向上甩动展开；往回拖/向下甩则取消，手抖不误打开。
     this.finishGesture(velocityY < 650 &&
       (this.progress >= 0.18 || (offsetY <= -24 && velocityY <= -900)));
@@ -284,6 +422,29 @@ export class PlayerDragTransition {
     this.gestureCommit = undefined;
     this.generation++;
     this.progress = 0;
+    if (this.state.dismissing) {
+      if (open) commit?.();
+      else {
+        const settle = this.previewCancel;
+        if (settle !== undefined) settle((): void => this.complete());
+        else this.complete();
+      }
+      return;
+    }
+    if (this.previewOrigin !== undefined) {
+      if (!open) {
+        const settle = this.previewCancel;
+        if (settle !== undefined) settle((): void => this.complete());
+        else this.complete();
+        return;
+      }
+      // 保留手指松开处的几何和快照，目的页从这里继续展开。
+      this.state.previewing = false;
+      this.previewOrigin = undefined;
+      this.previewCover = undefined;
+      this.previewViewport = undefined;
+      this.previewCancel = undefined;
+    }
     if (open) commit?.();
   }
 
@@ -291,6 +452,16 @@ export class PlayerDragTransition {
     this.generation++;
     this.gestureCommit = undefined;
     this.progress = 0;
+    this.state.previewing = false;
+    this.state.previewBookId = '';
+    this.state.dismissing = false;
+    this.dismissCover = undefined;
+    this.dismissViewport = undefined;
+    this.dismissOrigin = undefined;
+    this.previewOrigin = undefined;
+    this.previewCover = undefined;
+    this.previewViewport = undefined;
+    this.previewCancel = undefined;
     this.state.active = false;
     this.state.contentOpacity = 1;
     this.state.sourceOpacity = 1;
