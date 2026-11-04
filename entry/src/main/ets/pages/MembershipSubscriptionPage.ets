@@ -241,12 +241,18 @@ export struct MembershipSubscriptionPage {
           $r('app.string.membership_comparison_unavailable'), $r('app.string.membership_comparison_available'))
         this.benefitRow($r('app.string.membership_feature_upscale'),
           $r('app.string.membership_comparison_unavailable'), $r('app.string.membership_comparison_available'))
+        this.benefitRow($r('app.string.membership_feature_subtitles'),
+          $r('app.string.membership_comparison_unavailable'), $r('app.string.membership_comparison_available'))
+        this.benefitRow($r('app.string.desktop_lyric_title'),
+          $r('app.string.membership_comparison_unavailable'), $r('app.string.membership_comparison_available'))
         this.benefitRow($r('app.string.membership_feature_icon'),
           $r('app.string.membership_comparison_default_icon'), $r('app.string.membership_comparison_all_icons'))
         this.benefitRow($r('app.string.membership_feature_theme'),
           $r('app.string.membership_comparison_basic_theme'), $r('app.string.membership_comparison_member_theme'))
         this.benefitRow($r('app.string.membership_feature_backup'),
           $r('app.string.membership_comparison_manual_backup'), $r('app.string.membership_comparison_auto_backup'))
+        this.benefitRow($r('app.string.library_sync_title'),
+          $r('app.string.membership_comparison_unavailable'), $r('app.string.membership_comparison_available'))
         this.benefitRow($r('app.string.membership_feature_search'),
           $r('app.string.membership_comparison_search_free'), $r('app.string.membership_comparison_unlimited'))
         this.benefitRow($r('app.string.membership_feature_preview'),

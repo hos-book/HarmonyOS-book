@@ -13,6 +13,7 @@ import { GeneralSettings } from '../model/GeneralSettings';
 import { WindowUtils } from '../utils/WindowUtils';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
+import { RankingBoardOrderComponent } from '../components/RankingBoardOrderComponent';
 import { SearchCache } from '../utils/SearchCache';
 import { RankingService } from '../service/ranking/RankingService';
 import { RankingComicMetadata } from '../service/ranking/RankingComicMetadata';
@@ -253,11 +254,13 @@ export struct RankingHomePage {
   @Local leftSafe: number = WindowUtils.getLeftSafeVp();
   @Local rightSafe: number = WindowUtils.getRightSafeVp();
   @Local platforms: RankingPlatform[] = RankingService.platforms();
+  @Local showBoardOrder: boolean = false;
   private readonly rankingSettingsListener = (): void => { this.reloadCategories(); };
 
   private async reloadCategories(): Promise<void> {
     try {
       const settings = await RankingPreferences.load();
+      const boardOrder = await RankingPreferences.loadBoardOrder();
       if (!this.alive) return;
       const enabled = settings.filter((item: RankingCategorySetting): boolean => item.enabled);
       this.platforms = [RankingService.platforms()[0]].concat(enabled.map((item: RankingCategorySetting): RankingPlatform =>
@@ -272,7 +275,7 @@ export struct RankingHomePage {
           next.push(previous.find((item: RankingBoard): boolean => item.id === board.id) ?? board);
         }
       }
-      this.boards = next;
+      this.boards = RankingPreferences.orderBoards(next, boardOrder);
       this.syncBoards();
       this.load(false);
     } catch (_error) {
@@ -329,6 +332,7 @@ export struct RankingHomePage {
     this.onScrollerReady(this.headerScroller);
     this.onBackHandlerChange((): boolean => {
       if (this.boardTransitioning) return true;
+      if (this.showBoardOrder) { this.showBoardOrder = false; return true; }
       if (this.showSheet) { this.showSheet = false; return true; }
       if (this.activeBoard !== undefined) { this.closeBoard(); return true; }
       if (this.overview) { this.selectPlatform(''); return true; }
@@ -419,7 +423,7 @@ export struct RankingHomePage {
     const generation = ++this.generation;
     this.loading = true;
     try {
-      // 当前平台先刷新，精品推荐直接沿用展示顺序（懒人、起点、喜马拉雅）。
+      // 当前平台优先加载；精品推荐沿用用户保存的单榜顺序。
       const snapshot = this.boards.filter((board: RankingBoard): boolean =>
         !this.platformId || board.platformId === this.platformId).concat(
         this.boards.filter((board: RankingBoard): boolean =>
@@ -643,6 +647,16 @@ export struct RankingHomePage {
       .fadingEdge(true, { fadingEdgeLength: LengthMetrics.vp(24) })
       .renderGroup(false)
       .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true }).cachedCount(1)
+      Button({ type: ButtonType.Circle }) {
+        SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(21).fontColor([AppTheme.IconPrimary])
+      }.width(40).height(40).backgroundColor(Color.Transparent)
+        .accessibilityText($r('app.string.ranking_order')).id('ranking-order-button')
+        .onClick((): void => { this.showBoardOrder = true; })
+        .bindSheet($$this.showBoardOrder, this.boardOrderSheet(), {
+          height: '70%', detents: ['45%', '70%', '92%'],
+          preferType: SheetType.BOTTOM, showClose: false, dragBar: true,
+          backgroundColor: $r('sys.color.comp_background_primary')
+        })
       if (this.isSearchCollapsed) {
         Stack() {
           Stack({ alignContent: Alignment.Center }) {
@@ -941,6 +955,11 @@ export struct RankingHomePage {
     .translate({ y: this.refreshPullOffset })
     // 与书源首页一致：让滚出视口的书籍继续绘制在分类胶囊背后，供沉浸材质采样。
     .clip(false).backgroundColor(Color.Transparent)
+  }
+
+  @Builder
+  private boardOrderSheet() {
+    RankingBoardOrderComponent({ onClose: (): void => { this.showBoardOrder = false; } })
   }
 
   @Builder

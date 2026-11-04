@@ -8,6 +8,7 @@ import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransi
 import { BookDetailPage, DetailBackInterceptor, DetailTitleBarActions, DetailTitleBarState } from './BookDetailPage';
 import { PlayerPage, PlayerBackInterceptor, PlayerEntryDecider } from './PlayerPage';
 import { SettingsPage } from './SettingsPage';
+import { ReadingSettingsPage } from './ReadingSettingsPage';
 import { MembershipPage } from './MembershipPage';
 import { MembershipSubscriptionPage } from './MembershipSubscriptionPage';
 import { MembershipState } from '../model/MembershipState';
@@ -563,6 +564,10 @@ struct Index {
     } else if (name === 'settings') {
       ProfileMenuDestination() {
         SettingsPage({ navStack: this.navStack })
+      }
+    } else if (name === 'readingSettings') {
+      ProfileMenuDestination() {
+        ReadingSettingsPage({ navStack: this.navStack })
       }
     } else if (name === 'membershipSubscription') {
       ProfileMenuDestination() {

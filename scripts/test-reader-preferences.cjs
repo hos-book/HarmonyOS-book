@@ -44,6 +44,11 @@ function load(relative) {
   const { TextReadingSettingsService: service } = load('service/text/TextReadingSettingsService');
   values.set('font_size', 22); // Existing installations have no new preference keys.
   const migrated = await service.get({});
+  assert.equal(migrated.dialogueHighlightColor, '', 'legacy dialogue colors follow the reading theme');
+  migrated.dialogueHighlight = true;
+  migrated.dialogueHighlightColor = '#12ab34';
+  assert.equal(migrated.speechMarkColor, '', 'legacy speech marks follow the reading theme');
+  migrated.speechMarkColor = '#56cd78';
   assert.equal(migrated.speechFollowPage, true, 'existing readers retain page-following speech');
   migrated.speechFollowPage = false;
   assert.equal(migrated.showBrightnessBar, true);
@@ -86,6 +91,9 @@ function load(relative) {
   migrated.marginBottom = 0;
   await service.save({}, migrated);
   const restored = await service.get({});
+  assert.equal(restored.dialogueHighlight, true);
+  assert.equal(restored.dialogueHighlightColor, '#12AB34', 'dialogue color survives reopening independently of text color');
+  assert.equal(restored.speechMarkColor, '#56CD78', 'speech mark color persists independently of dialogue color');
   assert.equal(restored.speechFollowPage, false, 'independent browsing survives reload');
   assert.equal(restored.showBrightnessBar, false);
   assert.equal(restored.brightness, 0.37);
@@ -98,6 +106,8 @@ function load(relative) {
   assert.equal(restored.alwaysShowStatusBar, false, 'toolbar-following mode survives a preferences reload');
   assert.deepEqual([restored.marginLeft, restored.marginRight, restored.marginTop, restored.marginBottom], [8, 26, 32, 0]);
   values.set('marginLeft', -20);
+  values.set('dialogue_highlight_color', '#invalid');
+  values.set('speech_mark_color', '#invalid');
   values.set('corner_layout', 'invalid');
   values.set('marginRight', 1000);
   values.set('marginTop', 'bad');
@@ -107,6 +117,8 @@ function load(relative) {
   values.set('page_turn_mode', 'bad');
   values.set('always_show_status_bar', 'bad');
   const sanitized = await service.get({});
+  assert.equal(sanitized.dialogueHighlightColor, '', 'invalid persisted colors use the theme fallback');
+  assert.equal(sanitized.speechMarkColor, '', 'invalid speech colors use the theme fallback');
   assert.equal(sanitized.cornerLayout, '0123', 'invalid corner layouts return to the original order');
   assert.deepEqual([sanitized.marginLeft, sanitized.marginRight, sanitized.marginTop, sanitized.marginBottom], [0, 64, 12, 12]);
   assert.equal(sanitized.pageTurnMode, PageTurnMode.Cover);
@@ -115,6 +127,8 @@ function load(relative) {
   assert.equal(sanitized.alwaysShowStatusBar, true, 'invalid status-bar preference falls back to visible');
   await service.save({}, new TextReadingSettings());
   const reset = await service.get({});
+  assert.equal(reset.dialogueHighlightColor, '', 'reset restores automatic dialogue colors');
+  assert.equal(reset.speechMarkColor, '', 'reset restores automatic speech mark colors');
   assert.equal(reset.speechFollowPage, true);
   assert.equal(reset.cornerLayout, '0123');
   assert.equal(reset.followSystemTheme, true);
@@ -171,15 +185,22 @@ function load(relative) {
   typography.volumeKeyPageTurn = true;
   typography.smartKeyPageTurn = true;
   typography.textAlignment = 'end';
+  typography.dialogueHighlight = true;
+  typography.dialogueHighlightColor = '#3478AB';
+  typography.speechMarkColor = '#AB7834';
   typography.paragraphSpacing = 1.4;
   await service.save({}, typography);
   const snapshot = await backup.createSnapshot({});
+  assert.equal(snapshot.settings.dialogueHighlightColor, '#3478AB');
+  assert.equal(snapshot.settings.speechMarkColor, '#AB7834');
   assert.equal(snapshot.settings.textAlignment, 'end');
   assert.equal(snapshot.settings.paragraphSpacing, 1.4);
   assert.equal(snapshot.settings.volumeKeyPageTurn, true);
   assert.equal(snapshot.settings.smartKeyPageTurn, true);
   await service.save({}, new TextReadingSettings());
   await backup.restoreSnapshot({}, snapshot);
+  assert.equal((await service.get({})).dialogueHighlightColor, '#3478AB', 'backup retains dialogue color');
+  assert.equal((await service.get({})).speechMarkColor, '#AB7834', 'backup retains speech mark color');
   assert.equal((await service.get({})).textAlignment, 'end');
   assert.equal((await service.get({})).paragraphSpacing, 1.4);
   assert.equal((await service.get({})).volumeKeyPageTurn, true);
@@ -188,8 +209,12 @@ function load(relative) {
   delete snapshot.settings.smartKeyPageTurn;
   delete snapshot.settings.textAlignment;
   delete snapshot.settings.paragraphSpacing;
+  delete snapshot.settings.dialogueHighlightColor;
+  delete snapshot.settings.speechMarkColor;
   await backup.restoreSnapshot({}, snapshot);
   assert.equal((await service.get({})).textAlignment, 'justify', 'old backups adopt justified text');
+  assert.equal((await service.get({})).dialogueHighlightColor, '', 'old backups retain automatic dialogue colors');
+  assert.equal((await service.get({})).speechMarkColor, '', 'old backups retain automatic speech colors');
   assert.equal((await service.get({})).paragraphSpacing, 0, 'old backups use the original paragraph layout');
   assert.equal((await service.get({})).volumeKeyPageTurn, false, 'old backups keep system volume behavior');
   assert.equal((await service.get({})).smartKeyPageTurn, false, 'old backups leave smart key disabled');

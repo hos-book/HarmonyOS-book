@@ -8,7 +8,7 @@ if (!ide) throw new Error('Set DEVECO_HOME to the Release IDE');
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = path.join(__dirname, '../entry/src/main/ets');
 function load(name, imports = {}) {
-  const source = fs.readFileSync(path.join(root, name), 'utf8').replace(/@ObservedV2\s*/g, '').replace(/@Trace\s*/g, '');
+  const source = fs.readFileSync(path.join(root, name), 'utf8').replace(/import lazy /g, 'import ').replace(/@ObservedV2\s*/g, '').replace(/@Trace\s*/g, '');
   const module = { exports: {} };
   const code = ts.transpileModule(source, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020
@@ -26,6 +26,8 @@ const lyric = load('model/DesktopLyric.ets', { './AudioSubtitle': subtitles });
 const flush = async () => { for (let i = 0; i < 25; i++) await Promise.resolve(); };
 function fixture(api = 26, supported = true) {
   const calls = [];
+  const membership = { hasAccess: true };
+  let revokeMembership;
   const coordinator = { speechActive: false };
   let visible = false, locked = false, enabled = false, visibilityCallback;
   let enableWait = null, failShow = false;
@@ -56,6 +58,12 @@ function fixture(api = 26, supported = true) {
     LoopMode: { LOOP_MODE_SEQUENCE: 0, LOOP_MODE_LIST: 1, LOOP_MODE_SINGLE: 2 }
   };
   const { AVSessionService } = load('service/AVSessionService.ets', {
+    './MembershipService': { MembershipService: { instance: { hasCurrentEntitlement: async () => membership.hasAccess } } },
+    '../model/MembershipState': { MembershipState: { current: membership } },
+    './membership/MembershipFeatureLease': { MembershipFeatureLease: class {
+      start(revoke) { revokeMembership = revoke; }
+      stop() { revokeMembership = undefined; }
+    } },
     './SourceCoverService': { SourceCoverService: { isEncoded: () => false } },
     './LocalBookCoverService': { LocalBookCoverService: { resolve: async () => '' } },
     './PlaybackCoordinator': { PlaybackCoordinator: coordinator },
@@ -73,7 +81,8 @@ function fixture(api = 26, supported = true) {
   const book = { id: 'book', title: '测试书', author: '作者', cover: '' };
   const chapter = { id: 'chapter', title: '第一章', duration: 120 };
   service.coverCache.set('avsession://cover-placeholder', {});
-  return { service, coordinator, calls, book, chapter,
+  return { service, coordinator, calls, book, chapter, membership,
+    revoke() { membership.hasAccess = false; revokeMembership?.(); },
     async ready() { await service.init(context); await service.updateMetadata(book, chapter); },
     userHide() { visible = false; visibilityCallback(false); },
     setEnableWait(promise) { enableWait = promise; },
@@ -83,6 +92,16 @@ function fixture(api = 26, supported = true) {
   };
 }
 async function main() {
+  const vip = fixture();
+  await vip.ready();
+  vip.membership.hasAccess = false;
+  assert.equal(await vip.service.setDesktopLyricVisible(true), false);
+  assert.equal(vip.enabled(), false, 'nonmember cannot enable native lyrics');
+  vip.membership.hasAccess = true;
+  assert.equal(await vip.service.setDesktopLyricVisible(true), true);
+  vip.revoke(); await flush();
+  assert.equal(vip.visible(), false, 'membership expiry hides the window');
+  assert.equal(vip.enabled(), false, 'membership expiry disables native lyrics');
   assert.equal(lyric.DesktopLyricText.stamp(61234), '[01:01.23]');
   assert.equal(lyric.DesktopLyricText.stamp(NaN), '[00:00.00]');
   assert.equal(lyric.DesktopLyricText.clean('[01:00.00]文本\n下一句'), '［01:00.00］文本 下一句');

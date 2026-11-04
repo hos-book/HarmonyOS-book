@@ -175,7 +175,17 @@ export class TextReadingSettings {
   lineHeight: number = TextReadingSettings.LINE_HEIGHT_DEFAULT;
   letterSpacing: number = 0;
   dialogueHighlight: boolean = false;
+  dialogueHighlightColor: string = '';
+
+  static normalizeDialogueHighlightColor(value: string): string {
+    return /^#[0-9A-Fa-f]{6}$/.test(value) ? value.toUpperCase() : '';
+  }
   speechMark: string = 'color';
+  speechMarkColor: string = '';
+
+  static normalizeSpeechMarkColor(value: string): string {
+    return /^#[0-9A-Fa-f]{6}$/.test(value) ? value.toUpperCase() : '';
+  }
   static normalizeLetterSpacing(value: number): number {
     return Number.isFinite(value) ? Math.round(Math.max(0, Math.min(10, value)) * 2) / 2 : 0;
   }

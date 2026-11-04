@@ -113,16 +113,21 @@ async function fixture(initialState = 'paused', realUsage = false) {
   vm.runInNewContext(prefCode, { module: prefModule, exports: prefModule.exports,
     require: name => name === '../model/GeneralSettings'
       ? { GeneralSettings: { current: { historyEnabled: true } } }
+      : name === '@kit.BasicServicesKit' ? { emitter: { emit() {} } }
       : { ConfigurationConstant: { ColorMode: { COLOR_MODE_NOT_SET: -1 } } } });
   const preference = prefModule.exports.PreferenceService;
   const preferenceValues = new Map();
   preference.ensureStore = async () => ({
+    getSync: (key, fallback) => preferenceValues.get(key) ?? fallback,
+    putSync: (key, value) => preferenceValues.set(key, value),
     get: async (key, fallback) => preferenceValues.get(key) ?? fallback,
     put: async (key, value) => preferenceValues.set(key, value),
     delete: async key => preferenceValues.delete(key), flush: async () => {}
   });
   const focusFixture = createFocusFixture(preference, audio, platformCompat);
+  const syncActivity = { reading: new Set(), playing: new Set(), remotePlayback: new Set() };
   const modules = {
+    './sync/LibrarySyncModel': { LibrarySyncActivity: syncActivity },
     './ReadingSessionService': { ReadingSessionService: { checkpoint() {}, end() {} }, SessionLocation: { audio: () => ({}) } },
     './LiveAudioService': { LiveAudioService: { isLive: async () => false } },
     './ChapterCacheService': { ChapterCacheService: { getInstance: () => cache } },
@@ -209,7 +214,7 @@ async function fixture(initialState = 'paused', realUsage = false) {
     () => service.pauseForFocus(), () => service.resumeFromInterrupt());
   return { focusFixture, service, player, state, session, savedPositions, events, preference, cacheCalls, widgetUpdates,
     cache, mediaSources, platformCompat, usage, usageTimers, backgroundCalls, background,
-    preloadTimers,
+    preloadTimers, syncActivity,
     advancePreload(ms) {
       preloadTime += ms;
       for (const [id, timer] of preloadTimers) {
@@ -229,16 +234,46 @@ async function check(name, test) {
 }
 
 (async () => {
+  await check('idle playback resumes the synchronized chapter and time without stale pause writes', async () => {
+    const f = await fixture('paused');
+    const book = f.state.currentBook;
+    const chapter = f.state.currentChapter;
+    book.chapters = [chapter];
+    f.syncActivity.remotePlayback.add(book.id);
+    f.service.persistHistory = Object.getPrototypeOf(f.service).persistHistory;
+    let writes = 0;
+    f.preference.upsertHistory = async () => { writes++; };
+    await f.service.flushHistory();
+    assert.equal(writes, 0, 'paused player cannot overwrite a received cloud position');
+    f.preference.getProgress = async () => ({ bookId: book.id, chapterId: chapter.id,
+      chapterTitle: chapter.title, chapterIndex: 0, positionMs: 73000 });
+    let resumed;
+    f.service.playChapterAndSeek = async (b, c, time) => { resumed = [b.id, c.id, time]; };
+    await f.service.play();
+    assert.deepEqual(resumed, [book.id, chapter.id, 73000]);
+  });
+  await check('cloud progress never seeks an already playing session', async () => {
+    const f = await fixture('playing');
+    f.syncActivity.remotePlayback.add(f.state.currentBook.id);
+    f.preference.getProgress = async () => { throw new Error('must not read while playing'); };
+    await f.service.play();
+    assert.equal(f.state.progressMs, 42000);
+  });
   await check('loudness applies real gain, restores after prepare and can turn off', async () => {
     const f = await fixture('paused');
     assert.equal(await f.service.setLoudnessGain(6), true);
     assert.equal(f.state.loudnessGain, 6);
+    assert.equal(await f.preference.getAudioLoudnessGain(), 6);
+    f.state.loudnessGain = 0; f.service.loudnessPreferences = null;
+    await f.service.loadLoudnessPreferences();
+    assert.equal(f.state.loudnessGain, 6, 'new player session restores saved gain');
     f.player.transition('prepared'); await flush();
     assert.deepEqual(f.player.gains, [6, 6]);
     assert.equal(await f.service.setLoudnessGain(24), true);
     assert.equal(f.state.loudnessGain, 24);
     assert.equal(await f.service.setLoudnessGain(0), true);
     assert.equal(f.state.loudnessGain, 0);
+    assert.equal(await f.preference.getAudioLoudnessGain(), 0, 'off is persisted too');
   });
   await check('loudness rejects unsupported systems and invalid gains without changing volume', async () => {
     const f = await fixture('paused');

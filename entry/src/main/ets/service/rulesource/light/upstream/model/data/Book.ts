@@ -21,6 +21,8 @@ export class Book {
   /** Source-provided publication/update label from BookInfoRule.updateTime. */
   updateTime: string = '';
   latestChapterTime: number = 0;
+  /** App-confirmed new chapters. Never initialized from import/add/check time. */
+  confirmedChapterUpdateTime: number = 0;
   lastCheckTime: number = 0;
   lastCheckCount: number = 0;
   totalChapterNum: number = 0;

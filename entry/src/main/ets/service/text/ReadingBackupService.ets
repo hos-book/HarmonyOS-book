@@ -18,7 +18,9 @@ export class ReadingSettingsBackup {
   lineHeight: number = 1.9;
   letterSpacing: number = 0;
   dialogueHighlight: boolean = false;
+  dialogueHighlightColor: string = '';
   speechMark: string = 'color';
+  speechMarkColor: string = '';
   paragraphSpacing: number = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
   fontWeight: number = 400;
   themeId: string | undefined = undefined;
@@ -78,7 +80,9 @@ export class ReadingBackupService {
     saved.lineHeight = settings.lineHeight;
     saved.letterSpacing = settings.letterSpacing;
     saved.dialogueHighlight = settings.dialogueHighlight;
+    saved.dialogueHighlightColor = settings.dialogueHighlightColor;
     saved.speechMark = settings.speechMark;
+    saved.speechMarkColor = settings.speechMarkColor;
     saved.paragraphSpacing = settings.paragraphSpacing;
     saved.fontWeight = settings.fontWeight;
     if (findThemePreset(settings.themeId) !== null) saved.themeId = settings.themeId;
@@ -140,7 +144,11 @@ export class ReadingBackupService {
     settings.lineHeight = saved.lineHeight;
     settings.letterSpacing = TextReadingSettings.normalizeLetterSpacing(saved.letterSpacing);
     settings.dialogueHighlight = saved.dialogueHighlight === true;
+    settings.dialogueHighlightColor = TextReadingSettings.normalizeDialogueHighlightColor(
+      typeof saved.dialogueHighlightColor === 'string' ? saved.dialogueHighlightColor : '');
     settings.speechMark = TextReadingSettings.normalizeSpeechMark(saved.speechMark);
+    settings.speechMarkColor = TextReadingSettings.normalizeSpeechMarkColor(
+      typeof saved.speechMarkColor === 'string' ? saved.speechMarkColor : '');
     settings.paragraphSpacing = TextReadingSettings.normalizeParagraphSpacing(saved.paragraphSpacing);
     settings.fontWeight = saved.fontWeight;
     if (saved.themeId !== undefined) {

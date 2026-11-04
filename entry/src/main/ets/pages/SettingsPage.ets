@@ -162,7 +162,7 @@ export struct SettingsPage {
       const mode = await PreferenceService.getColorMode();
       const defaultTab = await PreferenceService.getDefaultTab();
       const autoPlay = await PreferenceService.getAutoPlayOnLaunch();
-      const coverResolution = await PreferenceService.getStoredCoverSuperResolution();
+      const coverResolution = await PreferenceService.getCoverSuperResolution();
       const focusMode = await PreferenceService.getAudioFocusMode();
       const defaultPlaybackSpeed = await PreferenceService.getDefaultPlaybackSpeed();
       const preloadCount = await PreferenceService.getPreloadChapters();
@@ -172,7 +172,7 @@ export struct SettingsPage {
       this.selectedThemeIndex = Math.max(0, THEME_OPTIONS.findIndex((opt: ThemeOption) => opt.mode === mode));
       this.defaultTab = defaultTab;
       this.autoPlayOnLaunch = autoPlay;
-      this.coverSuperResolution = coverResolution;
+      this.coverSuperResolution = coverResolution && this.membership.hasAccess;
       this.focusMode = focusMode;
       this.defaultPlaybackSpeed = defaultPlaybackSpeed;
       this.defaultPlaybackSpeedDraft = defaultPlaybackSpeed;
@@ -749,7 +749,7 @@ export struct SettingsPage {
           $r('app.string.settings_cover_super_resolution'),
           CoverSuperResolutionService.supported() ? $r('app.string.settings_cover_super_resolution_desc')
             : $r('app.string.settings_cover_super_resolution_unavailable'),
-          UIUtils.makeBinding<boolean>(() => this.coverSuperResolution),
+          UIUtils.makeBinding<boolean>(() => this.coverSuperResolution && this.membership.hasAccess),
           (enabled: boolean): void => { this.setCoverSuperResolution(enabled); },
           UIUtils.makeBinding<boolean>(() =>
             this.isLoaded && !this.isSavingCoverSuperResolution && CoverSuperResolutionService.supported()),

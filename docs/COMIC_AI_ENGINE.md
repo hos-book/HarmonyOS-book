@@ -1,6 +1,6 @@
 # 漫画本地着色子包
 
-主工程通过 `entry/oh-package.json5` 引用 `entry/libs/aiengine.har`（`@legado/aiengine`），不复制引擎源码、不注册额外 App 模块。当前固定提交为 `8fa0a428ee1643b0e89948a0713b54c78cbde062`（2026-10-29），与轻页应用 `327beff` 记录的 AI 子模块一致，包声明版本仍为 1.0.0；上游仓库、提交和集成版本见 `scripts/comic-ai-package.json`。该版本已吸收 Worker 复用、原生像素处理与 FP32 复核补丁、模型下载宿主接口、原生超分与着色会话修订，并在着色、超分和 OCR 排队/处理期间持有原图缓存。
+主工程通过 `entry/oh-package.json5` 引用 `entry/libs/aiengine.har`（`@legado/aiengine`），不复制引擎源码、不注册额外 App 模块。当前固定提交为 `010dde13eefbef46ebb2982163021923ccf635b0`（2026-11-04），与轻页应用 `b312651` 记录的 AI 子模块一致，包声明版本仍为 1.0.0；上游仓库、提交和集成版本见 `scripts/comic-ai-package.json`。该版本已吸收 Worker 复用、原生像素处理与 FP32 复核补丁、模型下载宿主接口、原生超分与着色会话修订，并在着色、超分和 OCR 排队/处理期间持有原图缓存。新增透明像素检测：透明或半透明插图保留原图，避免 JPEG 替换图出现黑底；不透明 RGBA 仍可超分，缓存版本更新为 v10。
 
 首次拉取项目或升级子包时，在已登录且能访问该仓库的 GitHub CLI 环境执行：
 
@@ -12,6 +12,8 @@ ohpm install --all
 需要 Python 3.11+、Git / GitHub CLI，以及指向正式版 DevEco Studio 的 `DEVECO_HOME`。脚本在项目外临时目录下载固定提交，先用 IDE 内置 Node（需 22.18+）执行上游 `scripts/check.mjs`，再执行本项目 `scripts/test-comic-ai-package.mjs`。新版已包含旧性能和校准补丁，不再重复应用；集成标记记录使用上游实现。脚本补充 `Index.ets` / `Worker.ets` 导出和经过 SHA-256 验证的离线模型资产，再构建并检查 API 20/26、Release SDK、release 模式、双架构原生库和标记。结束清除临时源码，仅保留 HAR、校验记录与许可证。大模型 HAR 和本机记录不加入 Git；匹配固定版本与文件散列时直接复用，强制重建使用 `--force`。旧补丁脚本仅供旧固定版本构建使用。
 
 当前子包携带三个约 59 MiB 模型，HAR 约 164 MiB。模型随应用安装，首次着色时由引擎校验并提取，不需用户填 API 或下载模型。第三方许可证随应用保存在 `rawfile/comic_ai_engine`，模型及字典声明由 HAR 自带。
+
+2026-11-04 升级验证：上游完整检查（含透明像素、原生与 ArkTS 分块回退）、宿主包回归及超分宿主回归通过；Release SDK 构建 HAR 和主应用 debug HAP 成功，API 20/26 与双架构原生库散列核验通过。准备脚本使用 GitHub CLI 获取 blob，保持 Git 哈希校验；完整上游检查限时调整为 600 秒。设备安装因 HDC 会话失效未完成，本轮不计为实机画质验证。
 
 升级时若本机已有 HAR，准备脚本按固定提交的 Git tree 校验并复用其中相同的三个模型，仅下载其余源码，每个文件核对 Git blob 散列。当前提交共 79 个文件，复用模型后只下载 76 个源码/资源文件，避免每次重新下载约 185 MB 的相同模型；模型不匹配或首次准备时回退固定提交完整归档。后续原版检查、宿主回归、离线模型 SHA-256 校验和 Release HAR 构建仍完整执行。
 

@@ -4,6 +4,7 @@ import { emitter } from '@kit.BasicServicesKit';
 import { TextReadingPosition } from '../../model/TextReading';
 import { GeneralSettings } from '../../model/GeneralSettings';
 import { PreferenceService } from '../PreferenceService';
+import { LibrarySyncValue, LibrarySyncModel } from '../sync/LibrarySyncModel';
 
 const STORE_NAME: string = 'online_text_reading_progress';
 const KEY_PREFIX: string = 'position_';
@@ -130,6 +131,33 @@ export class TextReadingProgressService {
     store.deleteSync('history_' + TextReadingProgressService.key(bookId));
     emitter.emit(EVT_TEXT_READING_PROGRESS_CHANGED);
     await store.flush();
+  }
+
+  static async applyLibrarySyncValues(context: common.Context, records: LibrarySyncValue[],
+    expected: LibrarySyncValue[], guard: () => void = (): void => {}): Promise<LibrarySyncValue[]> {
+    await TextReadingProgressService.init(context);
+    guard();
+    const store = TextReadingProgressService.store;
+    if (!store) throw new Error('Reading progress unavailable');
+    const baseline = new Map<string, string>();
+    expected.forEach((v: LibrarySyncValue): void => { baseline.set(LibrarySyncValue.key(v), v.value); });
+    const applied: LibrarySyncValue[] = [];
+    for (const record of records) {
+      if (record.kind !== 'text' || !LibrarySyncValue.online(record.bookId)) continue;
+      const key = TextReadingProgressService.key(record.bookId);
+      const current = store.getSync(key, '');
+      if (current !== (baseline.get(LibrarySyncValue.key(record)) ?? '')) continue;
+      if (record.value) {
+        if (!LibrarySyncModel.validProgress('text', record.bookId, record.value)) continue;
+        store.putSync(key, record.value);
+      } else store.deleteSync(key);
+      applied.push(record);
+    }
+    if (applied.length > 0) {
+      await store.flush();
+      emitter.emit(EVT_TEXT_READING_PROGRESS_CHANGED);
+    }
+    return applied;
   }
 
   private static key(bookId: string): string {

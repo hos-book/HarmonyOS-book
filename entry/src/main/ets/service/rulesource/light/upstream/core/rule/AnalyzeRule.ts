@@ -2925,6 +2925,8 @@ export class AnalyzeRule {
 
   private stripHtml(html: string): string {
     return html
+      // CRLF/CR first, otherwise "\r\n<br>" survives the blank-line collapse below.
+      .replace(/\r\n?/g, '\n')
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/p>/gi, '\n\n')
       // Treat div blocks as paragraph boundaries. Keeping two newlines prevents

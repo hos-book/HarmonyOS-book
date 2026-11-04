@@ -130,7 +130,12 @@ assert.equal(keys.pageIndex, 2);
 keys.keyCallback(false);
 assert.equal(keys.pageIndex, 1);
 keys.chrome = true;
-assert.equal(keys.canUseVolumeKeys(), true, 'toolbar alone does not disable volume page turns');
+keys.syncVolumeKeys();
+assert.equal(keys.subscribed, false, 'toolbar releases volume keys for system volume');
+keys.keyCallback(true);
+assert.equal(keys.pageIndex, 1, 'late callback does not turn behind toolbar');
+keys.chrome = false; keys.syncVolumeKeys();
+assert.equal(keys.subscribed, true, 'closing toolbar restores volume page turns');
 for (const field of ['busy', 'failed', 'showChapters', 'showSettings', 'showSourceSwitch', 'zoomActive',
   'sheetPresented', 'chapterSliderDragging', 'chapterSliderConfirming']) {
   keys[field] = true; keys.syncVolumeKeys();

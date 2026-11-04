@@ -3,11 +3,11 @@
   "sources": {
     "engine": {
       "repository": "https://github.com/wip3l/harmony-book-source-engine",
-      "commit": "06f6491426c84fd0bab318d7822abfbf855889a7"
+      "commit": "6ca2b6e3f649c3d2dfc8451bc23e9868140e5a33"
     },
     "application": {
       "repository": "https://github.com/wip3l/qingye-reader",
-      "commit": "351a535226f2123bc5311722306adf5dea0bd3ab"
+      "commit": "b312651f7e07ed4c5fdb04e6955777663f9e87f2"
     }
   },
   "license": "GPL-3.0",
@@ -24,8 +24,8 @@
       "path": "core/book/WebBookService.ts",
       "source": "application",
       "upstreamPath": "entry/src/main/ets/core/book/WebBookService.ts",
-      "upstreamSha256": "fdc0dba30c19053bdd118085d34fa66b8918d8e04110d47be850d36c38c2a297",
-      "sha256": "cdc599c7cc73cd259ac98b3169c805b4f0dc1816d7a86881da37a150e75a9cb1"
+      "upstreamSha256": "3a590b240b49fc9fe495fbdfc0a26c87651bf3a67e5c9f722983d1a838b4e009",
+      "sha256": "71ab74ab18653b759f72712ed896f583dd40fb1a5e0fd357bc9e37c49934dc8b"
     },
     {
       "path": "core/host/SourceEngineHost.ts",
@@ -38,8 +38,8 @@
       "path": "model/data/Book.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/model/data/Book.ts",
-      "upstreamSha256": "62309c5094ab392c50232a93c0e223791bb9b6ca650ebe776a0f4f04cd65b2a8",
-      "sha256": "62309c5094ab392c50232a93c0e223791bb9b6ca650ebe776a0f4f04cd65b2a8"
+      "upstreamSha256": "59427079a99aa46df03ff88b30f089492c453d03c8d0bedf005e2b8fe0df5624",
+      "sha256": "59427079a99aa46df03ff88b30f089492c453d03c8d0bedf005e2b8fe0df5624"
     },
     {
       "path": "core/book/BookSourceRuntimeStore.ts",
@@ -52,8 +52,8 @@
       "path": "core/nativesource/NativeSourceRunner.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceRunner.ts",
-      "upstreamSha256": "669dcc3266d289098f1009dab037c204b941830f0a2578b07655af2c340cb659",
-      "sha256": "669dcc3266d289098f1009dab037c204b941830f0a2578b07655af2c340cb659"
+      "upstreamSha256": "530875b5251256e271831ba5b712c9b9f527c42a8351303dbcc603361f20ecf8",
+      "sha256": "530875b5251256e271831ba5b712c9b9f527c42a8351303dbcc603361f20ecf8"
     },
     {
       "path": "core/concurrency/CooperativeScheduler.ts",
@@ -101,8 +101,8 @@
       "path": "core/nativesource/NativeCommentPage.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeCommentPage.ts",
-      "upstreamSha256": "f7f629785721b556ae558aebba60b23895d324ae31e6573f09501c33a1aa13b3",
-      "sha256": "f7f629785721b556ae558aebba60b23895d324ae31e6573f09501c33a1aa13b3"
+      "upstreamSha256": "37e11e4d773f97379449125d9952f2ab8ce3af6aa3e3a2015eaf6e9367b535bb",
+      "sha256": "37e11e4d773f97379449125d9952f2ab8ce3af6aa3e3a2015eaf6e9367b535bb"
     },
     {
       "path": "core/nativesource/NativeScriptHost.ts",
@@ -339,8 +339,8 @@
       "path": "core/rule/AnalyzeRule.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/rule/AnalyzeRule.ts",
-      "upstreamSha256": "84f145feabb0441a5dc1228adc69baaa890aceed123b7eb5c85f33f6ef504cab",
-      "sha256": "84f145feabb0441a5dc1228adc69baaa890aceed123b7eb5c85f33f6ef504cab"
+      "upstreamSha256": "57e54d56c58c20879a62bec4b81b6413d4b5b0934548f48edf738f4e08aaf80d",
+      "sha256": "57e54d56c58c20879a62bec4b81b6413d4b5b0934548f48edf738f4e08aaf80d"
     },
     {
       "path": "core/rule/JavaRegexCompat.ts",
@@ -430,8 +430,8 @@
       "path": "core/nativesource/NativeSourceService.ts",
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/nativesource/NativeSourceService.ts",
-      "upstreamSha256": "1810b177ca30668fc7030dcb5687f3311c0cd31bcf34fe09d55a72161d34e269",
-      "sha256": "1810b177ca30668fc7030dcb5687f3311c0cd31bcf34fe09d55a72161d34e269"
+      "upstreamSha256": "c7b607c3be2c22c3abff4d8a94e3e5a2b652ee4b75397f48917a00637cfd033b",
+      "sha256": "c7b607c3be2c22c3abff4d8a94e3e5a2b652ee4b75397f48917a00637cfd033b"
     },
     {
       "path": "core/http/DigestHash.ts",
@@ -598,8 +598,8 @@
       "path": "core/book/SearchCoordinator.ts",
       "source": "application",
       "upstreamPath": "entry/src/main/ets/core/book/SearchCoordinator.ts",
-      "upstreamSha256": "26cbfa1fa91be6e62890c7cb7d8cc67f4781a8cd51de4c54310e10b68dd202c8",
-      "sha256": "57ea45de656752490b455767859e55f2f95aef1c824ebf7a80875ab562977643"
+      "upstreamSha256": "d92d3a74de261074887eba8e7f8a5bed4a0e1e8e7bd3fc73015676e68ae0fdda",
+      "sha256": "f2722be4b21b6f25c118e1a86d5f750acb44d440b390140f342c012f3158b709"
     },
     {
       "path": "core/rule/PageCandidateUrl.ts",

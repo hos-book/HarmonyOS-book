@@ -6,6 +6,7 @@ import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
 import { AuthService, HwAuthErrorCode } from '../service/AuthService';
 import { AppBackupSnapshot } from '../service/AppBackupService';
 import { AutoBackupService } from '../service/AutoBackupService';
+import { LibrarySyncService, LibrarySyncStatus } from '../service/LibrarySyncService';
 import { MembershipState } from '../model/MembershipState';
 import { MembershipService } from '../service/MembershipService';
 import {
@@ -25,6 +26,7 @@ export struct AccountPage {
   @Local cloud: CloudBackupService = CloudBackupService.instance;
   @Local local: LocalBackupService = LocalBackupService.instance;
   @Local automatic: AutoBackupService = AutoBackupService.instance;
+  @Local librarySync: LibrarySyncService = LibrarySyncService.instance;
   @Local membership: MembershipState = MembershipState.current;
   @Local membershipService: MembershipService = MembershipService.instance;
   @Local checkingMembership: boolean = false;
@@ -37,6 +39,7 @@ export struct AccountPage {
   @Local hasLocalMessage: boolean = false;
   @Local localBackupExpanded: boolean = false;
   @Local cloudBackupExpanded: boolean = false;
+  @Local librarySyncExpanded: boolean = false;
   private finishConfirmation: ((confirmed: boolean) => void) | null = null;
   private alive: boolean = false;
 
@@ -46,6 +49,7 @@ export struct AccountPage {
     if (context) {
       this.auth.restore(context).then(async (): Promise<void> => {
         await this.automatic.refresh(context);
+        await this.librarySync.refresh(context);
         this.autoReady = true;
         await this.cloud.refresh(context);
       });
@@ -65,24 +69,27 @@ export struct AccountPage {
   }
 
   private interceptBack(): boolean {
-    if (!this.manualPending && ((!this.auth.dataOperation && !this.auth.logging) || this.automatic.running)) return false;
+    if (!this.manualPending && ((!this.auth.dataOperation && !this.auth.logging) || this.automatic.running || this.librarySync.running)) return false;
     this.toast($r('app.string.account_wait_operation'));
     return true;
   }
 
   private manualAvailable(): boolean {
     return !this.manualPending && !this.automatic.configuring && !this.auth.logging &&
-      (!this.auth.restoring || this.automatic.running) && (!this.auth.dataOperation || this.automatic.running);
+      (!this.auth.restoring || this.automatic.running || this.librarySync.running) &&
+      (!this.auth.dataOperation || this.automatic.running || this.librarySync.running);
   }
 
   private async runManual(action: () => Promise<void>): Promise<void> {
     if (!this.manualAvailable()) return;
     this.manualPending = true;
     await this.automatic.pauseForManual();
+    await this.librarySync.pauseForManual();
     try {
       await action();
     } finally {
       this.automatic.resumeAfterManual();
+      this.librarySync.resumeAfterManual();
       this.manualPending = false;
     }
   }
@@ -197,6 +204,7 @@ export struct AccountPage {
             await this.auth.logout();
             const context = this.getUIContext().getHostContext();
             if (context) await this.automatic.refresh(context);
+            if (context) await this.librarySync.refresh(context);
             this.cloud.lastBackupAt = 0;
             this.navStack.pop();
             this.toast($r('app.string.hw_auth_logout_success'));
@@ -402,6 +410,7 @@ export struct AccountPage {
         Scroll() {
           Column({ space: AppSpace.Lg }) {
             this.profileCard()
+            this.librarySyncCard()
             this.localBackupCard()
             WebDavBackupCard({ available: this.manualAvailable(),
               runManual: (action: () => Promise<void>): Promise<void> => this.runManual(action),
@@ -434,6 +443,100 @@ export struct AccountPage {
       .backgroundColor($r('sys.color.background_secondary'))
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     }
+  }
+
+  @Builder
+  librarySyncCard() {
+    Column({ space: AppSpace.Sm }) {
+      Row({ space: AppSpace.Sm }) {
+        Row({ space: AppSpace.Sm }) {
+          Text($r('app.string.library_sync_title')).fontSize(AppFont.BodyL)
+            .fontWeight(FontWeight.Medium).fontColor($r('sys.color.font_primary')).flexShrink(1)
+          if (MembershipState.featureEnabled) { VipFeatureBadge() }
+        }.layoutWeight(1)
+        SymbolGlyph(this.librarySyncExpanded ? $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
+          .fontSize(20).fontColor([$r('sys.color.font_tertiary')])
+      }.width('100%').constraintSize({ minHeight: 40 })
+        .id('library-sync-expand')
+        .onClick(() => { this.librarySyncExpanded = !this.librarySyncExpanded; })
+      Text(this.librarySyncText()).fontSize(AppFont.Caption).fontColor(AppColor.Brand)
+        .maxLines(this.librarySyncExpanded ? 4 : 1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        .id('library-sync-status')
+      if (this.librarySyncExpanded) {
+      Row({ space: AppSpace.Sm }) {
+        Text($r('app.string.library_sync_enable')).fontSize(AppFont.Body)
+          .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+        Stack() {
+        Toggle({ type: ToggleType.Switch, isOn: this.auth.isLoggedIn &&
+          this.librarySync.accountId === this.auth.openID && this.librarySync.enabled })
+          .selectedColor(AppColor.Brand)
+          .enabled(this.auth.isLoggedIn && this.manualAvailable() && !this.librarySync.configuring &&
+            !this.membershipService.busy && !this.checkingMembership &&
+            (this.membership.hasAccess || this.librarySync.enabled))
+          .accessibilityText($r('app.string.library_sync_title'))
+          .id('library-sync-toggle')
+          .onChange((enabled: boolean): void => { this.configureLibrarySync(enabled); })
+          if (!this.membership.hasAccess && !this.librarySync.enabled) {
+            Button({ type: ButtonType.Normal }) { Row().width(52).height(32) }
+              .backgroundColor(Color.Transparent)
+              .accessibilityText($r('app.string.library_sync_membership_required'))
+              .enabled(!this.membershipService.busy && !this.checkingMembership && this.manualAvailable())
+              .onClick(() => this.configureLibrarySync(true))
+          }
+        }
+      }.width('100%')
+      Text($r('app.string.library_sync_description')).fontSize(AppFont.Caption).lineHeight(20)
+        .fontColor($r('sys.color.font_secondary'))
+      if (this.librarySync.lastSyncedAt > 0 && this.librarySync.accountId === this.auth.openID) {
+        Text($r('app.string.library_sync_last', this.formatDate(this.librarySync.lastSyncedAt)))
+          .fontSize(AppFont.Caption).fontColor($r('sys.color.font_tertiary'))
+      }
+      if (this.librarySync.deferredProgress > 0) {
+        Text($r('app.string.library_sync_deferred')).fontSize(AppFont.Caption)
+          .fontColor($r('sys.color.font_secondary'))
+      }
+      if (this.auth.isLoggedIn && this.librarySync.enabled && this.librarySync.accountId === this.auth.openID) {
+        Button($r('app.string.library_sync_now'), { type: ButtonType.Normal })
+          .fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
+          .enabled(!this.librarySync.running && this.manualAvailable() &&
+            !this.membershipService.busy && !this.checkingMembership)
+          .onClick(async (): Promise<void> => {
+            if (await this.requireAutoMembership()) await this.librarySync.syncNow();
+          })
+      }
+      }
+    }.width('100%').alignItems(HorizontalAlign.Start).padding(AppSpace.Md)
+      .backgroundColor($r('sys.color.comp_background_primary')).borderRadius(AppRadius.Lg)
+  }
+
+  private librarySyncText(): ResourceStr {
+    if (!this.membership.hasAccess) return this.membership.confirmedInactive ?
+      $r('app.string.library_sync_membership_required') : $r('app.string.library_sync_membership_check');
+    if (!this.auth.isLoggedIn) return $r('app.string.library_sync_login');
+    if (this.librarySync.accountId !== this.auth.openID) return $r('app.string.library_sync_off');
+    switch (this.librarySync.status) {
+      case LibrarySyncStatus.WORKING: return $r('app.string.library_sync_working');
+      case LibrarySyncStatus.PENDING: return $r('app.string.library_sync_pending');
+      case LibrarySyncStatus.SYNCED: return $r('app.string.library_sync_synced');
+      case LibrarySyncStatus.UNAVAILABLE: return $r('app.string.library_sync_unavailable');
+      case LibrarySyncStatus.FAILED: return $r('app.string.library_sync_failed');
+      case LibrarySyncStatus.WAITING: return $r('app.string.library_sync_waiting');
+      case LibrarySyncStatus.MEMBERSHIP: return this.librarySync.enabled ?
+        $r('app.string.library_sync_waiting') : $r('app.string.library_sync_off');
+      default: return $r('app.string.library_sync_off');
+    }
+  }
+
+  private async configureLibrarySync(enabled: boolean): Promise<void> {
+    if (enabled && !await this.requireAutoMembership()) return;
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
+    await this.runManual(async (): Promise<void> => {
+      if (enabled && !await this.confirmRestore($r('app.string.library_sync_title'),
+        $r('app.string.library_sync_confirm'), $r('app.string.library_sync_enable'))) return;
+      try { await this.librarySync.setEnabled(context, enabled); }
+      catch (_error) { this.toast(this.membership.hasAccess ? $r('app.string.library_sync_failed') : this.librarySyncText()); }
+    });
   }
 
   @Builder

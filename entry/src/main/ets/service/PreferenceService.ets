@@ -10,6 +10,7 @@ import { Book, Chapter } from '../model/Book';
 import { AppAppearance } from '../model/AppAppearance';
 import { AppThemeSelection } from '../model/AppThemeBundle';
 import { ThemeBundles } from '../theme/ThemeBundles';
+import { LibrarySyncValue, LibrarySyncModel, LIBRARY_SYNC_CHANGED } from './sync/LibrarySyncModel';
 
 /** 书架收藏变化事件：加入、移出或最近阅听顺序变化后触发。 */
 export const EVT_FAVORITES_CHANGED = 'app.favorites.changed';
@@ -223,10 +224,12 @@ export class PreferenceService {
 
   static async getAudioSubtitlesEnabled(): Promise<boolean> {
     const store = await PreferenceService.ensureStore();
-    return store.getSync('audio_subtitles_enabled', false) === true;
+    return store.getSync('audio_subtitles_enabled', false) === true &&
+      await MembershipService.instance.hasCurrentEntitlement();
   }
 
   static async setAudioSubtitlesEnabled(enabled: boolean): Promise<void> {
+    if (enabled && !await MembershipService.instance.hasCurrentEntitlement()) throw new Error('Membership required');
     const store = await PreferenceService.ensureStore();
     const previous = store.getSync('audio_subtitles_enabled', false);
     try {
@@ -466,6 +469,30 @@ export class PreferenceService {
   }
 
   private static store: preferences.Preferences | null = null;
+  static async getAudioLoudnessGain(): Promise<number> {
+    const store = await PreferenceService.ensureStore();
+    const value = store.getSync('audio_loudness_gain', 0);
+    return typeof value === 'number' && Number.isFinite(value) ? Math.max(0, Math.min(24, Math.round(value))) : 0;
+  }
+
+  static async setAudioLoudnessGain(value: number): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    store.putSync('audio_loudness_gain', value);
+    await store.flush();
+  }
+
+  static async getAppIconSelection(): Promise<string | null> {
+    const store = await PreferenceService.ensureStore();
+    if (!store.hasSync('app_icon_selection')) return null;
+    const value = store.getSync('app_icon_selection', '');
+    return typeof value === 'string' ? value : '';
+  }
+
+  static async setAppIconSelection(value: string): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    store.putSync('app_icon_selection', value);
+    await store.flush();
+  }
   private static initPromise: Promise<void> | null = null;
   private static widgetContext: common.BaseContext | null = null;
   private static widgetStateWrites: Promise<void> = Promise.resolve();
@@ -847,6 +874,7 @@ export class PreferenceService {
     const s = await PreferenceService.ensureStore();
     await s.put(KEY_PROGRESS_PREFIX + p.bookId, JSON.stringify(p));
     await s.flush();
+    emitter.emit(LIBRARY_SYNC_CHANGED);
     await PreferenceService.promoteFavorite(p.bookId).catch((): void => {
       // 书架排序失败不影响已保存的播放进度。
     });
@@ -1018,6 +1046,24 @@ export class PreferenceService {
     const s = await PreferenceService.ensureStore();
     const value = await s.get('ranking_categories_v1', '');
     return typeof value === 'string' ? value : '';
+  }
+
+  static async getRankingBoardOrder(): Promise<string> {
+    const store = await PreferenceService.ensureStore();
+    const value = store.getSync('ranking_board_order_v1', '');
+    return typeof value === 'string' ? value : '';
+  }
+
+  static async setRankingBoardOrder(value: string): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const previous = store.getSync('ranking_board_order_v1', '');
+    try {
+      await store.put('ranking_board_order_v1', value);
+      await store.flush();
+    } catch (error) {
+      await store.put('ranking_board_order_v1', previous);
+      throw new Error(String(error));
+    }
   }
 
   static async setRankingCategories(value: string): Promise<void> {
@@ -1305,7 +1351,7 @@ export class PreferenceService {
       await MembershipService.instance.hasCurrentEntitlement();
   }
 
-  /** 设置页只读取用户选择；实际启用能力仍走 getCoverSuperResolution 的权益校验。 */
+  /** 原始偏好仅供内部读取；设置页和执行入口均使用 getCoverSuperResolution。 */
   static async getStoredCoverSuperResolution(): Promise<boolean> {
     const store = await PreferenceService.ensureStore();
     return (await store.get(KEY_COVER_SUPER_RESOLUTION, false)) === true;
@@ -1726,6 +1772,109 @@ export class PreferenceService {
     const s = await PreferenceService.ensureStore();
     await s.delete(KEY_SEARCH_HISTORY);
     await s.flush();
+  }
+
+  /** 自动同步只读取书架和续播白名单，不导出账号、历史、设置或本地文件。 */
+  static async exportLibrarySyncValues(): Promise<LibrarySyncValue[]> {
+    const store = await PreferenceService.ensureStore();
+    return PreferenceService.librarySyncValues(store);
+  }
+
+  private static librarySyncValues(store: preferences.Preferences): LibrarySyncValue[] {
+    const values: LibrarySyncValue[] = [];
+    const shelfRaw = store.getSync(KEY_FAVORITES, '[]');
+    const pinRaw = store.getSync(KEY_PINNED_FAVORITES, '[]');
+    const favorites: string[] = JSON.parse(typeof shelfRaw === 'string' ? shelfRaw : '[]');
+    const pins: string[] = JSON.parse(typeof pinRaw === 'string' ? pinRaw : '[]');
+    for (const id of favorites) {
+      if (LibrarySyncValue.online(id)) values.push(new LibrarySyncValue('shelf', id, '1'));
+    }
+    for (const id of pins) {
+      if (LibrarySyncValue.online(id) && favorites.includes(id)) values.push(new LibrarySyncValue('pin', id, '1'));
+    }
+    for (const edit of BookPresentation.edits) {
+      if (LibrarySyncValue.online(edit.bookId) && edit.group) values.push(new LibrarySyncValue('group', edit.bookId, edit.group));
+    }
+    for (const key of Object.keys(store.getAllSync())) {
+      if (!key.startsWith(KEY_PROGRESS_PREFIX)) continue;
+      const id = key.substring(KEY_PROGRESS_PREFIX.length);
+      const raw = store.getSync(key, '');
+      if (LibrarySyncValue.online(id) && typeof raw === 'string' && LibrarySyncModel.validProgress('play', id, raw)) {
+        values.push(new LibrarySyncValue('play', id, raw));
+      }
+    }
+    return values.sort(LibrarySyncModel.order);
+  }
+
+  /** 同步比较并写入，读写之间不 await；本轮抓取之后发生的本机操作优先留给下一轮。 */
+  static async applyLibrarySyncValues(records: LibrarySyncValue[], expected: LibrarySyncValue[],
+    guard: () => void = (): void => {}): Promise<LibrarySyncValue[]> {
+    const store = await PreferenceService.ensureStore();
+    guard();
+    const current = new Map<string, string>();
+    PreferenceService.librarySyncValues(store).forEach((v: LibrarySyncValue): void => {
+      current.set(LibrarySyncValue.key(v), v.value);
+    });
+    const baseline = new Map<string, string>();
+    expected.forEach((v: LibrarySyncValue): void => { baseline.set(LibrarySyncValue.key(v), v.value); });
+    const shelfRaw = store.getSync(KEY_FAVORITES, '[]');
+    const pinRaw = store.getSync(KEY_PINNED_FAVORITES, '[]');
+    let favorites: string[] = JSON.parse(typeof shelfRaw === 'string' ? shelfRaw : '[]');
+    let pins: string[] = JSON.parse(typeof pinRaw === 'string' ? pinRaw : '[]');
+    const edits: BookPresentationEdit[] = JSON.parse(JSON.stringify(BookPresentation.edits));
+    const applied: LibrarySyncValue[] = [];
+    let shelfChanged = false;
+    for (const record of records) {
+      const key = LibrarySyncValue.key(record);
+      if ((current.get(key) ?? '') !== (baseline.get(key) ?? '') || !LibrarySyncValue.online(record.bookId)) continue;
+      if (record.kind === 'shelf') {
+        favorites = favorites.filter((id: string): boolean => id !== record.bookId);
+        if (record.value) favorites.push(record.bookId);
+        shelfChanged = true;
+      } else if (record.kind === 'pin') {
+        pins = pins.filter((id: string): boolean => id !== record.bookId);
+        if (record.value) pins.push(record.bookId);
+        shelfChanged = true;
+      } else if (record.kind === 'group') {
+        let edit = edits.find((item: BookPresentationEdit): boolean => item.bookId === record.bookId);
+        if (!edit) { edit = new BookPresentationEdit(); edit.bookId = record.bookId; edits.push(edit); }
+        edit.group = record.value;
+        shelfChanged = true;
+      } else if (record.kind === 'play') {
+        if (record.value) {
+          if (!LibrarySyncModel.validProgress('play', record.bookId, record.value)) continue;
+          const progress: PlayProgress = JSON.parse(record.value);
+          store.putSync(KEY_PROGRESS_PREFIX + record.bookId, record.value);
+          PreferenceService.progressMemo.set(record.bookId, progress);
+          // 手动点回远端当前章节也应使用同一个最新时间位置。
+          const chapter = new ChapterPlayProgress();
+          chapter.bookId = progress.bookId; chapter.chapterId = progress.chapterId;
+          chapter.positionMs = progress.positionMs; chapter.durationMs = progress.durationMs; chapter.updatedAt = progress.updatedAt;
+          const chapterRaw = store.getSync(KEY_CHAPTER_PROGRESS_PREFIX + record.bookId, '[]');
+          const saved: ChapterPlayProgress[] = JSON.parse(typeof chapterRaw === 'string' ? chapterRaw : '[]');
+          const next = [chapter].concat(saved.filter((item: ChapterPlayProgress): boolean => item.chapterId !== chapter.chapterId))
+            .slice(0, MAX_CHAPTER_PROGRESS_PER_BOOK);
+          store.putSync(KEY_CHAPTER_PROGRESS_PREFIX + record.bookId, JSON.stringify(next));
+          PreferenceService.chapterProgressMemo.set(record.bookId, next);
+        } else {
+          store.deleteSync(KEY_PROGRESS_PREFIX + record.bookId);
+          PreferenceService.progressMemo.delete(record.bookId);
+        }
+      } else continue;
+      applied.push(record);
+    }
+    if (shelfChanged) {
+      store.putSync(KEY_FAVORITES, JSON.stringify(favorites));
+      store.putSync(KEY_PINNED_FAVORITES, JSON.stringify(pins.filter((id: string): boolean => favorites.includes(id))));
+      store.putSync('book_presentation_v1', JSON.stringify(edits));
+      BookPresentation.edits = edits;
+      BookPresentation.groups = Array.from(new Set(BookPresentation.groups.concat(edits.map((e: BookPresentationEdit): string => e.group))))
+        .filter((name: string): boolean => !!name);
+      store.putSync('shelf_groups_v1', JSON.stringify(BookPresentation.groups));
+    }
+    if (applied.length > 0) await store.flush();
+    if (shelfChanged) { PreferenceService.notifyFavoriteChanged(); emitter.emit(EVT_FAVORITES_CHANGED); }
+    return applied;
   }
 
   /** 导出允许跨设备迁移的白名单偏好，不包含账号、卡片和本地导入数据。 */

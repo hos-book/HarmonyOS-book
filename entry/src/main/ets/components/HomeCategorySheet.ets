@@ -40,7 +40,7 @@ export struct HomeCategorySheet {
     Column({ space: AppSpace.Sm }) {
       Row() {
         Column({ space: 3 }) {
-          Text($r('app.string.home_categories_all')).fontSize(AppFont.Title)
+          Text($r('app.string.home_categories_all')).fontSize(AppFont.TitleL)
             .fontWeight(FontWeight.Bold).fontColor(AppTheme.TextPrimary)
           Text($r('app.string.home_categories_count', this.categories.length))
             .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
@@ -67,18 +67,26 @@ export struct HomeCategorySheet {
         LazyForEach(this.data, (row: HomeCategoryOverviewRow) => {
           ListItem() {
             Column({ space: AppSpace.Sm }) {
-              Text(this.groupTitle(row)).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+              Text(this.groupTitle(row)).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary)
+                .fontWeight(FontWeight.Medium)
               Flex({ wrap: FlexWrap.Wrap }) {
                 ForEach(row.categories, (item: HomeCategoryOverviewItem) => {
                   Button({ type: ButtonType.Capsule }) {
                     Text(item.label || $r('app.string.home_categories_all_tag'))
                       .fontSize(14).fontColor(this.selected(item) ? HomeTheme.Accent : AppTheme.TextPrimary)
                       .fontWeight(this.selected(item) ? FontWeight.Medium : FontWeight.Regular)
+                      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+                      .constraintSize({ maxWidth: '100%', minHeight: 40 })
+                      // 独立覆色层避免被外层原生材质的透明背景重置。
+                      .backgroundColor(this.selected(item) ? HomeTheme.AccentSoft : AppColor.GlassSheetControlTint)
+                      .borderRadius(AppRadius.Pill)
                   }
-                    .padding({ left: 13, right: 13, top: 8, bottom: 8 })
-                    .constraintSize({ maxWidth: '100%', minHeight: 36 })
+                    .padding(0)
+                    .constraintSize({ maxWidth: '100%', minHeight: 40 })
                     .borderRadius(AppRadius.Pill).backgroundColor(AppColor.GlassControlFallback)
                     .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveThin))
+                    .border({ width: 0.5, color: this.selected(item) ? HomeTheme.Accent : AppColor.GlassStroke })
+                    .clip(true)
                     .margin({ right: 8, bottom: 8 }).flexShrink(0)
                     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
                     .accessibilitySelected(this.selected(item))

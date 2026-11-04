@@ -136,6 +136,9 @@ function sessionFixture() {
     }
   };
   const Service = load('AVSessionService', {
+    '../model/DesktopLyric': { DesktopLyricState: class { visible = false; supported = false; } },
+    '../utils/PlatformCompat': { PlatformCompat: { supports: () => false } },
+    './membership/MembershipFeatureLease': { MembershipFeatureLease: class { stop() {} } },
     './LocalBookCoverService': { LocalBookCoverService: {
       async resolve(_context, id, cover, title, author) {
         return cover || (id.startsWith('import_') ? `/cache/${title}-${author}.jpg` : '');
@@ -152,7 +155,7 @@ function sessionFixture() {
     '@kit.AVSessionKit': { avSession: { LoopMode: { LOOP_MODE_SEQUENCE: 0, LOOP_MODE_LIST: 1, LOOP_MODE_SINGLE: 2 } } },
     '@kit.NetworkKit': { http: {
       RequestMethod: { GET: 'GET' }, HttpDataType: { ARRAY_BUFFER: 2 },
-      createHttp: () => ({ request: async () => ({ responseCode: 200, result: await read() }), destroy() {} })
+      createHttp: () => { throw Error('System artwork must use the shared cover cache'); }
     } },
     './CoverPrefetcher': { CoverPrefetcher: { loadOriginal: read } },
     './PlaybackCoordinator': { PlaybackCoordinator: { speechActive: false } }
@@ -249,6 +252,25 @@ test('source cache file URIs publish the new cover instead of going through rawf
   f.fail();
   assert.equal(await f.service.loadCover('file:///data/storage/el2/base/cache/source_covers/broken.img'), null);
   assert.deepEqual(f.closed, [7, 7], 'failed decoding must also close the cover file');
+});
+
+test('chapter changes retain resolved source artwork without publishing a placeholder', async () => {
+  const f = sessionFixture();
+  const book = { id: 'source-book', sourceUrl: 'source', title: 'book', author: 'author',
+    cover: 'https://cover.test/encoded/book' };
+  const decoded = { kind: 'decoded source cover' };
+  f.service.loadCover = async key => key === 'avsession://cover-placeholder'
+    ? { kind: 'placeholder' } : decoded;
+  await f.service.updateMetadata(book, { id: 'one', title: 'one', duration: 0 });
+  const images = [];
+  f.service.session.setAVMetadata = async value => { images.push(value.mediaImage); };
+  await f.service.updateMetadata(book, { id: 'two', title: 'two', duration: 0 });
+  assert.ok(images.length > 0);
+  assert.ok(images.every(value => value === decoded), 'no placeholder between chapters even if raw URL is not the decoded cache key');
+  images.length = 0;
+  book.cover = 'https://cover.test/replaced';
+  await f.service.updateMetadata(book, { id: 'three', title: 'three', duration: 0 });
+  assert.equal(images[0].kind, 'placeholder', 'a changed cover must not keep stale artwork, even with a mutated Book instance');
 });
 
 test('a cover finishing after session destruction is released and not cached', async () => {

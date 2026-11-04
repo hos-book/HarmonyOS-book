@@ -72,17 +72,15 @@ def prepare_sources_from_existing_models(project):
             if copied != entry['size'] or digest.hexdigest() != entry['sha']:
                 return False
 
-    token = subprocess.check_output(['gh', 'auth', 'token'], timeout=30).decode().strip()
     def fetch(entry):
-        request = urllib.request.Request(
-            f'https://api.github.com/repos/{SPEC["repository"]}/git/blobs/{entry["sha"]}',
-            headers={'Authorization': 'Bearer ' + token, 'User-Agent': 'HSDA-package-builder'})
         for attempt in range(2):
             try:
-                with urllib.request.urlopen(request, timeout=25) as response:
-                    blob = json.load(response)
+                # Reuse gh's authenticated transport; urllib handshakes can fail
+                # under Windows proxies. Every returned blob is still verified below.
+                blob = json.loads(subprocess.check_output([
+                    'gh', 'api', f'repos/{SPEC["repository"]}/git/blobs/{entry["sha"]}'], timeout=60))
                 break
-            except (OSError, ValueError):
+            except (OSError, ValueError, subprocess.SubprocessError):
                 if attempt:
                     raise
         if blob.get('encoding') != 'base64':
@@ -251,7 +249,7 @@ def build():
                             shutil.copyfileobj(source, output)
         # Check the pinned upstream before applying our independently verified host calibration patch.
         subprocess.run([str(ide / 'tools/node/node.exe'), 'scripts/check.mjs'],
-                       cwd=project, env=env, check=True, timeout=180)
+                       cwd=project, env=env, check=True, timeout=600)
         prepare_exports(project)
         subprocess.run([str(ide / 'tools/node/node.exe'), str(ROOT / 'scripts/test-comic-ai-package.mjs'), str(project)],
                        cwd=project, env=env, check=True, timeout=60)

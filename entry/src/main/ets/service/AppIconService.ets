@@ -1,6 +1,7 @@
 import { bundleManager } from '@kit.AbilityKit';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { MembershipState } from '../model/MembershipState';
+import { PreferenceService } from './PreferenceService';
 
 export class AppIconOption {
   name: string;
@@ -14,10 +15,11 @@ export class AppIconOption {
   }
 }
 
-/** 系统保存桌面图标选择；始终从系统读取，不在偏好设置中伪造成功状态。 */
+/** 系统状态用于确认应用成功；本地选择用于覆盖安装后恢复。 */
 export class AppIconService {
   private static readonly shared: AppIconService = new AppIconService();
   private changing: boolean = false;
+  private selectionRevision: number = 0;
 
   static get instance(): AppIconService {
     return AppIconService.shared;
@@ -65,7 +67,22 @@ export class AppIconService {
     return current ? current.iconName : '';
   }
 
-  async select(name: string): Promise<string> {
+  async restore(): Promise<void> {
+    if (!this.supported || this.changing) return;
+    const revision = this.selectionRevision;
+    const saved = await PreferenceService.getAppIconSelection();
+    if (revision !== this.selectionRevision || this.changing) return;
+    if (saved === null) {
+      const current = await this.getCurrent();
+      if (!this.changing && revision === this.selectionRevision) await PreferenceService.setAppIconSelection(current);
+      return;
+    }
+    if (this.membershipRequired && !MembershipState.current.hasAccess) return;
+    if (!this.getOptions().some((option: AppIconOption) => option.name === saved)) return;
+    await this.select(saved, false);
+  }
+
+  async select(name: string, remember: boolean = true): Promise<string> {
     if (!this.supported) throw new Error('Alternate icons require API 26');
     if (this.membershipRequired && name !== '' && !MembershipState.current.hasAccess) {
       throw new Error('Active icon membership required');
@@ -75,15 +92,16 @@ export class AppIconService {
       throw new Error('Invalid alternate icon');
     }
     this.changing = true;
+    this.selectionRevision++;
     try {
       const current = await this.getCurrent();
       if (this.membershipRequired && name !== '' && !MembershipState.current.hasAccess) {
         throw new Error('Active icon membership required');
       }
-      if (current === name) return current;
-      await bundleManager.setAlternateIcon(name);
+      if (current !== name) await bundleManager.setAlternateIcon(name);
       const applied = await this.getCurrent();
       if (applied !== name) throw new Error('Alternate icon was not applied');
+      if (remember) await PreferenceService.setAppIconSelection(applied);
       return applied;
     } finally {
       this.changing = false;

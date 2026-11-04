@@ -17,7 +17,7 @@
     },
     {
       "name": "desktop_lyric_show",
-      "value": "显示桌面歌词"
+      "value": "显示桌面歌词 · VIP"
     },
     {
       "name": "desktop_lyric_hide",
@@ -1241,7 +1241,7 @@
     },
     {
       "name": "reader_volume_key_hint",
-      "value": "音量加上一页，音量减下一页；上下滚动模式按屏滚动"
+      "value": "工具栏隐藏时，音量加上一页、音量减下一页，滚动模式按屏滚动；打开工具栏后调节音量"
     },
     {
       "name": "reader_smart_key_turn",
@@ -1733,7 +1733,7 @@
     },
     {
       "name": "guide_reader_speech_desc",
-      "value": "呼出工具栏后，点击旁边的「听」开始朗读并进入播放页；同一本书会接续已有朗读位置。播放页可暂停、切章、调倍速和音色；阅读设置可管理语音引擎与自定义 TTS。图片型 PDF 不支持朗读。"
+      "value": "呼出工具栏后，点击旁边的「听」开始朗读并进入播放页；同一本书会接续已有朗读位置。播放页可暂停、切章、调倍速和音色；“我的 → 阅读设置”可管理语音引擎与自定义 TTS。图片型 PDF 不支持朗读。"
     },
     {
       "name": "import_help_expand",
@@ -4509,11 +4509,43 @@
     },
     {
       "name": "tts_settings_title",
-      "value": "朗读设置"
+      "value": "TTS 设置"
+    },
+    {
+      "name": "reading_settings_title",
+      "value": "阅读设置"
+    },
+    {
+      "name": "reader_dialogue_color",
+      "value": "对话高亮颜色"
+    },
+    {
+      "name": "reader_dialogue_color_auto",
+      "value": "跟随阅读主题"
+    },
+    {
+      "name": "reader_dialogue_color_preview",
+      "value": "“这是一段对话高亮预览。”"
+    },
+    {
+      "name": "reading_settings_load_error",
+      "value": "阅读设置加载失败，请重试。"
+    },
+    {
+      "name": "reading_settings_save_error",
+      "value": "阅读设置保存失败，请重试。"
+    },
+    {
+      "name": "reader_speech_display",
+      "value": "朗读显示"
+    },
+    {
+      "name": "reader_speech_color",
+      "value": "朗读标记颜色"
     },
     {
       "name": "tts_entry_hint",
-      "value": "点击开始听书，TTS 语音导入请前往阅读设置"
+      "value": "点击开始听书，TTS 语音导入请前往我的 → 阅读设置"
     },
     {
       "name": "tts_chapter_progress",
@@ -5821,7 +5853,7 @@
     },
     {
       "name": "membership_benefit_short",
-      "value": "AI 上色 / 翻译 / 超分 · 图标与主题 · 自动云备份 · 无限搜索并发 · 功能尝鲜 · 专属客服"
+      "value": "AI 上色 / 翻译 / 超分 / 字幕 · 桌面歌词 · 图标与主题 · 自动云备份 · 无限搜索并发 · 功能尝鲜 · 专属客服"
     },
     {
       "name": "membership_details",
@@ -5889,7 +5921,7 @@
     },
     {
       "name": "membership_benefit",
-      "value": "会员享有 AI 上色、AI 翻译、AI 超分、全部会员图标、专属主题、自动云备份、搜索并发无限制、功能尝鲜及专属客服。\n非会员可使用默认图标、基础主题和手动云备份，搜索并发为 3。原有界面配色、阅读器主题、阅读听书和不限数量导入自定义源保持免费。\n图标切换及 AI 能力需系统和设备支持；自动云备份需登录华为账号并开通可用云空间，在应用使用期间执行。"
+      "value": "会员享有 AI 上色、AI 翻译、AI 超分、有声书 AI 字幕、桌面歌词、全部会员图标、专属主题、自动云备份、搜索并发无限制、功能尝鲜及专属客服。\n非会员可使用默认图标、基础主题和手动云备份，搜索并发为 3。原有界面配色、阅读器主题、阅读听书和不限数量导入自定义源保持免费。\n图标切换及 AI 能力需系统和设备支持；自动云备份需登录华为账号并开通可用云空间，在应用使用期间执行。"
     },
     {
       "name": "membership_month",
@@ -5953,7 +5985,7 @@
     },
     {
       "name": "membership_terms",
-      "value": "会员购买与自动续费说明\n终身会员为一次性购买的非消耗型商品，权益长期有效，不自动续费；退款或撤销后权益终止。购买终身会员不会自动取消已有月度或年度订阅，请到“管理订阅”关闭原订阅续费。\n月度、年度会员：订阅费用由华为支付收取，按所选月度或年度周期自动续费。请在当前周期结束前通过“管理订阅”取消，以华为页面显示的取消截止时间和扣费规则为准。取消后，已支付周期内权益继续有效。月度会员可选择年度套餐升级，由华为处理同组订阅变更；实际扣费、剩余权益处理和生效时间以华为确认页为准。若下期生效，当前月度权益继续有效，并显示年度预约提示，无需重复购买。\n会员权益包含自动云备份及周期设置、全部会员桌面图标及后续新增官方皮肤、AI 封面与漫画超分、漫画 AI 上色、自定义搜索并发及专属客服支持。图标切换需要支持该功能的系统；自动备份需登录华为账号并开通可用云空间，在应用使用期间执行，不提供实时双向同步。所有用户均可不限数量导入自定义源，非会员也可手动云备份。默认图标、原有界面配色、阅读器主题和阅读听书功能保持免费。\n会员到期或退款导致权益失效后，停止自动备份、AI 超分及 AI 上色，联网核验时恢复默认图标。会员随购买时的系统华为账号恢复，重新安装或切换账号后请联网恢复购买。暂时无法联网时保留现有图标，新会员操作需核验有效权益。"
+      "value": "会员购买与自动续费说明\n终身会员为一次性购买的非消耗型商品，权益长期有效，不自动续费；退款或撤销后权益终止。购买终身会员不会自动取消已有月度或年度订阅，请到“管理订阅”关闭原订阅续费。\n月度、年度会员：订阅费用由华为支付收取，按所选月度或年度周期自动续费。请在当前周期结束前通过“管理订阅”取消，以华为页面显示的取消截止时间和扣费规则为准。取消后，已支付周期内权益继续有效。月度会员可选择年度套餐升级，由华为处理同组订阅变更；实际扣费、剩余权益处理和生效时间以华为确认页为准。若下期生效，当前月度权益继续有效，并显示年度预约提示，无需重复购买。\n会员权益包含自动云备份及周期设置、全部会员桌面图标及后续新增官方皮肤、AI 封面与漫画超分、有声书 AI 字幕、桌面歌词、漫画 AI 上色、自定义搜索并发及专属客服支持。图标切换需要支持该功能的系统；自动备份需登录华为账号并开通可用云空间，在应用使用期间执行，不提供实时双向同步。所有用户均可不限数量导入自定义源，非会员也可手动云备份。默认图标、原有界面配色、阅读器主题和阅读听书功能保持免费。\n会员到期或退款导致权益失效后，停止自动备份、AI 超分、AI 上色、AI 字幕及桌面歌词，联网核验时恢复默认图标。会员随购买时的系统华为账号恢复，重新安装或切换账号后请联网恢复购买。暂时无法联网时保留现有图标，新会员操作需核验有效权益。"
     },
     {
       "name": "membership_consent",
@@ -7397,7 +7429,7 @@
     },
     {
       "name": "subtitle_switch_text",
-      "value": "开启字幕，边听边看"
+      "value": "AI 字幕 · VIP"
     },
     {
       "name": "subtitle_mode_save_failed",
@@ -7542,6 +7574,119 @@
     {"name": "ranking_comic_chinese", "value": "国漫榜"},
     {"name": "ranking_comic_japanese", "value": "日漫榜"},
     {"name": "ranking_comic_korean", "value": "韩漫榜"},
-    {"name": "ranking_comic_finished", "value": "漫画完结榜"}
+    {"name": "ranking_comic_finished", "value": "漫画完结榜"},
+    {
+      "name": "membership_feature_subtitles",
+      "value": "AI 字幕"
+    },
+    {
+      "name": "subtitle_vip_required",
+      "value": "AI 字幕为会员功能，请先开通会员"
+    },
+    {
+      "name": "desktop_lyric_vip_required",
+      "value": "桌面歌词为会员功能，请先开通会员"
+    },
+    {
+      "name": "ranking_board_order_title",
+      "value": "精品推荐排序"
+    },
+    {
+      "name": "ranking_board_order_desc",
+      "value": "全部榜单 · 长按拖动排序，松手自动保存"
+    },
+    {
+      "name": "ranking_order_reset",
+      "value": "恢复默认顺序"
+    },
+    {
+      "name": "ranking_order_close",
+      "value": "关闭排序"
+    },
+    {
+      "name": "ranking_move_top",
+      "value": "置顶"
+    },
+    {
+      "name": "ranking_order",
+      "value": "排序"
+    },
+    {"name": "reader_fulltext_search", "value": "全文搜索"},
+    {"name": "reader_fulltext_placeholder", "value": "输入正文关键词"},
+    {"name": "reader_fulltext_hint", "value": "搜索本书全部章节正文，点击结果跳转到对应位置。在线书籍需要加载未缓存章节。"},
+    {"name": "reader_fulltext_progress", "value": "已检索 %d / %d 章 · %d 处匹配"},
+    {"name": "reader_fulltext_stop", "value": "停止"},
+    {"name": "reader_fulltext_failed", "value": "%d 章读取失败，结果可能不完整，可重新搜索"},
+    {"name": "reader_fulltext_limit", "value": "已展示前 %d 处匹配，请缩小关键词范围"},
+    {"name": "reader_fulltext_empty", "value": "暂无匹配结果"},
+    {"name": "import_epub_chapter_limit", "value": "EPUB 单章正文超过 8 Mi 字符，无法完整导入，请先拆分原文件章节"},
+    {
+      "name": "library_sync_title",
+      "value": "书架与进度自动同步"
+    },
+    {
+      "name": "library_sync_description",
+      "value": "会员专享：同一华为账号的手机、平板和 HarmonyOS 电脑自动合并在线书架、分组、置顶及阅听进度。请在各设备的系统设置 → 云空间开启简听同步，并导入对应书源。本地文件不传输。"
+    },
+    {
+      "name": "library_sync_confirm",
+      "value": "开启后，将当前在线书架和阅听进度合并到此华为账号的云空间，并自动接收其他设备的更改。移出书架也会同步，正在阅听时不自动跳章。同步时效受网络和系统调度影响。是否开启？"
+    },
+    {
+      "name": "library_sync_enable",
+      "value": "开启同步"
+    },
+    {
+      "name": "library_sync_login",
+      "value": "登录华为账号并验证会员后可开启"
+    },
+    {
+      "name": "library_sync_off",
+      "value": "未开启"
+    },
+    {
+      "name": "library_sync_waiting",
+      "value": "等待自动同步"
+    },
+    {
+      "name": "library_sync_working",
+      "value": "正在合并书架与进度…"
+    },
+    {
+      "name": "library_sync_pending",
+      "value": "本机已保存，等待系统上传"
+    },
+    {
+      "name": "library_sync_synced",
+      "value": "本机变更已同步到云端"
+    },
+    {
+      "name": "library_sync_unavailable",
+      "value": "当前环境不支持：需 HarmonyOS 6.0.0.115、云空间 6.0.0.300 或更新版本，并开启应用云同步"
+    },
+    {
+      "name": "library_sync_failed",
+      "value": "同步暂未完成，本机数据已保留；请检查网络、云空间及同步开关，稍后自动重试"
+    },
+    {
+      "name": "library_sync_last",
+      "value": "最近确认上传：%s"
+    },
+    {
+      "name": "library_sync_deferred",
+      "value": "其他设备更新了当前阅听进度。本次阅听不跳转，继续阅听会保存本机新位置；结束后合并最新进度。"
+    },
+    {
+      "name": "library_sync_now",
+      "value": "立即检查同步"
+    },
+    {
+      "name": "library_sync_membership_required",
+      "value": "会员专享，开通会员后可开启；会员到期后停止同步，已保存的数据保留"
+    },
+    {
+      "name": "library_sync_membership_check",
+      "value": "等待验证会员权益，自动同步已暂停；验证成功后可继续，本机数据保留"
+    }
   ]
 }

@@ -11,9 +11,11 @@ import { rpc } from '@kit.IPCKit';
 import { BusinessError, emitter } from '@kit.BasicServicesKit';
 import { WindowUtils } from '../utils/WindowUtils';
 import { PreferenceService } from '../service/PreferenceService';
+import { AppIconService } from '../service/AppIconService';
 import lazy { AuthService } from '../service/AuthService';
 import lazy { MembershipService } from '../service/MembershipService';
 import lazy { AutoBackupService } from '../service/AutoBackupService';
+import lazy { LibrarySyncService } from '../service/LibrarySyncService';
 import { AudioService } from '../service/AudioService';
 import lazy { WidgetUpdater } from '../service/WidgetUpdater';
 import lazy { WidgetPlaybackService } from '../service/WidgetPlaybackService';
@@ -148,6 +150,7 @@ export default class EntryAbility extends UIAbility {
 
     AVSessionService.getInstance().init(this.context);
     await PreferenceService.init(this.context);
+    this.restoreAppIcon();
     await LocalRuleTlsTrustStore.init(this.context).catch((error: Error): void => {
       hilog.warn(DOMAIN, TAG, 'TLS trust store unavailable: %{public}s', error.message);
     });
@@ -200,6 +203,7 @@ export default class EntryAbility extends UIAbility {
     this.scheduleDownloadRecovery();
     this.startupServicesReady = true;
     if (this.isInForeground) AutoBackupService.instance.setForeground(this.context, true);
+    if (this.isInForeground) LibrarySyncService.instance.setForeground(this.context, true);
     this.tryAutoPlayOnLaunch();
   }
 
@@ -568,6 +572,7 @@ export default class EntryAbility extends UIAbility {
       return;
     }
     AutoBackupService.instance.setForeground(this.context, false);
+    LibrarySyncService.instance.setForeground(this.context, false);
     emitter.emit('app.reader.background');
     AudioService.getInstance().setForeground(false);
     TextToSpeechService.getInstance().setForeground(false);
@@ -586,6 +591,7 @@ export default class EntryAbility extends UIAbility {
     } catch (error) {
       hilog.warn(DOMAIN, TAG, 'onBackground stats flush failed: %{public}s', String(error));
     }
+    LibrarySyncService.instance.background(this.context).catch((): void => {});
     // 退后台/息屏前再确认一次：若仍有下载队列，维持 dataTransfer 长时任务
     try {
       await DownloadService.getInstance().onAppBackground();
@@ -606,6 +612,14 @@ export default class EntryAbility extends UIAbility {
    * 此时 AudioService 还没 bind,必须先 whenReady 再调 ensureHealthy,
    * 否则会访问到未初始化的 player 触发崩溃。
    */
+  private async restoreAppIcon(): Promise<void> {
+    try {
+      await PreferenceService.init(this.context);
+      await MembershipService.instance.refresh(this.context);
+      await AppIconService.instance.restore();
+    } catch (_error) { /* 系统暂不可用时保留选择，下次前台重试。 */ }
+  }
+
   async onForeground(): Promise<void> {
     this.isInForeground = true;
     if (PlatformCompat.wearable) {
@@ -622,7 +636,9 @@ export default class EntryAbility extends UIAbility {
     // 不阻塞前台恢复；已保存的账号需重新核对系统登录状态。
     AuthService.instance.restore(this.context);
     MembershipService.instance.foreground(this.context);
+    this.restoreAppIcon();
     if (this.startupServicesReady) AutoBackupService.instance.setForeground(this.context, true);
+    if (this.startupServicesReady) LibrarySyncService.instance.setForeground(this.context, true);
     WindowUtils.refreshAvoidArea();
     try {
       // 等待 bootstrapAudioService 完成(带超时保护,避免初始化卡死时永久阻塞前台回调)

@@ -353,9 +353,7 @@ export struct ReaderSettingsSheet {
   @Param lineHeight: number = TextReadingSettings.LINE_HEIGHT_DEFAULT;
   @Param paragraphSpacing: number = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
   @Param letterSpacing: number = 0;
-  @Param dialogueHighlight: boolean = false;
   @Event onLetterSpacingChange: (value: number, commit: boolean) => void = () => {};
-  @Event onDialogueHighlightChange: (enabled: boolean) => void = () => {};
   @Param paragraphSpacingEnabled: boolean = true;
   @Event onParagraphSpacingChange: (value: number, commit: boolean) => void = () => {};
   @Param themeId: string = ReaderThemeId.Parchment;
@@ -1003,11 +1001,7 @@ export struct ReaderSettingsSheet {
                   Text(`${this.letterSpacing.toFixed(1)} vp`).fontColor($r('sys.color.font_primary')).fontSize(14)
                 }.width('100%')
               }
-              ReaderSettingCard({ title: $r('app.string.reader_dialogue_highlight'), inline: true }) {
-                Toggle({ type: ToggleType.Switch, isOn: this.dialogueHighlight }).selectedColor(AppColor.Brand)
-                  .onChange((value: boolean): void => this.onDialogueHighlightChange(value))
-              }
-              Text($r('app.string.reader_dialogue_highlight_hint')).fontSize(12).fontColor($r('sys.color.font_secondary'))
+
             }
             this.buildFontWeightSection()
             this.buildTextAlignmentSection()
@@ -1018,10 +1012,10 @@ export struct ReaderSettingsSheet {
               scrolling: this.autoScrolling, speed: this.autoScrollSpeed, onSpeed: this.onAutoScrollSpeed,
               available: this.autoPageAvailable, onInterval: this.onAutoPageInterval, onToggle: this.onAutoPageToggle })
             if (this.supportsSpeech) {
-              ReaderSettingCard({ title: $r('app.string.tts_custom_import'), inline: true }) {
-                Button($r('app.string.reader_tts_manage')).fontColor(AppColor.Brand)
+              ReaderSettingCard({ title: $r('app.string.tts_title'), inline: true }) {
+                Button($r('app.string.reader_speech_display')).fontColor(AppColor.Brand)
                   .backgroundColor(AppColor.GlassSheetControlTint)
-                  .onClick((): void => this.onSpeechSettings()).id('reader-tts-settings')
+                  .onClick((): void => this.onSpeechSettings()).id('reader-speech-display-settings')
               }
             }
             ReaderSettingCard({ title: $r('app.string.reader_volume_key_turn'), inline: true }) {

@@ -56,6 +56,13 @@ const FLOATING_WIDE_BREAKPOINT: number = 600;
 const TAB_RESTORE_WIDTH_GROWTH: number = 48;
 const TAB_RESTORE_HEIGHT_GROWTH: number = 80;
 
+class MainTabsAppearance {
+  style: HdsTabsFloatingStyle | undefined = undefined;
+  background: ResourceColor = Color.Transparent;
+  surface: ResourceColor = Color.Transparent;
+  materialSupported: boolean = false;
+}
+
 @ComponentV2
 export struct MainPage {
   @Param navStack: NavPathStack = new NavPathStack();
@@ -77,6 +84,7 @@ export struct MainPage {
     this.resetTabFade();
     // 开关切换时重建对应的原生底栏，不能沿用另一种布局的控制器和折叠状态。
     this.tabController = new HdsTabsController();
+    this.appliedVerticalBarStyle = undefined;
     this.scrollers.clear();
     this.verticalBarCollapsed = false;
     this.scrollDistance = 0;
@@ -88,7 +96,7 @@ export struct MainPage {
 
   private resetTabStyle(): void {
     // 旧版仅镜像系统回调；返回主页或换页签不改变圆封面/展开播放器状态。
-    if (!this.useVerticalTabs()) return;
+    if (!this.useVerticalTabs() || !this.verticalBarCollapsed) return;
     this.verticalBarCollapsed = false;
     this.scrollDistance = 0;
     this.syncVerticalBars();
@@ -141,6 +149,32 @@ export struct MainPage {
   private lastTabClickIndex: number = -1;
   private viewportUpdateTimerId: number = -1;
   private miniBarExpandTimer: number = -1;
+  // 普通字段避免原生回调反向刷新 barFloatingStyle，已生效/已提交的状态不重复播动画。
+  private appliedVerticalBarStyle: HdsBarStyle | undefined = undefined;
+  // 主题权益核验会触发属性求值，但实际颜色/布局可能完全没变。
+  // 保持配置与 Builder 身份，避免 HdsTabs 拆掉再创建迷你播控。
+  private cachedFloatingStyle: HdsTabsFloatingStyle | undefined = undefined;
+  private cachedFloatingStyleKey: string = '';
+  private stableMiniBarBuilder: () => void = (): void => this.miniBarBuilder();
+  private cachedTabsAppearance: MainTabsAppearance = new MainTabsAppearance();
+  private cachedTabsAppearanceKey: string = '';
+
+  // 原生属性每次重设都会重建 MiniBar，即使传入同一个对象也一样。
+  // Computed 在最终外观不变时不通知 HdsTabs，隔离前台权益核验等中间状态。
+  @Computed
+  private get tabsAppearance(): MainTabsAppearance {
+    const value: MainTabsAppearance = new MainTabsAppearance();
+    value.style = this.floatingBarStyle();
+    value.background = HomeTheme.BgNeutral;
+    value.materialSupported = HdsCompat.materialSupported;
+    value.surface = value.materialSupported ? Color.Transparent : AppTheme.Surface;
+    const key: string = JSON.stringify(value);
+    if (key !== this.cachedTabsAppearanceKey) {
+      this.cachedTabsAppearance = value;
+      this.cachedTabsAppearanceKey = key;
+    }
+    return this.cachedTabsAppearance;
+  }
   private restoreTabBarOnWindowGrow: boolean = false;
   private tabCollapseViewportWidth: number = 0;
   private tabCollapseViewportHeight: number = 0;
@@ -220,6 +254,7 @@ export struct MainPage {
     if (!this.miniPlayerIdleAlive) return;
     const bookKey: string = this.speechState.active ? `speech:${this.speechState.bookId}`
       : this.playerState.currentBook?.id ?? '';
+    if (bookKey.length === 0) this.appliedVerticalBarStyle = undefined;
     const busy: boolean = this.speechState.active ? this.speechState.playing || this.speechState.loading
       : this.playerState.isPlaying || this.playerState.isLoading;
     const minutes: number = this.generalSettings.miniPlayerHideMinutes;
@@ -237,6 +272,7 @@ export struct MainPage {
     if (remaining <= 0) {
       // 仅隐藏主页迷你控件，不清理播放状态、进度、会话或系统桌面歌词。
       this.miniPlayerIdleHidden = true;
+      this.appliedVerticalBarStyle = undefined;
       return;
     }
     this.miniPlayerIdleTimer = setTimeout((): void => {
@@ -281,6 +317,7 @@ export struct MainPage {
     if (typeof newValue.width !== 'number' || typeof newValue.height !== 'number') return;
     const width: number = newValue.width;
     const height: number = newValue.height;
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return;
     if (Math.abs(width - this.viewportWidth) < 1 && Math.abs(height - this.viewportHeight) < 1) return;
     const shouldRestoreTabBar: boolean = this.restoreTabBarOnWindowGrow &&
       (width >= this.tabCollapseViewportWidth + TAB_RESTORE_WIDTH_GROWTH ||
@@ -301,6 +338,7 @@ export struct MainPage {
     this.miniBarCollapsed = miniStyle === HdsBarStyle.COLLAPSE;
     this.tabBarCollapsed = tabStyle === HdsBarStyle.COLLAPSE;
     if (this.useVerticalTabs()) {
+      this.appliedVerticalBarStyle = miniStyle;
       if (!this.useWideFloatingBars() && mode === HdsTabsBarChangeMode.USER_CLICK) {
         this.verticalBarCollapsed = tabStyle === HdsBarStyle.COLLAPSE;
         this.scrollDistance = 0;
@@ -559,7 +597,11 @@ export struct MainPage {
             this.navigateToPlayer();
           }
         }
-      }).onAppear((): void => this.syncVerticalBars())
+      }).onAppear((): void => {
+        hilog.info(0x0000, 'MainTabs', 'mini mount');
+        this.syncVerticalBars();
+      })
+        .onDisAppear((): void => { hilog.info(0x0000, 'MainTabs', 'mini unmount'); })
         .onTouch((event: TouchEvent): void => {
           if (event.type === TouchType.Down) this.refreshMiniPlayerIdle(true);
         })
@@ -573,12 +615,15 @@ export struct MainPage {
     this.miniBarExpandTimer = setTimeout((): void => {
       this.miniBarExpandTimer = -1;
       if (!this.useVerticalTabs() || !this.miniPlayerVisible() || this.currentPlaybackBook() === null) return;
+      const style: HdsBarStyle = this.useWideFloatingBars() || this.verticalBarCollapsed ?
+        HdsBarStyle.EXPAND : HdsBarStyle.COLLAPSE;
+      if (this.appliedVerticalBarStyle === style) return;
       try {
         // 600vp 起原生两栏同时展开；窄容器才使用双行/圆页签的收展动画。
-        this.tabController.applyMiniBarStyle(this.useWideFloatingBars() || this.verticalBarCollapsed ?
-          HdsBarStyle.EXPAND : HdsBarStyle.COLLAPSE);
+        this.appliedVerticalBarStyle = style;
+        this.tabController.applyMiniBarStyle(style);
         hilog.info(0x0000, 'MainTabs', 'scroll collapsed=%{public}s', String(this.verticalBarCollapsed));
-      } catch (_error) { /* 旧设备使用原有样式，不调用此分支。 */ }
+      } catch (_error) { this.appliedVerticalBarStyle = undefined; }
     }, 80);
   }
 
@@ -596,7 +641,7 @@ export struct MainPage {
       adaptToHandedness: this.generalSettings.adaptiveHandedness,
       // 迷你栏配置:HdsTabs 会自动管理折叠/展开
       miniBar: this.miniPlayerVisible() ? {
-        miniBarBuilder: () => this.miniBarBuilder(),
+        miniBarBuilder: this.stableMiniBarBuilder,
         miniBarStyle: this.useVerticalTabs() ?
           (this.useWideFloatingBars() ? HdsBarStyle.EXPAND : HdsBarStyle.COLLAPSE) : undefined,
         enableMiniBarBackground: true,
@@ -616,8 +661,8 @@ export struct MainPage {
     };
     if (this.useVerticalTabs()) {
       style.barSideMargin = FLOATING_SIDE_MARGIN + this.sideSafeVp;
-      // VERTICAL 的双行和单行需要不同宽度：由原生布局给圆页签预留空间。
-      // 固定整行 miniBarWidth 会覆盖其收展宽度，导致播放器与页签重叠。
+      // 导航栏按窗口拉伸，不能沿用四页签默认 328vp 的宽度。
+      // VERTICAL 仅指定 barWidth；miniBarWidth 留给原生收展布局，为圆页签预留空间。
       if (this.useWideFloatingBars()) {
         // 宽容器中原生页签/迷你栏同时展开，必须分配同一份可用宽度。
         const availableWidth: number = Math.max(1,
@@ -630,11 +675,22 @@ export struct MainPage {
             smallWidth: barWidth, mediumWidth: barWidth, largeWidth: barWidth
           };
         }
+      } else if (this.viewportWidth > 0) {
+        const barWidth: number = Math.max(1,
+          this.viewportWidth - 2 * (FLOATING_SIDE_MARGIN + this.sideSafeVp));
+        style.barWidth = { smallWidth: barWidth, mediumWidth: barWidth, largeWidth: barWidth };
       }
       if (style.miniBar !== undefined) {
         style.miniBar.barLayoutMode = this.useWideFloatingBars() ? HdsBarLayoutMode.HORIZONTAL : HdsBarLayoutMode.VERTICAL;
       }
     }
+    // 这里只比较声明式外观参数；回调绑定当前实例，Builder 自身继续响应播放状态。
+    const key: string = JSON.stringify(style);
+    if (this.cachedFloatingStyle !== undefined && this.cachedFloatingStyleKey === key) {
+      return this.cachedFloatingStyle;
+    }
+    this.cachedFloatingStyleKey = key;
+    this.cachedFloatingStyle = style;
     return style;
   }
 
@@ -756,9 +812,9 @@ export struct MainPage {
       .vertical(false)
       // 关闭原生跟手横滑，由偏好决定自定义手势切底部 Tab 或页面内类型。
       .scrollable(false)
-      .barFloatingStyle(this.floatingBarStyle())
-      .barBackgroundColor(HdsCompat.materialSupported ? Color.Transparent : AppTheme.Surface)
-      .barBackgroundBlurStyle(HdsCompat.materialSupported ? BlurStyle.NONE : BlurStyle.COMPONENT_REGULAR)
+      .barFloatingStyle(this.tabsAppearance.style)
+      .barBackgroundColor(this.tabsAppearance.surface)
+      .barBackgroundBlurStyle(this.tabsAppearance.materialSupported ? BlurStyle.NONE : BlurStyle.COMPONENT_REGULAR)
       .onContentWillChange((_current: number, coming: number): boolean => this.allowTabContentChange(coming))
       .onTabBarClick((index: number): void => this.handleTabBarClick(index))
       .onChange((index: number): void => this.handleTabChange(index))
@@ -766,7 +822,7 @@ export struct MainPage {
       .animationDuration(0)
       .width('100%')
       .height('100%')
-      .backgroundColor(HomeTheme.BgNeutral)
+      .backgroundColor(this.tabsAppearance.background)
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 

@@ -11,7 +11,7 @@ const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-l
 const root = path.join(__dirname, '../entry/src/main/ets');
 function load(name, imports) {
   const mod = { exports: {} };
-  const source = fs.readFileSync(path.join(root, name), 'utf8').replace(/@ObservedV2\s*/g, '').replace(/@Trace\s*/g, '');
+  const source = fs.readFileSync(path.join(root, name), 'utf8').replace(/import lazy /g, 'import ').replace(/@ObservedV2\s*/g, '').replace(/@Trace\s*/g, '');
   const code = ts.transpileModule(source, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020
   } }).outputText;
@@ -32,6 +32,8 @@ let ready = async () => true;
 let modelDownloads = 0;
 let preloadEnabled = false;
 let cachedDuration = 180;
+const membership = { hasAccess: true };
+let revokeMembership;
 class Worker {
   requests = []; stopped = false;
   constructor() { hosts.push(this); }
@@ -55,6 +57,11 @@ const fileIo = {
   closeSync: f => fs.closeSync(f.fd), renameSync: fs.renameSync
 };
 const { AudioSubtitleService } = load('service/subtitle/AudioSubtitleService.ets', {
+  '../MembershipService': { MembershipService: { instance: { hasCurrentEntitlement: async () => membership.hasAccess } } },
+  '../../model/MembershipState': { MembershipState: { current: membership } },
+  '../membership/MembershipFeatureLease': { MembershipFeatureLease: class {
+    start(revoke) { revokeMembership = revoke; } stop() { revokeMembership = undefined; }
+  } },
   '@kit.CoreFileKit': { fileIo }, '@kit.ArkTS': { worker: { ThreadWorker: Worker },
     util: { TextDecoder: { create: () => ({ decodeToString: b => Buffer.from(b).toString('utf8') }) } } },
   '@kit.PerformanceAnalysisKit': { hilog: { warn() {} } },
@@ -352,6 +359,21 @@ function check(name, fn) { fn(); passed++; console.log(`PASS ${name}`); }
   const revision = service.state.revision;
   service.syncDesktop(context, playback);
   check('disabled desktop lyrics do not continually reset page state', () => assert.equal(service.state.revision, revision));
+  const beforeDenied = hosts.length;
+  membership.hasAccess = false;
+  service.showPanel(context, book, chapter, 180000, 0, true); await service.setup;
+  check('nonmember cannot create recognition worker or expose cached subtitles', () => {
+    assert.equal(hosts.length, beforeDenied); assert.equal(service.state.cues.length, 0);
+    assert.equal(service.state.phase, 'idle');
+  });
+  membership.hasAccess = true;
+  service.showPanel(context, book, chapter, 180000, 0); await service.setup;
+  const vipHost = hosts.at(-1);
+  membership.hasAccess = false; revokeMembership();
+  check('membership expiry terminates recognition and clears subtitles', () => {
+    assert.equal(vipHost.stopped, true); assert.equal(service.state.cues.length, 0);
+    assert.equal(service.state.phase, 'idle');
+  });
   console.log(`${passed} audio subtitle checks passed`);
 })().catch(e => { console.error(e); process.exitCode = 1; }).finally(() => {
   service.release(); fs.rmSync(dir, { recursive: true, force: true });

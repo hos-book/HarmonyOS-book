@@ -15,6 +15,9 @@ import { DesktopLyricText } from '../../model/DesktopLyric';
 import { AVSessionService } from '../AVSessionService';
 import { PlaybackCoordinator } from '../PlaybackCoordinator';
 import { SubtitleModelService } from './SubtitleModelService';
+import lazy { MembershipService } from '../MembershipService';
+import { MembershipState } from '../../model/MembershipState';
+import { MembershipFeatureLease } from '../membership/MembershipFeatureLease';
 
 class SubtitleCache {
   version: string = SUBTITLE_MODEL_VERSION;
@@ -60,6 +63,13 @@ export class AudioSubtitleService {
   private desktopActive: boolean = false;
   private desktopKey: string = '';
   private activeKey: string = '';
+  private membershipLease: MembershipFeatureLease = new MembershipFeatureLease();
+
+  revokeMembership(): void {
+    this.desktopActive = false;
+    this.desktopKey = '';
+    this.release();
+  }
 
   showPanel(context: common.Context, book: Book, chapter: Chapter, durationMs: number,
     positionMs: number, downloadModel: boolean = false): void {
@@ -109,6 +119,7 @@ export class AudioSubtitleService {
   }
 
   stop(): void {
+    this.membershipLease.stop();
     this.generation++;
     if (this.watchdog !== -1) clearTimeout(this.watchdog);
     this.watchdog = -1;
@@ -150,6 +161,10 @@ export class AudioSubtitleService {
       if (!active()) return;
       let temporary = '';
       try {
+        const entitled = await MembershipService.instance.hasCurrentEntitlement();
+        if (!active()) return;
+        if (!entitled) { this.revokeMembership(); return; }
+        this.membershipLease.start((): void => this.revokeMembership());
         if (this.durationMs <= 0 || DownloadPolicy.isHls(chapter.source.value, '')) throw new Error('subtitle_unsupported');
         if (!await SubtitleModelService.ready(context, active)) {
           if (!active()) return;
@@ -266,6 +281,7 @@ export class AudioSubtitleService {
   }
 
   private pump(): void {
+    if (!MembershipState.current.hasAccess) return;
     if (!this.host || this.pending !== -1 || !this.audioPath || this.state.phase === 'error') return;
     const current = Math.floor(this.positionMs / SUBTITLE_CHUNK_MS);
     const total = Math.ceil(this.durationMs / SUBTITLE_CHUNK_MS);

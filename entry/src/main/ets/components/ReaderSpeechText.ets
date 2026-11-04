@@ -21,7 +21,9 @@ export struct ReaderSpeechText {
   @Param fontWeight: number = 400;
   @Param letterSpacing: number = 0;
   @Param dialogueHighlight: boolean = false;
+  @Param dialogueHighlightColor: string = '';
   @Param speechMark: string = 'color';
+  @Param speechMarkColor: string = '';
   @Param fontSize: number = 18;
   @Param lineHeight: number = 1.9;
   @Param palette: ReaderPalette = new ReaderPalette();
@@ -31,7 +33,7 @@ export struct ReaderSpeechText {
       if (this.page.parts.length > 0) {
         ForEach(this.page.parts, (part: OnlineTextPage) => {
           ReaderTextFragment({
-            letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, speechMark: this.speechMark,
+            letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
             page: part, text: part.text,
             source: this.source.substring(part.startOffset - this.sourceStart, part.endOffset - this.sourceStart),
             sourceStart: part.startOffset, state: this.state, highlightEnabled: this.highlightEnabled,
@@ -42,7 +44,7 @@ export struct ReaderSpeechText {
         }, (part: OnlineTextPage): string => `${part.layoutKey}:${part.startOffset}:${part.endOffset}:${part.imageUrl}:${part.imageWidth}:${part.layoutHeight}:${part.flowSpacing}`)
       } else {
         ReaderTextFragment({
-          letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, speechMark: this.speechMark,
+          letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
           page: this.page, text: this.text, source: this.source, sourceStart: this.sourceStart,
           state: this.state, highlightEnabled: this.highlightEnabled, selectionEnabled: this.selectionEnabled,
           onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom,
@@ -76,15 +78,17 @@ struct ReaderTextFragment {
   @Param fontWeight: number = 400;
   @Param letterSpacing: number = 0;
   @Param dialogueHighlight: boolean = false;
+  @Param dialogueHighlightColor: string = '';
   @Param speechMark: string = 'color';
+  @Param speechMarkColor: string = '';
   @Param fontSize: number = 18;
   @Param lineHeight: number = 1.9;
   @Param palette: ReaderPalette = new ReaderPalette();
 
-  @Monitor('speechMark', 'dialogueHighlight', 'page', 'text', 'source', 'sourceStart', 'palette', 'highlightEnabled', 'selecting', 'selectionStart', 'selectionEnd', 'selectionEnabled',
+  @Monitor('speechMarkColor', 'speechMark', 'dialogueHighlight', 'dialogueHighlightColor', 'page', 'text', 'source', 'sourceStart', 'palette', 'highlightEnabled', 'selecting', 'selectionStart', 'selectionEnd', 'selectionEnabled',
     'state.active', 'state.highlightOffset', 'state.highlightEnd')
   updateParagraph(): void {
-    this.paragraphNode.update(this.page, this.highlightRange, this.palette, this.selecting ? 'highlight' : this.speechMark, this.dialogueHighlight);
+    this.paragraphNode.update(this.page, this.highlightRange, this.palette, this.selecting ? 'highlight' : this.speechMark, this.dialogueHighlight, this.dialogueHighlightColor, this.speechMarkColor);
   }
 
   aboutToAppear(): void { this.updateParagraph(); }
@@ -205,7 +209,7 @@ struct ReaderTextFragment {
       if (this.highlightRange.start >= 0) {
         Span(this.text.substring(0, this.highlightRange.start))
         Span(this.text.substring(this.highlightRange.start, this.highlightRange.end))
-          .fontColor(this.speechMark === 'color' && !this.selecting ? (this.palette.isDark ? '#FFB4A8' : '#A33245') : this.palette.primary)
+          .fontColor(this.speechMark === 'color' && !this.selecting ? (this.speechMarkColor || (this.palette.isDark ? '#FFB4A8' : '#A33245')) : this.palette.primary)
           .decoration({ type: this.speechMark === 'underline' && !this.selecting ? TextDecorationType.Underline : TextDecorationType.None })
           .textBackgroundStyle({ color: this.speechMark === 'highlight' || this.selecting ? '#33' + this.palette.primary.substring(1) : '#00000000', radius: 3 })
         Span(this.text.substring(this.highlightRange.end))

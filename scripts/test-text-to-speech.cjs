@@ -91,7 +91,7 @@ function harness(memory = new Map()) {
     '@kit.BasicServicesKit': { systemDateTime: { TimeType: { STARTUP: 0 }, getUptime: () => uptime } },
     '../../model/CustomTtsConfig': { CustomTtsConfig },
     './CustomTtsConfigParser': { CustomTtsConfigParser },
-    './HttpTtsPlayer': { HttpTtsAudioOutput: class { async release() {} async setLoudnessGain() {} }, HttpTtsPlayer: class {
+    './HttpTtsPlayer': { HttpTtsAudioOutput: class { async release() {} async setLoudnessGain() { return true; } }, HttpTtsPlayer: class {
       ready = false;
       async speakAudio(_ctx, buffer, speed, id, onStart, _output, onProgress) {
         assert(speed >= 1 && speed <= 1.5);
@@ -180,6 +180,15 @@ async function check(name, action) {
   catch (error) { console.error(`FAIL ${name}`, error); process.exitCode = 1; }
 }
 (async () => {
+  await check('朗读增幅跨服务重启保存，包括关闭', async () => {
+    const first = harness(); await first.init();
+    await first.service.setLoudnessGain(12);
+    const restarted = harness(first.memory); await restarted.init();
+    assert.equal(restarted.service.state.loudnessGain, 12);
+    await restarted.service.setLoudnessGain(0);
+    const off = harness(first.memory); await off.init();
+    assert.equal(off.service.state.loudnessGain, 0);
+  });
   await check('合成配置限制段落与字数，过滤替换只改变朗读文本，原文坐标不变', async () => {
     const settings = new synthesisModel.SpeechSynthesisSettings();
     const text = '行长来了。下一句。\n第二段。\n第三段。';

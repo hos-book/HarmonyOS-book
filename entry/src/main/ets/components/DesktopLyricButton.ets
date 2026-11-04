@@ -2,6 +2,7 @@ import { DesktopLyricState } from '../model/DesktopLyric';
 import { AVSessionService } from '../service/AVSessionService';
 import { AppColor, AppMaterial } from '../theme/Theme';
 import { PlatformCompat } from '../utils/PlatformCompat';
+import { MembershipService } from '../service/MembershipService';
 
 @ComponentV2
 export struct DesktopLyricButton {
@@ -12,6 +13,10 @@ export struct DesktopLyricButton {
 
   private async changeVisibility(): Promise<void> {
     const visible = !this.state.visible;
+    if (visible && !await MembershipService.instance.hasCurrentEntitlement()) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.desktop_lyric_vip_required') });
+      return;
+    }
     const success = await AVSessionService.getInstance().setDesktopLyricVisible(visible);
     if (!success) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.desktop_lyric_failed') });
   }

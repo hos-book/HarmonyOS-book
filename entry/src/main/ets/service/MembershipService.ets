@@ -1,5 +1,6 @@
 import lazy { PreferenceService } from './PreferenceService';
 import lazy { AutoBackupService } from './AutoBackupService';
+import lazy { LibrarySyncService } from './LibrarySyncService';
 import { DeveloperMembership } from './membership/DeveloperMembership';
 import lazy { iap } from '@kit.IAPKit';
 import lazy { authentication } from '@kit.AccountKit';
@@ -7,6 +8,8 @@ import { common } from '@kit.AbilityKit';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { MembershipState } from '../model/MembershipState';
+import lazy { AudioSubtitleService } from './subtitle/AudioSubtitleService';
+import lazy { AVSessionService } from './AVSessionService';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { AppIconService } from './AppIconService';
 import { SubscriptionOrder, SubscriptionPayload, SubscriptionPolicy, SubscriptionStatus } from './membership/SubscriptionData';
@@ -755,11 +758,19 @@ export class MembershipService {
 
   private async resetDefaults(context: common.UIAbilityContext): Promise<void> {
     if (MembershipState.current.hasAccess) return;
+    LibrarySyncService.instance.suspendForMembership();
+    AudioSubtitleService.instance.revokeMembership();
+    AVSessionService.getInstance().closeDesktopLyric();
     // 不等待备份任务：该任务可能正在等待本次会员查询，避免互相等待。
     AutoBackupService.instance.resetMembershipDefaults(context).catch((): void => {});
+    if (MembershipState.current.confirmedInactive) {
+      try { await PreferenceService.setCoverSuperResolution(false); } catch (_error) {}
+      try { await PreferenceService.setAudioSubtitlesEnabled(false); } catch (_error) {}
+    }
     try { await PreferenceService.setSearchConcurrency(3); } catch (_error) { /* 后续读取仍按默认并发执行。 */ }
-    if (!AppIconService.instance.supported || !AppIconService.instance.membershipRequired) return;
-    try { await AppIconService.instance.select(''); } catch (_error) { /* 下次前台刷新重试系统图标。 */ }
+    if (!MembershipState.current.confirmedInactive || !AppIconService.instance.supported ||
+      !AppIconService.instance.membershipRequired) return;
+    try { await AppIconService.instance.select('', false); } catch (_error) { /* 下次前台刷新重试系统图标。 */ }
   }
 
   private errorMessage(error: BusinessError): Resource {

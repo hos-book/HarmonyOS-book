@@ -1,4 +1,4 @@
-import { RankingPlatform } from '../../model/Ranking';
+import { RankingBoard, RankingPlatform } from '../../model/Ranking';
 import { PreferenceService } from '../PreferenceService';
 import { RankingService } from './RankingService';
 
@@ -42,5 +42,26 @@ export class RankingPreferences {
     RankingPreferences.listeners.forEach((listener: () => void): void => listener());
   }
   static subscribe(listener: () => void): void { RankingPreferences.listeners.add(listener); }
+  static async loadBoardOrder(): Promise<string[]> {
+    return (await PreferenceService.getRankingBoardOrder()).split(',').filter((id: string): boolean => id.length > 0);
+  }
+
+  static orderBoards(boards: RankingBoard[], order: string[]): RankingBoard[] {
+    const result: RankingBoard[] = [];
+    const seen: Set<string> = new Set();
+    for (const id of order) {
+      const board = boards.find((item: RankingBoard): boolean => item.id === id);
+      if (board && !seen.has(id)) { result.push(board); seen.add(id); }
+    }
+    for (const board of boards) {
+      if (!seen.has(board.id)) { result.push(board); seen.add(board.id); }
+    }
+    return result;
+  }
+
+  static async saveBoardOrder(order: string[]): Promise<void> {
+    await PreferenceService.setRankingBoardOrder(order.join(','));
+    RankingPreferences.listeners.forEach((listener: () => void): void => listener());
+  }
   static unsubscribe(listener: () => void): void { RankingPreferences.listeners.delete(listener); }
 }

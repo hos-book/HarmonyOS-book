@@ -11,16 +11,20 @@ class ReaderParagraphFrameNode extends FrameNode {
   private range: SpeechHighlightRange = new SpeechHighlightRange();
   private palette: ReaderPalette = new ReaderPalette();
   private speechMark: string = 'color';
+  private speechMarkColor: string = '';
   private dialogueHighlight: boolean = false;
+  private dialogueHighlightColor: string = '';
 
   constructor(context: UIContext) { super(context); }
 
-  update(page: OnlineTextPage, range: SpeechHighlightRange, palette: ReaderPalette, speechMark: string = 'color', dialogueHighlight: boolean = false): void {
+  update(page: OnlineTextPage, range: SpeechHighlightRange, palette: ReaderPalette, speechMark: string = 'color', dialogueHighlight: boolean = false, dialogueHighlightColor: string = '', speechMarkColor: string = ''): void {
     this.page = page;
     this.range = range;
     this.palette = palette;
     this.speechMark = speechMark;
+    this.speechMarkColor = speechMarkColor;
     this.dialogueHighlight = dialogueHighlight;
+    this.dialogueHighlightColor = dialogueHighlightColor;
     // onDraw 属于 FrameNode，必须使自绘节点失效才能更新已挂载的正文。
     this.invalidate();
   }
@@ -61,15 +65,16 @@ class ReaderParagraphFrameNode extends FrameNode {
     }
     this.paintLines(canvas, page.paintState.lines);
     if (this.dialogueHighlight) {
-      for (const range of page.dialogueRanges) this.paintRange(canvas, range.start, range.end, 'color');
+      for (const range of page.dialogueRanges) this.paintRange(canvas, range.start, range.end, 'color', this.dialogueHighlightColor);
     }
-    this.paintRange(canvas, this.range.start, this.range.end, this.speechMark);
+    this.paintRange(canvas, this.range.start, this.range.end, this.speechMark,
+      this.speechMark === 'color' ? this.speechMarkColor : '');
     // 排版对象在可见行之间共享，绘制结束恢复正文色。
     paragraph.updateColor(foreground);
     page.paintState.lines = paragraph.getTextLines();
     canvas.restore();
   }
-  private paintRange(canvas: drawing.Canvas, start: number, end: number, mark: string): void {
+  private paintRange(canvas: drawing.Canvas, start: number, end: number, mark: string, customColor: string = ''): void {
     const page = this.page;
     const paragraph = page.paragraph;
     if (paragraph === null || start < 0 || end <= start) return;
@@ -79,7 +84,7 @@ class ReaderParagraphFrameNode extends FrameNode {
       start: page.nativeOffsets?.nativeOffsetForDisplay(displayStart) ?? displayStart,
       end: page.nativeOffsets?.nativeOffsetForDisplay(displayEnd) ?? displayEnd
     }, graphicsText.RectWidthStyle.TIGHT, graphicsText.RectHeightStyle.TIGHT);
-    const accent = this.color(this.palette.isDark ? '#FFB4A8' : '#A33245');
+    const accent = this.color(customColor || (this.palette.isDark ? '#FFB4A8' : '#A33245'));
     const brush = new drawing.Brush();
     const tint = this.color(this.palette.primary);
     tint.alpha = 51;
@@ -118,24 +123,28 @@ export class ReaderParagraphNodeController extends NodeController {
   private range: SpeechHighlightRange = new SpeechHighlightRange();
   private palette: ReaderPalette = new ReaderPalette();
   private speechMark: string = 'color';
+  private speechMarkColor: string = '';
   private dialogueHighlight: boolean = false;
+  private dialogueHighlightColor: string = '';
 
   makeNode(context: UIContext): FrameNode {
     this.node = new ReaderParagraphFrameNode(context);
-    this.node.update(this.page, this.range, this.palette, this.speechMark, this.dialogueHighlight);
+    this.node.update(this.page, this.range, this.palette, this.speechMark, this.dialogueHighlight, this.dialogueHighlightColor, this.speechMarkColor);
     return this.node;
   }
 
-  update(page: OnlineTextPage, range: SpeechHighlightRange, palette: ReaderPalette, speechMark: string = 'color', dialogueHighlight: boolean = false): void {
+  update(page: OnlineTextPage, range: SpeechHighlightRange, palette: ReaderPalette, speechMark: string = 'color', dialogueHighlight: boolean = false, dialogueHighlightColor: string = '', speechMarkColor: string = ''): void {
     if (this.page === page && this.range.start === range.start && this.range.end === range.end &&
-      this.palette.primary === palette.primary && this.palette.background === palette.background && this.speechMark === speechMark && this.dialogueHighlight === dialogueHighlight) return;
+      this.palette.primary === palette.primary && this.palette.background === palette.background && this.speechMark === speechMark && this.dialogueHighlight === dialogueHighlight && this.dialogueHighlightColor === dialogueHighlightColor && this.speechMarkColor === speechMarkColor) return;
     this.page = page;
     this.range = range;
     this.palette = palette;
     this.speechMark = speechMark;
+    this.speechMarkColor = speechMarkColor;
     this.dialogueHighlight = dialogueHighlight;
+    this.dialogueHighlightColor = dialogueHighlightColor;
     // Keep the mounted native node and atomically replace its retained paragraph.
-    this.node?.update(page, range, palette, speechMark, dialogueHighlight);
+    this.node?.update(page, range, palette, speechMark, dialogueHighlight, dialogueHighlightColor, speechMarkColor);
   }
 
   release(): void {

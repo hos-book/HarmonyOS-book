@@ -52,7 +52,9 @@ const CONTENT_ITEMS: ProfileItem[] = [
 ];
 
 const SETTINGS_ITEMS: ProfileItem[] = [
-  new ProfileItem($r('sys.symbol.gearshape'), '设置', 'settings', '#8E8E93')
+  new ProfileItem($r('sys.symbol.gearshape'), '设置', 'settings', '#8E8E93'),
+  new ProfileItem($r('sys.symbol.book'), $r('app.string.reading_settings_title'), 'readingSettings',
+    $r('app.color.app_brand'))
 ];
 
 const SYSTEM_ITEMS: ProfileItem[] = [
@@ -108,6 +110,8 @@ export struct ProfilePage {
     } else if (id === 'settings') {
       this.navStack.pushPathByName('settings', '');
 
+    } else if (id === 'readingSettings') {
+      this.navStack.pushPathByName('readingSettings', '');
     } else if (id === 'membership') {
       this.navStack.pushPathByName('membership', '');
     } else if (id === 'ruleSources') {
@@ -220,6 +224,7 @@ export struct ProfilePage {
     .width('100%')
     .height('100%')
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+
   }
 
   @Builder

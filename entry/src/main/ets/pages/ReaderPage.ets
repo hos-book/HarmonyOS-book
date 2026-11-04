@@ -1,4 +1,5 @@
 import { ReaderBrightnessService } from '../service/text/ReaderBrightnessService';
+import { LibrarySyncActivity } from '../service/sync/LibrarySyncModel';
 import { ReaderAutoPageService } from '../service/text/ReaderAutoPageService';
 import { ComicReaderService } from '../service/ComicReaderService';
 import { ReaderBookmark, ReaderTextDocument } from '../model/ReaderTools';
@@ -31,8 +32,6 @@ import { HdsTabs, HdsTabsFloatingStyle } from '@kit.UIDesignKit';
 import { HdsCompat, CompatibleTabsModifier } from '../utils/HdsCompat';
 import { PreferenceService } from '../service/PreferenceService';
 import { ReaderSpeechText } from '../components/ReaderSpeechText';
-import { ReaderFloatingService } from '../service/text/ReaderFloatingService';
-import { ReaderFloatingLyrics } from '../components/ReaderFloatingLyrics';
 import { ReaderSpeechSheet } from '../components/ReaderSpeechSheet';
 import { ImmersiveActionButton } from '../components/ImmersiveActionButton';
 import { ReadingTimeTracker } from '../service/text/ReadingTimeTracker';
@@ -83,6 +82,8 @@ import { TextReadingSettingsService } from '../service/text/TextReadingSettingsS
 import { AppColor, AppFont, AppSpace, AppRadius, AppMaterial } from '../theme/Theme';
 import { ChapterDataSource } from '../utils/ChapterDataSource';
 import { SearchCache } from '../utils/SearchCache';
+import { ReaderFullTextSearchPanel } from '../components/ReaderFullTextSearchPanel';
+import { ReaderSearchMatch } from '../service/text/ReaderFullTextSearch';
 import { WindowUtils } from '../utils/WindowUtils';
 
 const READER_LOG_DOMAIN: number = 0x0000;
@@ -147,7 +148,9 @@ export struct ReaderPage {
   @Local letterSpacing: number = 0;
   @Local previewLetterSpacing: number = -1;
   @Local dialogueHighlight: boolean = false;
+  @Local dialogueHighlightColor: string = '';
   @Local speechMark: string = 'color';
+  @Local speechMarkColor: string = '';
   @Local paragraphSpacing: number = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
   @Local previewParagraphSpacing: number = -1;
   @Local pickingBackgroundImage: boolean = false;
@@ -222,6 +225,7 @@ export struct ReaderPage {
   @Local chapterSliderConfirming: boolean = false;
   @Local pageLabelWidthVp: number = 0;
   @Local showChapterSheet: boolean = false;
+  @Local fullTextSearch: boolean = false;
   @Local chapterSegmented: boolean = false;
   @Local showSettingsSheet: boolean = false;
   @Local fontPanel: boolean = false;
@@ -388,6 +392,7 @@ export struct ReaderPage {
   }
 
   aboutToAppear(): void {
+    LibrarySyncActivity.reading.add(this.bookId);
     this.holdingHand.onChange = (left: boolean): void => { this.updateHoldingHand(left ? 1 : 2); };
     this.holdingHand.setVisible(this.generalSettings.adaptiveHandedness);
     emitter.on('app.reader.background', this.backgroundHandler);
@@ -419,6 +424,7 @@ export struct ReaderPage {
   }
 
   aboutToDisappear(): void {
+    LibrarySyncActivity.reading.delete(this.bookId);
     this.stopAutoPage();
     ReaderCacheService.release(this.diskCacheOwner);
     this.readerVisible = false;
@@ -1413,7 +1419,9 @@ export struct ReaderPage {
       this.lineHeight = settings.lineHeight;
       this.letterSpacing = settings.letterSpacing;
       this.dialogueHighlight = settings.dialogueHighlight;
+      this.dialogueHighlightColor = settings.dialogueHighlightColor;
       this.speechMark = settings.speechMark;
+      this.speechMarkColor = settings.speechMarkColor;
       this.paragraphSpacing = settings.paragraphSpacing;
       this.themeId = settings.themeId;
       this.customBackground = settings.customBackground;
@@ -1488,7 +1496,9 @@ export struct ReaderPage {
     this.lineHeight = TextReadingSettings.LINE_HEIGHT_DEFAULT;
     this.letterSpacing = 0;
     this.dialogueHighlight = false;
+    this.dialogueHighlightColor = '';
     this.speechMark = 'color';
+    this.speechMarkColor = '';
     this.paragraphSpacing = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
     this.themeId = TextReadingSettings.THEME_DEFAULT;
     this.customBackground = TextReadingSettings.CUSTOM_BACKGROUND_DEFAULT;
@@ -1544,7 +1554,9 @@ export struct ReaderPage {
     settings.speechFollowPage = this.speechFollowPage;
     settings.letterSpacing = this.letterSpacing;
     settings.dialogueHighlight = this.dialogueHighlight;
+    settings.dialogueHighlightColor = this.dialogueHighlightColor;
     settings.speechMark = this.speechMark;
+    settings.speechMarkColor = this.speechMarkColor;
     settings.paragraphSpacing = this.paragraphSpacing;
     settings.textAlignment = this.textAlignment;
     settings.fontWeight = this.fontWeight;
@@ -2183,7 +2195,7 @@ export struct ReaderPage {
   }
 
   private canUseVolumeKeys(): boolean {
-    return this.volumeKeyPageTurn && this.canTurnWithKeyboard();
+    return this.volumeKeyPageTurn && !this.readerBarVisible && this.canTurnWithKeyboard();
   }
 
   private canTurnWithKeyboard(): boolean {
@@ -2192,7 +2204,7 @@ export struct ReaderPage {
       !this.showSpeechSheet && !this.showSourceSwitch && !this.showBookmarkSheet && !this.showReplaceSheet && !this.showReaderMenu && !this.pickingFont && !this.pickingBackgroundImage;
   }
 
-  @Monitor('volumeKeyPageTurn', 'smartKeyPageTurn', 'readerVisible', 'loading', 'readerError', 'showChapterSheet',
+  @Monitor('volumeKeyPageTurn', 'smartKeyPageTurn', 'readerVisible', 'readerBarVisible', 'loading', 'readerError', 'showChapterSheet',
     'showSettingsSheet', 'showSpeechSheet', 'showSourceSwitch', 'showBookmarkSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont', 'pickingBackgroundImage')
   syncVolumeKeys(): void {
     this.volumeKeys.setEnabled(this.canUseVolumeKeys(), (forward: boolean): void => this.handleVolumePageTurn(forward));
@@ -2561,6 +2573,7 @@ export struct ReaderPage {
   }
 
   private openChapterSheet(): void {
+    this.fullTextSearch = false;
     const currentBook = this.book;
     if (currentBook === null || currentBook.chapters.length === 0) {
       this.showToast($r('app.string.reader_no_chapters'));
@@ -2580,6 +2593,13 @@ export struct ReaderPage {
     this.chapterPositionGeneration++;
     this.showChapterSheet = false;
     this.showReaderBar();
+  }
+
+  private async selectSearchMatch(match: ReaderSearchMatch): Promise<void> {
+    this.closeChapterSheet();
+    if (await this.loadOnlineTextChapter(match.chapterIndex, match.offset, 0, false, false)) {
+      this.followReadingWithSpeech();
+    }
   }
 
   private openSettingsSheet(fontPanel: boolean = false): void {
@@ -2703,32 +2723,20 @@ export struct ReaderPage {
     }
   }
 
-  private async openFloatingParagraph(): Promise<void> {
-    if (this.context === null) return;
-    const speaking = this.speechState.active && this.speechState.bookId === this.bookId;
-    const title = speaking ? this.speechState.bookTitle : this.book?.title ?? '';
-    const content = speaking ? this.speechState.sentence : this.onlineTextContent;
-    const offset = speaking ? 0 : this.currentOnlineTextCharOffset();
-    const opened = await ReaderFloatingService.open(this.context, title, content, offset, speaking);
-    if (!opened) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.reader_float_permission_denied') });
-    else this.showSpeechSheet = false;
-  }
-
-  @Monitor('currentPosition', 'onlineTextPageIndex', 'onlineTextContent')
-  private updateFloatingParagraph(): void {
-    ReaderFloatingService.update(this.book?.title ?? '', this.onlineTextContent, this.currentOnlineTextCharOffset(), false);
-  }
-
   @Builder
   private buildSpeechSheet(): void {
     ReaderSpeechSheet({ state: this.speechState,
-      onFloatingOpen: (): void => { this.openFloatingParagraph(); },
-      speechMark: this.speechMark,
+      speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
+      speechDefaultColor: this.palette.isDark ? '#FFB4A8' : '#A33245',
+      onSpeechMarkColorChange: (color: string): void => {
+        this.speechMarkColor = TextReadingSettings.normalizeSpeechMarkColor(color);
+        this.saveReadingSettings();
+      },
       onSpeechMarkChange: (value: string): void => {
         this.speechMark = TextReadingSettings.normalizeSpeechMark(value);
         this.saveReadingSettings();
       },
-      showReadingMode: true, speechFollowPage: this.speechFollowPage,
+      showReadingMode: true, readingOnly: true, speechFollowPage: this.speechFollowPage,
       onFollowPageChange: (follow: boolean): void => {
         this.speechFollowPage = follow;
         this.saveReadingSettings();
@@ -2740,7 +2748,6 @@ export struct ReaderPage {
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
-      ReaderFloatingLyrics().zIndex(100).align(Alignment.Center)
       Column().width(0).height(0)
         .bindSheet($$this.showBookmarkSheet, this.buildBookmarkSheet(), {
           height: '82%', detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM, showClose: true,
@@ -3063,7 +3070,7 @@ export struct ReaderPage {
         source: (this.onlineTextTurnPreview?.content ?? this.onlineTextContent).substring(this.currentOnlineTextColumn(column).startOffset, this.currentOnlineTextColumn(column).endOffset),
         sourceStart: this.currentOnlineTextColumn(column).startOffset, state: this.speechState,
         highlightEnabled: this.speechState.bookId === this.bookId && this.speechState.chapterIndex === this.onlineTextChapterIndex(),
-        letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, speechMark: this.speechMark,
+        letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
         fontSize: this.fontSize, lineHeight: this.lineHeight, palette: this.palette,
         fontFamily: this.fontFamily, fontWeight: this.fontWeight
       })
@@ -3134,7 +3141,7 @@ export struct ReaderPage {
               content: this.onlineTextContent, charOffset: this.currentOnlineTextCharOffset(),
               chapterCount: this.book?.chapters.length ?? 0,
               fontSize: this.fontSize, lineHeight: this.lineHeight, paragraphSpacing: this.paragraphSpacing, palette: this.palette,
-              letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, speechMark: this.speechMark,
+              letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
               textAlignment: this.textAlignment,
               fontFamily: this.fontFamily, fontWeight: this.fontWeight,
               bookId: this.bookId,
@@ -3269,6 +3276,12 @@ export struct ReaderPage {
           .fontColor($r('sys.color.font_primary'))
           .fontWeight(FontWeight.Bold)
         Blank()
+        if (this.isOnlineTextBook()) {
+          Button(this.fullTextSearch ? $r('app.string.reader_chapters') : $r('app.string.reader_fulltext_search'))
+            .fontSize(AppFont.Caption).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
+            .onClick((): void => { this.fullTextSearch = !this.fullTextSearch; })
+            .id('reader-fulltext-toggle')
+        }
         Button($r('app.string.chapter_total_switch_text', this.book?.chapters.length ?? 0))
           .fontSize(AppFont.Caption).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
           .onClick((): void => {
@@ -3284,6 +3297,13 @@ export struct ReaderPage {
       .width('100%')
       .padding({ left: AppSpace.Lg, right: AppSpace.Lg, top: AppSpace.Xs })
 
+      if (this.fullTextSearch && this.showChapterSheet) {
+        ReaderFullTextSearchPanel({ book: this.book,
+          read: (index: number): Promise<string> => this.book === null ? Promise.resolve('') :
+            this.getRawOnlineTextChapterContent(this.book, index),
+          onSelect: (match: ReaderSearchMatch): void => { this.selectSearchMatch(match); }
+        }).layoutWeight(1)
+      } else {
       ChapterSheetActions({
         descending: this.chapterDescending,
         onOrder: (): void => this.toggleChapterOrder(),
@@ -3368,10 +3388,11 @@ export struct ReaderPage {
       })
       }
       }
+      }
       .width('100%')
       .height('100%')
 
-      if (this.shouldShowChapterJumpButton()) {
+      if (!this.fullTextSearch && this.shouldShowChapterJumpButton()) {
         Row({ space: AppSpace.Xs }) {
           SymbolGlyph($r('sys.symbol.scope'))
             .fontSize(16)
@@ -3442,11 +3463,6 @@ export struct ReaderPage {
       paragraphSpacing: this.previewParagraphSpacing >= 0 ? this.previewParagraphSpacing : this.paragraphSpacing,
       paragraphSpacingEnabled: this.isOnlineTextBook(),
       letterSpacing: this.previewLetterSpacing >= 0 ? this.previewLetterSpacing : this.letterSpacing,
-      dialogueHighlight: this.dialogueHighlight,
-      onDialogueHighlightChange: (enabled: boolean): void => {
-        this.dialogueHighlight = enabled;
-        this.saveReadingSettings();
-      },
       onLetterSpacingChange: (value: number, commit: boolean): void => {
         this.previewLetterSpacing = TextReadingSettings.normalizeLetterSpacing(value);
         if (!commit) return;

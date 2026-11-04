@@ -43,7 +43,9 @@ export struct ReaderContinuousComponent {
   @Param textAlignment: string = 'justify';
   @Param letterSpacing: number = 0;
   @Param dialogueHighlight: boolean = false;
+  @Param dialogueHighlightColor: string = '';
   @Param speechMark: string = 'color';
+  @Param speechMarkColor: string = '';
   @Param fontSize: number = 18;
   @Param lineHeight: number = 1.9;
   @Param paragraphSpacing: number = 0;
@@ -348,7 +350,7 @@ export struct ReaderContinuousComponent {
                 .width('100%').height(this.rowHeight * 2).maxLines(2)
             } else {
               ReaderSpeechText({
-                letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, speechMark: this.speechMark,
+                letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
                 selectionEnabled: this.selectionEnabled,
                 onSelectionChange: (active: boolean): void => {
                   this.selectionActive = active;

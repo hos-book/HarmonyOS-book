@@ -684,7 +684,7 @@ export struct ComicReaderPage {
   }
 
   private canUseVolumeKeys(): boolean {
-    return this.volumeKeyPageTurn && this.canTurnWithHardwareKeys();
+    return this.volumeKeyPageTurn && !this.chrome && this.canTurnWithHardwareKeys();
   }
 
   private canTurnWithHardwareKeys(): boolean {
@@ -693,7 +693,7 @@ export struct ComicReaderPage {
       !this.showSourceSwitch && !this.zoomActive && !this.sheetPresented && !this.chapterSliderDragging && !this.chapterSliderConfirming;
   }
 
-  @Monitor('volumeKeyPageTurn', 'smartKeyPageTurn', 'readerVisible', 'busy', 'failed', 'pageCount', 'showChapters',
+  @Monitor('volumeKeyPageTurn', 'smartKeyPageTurn', 'readerVisible', 'chrome', 'busy', 'failed', 'pageCount', 'showChapters',
     'showSettings', 'showSourceSwitch', 'zoomActive', 'sheetPresented', 'chapterSliderDragging', 'chapterSliderConfirming')
   private syncVolumeKeys(): void {
     this.volumeKeys.setEnabled(this.canUseVolumeKeys(), (forward: boolean): void => this.handleVolumePageTurn(forward));

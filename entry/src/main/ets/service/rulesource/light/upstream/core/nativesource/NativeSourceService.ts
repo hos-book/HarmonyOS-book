@@ -784,10 +784,10 @@ export class NativeSourceService {
   }
 
   static async getBookInfo(source: BookSource, http: HttpClient, book: Book,
-    debugContext: BookSourceDebugContext | null = null): Promise<Book> {
+    debugContext: BookSourceDebugContext | null = null, cancelled: () => boolean = (): boolean => false): Promise<Book> {
     book.origin = source.bookSourceUrl;
     book.originName = source.bookSourceName;
-    const record = await NativeSourceService.runner(source, http, (): boolean => false, 0, debugContext)
+    const record = await NativeSourceService.runner(source, http, cancelled, 0, debugContext)
       .detail(NativeSourceService.bookInput(source, book));
     book.name = BookFieldSanitizer.prefer(record.name, book.name);
     book.author = BookFieldSanitizer.prefer(record.author, book.author);
@@ -812,9 +812,9 @@ export class NativeSourceService {
   }
 
   static async getChapterList(source: BookSource, http: HttpClient, book: Book,
-    limit: number = 0, debugContext: BookSourceDebugContext | null = null): Promise<BookChapter[]> {
-    const records = await NativeSourceService.runner(source, http, (): boolean => false, 0, debugContext)
-      .toc(NativeSourceService.bookInput(source, book), limit);
+    limit: number = 0, debugContext: BookSourceDebugContext | null = null, cancelled: () => boolean = (): boolean => false, requireComplete: boolean = false): Promise<BookChapter[]> {
+    const records = await NativeSourceService.runner(source, http, cancelled, 0, debugContext)
+      .toc(NativeSourceService.bookInput(source, book), limit, requireComplete);
     const chapters: BookChapter[] = [];
     let pendingVolume = '';
     for (const record of records) {

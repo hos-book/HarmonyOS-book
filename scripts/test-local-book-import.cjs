@@ -62,6 +62,7 @@ let epubCount = 2;
 let epubRaw = false;
 let epubBodies = null;
 let epubMissingImage = false;
+let realEpubArchive = null;
 let epubExpandedSize = 1024;
 let layoutCalls = 0;
 let writeDelay = 0;
@@ -151,6 +152,11 @@ const image = {
     const bytes = Buffer.from(input);
     return {
       async getImageInfo() {
+        if (realEpubArchive) {
+          const size = realEpubArchive.imageSizes[bytes.toString('base64')];
+          if (!size) throw new Error('not a decoded archive image');
+          return { size };
+        }
         if (!bytes.equals(MOBI_COVER_PNG)) throw new Error('invalid image');
         return { size: { width: 60, height: 90 } };
       },
@@ -214,7 +220,21 @@ function load(relative) {
       parserLoads++;
       assert.ok(parserAvailable, 'unsupported devices must never load the ReaderKit HSP');
       return { bookParser: {
-      getDefaultHandler: async () => { parserOpens++; return ({
+      getDefaultHandler: async () => {
+        parserOpens++;
+        if (realEpubArchive) return {
+          getBookInfo: () => realEpubArchive.bookInfo,
+          getSpineList: () => realEpubArchive.spines,
+          getCatalogList: () => realEpubArchive.catalog,
+          getSpineItemContent: async index => Buffer.from(realEpubArchive.entries[realEpubArchive.spines[index].href], 'base64').toString('utf8'),
+          getResourceContent: (index, resource) => {
+            const target = path.posix.normalize(path.posix.join(path.posix.dirname(realEpubArchive.spines[index].href), resource));
+            const encoded = realEpubArchive.entries[target];
+            if (!encoded) throw new Error(`Missing archive resource: ${target}`);
+            return Uint8Array.from(Buffer.from(encoded, 'base64')).buffer;
+          }
+        };
+        return ({
         getBookInfo: () => ({ bookTitle: 'EPUB 标题', bookCreator: '作者' }),
         getSpineList: () => Array.from({ length: epubBodies?.length ?? epubCount }, (_, index) => ({ idRef: String(index), href: `text/${index}.html` })),
         getCatalogList: () => [{ idRef: '0', catalogName: '第一章' }, { idRef: '1', catalogName: '第二章' },
@@ -423,7 +443,22 @@ function load(relative) {
   epubMissingImage = false;
   epubBodies = ['<body>只有文字</body>'];
   await assert.rejects(service.importBook(context, comicFile, 'import_comic_empty', '', '', '', () => {}, 'comic'), /未找到可读取的漫画图片/);
+  const longChapter = '长章节😀段落。'.repeat(12000);
+  epubBodies = [`<body><p>${longChapter}</p></body>`, '<body><p>下一章正文</p></body>'];
+  const longEpub = await service.importBook(context, comicFile, 'import_epub_long', '', '', '', () => {}, 'text');
+  assert.equal(longEpub.chapters.length, 2, 'long EPUB chapters must retain original boundaries');
+  assert.equal(await fsp.readFile(longEpub.chapters[0].source.value, 'utf8'), longChapter);
+  assert.equal(await fsp.readFile(longEpub.chapters[1].source.value, 'utf8'), '下一章正文');
+  assert.ok(longEpub.chapters.every(ch => !ch.title.includes('（续）')));
+  // Also cover the non-batched (>512 KiB HTML) conversion path.
+  epubBodies = [`<body><p>${'正文😀'.repeat(140000)}</p></body>`];
+  const largeChapterEpub = await service.importBook(context, comicFile, 'import_epub_large', '', '', '', () => {}, 'text');
+  assert.equal(largeChapterEpub.chapters.length, 1);
+  assert.equal(await fsp.readFile(largeChapterEpub.chapters[0].source.value, 'utf8'), '正文😀'.repeat(140000));
+  await assert.rejects(service.appendText(largeChapterEpub, temp, '超限章', '字'.repeat(8 * 1024 * 1024 + 1), undefined, true), /EPUB_CHAPTER_TOO_LARGE/);
+  assert.equal(largeChapterEpub.chapters.length, 1, 'oversized chapters fail before mutating the catalog');
   epubBodies = null;
+  console.log('PASS long EPUB: batched and large chapters preserve boundaries and all Unicode text');
   assert.equal(liveImages, 0);
   assert.equal(handles.size, 0);
   console.log('PASS EPUB comic auto/manual modes, SVG, limits and failure cleanup');
@@ -991,6 +1026,46 @@ function load(relative) {
   assert.equal((await restoredLogs.list()).length, 0);
   assert.equal(handles.size, 0);
   console.log('PASS diagnostics: default off, toggle persistence/failure, disabled retention, bounded persistence, restart, redaction, check and clear');
+  if (process.env.EPUB_TEST_FILE) {
+    free = 256 * 1024 ** 3;
+    const { execFileSync } = require('node:child_process');
+    realEpubArchive = JSON.parse(execFileSync('python', [path.join(__dirname, 'epub-archive-fixture.py'), process.env.EPUB_TEST_FILE],
+      { maxBuffer: 128 * 1024 ** 2, encoding: 'utf8' }));
+    const { EpubBackgroundImages: Backgrounds } = load('service/text/EpubBackgroundImages');
+    const resolver = new Backgrounds();
+    let expectedImages = 0, backgrounds = 0;
+    for (const spine of realEpubArchive.spines) {
+      const html = Buffer.from(realEpubArchive.entries[spine.href], 'base64').toString('utf8');
+      const expanded = await resolver.expand(html, spine.href, async relative => {
+        const target = path.posix.normalize(path.posix.join(path.posix.dirname(spine.href), relative));
+        return Buffer.from(realEpubArchive.entries[target], 'base64').toString('utf8');
+      });
+      if (expanded !== html) backgrounds++;
+      expectedImages += (expanded.match(/<(?:img|image)\b/gi) || []).length;
+    }
+    const realBook = await service.importBook(context,
+      { uri: process.env.EPUB_TEST_FILE, ext: '.epub', name: 'user EPUB' }, 'import_real_epub', '', '', '', () => {}, 'text');
+    let extracted = 0;
+    const realTexts = [];
+    for (const chapter of realBook.chapters) {
+      const text = await fsp.readFile(chapter.source.value, 'utf8'); realTexts.push(text);
+      for (const match of text.matchAll(images.pattern())) {
+        const saved = await fsp.readFile(match[1]);
+        assert.ok(realEpubArchive.imageSizes[saved.toString('base64')], 'saved image bytes must equal a decoded original image');
+        extracted++;
+      }
+    }
+    assert.equal(extracted, expectedImages, 'all inline and matched body-background images survive import');
+    const { ReaderFullTextSearch: Search } = load('service/text/ReaderFullTextSearch');
+    const lastIndex = realTexts.length - 1;
+    const query = realTexts[lastIndex].replace(images.pattern(), '').trim().slice(-25);
+    let result;
+    await Search.search(query, realTexts.length, async index => realTexts[index], () => false, value => { result = value; });
+    assert.equal(result.failed, 0);
+    assert.equal(result.completed, realTexts.length);
+    assert.ok(result.matches.some(match => match.chapterIndex === lastIndex && realTexts[lastIndex].slice(match.offset, match.offset + query.length) === query));
+    console.log(`PASS actual EPUB archive: ${realBook.chapters.length} chapters; ${extracted}/${expectedImages} original images incl. ${backgrounds} background pages; full-book search reaches last chapter`);
+  }
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   for (const handle of handles.values()) await handle.close();
   await fsp.rm(temp, { recursive: true, force: true });

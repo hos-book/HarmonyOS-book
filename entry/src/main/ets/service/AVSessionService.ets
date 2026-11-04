@@ -4,10 +4,13 @@ import { PlaybackCoordinator } from './PlaybackCoordinator';
 import { avSession } from '@kit.AVSessionKit';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { image } from '@kit.ImageKit';
-import { http } from '@kit.NetworkKit';
+import { CoverPrefetcher } from './CoverPrefetcher';
 import { common, wantAgent } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import lazy { MembershipService } from './MembershipService';
+import { MembershipState } from '../model/MembershipState';
+import { MembershipFeatureLease } from './membership/MembershipFeatureLease';
 import { Book, Chapter } from '../model/Book';
 import { DesktopLyricState } from '../model/DesktopLyric';
 
@@ -58,8 +61,11 @@ export class AVSessionService {
   private metadataChain: Promise<void> = Promise.resolve();
   private readonly lyricVisibilityChanged = (visible: boolean): void => {
     if (visible && !this.desktopLyricEnabled) return;
+    if (visible && !MembershipState.current.hasAccess) { this.closeDesktopLyric(); return; }
     this.desktopLyric.visible = visible;
     this.notifyDesktopLyric();
+    if (visible) this.desktopMembershipLease.start((): void => { this.closeDesktopLyric(); });
+    else this.desktopMembershipLease.stop();
   };
   private readonly lyricStateChanged = (state: avSession.DesktopLyricState): void => {
     this.desktopLyric.locked = state.isLocked;
@@ -74,6 +80,7 @@ export class AVSessionService {
   private currentBook: Book | null = null;
   private currentChapter: Chapter | null = null;
   private currentMediaImage: string | image.PixelMap | undefined;
+  private currentMediaImageKey: string = '';
   private metadataSerial: number = 0;
   private currentCastUrl: string = '';
   private currentProgressMs: number = 0;
@@ -216,6 +223,7 @@ export class AVSessionService {
     this.desktopLyric.busy = true;
     const generation = ++this.desktopLyricGeneration;
     try {
+      if (visible && !await MembershipService.instance.hasCurrentEntitlement()) return false;
       await this.desktopLyricClosing;
       if (!await this.ensureReady() || !this.session || !this.desktopLyric.supported) return false;
       const session = this.session;
@@ -242,11 +250,18 @@ export class AVSessionService {
         this.desktopLyricEnabled = false;
         return false;
       }
+      if (visible && !MembershipState.current.hasAccess) {
+        await this.closeDesktopLyric();
+        return false;
+      }
       await session.setDesktopLyricVisible(visible);
       if (generation !== this.desktopLyricGeneration || session !== this.session) return false;
+      if (visible && !MembershipState.current.hasAccess) { await this.closeDesktopLyric(); return false; }
       this.desktopLyric.visible = await session.isDesktopLyricVisible();
       this.desktopLyric.locked = (await session.getDesktopLyricState()).isLocked;
       this.notifyDesktopLyric();
+      if (this.desktopLyric.visible) this.desktopMembershipLease.start((): void => { this.closeDesktopLyric(); });
+      else this.desktopMembershipLease.stop();
       return this.desktopLyric.visible === visible;
     } catch (error) {
       if (generation !== this.desktopLyricGeneration) this.desktopLyricEnabled = false;
@@ -268,8 +283,11 @@ export class AVSessionService {
     } finally { this.desktopLyric.busy = false; }
   }
 
-  /** 仅真正停止/清空播放时关闭；暂停、退页、进入后台均保留系统窗口。 */
+  private desktopMembershipLease: MembershipFeatureLease = new MembershipFeatureLease();
+
+  /** 停止播放或会员失效时关闭；暂停、退页、后台在有效权益期间保留。 */
   closeDesktopLyric(): Promise<void> {
+    this.desktopMembershipLease.stop();
     this.desktopLyricGeneration++;
     this.desktopLyric.visible = false;
     this.notifyDesktopLyric();
@@ -445,7 +463,11 @@ export class AVSessionService {
     if (serial !== this.metadataSerial || speech !== PlaybackCoordinator.speechActive) return;
     // 新书必须显式覆盖系统封面缓存；省略 mediaImage 不能保证旧图被清除。
     // 占位图只读本地资源，不能等待书源网络请求后才发布新书。
-    const mediaImage: string | image.PixelMap = this.coverCache.get(book.cover)
+    const imageKey: string = JSON.stringify([book.id, book.sourceUrl ?? '', book.cover,
+      book.cover ? '' : book.title, book.cover ? '' : book.author]);
+    // 书源封面解码后按本地路径缓存，同一本书切章不能再用原始地址查空后换成占位图。
+    const retainedImage = imageKey === this.currentMediaImageKey ? this.currentMediaImage : undefined;
+    const mediaImage: string | image.PixelMap = retainedImage ?? this.coverCache.get(book.cover)
       ?? await this.loadCover(MEDIA_COVER_PLACEHOLDER) ?? '';
     if (serial !== this.metadataSerial || speech !== PlaybackCoordinator.speechActive || !this.session) return;
     const previousAssetId = this.currentBook && this.currentChapter
@@ -459,6 +481,7 @@ export class AVSessionService {
     this.currentChapter = chapter;
     this.metadataSpeech = speech;
     this.currentMediaImage = mediaImage;
+    this.currentMediaImageKey = imageKey;
     const metadata: avSession.AVMetadata = {
       assetId: `${book.id}_${chapter.id}`,
       title: chapter.title,
@@ -689,21 +712,10 @@ export class AVSessionService {
   }
 
   private async loadNetworkCover(url: string): Promise<image.PixelMap | null> {
-    const httpClient = http.createHttp();
-    try {
-      const resp = await httpClient.request(url, {
-        method: http.RequestMethod.GET,
-        expectDataType: http.HttpDataType.ARRAY_BUFFER,
-        connectTimeout: 10000,
-        readTimeout: 15000,
-        maxLimit: MAX_COVER_BYTES
-      });
-      if (resp.responseCode === 200 && resp.result instanceof ArrayBuffer &&
-        resp.result.byteLength > 0 && resp.result.byteLength <= MAX_COVER_BYTES) {
-        return await this.decodeCover(image.createImageSource(resp.result));
-      }
-    } finally {
-      httpClient.destroy();
+    // 与书架、页面及迷你播控共享文件缓存和在途请求，不单独下载同一封面。
+    const bytes: ArrayBuffer = await CoverPrefetcher.loadOriginal(url);
+    if (bytes.byteLength > 0 && bytes.byteLength <= MAX_COVER_BYTES) {
+      return await this.decodeCover(image.createImageSource(bytes));
     }
     return null;
   }
@@ -787,6 +799,7 @@ export class AVSessionService {
       catch (error) { this.logMediaCenterWarning('destroy', error); }
     }
     this.currentMediaImage = undefined;
+    this.currentMediaImageKey = '';
     const releases: Promise<void>[] = [];
     this.coverCache.forEach((pm: image.PixelMap): void => {
       releases.push(this.releaseCover(pm));

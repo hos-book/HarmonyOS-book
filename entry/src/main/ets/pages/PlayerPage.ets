@@ -7,12 +7,15 @@ import { PlaybackLoadingIndicator } from '../components/PlaybackLoadingIndicator
 import { LocalTextImage } from '../service/text/LocalTextImage';
 import { PlayerCoverImage } from '../components/PlayerCoverImage';
 import { AudioSubtitlePanel } from '../components/AudioSubtitlePanel';
+import { MembershipState } from '../model/MembershipState';
+import { MembershipService } from '../service/MembershipService';
 import { DesktopLyricButton } from '../components/DesktopLyricButton';
 import { SubtitleToggleIcon } from '../components/SubtitleToggleIcon';
 import { CoverImage } from '../components/CoverImage';
 import { BookSourceSwitchSheet } from '../components/BookSourceSwitchSheet';
 import { common } from '@kit.AbilityKit';
 import { AppStorageV2, curves, FrameCallback } from '@kit.ArkUI';
+import { LibrarySyncActivity } from '../service/sync/LibrarySyncModel';
 import { text as graphicsText } from '@kit.ArkGraphics2D';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { emitter } from '@kit.BasicServicesKit';
@@ -40,6 +43,7 @@ import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransi
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { TextToSpeechState, SpeechVoice } from '../model/TextToSpeechState';
 import { CustomTtsConfig } from '../model/CustomTtsConfig';
+import { ReaderTtsDataSource } from '../components/ReaderTtsTabs';
 import { LightSourceBridge } from '../service/rulesource/light/LightSourceBridge';
 import { LocalRuleVoice } from '../service/rulesource/LocalRuleRuntimeTypes';
 import { SourceVoiceDataSource } from '../utils/SourceVoiceDataSource';
@@ -147,6 +151,7 @@ export struct PlayerPage {
   @Local savingSourceVoice: boolean = false;
   private sourceVoices: SourceVoiceDataSource = new SourceVoiceDataSource();
   private sourceVoiceScroller: Scroller = new Scroller();
+  private playbackTtsSource: ReaderTtsDataSource = new ReaderTtsDataSource();
   @Local isFavorite: boolean = false;
   @Local showChapterList: boolean = false;
   @Local chapterGridVisible: boolean = false;
@@ -244,6 +249,7 @@ export struct PlayerPage {
   private entryFinished: boolean = false;
   @Local highQualityCover: boolean = false;
   @Local audioSubtitlesEnabled: boolean = false;
+  @Local membership: MembershipState = MembershipState.current;
   @Local savingSubtitleMode: boolean = false;
 
   /** 取消 pending 的延迟加载 timer,返回前调用避免阻塞返回响应 */
@@ -262,6 +268,7 @@ export struct PlayerPage {
   }
 
   aboutToAppear(): void {
+    LibrarySyncActivity.playing.add(this.bookId);
     this.isLeaving = false;
     WindowUtils.addSafeAreaListener(this.safeAreaChangeHandler);
     WindowUtils.refreshAvoidArea();
@@ -320,6 +327,7 @@ export struct PlayerPage {
   }
 
   aboutToDisappear(): void {
+    LibrarySyncActivity.playing.delete(this.bookId);
     this.isLeaving = true;
     this.cancelChapterPosition();
     WindowUtils.removeSafeAreaListener(this.safeAreaChangeHandler);
@@ -661,6 +669,7 @@ export struct PlayerPage {
   }
 
   private openVoiceOptions(): void {
+    this.refreshPlaybackTts();
     if (!this.isSpeechBook()) {
       this.sourceVoiceDraft = this.book?.variables?.['__audioSourceVoice'] ?? this.book?.variables?.['custom'] ?? '';
     } else if (!this.showSourceVoice && this.speechState.voices.length === 0) {
@@ -678,6 +687,12 @@ export struct PlayerPage {
 
   private playbackSpeechVoices(): SpeechVoice[] {
     return this.speechState.voices.filter((voice: SpeechVoice): boolean => voice.installed);
+  }
+
+  @Monitor('speechState.customTtsConfigs')
+  private refreshPlaybackTts(): void {
+    this.playbackTtsSource.update(this.speechState.customTtsConfigs.filter(
+      (config: CustomTtsConfig): boolean => config.enabled), false);
   }
 
   private async saveSpeechVoice(id: string): Promise<void> {
@@ -758,8 +773,7 @@ export struct PlayerPage {
       Row({ space: AppSpace.Md }) {
         Text(label).fontSize(16)
           .fontColor(this.selectedPlaybackVoiceId() === id ? AppColor.Brand : $r('sys.color.font_primary'))
-          .layoutWeight(1).textAlign(TextAlign.Start).maxLines(1).textOverflow({ overflow: TextOverflow.MARQUEE })
-          .marqueeOptions({ start: this.showSourceVoice, step: 0.5, loop: -1 }).clip(true)
+          .layoutWeight(1).textAlign(TextAlign.Start).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
         if (this.selectedPlaybackVoiceId() === id) {
           if (this.savingSourceVoice) {
             LoadingProgress().width(22).height(22).color(AppColor.Brand)
@@ -827,12 +841,12 @@ export struct PlayerPage {
     Column() {
       List({ scroller: this.sourceVoiceScroller, initialIndex: this.selectedSourceVoiceIndex() }) {
         if (this.isSpeechBook()) {
-          Repeat<SpeechVoice>(this.playbackSpeechVoices()).each((item: RepeatItem<SpeechVoice>) => {
-            ListItem() { this.buildSourceVoiceOption(`system:${item.item.id}`, item.item.label) }
-          }).key((voice: SpeechVoice): string => `system:${voice.id}`).virtualScroll()
-          Repeat<CustomTtsConfig>(this.speechState.customTtsConfigs.filter((config: CustomTtsConfig): boolean => config.enabled)).each((item: RepeatItem<CustomTtsConfig>) => {
-            ListItem() { this.buildSourceVoiceOption(item.item.id, item.item.name) }
-          }).key((config: CustomTtsConfig): string => config.id).virtualScroll()
+          ForEach(this.playbackSpeechVoices(), (voice: SpeechVoice) => {
+            ListItem() { this.buildSourceVoiceOption(`system:${voice.id}`, voice.label) }
+          }, (voice: SpeechVoice): string => `system:${voice.id}`)
+          LazyForEach(this.playbackTtsSource, (config: CustomTtsConfig) => {
+            ListItem() { this.buildSourceVoiceOption(config.id, config.name) }
+          }, (config: CustomTtsConfig): string => `${config.id}:${config.name}`)
         } else {
         ListItem() {
           this.buildSourceVoiceOption('', $r('app.string.player_source_voice_default'))
@@ -846,7 +860,7 @@ export struct PlayerPage {
         this.playbackSpeechVoices().length : this.sourceVoices.totalCount() + 1) * 48))
         .scrollBar(BarState.Off)
     }
-    .width(Math.min(180, Math.max(120, this.viewportWidth - 32))).padding(AppSpace.Xs)
+    .width(Math.min(320, Math.max(120, this.viewportWidth - 32))).padding(AppSpace.Xs)
   }
 
   private needsChapterHydration(book: Book): boolean {
@@ -1526,15 +1540,29 @@ export struct PlayerPage {
   }
 
   private showAudioSubtitles(): boolean {
-    return this.audioSubtitlesEnabled && !this.isSpeechBook() && !this.isLiveBook();
+    return this.audioSubtitlesEnabled && this.membership.hasAccess && !this.isSpeechBook() && !this.isLiveBook();
+  }
+
+  @Monitor('membership.confirmedInactive')
+  private onSubtitleMembershipChanged(): void {
+    if (this.membership.confirmedInactive && !this.membership.hasAccess) this.audioSubtitlesEnabled = false;
   }
 
   private async toggleAudioSubtitles(): Promise<void> {
     if (this.savingSubtitleMode) return;
     this.savingSubtitleMode = true;
     const previous = this.audioSubtitlesEnabled;
-    this.audioSubtitlesEnabled = !previous;
-    try { await PreferenceService.setAudioSubtitlesEnabled(!previous); }
+    try {
+      if (!previous && !await MembershipService.instance.hasCurrentEntitlement()) {
+        if (!this.isLeaving) {
+          this.showToast($r('app.string.subtitle_vip_required'));
+          this.navStack.pushPathByName('membershipSubscription', '');
+        }
+        return;
+      }
+      await PreferenceService.setAudioSubtitlesEnabled(!previous);
+      if (!this.isLeaving) this.audioSubtitlesEnabled = !previous;
+    }
     catch (_error) {
       if (!this.isLeaving) {
         this.audioSubtitlesEnabled = previous;
@@ -1783,7 +1811,7 @@ export struct PlayerPage {
       Blank()
       if (!this.isSpeechBook() && !this.isLiveBook()) {
         Button({ type: ButtonType.Circle }) {
-          SubtitleToggleIcon({ active: this.audioSubtitlesEnabled })
+          SubtitleToggleIcon({ active: this.audioSubtitlesEnabled && this.membership.hasAccess })
         }.width(40).height(40)
           .backgroundColor(Color.Transparent)
           .accessibilityText(this.audioSubtitlesEnabled ? $r('app.string.subtitle_switch_cover') : $r('app.string.subtitle_switch_text'))

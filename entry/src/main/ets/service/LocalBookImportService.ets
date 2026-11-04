@@ -16,6 +16,7 @@ import { LocalBookCatalog } from './text/LocalBookCatalog';
 import { LocalBookHtmlText } from './text/LocalBookHtmlText';
 import { cleanLocalBookHtmlBatch } from './text/LocalBookHtmlWorker';
 import { EpubContentProfile, EpubImportMode } from './text/EpubContentProfile';
+import { EpubBackgroundImages } from './text/EpubBackgroundImages';
 
 class EpubReadStats {
   file: number = 0;
@@ -81,7 +82,7 @@ export class LocalBookImportService {
     try { content = JSON.parse(String(await taskpool.execute(cleanLocalBookHtmlBatch, batch.html))); }
     catch (_worker) { content = batch.html.map((html: string): string => LocalBookHtmlText.clean(html)); }
     for (let index = 0; index < content.length; index++) {
-      await LocalBookImportService.appendText(book, directory, batch.titles[index], content[index], writes);
+      await LocalBookImportService.appendText(book, directory, batch.titles[index], content[index], writes, true);
     }
     batch.html = []; batch.titles = []; batch.chars = 0;
   }
@@ -406,10 +407,12 @@ export class LocalBookImportService {
 
   /** 有上限的单章节文件，正文读取不需要在线书源。 */
   static async appendText(book: Book, directory: string, title: string, text: string,
-    writes?: LocalImportTaskQueue): Promise<void> {
+    writes?: LocalImportTaskQueue, preserveChapter: boolean = false): Promise<void> {
+    // EPUB 已有目录边界，不再因 32000 字限制伪造“续”章。保留单章内存上限。
+    if (preserveChapter && text.length > 8 * 1024 * 1024) throw new Error('EPUB_CHAPTER_TOO_LARGE');
     let offset = 0;
     while (offset < text.length) {
-      let end = Math.min(text.length, offset + 32000);
+      let end = preserveChapter ? text.length : Math.min(text.length, offset + 32000);
       if (end < text.length) {
         const newline = text.lastIndexOf('\n', end);
         if (newline > offset + 16000) end = newline;
@@ -664,11 +667,23 @@ export class LocalBookImportService {
         DiagnosticLogService.info('import.epub_index', `spines=${spine.length}; catalog=${catalog.length}; ` +
           `buckets=${catalogIndex.size}; emptyIds=${spine.filter((item): boolean => !item.idRef).length}`);
         const batch = new EpubTextBatch();
+        const backgrounds = new EpubBackgroundImages();
         if (spine.length > LocalBookImportService.MAX_CHAPTERS) throw new Error('EPUB 超过 50000 节');
         for (let index = 0; index < spine.length; index++) {
           report(`${book.title} ${index + 1}/${spine.length}`);
           const readStarted = Date.now();
-          const html = await LocalBookImportService.epubSpineText(handler, index, spine[index].href, epubStats);
+          const rawHtml = await LocalBookImportService.epubSpineText(handler, index, spine[index].href, epubStats);
+          const html = await backgrounds.expand(rawHtml, spine[index].href, async (path: string): Promise<string> => {
+            let bytes: ArrayBuffer;
+            try { bytes = handler.getResourceContent(index, path); }
+            catch (_context) {
+              // 原文直读未建立资源上下文时，仅为含样式的章节按需初始化。
+              await handler.getSpineItemContent(index);
+              bytes = handler.getResourceContent(index, path);
+            }
+            if (bytes.byteLength > 512 * 1024) return '';
+            return util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(bytes));
+          });
           epubStats.readMs += Date.now() - readStarted;
           const convertStarted = Date.now();
           const previousWait = writes.waitMs;
@@ -679,7 +694,7 @@ export class LocalBookImportService {
             if (/<(?:img|image)\b/i.test(section) || section.length > 512 * 1024) {
               await LocalBookImportService.flushEpubText(book, directory, batch, writes);
               await LocalBookImportService.appendText(book, directory, part.title,
-                await LocalBookImportService.epubBody(context, handler, index, section, directory, epubStats), writes);
+                await LocalBookImportService.epubBody(context, handler, index, section, directory, epubStats), writes, true);
             } else {
               if (batch.chars + section.length > 512 * 1024) {
                 await LocalBookImportService.flushEpubText(book, directory, batch, writes);
@@ -730,7 +745,9 @@ export class LocalBookImportService {
       await writes.settle();
       DiagnosticLogService.failure(`import.${stage}`, error, `format=${file.ext}`);
       try { await fileIo.rmdir(directory); } catch (_cleanup) { /* 保留原始错误 */ }
-      throw new Error(error instanceof Error ? error.message : String(error));
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(message === 'EPUB_CHAPTER_TOO_LARGE' ?
+        context.resourceManager.getStringSync($r('app.string.import_epub_chapter_limit').id) : message);
     }
   }
 

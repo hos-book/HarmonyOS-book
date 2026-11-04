@@ -130,7 +130,7 @@ export class TextToSpeechService {
   private async loadSettings(context: common.Context): Promise<void> {
     this.store = await preferences.getPreferences(context, { name: 'text_to_speech' });
     const gain = this.store.getSync('loudnessGain', 0);
-    this.state.loudnessGain = PlatformCompat.supports(21) && typeof gain === 'number' && Number.isFinite(gain) ?
+    this.state.loudnessGain = typeof gain === 'number' && Number.isFinite(gain) ?
       Math.max(0, Math.min(24, Math.round(gain))) : 0;
     await this.httpOutput.setLoudnessGain(this.state.loudnessGain);
     const speed = this.store.getSync('speed', 1);
@@ -371,12 +371,15 @@ export class TextToSpeechService {
   }
 
   async setLoudnessGain(gain: number): Promise<void> {
+    if (this.initPromise !== null) await this.initPromise;
+    if (this.store === null) { this.state.error = this.message($r('app.string.tts_save_error')); return; }
     if (this.state.loudnessBusy) return;
     this.state.loudnessBusy = true;
     try {
       if (await this.httpOutput.setLoudnessGain(gain)) {
         this.state.loudnessGain = Math.round(gain);
         this.saveSettings();
+        await this.flushChain;
       } else this.state.error = this.message($r('app.string.player_volume_boost_failed'));
     } finally { this.state.loudnessBusy = false; }
   }

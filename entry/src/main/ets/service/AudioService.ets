@@ -1,4 +1,5 @@
 import { PlaybackCoordinator } from './PlaybackCoordinator';
+import { LibrarySyncActivity } from './sync/LibrarySyncModel';
 import { ChapterRuleContext } from './rulesource/ChapterRuleContext';
 import { LightSourceRequest } from './rulesource/light/LightSourceRequestPolicy';
 import { media } from '@kit.MediaKit';
@@ -293,6 +294,7 @@ export class AudioService {
   bind(state: PlayerState, context: common.UIAbilityContext): void {
     this.state = state;
     this.context = context;
+    this.loadLoudnessPreferences();
     this.loadSleepPreferences();
     this.initAVSession();
   }
@@ -369,6 +371,7 @@ export class AudioService {
   }
 
   private async ensurePlayer(): Promise<media.AVPlayer> {
+    await this.loadLoudnessPreferences();
     await this.loadSleepPreferences();
     if (this.player) {
       return this.player;
@@ -826,6 +829,7 @@ export class AudioService {
   private async persistHistory(): Promise<void> {
     if (this.frozenPersistGen >= 0) return;
     if (!this.state || !this.state.currentBook || !this.state.currentChapter) return;
+    if (!this.state.isPlaying && LibrarySyncActivity.remotePlayback.has(this.state.currentBook.id)) return;
     this.capturePlayerPosition();
     this.recordSession();
     const book = this.state.currentBook;
@@ -841,6 +845,7 @@ export class AudioService {
     PlaybackStore.getInstance().update(book.id, chapterId, chapterIndex,
       chapter.source?.value ?? '', this.state.isPlaying);
     const write = this.historyWriteChain.catch((): void => {}).then(async (): Promise<void> => {
+      if (LibrarySyncActivity.remotePlayback.has(book.id) && !this.state?.isPlaying) return;
       await PreferenceService.upsertHistory({
         bookId: book.id,
         chapterId,
@@ -1084,6 +1089,7 @@ export class AudioService {
 
   private async doPlayChapter(book: Book, chapter: Chapter, seekMs: number, forceReload: boolean = false): Promise<void> {
     if (!this.state || !this.context || PlaybackCoordinator.speechActive) return;
+    LibrarySyncActivity.remotePlayback.delete(book.id);
     this.stopTick();
     const myGen = ++this.playGen;
     this.playerSourceGeneration = -1;
@@ -1607,7 +1613,8 @@ export class AudioService {
       state.loudnessGain = gain;
       const completion = pending.then((): boolean => true).catch((): boolean => {
         if (current()) {
-          state.loudnessGain = restoring ? 0 : previousGain;
+          state.loudnessGain = previousGain;
+          if (!restoring) PreferenceService.setAudioLoudnessGain(previousGain).catch((): void => {});
           hilog.warn(DOMAIN, TAG, 'set loudness gain failed');
         }
         return false;
@@ -1616,10 +1623,11 @@ export class AudioService {
         timer = setTimeout((): void => { resolve(true); }, 1500);
       });
       const accepted = await Promise.race([completion, bounded]);
+      if (current() && accepted && !restoring) await PreferenceService.setAudioLoudnessGain(gain);
       return current() && accepted;
     } catch (_error) {
       if (this.player === player && generation === this.playGen && operation === this.loudnessOperation) {
-        if (restoring) state.loudnessGain = 0;
+        state.loudnessGain = previousGain;
         hilog.warn(DOMAIN, TAG, 'set loudness gain failed');
       }
       return false;
@@ -1630,6 +1638,17 @@ export class AudioService {
   }
 
   private loudnessOperation: number = 0;
+  private loudnessPreferences: Promise<void> | null = null;
+
+  private loadLoudnessPreferences(): Promise<void> {
+    if (this.loudnessPreferences !== null) return this.loudnessPreferences;
+    const operation = this.loudnessOperation;
+    const task: Promise<void> = PreferenceService.getAudioLoudnessGain().then((gain: number): void => {
+      if (this.state && operation === this.loudnessOperation) this.state.loudnessGain = gain;
+    }).catch((): void => { this.loudnessPreferences = null; });
+    this.loudnessPreferences = task;
+    return task;
+  }
 
   async setSpeed(speed: number): Promise<void> {
     if (this.state?.isLive) return;
@@ -2254,6 +2273,7 @@ export class AudioService {
       AVSessionService.getInstance().updateMetadata(this.state.currentBook, this.state.currentChapter);
     }
     if (await this.resumeAfterSleep()) return;
+    if (await this.resumeSyncedProgress()) return;
     if (PlaybackCoordinator.speechActive || this.pauseRequested || this.isApplying || this.state?.isLoading) return;
     if (this.player?.state === 'released') this.player = null;
     if (!this.player || this.player.state === 'idle' || this.player.state === 'stopped'
@@ -2284,5 +2304,19 @@ export class AudioService {
     } else if (this.player.state === 'playing') {
       await this.playPlayer(this.player);
     }
+  }
+
+  /** 闲置播放器收到远端进度后，下次显式播放从已合并的章节/时间起播。 */
+  private async resumeSyncedProgress(): Promise<boolean> {
+    const book = this.state?.currentBook;
+    if (!book || this.state?.isPlaying || this.state?.isLoading || !LibrarySyncActivity.remotePlayback.has(book.id)) return false;
+    const saved = await PreferenceService.getProgress(book.id);
+    if (this.state?.currentBook?.id !== book.id || this.pauseRequested) return true;
+    if (!saved) { LibrarySyncActivity.remotePlayback.delete(book.id); return false; }
+    let index = DataService.resolveChapterIndex(book, saved.chapterId, saved.chapterTitle);
+    if (index < 0 && saved.chapterIndex < book.chapters.length) index = saved.chapterIndex;
+    if (index < 0 || !book.chapters[index]) return false;
+    await this.playChapterAndSeek(book, book.chapters[index], saved.positionMs);
+    return true;
   }
 }

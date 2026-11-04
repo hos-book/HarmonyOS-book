@@ -63,6 +63,12 @@ export class TextReadingSettingsService {
     const letterSpacing = store.getSync('letter_spacing', 0);
     result.letterSpacing = TextReadingSettings.normalizeLetterSpacing(typeof letterSpacing === 'number' ? letterSpacing : 0);
     result.dialogueHighlight = store.getSync('dialogue_highlight', false) === true;
+    const dialogueColor = store.getSync('dialogue_highlight_color', '');
+    result.dialogueHighlightColor = TextReadingSettings.normalizeDialogueHighlightColor(
+      typeof dialogueColor === 'string' ? dialogueColor : '');
+    const speechColor = store.getSync('speech_mark_color', '');
+    result.speechMarkColor = TextReadingSettings.normalizeSpeechMarkColor(
+      typeof speechColor === 'string' ? speechColor : '');
     const speechMark = store.getSync('speech_mark', 'color');
     result.speechMark = TextReadingSettings.normalizeSpeechMark(typeof speechMark === 'string' ? speechMark : 'color');
     const paragraphSpacing = store.getSync(KEY_PARAGRAPH_SPACING, TextReadingSettings.PARAGRAPH_SPACING_DEFAULT);
@@ -202,7 +208,9 @@ export class TextReadingSettingsService {
     store.putSync(KEY_LINE_HEIGHT, TextReadingSettings.normalizeLineHeight(settings.lineHeight));
     store.putSync('letter_spacing', TextReadingSettings.normalizeLetterSpacing(settings.letterSpacing));
     store.putSync('dialogue_highlight', settings.dialogueHighlight);
+    store.putSync('dialogue_highlight_color', TextReadingSettings.normalizeDialogueHighlightColor(settings.dialogueHighlightColor));
     store.putSync('speech_mark', TextReadingSettings.normalizeSpeechMark(settings.speechMark));
+    store.putSync('speech_mark_color', TextReadingSettings.normalizeSpeechMarkColor(settings.speechMarkColor));
     store.putSync(KEY_PARAGRAPH_SPACING, TextReadingSettings.normalizeParagraphSpacing(settings.paragraphSpacing));
     store.putSync(KEY_THEME_ID, TextReadingSettings.normalizeThemeId(settings.themeId));
     store.putSync(KEY_CUSTOM_BACKGROUND, normalizeHex(settings.customBackground));

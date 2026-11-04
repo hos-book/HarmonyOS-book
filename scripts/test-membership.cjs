@@ -228,6 +228,7 @@ async function main() {
     let purchaseData = null, publishPurchase = true, verificationError = null;
     let savedAccount = 'account-1', systemAccount = 'account-1', accountError = null, accountGate = Promise.resolve();
     const accountChecks = [];
+    let syncSuspended = 0;
     const offerRequests = [];
     let promotion = null, offerError = null;
     let emptyPurchaseList = [];
@@ -269,9 +270,13 @@ async function main() {
       }
     };
     const { MembershipService } = load('service/MembershipService.ets', {
+      './subtitle/AudioSubtitleService': { AudioSubtitleService: { instance: { revokeMembership() {} } } },
+      './AVSessionService': { AVSessionService: { getInstance: () => ({ closeDesktopLyric: async () => {} }) } },
       './PreferenceService': { PreferenceService: {
         ensureReady: async () => {}, getHwAccount: async () => savedAccount ? { openID: savedAccount } : null,
-        setSearchConcurrency: async count => { assert.equal(count, 3); }
+        setSearchConcurrency: async count => { assert.equal(count, 3); },
+        setCoverSuperResolution: async enabled => { assert.equal(enabled, false); },
+        setAudioSubtitlesEnabled: async enabled => { assert.equal(enabled, false); }
       } },
       './membership/DeveloperMembership': developer,
       './membership/MembershipOfferClient': { MembershipOfferClient: { request: async (_context, productId, offerId) => {
@@ -280,6 +285,7 @@ async function main() {
         return 'header.payload.signature';
       } } },
       './AutoBackupService': { AutoBackupService: { instance: { resetMembershipDefaults: async () => { defaultsReset++; } } } },
+      './LibrarySyncService': { LibrarySyncService: { instance: { suspendForMembership: () => { syncSuspended++; } } } },
       '@kit.IAPKit': { iap }, '../model/MembershipState': stateModule,
       '@kit.AccountKit': { authentication: {
         IdType: { OPEN_ID: 2 }, State: { UNLOGGED_IN: 0, AUTHORIZED: 1, UNAUTHORIZED: 2 },
@@ -305,7 +311,7 @@ async function main() {
         verifyLifetime: async (_, p) => { if (verificationError) throw verificationError; return JSON.parse(p); }
       } }
     }, serviceGlobals);
-    return { defaultsReset: () => defaultsReset, service: MembershipService.instance, state: stateModule.MembershipState.current,
+    return { defaultsReset: () => defaultsReset, syncSuspended: () => syncSuspended, service: MembershipService.instance, state: stateModule.MembershipState.current,
       offerRequests, setPromotion: value => { promotion = value; }, setOfferError: value => { offerError = value; },
       current, unfinished, finishes, icons, lifetimeCurrent, lifetimeUnfinished, purchases, queries, productQueries,
       setProductGate: gate => { productGate = gate; }, setQueryError: e => { queryError = e; },
@@ -322,6 +328,14 @@ async function main() {
       setFinishError: e => { finishError = e; }, setPurchaseError: e => { purchaseError = e; }, purchaseCount: () => purchaseCount,
       setEmptyPurchaseList: value => { emptyPurchaseList = value; }, manageCount: () => manageCount };
   }
+  await test('Membership revocation suspends library sync without waiting on its task', async () => {
+    const s = session(); s.current.push(payload()); await s.service.refresh(context);
+    const before = s.syncSuspended();
+    s.current.length = 0;
+    await s.service.refresh(context, true);
+    assert.equal(s.state.hasAccess, false);
+    assert.ok(s.syncSuspended() > before);
+  });
   await test('Huawei promotion price and signature are used together; signing failure never charges regular price', async () => {
     const s = session();
     s.setPromotion({ offerId: 'lifetime_half_2026', localPrice: '¥98.00', microPrice: 98000000, paymentMode: 5 });
@@ -411,8 +425,13 @@ async function main() {
   });
   await test('Real icon service enforces membership and supports the invite policy', async () => {
     let enabled = '';
+    let remembered = null;
     const state = { hasAccess: false };
     const { AppIconService } = load('service/AppIconService.ets', {
+      './PreferenceService': { PreferenceService: {
+        getAppIconSelection: async () => remembered,
+        setAppIconSelection: async value => { remembered = value; }
+      } },
       '@kit.AbilityKit': { bundleManager: {
         getAlternateIcons: async () => [{ iconName: enabled, enabled: true }],
         setAlternateIcon: async name => { enabled = name; }
@@ -425,6 +444,18 @@ async function main() {
     assert.equal(await AppIconService.instance.select(''), '');
     state.hasAccess = true;
     assert.equal(await AppIconService.instance.select('lifewhite'), 'lifewhite');
+    assert.equal(remembered, 'lifewhite');
+    enabled = ''; // Cover installation resets the system icon, app data survives.
+    await AppIconService.instance.restore();
+    assert.equal(enabled, 'lifewhite');
+    await AppIconService.instance.select('', false);
+    assert.equal(remembered, 'lifewhite', 'membership reset keeps user choice');
+    state.hasAccess = false;
+    await AppIconService.instance.restore();
+    assert.equal(enabled, '', 'restoration must still require entitlement');
+    state.hasAccess = true;
+    await AppIconService.instance.restore();
+    assert.equal(enabled, 'lifewhite');
     await assert.rejects(AppIconService.instance.select('invalid'), /Invalid alternate icon/);
     state.hasAccess = false;
     Object.defineProperty(AppIconService.instance, 'membershipRequired', { get: () => false });
@@ -883,11 +914,11 @@ async function main() {
     s.current[0].lastSubscriptionStatus.status = '5'; await s.service.refresh(context, true);
     assert.equal(s.state.active, false);
   });
-  await test('Offline resets restricted settings and blocks unverified purchase', async () => {
+  await test('Offline preserves the selected icon and blocks unverified purchase', async () => {
     const s = session(); s.current.push(payload()); await s.service.load(context);
     assert.equal(s.state.active, true); const resets = s.icons.length;
     s.setQueryError({ code: 1001860005 }); await s.service.refresh(context, true);
-    assert.equal(s.state.active, false); assert.equal(s.icons.length, resets + 1);
+    assert.equal(s.state.active, false); assert.equal(s.icons.length, resets);
     await s.service.purchase(context, 'iconMonth'); assert.equal(s.purchaseCount(), 0);
   });
   await test('Cancellation does not grant or confirm a purchase', async () => {

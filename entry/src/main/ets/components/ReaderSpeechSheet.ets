@@ -1,5 +1,4 @@
-import { PlatformCompat } from '../utils/PlatformCompat';
-import { DesktopLyricButton } from './DesktopLyricButton';
+import { ReaderColorPalette } from './ReaderColorPalette';
 import { TextToSpeechState, SpeechVoice } from '../model/TextToSpeechState';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { AppColor } from '../theme/Theme';
@@ -13,11 +12,27 @@ import { SpeechSynthesisSettings } from '../model/SpeechSynthesisSettings';
 @ComponentV2
 export struct ReaderSpeechSheet {
   @Param state: TextToSpeechState = new TextToSpeechState();
-  @Event onFloatingOpen: () => void = () => {};
+  @Param embedded: boolean = false;
+  @BuilderParam extraContent: () => void = this.emptyContent;
+
+  @Builder
+  emptyContent(): void {}
   @Param speechMark: string = 'color';
+  @Param speechMarkColor: string = '';
+  @Param speechDefaultColor: string = '#A33245';
+  @Local speechColorPreview: string = '';
+  @Local speechColorRevision: number = 0;
+  @Event onSpeechMarkColorChange: (color: string) => void = () => {};
+
+  @Monitor('speechMarkColor')
+  resetSpeechColor(): void {
+    this.speechColorPreview = '';
+    this.speechColorRevision++;
+  }
   @Event onSpeechMarkChange: (value: string) => void = () => {};
   @Param voiceOnly: boolean = false;
   @Param showReadingMode: boolean = false;
+  @Param readingOnly: boolean = false;
   @Param speechFollowPage: boolean = true;
   @Event onFollowPageChange: (follow: boolean) => void = (): void => {};
   @Event onClose: () => void = (): void => {};
@@ -25,7 +40,7 @@ export struct ReaderSpeechSheet {
   @Local showPaste: boolean = false;
   @Local importText: string = '';
   @Local importMessage: ResourceStr = '';
-  @Local showSynthesis: boolean = false;
+  @Local showSynthesis: boolean = true;
   private service: TextToSpeechService = TextToSpeechService.getInstance();
 
   private async pickTts(): Promise<void> {
@@ -77,20 +92,27 @@ export struct ReaderSpeechSheet {
   build() {
     Scroll() {
       Column({ space: 18 }) {
+        this.extraContent()
+        if (!this.embedded) {
         Row() {
-          Text(this.voiceOnly ? $r('app.string.player_source_voice_label') : $r('app.string.tts_settings_title'))
+          Text(this.readingOnly ? $r('app.string.reader_speech_display') :
+            this.voiceOnly ? $r('app.string.player_source_voice_label') : $r('app.string.tts_settings_title'))
             .fontColor($r('sys.color.font_primary')).fontSize(22).fontWeight(FontWeight.Bold).layoutWeight(1)
           Button($r('app.string.tts_close')).onClick((): void => this.onClose())
             .fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
         }.width('100%')
+        }
 
         if (this.showReadingMode) {
           Row({ space: 12 }) {
-          Button($r('app.string.reader_floating_paragraph')).fontColor(AppColor.Brand)
-            .backgroundColor($r('sys.color.comp_background_tertiary'))
-            .onClick((): void => this.onFloatingOpen()).id('reader-floating-paragraph')
-          DesktopLyricButton({ available: this.state.active, color: AppColor.Brand })
-          }.width('100%').justifyContent(FlexAlign.Center)
+            Column({ space: 4 }) {
+              Text($r('app.string.reader_speech_follow_page')).fontSize(16).fontColor($r('sys.color.font_primary'))
+              Text($r('app.string.reader_speech_follow_page_hint')).fontSize(12)
+                .fontColor($r('sys.color.font_secondary'))
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            Toggle({ type: ToggleType.Switch, isOn: this.speechFollowPage }).selectedColor(AppColor.Brand)
+              .onChange((value: boolean): void => this.onFollowPageChange(value)).id('reader-speech-follow-page')
+          }.width('100%')
           Text($r('app.string.reader_speech_mark')).fontColor($r('sys.color.font_primary')).fontSize(16)
           Row({ space: 6 }) {
             ForEach(['color', 'highlight', 'underline'], (mark: string) => {
@@ -103,30 +125,27 @@ export struct ReaderSpeechSheet {
                 .onClick((): void => this.onSpeechMarkChange(mark))
             }, (mark: string): string => mark)
           }.width('100%')
-          Row({ space: 12 }) {
-            Column({ space: 4 }) {
-              Text($r('app.string.reader_speech_follow_page')).fontSize(16).fontColor($r('sys.color.font_primary'))
-              Text($r('app.string.reader_speech_follow_page_hint')).fontSize(12)
-                .fontColor($r('sys.color.font_secondary'))
-            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-            Toggle({ type: ToggleType.Switch, isOn: this.speechFollowPage }).selectedColor(AppColor.Brand)
-              .onChange((value: boolean): void => this.onFollowPageChange(value)).id('reader-speech-follow-page')
-          }.width('100%')
-        }
-        if (!this.voiceOnly) {
-          Row() {
-            Text($r('app.string.player_volume_boost')).fontColor($r('sys.color.font_primary')).layoutWeight(1)
-            Text(`+${this.state.loudnessGain} dB`).fontColor(AppColor.Brand)
-          }.width('100%')
-          Slider({ value: this.state.loudnessGain, min: 0, max: 24, step: 1 })
-            .width('100%').selectedColor(AppColor.Brand).enabled(PlatformCompat.supports(21) && !this.state.loudnessBusy)
-            .onChange((value: number, mode: SliderChangeMode): void => {
-              if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) this.service.setLoudnessGain(Math.round(value));
-            }).id('tts-volume-boost')
-          if (!PlatformCompat.supports(21)) {
-            Text($r('app.string.tts_volume_boost_unsupported')).fontSize(12).fontColor($r('sys.color.font_secondary'))
+          if (this.speechMark === 'color') {
+            Row({ space: 8 }) {
+              Text($r('app.string.reader_speech_color')).fontSize(16)
+                .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+              Button($r('app.string.reader_dialogue_color_auto')).fontColor(AppColor.Brand)
+                .backgroundColor(Color.Transparent)
+                .onClick((): void => {
+                  this.speechColorPreview = '';
+                  this.speechColorRevision++;
+                  this.onSpeechMarkColorChange('');
+                })
+            }.width('100%')
+            ReaderColorPalette({ color: this.speechColorPreview || this.speechMarkColor || this.speechDefaultColor,
+              resetRevision: this.speechColorRevision,
+              onChange: (color: string, commit: boolean): void => {
+                this.speechColorPreview = color;
+                if (commit) this.onSpeechMarkColorChange(color);
+              } }).id('reader-speech-color')
           }
         }
+        if (!this.readingOnly) {
         if (this.state.error) {
           Text(this.state.error).fontColor($r('sys.color.font_secondary')).fontSize(14).width('100%')
         }
@@ -136,11 +155,12 @@ export struct ReaderSpeechSheet {
           ReaderTtsTabs({ configs: this.voiceOnly ?
             this.state.customTtsConfigs.filter((config: CustomTtsConfig): boolean => config.enabled) : this.state.customTtsConfigs,
             selectedId: this.state.customTtsId, management: !this.voiceOnly,
+            busy: this.importing || this.state.downloadingVoice.length > 0,
             onEnabledChange: (config: CustomTtsConfig, enabled: boolean): void => { this.setTtsEnabled(config, enabled); },
             onSelect: (config: CustomTtsConfig): void => { this.service.selectCustomTts(config.id); },
             onDelete: (config: CustomTtsConfig): void => { this.deleteTts(config); } })
             .constraintSize({ maxWidth: '72%' })
-            .enabled(!this.importing && !this.state.downloadingVoice).id('tts-custom-select')
+            .id('tts-custom-select')
         }.width('100%')
         if (!this.voiceOnly) {
         Row({ space: 8 }) {
@@ -205,6 +225,7 @@ export struct ReaderSpeechSheet {
         if (this.showSynthesis) {
           SpeechSynthesisSettingsPanel({ settings: this.state.synthesis,
             onSave: (value: SpeechSynthesisSettings): Promise<void> => this.service.setSynthesisSettings(value) })
+        }
         }
       }.width('100%').padding({ left: 20, right: 20, top: 12, bottom: 32 })
         .alignItems(HorizontalAlign.Start)

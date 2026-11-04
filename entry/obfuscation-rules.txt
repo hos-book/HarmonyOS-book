@@ -49,3 +49,18 @@ cardLabel
 progressLabel
 actionLabel
 formImages
+# Cross-device sync JSON must remain readable between releases and devices.
+kind
+value
+ownerKey
+deviceId
+revision
+records
+baseline
+applying
+clock
+changedAt
+writer
+cloudFile
+cloudRevision
+lastSyncedAt

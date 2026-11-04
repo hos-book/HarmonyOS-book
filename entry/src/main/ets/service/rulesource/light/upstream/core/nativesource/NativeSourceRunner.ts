@@ -728,7 +728,7 @@ export class NativeSourceRunner {
     return record;
   }
 
-  async toc(book: NativeBookInput, limit: number = 0): Promise<NativeChapterRecord[]> {
+  async toc(book: NativeBookInput, limit: number = 0, requireComplete: boolean = false): Promise<NativeChapterRecord[]> {
     const stage = this.scripted(this.requireStage(this.definition.toc, '目录'), CHAPTER_FIELD_NAMES);
     const chapters: NativeChapterRecord[] = [];
     const visited: Set<string> = new Set();
@@ -745,11 +745,17 @@ export class NativeSourceRunner {
       visited.add(loaded.baseUrl);
       const full = await this.appendTocPage(stage, loaded, chapters, limit, pacer);
       if (this.cancelled()) return [];
-      if (full) break;
+      if (full) {
+        if (requireComplete) throw new Error('目录超过章节数量限制，已保留原书源');
+        break;
+      }
       // 脚本阶段自己处理翻页。
       if (!stage.nextUrl || stage.script) break;
       const pending = (await this.nextUrls(stage.nextUrl, loaded, 'toc.nextUrl')).filter((url: string): boolean => !visited.has(url));
       if (pending.length === 0) break;
+      if (requireComplete && pending.length > MAX_TOC_PAGES - page) {
+        throw new Error('目录超过分页限制，已保留原书源');
+      }
       if (pending.length === 1) {
         nextUrl = pending[0];
         visited.add(nextUrl);
@@ -766,7 +772,10 @@ export class NativeSourceRunner {
         for (const listedPage of pages) {
           const listedFull = await this.appendTocPage(stage, listedPage, chapters, limit, pacer);
           if (this.cancelled()) return [];
-          if (listedFull) return stage.reverse === true ? chapters.reverse() : chapters;
+          if (listedFull) {
+            if (requireComplete) throw new Error('目录超过章节数量限制，已保留原书源');
+            return stage.reverse === true ? chapters.reverse() : chapters;
+          }
         }
       }
       break;
@@ -1100,7 +1109,29 @@ export class NativeSourceRunner {
   }
 
   private inlineKey(book: NativeBookInput, chapter: NativeChapterInput): string {
-    return this.host.digest('SHA256', JSON.stringify([this.definition, this.storedVars, this.credential, book, chapter]));
+    // 点击时新建的运行器读的是保存后的变量，这里按同样的解析结果算：默认值补齐、数字存成文本、
+    // 键的先后顺序都不该让刚生成的入口失效。
+    const saved = this.savedVars();
+    const vars = Object.assign(saved, NativeSourceRunner.resolveVars(this.definition, saved));
+    // 宿主把阅读进度也保存在 book.vars；正文显示、翻页和朗读会更新它们，不能使评论入口失效。
+    // 仅排除明确的进度字段，书源 keep 的业务变量仍参与校验，并保持传给规则的 book 不变。
+    const bookVars: Record<string, NativeValue> = Object.assign({}, book.vars);
+    for (const name of ['readStarted', 'lastReadTime', 'readProgressChapterIndex', 'readProgressPageCount',
+      'readProgressCharOffsetV2', 'readProgressCharOffsetChapterV2', 'readProgressScrollAnchorV1', 'lastReadPageText', 'lastReadPageImage',
+      'ttsReadChapterIndex', 'ttsReadOffsetStart', 'ttsReadOffsetEnd']) delete bookVars[name];
+    const bookIdentity = { bookUrl: book.bookUrl, tocUrl: book.tocUrl, name: book.name, author: book.author,
+      kind: book.kind, type: book.type, vars: NativeSourceRunner.sortedKeys(bookVars) };
+    return this.host.digest('SHA256',
+      JSON.stringify([this.definition, NativeSourceRunner.sortedKeys(vars), this.credential, bookIdentity, chapter]));
+  }
+
+  /** 对象键按固定顺序重建，数组顺序和值类型不变。 */
+  private static sortedKeys(value: NativeValue): NativeValue {
+    if (Array.isArray(value)) return value.map((item: NativeValue): NativeValue => NativeSourceRunner.sortedKeys(item));
+    if (!value || typeof value !== 'object') return value;
+    const result: Record<string, NativeValue> = {};
+    for (const key of Object.keys(value).sort()) result[key] = NativeSourceRunner.sortedKeys(value[key]);
+    return result;
   }
 
   /** Cache contains only bounded chapter context. HTML and page.fetch are always evaluated on a click. */
@@ -1431,7 +1462,7 @@ export class NativeSourceRunner {
     for (const name of Object.keys(this.definition.cache || {}).concat(Object.keys(this.definition.let || {}))) {
       ctx[name] = scope.get(name);
     }
-    ctx['vars'] = Object.assign({}, this.storedVars, this.varValues);
+    ctx['vars'] = this.savedVars();
     ctx['url'] = scope.has('__url') ? NativeExpr.toText(scope.get('__url')) : '';
     ctx['title'] = scope.has('__title') ? NativeExpr.toText(scope.get('__title')) : '';
     ctx['menu'] = scope.has('__menuItem') ? scope.get('__menuItem') : null;
@@ -1460,7 +1491,12 @@ export class NativeSourceRunner {
       this.varValues[key] = value === null || value === undefined ? '' : NativeExpr.toText(value);
     }
     if (!this.host.saveVars) throw new Error('当前环境不支持保存书源变量');
-    await this.host.saveVars(Object.assign({}, this.storedVars, this.varValues));
+    await this.host.saveVars(this.savedVars());
+  }
+
+  /** 交给宿主保存的变量：脚本写入的键保持原值，声明变量取当前文本值。 */
+  private savedVars(): Record<string, NativeValue> {
+    return Object.assign({}, this.storedVars, this.varValues);
   }
 
   private async saveCredential(token: string, user: string): Promise<void> {

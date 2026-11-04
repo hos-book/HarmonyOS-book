@@ -146,18 +146,25 @@ bottomReader.topSafeVp = 30;
 assert.equal(bottomReader.readerTopInsetVp(), 30, 'always-visible status bar uses its measured height');
 const keyReader = Object.create(ReaderPage.prototype);
 Object.assign(keyReader, { volumeKeyPageTurn: false, readerVisible: true, readingForeground: true, leaving: false, loading: false,
+  volumeKeys: new ReaderVolumeKeyService(), smartKeys: { setEnabled() {} },
   autoPage: new ReaderAutoPageService(), autoPageRunning: false,
   readerError: '', keyTurnRequest: 0, screenOn: { touch() {} }, isOnlineTextBook: () => true });
 assert.equal(keyReader.canUseVolumeKeys(), false);
 keyReader.volumeKeyPageTurn = true;
-for (const visible of [true, false]) {
+for (const visible of [false, true, false]) {
   keyReader.readerBarVisible = visible;
-  assert.equal(keyReader.canUseVolumeKeys(), true, 'toolbar visibility must not govern key consumption');
+  keyReader.syncVolumeKeys();
+  assert.equal(keyReader.canUseVolumeKeys(), !visible);
+  assert.equal(subscriptions.size, visible ? 0 : 2, 'toolbar releases both consumers to system volume; closing restores page turns');
+  const before = keyReader.keyTurnRequest;
   keyReader.handleVolumePageTurn(true);
-  assert.ok(keyReader.keyTurnRequest > 0);
+  if (visible) assert.equal(keyReader.keyTurnRequest, before, 'late callbacks cannot turn with toolbar open');
+  else assert.ok(keyReader.keyTurnRequest > 0);
   keyReader.handleVolumePageTurn(false);
-  assert.ok(keyReader.keyTurnRequest < 0);
+  if (visible) assert.equal(keyReader.keyTurnRequest, before);
+  else assert.ok(keyReader.keyTurnRequest < 0);
 }
+keyReader.volumeKeys.dispose();
 for (const field of ['showSettingsSheet', 'showChapterSheet', 'showSpeechSheet', 'showSourceSwitch',
   'showBookmarkSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont', 'pickingBackgroundImage', 'loading', 'leaving']) {
   const request = keyReader.keyTurnRequest;

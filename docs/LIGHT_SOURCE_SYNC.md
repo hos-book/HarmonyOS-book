@@ -4,6 +4,20 @@
 
 ## 固定版本与维护边界
 
+### 公共包更新（2026-11-04）
+
+按本轮查询的轻页应用 `b312651f7e07ed4c5fdb04e6955777663f9e87f2` 成套同步：书源内核为 `6ca2b6e3f649c3d2dfc8451bc23e9868140e5a33`，AI 子模块为 `010dde13eefbef46ebb2982163021923ccf635b0`。两个子模块均与各自上游 HEAD 一致。应用归档下载超时后，使用本机 Git 对象复用与 GitHub blob 增量取数，在项目外临时目录还原并验证两个完整 Git tree，再由 `sync-light-source.cjs` 生成和 `--check` 校验 96 个文件；临时源码已清理。
+
+吸收正文 CRLF 归一化、评论上下文指纹修复、独立章节更新确认字段，以及搜索媒体类型过滤、换源取消和完整目录校验的公共接口。新增可选换源参数与时间字段的页面/持久化接入仍属于宿主功能，不把公共接口同步等同于简听新增功能。现有有界脚本、图片保护、缓存预算及无痕会话补丁保留，不新增段评页面。AI HAR 新增透明像素检测，含透明像素的图片保留原图，超分缓存升级为 v10。
+
+验证：96 文件同步检查、`test-light-source-engine.cjs`、`test-image-scripts.cjs`、`test-source-file-import.cjs`、`test-comic-super-resolution.cjs` 均通过；AI 上游完整检查及宿主包回归通过。AI 准备脚本改用 GitHub CLI 下载并继续逐 blob 校验，完整检查限时从 180 秒调整为 600 秒，避免新分块回归在本机超时。
+
+Release SDK 26.0.0.105 构建 AI release HAR 与主应用 debug HAP 成功，产物核验 Release 渠道、最低 API 20 / 目标 API 26，HAP 双架构 AI 原生库与新 HAR 散列一致。MCP 构建受本机 ohpm 批处理递归故障影响，使用 Release IDE Node/Hvigor 直接入口和进程级 `HVIGOR_USER_HOME` 完成。安装工具及直接 HDC 均返回 `Bind tartget session is dead`，本轮未成功覆盖安装，未完成真实书源搜索→详情→阅读/播放、下载/导出和 AI 画质实机回归。
+
+随后按用户要求安装实机：重启本机 HDC 服务后，手机 `62T0225B13006276` 恢复连接，`install -r` 返回 `install bundle successfully`，启动 `EntryAbility` 返回 `start ability successfully`。覆盖安装保留应用数据；上述完整功能与画质回归仍未执行。
+
+本轮已读取在线 [ArkTS 语法及规则](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkUI 指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)、[编译检查](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md) 和 [Hvigor 构建](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)。当前 README 获取成功，目录 API 返回 HTTP 429，因此不宣称完成目录树发现。
+
 ### 公共包更新（2026-11-01）
 
 公共书源内核更新到 `06f6491426c84fd0bab318d7822abfbf855889a7`，应用辅助代码更新到 `351a535226f2123bc5311722306adf5dea0bd3ab`，与本次查询的轻页最新应用及其书源子模块一致。AI 子模块仍为 `8fa0a428ee1643b0e89948a0713b54c78cbde062`，本地 HAR 的版本与哈希校验通过，无需重建。
