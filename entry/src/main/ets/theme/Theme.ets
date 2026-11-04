@@ -96,7 +96,7 @@ export class AppMaterial {
   private static appearanceKey: string = '';
 
   private static resolveStyle(fallback: uiMaterial.ImmersiveStyle): uiMaterial.ImmersiveStyle {
-    switch (AppAppearance.current.material) {
+    switch (AppAppearance.current.effectiveMaterial) {
       case 1: return uiMaterial.ImmersiveStyle.ULTRA_THIN;
       case 2: return uiMaterial.ImmersiveStyle.THIN;
       case 3: return uiMaterial.ImmersiveStyle.REGULAR;
@@ -110,7 +110,7 @@ export class AppMaterial {
     shadow: boolean, interactive: boolean, invert: boolean = false,
     fixedStyle: boolean = false): uiMaterial.Material {
     const appearanceKey: string = AppAppearance.current.themeBundleId + ':' +
-      AppAppearance.current.material.toString() + ':' + AppAppearance.current.accent;
+      AppAppearance.current.effectiveMaterial.toString() + ':' + AppAppearance.current.accent;
     if (appearanceKey !== AppMaterial.appearanceKey) {
       AppMaterial.cache.clear();
       AppMaterial.appearanceKey = appearanceKey;
@@ -124,7 +124,7 @@ export class AppMaterial {
       applyShadow: shadow,
       interactive: interactive,
       colorInvert: invert,
-      lightEffect: !fixedStyle && AppAppearance.current.material === AppAppearance.systemMaterial ?
+      lightEffect: !fixedStyle && AppAppearance.current.effectiveMaterial === AppAppearance.systemMaterial ?
         undefined : { color: lightColor }
     });
     AppMaterial.cache.set(key, material);
@@ -188,7 +188,7 @@ export class AppMaterial {
   }
 
   private static get fallbackBlur(): BlurStyle {
-    switch (AppAppearance.current.material) {
+    switch (AppAppearance.current.effectiveMaterial) {
       case 1: return BlurStyle.COMPONENT_ULTRA_THIN;
       case 2: return BlurStyle.COMPONENT_THIN;
       case 4: return BlurStyle.COMPONENT_THICK;

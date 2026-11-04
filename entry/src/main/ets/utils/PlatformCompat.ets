@@ -31,6 +31,16 @@ export class PlatformCompat {
     }
   }
 
+  /** API 26 查询的是设备算力档，不是用户在系统设置中的光感强度。 */
+  static get weakMaterialLevel(): boolean {
+    if (!PlatformCompat.supports(26)) return false;
+    try {
+      return uiMaterial.getGlobalMaterialLevel() === uiMaterial.MaterialLevel.SMOOTH;
+    } catch (_error) {
+      return false;
+    }
+  }
+
   static get floatingTabs(): boolean {
     return PlatformCompat.supports(23);
   }

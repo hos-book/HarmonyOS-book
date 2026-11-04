@@ -16,7 +16,7 @@ export class HdsCompat {
 
   static get material(): SystemMaterialParams | undefined {
     if (!PlatformCompat.floatingTabs) return undefined;
-    const followsSystem: boolean = AppAppearance.current.material === AppAppearance.systemMaterial;
+    const followsSystem: boolean = AppAppearance.current.effectiveMaterial === AppAppearance.systemMaterial;
     return {
       materialType: HdsCompat.resolveMaterialType(followsSystem),
       materialLevel: HdsCompat.materialLevel
@@ -37,7 +37,7 @@ export class HdsCompat {
   }
 
   private static get materialLevel(): hdsMaterial.MaterialLevel {
-    switch (AppAppearance.current.material) {
+    switch (AppAppearance.current.effectiveMaterial) {
       case 2: return hdsMaterial.MaterialLevel.EXQUISITE;
       case 3: return hdsMaterial.MaterialLevel.GENTLE;
       case 4: return hdsMaterial.MaterialLevel.SMOOTH;

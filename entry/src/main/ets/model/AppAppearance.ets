@@ -1,4 +1,5 @@
 import { MembershipState } from './MembershipState';
+import { PlatformCompat } from '../utils/PlatformCompat';
 
 /** App 外观偏好。阅读纸张主题独立保存，不随 App 强调色变化。 */
 @ObservedV2
@@ -17,6 +18,12 @@ export class AppAppearance {
 
   /** 2 强、3 均衡、4 弱、6 跟随系统；兼容旧超薄/超厚偏好。 */
   @Trace material: number = 3;
+
+  /** 仅解析渲染值；持久化和设置页仍保留用户选择的“跟随系统”。 */
+  get effectiveMaterial(): number {
+    const selected: number = this.material;
+    return selected === AppAppearance.systemMaterial && PlatformCompat.weakMaterialLevel ? 3 : selected;
+  }
   @Trace verticalBottomTabs: boolean = false;
   /** 空字符串表示使用默认玫瑰红。 */
   @Trace accent: string = '';
