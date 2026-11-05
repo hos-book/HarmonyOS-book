@@ -2,7 +2,8 @@ import { common } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { Book } from '../model/Book';
 import { PlayerState } from '../model/PlayerState';
-import { AudioSubtitleState, SubtitleCue, SubtitleTimeline } from '../model/AudioSubtitle';
+import { AudioSubtitleState } from '../model/AudioSubtitleState';
+import { SubtitleCue, SubtitleTimeline } from '../model/AudioSubtitle';
 import { AudioSubtitleService } from '../service/subtitle/AudioSubtitleService';
 import { AppColor } from '../theme/Theme';
 

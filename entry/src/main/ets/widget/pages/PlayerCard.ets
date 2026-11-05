@@ -182,10 +182,9 @@ struct PlayerCard {
           .backgroundColor(Color.White)
           .onClick(() => {
             if (!this.hasBook) {
-              this.openApp();
               return;
             }
-            this.postCall(this.isPlaying ? 'pause' : 'play');
+            this.postCall('toggle');
           })
           this.PlainBtn($r('sys.symbol.forward_end_fill'), 'next')
         }
@@ -248,7 +247,6 @@ struct PlayerCard {
     .height(36)
     .onClick(() => {
       if (!this.hasBook) {
-        this.openApp();
         return;
       }
       this.postCall(method);

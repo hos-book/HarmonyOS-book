@@ -3,7 +3,8 @@ import { fileIo } from '@kit.CoreFileKit';
 import { worker, MessageEvents, util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { Book, Chapter } from '../../model/Book';
-import { AudioSubtitleState, SubtitleChunk, SubtitleCue, SubtitleUnit, SubtitleSegmenter, SubtitleWorkerRequest, SubtitleWorkerResponse,
+import { AudioSubtitleState } from '../../model/AudioSubtitleState';
+import { SubtitleChunk, SubtitleCue, SubtitleUnit, SubtitleSegmenter, SubtitleWorkerRequest, SubtitleWorkerResponse,
   SUBTITLE_CHUNK_MS, SUBTITLE_MODEL_VERSION } from '../../model/AudioSubtitle';
 import { AudioService } from '../AudioService';
 import { ChapterCacheService } from '../ChapterCacheService';
@@ -40,6 +41,7 @@ export class AudioSubtitleService {
   private sequence: number = 0;
   private setup: Promise<void> = Promise.resolve();
   private host: worker.ThreadWorker | null = null;
+  private workerExit: Promise<void> = Promise.resolve();
   private watchdog: number = -1;
   private pending: number = -1;
   private positionMs: number = 0;
@@ -128,11 +130,39 @@ export class AudioSubtitleService {
     this.next = null; this.pendingNext = false; this.preparingNext = false;
     this.nextFailed = false; this.nextCheckAt = 0;
     this.context = null; this.book = null;
-    try { this.host?.terminate(); } catch (_error) {}
-    this.host = null;
+    this.retireWorker();
     this.audioPath = '';
-    if (this.ownedTemporary) SubtitleFiles.remove(this.ownedTemporary);
+    const temporary = this.ownedTemporary;
+    if (temporary) this.workerExit.then((): void => SubtitleFiles.remove(temporary));
     this.ownedTemporary = '';
+  }
+
+  /** 等待旧 native 实例真正退出后才能建立下一实例，避免连续开关叠加模型内存。 */
+  private retireWorker(): void {
+    const host = this.host;
+    if (host === null) return;
+    this.host = null;
+    this.workerExit = new Promise<void>((resolve): void => {
+      const timer = setTimeout((): void => {
+        try { host.terminate(); } catch (_error) { /* 仍等待 onexit，不能冒险创建第二个实例。 */ }
+      }, 90000);
+      host.onexit = (): void => { clearTimeout(timer); resolve(); };
+      const request = new SubtitleWorkerRequest();
+      request.shutdown = true;
+      try { host.postMessage(request); }
+      catch (_error) {
+        try { host.terminate(); } catch (_ignored) { /* 保留退出屏障。 */ }
+      }
+    });
+  }
+
+  private async waitWorkerExit(): Promise<void> {
+    let timer: number = -1;
+    try {
+      await Promise.race([this.workerExit, new Promise<void>((_resolve, reject): void => {
+        timer = setTimeout((): void => reject(new Error('subtitle_recognition_timeout')), 95000);
+      })]);
+    } finally { if (timer !== -1) clearTimeout(timer); }
   }
 
   private ensure(context: common.Context, book: Book, chapter: Chapter, durationMs: number,
@@ -161,6 +191,8 @@ export class AudioSubtitleService {
       if (!active()) return;
       let temporary = '';
       try {
+        await this.waitWorkerExit();
+        if (!active()) return;
         const entitled = await MembershipService.instance.hasCurrentEntitlement();
         if (!active()) return;
         if (!entitled) { this.revokeMembership(); return; }
@@ -212,6 +244,11 @@ export class AudioSubtitleService {
         this.audioPath = path;
         this.state.phase = 'ready';
         this.host = new worker.ThreadWorker('entry/ets/workers/AudioSubtitleWorker.ets', { name: 'AudioSubtitle' });
+        this.host.onexit = (): void => {
+          if (!active()) return;
+          this.host = null;
+          this.fail('subtitle_recognition_failed');
+        };
         this.host.onmessage = (event: MessageEvents): void => {
           if (!active()) return;
           const response: SubtitleWorkerResponse = event.data;
@@ -354,13 +391,17 @@ export class AudioSubtitleService {
     // A stuck native job must be terminated, but current cached subtitles remain usable.
     const messageHandler = this.host?.onmessage;
     const errorHandler = this.host?.onerror;
-    try {
-      this.host?.terminate();
+    const generation = this.generation;
+    this.retireWorker();
+    this.waitWorkerExit().then((): void => {
+      if (generation !== this.generation) return;
       this.host = new worker.ThreadWorker('entry/ets/workers/AudioSubtitleWorker.ets', { name: 'AudioSubtitle' });
       if (messageHandler) this.host.onmessage = messageHandler;
       if (errorHandler) this.host.onerror = errorHandler;
       this.pump();
-    } catch (_error) { this.fail('subtitle_recognition_failed'); }
+    }).catch((): void => {
+      if (generation === this.generation) this.fail('subtitle_recognition_failed');
+    });
   }
 
   private async prepareNext(): Promise<void> {

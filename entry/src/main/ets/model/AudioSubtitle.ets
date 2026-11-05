@@ -215,6 +215,7 @@ export class SubtitleSegmenter {
 }
 
 export class SubtitleWorkerRequest {
+  shutdown: boolean = false;
   requestId: number = 0;
   modelDir: string = '';
   audioPath: string = '';
@@ -232,15 +233,6 @@ export class SubtitleWorkerResponse {
   error: string = '';
   previous: SubtitleChunk | null = null;
   preview: boolean = false;
-}
-
-@ObservedV2
-export class AudioSubtitleState {
-  @Trace phase: string = 'idle';
-  @Trace percent: number = 0;
-  @Trace cues: SubtitleCue[] = [];
-  @Trace error: string = '';
-  @Trace revision: number = 0;
 }
 
 /** Media time is authoritative. Silence must not highlight the previous cue forever. */

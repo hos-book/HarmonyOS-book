@@ -9,9 +9,10 @@ const ide = process.env.DEVECO_HOME;
 if (!ide) throw new Error('Set DEVECO_HOME to the installed Release IDE');
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = path.join(__dirname, '../entry/src/main/ets');
-function load(name, imports) {
+function load(name, imports, ui = true) {
   const mod = { exports: {} };
-  const source = fs.readFileSync(path.join(root, name), 'utf8').replace(/import lazy /g, 'import ').replace(/@ObservedV2\s*/g, '').replace(/@Trace\s*/g, '');
+  let source = fs.readFileSync(path.join(root, name), 'utf8').replace(/import lazy /g, 'import ');
+  if (ui) source = source.replace(/@ObservedV2\s*/g, '').replace(/@Trace\s*/g, '');
   const code = ts.transpileModule(source, { compilerOptions: {
     module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020
   } }).outputText;
@@ -21,7 +22,9 @@ function load(name, imports) {
   }, setTimeout, clearTimeout, console, $r: id => ({ id }) });
   return mod.exports;
 }
-const model = load('model/AudioSubtitle.ets', {});
+// Worker 环境不注入、不剥离 UI 装饰器，直接验证启动期不能依赖 Trace/ObservedV2。
+const model = load('model/AudioSubtitle.ets', {}, false);
+const uiState = load('model/AudioSubtitleState.ets', { './AudioSubtitle': model });
 const desktopModel = load('model/DesktopLyric.ets', { './AudioSubtitle': model });
 const desktopSession = { desktopLyric: { visible: false }, lyrics: [],
   updateDesktopLyric(...values) { this.lyrics.push(values); } };
@@ -34,11 +37,16 @@ let preloadEnabled = false;
 let cachedDuration = 180;
 const membership = { hasAccess: true };
 let revokeMembership;
+let deferWorkerExit = false;
 class Worker {
   requests = []; stopped = false;
   constructor() { hosts.push(this); }
-  terminate() { this.stopped = true; }
-  postMessage(value) { this.requests.push(value); }
+  exit() { this.onexit?.(0); }
+  terminate() { this.stopped = true; if (!deferWorkerExit) queueMicrotask(() => this.exit()); }
+  postMessage(value) {
+    if (value.shutdown) { this.stopped = true; if (!deferWorkerExit) queueMicrotask(() => this.exit()); return; }
+    this.requests.push(value);
+  }
   respond(text = '测试字幕') {
     const request = this.requests.at(-1);
     this.onmessage({ data: { requestId: request.requestId, error: '', chunk: {
@@ -57,6 +65,7 @@ const fileIo = {
   closeSync: f => fs.closeSync(f.fd), renameSync: fs.renameSync
 };
 const { AudioSubtitleService } = load('service/subtitle/AudioSubtitleService.ets', {
+  '../../model/AudioSubtitleState': uiState,
   '../MembershipService': { MembershipService: { instance: { hasCurrentEntitlement: async () => membership.hasAccess } } },
   '../../model/MembershipState': { MembershipState: { current: membership } },
   '../membership/MembershipFeatureLease': { MembershipFeatureLease: class {
@@ -157,6 +166,20 @@ function check(name, fn) { fn(); passed++; console.log(`PASS ${name}`); }
   check('close terminates worker and ignores results', () => {
     assert.equal(second.stopped, true); assert.equal(service.state.cues.length, 0);
   });
+  service.begin(context, { ...book, id: 'rapid-toggle' }, chapter, 180000, 0); await service.setup;
+  const retiring = hosts.at(-1);
+  deferWorkerExit = true;
+  service.release();
+  const countBeforeToggle = hosts.length;
+  for (let i = 0; i < 12; i++) {
+    service.begin(context, { ...book, id: `rapid-${i}` }, chapter, 180000, 0);
+  }
+  await new Promise(resolve => setImmediate(resolve));
+  check('rapid toggles wait for actual native worker exit', () => assert.equal(hosts.length, countBeforeToggle));
+  deferWorkerExit = false;
+  retiring.exit(); await service.setup;
+  check('only latest toggle creates a replacement worker', () => assert.equal(hosts.length, countBeforeToggle + 1));
+  service.release();
   service.begin(context, book, chapter, 180000, 25000); await service.setup;
   check('reopening restores cached text', () => assert.ok(service.state.cues.some(c => c.startMs === 24000)));
   service.release();

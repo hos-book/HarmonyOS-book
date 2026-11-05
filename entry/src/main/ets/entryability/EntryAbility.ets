@@ -70,6 +70,8 @@ export default class EntryAbility extends UIAbility {
   private startupPlaybackPending: boolean = true;
   private isInForeground: boolean = false;
   private createdAt: number = Date.now();
+  private playbackBootstrap: Promise<void> | null = null;
+  private playbackBound: boolean = false;
 
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     DiagnosticLogService.init(this.context);
@@ -87,6 +89,10 @@ export default class EntryAbility extends UIAbility {
       hilog.error(DOMAIN, TAG, 'Failed to set colorMode. Cause: %{public}s', JSON.stringify(err));
     }
     WidgetUpdater.setContext(this.context);
+    WidgetPlaybackService.setInitializer(async (): Promise<void> => {
+      await PreferenceService.init(this.context);
+      await this.bootstrapAudioService();
+    });
     // 章节音频文件缓存的沙箱根目录
     ChapterCacheService.getInstance().setContext(this.context);
     ReaderCacheService.configure(this.context);
@@ -293,10 +299,21 @@ export default class EntryAbility extends UIAbility {
    *
    * 关键:无论成功失败都必须调 markReady(),否则 callee 会永久等待导致卡死。
    */
-  private async bootstrapAudioService(): Promise<void> {
+  private bootstrapAudioService(): Promise<void> {
+    if (this.playbackBootstrap !== null) return this.playbackBootstrap;
+    this.playbackBootstrap = this.restoreAudioService().finally((): void => {
+      this.playbackBootstrap = null;
+    });
+    return this.playbackBootstrap;
+  }
+
+  private async restoreAudioService(): Promise<void> {
     const state = AppStorageV2.connect(PlayerState, PLAYER_STATE_KEY, () => new PlayerState())!;
     const audioService = AudioService.getInstance();
-    audioService.bind(state, this.context);
+    if (!this.playbackBound) {
+      audioService.bind(state, this.context);
+      this.playbackBound = true;
+    }
     audioService.setForeground(this.isInForeground);
 
     try {
@@ -314,11 +331,9 @@ export default class EntryAbility extends UIAbility {
           return;
         }
 
-        // 防御:getBookById 可能因为文件损坏/过大而失败,加超时保护
-        const book = await Promise.race([
-          DataService.getBookById(this.context, last.bookId),
-          new Promise<undefined>((res) => setTimeout(() => res(undefined), 2000))
-        ]);
+        // 异步恢复不阻塞首帧；卡片命令等待真实恢复完成，不能把超时当作成功。
+        const book = await DataService.getBookById(this.context, last.bookId);
+        if (book && book.chapters.length === 0) book.chapters = await DataService.getChaptersForBook(book.id);
 
         if (!book || !book.chapters || book.chapters.length === 0) {
           return;
@@ -333,13 +348,15 @@ export default class EntryAbility extends UIAbility {
         // 独立 KV 为权威:贴回跳过头尾,纠正冷启动缓存书壳可能丢失的 skip
         // (放在赋值前,让 checkSkipOutro / skipIntro 首次起播就用到正确值)
         await PreferenceService.applySkipConfig(book);
+        const progress = await PreferenceService.getProgress(last.bookId);
+        // 恢复期间用户可能已主动选书，不能用旧快照覆盖新播放。
+        if (state.currentBook && state.currentChapter) return;
         state.currentBook = book;
         state.currentChapter = chapter;
         AVSessionService.getInstance().updateMetadata(book, chapter);
         audioService.prewarmBookSource(book);
         state.progressMs = last.progressMs;
         state.durationMs = last.durationMs ?? 0;
-        const progress = await PreferenceService.getProgress(last.bookId);
         state.speed = this.normalizeSpeed(progress?.speed ?? last.speed);
         state.isPlaying = false;
       } catch (prefErr) {
@@ -415,6 +432,14 @@ export default class EntryAbility extends UIAbility {
     if (from === 'widget' && target === 'player') target = 'resume';
     if (target === 'reader' || target === 'comicReader') this.startupPlaybackPending = false;
     const bookId = params['bookId'] as string | undefined;
+    const command = params['command'];
+    if (from === 'widget' && typeof command === 'string' && (command === 'toggle' || command === 'play' || command === 'pause' ||
+      command === 'next' || command === 'prev')) {
+      this.startupPlaybackPending = false;
+      WidgetPlaybackService.execute(this.context, command).catch((error: Error): void => {
+        hilog.error(DOMAIN, TAG, 'widget route command failed: %{public}s', error.message);
+      });
+    }
     const route: WidgetRoute = { target, bookId, ts: Date.now() };
     AppStorage.setOrCreate<WidgetRoute>(KEY_WIDGET_ROUTE, route);
     emitter.emit(EVT_WIDGET_ROUTE, { data: { target, bookId: bookId ?? '', ts: route.ts } });
@@ -424,6 +449,14 @@ export default class EntryAbility extends UIAbility {
 
   private registerCallee(): void {
     try {
+      this.callee.on('toggle', (_data: rpc.MessageSequence) => {
+        DiagnosticLogService.info('widget.command', 'toggle');
+        this.startupPlaybackPending = false;
+        WidgetPlaybackService.execute(this.context, 'toggle').catch((err: Error) => {
+          hilog.error(DOMAIN, TAG, 'callee toggle failed: %{public}s', err.message);
+        });
+        return new AckParcelable();
+      });
       this.callee.on('play', (_data: rpc.MessageSequence) => {
         DiagnosticLogService.info('widget.command', 'play');
         this.startupPlaybackPending = false;
@@ -489,6 +522,7 @@ export default class EntryAbility extends UIAbility {
     this.startupPlaybackPending = false;
     try {
       this.callee.off('play');
+      this.callee.off('toggle');
       this.callee.off('pause');
       this.callee.off('next');
       this.callee.off('prev');

@@ -18,6 +18,11 @@ const KEY_SHOW_READING_STATUS: string = 'show_reading_status';
 const KEY_ALWAYS_SHOW_STATUS_BAR: string = 'always_show_status_bar';
 
 export class TextReadingSettingsService {
+  private static listeners: Set<(settings: TextReadingSettings) => void> = new Set();
+
+  static addListener(listener: (settings: TextReadingSettings) => void): void { TextReadingSettingsService.listeners.add(listener); }
+  static removeListener(listener: (settings: TextReadingSettings) => void): void { TextReadingSettingsService.listeners.delete(listener); }
+
   private static store: preferences.Preferences | null = null;
   private static initPromise: Promise<void> | null = null;
 
@@ -257,5 +262,6 @@ export class TextReadingSettingsService {
     store.putSync('font_name', settings.fontName);
     store.putSync('screen_on_minutes', TextReadingSettings.normalizeScreenOnMinutes(settings.screenOnMinutes));
     await store.flush();
+    TextReadingSettingsService.listeners.forEach((listener: (settings: TextReadingSettings) => void): void => listener(settings));
   }
 }

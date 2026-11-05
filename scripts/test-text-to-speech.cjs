@@ -47,7 +47,7 @@ const book = (id = 'book', texts = ['第一句。第二句！', '第三句。'])
 function harness(memory = new Map()) {
   let uptime = 0;
   const engines = [], spoken = [], timers = new Map(), cached = new Map(), stats = [], httpSpoken = [], httpPrepared = [], systemSpoken = [], widgets = [];
-  let id = 0, failContent = false, createDeferred = null, deviceCallback = null;
+  let id = 0, failContent = false, createDeferred = null, deviceCallback = null, httpPrepareFailure = '', httpPrepareWait = null;
   const coordinator = load('service/PlaybackCoordinator.ets');
   const session = { callbacks: null, paused: false, setSpeechCallbacks(cbs) { this.callbacks = cbs; },
     addDesktopLyricListener() {}, updateDesktopLyric() {},
@@ -83,7 +83,8 @@ function harness(memory = new Map()) {
     '../WidgetUpdater': { WidgetUpdater: { updateSpeechCard: async (book, state) => widgets.push({
       bookId: book.id, chapterIndex: state.chapterIndex, charOffset: state.charOffset,
       isPlaying: state.playing && !state.loading }) } },
-    './TextReadingProgressService': { TextReadingProgressService: { save: async () => {} } },
+    './TextReadingProgressService': { TextReadingProgressService: { save: async () => {}, get: async () => null } },
+    '../sync/LibrarySyncModel': { LibrarySyncActivity: { remoteText: new Set(), prepareResume: async () => {} } },
     '../../model/TextReading': load('model/TextReading.ets', { './ReaderTheme': load('model/ReaderTheme.ets') }),
     './SpeechPcmBuffer': { SpeechPcmBuffer },
     '../DiagnosticLogService': { DiagnosticLogService: { info() {} } },
@@ -91,7 +92,7 @@ function harness(memory = new Map()) {
     '@kit.BasicServicesKit': { systemDateTime: { TimeType: { STARTUP: 0 }, getUptime: () => uptime } },
     '../../model/CustomTtsConfig': { CustomTtsConfig },
     './CustomTtsConfigParser': { CustomTtsConfigParser },
-    './HttpTtsPlayer': { HttpTtsAudioOutput: class { async release() {} async setLoudnessGain() { return true; } }, HttpTtsPlayer: class {
+    './HttpTtsPlayer': { HttpTtsFailure: class extends Error {}, HttpTtsAudioOutput: class { seekRatio(ratio) { this.seek = ratio; return this.seekable === true; } setPlaybackSpeed(speed) { this.speed = speed; } async release() {} async setLoudnessGain() { return true; } }, HttpTtsPlayer: class {
       ready = false;
       async speakAudio(_ctx, buffer, speed, id, onStart, _output, onProgress) {
         assert(speed >= 1 && speed <= 1.5);
@@ -104,8 +105,10 @@ function harness(memory = new Map()) {
         });
       }
       prepare(config, text, speed) {
-        if (!this.preparation) this.preparation = Promise.resolve().then(() => {
+        if (!this.preparation) this.preparation = Promise.resolve().then(async () => {
+          if (httpPrepareWait) await httpPrepareWait;
           if (this.cancelled) throw new Error('cancelled');
+          if (text === httpPrepareFailure) throw new Error('prefetch failed');
           this.ready = true; httpPrepared.push({ config, text, speed, task: this });
         });
         return this.preparation;
@@ -133,7 +136,7 @@ function harness(memory = new Map()) {
     '../BackgroundTaskService': { BackgroundTaskService: { startSpeech: async () => {}, stopSpeech: async () => {}, isRunning: () => true } },
     '../PlaybackCoordinator': coordinator,
     '../PreferenceService': { PreferenceService: { isFavorite: async () => false, toggleFavorite: async () => true,
-      applyTocOrder: async () => {} } },
+      applyTocOrder: async () => {}, getPreloadChapters: async () => 1 } },
     '../StatsService': { StatsService: { addListenSeconds: async (seconds, value) => stats.push([seconds, value]) } },
     '../DataService': { DataService: { upsertCachedBook: async () => {} } },
     '../BookSourceService': { BookSourceService: { getTextChapterContent: async (value, url) => {
@@ -154,6 +157,7 @@ function harness(memory = new Map()) {
       async execute(request) { return { success: true, value: String(vm.runInNewContext(request.script, {}, { timeout: 100 })) }; }
     } }
   });
+  dependencies['./TextChapterPreloader'] = load('service/text/TextChapterPreloader.ets', dependencies);
   const { TextToSpeechService } = load('service/text/TextToSpeechService.ets', dependencies, {
     setTimeout: (callback, delay) => { const key = ++id; timers.set(key, { callback, delay }); return key; },
     clearTimeout: key => timers.delete(key), setInterval: (callback, delay) => { const key = ++id; timers.set(key, { callback, delay }); return key; },
@@ -161,10 +165,14 @@ function harness(memory = new Map()) {
   });
   const service = TextToSpeechService.getInstance();
   const context = { resourceManager: { getStringSync: key => key } };
-  return { focusFixture, service, tts, memory, spoken, systemSpoken, engines, timers, session, httpSpoken, httpPrepared, stats, widgets,
+  return { cached, HttpTtsFailure: dependencies['./HttpTtsPlayer'].HttpTtsFailure, focusFixture, service, tts, memory, spoken, systemSpoken, engines, timers, session, httpSpoken, httpPrepared, stats, widgets,
+    syncActivity: dependencies['../sync/LibrarySyncModel'].LibrarySyncActivity,
+    progress: dependencies['./TextReadingProgressService'].TextReadingProgressService,
     advance: ms => { uptime += ms; }, coordinator: coordinator.PlaybackCoordinator,
     init: () => service.initialize(context), reloadSettings: () => TextToSpeechService.reloadSettings(context),
     failContent: value => { failContent = value; },
+    failHttpPrepare: value => { httpPrepareFailure = value; },
+    deferHttpPrepare: value => { httpPrepareWait = value; },
     deferEngine: value => { createDeferred = value; }, focus: (reason = 0) => focusFixture.emit(reason === 1 ? 3 : 1),
     unplug: () => deviceCallback?.({ type: 1 }),
     async complete(type = 1, request = spoken.find(item => item.id === service.requestId)) {
@@ -180,6 +188,65 @@ async function check(name, action) {
   catch (error) { console.error(`FAIL ${name}`, error); process.exitCode = 1; }
 }
 (async () => {
+  await check('暂停朗读续听采用云端字符位置，旧暂停保存不覆盖远端，检查期间取消不出声', async () => {
+    const h = harness(); await h.init();
+    const value = book('cloud-resume', ['第一句。第二句。第三句。']);
+    await h.service.start(value, 0, 0); await settle(); h.service.pause();
+    let writes = 0;
+    h.progress.save = async () => { writes++; };
+    h.progress.get = async () => ({ resourceIndex: 0, chapterTitle: value.chapters[0].title, charOffset: 4 });
+    h.syncActivity.remoteText.add(value.id);
+    h.service.pause();
+    assert.equal(writes, 0, 'stale paused position cannot overwrite remote text');
+    await h.service.resume(); await settle();
+    assert.equal(h.service.state.charOffset, 4);
+    assert.ok(h.spoken.at(-1).text.startsWith('第二句。'));
+    h.service.pause();
+    let finish;
+    h.syncActivity.prepareResume = () => new Promise(resolve => { finish = resolve; });
+    const count = h.spoken.length;
+    const resuming = h.service.resume(); h.service.pause(); finish(); await resuming;
+    assert.equal(h.spoken.length, count);
+    assert.equal(h.service.state.playing, false);
+    h.service.stop();
+  });
+  await check('音色排序保留筛选外位置，批量启停删除和顺序跨重启保存', async () => {
+    const h = harness(); await h.init();
+    const voices = CustomTtsConfigParser.parse(JSON.stringify(['甲', '乙', '丙', '丁'].map(name =>
+      ({ name, url: 'https://tts.example?text={{text}}' }))));
+    await h.service.importCustomTts(voices);
+    const ids = voices.map(item => item.id);
+    await h.service.reorderCustomTts([ids[2], ids[0], ids[2], 'missing']);
+    assert.equal(h.service.state.customTtsConfigs.map(item => item.id).join(), [ids[2], ids[1], ids[0], ids[3]].join());
+    assert.equal(h.service.state.customTtsId, ids[3], 'sorting must not switch the active voice');
+    const restored = harness(h.memory); await restored.init();
+    assert.equal(restored.service.state.customTtsConfigs.map(item => item.id).join(), [ids[2], ids[1], ids[0], ids[3]].join());
+    await h.service.updateCustomTtsBatch([ids[1], ids[3]], false, false);
+    assert.equal(h.service.state.customTtsId, '');
+    assert.equal(h.service.state.customTtsConfigs.filter(item => item.enabled).length, 2);
+    await h.service.updateCustomTtsBatch([ids[1], ids[3]], false, true);
+    assert.ok(h.service.state.customTtsConfigs.every(item => item.enabled));
+    await h.service.selectCustomTts(ids[0]);
+    await h.service.updateCustomTtsBatch([ids[0], ids[2]], true, false);
+    assert.equal(h.service.state.customTtsId, '');
+    const deleted = harness(h.memory); await deleted.init();
+    assert.equal(deleted.service.state.customTtsConfigs.map(item => item.id).join(), [ids[1], ids[3]].join());
+  });
+  await check('音色批量保存和排序失败时不发布状态、不切换当前音色', async () => {
+    const h = harness(); await h.init();
+    const voices = CustomTtsConfigParser.parse(JSON.stringify(['甲', '乙'].map(name =>
+      ({ name, url: 'https://tts.example?text={{text}}' }))));
+    await h.service.importCustomTts(voices);
+    const before = JSON.stringify(h.service.state.customTtsConfigs);
+    h.service.store.flush = async () => { throw new Error('disk failure'); };
+    await assert.rejects(() => h.service.updateCustomTtsBatch(voices.map(item => item.id), true, false));
+    assert.equal(JSON.stringify(h.service.state.customTtsConfigs), before);
+    assert.equal(h.memory.get('customTtsCatalog'), before);
+    assert.equal(h.service.state.customTtsId, voices[1].id);
+    await assert.rejects(() => h.service.reorderCustomTts([voices[1].id, voices[0].id]));
+    assert.equal(JSON.stringify(h.service.state.customTtsConfigs), before);
+    assert.equal(h.memory.get('customTtsCatalog'), before);
+  });
   await check('朗读增幅跨服务重启保存，包括关闭', async () => {
     const first = harness(); await first.init();
     await first.service.setLoudnessGain(12);
@@ -212,6 +279,54 @@ async function check(name, action) {
     const normalized = synthesisModel.SpeechSynthesisSettings.parse('{"concurrency":999,"timeoutSeconds":0}');
     assert.equal(normalized.concurrency, 4); assert.equal(normalized.timeoutSeconds, 5);
     assert.equal(SpeechTextSegmenter.batches('Hello. World.', settings, true)[0].text, 'Hello. World.');
+  });
+  await check('渐进合成起读短句不重复，后续跨段合并且从指定位置续读', async () => {
+    const settings = new synthesisModel.SpeechSynthesisSettings();
+    settings.paragraphs = 3; settings.maxChars = 500; settings.quickStart = true;
+    const text = '第一句😀。同段第二句。\n第二段正文。\n第三段正文。\n第四段正文。';
+    const batches = SpeechTextSegmenter.batches(text, settings, true);
+    assert.equal(batches[0].text, '第一句😀。');
+    assert.equal(batches[1].text, '同段第二句。\n第二段正文。\n第三段正文。');
+    assert.equal(batches.map(s => s.text).join('').replace(/\s/g, ''), text.replace(/\s/g, ''));
+    assert.ok(batches.every((s, i) => i === 0 || s.start >= batches[i - 1].end));
+    const offset = text.indexOf('第二段');
+    const resumed = SpeechTextSegmenter.batches(text, settings, true, [offset]);
+    const start = SpeechTextSegmenter.indexAt(resumed, offset);
+    assert.equal(resumed[start].text, '第二段正文。');
+    assert.equal(resumed[start].start, offset);
+    settings.quickStart = false;
+    const system = SpeechTextSegmenter.batches(text, settings, false);
+    settings.quickStart = true;
+    assert.equal(JSON.stringify(SpeechTextSegmenter.batches(text, settings, false)), JSON.stringify(system));
+    assert.equal(synthesisModel.SpeechSynthesisSettings.parse(JSON.stringify(settings)).quickStart, true);
+  });
+  await check('渐进合成后续也保持短段，长句和表情不丢字、不重复', async () => {
+    const settings = new synthesisModel.SpeechSynthesisSettings();
+    settings.paragraphs = 3; settings.maxChars = 500; settings.quickStart = true;
+    const text = '开头。' + '后续正文😀'.repeat(100) + '。';
+    const batches = SpeechTextSegmenter.batches(text, settings, true);
+    assert.ok(batches.length > 5);
+    assert.ok(batches.every(s => s.text.length <= 64));
+    assert.equal(batches.map(s => s.text).join(''), text);
+    assert.ok(batches.every(s => !/[\uD800-\uDBFF]$/.test(s.text)));
+    settings.quickStart = false;
+    assert.ok(SpeechTextSegmenter.batches(text, settings, true).some(s => s.text.length > 64));
+  });
+  await check('首次请求先获得合成机会，600ms 后才补满有界预取，暂停取消迟到补充', async () => {
+    const h = harness(); await h.init();
+    await h.service.importCustomTts(CustomTtsConfigParser.parse('{"name":"甲","url":"https://tts.example?text={{text}}"}'));
+    let finish;
+    h.deferHttpPrepare(new Promise(resolve => { finish = resolve; }));
+    await h.service.start(book('head-start', ['第一段。\n第二段。\n第三段。\n第四段。']), 0, 0); await settle();
+    assert.equal(h.service.httpTasks.size, 1);
+    const timer = [...h.timers.values()].find(t => t.delay === 600);
+    assert.ok(timer);
+    timer.callback(); await settle();
+    assert.equal(h.service.httpTasks.size, 3);
+    h.service.pause(); finish(); await settle();
+    assert.equal(h.service.httpTasks.size, 0);
+    assert.equal(h.httpSpoken.length, 0);
+    h.service.stop();
   });
   await check('三倍速无阅读页界也预合成下一段，暂停从实际段内位置恢复', async () => {
     const h = harness(); await h.init(); h.service.setSpeed(3);
@@ -522,6 +637,47 @@ async function check(name, action) {
     h.service.seekProgress(0);
     assert.equal(h.service.state.active, false);
   });
+  await check('当前音频内前后拖动复用播放器，跨片段保留匹配的预合成', async () => {
+    const h = harness(); await h.init();
+    await h.service.importCustomTts(CustomTtsConfigParser.parse('{"name":"甲","url":"https://tts.example?text={{text}}"}'));
+    await h.service.start(book('seek-cache', ['第一句。第二句。\n第三句。第四句。\n第五句。']), 0, 0); await settle();
+    h.httpSpoken[0].onStart(); await settle();
+    const active = h.httpSpoken[0];
+    const next = h.httpPrepared.find(item => item.text === '第三句。第四句。');
+    const count = h.httpPrepared.length;
+    h.service.httpOutput.seekable = true;
+    h.service.seekProgress(20); await settle();
+    assert.equal(h.service.state.charOffset, 4);
+    h.service.seekProgress(0); await settle();
+    assert.equal(h.service.state.charOffset, 0);
+    assert.equal(h.httpPrepared.length, count);
+    assert.equal(h.httpSpoken.length, 1);
+    assert.notEqual(active.task.cancelled, true);
+    h.service.seekProgress(45); await settle();
+    assert.equal(h.httpSpoken.at(-1).task, next.task);
+    assert.equal(h.httpPrepared.length, count);
+    assert.equal(active.task.cancelled, true);
+    h.service.stop();
+  });
+  await check('加载中连续拖动采用最后位置，旧播放回调不能推进进度', async () => {
+    const h = harness(); await h.init();
+    await h.service.importCustomTts(CustomTtsConfigParser.parse('{"name":"甲","url":"https://tts.example?text={{text}}"}'));
+    await h.service.start(book('seek-loading', ['第一句。第二句。第三句。第四句。']), 0, 0); await settle();
+    const old = h.httpSpoken[0];
+    h.service.state.loading = true;
+    h.service.state.playing = false;
+    h.service.seekProgress(75);
+    h.service.seekProgress(25);
+    await settle();
+    assert.equal(h.service.state.charOffset, 4);
+    assert.equal(h.httpSpoken.at(-1).text, '第二句。第三句。第四句。');
+    old.onStart(); old.complete(); await settle();
+    assert.equal(h.service.state.charOffset, 4);
+    h.httpSpoken.at(-1).onStart();
+    assert.equal(h.service.state.playing, true);
+    assert.equal(h.service.state.loading, false);
+    h.service.stop();
+  });
   await check('停止时取消尚未创建完成的引擎，不意外出声', async () => {
     const h = harness(); await h.init(); let finish;
     h.deferEngine(new Promise(resolve => { finish = resolve; }));
@@ -550,6 +706,16 @@ async function check(name, action) {
     await h.service.start(book('other'), 0, 0); assert.equal(h.service.state.playing, false);
     assert(h.service.state.error.includes('content_error'));
     h.failContent(false); await h.service.resume(); assert.equal(h.service.state.playing, true); h.service.stop();
+  });
+  await check('缺少书籍网址时朗读复用阅读器按书籍 ID 保存的正文缓存', async () => {
+    const h = harness(); await h.init();
+    const b = book('cached-with-id'); b.bookUrl = '';
+    h.cached.set([b.sourceUrl, b.id, b.chapters[0].originSourceValue || b.chapters[0].source.value].join('|'), '离线正文。');
+    h.failContent(true);
+    await h.service.start(b, 0, 0); await settle();
+    assert.equal(h.service.state.error, '');
+    assert.equal(h.spoken[0].text, '离线正文。');
+    h.service.stop();
   });
   await check('语速切换持久化，正在播放时从当前句继续', async () => {
     const h = harness(); await h.init(); await h.service.start(book(), 0, 0); h.service.setSpeed(1.5); await settle();
@@ -802,6 +968,21 @@ async function check(name, action) {
     assert.equal(h.spoken.find(item => item.id === h.service.requestId).text, '第一句。');
     h.service.stop();
   });
+  await check('明确音色不可用暂缓请求，手动重新选择恢复尝试', async () => {
+    const h = harness(); await h.init();
+    const configs = CustomTtsConfigParser.parse('{"name":"甲","url":"https://tts.example?text={{text}}"}');
+    await h.service.importCustomTts(configs); await h.service.start(book('voice-failed', ['第一句。\n第二段。']), 0, 0); await settle();
+    const error = new h.HttpTtsFailure(); error.kind = 'voice';
+    h.httpSpoken.at(-1).fail(error); await settle();
+    const count = h.httpPrepared.length;
+    await h.service.resume(); await settle();
+    assert.equal(h.httpPrepared.length, count);
+    assert.equal(h.service.state.loading, false);
+    assert.match(h.service.state.error, /tts_error_voice/);
+    await h.service.selectCustomTts(configs[0].id); await h.service.resume(); await settle();
+    assert.ok(h.httpPrepared.length > count);
+    h.service.stop();
+  });
   await check('删除本地书清除朗读位置，停止后的迟到回调不能复活记录', async () => {
     const h = harness(); await h.init();
     const b = book();
@@ -813,6 +994,110 @@ async function check(name, action) {
     h.service.stop(); await settle();
     assert.equal(h.memory.has('position_' + b.id), false);
     assert.equal(h.memory.get('position_other'), 'keep');
+  });
+  await check('本章播放时预合成下一章开头，自然跨章与手动下一章均复用一次请求', async () => {
+    for (const manual of [false, true]) {
+      const h = harness(); await h.init();
+      await h.service.importCustomTts(CustomTtsConfigParser.parse('{"name":"甲","url":"https://tts.example?text={{text}}"}'));
+      const b = book('next-audio', ['本章末段。', '下一章开头。\n下一章后文。']);
+      await h.service.start(b, 0, 0); await settle();
+      h.httpSpoken[0].onStart(); await settle();
+      const prefetched = h.httpPrepared.find(item => item.text === '下一章开头。');
+      assert.ok(prefetched, 'next chapter synthesis starts while current audio is playing');
+      const second = h.httpPrepared.find(item => item.text === '下一章后文。');
+      assert.ok(second, 'second segment is also synthesized before crossing chapters');
+      assert.equal(h.service.state.chapterIndex, 0); assert.equal(h.httpSpoken.length, 1);
+      if (manual) await h.service.start(b, 1, 0);
+      else h.httpSpoken[0].complete();
+      await settle();
+      assert.equal(h.httpSpoken.at(-1).task, prefetched.task);
+      assert.equal(h.httpSpoken.at(-1).text, '下一章开头。');
+      assert.equal(h.httpPrepared.filter(item => item.text === '下一章开头。').length, 1);
+      assert.equal(h.service.state.loading, false);
+      assert.equal(h.service.state.chapterIndex, 1);
+      h.httpSpoken.at(-1).onStart(); h.httpSpoken.at(-1).complete(); await settle();
+      assert.equal(h.httpSpoken.at(-1).task, second.task);
+      assert.equal(h.httpPrepared.filter(item => item.text === '下一章后文。').length, 1);
+      h.service.stop();
+    }
+  });
+  await check('下一章语音未完成时切章接管同一任务，取消后迟到音频不播放', async () => {
+    const h = harness(); await h.init();
+    await h.service.importCustomTts(CustomTtsConfigParser.parse('{"name":"甲","url":"https://tts.example?text={{text}}"}'));
+    const b = book('pending-next', ['本章。', '下一章。']);
+    await h.service.start(b, 0, 0); await settle(); h.httpSpoken[0].onStart(); await settle();
+    const task = h.service.nextChapterSpeech.tasks.get(0);
+    let finish;
+    task.ready = false; task.preparation = new Promise(resolve => { finish = resolve; });
+    await h.service.start(b, 1, 0); await settle();
+    assert.equal(h.service.httpTasks.get(0), task); assert.equal(h.service.state.loading, true);
+    h.service.pause(); finish(); await settle();
+    assert.equal(task.cancelled, true);
+    assert.equal(h.service.state.playing, false);
+    assert.equal(h.service.state.loading, false);
+    h.service.stop();
+  });
+  await check('跨章预取使用空闲并发槽，读完本章停止不预合成下一章', async () => {
+    for (const stop of [false, true]) {
+      const h = harness(); await h.init(); h.service.state.synthesis.concurrency = 1;
+      h.service.state.stopAtChapterEnd = stop;
+      await h.service.importCustomTts(CustomTtsConfigParser.parse('{"name":"甲","url":"https://tts.example?text={{text}}"}'));
+      await h.service.start(book('bounded-next', ['首段。\n末段。', '下一章。']), 0, 0); await settle();
+      h.httpSpoken[0].onStart(); await settle();
+      assert.equal(h.httpPrepared.some(item => item.text === '下一章。'), false);
+      h.httpSpoken[0].complete(); await settle(); h.httpSpoken.at(-1).onStart(); await settle();
+      assert.equal(h.httpPrepared.some(item => item.text === '下一章。'), !stop);
+      h.service.stop();
+    }
+  });
+  await check('换音色、语速、暂停或跳过下一章均撤销旧跨章预合成', async () => {
+    for (const action of ['voice', 'speed', 'pause', 'skip']) {
+      const h = harness(); await h.init();
+      const configs = CustomTtsConfigParser.parse('[{"name":"甲","url":"https://tts.example?text={{text}}&speed={{speed}}"},{"name":"乙","url":"https://tts2.example?text={{text}}&speed={{speed}}"}]');
+      await h.service.importCustomTts(configs);
+      const b = book('cancel-next', ['本章。', '下一章。', '再下一章。']);
+      await h.service.start(b, 0, 0); await settle(); h.httpSpoken[0].onStart(); await settle();
+      const task = h.service.nextChapterSpeech.tasks.get(0);
+      if (action === 'voice') await h.service.selectCustomTts(configs[0].id);
+      else if (action === 'speed') h.service.setSpeed(1.5);
+      else if (action === 'skip') await h.service.start(b, 2, 0);
+      else h.service.pause();
+      await settle(); assert.equal(task.cancelled, true);
+      assert.ok(h.httpSpoken.every(item => item.task !== task));
+      h.service.stop();
+    }
+  });
+  await check('定速音色连续切倍速保留当前任务及跨章音频，不进入重新加载', async () => {
+    const h = harness(); await h.init();
+    await h.service.importCustomTts(CustomTtsConfigParser.parse('{"name":"定速","url":"https://tts.example?text={{text}}&speed=1"}'));
+    const b = book('local-speed', ['本章。', '下一章开头。\n第二段。']);
+    await h.service.start(b, 0, 0); await settle();
+    const current = h.httpSpoken[0].task;
+    h.service.setSpeed(1.5); h.service.setSpeed(2); await settle();
+    assert.notEqual(current.cancelled, true);
+    h.httpSpoken[0].onStart(); await settle();
+    const next = h.service.nextChapterSpeech.tasks.get(0);
+    const count = h.httpPrepared.length;
+    h.service.setSpeed(0.75); h.service.setSpeed(1.25); await settle();
+    assert.equal(h.httpPrepared.length, count);
+    assert.equal(h.service.state.loading, false);
+    assert.equal(h.service.httpOutput.speed, 1.25);
+    assert.notEqual(next.cancelled, true);
+    await h.service.start(b, 1, 0); await settle();
+    assert.equal(h.httpSpoken.at(-1).task, next);
+    h.service.stop();
+  });
+  await check('跨章预合成失败不打断当前章，切章后正常重试', async () => {
+    const h = harness(); await h.init();
+    await h.service.importCustomTts(CustomTtsConfigParser.parse('{"name":"甲","url":"https://tts.example?text={{text}}"}'));
+    h.failHttpPrepare('下一章。');
+    await h.service.start(book('failed-next', ['本章。', '下一章。']), 0, 0); await settle();
+    h.httpSpoken[0].onStart(); await settle();
+    assert.equal(h.service.nextChapterSpeech.tasks.size, 0);
+    assert.equal(h.service.state.playing, true); assert.equal(h.service.state.error, '');
+    h.failHttpPrepare(''); h.httpSpoken[0].complete(); await settle();
+    assert.equal(h.httpSpoken.at(-1).text, '下一章。');
+    h.service.stop();
   });
   await check('句号前已预取后续两句，切句直接使用音频且不闪加载', async () => {
     const h = harness(); await h.init();

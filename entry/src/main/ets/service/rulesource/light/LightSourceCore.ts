@@ -191,7 +191,7 @@ export class LightSourceCore {
         const menus = await coordinator.getEntries('',source.bookSourceUrl);
         const controls = coordinator.getDiscoveredFilters(source.bookSourceUrl).map(item => ({
           id:`light-filter:${item.title}`,title:item.title,type:'select',options:item.options,optionValues:item.options,
-          value:item.selected,action:`light-filter:${item.title}`}));
+          value:item.selected,action:`light-filter:${item.title}`,discoveryFilter:true}));
         if (!menus.length && coordinator.getNoticeMessage()) throw new Error(coordinator.getNoticeMessage());
         return JSON.stringify({controls,entries:menus.map(item => ({id:`${item.title}:${item.url}`,title:item.title,
           url:item.url,type:'category',group:item.groupTitle || ''}))});
@@ -204,6 +204,7 @@ export class LightSourceCore {
         id: `light-native-var:${item.key}`, title: item.label,
         type: dynamic ? 'dynamic-select' : options.length ? 'select' : item.key === 'token' ? 'password' : 'text',
         options, optionValues: options, value: item.value,
+        discoveryFilter: definition?.vars?.some(spec => spec.key === item.key && spec.filter === true) ?? false,
         placeholder: '',
         action: dynamic || options.length ? `light-native-set:${item.key}` : ''
       };});

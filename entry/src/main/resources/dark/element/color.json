@@ -1,5 +1,8 @@
 {
   "color": [
+    {"name": "splash_brand_text", "value": "#F5F7FA"},
+    {"name": "splash_brand_caption", "value": "#7C8290"},
+    {"name": "splash_progress_track", "value": "#22242C"},
     {"name":"theme_mist_background","value":"#151E26"},
     {"name":"theme_mist_surface","value":"#202D38"},
     {"name":"theme_mist_text_primary","value":"#E1EAF1"},
@@ -50,7 +53,7 @@
     { "name": "sponsor_gold", "value": "#E7B952" },
     { "name": "sponsor_gold_surface", "value": "#342C1E" },
     { "name": "sponsor_black_gold_surface", "value": "#242119" },
-    { "name": "start_window_background", "value": "#000000" },
+    { "name": "start_window_background", "value": "#0A0A0E" },
     { "name": "page_background", "value": "#1A1A1A" },
     { "name": "card_background", "value": "#2C2C2C" },
     { "name": "text_primary", "value": "#E8E8E8" },

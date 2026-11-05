@@ -6,7 +6,26 @@ const vm = require('node:vm');
 const ts = require(path.join(process.env.DEVECO_HOME, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = path.join(__dirname, '../entry/src/main/ets');
 const cache = new Map();
-const http = { RequestMethod: { GET: 'GET', POST: 'POST' }, HttpDataType: { ARRAY_BUFFER: 2 } };
+let importResponse;
+let importFailure;
+let importRequests = 0;
+let destroyedRequests = 0;
+const http = { RequestMethod: { GET: 'GET', POST: 'POST' }, HttpDataType: { ARRAY_BUFFER: 2, STRING: 0 },
+  createHttp() {
+    importRequests++;
+    return {
+      async request(url, options) {
+        assert.match(url, /^https?:\/\/voices\.example\/config\.json$/);
+        assert.equal(options.maxLimit, 1024 * 1024);
+        assert.equal(options.header['User-Agent'], 'Mozilla/5.0');
+        assert.ok(options.connectTimeout <= 15000 && options.readTimeout <= 15000);
+        if (importFailure) throw importFailure;
+        return importResponse;
+      },
+      destroy() { destroyedRequests++; }
+    };
+  }
+};
 function load(relative) {
   const file = path.resolve(root, relative);
   if (cache.has(file)) return cache.get(file);
@@ -15,6 +34,8 @@ function load(relative) {
   const module = { exports: {} };
   vm.runInNewContext(code, { module, exports: module.exports, console, require(name) {
     if (name === '@kit.NetworkKit') return { http };
+    if (name === '@kit.CoreFileKit') return { fileIo: {}, picker: {} };
+    if (name === '@kit.ArkTS') return { util: {} };
     if (name.endsWith('/LocalRuleQuickJsRuntime')) return {
       LocalRuleQuickJsRequest: class {},
       LocalRuleQuickJsRuntime: { async execute(request) {
@@ -36,6 +57,14 @@ const parse = entry => Parser.parse(JSON.stringify(entry));
   const baidu = parse({ name: '百度测试', url: '@http://tts.example/text2audio?tex={{java.encodeURI(speakText)}}&spd={{~~((speakSpeed - 10) / 2 + 5)}}&per=3', header: '' })[0];
   assert.equal(baidu.method, 'POST');
   assert.equal(baidu.url, 'http://tts.example/text2audio');
+  const grouped = parse({ ...baidu, name: '009 [Omni·定速] 晓晓', tier: 'HD' })[0];
+  assert.equal(grouped.group, 'Omni');
+  assert.equal(grouped.tier, 'hd');
+  const explicit = parse({ ...grouped, group: '我的音色' })[0];
+  assert.equal(explicit.group, '我的音色');
+  assert.equal(explicit.id, grouped.id, 'metadata changes must not duplicate a voice');
+  assert.equal(parse(explicit)[0].group, '我的音色');
+  assert.equal(parse(explicit)[0].tier, 'hd');
   const sentence = '她说："你好"。\\下一行\n&测试=$1 {{text}}';
   for (const speed of [0.5, 1, 1.5, 2]) {
     const options = await Parser.requestOptions(baidu, sentence, speed);
@@ -70,6 +99,11 @@ const parse = entry => Parser.parse(JSON.stringify(entry));
   const get = parse({ name: 'GET 桥接', url: 'http://tts.example/tts?text={{java.encodeURI(speakText)}}&voice=zf_xiaoxiao' })[0];
   const getOptions = await Parser.requestOptions(get, sentence, 1);
   assert.equal(getOptions.method, 'GET');
+  assert.equal(getOptions.header['User-Agent'], 'Mozilla/5.0');
+  const declaredUa = parse({ name: 'Declared UA', url: get.url, header: { 'user-agent': 'PersonalTts/1.0' } })[0];
+  const declaredOptions = await Parser.requestOptions(declaredUa, sentence, 1);
+  assert.equal(declaredOptions.header['user-agent'], 'PersonalTts/1.0');
+  assert.equal(declaredOptions.header['User-Agent'], undefined);
   assert.equal(getOptions.extraData, undefined);
   assert.equal(new URL(await Parser.expand(get.url, sentence, 1, false)).searchParams.get('text'), sentence);
   assert.equal(Parser.parse(JSON.stringify([kokoro]))[0].id, kokoro.id);
@@ -82,6 +116,32 @@ const parse = entry => Parser.parse(JSON.stringify(entry));
   assert.throws(() => parse({ name: 'bad', url: 'https://voice.example/{{text}}', loginCheckJs: 'doLogin()' }));
   assert.throws(() => parse({ name: 'bad', url: 'https://voice.example/{{text' }));
   assert.throws(() => Parser.parse('[]'));
+  const { CustomTtsImportService: Importer } = load('service/text/CustomTtsImportService.ets');
+  importResponse = { responseCode: 200, result: JSON.stringify([kokoro, get]) };
+  const downloaded = await Importer.fromUrl('  https://voices.example/config.json  ');
+  assert.equal(downloaded.length, 2);
+  assert.equal(downloaded[0].id, kokoro.id);
+  assert.equal((await Importer.fromUrl('http://voices.example/config.json')).length, 2);
+  const largeCatalog = Array.from({ length: 189 }, (_, i) => ({ name: `voice-${i}`, url: get.url }));
+  assert.equal(Parser.parse(JSON.stringify(largeCatalog)).length, 189);
+  assert.throws(() => Parser.parse(JSON.stringify(Array.from({ length: Parser.MAX_CONFIGS + 1 }, () => largeCatalog[0]))));
+  for (const address of ['file:///tmp/tts.json', 'javascript:alert(1)', 'https://user@voices.example/config.json', '']) {
+    await assert.rejects(() => Importer.fromUrl(address));
+  }
+  assert.equal(importRequests, 2);
+  for (const response of [
+    { responseCode: 404, result: JSON.stringify([kokoro]) },
+    { responseCode: 200, result: '<html>login</html>' },
+    { responseCode: 200, result: ' '.repeat(1024 * 1024 + 1) },
+    { responseCode: 200, result: '[]' }
+  ]) {
+    importResponse = response;
+    await assert.rejects(() => Importer.fromUrl('https://voices.example/config.json'));
+  }
+  importFailure = new Error('timeout');
+  await assert.rejects(() => Importer.fromUrl('https://voices.example/config.json'));
+  assert.equal(destroyedRequests, importRequests, 'All HTTP requests must be released, including failures');
+  console.log('PASS URL 导入、无效协议、HTTP/JSON/超限/超时失败与请求释放');
   await assert.rejects(() => Parser.expand('{{(()=>{while(true){}})()}}', 'x', 1, false));
   await assert.rejects(() => Parser.expand('{{fetch("https://example.com")}}', 'x', 1, false));
   const imported = new Map();
@@ -94,9 +154,12 @@ const parse = entry => Parser.parse(JSON.stringify(entry));
       assert.ok(options.extraData.length > 0);
       if (config.name.startsWith('度')) {
         assert.equal(new URLSearchParams(options.extraData).get('spd'), '5');
-      } else {
+      } else if (/json/i.test(options.header['Content-Type'] || '')) {
         const payload = JSON.parse(options.extraData);
         assert.equal(payload.input ?? payload.text, '你好，这是语音测试。');
+      } else {
+        const payload = new URLSearchParams(options.extraData);
+        assert.equal(payload.get('input') ?? payload.get('text') ?? payload.get('tex'), '你好，这是语音测试。');
       }
     }
     console.log(`PASS ${path.basename(file)}: ${configs.length} 个音色`);

@@ -8,6 +8,8 @@ class TtsHeaders {}
 class TtsBody {}
 class TtsImportEntry {
   name: string = '';
+  group: string = '';
+  tier: string = '';
   enabled: boolean = true;
   url: string = '';
   method: string = '';
@@ -29,7 +31,8 @@ class TtsUrlOptions {
 }
 
 export class CustomTtsConfigParser {
-  static readonly MAX_CONFIGS: number = 100;
+  static readonly DEFAULT_USER_AGENT: string = 'Mozilla/5.0';
+  static readonly MAX_CONFIGS: number = 1000;
 
   static parse(raw: string): CustomTtsConfig[] {
     if (raw.length > 1024 * 1024) throw new Error('TTS config too large');
@@ -47,6 +50,10 @@ export class CustomTtsConfigParser {
       entry.loginUrl || entry.loginUi || entry.loginCheckJs) throw new Error('Unsupported TTS config');
     const config = new CustomTtsConfig();
     config.name = entry.name.trim();
+    const prefix = config.name.match(/^\d*\s*\[([^\]·]+)(?:·[^\]]*)?\]/);
+    config.group = typeof entry.group === 'string' && entry.group.trim() ? entry.group.trim().slice(0, 64) :
+      (prefix !== null ? prefix[1].trim() : '');
+    config.tier = typeof entry.tier === 'string' ? entry.tier.trim().toLowerCase().slice(0, 32) : '';
     config.enabled = entry.enabled !== false;
     config.url = entry.url.trim();
     config.method = typeof entry.method === 'string' && entry.method.trim() ? entry.method.trim().toUpperCase() : 'GET';
@@ -178,6 +185,11 @@ export class CustomTtsConfigParser {
   static async requestOptions(config: CustomTtsConfig, text: string, speed: number): Promise<http.HttpRequestOptions> {
     const structured = /^[\s]*[\[{]/.test(config.body);
     let headers = config.header;
+    // 与书源 HTTP 请求一样提供兼容的默认客户端标识；用户声明的 UA 优先。
+    if (!/"user-agent"\s*:/i.test(headers)) {
+      headers = CustomTtsConfigParser.mergeHeaders(headers,
+        `{"User-Agent":${JSON.stringify(CustomTtsConfigParser.DEFAULT_USER_AGENT)}}`);
+    }
     if (!/"content-type"\s*:/i.test(headers) && config.method === 'POST') {
       headers = CustomTtsConfigParser.mergeHeaders(headers, structured ? '{"Content-Type":"application/json; charset=utf-8"}' :
         '{"Content-Type":"application/x-www-form-urlencoded; charset=utf-8"}');

@@ -2,6 +2,8 @@
 export class CustomTtsConfig {
   id: string = '';
   name: string = '';
+  group: string = '';
+  tier: string = '';
   enabled: boolean = true;
   url: string = '';
   method: string = 'GET';

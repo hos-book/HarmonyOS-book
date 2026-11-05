@@ -1,0 +1,6 @@
+{
+  "layered-image": {
+    "background": "$media:app_icon_nostalgia_background",
+    "foreground": "$media:app_icon_nostalgia_foreground"
+  }
+}

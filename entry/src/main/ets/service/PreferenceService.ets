@@ -10,7 +10,7 @@ import { Book, Chapter } from '../model/Book';
 import { AppAppearance } from '../model/AppAppearance';
 import { AppThemeSelection } from '../model/AppThemeBundle';
 import { ThemeBundles } from '../theme/ThemeBundles';
-import { LibrarySyncValue, LibrarySyncModel, LIBRARY_SYNC_CHANGED } from './sync/LibrarySyncModel';
+import { LibrarySyncValue, LibrarySyncModel, LibrarySyncHistory, LIBRARY_SYNC_CHANGED } from './sync/LibrarySyncModel';
 
 /** 书架收藏变化事件：加入、移出或最近阅听顺序变化后触发。 */
 export const EVT_FAVORITES_CHANGED = 'app.favorites.changed';
@@ -516,6 +516,7 @@ export class PreferenceService {
 
   private static notifyHistoryChanged(): void {
     PreferenceService.historyListener?.();
+    emitter.emit(LIBRARY_SYNC_CHANGED);
   }
 
   static async init(context: common.BaseContext): Promise<void> {
@@ -1795,6 +1796,18 @@ export class PreferenceService {
     for (const edit of BookPresentation.edits) {
       if (LibrarySyncValue.online(edit.bookId) && edit.group) values.push(new LibrarySyncValue('group', edit.bookId, edit.group));
     }
+    const historyRaw = store.getSync(KEY_HISTORY, '[]');
+    const history: PlayHistoryItem[] = JSON.parse(typeof historyRaw === 'string' ? historyRaw : '[]');
+    for (const item of history) {
+      if (!item || !LibrarySyncValue.online(item.bookId)) continue;
+      const record = new LibrarySyncHistory();
+      record.bookId = item.bookId; record.chapterId = item.chapterId;
+      record.progressMs = item.progressMs; record.updatedAt = item.updatedAt;
+      record.chapterTitle = item.chapterTitle; record.durationMs = item.durationMs;
+      record.sourceUrl = item.sourceUrl; record.bookUrl = item.bookUrl;
+      const raw = JSON.stringify(record);
+      if (LibrarySyncModel.validHistory(record.bookId, raw)) values.push(new LibrarySyncValue('history', record.bookId, raw));
+    }
     for (const key of Object.keys(store.getAllSync())) {
       if (!key.startsWith(KEY_PROGRESS_PREFIX)) continue;
       const id = key.substring(KEY_PROGRESS_PREFIX.length);
@@ -1824,6 +1837,9 @@ export class PreferenceService {
     const edits: BookPresentationEdit[] = JSON.parse(JSON.stringify(BookPresentation.edits));
     const applied: LibrarySyncValue[] = [];
     let shelfChanged = false;
+    const historyRaw = store.getSync(KEY_HISTORY, '[]');
+    let history: PlayHistoryItem[] = JSON.parse(typeof historyRaw === 'string' ? historyRaw : '[]');
+    let historyChanged = false;
     for (const record of records) {
       const key = LibrarySyncValue.key(record);
       if ((current.get(key) ?? '') !== (baseline.get(key) ?? '') || !LibrarySyncValue.online(record.bookId)) continue;
@@ -1840,6 +1856,14 @@ export class PreferenceService {
         if (!edit) { edit = new BookPresentationEdit(); edit.bookId = record.bookId; edits.push(edit); }
         edit.group = record.value;
         shelfChanged = true;
+      } else if (record.kind === 'history') {
+        if (record.value && !LibrarySyncModel.validHistory(record.bookId, record.value)) continue;
+        history = history.filter((item: PlayHistoryItem): boolean => item.bookId !== record.bookId);
+        if (record.value) {
+          const item: PlayHistoryItem = JSON.parse(record.value);
+          history.push(item);
+        }
+        historyChanged = true;
       } else if (record.kind === 'play') {
         if (record.value) {
           if (!LibrarySyncModel.validProgress('play', record.bookId, record.value)) continue;
@@ -1872,7 +1896,16 @@ export class PreferenceService {
         .filter((name: string): boolean => !!name);
       store.putSync('shelf_groups_v1', JSON.stringify(BookPresentation.groups));
     }
+    if (historyChanged) {
+      const localHistory = history.filter((item: PlayHistoryItem): boolean => !LibrarySyncValue.online(item.bookId));
+      const onlineHistory = history.filter((item: PlayHistoryItem): boolean => LibrarySyncValue.online(item.bookId))
+        .sort((a: PlayHistoryItem, b: PlayHistoryItem): number => b.updatedAt - a.updatedAt || a.bookId.localeCompare(b.bookId))
+        .slice(0, Math.max(0, 50 - localHistory.length));
+      store.putSync(KEY_HISTORY, JSON.stringify(localHistory.concat(onlineHistory)
+        .sort((a: PlayHistoryItem, b: PlayHistoryItem): number => b.updatedAt - a.updatedAt || a.bookId.localeCompare(b.bookId))));
+    }
     if (applied.length > 0) await store.flush();
+    if (historyChanged) PreferenceService.notifyHistoryChanged();
     if (shelfChanged) { PreferenceService.notifyFavoriteChanged(); emitter.emit(EVT_FAVORITES_CHANGED); }
     return applied;
   }

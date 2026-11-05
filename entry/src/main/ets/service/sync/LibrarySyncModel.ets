@@ -1,4 +1,5 @@
 import { Book } from '../../model/Book';
+import { ReadingSession, SessionLocation } from '../../model/ReadingSession';
 
 export const LIBRARY_SYNC_CHANGED: string = 'app.library.sync.changed';
 export const LIBRARY_SYNC_MAX_BYTES: number = 8 * 1024 * 1024;
@@ -8,6 +9,7 @@ export class LibrarySyncValue {
   kind: string = '';
   bookId: string = '';
   value: string = '';
+  entryId: string = '';
 
   constructor(kind: string = '', bookId: string = '', value: string = '') {
     this.kind = kind;
@@ -15,7 +17,9 @@ export class LibrarySyncValue {
     this.value = value;
   }
 
-  static key(item: LibrarySyncValue): string { return `${item.kind}:${item.bookId}`; }
+  static key(item: LibrarySyncValue): string {
+    return `${item.kind}:${item.bookId}${item.kind === 'session' ? ':' + item.entryId : ''}`;
+  }
 
   static online(id: string): boolean {
     return typeof id === 'string' && id.length > 0 && id.length <= 8192 && !id.startsWith('import_');
@@ -105,6 +109,8 @@ export class LibrarySyncEnvelope {
   deviceId: string = '';
   revision: number = 0;
   records: LibrarySyncRecord[] = [];
+  // 旧客户端忽略扩展字段，仍能读取书架/进度；新客户端合并历史，不破坏 v1 兼容性。
+  historyRecords?: LibrarySyncRecord[];
 }
 
 export class LibrarySyncState extends LibrarySyncEnvelope {
@@ -114,6 +120,7 @@ export class LibrarySyncState extends LibrarySyncEnvelope {
   cloudFile: string = '';
   cloudRevision: number = -1;
   lastSyncedAt: number = 0;
+  confirmedCloudFile: string = '';
 }
 
 /** 可重复、与输入顺序无关的逐字段 LWW 合并；空值是永久保留的删除标记。 */
@@ -135,6 +142,7 @@ export class LibrarySyncModel {
       if (!source) return;
       if (initial && records.has(key)) return;
       const record = new LibrarySyncRecord(source.kind, source.bookId, value?.value ?? '');
+      record.entryId = source.entryId ?? '';
       // 初次接入的历史数据不能盖过其他设备已产生的编辑或删除。
       record.changedAt = initial ? 1 : Math.max(Date.now(), state.clock + 1);
       record.writer = state.deviceId;
@@ -183,7 +191,11 @@ export class LibrarySyncModel {
     const baseline = new Map<string, LibrarySyncValue>();
     state.baseline.forEach((v: LibrarySyncValue): void => { baseline.set(LibrarySyncValue.key(v), v); });
     applied.forEach((v: LibrarySyncValue): void => {
-      if (v.value) baseline.set(LibrarySyncValue.key(v), new LibrarySyncValue(v.kind, v.bookId, v.value));
+      if (v.value) {
+        const item = new LibrarySyncValue(v.kind, v.bookId, v.value);
+        item.entryId = v.entryId ?? '';
+        baseline.set(LibrarySyncValue.key(v), item);
+      }
       else baseline.delete(LibrarySyncValue.key(v));
     });
     state.baseline = Array.from(baseline.values()).sort(LibrarySyncModel.order);
@@ -194,7 +206,8 @@ export class LibrarySyncModel {
     envelope.ownerKey = state.ownerKey;
     envelope.deviceId = state.deviceId;
     envelope.revision = state.revision;
-    envelope.records = state.records;
+    envelope.records = state.records.filter((v: LibrarySyncRecord): boolean => v.kind !== 'history' && v.kind !== 'session');
+    envelope.historyRecords = state.records.filter((v: LibrarySyncRecord): boolean => v.kind === 'history' || v.kind === 'session');
     return JSON.stringify(envelope);
   }
 
@@ -205,6 +218,14 @@ export class LibrarySyncModel {
       typeof value.deviceId !== 'string' || !/^[0-9a-f-]{36}$/.test(value.deviceId) ||
       !Number.isSafeInteger(value.revision) || value.revision < 0 ||
       !Array.isArray(value.records) || value.records.length > 20000) throw new Error('Invalid sync file');
+    if (value.historyRecords !== undefined) {
+      if (!Array.isArray(value.historyRecords) || value.historyRecords.length + value.records.length > 20000 ||
+        value.historyRecords.some((v: LibrarySyncRecord): boolean => !v || (v.kind !== 'history' && v.kind !== 'session'))) {
+        throw new Error('Invalid sync history');
+      }
+      value.records = value.records.concat(value.historyRecords);
+      value.historyRecords = undefined;
+    }
     const keys = new Set<string>();
     for (const record of value.records) {
       if (!LibrarySyncModel.validRecord(record) || keys.has(LibrarySyncValue.key(record))) {
@@ -217,12 +238,16 @@ export class LibrarySyncModel {
 
   static validRecord(record: LibrarySyncRecord): boolean {
     if (!record || !LibrarySyncValue.online(record.bookId) ||
-      !['shelf', 'pin', 'group', 'book', 'play', 'text'].includes(record.kind) ||
+      !['shelf', 'pin', 'group', 'book', 'play', 'text', 'history', 'session'].includes(record.kind) ||
       typeof record.value !== 'string' || record.value.length > 64 * 1024 ||
       !Number.isSafeInteger(record.changedAt) || record.changedAt < 1 ||
       record.changedAt > Date.now() + 24 * 60 * 60 * 1000 ||
       typeof record.writer !== 'string' || !/^[0-9a-f-]{36}$/.test(record.writer)) return false;
+    if (record.kind === 'session' && (typeof record.entryId !== 'string' ||
+      !/^[0-9]+_[0-9a-f-]+$/.test(record.entryId) || record.entryId.length > 100)) return false;
     if (!record.value) return true;
+    if (record.kind === 'history') return LibrarySyncModel.validHistory(record.bookId, record.value);
+    if (record.kind === 'session') return LibrarySyncModel.validSession(record.bookId, record.entryId, record.value);
     if (record.kind === 'shelf' || record.kind === 'pin') return record.value === '1';
     if (record.kind === 'group') return record.value.length <= 256;
     if (record.kind === 'book') {
@@ -248,6 +273,48 @@ export class LibrarySyncModel {
         (p.bookUrl === undefined || (typeof p.bookUrl === 'string' && p.bookUrl.length <= 16384));
     } catch (_error) { return false; }
   }
+
+  static validHistory(bookId: string, raw: string): boolean {
+    try {
+      const p: LibrarySyncHistory = JSON.parse(raw);
+      return !!p && p.bookId === bookId && typeof p.chapterId === 'string' && p.chapterId.length <= 8192 &&
+        Number.isFinite(p.progressMs) && p.progressMs >= 0 && Number.isSafeInteger(p.updatedAt) &&
+        p.updatedAt >= 0 && p.updatedAt <= Date.now() + 86400000 &&
+        (p.chapterTitle === undefined || (typeof p.chapterTitle === 'string' && p.chapterTitle.length <= 8192)) &&
+        (p.durationMs === undefined || (Number.isFinite(p.durationMs) && p.durationMs >= 0)) &&
+        (p.sourceUrl === undefined || (typeof p.sourceUrl === 'string' && p.sourceUrl.length <= 8192)) &&
+        (p.bookUrl === undefined || (typeof p.bookUrl === 'string' && p.bookUrl.length <= 16384));
+    } catch (_error) { return false; }
+  }
+
+  static validSession(bookId: string, entryId: string, raw: string): boolean {
+    try {
+      const p: ReadingSession = JSON.parse(raw);
+      return !!p && p.id === entryId && typeof p.sessionId === 'string' && p.sessionId.length <= 100 &&
+        ['audio', 'reading', 'tts'].includes(p.kind) && Number.isSafeInteger(p.startedAt) && p.startedAt >= 0 &&
+        Number.isSafeInteger(p.endedAt) && p.endedAt >= p.startedAt && p.endedAt <= Date.now() + 86400000 &&
+        LibrarySyncModel.validLocation(p.start, bookId) && LibrarySyncModel.validLocation(p.end, bookId);
+    } catch (_error) { return false; }
+  }
+
+  private static validLocation(p: SessionLocation, bookId: string): boolean {
+    return !!p && p.bookId === bookId && typeof p.chapterId === 'string' && p.chapterId.length <= 8192 &&
+      typeof p.chapterTitle === 'string' && p.chapterTitle.length <= 8192 && p.chapterUrl === '' &&
+      typeof p.domPos === 'string' && p.domPos.length <= 8192 &&
+      [p.chapterIndex, p.pageOffset].every((n: number): boolean => Number.isSafeInteger(n) && n >= 0) &&
+      [p.position, p.total].every((n: number): boolean => Number.isFinite(n) && n >= 0);
+  }
+}
+
+export class LibrarySyncHistory {
+  bookId: string = '';
+  chapterId: string = '';
+  progressMs: number = 0;
+  updatedAt: number = 0;
+  chapterTitle?: string;
+  durationMs?: number;
+  sourceUrl?: string;
+  bookUrl?: string;
 }
 
 /** 页面生命周期标记；服务后台同步不触发正在阅听的页面跳转。 */
@@ -255,4 +322,19 @@ export class LibrarySyncActivity {
   static reading: Set<string> = new Set();
   static playing: Set<string> = new Set();
   static remotePlayback: Set<string> = new Set();
+  static remoteText: Set<string> = new Set();
+  static beforeResume: ((bookId: string) => Promise<void>) | null = null;
+  private static preparing: Map<string, Promise<void>> = new Map();
+
+  static async prepareResume(bookId: string): Promise<void> {
+    if (LibrarySyncValue.online(bookId) && LibrarySyncActivity.beforeResume !== null) {
+      const existing = LibrarySyncActivity.preparing.get(bookId);
+      if (existing) { await existing; return; }
+      const pending = LibrarySyncActivity.beforeResume(bookId).catch((): void => {
+        // 离线或系统暂不可用不能阻止使用本机进度。
+      });
+      LibrarySyncActivity.preparing.set(bookId, pending);
+      try { await pending; } finally { LibrarySyncActivity.preparing.delete(bookId); }
+    }
+  }
 }

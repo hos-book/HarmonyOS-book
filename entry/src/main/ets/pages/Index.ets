@@ -1,4 +1,5 @@
 import { common } from '@kit.AbilityKit';
+import { StartupSplash } from '../components/StartupSplash';
 import { image } from '@kit.ImageKit';
 import { MainPage } from './MainPage';
 import { PodcastPage } from './PodcastPage';
@@ -9,6 +10,9 @@ import { BookDetailPage, DetailBackInterceptor, DetailTitleBarActions, DetailTit
 import { PlayerPage, PlayerBackInterceptor, PlayerEntryDecider } from './PlayerPage';
 import { SettingsPage } from './SettingsPage';
 import { ReadingSettingsPage } from './ReadingSettingsPage';
+import { VoiceManagementPage } from './VoiceManagementPage';
+import { SpeechDisplaySettingsPage } from './SpeechDisplaySettingsPage';
+import { SpeechSynthesisSettingsPage } from './SpeechSynthesisSettingsPage';
 import { MembershipPage } from './MembershipPage';
 import { MembershipSubscriptionPage } from './MembershipSubscriptionPage';
 import { MembershipState } from '../model/MembershipState';
@@ -74,6 +78,7 @@ interface WidgetRouteEvent {
 @Entry
 @ComponentV2
 struct Index {
+  @Local showStartupSplash: boolean = !AppStorage.get<boolean>('gelStartupSplashShown');
   @Local companionEnabled: boolean = GeneralSettings.current.jianjianCompanionEnabled;
   private readonly companionChangedListener: () => void = (): void => {
     this.getUIContext().runScopedTask((): void => {
@@ -116,6 +121,7 @@ struct Index {
   };
 
   aboutToAppear(): void {
+    AppStorage.setOrCreate<boolean>('gelStartupSplashShown', true);
     this.companionEnabled = GeneralSettings.current.jianjianCompanionEnabled;
     emitter.on(EVT_JIANJIAN_COMPANION_CHANGED, this.companionChangedListener);
     // 详情页顶栏（HDS 标题栏内容）不是本组件的常规子树，收不到外部 @ObservedV2 的刷新，
@@ -575,6 +581,18 @@ struct Index {
       ProfileMenuDestination() {
         ReadingSettingsPage({ navStack: this.navStack })
       }
+    } else if (name === 'speechDisplaySettings') {
+      ProfileMenuDestination() {
+        SpeechDisplaySettingsPage({ navStack: this.navStack })
+      }
+    } else if (name === 'speechSynthesisSettings') {
+      ProfileMenuDestination() {
+        SpeechSynthesisSettingsPage({ navStack: this.navStack })
+      }
+    } else if (name === 'voiceManagement') {
+      ProfileMenuDestination() {
+        VoiceManagementPage({ navStack: this.navStack })
+      }
     } else if (name === 'membershipSubscription') {
       ProfileMenuDestination() {
         if (MembershipState.featureEnabled) {
@@ -762,6 +780,9 @@ struct Index {
     }
     if (this.companionEnabled) {
       JianjianCompanionComponent({ active: this.companionActive })
+    }
+    if (this.showStartupSplash) {
+      StartupSplash({ onFinished: (): void => { this.showStartupSplash = false; } })
     }
     }.width('100%').height('100%')
   }

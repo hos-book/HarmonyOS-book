@@ -20,6 +20,9 @@ import {
   LIBRARY_SYNC_CHANGED, LIBRARY_SYNC_MAX_BYTES
 } from './sync/LibrarySyncModel';
 import { LibrarySyncFiles, LibraryCloudFile } from './sync/LibrarySyncFiles';
+import { DiagnosticLogService } from './DiagnosticLogService';
+import { ReadingSessionService } from './ReadingSessionService';
+import { LibraryCloudSync, LibraryCloudIssue } from './sync/LibraryCloudSync';
 
 export enum LibrarySyncStatus { OFF, WAITING, WORKING, PENDING, SYNCED, UNAVAILABLE, FAILED, MEMBERSHIP }
 
@@ -39,6 +42,13 @@ export class LibrarySyncService {
   @Trace status: LibrarySyncStatus = LibrarySyncStatus.OFF;
   @Trace lastSyncedAt: number = 0;
   @Trace deferredProgress: number = 0;
+  @Trace lastReceivedAt: number = 0;
+  @Trace resumeChecking: boolean = false;
+  @Trace resumeUnconfirmed: boolean = false;
+  @Trace cloud: LibraryCloudSync = new LibraryCloudSync(
+    (): boolean => this.enabled && this.holds === 0 && this.accountId !== '' &&
+      AuthService.instance.isLoggedIn && AuthService.instance.openID === this.accountId && MembershipState.current.hasAccess,
+    (): void => { this.schedule(500); });
   private context: common.Context | null = null;
   private foreground: boolean = false;
   private timer: number = -1;
@@ -53,9 +63,11 @@ export class LibrarySyncService {
   private transport: LibrarySyncFiles = new LibrarySyncFiles();
   private seen: Set<string> = new Set();
   private lastSubmitAt: number = 0;
-  private lastPromptSyncAt: number = 0;
+  private rerun: boolean = false;
+  private resumeBooks: Set<string> = new Set();
   private failures: number = 0;
   private retryAt: number = 0;
+  private lastUploadLog: string = '';
   private localChanged = (): void => { this.schedule(1500); };
   private remoteChanged = (_data: cloudSync.ChangeData): void => { this.schedule(1500); };
 
@@ -67,6 +79,7 @@ export class LibrarySyncService {
   setForeground(context: common.Context, foreground: boolean): void {
     if (PlatformCompat.wearable) return;
     this.context = context;
+    LibrarySyncActivity.beforeResume = (bookId: string): Promise<void> => this.prepareResume(bookId);
     this.foreground = foreground;
     if (this.poll >= 0) clearInterval(this.poll);
     this.poll = -1;
@@ -122,11 +135,14 @@ export class LibrarySyncService {
       await this.store.flush();
     }
     this.stopWatch();
+    this.cloud.close();
     this.enabled = false;
     this.accountId = '';
     this.state = null;
     this.lastSyncedAt = 0;
     this.deferredProgress = 0;
+    this.lastReceivedAt = 0;
+    this.resumeUnconfirmed = false;
     this.seen.clear();
     this.status = LibrarySyncStatus.OFF;
     if (!accountId) return;
@@ -214,7 +230,7 @@ export class LibrarySyncService {
       guard();
       this.enabled = enabled;
       this.status = enabled ? LibrarySyncStatus.WAITING : LibrarySyncStatus.OFF;
-      if (!enabled) this.stopWatch();
+      if (!enabled) { this.stopWatch(); this.cloud.close(); }
     } finally {
       this.configuring = false;
       this.resumeAfterManual();
@@ -226,6 +242,7 @@ export class LibrarySyncService {
     this.holds++;
     this.epoch++;
     this.transport.cancel();
+    this.cloud.close();
     if (this.task) await this.task;
   }
 
@@ -237,6 +254,7 @@ export class LibrarySyncService {
     this.epoch++;
     this.transport.cancel();
     this.stopWatch();
+    this.cloud.close();
     if (this.timer >= 0) clearTimeout(this.timer);
     this.timer = -1;
     this.status = LibrarySyncStatus.MEMBERSHIP;
@@ -257,19 +275,51 @@ export class LibrarySyncService {
 
   async syncNow(): Promise<void> {
     this.retryAt = 0;
-    await this.run(true);
+    if (this.task) await this.task;
+    await this.run(true, 8000);
   }
 
-  private run(remote: boolean): Promise<void> {
-    if (this.task) return this.task;
+  private async prepareResume(bookId: string): Promise<void> {
+    if (!LibrarySyncValue.online(bookId) || !this.context || !this.enabled || this.holds > 0 ||
+      this.accountId !== AuthService.instance.openID || !MembershipState.current.hasAccess) return;
+    const accountId = this.accountId;
+    const epoch = this.epoch;
+    this.resumeBooks.add(bookId);
+    this.resumeChecking = true;
+    let timer: number = -1;
+    try {
+      const operation = async (): Promise<void> => {
+        if (this.task) await this.task;
+        if (epoch !== this.epoch || accountId !== this.accountId || !this.resumeBooks.has(bookId)) return;
+        await this.run(true, 3500);
+      };
+      await Promise.race<void>([operation(), new Promise<void>((resolve): void => {
+        timer = setTimeout(resolve, 4500);
+      })]);
+      this.resumeUnconfirmed = this.cloud.issue !== LibraryCloudIssue.NONE || this.lastReceivedAt === 0 ||
+        this.cloud.lastCompletedAt === 0 || this.lastReceivedAt < this.cloud.lastCompletedAt || this.running;
+    } finally {
+      if (timer >= 0) clearTimeout(timer);
+      this.resumeBooks.delete(bookId);
+      this.resumeChecking = this.resumeBooks.size > 0;
+    }
+  }
+
+  private run(remote: boolean, waitMs: number = 0): Promise<void> {
+    if (this.task) { this.rerun = true; return this.task; }
     if (this.holds > 0 || this.configuring || !this.context || Date.now() < this.retryAt) return Promise.resolve();
     const context = this.context;
-    this.task = this.synchronize(context, remote).catch((_error: Error): void => {
+    this.task = this.synchronize(context, remote, waitMs).catch((error: Error): void => {
+      DiagnosticLogService.info('library.sync.failed', error.message);
       if (!MembershipState.current.hasAccess) { this.suspendForMembership(); return; }
       this.status = LibrarySyncStatus.FAILED;
       this.failures = Math.min(6, this.failures + 1);
       this.retryAt = Date.now() + Math.min(300000, 5000 * Math.pow(2, this.failures));
-    }).finally((): void => { this.task = null; this.running = false; });
+    }).finally((): void => {
+      this.task = null;
+      this.running = false;
+      if (this.rerun) { this.rerun = false; this.schedule(1500); }
+    });
     return this.task;
   }
 
@@ -287,6 +337,7 @@ export class LibrarySyncService {
     for (const position of await TextReadingProgressService.getAll(context)) {
       if (LibrarySyncValue.online(position.bookId)) values.push(new LibrarySyncValue('text', position.bookId, JSON.stringify(position)));
     }
+    for (const session of await ReadingSessionService.exportLibrarySyncValues()) values.push(session);
     const ids = new Set(values.map((v: LibrarySyncValue): string => v.bookId));
     for (const book of await DataService.exportBackupBookShells()) {
       if (!ids.has(book.id)) continue;
@@ -297,15 +348,17 @@ export class LibrarySyncService {
   }
 
   private protectProgress(record: LibrarySyncValue): boolean {
-    if (record.kind !== 'play' && record.kind !== 'text') return false;
-    if (LibrarySyncActivity.reading.has(record.bookId) || LibrarySyncActivity.playing.has(record.bookId)) return true;
+    if (record.kind !== 'play' && record.kind !== 'text' && record.kind !== 'history') return false;
     const player = AppStorageV2.connect(PlayerState, PLAYER_STATE_KEY, (): PlayerState => new PlayerState());
     if (player?.currentBook?.id === record.bookId && (player.isPlaying || player.isLoading)) return true;
     const speech = TextToSpeechService.getInstance().state;
-    return speech.bookId === record.bookId && speech.active;
+    if (speech.bookId === record.bookId && (speech.playing || speech.loading)) return true;
+    if (this.resumeBooks.has(record.bookId)) return false;
+    return LibrarySyncActivity.reading.has(record.bookId) || LibrarySyncActivity.playing.has(record.bookId) ||
+      (speech.bookId === record.bookId && speech.active);
   }
 
-  private async synchronize(context: common.Context, remote: boolean): Promise<void> {
+  private async synchronize(context: common.Context, remote: boolean, waitMs: number = 0): Promise<void> {
     if (AuthService.instance.logging || AuthService.instance.restoring || AuthService.instance.dataOperation) return;
     await AuthService.instance.restore(context);
     await this.load(context);
@@ -340,26 +393,30 @@ export class LibrarySyncService {
       LibrarySyncModel.capture(state, local, state.records.length === 0 && state.baseline.length === 0);
       await this.save(context, state);
       guard();
+      let receivedAll = true;
       if (remote) {
         this.watch(context);
-        // 回前台可温和触发一次目录刷新，至少间隔 60 秒；上传本身由系统自动触发。
-        if (Date.now() - this.lastPromptSyncAt >= 60000) {
-          this.lastPromptSyncAt = Date.now();
-          await new cloudSync.FileSync().start();
-          guard();
-        }
-        await this.receive(context, state, guard);
+        // start resolve 不代表完成；续听/手动检查限时等待真实回调，普通轮询不阻塞。
+        await this.cloud.request(waitMs);
+        guard();
+        const received = await this.receive(context, state, guard);
+        receivedAll = received;
         // 下载期间的本机操作必须先记入版本，再执行远端写回。
         local = await this.captureValues(context);
         guard();
         LibrarySyncModel.capture(state, local);
         await this.apply(context, state, local, guard);
+        if (received) {
+          this.lastReceivedAt = Date.now();
+          if (this.cloud.lastCompletedAt > 0 && this.cloud.issue === LibraryCloudIssue.NONE) this.resumeUnconfirmed = false;
+        }
       }
       guard();
       await this.publish(context, state, guard);
       guard();
       await this.save(context, state);
       this.lastSyncedAt = state.lastSyncedAt;
+      if (!receivedAll || this.cloud.issue !== LibraryCloudIssue.NONE) throw new Error('Cloud synchronization pending recovery');
       this.failures = 0;
       this.retryAt = 0;
     } finally { AuthService.instance.endDataOperation(); }
@@ -377,28 +434,52 @@ export class LibrarySyncService {
     this.cloudUri = '';
   }
 
-  private async receive(context: common.Context, state: LibrarySyncState, guard: () => void): Promise<void> {
-    const files = await this.transport.list(context, state.ownerKey);
+  private async receive(context: common.Context, state: LibrarySyncState, guard: () => void): Promise<boolean> {
+    let files: LibraryCloudFile[] = [];
+    try { files = await this.transport.list(context, state.ownerKey); }
+    catch (error) {
+      guard();
+      DiagnosticLogService.info('library.sync.receive.failed', 'Cloud directory unavailable');
+      this.status = LibrarySyncStatus.FAILED;
+      return false;
+    }
     const names = new Set(files.map((file: LibraryCloudFile): string => file.name));
     this.seen = new Set(Array.from(this.seen).filter((name: string): boolean => names.has(name)));
     const devices = new Set<string>();
+    const received = new Set<string>();
+    let complete = true;
     let bytes = 0;
+    let attempts = 0;
+    const attemptsByDevice = new Map<string, number>();
     for (const file of files) {
       guard();
-      if (devices.has(file.deviceId)) continue;
+      if (file.deviceId === state.deviceId || received.has(file.deviceId)) continue;
       devices.add(file.deviceId);
       if (devices.size > 64) throw new Error('Sync device limit exceeded');
-      if (this.seen.has(file.name)) continue;
-      const raw = await this.transport.readCloud(`${context.cloudFileDir}/${file.name}`, guard);
-      bytes += raw.length;
-      if (bytes > 4 * LIBRARY_SYNC_MAX_BYTES) throw new Error('Sync batch too large');
-      const incoming = LibrarySyncModel.parse(raw, state.ownerKey);
-      if (incoming.deviceId !== file.deviceId) throw new Error('Sync device mismatch');
-      guard();
-      LibrarySyncModel.merge(state, incoming);
-      await this.save(context, state);
-      this.seen.add(file.name);
+      if (this.seen.has(file.name)) { received.add(file.deviceId); continue; }
+      const deviceAttempts = attemptsByDevice.get(file.deviceId) ?? 0;
+      if (deviceAttempts >= 2) { complete = false; continue; }
+      if (++attempts > 64) { complete = false; break; }
+      attemptsByDevice.set(file.deviceId, deviceAttempts + 1);
+      try {
+        const raw = await this.transport.readCloud(`${context.cloudFileDir}/${file.name}`, guard);
+        bytes += raw.length;
+        if (bytes > 4 * LIBRARY_SYNC_MAX_BYTES) throw new Error('Sync batch too large');
+        const incoming = LibrarySyncModel.parse(raw, state.ownerKey);
+        if (incoming.deviceId !== file.deviceId) throw new Error('Sync device mismatch');
+        guard();
+        LibrarySyncModel.merge(state, incoming);
+        await this.save(context, state);
+        this.seen.add(file.name);
+        received.add(file.deviceId);
+      } catch (error) {
+        guard();
+        complete = false;
+        DiagnosticLogService.info('library.sync.receive.failed', 'Remote snapshot unavailable; other devices continue');
+        if (bytes > 4 * LIBRARY_SYNC_MAX_BYTES) break;
+      }
     }
+    return complete;
   }
 
   private async apply(context: common.Context, state: LibrarySyncState, local: LibrarySyncValue[], guard: () => void): Promise<void> {
@@ -432,28 +513,51 @@ export class LibrarySyncService {
     guard();
     const reading = await TextReadingProgressService.applyLibrarySyncValues(context, safe, local, guard);
     guard();
+    const sessions = await ReadingSessionService.applyLibrarySyncValues(safe, local, guard);
+    guard();
     prefs.filter((v: LibrarySyncValue): boolean => v.kind === 'play').forEach((v: LibrarySyncValue): void => {
       LibrarySyncActivity.remotePlayback.add(v.bookId);
     });
-    LibrarySyncModel.acknowledge(state, prefs.concat(reading).concat(books));
+    reading.forEach((v: LibrarySyncValue): void => { LibrarySyncActivity.remoteText.add(v.bookId); });
+    LibrarySyncModel.acknowledge(state, prefs.concat(reading).concat(books).concat(sessions));
     state.applying = [];
     await this.save(context, state);
-    if (prefs.length || reading.length) emitter.emit('app.history.updated');
+    if (prefs.length || reading.length || sessions.length) emitter.emit('app.history.updated');
   }
 
   private async publish(context: common.Context, state: LibrarySyncState, guard: () => void): Promise<void> {
+    let superseded = '';
     if (state.cloudFile) {
       const path = `${context.cloudFileDir}/${state.cloudFile}`;
-      if (await fileIo.access(path) && !await this.transport.confirmed(path)) {
-        this.status = LibrarySyncStatus.PENDING;
-        return; // 网络断开时合并本机队列，不无限生成云端文件。
-      }
-      guard();
-      if (state.cloudRevision === state.revision && await fileIo.access(path)) {
-        state.lastSyncedAt = Date.now();
-        this.status = LibrarySyncStatus.SYNCED;
-        await this.prune(context, state, guard);
-        return;
+      if (await fileIo.access(path)) {
+        const upload = await this.transport.uploadState(path);
+        guard();
+        const signature = `${state.cloudRevision}/${upload.location}/${upload.state}`;
+        if (signature !== this.lastUploadLog) {
+          this.lastUploadLog = signature;
+          DiagnosticLogService.info('library.sync.upload', `revision/state=${signature}, local=${state.revision}`);
+        }
+        if (!upload.confirmed) {
+          const generation = /_([0-9]+)_[0-9a-f-]{36}\.json$/.exec(state.cloudFile);
+          const submittedAt = generation ? Number(generation[1]) : Date.now();
+          this.status = upload.state === cloudSync.FileState.UPLOAD_FAILURE || upload.state === cloudSync.FileState.STOPPED ?
+            LibrarySyncStatus.FAILED : LibrarySyncStatus.PENDING;
+          // 不抢占正在上传的文件。长时间未排入上传/失败的文件重新提交最新快照，最多五分钟一次。
+          if (upload.state === cloudSync.FileState.UPLOADING || Date.now() - submittedAt < 300000 ||
+            this.cloud.issue !== LibraryCloudIssue.NONE) return;
+          superseded = path;
+          DiagnosticLogService.info('library.sync.republish', `cloud=${state.cloudRevision}, local=${state.revision}`);
+        } else {
+          if (state.confirmedCloudFile !== state.cloudFile) {
+            state.lastSyncedAt = Date.now();
+            state.confirmedCloudFile = state.cloudFile;
+          }
+          if (state.cloudRevision === state.revision) {
+            this.status = LibrarySyncStatus.SYNCED;
+            await this.prune(context, state, guard);
+            return;
+          }
+        }
       }
     }
     if (Date.now() - this.lastSubmitAt < 15000) { this.status = LibrarySyncStatus.PENDING; return; }
@@ -466,6 +570,14 @@ export class LibrarySyncService {
     state.cloudRevision = state.revision;
     this.lastSubmitAt = Date.now();
     this.status = LibrarySyncStatus.PENDING;
+    // 先落盘替代快照指针，再清理已失效的待传文件，离线不会无限堆积。
+    await this.save(context, state);
+    guard();
+    if (superseded) {
+      try { await fileIo.unlink(superseded); }
+      catch (_error) { DiagnosticLogService.info('library.sync.cleanup', 'Superseded pending file retained'); }
+    }
+    DiagnosticLogService.info('library.sync.published', `revision=${state.cloudRevision}, records=${state.records.length}`);
   }
 
   private async prune(context: common.Context, state: LibrarySyncState, guard: () => void): Promise<void> {

@@ -26,6 +26,8 @@ import { RankingPosterBackground } from '../components/RankingPosterBackground';
 import { HomeCoverCarousel, homeCoverCarouselHeight } from '../components/HomeCoverCarousel';
 import { BookPosterSkeleton } from '../components/BookPosterCarousel';
 import { HomeCategorySheet } from '../components/HomeCategorySheet';
+import { LocalRuleControl } from '../model/LocalRulePanel';
+import { LocalRulePanelService } from '../service/rulesource/LocalRulePanelService';
 import { HomeCategoryBookRow, HomeCategoryRowDataSource } from '../utils/HomeCategoryRowDataSource';
 import { HomeBlockDataSource } from '../utils/HomeBlockDataSource';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
@@ -309,6 +311,9 @@ export struct HomePage {
   @Local savingFavorite: boolean = false;
   private favoritesChangedHandler: () => void = (): void => { this.loadFavorites(); };
   @Local homeCategories: HomeSourceCategory[] = [];
+  @Local homeFilters: LocalRuleControl[] = [];
+  @Local savingHomeFilter: boolean = false;
+  @Local homeFilterMenuVisible: boolean = false;
   @Local homeChannels: string[] = [];
   @Local selectedHomeChannel: string = '';
   private channelDataSource: HomeRecommendationDataSource<string> = new HomeRecommendationDataSource();
@@ -450,6 +455,7 @@ export struct HomePage {
   }
 
   private reloadSource(): void {
+    this.homeFilterMenuVisible = false;
     this.cancelContentEntrance();
     this.cancelCarouselAnimation();
     this.contentEntered = true;
@@ -537,6 +543,7 @@ export struct HomePage {
     if (!preserveContent) {
       this.updateHomeBlocks([]);
       this.updateHomeCategories([]);
+      this.homeFilters = [];
       this.updateHomeChannels([]);
       this.selectedHomeChannel = '';
       this.currentSource = undefined;
@@ -576,6 +583,7 @@ export struct HomePage {
         (partial: HomeSourceContent): void => {
           if (generation !== this.homeGen) return;
           this.updateHomeChannels(partial.channels);
+          this.homeFilters = partial.filters;
           this.selectedHomeChannel = partial.channel;
           this.homeError = HomeSourceService.isSupportedChannel(partial.channel) ? '' :
             $r('app.string.home_channel_unsupported');
@@ -746,6 +754,26 @@ export struct HomePage {
 
   private showCategoryOverview(): void {
     this.categorySheetVisible = true;
+  }
+
+  private async selectHomeFilter(control: LocalRuleControl, value: string): Promise<void> {
+    const source = this.currentSource;
+    const active = this.homeFilters.find((item: LocalRuleControl): boolean => item.id === control.id);
+    if (source === undefined || this.savingHomeFilter || this.loadingHome ||
+      active === undefined || active.value === value || !active.optionValues.includes(value)) return;
+    this.savingHomeFilter = true;
+    const previous = active.value;
+    active.value = value;
+    try {
+      // 复用书源设置保存动作；其变更事件负责清空旧分类并重新加载首页。
+      await LocalRulePanelService.act(source, active, this.homeFilters, false);
+    } catch (error) {
+      active.value = previous;
+      this.showHomeSourceToast($r('app.string.rule_source_operation_failed'));
+      hilog.error(DOMAIN, TAG, 'selectHomeFilter failed: %{public}s', String(error));
+    } finally {
+      this.savingHomeFilter = false;
+    }
   }
 
   @Builder
@@ -1022,7 +1050,7 @@ export struct HomePage {
 
   @Computed
   get homeCategoryNavHeight(): number {
-    return CATEGORY_NAV_ROW_HEIGHT + (this.homeChannels.length > 1 ? CATEGORY_NAV_ROW_HEIGHT : 0);
+    return CATEGORY_NAV_ROW_HEIGHT + ((this.homeFilters.length > 0 || this.homeChannels.length > 1) ? CATEGORY_NAV_ROW_HEIGHT : 0);
   }
 
   @Computed
@@ -1963,7 +1991,7 @@ export struct HomePage {
   @LocalBuilder
   buildHomeNavigationBottom() {
     Column() {
-      if (this.homeChannels.length > 1) {
+      if (this.homeFilters.length > 0 || this.homeChannels.length > 1) {
         Column() {
           this.buildChannelTags()
         }
@@ -2010,35 +2038,103 @@ export struct HomePage {
     .height(this.carouselFullHeight + this.homeCategoryNavHeight)
   }
 
+  private homeFilterMenuOptions(): CustomPopupOptions {
+    const options: CustomPopupOptions = {
+      builder: this.buildHomeFilterMenu,
+      width: Math.min(248, this.homeSourceMenuViewportWidth - this.leftSafeVp - this.rightSafeVp - AppSpace.Md * 2),
+      placement: Placement.BottomLeft,
+      popupColor: AppMaterial.SheetBackground,
+      radius: AppRadius.Xl,
+      enableArrow: false,
+      focusable: true,
+      onStateChange: (event): void => { this.homeFilterMenuVisible = event.isVisible; }
+    };
+    if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
+    else options.backgroundBlurStyle = AppMaterial.SheetBlur;
+    return options;
+  }
+
+  @LocalBuilder
+  private buildHomeFilterMenu() {
+    Scroll() {
+      Column({ space: AppSpace.Xxs }) {
+        ForEach(this.homeFilters, (control: LocalRuleControl) => {
+          Text(control.title).fontSize(13).fontWeight(FontWeight.Medium)
+            .fontColor(AppTheme.TextSecondary).width('100%').height(32)
+            .padding({ left: AppSpace.Sm, right: AppSpace.Sm })
+          ForEach(control.options, (option: string, index: number) => {
+            Row({ space: AppSpace.Xs }) {
+              Text(option).fontSize(16).layoutWeight(1)
+                .fontColor(control.value === control.optionValues[index] ? AppColor.Brand : AppTheme.TextPrimary)
+                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+              SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([AppColor.Brand])
+                .visibility(control.value === control.optionValues[index] ? Visibility.Visible : Visibility.Hidden)
+            }.width('100%').height(48)
+              .padding({ left: AppSpace.Sm, right: AppSpace.Sm })
+              .borderRadius(AppRadius.Xl - AppSpace.Xs)
+              .backgroundColor(control.value === control.optionValues[index] ? AppColor.BrandSoft : Color.Transparent)
+              .enabled(!this.loadingHome && !this.savingHomeFilter)
+              .accessibilityGroup(true)
+              .accessibilitySelected(control.value === control.optionValues[index])
+              .onClick((): void => {
+                this.homeFilterMenuVisible = false;
+                this.selectHomeFilter(control, control.optionValues[index]);
+              })
+          }, (option: string): string => `${control.id}:${option}`)
+        }, (control: LocalRuleControl): string => `${control.id}:${control.value}:${JSON.stringify(control.options)}`)
+      }.width('100%').padding(AppSpace.Xs)
+    }.width('100%').constraintSize({ maxHeight: this.homeSourceMenuHeight })
+      .scrollBar(BarState.Auto)
+  }
+
   @Builder
   buildChannelTags() {
-    List({ space: AppSpace.Xs }) {
-      ListItem() {
-        ImmersiveTabComponent({
-          label: $r('app.string.home_channel_all'), fitContent: true,
-          selected: this.selectedHomeChannel === '',
-          onTap: () => this.switchHomeChannel('')
-        })
+    Row({ space: AppSpace.Xs }) {
+      if (this.homeFilters.length > 0) {
+        Row({ space: AppSpace.Xxs }) {
+          Text(this.homeFilters[0].value || this.homeFilters[0].title)
+            .fontSize(13).fontColor(AppColor.Brand).fontWeight(FontWeight.Medium)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            .constraintSize({ maxWidth: 112 })
+          SymbolGlyph($r('sys.symbol.chevron_down'))
+            .fontSize(12).fontColor([AppColor.Brand])
+        }.padding({ left: AppSpace.Sm, right: AppSpace.Sm })
+          .height(34).flexShrink(0).borderRadius(AppRadius.Pill)
+          .backgroundColor(Color.Transparent)
+          .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
+          .enabled(!this.loadingHome && !this.savingHomeFilter)
+          .onClick((): void => { this.homeFilterMenuVisible = !this.homeFilterMenuVisible; })
+          .bindPopup(this.homeFilterMenuVisible, this.homeFilterMenuOptions())
       }
-      LazyForEach(this.channelDataSource, (channel: string) => {
+      List({ space: AppSpace.Xs }) {
         ListItem() {
           ImmersiveTabComponent({
-            label: channel, fitContent: true,
-            selected: this.selectedHomeChannel === channel,
-            onTap: () => this.switchHomeChannel(channel)
+            label: $r('app.string.home_channel_all'), fitContent: true,
+            selected: this.selectedHomeChannel === '',
+            onTap: () => this.switchHomeChannel('')
           })
         }
-      }, (channel: string) => `${this.currentSource?.bookSourceUrl}#channel#${channel}`)
-    }
-    .width('100%')
-    .height(CATEGORY_NAV_ROW_HEIGHT)
-    .padding({ left: AppSpace.Md, right: AppSpace.Md, top: 7, bottom: 7 })
-    .listDirection(Axis.Horizontal)
-    .scrollBar(BarState.Off)
-    .fadingEdge(true, { fadingEdgeLength: LengthMetrics.vp(CATEGORY_NAV_FADE_LENGTH) })
-    .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
-    .cachedCount(1)
-    .accessibilityDescription($r('app.string.home_channel_accessibility'))
+        LazyForEach(this.channelDataSource, (channel: string) => {
+          ListItem() {
+            ImmersiveTabComponent({
+              label: channel, fitContent: true,
+              selected: this.selectedHomeChannel === channel,
+              onTap: () => this.switchHomeChannel(channel)
+            })
+          }
+        }, (channel: string) => `${this.currentSource?.bookSourceUrl}#channel#${channel}`)
+      }
+      .layoutWeight(1)
+      .height(CATEGORY_NAV_ROW_HEIGHT)
+      .padding({ top: 7, bottom: 7 })
+      .listDirection(Axis.Horizontal)
+      .scrollBar(BarState.Off)
+      .fadingEdge(true, { fadingEdgeLength: LengthMetrics.vp(CATEGORY_NAV_FADE_LENGTH) })
+      .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+      .cachedCount(1)
+      .accessibilityDescription($r('app.string.home_channel_accessibility'))
+    }.width('100%').height(CATEGORY_NAV_ROW_HEIGHT)
+      .padding({ left: AppSpace.Md, right: AppSpace.Md })
   }
 
   @Builder

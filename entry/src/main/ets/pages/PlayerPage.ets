@@ -42,6 +42,7 @@ import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { TextToSpeechState, SpeechVoice } from '../model/TextToSpeechState';
+import { ChapterCacheIndicator } from '../components/ChapterCacheIndicator';
 import { CustomTtsConfig } from '../model/CustomTtsConfig';
 import { ReaderTtsDataSource } from '../components/ReaderTtsTabs';
 import { LightSourceBridge } from '../service/rulesource/light/LightSourceBridge';
@@ -651,7 +652,7 @@ export struct PlayerPage {
   }
 
   private canSkipPlayback(): boolean {
-    if (this.isSpeechBook()) return this.speechMatchesBook() && !this.speechState.loading && this.speechState.contentLength > 0;
+    if (this.isSpeechBook()) return this.speechMatchesBook() && this.speechState.contentLength > 0;
     return this.audioMatchesBook() && !this.isLiveBook() && !this.playerState.isLoading && this.playerState.durationMs > 0;
   }
 
@@ -965,19 +966,25 @@ export struct PlayerPage {
   }
 
   private async tryResumePlay(book: Book): Promise<void> {
-    const target = book.chapters.find((c) => c.id === this.resumeChapterId);
+    await LibrarySyncActivity.prepareResume(book.id);
+    if (this.isLeaving || this.book?.id !== book.id) return;
+    const saved = await PreferenceService.getProgress(book.id);
+    const synced = LibrarySyncActivity.remotePlayback.has(book.id) && saved !== null;
+    const chapterId = synced && saved ? saved.chapterId : this.resumeChapterId;
+    const target = book.chapters.find((c) => c.id === chapterId) ??
+      (synced && saved ? book.chapters[DataService.resolveChapterIndex(book, saved.chapterId, saved.chapterTitle)] : undefined);
     if (!target) {
       hilog.warn(DOMAIN, TAG, 'resume chapter not found: %{public}s', this.resumeChapterId);
       return;
     }
     // ★ PlaybackStore 同书+同章节命中:直接复用 live state,不调 AudioService 任何方法,
     //   绝对不会触发 reset。即使 progressMs 与 resumeProgressMs 略有差异,以 live 为准
-    if (PlaybackStore.getInstance().isCurrentChapter(book.id, target.id)) {
+    if (PlaybackStore.getInstance().isCurrentChapter(book.id, target.id) && !synced) {
       return;
     }
     // 切到不同章节(可能不同书) → AudioService 内部会 same-book/same-chapter 短路或 reset
     SearchCache.put(book);
-    await AudioService.getInstance().playChapterAndSeek(book, target, this.resumeProgressMs);
+    await AudioService.getInstance().playChapterAndSeek(book, target, synced && saved ? saved.positionMs : this.resumeProgressMs);
   }
 
   private formatMs(ms: number): string {
@@ -2132,6 +2139,10 @@ export struct PlayerPage {
           .onClick(() => this.toggleFavorite())
       }
       .width('100%')
+      if (this.isSpeechBook() && this.playbackLoading()) {
+        Text(this.speechState.contentLength > 0 ? $r('app.string.tts_loading_audio') : $r('app.string.tts_loading_text'))
+          .fontSize(AppFont.Caption).fontColor('#FFFFFF').width('100%').margin({ top: AppSpace.Xs })
+      }
       if (this.isSpeechBook() && this.speechMatchesBook() && this.speechState.error) {
         Text(this.speechState.error).fontSize(AppFont.Caption).fontColor('#FFFFFF')
           .width('100%').margin({ top: AppSpace.Xs })
@@ -2250,7 +2261,8 @@ export struct PlayerPage {
       .accessibilityText(this.playbackPlaying() || this.playbackLoading()
         ? $r('app.string.tts_pause') : $r('app.string.tts_play'))
       .onClick(() => {
-        if (!this.playbackLoading()) this.togglePlay();
+        if (this.isSpeechBook() && this.playbackLoading()) TextToSpeechService.getInstance().pause();
+        else if (!this.playbackLoading()) this.togglePlay();
       })
 
       Blank()
@@ -2567,7 +2579,9 @@ export struct PlayerPage {
                   .fontColor([AppColor.Brand])
               }
             }
-            if (!this.isSpeechBook()) {
+            if (this.isSpeechBook()) {
+              ChapterCacheIndicator({ book: this.book, chapter: ch })
+            } else {
               this.buildChapterDownloadIndicator(ch)
             }
           }

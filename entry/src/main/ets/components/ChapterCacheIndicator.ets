@@ -44,7 +44,7 @@ export struct ChapterCacheIndicator {
       const context: common.Context | undefined = this.getUIContext().getHostContext();
       if (context === undefined) return;
       const key = OnlineTextContentCache.key(book.sourceUrl, book.bookUrl || book.id,
-        chapter.originSourceValue ?? chapter.source.value);
+        chapter.originSourceValue || chapter.source.value);
       const cached = await OnlineTextContentCache.contains(context, key);
       if (ticket === this.serial) this.cached = cached;
     }

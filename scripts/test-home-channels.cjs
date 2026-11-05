@@ -7,7 +7,7 @@ const vm = require('node:vm');
 const ts = require(path.join(process.env.DEVECO_HOME,
   'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = path.resolve(__dirname, '../entry/src/main/ets');
-let revision = 0, loginRevision = 0, entries = [], calls = [], fail = '', hold;
+let revision = 0, loginRevision = 0, entries = [], controls = [], calls = [], fail = '', hold;
 const source = { bookSourceUrl: 'https://fixture.invalid', bookSourceName: '综合源',
   enabledExplore: true, exploreUrl: 'native' };
 const modules = {
@@ -15,7 +15,7 @@ const modules = {
   '../SourceDataService': { SourceDataService: { getInvalidationCounter: () => revision } },
   '../PreferenceService': {}, '../ranking/RankingService': {},
   './LocalRuleSourceRepository': { LocalRuleSourceRepository: { getLoginRevision: () => loginRevision } },
-  './LocalRulePanelService': { LocalRulePanelService: { load: async () => ({ entries }) } },
+  './LocalRulePanelService': { LocalRulePanelService: { load: async () => ({ entries, controls }) } },
   '../BookSourceService': { BookSourceService: { getExploreBooksByUrl: async (_source, url) => {
     calls.push(url);
     if (hold) await hold;
@@ -40,7 +40,14 @@ function fixture() {
 }
 (async () => {
   fixture();
+  controls = [
+    { id: 'mode', title: '模式', discoveryFilter: true, options: ['小说模式', '漫画模式'], action: 'set:mode' },
+    { id: 'channel', title: '频道', discoveryFilter: true, options: ['男频', '女频'], action: 'set:channel' },
+    { id: 'server', title: '服务器', options: ['private'], action: 'set:server' }
+  ];
   const all = await service.loadHome(source);
+  assert.deepEqual(Array.from(all.filters, item => item.id), ['mode', 'channel'],
+    'preserve declared filter layers without exposing settings');
   assert.deepEqual(Array.from(all.channels), ['小说', '漫画', '听书']);
   assert.equal(all.categories.length, 32);
   assert.equal(all.blocks.length, 4);

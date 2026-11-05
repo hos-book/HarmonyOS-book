@@ -34,7 +34,7 @@ export struct MiniPlayer {
     if (this.book) {
       if (this.book.cover && this.book.cover.startsWith('http')) {
         CoverImage({ url: this.book.cover, useFixedHeight: true, imgHeight: '100%', radius: 0,
-          themedDecoration: false })
+          themedDecoration: false, eagerLoad: true })
           .width('100%')
           .height('100%')
           .id('mini-player-cover-image')

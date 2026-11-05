@@ -37,6 +37,9 @@ export class AppIconService {
   getOptions(): AppIconOption[] {
     return [
       new AppIconOption('', $r('app.string.app_icon_default'), $r('app.media.app_icon_legacy')),
+      new AppIconOption('gel', $r('app.string.app_icon_gel'), $r('app.media.app_icon_gel_legacy')),
+      new AppIconOption('nostalgia', $r('app.string.app_icon_nostalgia'), $r('app.media.app_icon_nostalgia_legacy')),
+      new AppIconOption('iridescent', $r('app.string.app_icon_iridescent'), $r('app.media.app_icon_iridescent_legacy')),
       new AppIconOption('leather', $r('app.string.app_icon_leather'), $r('app.media.app_icon_leather_legacy')),
       new AppIconOption('enamel', $r('app.string.app_icon_enamel'), $r('app.media.app_icon_enamel_legacy')),
       new AppIconOption('ink', $r('app.string.app_icon_ink'), $r('app.media.app_icon_ink_legacy')),
@@ -55,8 +58,7 @@ export class AppIconService {
       new AppIconOption('waveorange', $r('app.string.app_icon_waveorange'), $r('app.media.app_icon_waveorange_legacy')),
       new AppIconOption('wavegraphite', $r('app.string.app_icon_wavegraphite'), $r('app.media.app_icon_wavegraphite_legacy')),
       new AppIconOption('wavepurple', $r('app.string.app_icon_wavepurple'), $r('app.media.app_icon_wavepurple_legacy')),
-      new AppIconOption('waveclear', $r('app.string.app_icon_waveclear'), $r('app.media.app_icon_waveclear_legacy')),
-      new AppIconOption('iridescent', $r('app.string.app_icon_iridescent'), $r('app.media.app_icon_iridescent_legacy'))
+      new AppIconOption('waveclear', $r('app.string.app_icon_waveclear'), $r('app.media.app_icon_waveclear_legacy'))
     ];
   }
 
@@ -72,6 +74,11 @@ export class AppIconService {
     const revision = this.selectionRevision;
     const saved = await PreferenceService.getAppIconSelection();
     if (revision !== this.selectionRevision || this.changing) return;
+    // 胶彩柔光已成为默认主图标，迁移旧备用图标选择，不要求会员权益。
+    if (saved === 'gelsoft') {
+      await this.select('');
+      return;
+    }
     if (saved === null) {
       const current = await this.getCurrent();
       if (!this.changing && revision === this.selectionRevision) await PreferenceService.setAppIconSelection(current);

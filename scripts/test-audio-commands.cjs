@@ -125,7 +125,7 @@ async function fixture(initialState = 'paused', realUsage = false) {
     delete: async key => preferenceValues.delete(key), flush: async () => {}
   });
   const focusFixture = createFocusFixture(preference, audio, platformCompat);
-  const syncActivity = { reading: new Set(), playing: new Set(), remotePlayback: new Set() };
+  const syncActivity = { reading: new Set(), playing: new Set(), remotePlayback: new Set(), prepareResume: async () => {} };
   const modules = {
     './sync/LibrarySyncModel': { LibrarySyncActivity: syncActivity },
     './ReadingSessionService': { ReadingSessionService: { checkpoint() {}, end() {} }, SessionLocation: { audio: () => ({}) } },

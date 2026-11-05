@@ -12,6 +12,7 @@ const context = { cacheDir: path.join(root, 'cache').replaceAll('\\', '/'), file
 fs.mkdirSync(context.cacheDir); fs.mkdirSync(context.filesDir);
 let failWrite = false;
 let failMove = false;
+const cacheEvents = [];
 const handles = new Map();
 const fileIo = {
   OpenMode: { CREATE: 1, READ_WRITE: 2, TRUNC: 4 },
@@ -55,10 +56,12 @@ const identity = load('utils/BookIdentity.ets', {});
 const migration = load('service/StorageMigrationService.ets', { '@kit.CoreFileKit': { fileIo } });
 function newProcess() {
   const budget = load('service/ReaderCacheService.ts', {
+    '../utils/PerformanceTrace': { PerformanceTrace: { begin: () => 0, end() {} } },
     '@kit.CoreFileKit': { fileIo }, '@kit.BasicServicesKit': { emitter: { emit() {} } }
   });
   return load('service/text/OnlineTextContentCache.ets', {
     '../ReaderCacheService': budget,
+    '@kit.BasicServicesKit': { emitter: { emit: event => cacheEvents.push(event) } },
     '@kit.CoreFileKit': { fileIo },
     '@kit.ArkTS': { buffer: { from: text => ({ buffer: Uint8Array.from(Buffer.from(text)).buffer }) } },
     '@kit.PerformanceAnalysisKit': { hilog: { warn() {} } },
@@ -84,7 +87,9 @@ function newProcess() {
   cache = newProcess();
   assert.equal(await cache.read(context, key), text, 'system cache cleanup cannot remove saved text');
   console.log('PASS legacy migration, failed-copy publication recovery and system cache cleanup');
+  cacheEvents.length = 0;
   await cache.write(context, key, text);
+  assert.deepEqual(cacheEvents, ['app.chapter.cache.updated'], 'published text refreshes open chapter indicators');
   cache = newProcess();
   assert.equal(await cache.read(context, key), text);
   const bookId = identity.BookIdentity.onlineTextBookId('source-a', 'book-a');
@@ -118,11 +123,13 @@ function newProcess() {
   console.log('PASS corrupt file and hash collision fall back to fetch');
   await cache.write(context, key, text);
   failMove = true;
+  const eventsBeforeFailure = cacheEvents.length;
   await cache.write(context, key, 'incomplete replacement');
   assert.equal(await cache.read(context, key), text);
   failMove = false;
   failWrite = true;
   await cache.write(context, key, 'failed write');
+  assert.equal(cacheEvents.length, eventsBeforeFailure, 'failed publication does not announce cached content');
   failWrite = false;
   await Promise.all([cache.write(context, key, 'first'), cache.write(context, key, 'last')]);
   assert.equal(await newProcess().read(context, key), 'last');

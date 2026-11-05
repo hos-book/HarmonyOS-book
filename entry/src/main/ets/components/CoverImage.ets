@@ -6,6 +6,7 @@ import { CoverPrefetcher } from '../service/CoverPrefetcher';
 import { CoverAspectRatio } from '../utils/CoverAspectRatio';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { CoverLoadHandle } from '../service/CoverLoader';
+import { emitter } from '@kit.BasicServicesKit';
 
 class CoverCompositeClip implements AttributeModifier<CommonAttribute> {
   private enabled: boolean;
@@ -49,6 +50,8 @@ export struct CoverImage {
   @Param compositeEdges: boolean = false;
   @Param imageFit: ImageFit = ImageFit.Cover;
   @Param highPriority: boolean = true;
+  /** 固定播放栏不依赖滚动可见性回调，挂载和回前台即可加载。 */
+  @Param eagerLoad: boolean = false;
   @Event onImageSize: (url: string, width: number, height: number) => void = () => {};
   @Event onImageReady: (url: string) => void = () => {};
 
@@ -78,14 +81,32 @@ export struct CoverImage {
   private static failedUntil: Map<string, number> = new Map<string, number>();
   private retryTimer: number = -1;
   private appeared: boolean = false;
+  private appForeground: boolean = true;
+  private foregroundHandler = (): void => {
+    this.appForeground = true;
+    if (this.appeared && this.eagerLoad) this.visibilityChanged(true);
+  };
+  private backgroundHandler = (): void => {
+    this.appForeground = false;
+    this.visibilityChanged(false);
+  };
 
   aboutToAppear(): void {
     this.appeared = true;
+    if (this.eagerLoad) {
+      this.visible = true;
+      emitter.on('app.reader.foreground', this.foregroundHandler);
+      emitter.on('app.reader.background', this.backgroundHandler);
+    }
     this.resetCover();
   }
 
   aboutToDisappear(): void {
     this.appeared = false;
+    if (this.eagerLoad) {
+      emitter.off('app.reader.foreground', this.foregroundHandler);
+      emitter.off('app.reader.background', this.backgroundHandler);
+    }
     this.visible = false;
     this.loadHandle?.cancel();
     this.loadHandle = undefined;
@@ -120,7 +141,7 @@ export struct CoverImage {
       this.loadHandle = undefined;
       this.resolveGeneration++;
       this.cancelRetry();
-    } else if (!this.resolvedUrl && !this.giveUp && this.url.startsWith('http')) {
+    } else if (!this.loadHandle && !this.resolvedUrl && !this.giveUp && this.url.startsWith('http')) {
       this.resolveCover();
     }
   }
@@ -133,10 +154,14 @@ export struct CoverImage {
     this.loadHandle = handle;
     handle.promise.then((resolved: string): void => {
       if (!this.appeared || this.url !== raw || generation !== this.resolveGeneration) return;
+      this.loadHandle = undefined;
       this.resolvedUrl = resolved;
       this.showImage = true;
     }).catch((): void => {
-      if (this.appeared && this.url === raw && generation === this.resolveGeneration) this.giveUp = true;
+      if (this.appeared && this.url === raw && generation === this.resolveGeneration) {
+        this.loadHandle = undefined;
+        this.giveUp = true;
+      }
     });
   }
 
@@ -281,7 +306,9 @@ export struct CoverImage {
     .aspectRatio(this.useFixedHeight ? undefined : this.displayRatio())
     .attributeModifier(new CoverCompositeClip(this.compositeEdges, this.radius))
     .overlay(this.coverDecoration(), { align: Alignment.Center })
-    .onVisibleAreaChange([0], (visible: boolean): void => this.visibilityChanged(visible))
+    .onVisibleAreaChange([0], (visible: boolean): void => {
+      this.visibilityChanged(this.eagerLoad ? this.appForeground : visible);
+    })
   }
 
   @Builder

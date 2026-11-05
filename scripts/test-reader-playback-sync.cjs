@@ -174,6 +174,8 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   reader.syncSpeechPosition();
   assert.deepEqual(chapterLoads[0], [2, 45, 0, false, false], 'natural chapter transitions load next chapter');
   const { AVSessionService } = compile(fs.readFileSync(path.join(root, 'service/AVSessionService.ets'), 'utf8'), {
+    '../model/DesktopLyric': { DesktopLyricState: class {} },
+    './membership/MembershipFeatureLease': { MembershipFeatureLease: class { start() {} stop() {} } },
     './PlaybackCoordinator': { PlaybackCoordinator: coordinator },
     '@kit.AVSessionKit': { avSession: { LoopMode: {} } },
     '@kit.PerformanceAnalysisKit': { hilog: { warn() {}, error() {} } }

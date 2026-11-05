@@ -7,6 +7,7 @@ import { AuthService, HwAuthErrorCode } from '../service/AuthService';
 import { AppBackupSnapshot } from '../service/AppBackupService';
 import { AutoBackupService } from '../service/AutoBackupService';
 import { LibrarySyncService, LibrarySyncStatus } from '../service/LibrarySyncService';
+import { LibraryCloudIssue } from '../service/sync/LibraryCloudSync';
 import { MembershipState } from '../model/MembershipState';
 import { MembershipService } from '../service/MembershipService';
 import {
@@ -40,6 +41,7 @@ export struct AccountPage {
   @Local localBackupExpanded: boolean = false;
   @Local cloudBackupExpanded: boolean = false;
   @Local librarySyncExpanded: boolean = false;
+  @Local librarySyncChanging: boolean = false;
   private finishConfirmation: ((confirmed: boolean) => void) | null = null;
   private alive: boolean = false;
 
@@ -470,19 +472,19 @@ export struct AccountPage {
         Toggle({ type: ToggleType.Switch, isOn: this.auth.isLoggedIn &&
           this.librarySync.accountId === this.auth.openID && this.librarySync.enabled })
           .selectedColor(AppColor.Brand)
-          .enabled(this.auth.isLoggedIn && this.manualAvailable() && !this.librarySync.configuring &&
-            !this.membershipService.busy && !this.checkingMembership &&
-            (this.membership.hasAccess || this.librarySync.enabled))
-          .accessibilityText($r('app.string.library_sync_title'))
+          .hitTestBehavior(HitTestMode.None)
+          .focusable(false)
+          .accessibilityLevel('no')
           .id('library-sync-toggle')
-          .onChange((enabled: boolean): void => { this.configureLibrarySync(enabled); })
-          if (!this.membership.hasAccess && !this.librarySync.enabled) {
-            Button({ type: ButtonType.Normal }) { Row().width(52).height(32) }
-              .backgroundColor(Color.Transparent)
-              .accessibilityText($r('app.string.library_sync_membership_required'))
-              .enabled(!this.membershipService.busy && !this.checkingMembership && this.manualAvailable())
-              .onClick(() => this.configureLibrarySync(true))
-          }
+          // 只由真实点击表达用户意图，Toggle 的程序状态回写不参与开启/关闭流程。
+          Button({ type: ButtonType.Normal }) { Row().width(52).height(32) }
+            .backgroundColor(Color.Transparent)
+            .accessibilityText(this.librarySync.enabled ? $r('app.string.library_sync_disable') :
+              $r('app.string.library_sync_enable'))
+            .enabled(this.auth.isLoggedIn && this.manualAvailable() && !this.librarySync.configuring &&
+              !this.membershipService.busy && !this.checkingMembership && !this.librarySyncChanging)
+            .id('library-sync-action')
+            .onClick(() => this.configureLibrarySync(!(this.librarySync.accountId === this.auth.openID && this.librarySync.enabled)))
         }
       }.width('100%')
       Text($r('app.string.library_sync_description')).fontSize(AppFont.Caption).lineHeight(20)
@@ -494,6 +496,10 @@ export struct AccountPage {
       if (this.librarySync.deferredProgress > 0) {
         Text($r('app.string.library_sync_deferred')).fontSize(AppFont.Caption)
           .fontColor($r('sys.color.font_secondary'))
+      }
+      if (this.librarySync.enabled && this.librarySync.lastReceivedAt > 0 && this.librarySync.accountId === this.auth.openID) {
+        Text($r('app.string.library_sync_received', this.formatDate(this.librarySync.lastReceivedAt)))
+          .fontSize(AppFont.Caption).fontColor($r('sys.color.font_tertiary'))
       }
       if (this.auth.isLoggedIn && this.librarySync.enabled && this.librarySync.accountId === this.auth.openID) {
         Button($r('app.string.library_sync_now'), { type: ButtonType.Normal })
@@ -514,6 +520,23 @@ export struct AccountPage {
       $r('app.string.library_sync_membership_required') : $r('app.string.library_sync_membership_check');
     if (!this.auth.isLoggedIn) return $r('app.string.library_sync_login');
     if (this.librarySync.accountId !== this.auth.openID) return $r('app.string.library_sync_off');
+    if (!this.librarySync.enabled) return $r('app.string.library_sync_off');
+    switch (this.librarySync.cloud.issue) {
+      case LibraryCloudIssue.NETWORK: return $r('app.string.library_sync_network');
+      case LibraryCloudIssue.WIFI: return $r('app.string.library_sync_wifi');
+      case LibraryCloudIssue.BATTERY: return $r('app.string.library_sync_battery');
+      case LibraryCloudIssue.CLOUD_FULL: return $r('app.string.library_sync_cloud_full');
+      case LibraryCloudIssue.LOCAL_FULL: return $r('app.string.library_sync_local_full');
+      case LibraryCloudIssue.HOT: return $r('app.string.library_sync_hot');
+      case LibraryCloudIssue.SERVER:
+      case LibraryCloudIssue.NOT_READY:
+      case LibraryCloudIssue.STOPPED:
+      case LibraryCloudIssue.TIMEOUT:
+      case LibraryCloudIssue.SYSTEM: return $r('app.string.library_sync_system_wait');
+    }
+    if (this.librarySync.resumeChecking) return $r('app.string.library_sync_resume_check');
+    if (this.librarySync.resumeUnconfirmed) return $r('app.string.library_sync_resume_local');
+    if (this.librarySync.cloud.transferring) return $r('app.string.library_sync_working');
     switch (this.librarySync.status) {
       case LibrarySyncStatus.WORKING: return $r('app.string.library_sync_working');
       case LibrarySyncStatus.PENDING: return $r('app.string.library_sync_pending');
@@ -528,15 +551,22 @@ export struct AccountPage {
   }
 
   private async configureLibrarySync(enabled: boolean): Promise<void> {
-    if (enabled && !await this.requireAutoMembership()) return;
-    const context = this.getUIContext().getHostContext();
-    if (!context) return;
-    await this.runManual(async (): Promise<void> => {
-      if (enabled && !await this.confirmRestore($r('app.string.library_sync_title'),
-        $r('app.string.library_sync_confirm'), $r('app.string.library_sync_enable'))) return;
-      try { await this.librarySync.setEnabled(context, enabled); }
-      catch (_error) { this.toast(this.membership.hasAccess ? $r('app.string.library_sync_failed') : this.librarySyncText()); }
-    });
+    // 仅真实点击进入；在第一个 await 前锁住整个确认流程，取消后状态刷新不会再次开启。
+    if (this.librarySyncChanging || enabled === (this.librarySync.accountId === this.auth.openID &&
+      this.librarySync.enabled) || !this.manualAvailable()) return;
+    this.librarySyncChanging = true;
+    try {
+      if (enabled && !await this.requireAutoMembership()) return;
+      const context = this.getUIContext().getHostContext();
+      if (!context || !this.alive) return;
+      await this.runManual(async (): Promise<void> => {
+        if (enabled && !await this.confirmRestore($r('app.string.library_sync_title'),
+          $r('app.string.library_sync_confirm'), $r('app.string.library_sync_enable'))) return;
+        if (!this.alive) return;
+        try { await this.librarySync.setEnabled(context, enabled); }
+        catch (_error) { this.toast(this.membership.hasAccess ? $r('app.string.library_sync_failed') : this.librarySyncText()); }
+      });
+    } finally { this.librarySyncChanging = false; }
   }
 
   @Builder

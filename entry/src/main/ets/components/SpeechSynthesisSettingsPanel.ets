@@ -1,5 +1,5 @@
 import { SpeechSynthesisSettings } from '../model/SpeechSynthesisSettings';
-import { AppColor } from '../theme/Theme';
+import { AppColor, AppTheme } from '../theme/Theme';
 
 /** 独立 V2 参数保持滑条和数值同步，避免 Builder 按值参数冻结显示。 */
 @ComponentV2
@@ -20,7 +20,8 @@ struct SynthesisNumberSetting {
       Slider({ value: this.value, min: this.min, max: this.max, step: this.step })
         .selectedColor(AppColor.Brand).blockColor(AppColor.Brand)
         .onChange((next: number): void => this.changed(Math.round(next)))
-    }.width('100%')
+    }.width('100%').padding(16).borderRadius(16).backgroundColor(AppTheme.Surface)
+      .border({ width: 0.5, color: AppTheme.Divider })
   }
 }
 
@@ -28,6 +29,7 @@ struct SynthesisNumberSetting {
 export struct SpeechSynthesisSettingsPanel {
   @Param settings: SpeechSynthesisSettings = new SpeechSynthesisSettings();
   @Event onSave: (value: SpeechSynthesisSettings) => Promise<void> = async (): Promise<void> => {};
+  @Local quickStart: boolean = false;
   @Local paragraphs: number = 1;
   @Local maxChars: number = 4000;
   @Local timeoutSeconds: number = 30;
@@ -39,6 +41,7 @@ export struct SpeechSynthesisSettingsPanel {
   @Local message: ResourceStr = '';
 
   aboutToAppear(): void {
+    this.quickStart = this.settings.quickStart;
     this.paragraphs = this.settings.paragraphs;
     this.maxChars = this.settings.maxChars;
     this.timeoutSeconds = this.settings.timeoutSeconds;
@@ -54,6 +57,7 @@ export struct SpeechSynthesisSettingsPanel {
       this.message = $r('app.string.tts_synthesis_rules_error'); return;
     }
     const value = new SpeechSynthesisSettings();
+    value.quickStart = this.quickStart;
     value.paragraphs = this.paragraphs;
     value.maxChars = this.maxChars;
     value.timeoutSeconds = this.timeoutSeconds;
@@ -70,6 +74,16 @@ export struct SpeechSynthesisSettingsPanel {
   build() {
     Column({ space: 12 }) {
       Text($r('app.string.tts_synthesis_hint')).fontSize(12).fontColor($r('sys.color.font_secondary')).width('100%')
+      Column({ space: 8 }) {
+        Button($r('app.string.tts_continuous_preset')).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
+          .onClick((): void => { this.paragraphs = 3; this.maxChars = 500; this.concurrency = 3; this.quickStart = true; this.save(); })
+        Text($r('app.string.tts_continuous_hint')).fontSize(12).fontColor(AppTheme.TextSecondary)
+      }.width('100%').padding(16).borderRadius(16).backgroundColor(AppTheme.Surface)
+      Row() {
+        Text($r('app.string.tts_quick_start')).fontColor(AppTheme.TextPrimary).layoutWeight(1)
+        Toggle({ type: ToggleType.Switch, isOn: this.quickStart }).selectedColor(AppColor.Brand)
+          .onChange((value: boolean): void => { this.quickStart = value; })
+      }.width('100%').padding(16).borderRadius(16).backgroundColor(AppTheme.Surface)
       SynthesisNumberSetting({ label: $r('app.string.tts_synthesis_paragraphs'), value: this.paragraphs,
         min: 1, max: 10, step: 1, changed: (value: number): void => { this.paragraphs = value; } })
       SynthesisNumberSetting({ label: $r('app.string.tts_synthesis_max_chars'), value: this.maxChars,
@@ -84,10 +98,14 @@ export struct SpeechSynthesisSettingsPanel {
         Text($r('app.string.tts_synthesis_filter')).fontColor($r('sys.color.font_primary')).layoutWeight(1)
         Toggle({ type: ToggleType.Switch, isOn: this.filterSymbols }).selectedColor(AppColor.Brand)
           .onChange((value: boolean): void => { this.filterSymbols = value; })
-      }.width('100%')
+      }.width('100%').padding(16).borderRadius(16).backgroundColor(AppTheme.Surface)
+        .border({ width: 0.5, color: AppTheme.Divider })
+      Column({ space: 12 }) {
       Text($r('app.string.tts_synthesis_rules')).fontSize(14).fontColor($r('sys.color.font_primary')).width('100%')
       TextArea({ text: this.replacements, placeholder: $r('app.string.tts_synthesis_rules_hint') })
         .height(100).maxLength(4096).onChange((value: string): void => { this.replacements = value; })
+      }.width('100%').padding(16).borderRadius(16).backgroundColor(AppTheme.Surface)
+        .border({ width: 0.5, color: AppTheme.Divider })
       Button($r('app.string.tts_synthesis_apply')).fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
         .onClick((): void => { this.save(); }).id('tts-synthesis-save')
       if (this.message !== '') {

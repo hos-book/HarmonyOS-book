@@ -1,5 +1,8 @@
 {
   "color": [
+    {"name": "splash_brand_text", "value": "#16181D"},
+    {"name": "splash_brand_caption", "value": "#9AA0AC"},
+    {"name": "splash_progress_track", "value": "#ECEEF3"},
     {"name":"theme_mist_background","value":"#EEF3F7"},
     {"name":"theme_mist_surface","value":"#FAFCFE"},
     {"name":"theme_mist_text_primary","value":"#233442"},

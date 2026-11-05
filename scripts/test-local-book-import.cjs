@@ -45,6 +45,10 @@ const pdfService = {
           if (index === pdfFailurePage) throw new Error('native render failed');
           assert.ok(width > 0 && height > 0 && width * height <= 4 * 1024 ** 2);
           assert.ok(width <= 3072 && height <= 3072);
+          assert.equal(matrix.width, width, 'PDF page must fill the output width, not a scale-sized corner');
+          assert.equal(matrix.height, height, 'PDF page must fill the output height');
+          assert.equal(matrix.x, 0);
+          assert.equal(matrix.y, 0);
           assert.equal(options.drawAnnotations, true);
           assert.equal(options.isTransparent, false);
           pdfRenders.push({ index, width, height }); pdfPixels++;

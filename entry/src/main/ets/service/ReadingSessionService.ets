@@ -1,55 +1,13 @@
 import { GeneralSettings } from '../model/GeneralSettings';
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
-import { Book, Chapter } from '../model/Book';
-import { TextReadingPosition } from '../model/TextReading';
+import { SessionLocation, ReadingSession } from '../model/ReadingSession';
+import { util } from '@kit.ArkTS';
+import { emitter } from '@kit.BasicServicesKit';
+import { LibrarySyncModel, LibrarySyncValue, LIBRARY_SYNC_CHANGED } from './sync/LibrarySyncModel';
 import { DiagnosticLogService } from './DiagnosticLogService';
 
-export class SessionLocation {
-  bookId: string = '';
-  chapterId: string = '';
-  chapterTitle: string = '';
-  chapterUrl: string = '';
-  chapterIndex: number = 0;
-  position: number = 0;
-  total: number = 0;
-  domPos: string = '';
-  pageOffset: number = 0;
-
-  static audio(book: Book, chapter: Chapter, position: number, total: number): SessionLocation {
-    const value = new SessionLocation();
-    value.bookId = book.id;
-    value.chapterId = chapter.id;
-    value.chapterTitle = chapter.title;
-    value.chapterUrl = chapter.originSourceValue || chapter.source.value;
-    value.chapterIndex = Math.max(0, book.chapters.findIndex((item: Chapter): boolean => item.id === chapter.id));
-    value.position = Math.max(0, position);
-    value.total = Math.max(0, total);
-    return value;
-  }
-
-  static text(book: Book, position: TextReadingPosition): SessionLocation {
-    const chapter = book.chapters[position.resourceIndex];
-    const value = chapter ? SessionLocation.audio(book, chapter, position.charOffset, 0) : new SessionLocation();
-    value.bookId = book.id;
-    value.chapterIndex = position.resourceIndex;
-    value.chapterTitle = position.chapterTitle;
-    value.position = position.charOffset;
-    value.domPos = position.domPos;
-    value.pageOffset = position.pageOffset;
-    return value;
-  }
-}
-
-export class ReadingSession {
-  id: string = '';
-  sessionId: string = '';
-  kind: string = '';
-  startedAt: number = 0;
-  endedAt: number = 0;
-  start: SessionLocation = new SessionLocation();
-  end: SessionLocation = new SessionLocation();
-}
+export { SessionLocation, ReadingSession } from '../model/ReadingSession';
 
 /** 独立于最新进度的有界会话记录。跨章保留分段，跳回不覆盖过去会话。 */
 export class ReadingSessionService {
@@ -58,7 +16,6 @@ export class ReadingSessionService {
   private static chain: Promise<void> = Promise.resolve();
   private static active: Map<string, ReadingSession> = new Map();
   private static savedAt: Map<string, number> = new Map();
-  private static sequence: number = 0;
 
   static init(context: common.BaseContext): void {
     ReadingSessionService.ready = preferences.getPreferences(context, { name: 'reading_sessions_v1' })
@@ -76,7 +33,7 @@ export class ReadingSessionService {
       const sessionId = entry?.end.bookId === location.bookId ? entry.sessionId : '';
       if (entry) ReadingSessionService.persist(entry);
       entry = new ReadingSession();
-      entry.id = `${now}_${++ReadingSessionService.sequence}`;
+      entry.id = `${now}_${util.generateRandomUUID(false)}`;
       entry.sessionId = sessionId || entry.id;
       entry.kind = kind;
       entry.startedAt = now;
@@ -113,6 +70,7 @@ export class ReadingSessionService {
       const keys = Object.keys(await store.getAll()).sort();
       for (let index = 0; index < keys.length - 2000; index++) await store.delete(keys[index]);
       await store.flush();
+      emitter.emit(LIBRARY_SYNC_CHANGED);
     }).catch((error: Error): void => { DiagnosticLogService.info('session.save.failed', error.message); });
   }
 
@@ -123,6 +81,79 @@ export class ReadingSessionService {
       const snapshot: ReadingSession = JSON.parse(JSON.stringify(entry));
       result.set(snapshot.id, snapshot);
     }
+  }
+
+  private static syncValues(store: preferences.Preferences): LibrarySyncValue[] {
+    const result: LibrarySyncValue[] = [];
+    const stored: preferences.ValueType[] = Object.values(store.getAllSync());
+    for (const raw of stored) {
+      if (typeof raw !== 'string') continue;
+      try {
+        const item: ReadingSession = JSON.parse(raw);
+        if (!item?.start || !item.end || !LibrarySyncValue.online(item.end.bookId)) continue;
+        // 历史跳转依赖章节身份和位置，不跨设备传输临时音频地址或本机路径。
+        item.start.chapterUrl = '';
+        item.end.chapterUrl = '';
+        const value = new LibrarySyncValue('session', item.end.bookId, JSON.stringify(item));
+        value.entryId = item.id;
+        if (LibrarySyncModel.validSession(value.bookId, value.entryId, value.value)) result.push(value);
+      } catch (_error) { /* 跳过单条损坏数据，不改变本机历史。 */ }
+    }
+    return result.sort(LibrarySyncModel.order);
+  }
+
+  static async exportLibrarySyncValues(): Promise<LibrarySyncValue[]> {
+    await ReadingSessionService.ready;
+    await ReadingSessionService.chain;
+    if (!ReadingSessionService.store) throw new Error('Session store unavailable');
+    return ReadingSessionService.syncValues(ReadingSessionService.store);
+  }
+
+  static async applyLibrarySyncValues(records: LibrarySyncValue[], expected: LibrarySyncValue[],
+    guard: () => void): Promise<LibrarySyncValue[]> {
+    const applied: LibrarySyncValue[] = [];
+    const task = ReadingSessionService.chain.then(async (): Promise<void> => {
+      await ReadingSessionService.ready;
+      const store = ReadingSessionService.store;
+      if (!store) throw new Error('Session store unavailable');
+      guard();
+      const current = new Map<string, string>();
+      const baseline = new Map<string, string>();
+      ReadingSessionService.syncValues(store).forEach((v: LibrarySyncValue): void => {
+        current.set(LibrarySyncValue.key(v), v.value);
+      });
+      expected.forEach((v: LibrarySyncValue): void => { baseline.set(LibrarySyncValue.key(v), v.value); });
+      for (const record of records) {
+        if (record.kind !== 'session') continue;
+        const key = LibrarySyncValue.key(record);
+        if ((current.get(key) ?? '') !== (baseline.get(key) ?? '') ||
+          Array.from(ReadingSessionService.active.values()).some((v: ReadingSession): boolean => v.id === record.entryId)) continue;
+        if (record.value) {
+          if (!LibrarySyncModel.validSession(record.bookId, record.entryId, record.value)) continue;
+          store.putSync(record.entryId, record.value);
+        } else store.deleteSync(record.entryId);
+        applied.push(record);
+      }
+      if (applied.length === 0) return;
+      const keys = Object.keys(store.getAllSync()).sort();
+      // 优先淘汰在线旧会话，保留本地导入书的历史。
+      let excess = keys.length - 2000;
+      for (const key of keys) {
+        if (excess <= 0) break;
+        const raw = store.getSync(key, '');
+        if (typeof raw !== 'string') continue;
+        try {
+          const item: ReadingSession = JSON.parse(raw);
+          if (item?.end && LibrarySyncValue.online(item.end.bookId)) { store.deleteSync(key); excess--; }
+        } catch (_error) { }
+      }
+      await store.flush();
+    });
+    ReadingSessionService.chain = task.catch((error: Error): void => {
+      DiagnosticLogService.info('session.sync.failed', error.message);
+    });
+    await task;
+    return applied;
   }
 
   static async list(bookIds: string[], isActive: () => boolean = (): boolean => true): Promise<ReadingSession[]> {

@@ -10,10 +10,22 @@ const requests = [], players = [], files = new Set();
 const gainRequests = [];
 const settle = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 const moduleMock = { exports: {} };
-vm.runInNewContext(code, { module: moduleMock, exports: moduleMock.exports, ArrayBuffer, setTimeout, clearTimeout, require(name) {
+vm.runInNewContext(code, { module: moduleMock, exports: moduleMock.exports, ArrayBuffer, Uint8Array, setTimeout, clearTimeout, require(name) {
   if (name === '../../utils/PlatformCompat') return { PlatformCompat: { supports: () => true } };
+  if (name === '@kit.PerformanceAnalysisKit') return { hilog: { info() {} } };
   if (name === '@kit.NetworkKit') return { http: { createHttp() {
-    const req = { request(_url, options) { req.options = options; return new Promise((resolve, reject) => { req.resolve = resolve; req.reject = reject; }); },
+    const listeners = new Map();
+    const req = { on: (name, callback) => listeners.set(name, callback), off: name => listeners.delete(name),
+      chunk: data => listeners.get('dataReceive')?.(data),
+      end: () => listeners.get('dataEnd')?.(),
+      requestInStream(_url, options) { req.options = options; return new Promise((resolve, reject) => {
+        req.status = resolve;
+        req.resolve = response => {
+          const bytes = typeof response.result === 'string' ? Uint8Array.from(Buffer.from(response.result)).buffer : response.result;
+          req.chunk(bytes); req.end(); resolve(response.responseCode);
+        };
+        req.reject = reject;
+      }); },
       destroy() { req.destroyed = true; } };
     requests.push(req); return req;
   } } };
@@ -27,7 +39,7 @@ vm.runInNewContext(code, { module: moduleMock, exports: moduleMock.exports, Arra
   } };
   if (name === '@kit.AudioKit') return { audio: { StreamUsage: { STREAM_USAGE_AUDIOBOOK: 1 },
     InterruptHint: { INTERRUPT_HINT_PAUSE: 1, INTERRUPT_HINT_STOP: 2 } } };
-  if (name === '@kit.MediaKit') return { media: { async createAVPlayer() {
+  if (name === '@kit.MediaKit') return { media: { SeekMode: { SEEK_PREV_SYNC: 0 }, async createAVPlayer() {
     const listeners = new Map();
     const player = { state: 'idle', on: (event, callback) => listeners.set(event, callback),
       off: event => listeners.delete(event),
@@ -35,6 +47,7 @@ vm.runInNewContext(code, { module: moduleMock, exports: moduleMock.exports, Arra
       async prepare() { this.state = 'prepared'; listeners.get('stateChange')('prepared'); },
       setLoudnessGain(gain) { return new Promise((resolve, reject) => gainRequests.push({ gain, resolve, reject })); },
       setPlaybackRate(value) { this.rate = value; },
+      seek(value) { this.seekPosition = value; },
       async play() { this.state = 'playing'; listeners.get('stateChange')('playing'); },
       complete() { this.state = 'completed'; listeners.get('stateChange')('completed'); },
       async reset() { this.state = 'idle'; this.resetCount = (this.resetCount || 0) + 1; },
@@ -57,6 +70,15 @@ const respond = req => req.resolve({ responseCode: 200, result: new ArrayBuffer(
   const playing = task.speak({ cacheDir: '/cache' }, {}, '第一句。', 1.5, 'first', () => started++, output);
   await settle();
   assert.equal(requests.length, 1); assert.equal(started, 1); assert.equal(players[0].rate, 1.5);
+  output.setPlaybackSpeed(2); output.setPlaybackSpeed(0.75);
+  assert.equal(players[0].rate, 0.75);
+  assert.equal(requests.length, 1, 'changing playback rate must not synthesize again');
+  players[0].duration = 10000;
+  assert.equal(output.seekRatio(0.6), true);
+  assert.equal(players[0].seekPosition, 6000);
+  assert.equal(output.seekRatio(0.1), true);
+  assert.equal(players[0].seekPosition, 1000);
+  assert.equal(requests.length, 1, 'seeking inside prepared audio must not synthesize again');
   assert.equal(gainRequests[0].gain, 12, 'first segment starts while native gain promise remains pending');
   players[0].complete(); await playing;
   assert.equal(players[0].released, undefined); assert.equal(players[0].resetCount, 1);
@@ -64,7 +86,8 @@ const respond = req => req.resolve({ responseCode: 200, result: new ArrayBuffer(
 
   const next = new HttpTtsPlayer();
   const nextSpeech = next.speak({ cacheDir: '/cache' }, {}, '下一段。', 1, 'next', () => started++, output);
-  await settle(); respond(requests[1]); await settle();
+  await settle(); output.setPlaybackSpeed(2); respond(requests[1]); await settle();
+  assert.equal(players[0].rate, 2, 'speed changed during synthesis survives late audio preparation');
   assert.equal(players.length, 1); assert.equal(started, 2);
   assert.equal(gainRequests[1].gain, 12, 'next segment restores gain without waiting for either native promise');
   gainRequests[0].reject(new Error('late native failure'));
@@ -91,11 +114,19 @@ const respond = req => req.resolve({ responseCode: 200, result: new ArrayBuffer(
   gainRequests[2].resolve();
   stopped.cancel(); await stoppedResult;
   assert.equal(players[1].released, true); assert.equal(files.size, 0);
+  const hangingOutput = new HttpTtsAudioOutput();
+  const oldPlayer = await hangingOutput.acquire();
+  oldPlayer.reset = () => new Promise(() => {});
+  oldPlayer.release = () => new Promise(() => {});
+  await hangingOutput.finish(oldPlayer, true);
+  const replacement = await hangingOutput.acquire();
+  assert.notEqual(replacement, oldPlayer, 'hung cleanup cannot block subsequent playback or reuse a stale player');
+  await hangingOutput.release();
   const retryStart = requests.length;
   const retry = new HttpTtsPlayer(0.01, 1);
   await assert.rejects(retry.prepare({}, '超时重试。', 3), /timed out/);
   assert.equal(requests.length - retryStart, 2, 'retry count is bounded even when the provider never responds');
-  assert.ok(requests.slice(retryStart).every(req => req.destroyed && req.options.readTimeout === 10));
+  assert.ok(requests.slice(retryStart).every(req => req.destroyed && req.options.readTimeout === 40));
   const stopRetry = new HttpTtsPlayer(30, 3);
   const stopRetryResult = stopRetry.prepare({}, '取消重试。', 3);
   const cancelledRetry = assert.rejects(stopRetryResult, /cancelled/);
@@ -104,5 +135,47 @@ const respond = req => req.resolve({ responseCode: 200, result: new ArrayBuffer(
   const beforeCancel = requests.length;
   stopRetry.cancel(); await cancelledRetry;
   assert.equal(requests.length, beforeCancel, 'cancellation clears retry backoff without issuing another request');
+  for (const [status, kind, body] of [
+    [401, 'auth', ''], [403, 'auth', '<html>private</html>'], [400, 'config', 'bad config'],
+    [500, 'voice', JSON.stringify({ error: { code: 'hd_synthesis_failed', message: 'secret' } })],
+    [200, 'audio', '<html>not audio</html>']
+  ]) {
+    const start = requests.length;
+    const task = new HttpTtsPlayer(30, 3);
+    const done = assert.rejects(task.prepare({}, '测试。', 1), error => error.kind === kind && !error.message.includes('secret'));
+    await settle();
+    const bytes = Uint8Array.from(Buffer.from(body));
+    requests.at(-1).resolve({ responseCode: status, result: bytes.buffer });
+    await done;
+    assert.equal(requests.length - start, 1, `${kind} must not retry`);
+    assert.equal(requests.at(-1).destroyed, true);
+  }
+  const recovering = new HttpTtsPlayer(30, 1);
+  const recovery = recovering.prepare({}, '服务恢复。', 1);
+  await settle();
+  requests.at(-1).resolve({ responseCode: 503, result: '<html>unavailable</html>' });
+  await new Promise(resolve => setTimeout(resolve, 350));
+  respond(requests.at(-1)); await recovery;
+  assert.equal(recovering.ready, true);
+  const slow = new HttpTtsPlayer(0.025, 0);
+  const slowResult = slow.prepare({}, '持续传输不应被空闲超时截断。', 1);
+  await settle();
+  const slowRequest = requests.at(-1);
+  slowRequest.status(200);
+  for (let i = 0; i < 4; i++) {
+    await new Promise(resolve => setTimeout(resolve, 15));
+    slowRequest.chunk(new ArrayBuffer(12));
+  }
+  slowRequest.end(); await slowResult;
+  assert.equal(slow.ready, true, 'audio arriving beyond the old total timeout still completes');
+  const stalled = new HttpTtsPlayer(0.015, 0);
+  const stalledResult = assert.rejects(stalled.prepare({}, '半途停止传输。', 1), /timed out/);
+  await settle(); requests.at(-1).status(200); requests.at(-1).chunk(new ArrayBuffer(12));
+  await stalledResult;
+  assert.equal(stalled.ready, false, 'partial audio must never become playable');
+  const oversized = new HttpTtsPlayer(30, 0);
+  const sizeResult = assert.rejects(oversized.prepare({}, '超限。', 1), e => e.kind === 'audio');
+  await settle(); requests.at(-1).chunk(new ArrayBuffer(8 * 1024 * 1024 + 1));
+  await sizeResult;
   console.log('PASS 连续片段复用同一播放器、停止释放、预取不播放、合成去重、取消迟到请求和临时文件释放');
 })().catch(error => { console.error(error); process.exitCode = 1; });

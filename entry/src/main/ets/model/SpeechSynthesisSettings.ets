@@ -1,5 +1,6 @@
 /** 合成输入配置与阅读正文分离；替换采用字面匹配，不执行脚本或正则。 */
 export class SpeechSynthesisSettings {
+  quickStart: boolean = false;
   paragraphs: number = 1;
   maxChars: number = 4000;
   timeoutSeconds: number = 30;
@@ -14,6 +15,7 @@ export class SpeechSynthesisSettings {
 
   static normalize(value: SpeechSynthesisSettings): SpeechSynthesisSettings {
     const result = new SpeechSynthesisSettings();
+    result.quickStart = value.quickStart === true;
     result.paragraphs = SpeechSynthesisSettings.bounded(value.paragraphs, 1, 1, 10);
     result.maxChars = SpeechSynthesisSettings.bounded(value.maxChars, 4000, 100, 4000);
     result.timeoutSeconds = SpeechSynthesisSettings.bounded(value.timeoutSeconds, 30, 5, 120);

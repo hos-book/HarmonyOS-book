@@ -97,8 +97,15 @@ export class SpeechTextSegmenter {
   /** 同一次合成可覆盖多个自然段，位置仍对应原文；系统 PCM 单次限制 300 字。 */
   static batches(content: string, settings: SpeechSynthesisSettings, custom: boolean, pageEnds: number[] = []): SpeechSegment[] {
     const limit = Math.min(settings.maxChars, custom ? 4000 : 300);
-    const segments = SpeechTextSegmenter.split(content, false, pageEnds, settings.filterSymbols, Math.min(limit - 2, 180), limit);
+    // 渐进朗读的后续请求也保持短段，避免首句后等待数百字完整合成。
+    // maxChars 仍是用户上限；替换规则扩张后的单句继续按原上限校验。
+    const batchLimit = custom && settings.quickStart ? Math.min(limit, 64) : limit;
+    const segments = SpeechTextSegmenter.split(content, false, pageEnds, settings.filterSymbols,
+      Math.min(batchLimit - 2, 180), batchLimit);
     const result: SpeechSegment[] = [];
+    const startOffset = pageEnds.length > 0 ? Math.max(...pageEnds) : 0;
+    let firstSpoken = false;
+    let protectFirst = false;
     let paragraphs = 0;
     let lastParagraph = -1;
     for (const segment of segments) {
@@ -108,8 +115,10 @@ export class SpeechTextSegmenter {
       const previous = result.length > 0 ? result[result.length - 1] : null;
       const newParagraph = segment.paragraphStart !== lastParagraph;
       const separator = newParagraph ? '\n' : (segment.leadingWhitespace > 0 ? ' ' : '');
-      if (previous !== null && paragraphs + (newParagraph ? 1 : 0) <= settings.paragraphs &&
-        previous.text.length + separator.length + segment.text.length <= limit &&
+      const first = custom && settings.quickStart && !firstSpoken && segment.end > startOffset;
+      if (segment.end > startOffset) firstSpoken = true;
+      if (!first && !protectFirst && previous !== null && paragraphs + (newParagraph ? 1 : 0) <= settings.paragraphs &&
+        previous.text.length + separator.length + segment.text.length <= batchLimit &&
         !pageEnds.some((offset: number): boolean => offset > previous.start && offset < segment.end)) {
         previous.end = segment.end;
         previous.text += separator + segment.text;
@@ -118,6 +127,7 @@ export class SpeechTextSegmenter {
         result.push(segment);
         paragraphs = 1;
       }
+      protectFirst = first;
       lastParagraph = segment.paragraphStart;
     }
     return result;

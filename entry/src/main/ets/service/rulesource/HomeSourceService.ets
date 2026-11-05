@@ -1,5 +1,6 @@
 import { HomeBlockSection } from '../../model/BookSource';
 import { LocalRuleSource } from '../../model/LocalRuleSource';
+import { LocalRuleControl, LocalRulePanel } from '../../model/LocalRulePanel';
 import { BookSourceService } from '../BookSourceService';
 import { PreferenceService } from '../PreferenceService';
 import { SourceDataService } from '../SourceDataService';
@@ -20,6 +21,7 @@ export class HomeSourceCategory {
 }
 
 export class HomeSourceContent {
+  filters: LocalRuleControl[] = [];
   categories: HomeSourceCategory[] = [];
   channels: string[] = [];
   channel: string = '';
@@ -94,7 +96,10 @@ export class HomeSourceService {
 
   private static async fetchHome(source: LocalRuleSource, task: HomeSourceLoad,
     channel: string): Promise<HomeSourceContent> {
-    const categories = (await HomeSourceService.getCategories(source)).filter((category: HomeSourceCategory): boolean =>
+    const panel = await LocalRulePanelService.load(source, false);
+    task.content.filters = panel.controls.filter((control: LocalRuleControl): boolean =>
+      control.discoveryFilter && control.options.length > 0 && control.action.length > 0);
+    const categories = (await HomeSourceService.getCategories(source, panel)).filter((category: HomeSourceCategory): boolean =>
       HomeSourceService.isSupportedChannel(category.group));
     task.content.channels = Array.from(new Set(categories.map((category: HomeSourceCategory): string => category.group)
       .filter((group: string): boolean => group.length > 0)));
@@ -155,9 +160,9 @@ export class HomeSourceService {
     return source.enabledExplore && source.exploreUrl.trim().length > 0;
   }
 
-  static async getCategories(source: LocalRuleSource): Promise<HomeSourceCategory[]> {
+  static async getCategories(source: LocalRuleSource, loadedPanel?: LocalRulePanel): Promise<HomeSourceCategory[]> {
     if (!source.enabledExplore || !source.exploreUrl.trim()) return [];
-    const panel = await LocalRulePanelService.load(source, false);
+    const panel = loadedPanel ?? await LocalRulePanelService.load(source, false);
     const categories: HomeSourceCategory[] = [];
     const seen = new Set<string>();
     let group: string = '';

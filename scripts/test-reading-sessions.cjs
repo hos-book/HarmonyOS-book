@@ -23,6 +23,10 @@ const store = { put: async (k, v) => memory.set(k, v), getSync: (k, v) => { sync
   getAll: async () => { reads++; return Object.fromEntries(memory); }, delete: async k => memory.delete(k), flush: async () => { flushes++; } };
 function sessions() {
   return load('service/ReadingSessionService.ets', {
+    '../model/ReadingSession': load('model/ReadingSession.ets'),
+    '../model/GeneralSettings': { GeneralSettings: { current: { historyEnabled: true } } },
+    '@kit.ArkTS': { util: { generateRandomUUID: () => require('node:crypto').randomUUID() } },
+    '@kit.BasicServicesKit': { emitter: { emit() {} } },
     '@kit.ArkData': { preferences: { getPreferences: async () => store } },
     './DiagnosticLogService': { DiagnosticLogService: { info() {} } }
   });

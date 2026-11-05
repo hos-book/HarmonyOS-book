@@ -10,6 +10,12 @@ export class LibraryCloudFile {
   generation: number = 0;
 }
 
+export class LibraryUploadState {
+  location: number = 0;
+  state: cloudSync.FileState = cloudSync.FileState.TO_BE_UPLOADED;
+  confirmed: boolean = false;
+}
+
 /** 文件只由其创建设备写入，其他设备只读；系统自动上传，不循环调用 FileSync.start。 */
 export class LibrarySyncFiles {
   private cancelDownload: (() => void) | null = null;
@@ -36,10 +42,18 @@ export class LibrarySyncFiles {
   }
 
   async confirmed(path: string): Promise<boolean> {
+    return (await this.uploadState(path)).confirmed;
+  }
+
+  async uploadState(path: string): Promise<LibraryUploadState> {
     const stat = await fileIo.stat(path);
     const state = cloudSync.getCoreFileSyncState(fileUri.getUriFromPath(path));
-    return (stat.location & 2) !== 0 && (state === cloudSync.FileState.UPLOAD_SUCCESS ||
+    const result = new LibraryUploadState();
+    result.location = stat.location;
+    result.state = state;
+    result.confirmed = (stat.location & 2) !== 0 && (state === cloudSync.FileState.UPLOAD_SUCCESS ||
       state === cloudSync.FileState.INITIAL_AFTER_DOWNLOAD);
+    return result;
   }
 
   async readCloud(path: string, guard: () => void): Promise<string> {
@@ -117,9 +131,12 @@ export class LibrarySyncFiles {
   static async write(path: string, raw: string, cloud: boolean = false, guard: () => void = (): void => {}): Promise<void> {
     const bytes = new util.TextEncoder().encodeInto(raw);
     if (bytes.byteLength > LIBRARY_SYNC_MAX_BYTES) throw new Error('Sync size limit exceeded');
-    const pending = path + '.pending';
+    // 云文件使用唯一最终名称，close 提交给 FUSE；避免临时文件重命名后仍被系统标记为无需上传。
+    // 本机队列继续原子替换，不能将此规则推广到本机持久化。
+    const pending = cloud ? path : path + '.pending';
     guard();
     const file = await fileIo.open(pending, fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
+    let complete = false;
     try {
       let total = 0;
       while (total < bytes.byteLength) {
@@ -129,10 +146,16 @@ export class LibrarySyncFiles {
         if (count <= 0 || count > part.byteLength) throw new Error('Incomplete sync write');
         total += count;
       }
-      // 云目录由 FUSE 管理，close + 同目录重命名提交；本机队列必须 fsync。
+      // 云目录由 FUSE 管理，close 提交；本机队列必须 fsync。
       if (!cloud) await fileIo.fsync(file.fd);
-    } finally { await fileIo.close(file); }
+      complete = true;
+    } finally {
+      await fileIo.close(file);
+      if (cloud && !complete) {
+        try { await fileIo.unlink(path); } catch (_error) { }
+      }
+    }
     guard();
-    await fileIo.moveFile(pending, path);
+    if (!cloud) await fileIo.moveFile(pending, path);
   }
 }

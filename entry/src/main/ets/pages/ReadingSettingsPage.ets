@@ -1,8 +1,6 @@
 import { sendableContextManager } from '@kit.AbilityKit';
-import { ReaderSpeechSheet } from '../components/ReaderSpeechSheet';
 import { ReaderColorPalette } from '../components/ReaderColorPalette';
 import { TextReadingSettings } from '../model/TextReading';
-import { TextToSpeechState } from '../model/TextToSpeechState';
 import { TextReadingSettingsService } from '../service/text/TextReadingSettingsService';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { AppColor, AppFont, AppSpace, AppTheme } from '../theme/Theme';
@@ -11,7 +9,6 @@ import { WindowUtils } from '../utils/WindowUtils';
 @ComponentV2
 export struct ReadingSettingsPage {
   @Param navStack: NavPathStack = new NavPathStack();
-  @Local speechState: TextToSpeechState = TextToSpeechService.getInstance().state;
   @Local ready: boolean = false;
   @Local loading: boolean = false;
   @Local saving: boolean = false;
@@ -80,6 +77,9 @@ export struct ReadingSettingsPage {
       }.width('100%')
       Text($r('app.string.reader_dialogue_highlight_hint')).fontSize(AppFont.Caption)
         .fontColor(AppTheme.TextSecondary).width('100%')
+    }.width('100%').padding(18).borderRadius(18).backgroundColor(AppTheme.Surface)
+      .border({ width: 0.5, color: AppTheme.Divider }).alignItems(HorizontalAlign.Start)
+    Column({ space: 12 }) {
       Row({ space: 8 }) {
         Text($r('app.string.reader_dialogue_color')).fontSize(AppFont.Body)
           .fontColor(AppTheme.TextPrimary).layoutWeight(1)
@@ -97,10 +97,8 @@ export struct ReadingSettingsPage {
       Text($r('app.string.reader_dialogue_color_preview')).fontSize(AppFont.BodyL)
         .fontColor(this.previewColor).width('100%').padding(12)
         .backgroundColor('#FFF8F0').borderRadius(12)
-    }.width('100%').alignItems(HorizontalAlign.Start)
-    Divider().color(AppTheme.Divider)
-    Text($r('app.string.tts_settings_title')).fontSize(AppFont.BodyL)
-      .fontWeight(FontWeight.Medium).fontColor(AppTheme.TextPrimary)
+    }.width('100%').padding(18).borderRadius(18).backgroundColor(AppTheme.Surface)
+      .border({ width: 0.5, color: AppTheme.Divider }).alignItems(HorizontalAlign.Start)
   }
 
   build() {
@@ -115,9 +113,41 @@ export struct ReadingSettingsPage {
       }.width('100%').padding({ left: AppSpace.Sm, right: AppSpace.Md,
         top: WindowUtils.getStatusBarHeightVp() + AppSpace.Sm, bottom: AppSpace.Sm })
       if (this.ready) {
-        ReaderSpeechSheet({ state: this.speechState, embedded: true,
-          extraContent: (): void => { this.dialogueSettings(); } })
-          .layoutWeight(1)
+        Scroll() {
+          Column({ space: 12 }) {
+            Text($r('app.string.tts_settings_title')).fontSize(AppFont.Caption)
+              .fontColor(AppTheme.TextSecondary).width('100%').padding({ left: 4 })
+            Row({ space: 12 }) {
+              Column({ space: 6 }) {
+                Text($r('app.string.tts_voice_management')).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary)
+                Text($r('app.string.tts_voice_management_hint')).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+              SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([AppTheme.TextSecondary])
+            }.width('100%').padding(18).constraintSize({ minHeight: 80 }).borderRadius(18)
+              .backgroundColor(AppTheme.Surface).border({ width: 0.5, color: AppTheme.Divider })
+              .id('reading-voice-management')
+              .onClick((): void => { this.navStack.pushPathByName('voiceManagement', ''); })
+            Row({ space: 12 }) {
+              Text($r('app.string.tts_synthesis_title')).fontSize(AppFont.BodyL)
+                .fontColor(AppTheme.TextPrimary).layoutWeight(1)
+              SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([AppTheme.TextSecondary])
+            }.width('100%').padding(18).constraintSize({ minHeight: 64 }).borderRadius(18)
+              .backgroundColor(AppTheme.Surface).border({ width: 0.5, color: AppTheme.Divider })
+              .onClick((): void => { this.navStack.pushPathByName('speechSynthesisSettings', ''); })
+              .id('reading-synthesis-settings')
+            Text($r('app.string.reading_display_settings')).fontSize(AppFont.Caption)
+              .fontColor(AppTheme.TextSecondary).width('100%').padding({ left: 4, top: 8 })
+            Row({ space: 12 }) {
+              Text($r('app.string.reader_speech_display')).fontSize(AppFont.BodyL)
+                .fontColor(AppTheme.TextPrimary).layoutWeight(1)
+              SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([AppTheme.TextSecondary])
+            }.width('100%').padding(18).constraintSize({ minHeight: 64 }).borderRadius(18)
+              .backgroundColor(AppTheme.Surface).border({ width: 0.5, color: AppTheme.Divider })
+              .onClick((): void => { this.navStack.pushPathByName('speechDisplaySettings', ''); })
+              .id('reading-speech-display')
+            this.dialogueSettings()
+          }.width('100%').constraintSize({ maxWidth: 760 }).padding(16)
+        }.width('100%').layoutWeight(1).scrollBar(BarState.Off)
       } else if (this.failed) {
         Text($r('app.string.reading_settings_load_error')).fontColor(AppTheme.TextSecondary).padding(20)
         Button($r('app.string.common_retry')).fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
@@ -125,7 +155,7 @@ export struct ReadingSettingsPage {
       } else {
         LoadingProgress().width(32).height(32).color(AppColor.Brand).margin({ top: 24 })
       }
-    }.width('100%').height('100%').backgroundColor(AppTheme.Background)
+    }.width('100%').height('100%').backgroundColor(AppTheme.SettingsBackground)
       .padding({ bottom: WindowUtils.getBottomSafeVp() })
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }

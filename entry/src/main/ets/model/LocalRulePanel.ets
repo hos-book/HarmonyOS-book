@@ -11,6 +11,7 @@ export class LocalRuleControl {
   action: string = '';
   url: string = '';
   group: string = '';
+  discoveryFilter: boolean = false;
   @Trace value: string = '';
 }
 

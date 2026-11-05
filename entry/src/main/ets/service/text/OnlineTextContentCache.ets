@@ -2,6 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { buffer } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { emitter } from '@kit.BasicServicesKit';
 import { StorageMigrationService } from '../StorageMigrationService';
 import { BookIdentity } from '../../utils/BookIdentity';
 import { ReaderCacheService, ReaderCacheKind, ReaderCacheCleanup } from '../ReaderCacheService';
@@ -164,6 +165,7 @@ export class OnlineTextContentCache {
         file = null;
         await fileIo.moveFile(temp, path);
         await ReaderCacheService.record([path]);
+        emitter.emit('app.chapter.cache.updated');
       } finally {
         if (file !== null) {
           try { await fileIo.close(file); } catch (_e) { /* ignore */ }

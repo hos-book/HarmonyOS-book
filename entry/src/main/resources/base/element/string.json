@@ -1,12 +1,46 @@
 {
   "string": [
-    { "name": "settings_mini_player_hide", "value": "听书控件自动隐藏" },
-    { "name": "settings_mini_player_hide_desc", "value": "听书或电子书朗读暂停且未操作控件达到所选时间后隐藏，播放中保持显示；永久表示不自动隐藏。" },
-    { "name": "settings_mini_player_hide_never", "value": "永久" },
-    { "name": "settings_mini_player_hide_1", "value": "1 分钟" },
-    { "name": "settings_mini_player_hide_5", "value": "5 分钟" },
-    { "name": "settings_mini_player_hide_10", "value": "10 分钟" },
-    { "name": "settings_mini_player_hide_20", "value": "20 分钟" },
+    { "name": "app_icon_gel", "value": "胶彩" },
+    {
+      "name": "app_icon_nostalgia",
+      "value": "怀旧"
+    },
+    {
+      "name": "splash_brand_name",
+      "value": "简听阅读"
+    },
+    {
+      "name": "splash_brand_tagline",
+      "value": "听见每一页"
+    },
+    {
+      "name": "settings_mini_player_hide",
+      "value": "听书控件自动隐藏"
+    },
+    {
+      "name": "settings_mini_player_hide_desc",
+      "value": "听书或电子书朗读暂停且未操作控件达到所选时间后隐藏，播放中保持显示；永久表示不自动隐藏。"
+    },
+    {
+      "name": "settings_mini_player_hide_never",
+      "value": "永久"
+    },
+    {
+      "name": "settings_mini_player_hide_1",
+      "value": "1 分钟"
+    },
+    {
+      "name": "settings_mini_player_hide_5",
+      "value": "5 分钟"
+    },
+    {
+      "name": "settings_mini_player_hide_10",
+      "value": "10 分钟"
+    },
+    {
+      "name": "settings_mini_player_hide_20",
+      "value": "20 分钟"
+    },
     {
       "name": "desktop_lyric_preparing",
       "value": "正在准备字幕…"
@@ -1733,7 +1767,7 @@
     },
     {
       "name": "guide_reader_speech_desc",
-      "value": "呼出工具栏后，点击旁边的「听」开始朗读并进入播放页；同一本书会接续已有朗读位置。播放页可暂停、切章、调倍速和音色；“我的 → 阅读设置”可管理语音引擎与自定义 TTS。图片型 PDF 不支持朗读。"
+      "value": "呼出工具栏后，点击旁边的「听」开始朗读并进入播放页；同一本书会接续已有朗读位置。播放页可暂停、切章、调倍速和音色；“我的 → 阅听设置”可管理语音引擎与自定义 TTS。图片型 PDF 不支持朗读。"
     },
     {
       "name": "import_help_expand",
@@ -4513,7 +4547,7 @@
     },
     {
       "name": "reading_settings_title",
-      "value": "阅读设置"
+      "value": "阅听设置"
     },
     {
       "name": "reader_dialogue_color",
@@ -4529,11 +4563,11 @@
     },
     {
       "name": "reading_settings_load_error",
-      "value": "阅读设置加载失败，请重试。"
+      "value": "阅听设置加载失败，请重试。"
     },
     {
       "name": "reading_settings_save_error",
-      "value": "阅读设置保存失败，请重试。"
+      "value": "阅听设置保存失败，请重试。"
     },
     {
       "name": "reader_speech_display",
@@ -4545,7 +4579,7 @@
     },
     {
       "name": "tts_entry_hint",
-      "value": "点击开始听书，TTS 语音导入请前往我的 → 阅读设置"
+      "value": "点击开始听书，TTS 语音导入请前往我的 → 阅听设置 → 音色管理"
     },
     {
       "name": "tts_chapter_progress",
@@ -6253,7 +6287,7 @@
     },
     {
       "name": "app_icon_iridescent",
-      "value": "虹彩"
+      "value": "墨颜"
     },
     {
       "name": "app_icon_lifewhite",
@@ -7563,18 +7597,54 @@
       "name": "reader_float_permission_reason",
       "value": "用于在悬浮小窗显示当前阅读或朗读段落"
     },
-    {"name": "ranking_bilicomic", "value": "哔哩哔哩漫画"},
-    {"name": "ranking_comic_top100", "value": "漫画 TOP100"},
-    {"name": "ranking_comic_month", "value": "漫画月票榜"},
-    {"name": "ranking_comic_rising", "value": "漫画飙升榜"},
-    {"name": "ranking_comic_new", "value": "漫画新作榜"},
-    {"name": "ranking_comic_sales", "value": "漫画畅销榜"},
-    {"name": "ranking_comic_male", "value": "漫画男生榜"},
-    {"name": "ranking_comic_female", "value": "漫画女生榜"},
-    {"name": "ranking_comic_chinese", "value": "国漫榜"},
-    {"name": "ranking_comic_japanese", "value": "日漫榜"},
-    {"name": "ranking_comic_korean", "value": "韩漫榜"},
-    {"name": "ranking_comic_finished", "value": "漫画完结榜"},
+    {
+      "name": "ranking_bilicomic",
+      "value": "哔哩哔哩漫画"
+    },
+    {
+      "name": "ranking_comic_top100",
+      "value": "漫画 TOP100"
+    },
+    {
+      "name": "ranking_comic_month",
+      "value": "漫画月票榜"
+    },
+    {
+      "name": "ranking_comic_rising",
+      "value": "漫画飙升榜"
+    },
+    {
+      "name": "ranking_comic_new",
+      "value": "漫画新作榜"
+    },
+    {
+      "name": "ranking_comic_sales",
+      "value": "漫画畅销榜"
+    },
+    {
+      "name": "ranking_comic_male",
+      "value": "漫画男生榜"
+    },
+    {
+      "name": "ranking_comic_female",
+      "value": "漫画女生榜"
+    },
+    {
+      "name": "ranking_comic_chinese",
+      "value": "国漫榜"
+    },
+    {
+      "name": "ranking_comic_japanese",
+      "value": "日漫榜"
+    },
+    {
+      "name": "ranking_comic_korean",
+      "value": "韩漫榜"
+    },
+    {
+      "name": "ranking_comic_finished",
+      "value": "漫画完结榜"
+    },
     {
       "name": "membership_feature_subtitles",
       "value": "AI 字幕"
@@ -7611,30 +7681,61 @@
       "name": "ranking_order",
       "value": "排序"
     },
-    {"name": "reader_fulltext_search", "value": "全文搜索"},
-    {"name": "reader_fulltext_placeholder", "value": "输入正文关键词"},
-    {"name": "reader_fulltext_hint", "value": "搜索本书全部章节正文，点击结果跳转到对应位置。在线书籍需要加载未缓存章节。"},
-    {"name": "reader_fulltext_progress", "value": "已检索 %d / %d 章 · %d 处匹配"},
-    {"name": "reader_fulltext_stop", "value": "停止"},
-    {"name": "reader_fulltext_failed", "value": "%d 章读取失败，结果可能不完整，可重新搜索"},
-    {"name": "reader_fulltext_limit", "value": "已展示前 %d 处匹配，请缩小关键词范围"},
-    {"name": "reader_fulltext_empty", "value": "暂无匹配结果"},
-    {"name": "import_epub_chapter_limit", "value": "EPUB 单章正文超过 8 Mi 字符，无法完整导入，请先拆分原文件章节"},
+    {
+      "name": "reader_fulltext_search",
+      "value": "全文搜索"
+    },
+    {
+      "name": "reader_fulltext_placeholder",
+      "value": "输入正文关键词"
+    },
+    {
+      "name": "reader_fulltext_hint",
+      "value": "搜索本书全部章节正文，点击结果跳转到对应位置。在线书籍需要加载未缓存章节。"
+    },
+    {
+      "name": "reader_fulltext_progress",
+      "value": "已检索 %d / %d 章 · %d 处匹配"
+    },
+    {
+      "name": "reader_fulltext_stop",
+      "value": "停止"
+    },
+    {
+      "name": "reader_fulltext_failed",
+      "value": "%d 章读取失败，结果可能不完整，可重新搜索"
+    },
+    {
+      "name": "reader_fulltext_limit",
+      "value": "已展示前 %d 处匹配，请缩小关键词范围"
+    },
+    {
+      "name": "reader_fulltext_empty",
+      "value": "暂无匹配结果"
+    },
+    {
+      "name": "import_epub_chapter_limit",
+      "value": "EPUB 单章正文超过 8 Mi 字符，无法完整导入，请先拆分原文件章节"
+    },
     {
       "name": "library_sync_title",
       "value": "书架与进度自动同步"
     },
     {
       "name": "library_sync_description",
-      "value": "会员专享：同一华为账号的手机、平板和 HarmonyOS 电脑自动合并在线书架、分组、置顶及阅听进度。请在各设备的系统设置 → 云空间开启简听同步，并导入对应书源。本地文件不传输。"
+      "value": "会员专享：同一华为账号的手机、平板和 HarmonyOS 电脑自动合并在线书架、分组、置顶、阅听记录、每本书的历史记录及阅听进度。请在各设备的系统设置 → 云空间开启简听同步，并导入对应书源。本地导入书及文件不传输。"
     },
     {
       "name": "library_sync_confirm",
-      "value": "开启后，将当前在线书架和阅听进度合并到此华为账号的云空间，并自动接收其他设备的更改。移出书架也会同步，正在阅听时不自动跳章。同步时效受网络和系统调度影响。是否开启？"
+      "value": "开启后，将当前在线书架、阅听记录、每本书的历史记录和阅听进度合并到此华为账号的云空间，并自动接收其他设备的更改。移出书架、删除阅听记录也会同步，正在阅听时不自动跳章。本地导入书不参与同步。同步时效受网络和系统调度影响。是否开启？"
     },
     {
       "name": "library_sync_enable",
       "value": "开启同步"
+    },
+    {
+      "name": "library_sync_disable",
+      "value": "关闭同步"
     },
     {
       "name": "library_sync_login",
@@ -7687,6 +7788,210 @@
     {
       "name": "library_sync_membership_check",
       "value": "等待验证会员权益，自动同步已暂停；验证成功后可继续，本机数据保留"
+    },
+    {
+      "name": "tts_voice_management",
+      "value": "音色管理"
+    },
+    {
+      "name": "tts_voice_management_hint",
+      "value": "选择音色，管理与导入自定义 TTS"
+    },
+    {
+      "name": "reading_display_settings",
+      "value": "阅读显示"
+    },
+    {
+      "name": "tts_voice_add",
+      "value": "添加音色"
+    },
+    {
+      "name": "tts_voice_empty",
+      "value": "还没有自定义音色，点击右下角“＋”导入"
+    },
+    {
+      "name": "tts_custom_url_import",
+      "value": "从 URL 导入"
+    },
+    {
+      "name": "tts_custom_url_placeholder",
+      "value": "输入音色 JSON 配置链接"
+    },
+    {
+      "name": "tts_custom_url_hint",
+      "value": "输入 HTTP 或 HTTPS 音色 JSON 链接，支持轻页／阅读格式，最大 1 MiB。"
+    },
+    {
+      "name": "tts_custom_url_error",
+      "value": "导入失败，请检查链接是否可访问，且内容为支持的 TTS JSON 配置（最大 1 MiB）。"
+    },
+    {
+      "name": "tts_filter_all",
+      "value": "全部"
+    },
+    {
+      "name": "tts_voice_search",
+      "value": "搜索音色名称"
+    },
+    {
+      "name": "tts_voice_group",
+      "value": "分组"
+    },
+    {
+      "name": "tts_voice_tier",
+      "value": "档位"
+    },
+    {
+      "name": "tts_continuous_preset",
+      "value": "应用连续朗读推荐配置"
+    },
+    {
+      "name": "tts_continuous_hint",
+      "value": "先准备起读短句，后续按约 64 字短段连续预合成，最多提前准备 3 份音频。合成字数设置作为上限；服务返回较慢或高倍速播放时仍可能等待。"
+    },
+    {
+      "name": "tts_quick_start",
+      "value": "自定义音色渐进短段合成（推荐）"
+    },
+    {
+      "name": "tts_error_auth",
+      "value": "音色服务拒绝访问，请检查授权或服务访问限制"
+    },
+    {
+      "name": "tts_error_rate",
+      "value": "音色服务请求过于频繁，请稍后重试或降低并发"
+    },
+    {
+      "name": "tts_error_server",
+      "value": "音色服务暂时不可用，请稍后重试"
+    },
+    {
+      "name": "tts_error_config",
+      "value": "合成请求不被服务接受，请检查配置或更换音色"
+    },
+    {
+      "name": "tts_error_network",
+      "value": "合成网络请求失败或超时，请检查网络后重试"
+    },
+    {
+      "name": "tts_error_audio",
+      "value": "服务未返回有效音频，请检查配置或更换音色"
+    },
+    {
+      "name": "tts_error_voice",
+      "value": "此音色暂不可用，请在音色管理中重新选择后重试"
+    },
+    {
+      "name": "tts_loading_audio",
+      "value": "正在准备语音，可点击中间按钮取消"
+    },
+    {
+      "name": "tts_loading_text",
+      "value": "正在读取章节正文，可点击中间按钮取消"
+    },
+    {
+      "name": "tts_manage_done",
+      "value": "完成"
+    },
+    {
+      "name": "tts_sort",
+      "value": "排序"
+    },
+    {
+      "name": "tts_batch",
+      "value": "批量操作"
+    },
+    {
+      "name": "tts_sort_name_asc",
+      "value": "名称升序"
+    },
+    {
+      "name": "tts_sort_name_desc",
+      "value": "名称降序"
+    },
+    {
+      "name": "tts_sort_hint",
+      "value": "调整当前筛选结果的顺序，自动保存并同步到音色选择列表"
+    },
+    {
+      "name": "tts_sort_up",
+      "value": "上移"
+    },
+    {
+      "name": "tts_sort_down",
+      "value": "下移"
+    },
+    {
+      "name": "tts_batch_selected",
+      "value": "已选 %d 个"
+    },
+    {
+      "name": "tts_batch_clear",
+      "value": "取消全选"
+    },
+    {
+      "name": "tts_batch_all",
+      "value": "全选当前结果"
+    },
+    {
+      "name": "tts_batch_enable",
+      "value": "启用"
+    },
+    {
+      "name": "tts_batch_disable",
+      "value": "停用"
+    },
+    {
+      "name": "tts_batch_delete",
+      "value": "删除"
+    },
+    {
+      "name": "tts_batch_delete_confirm",
+      "value": "确定删除选中的 %d 个音色？删除后需要重新导入。"
+    },
+    {
+      "name": "tts_batch_success",
+      "value": "操作成功"
+    },
+    {
+      "name": "library_sync_received",
+      "value": "最近检查云端：%s"
+    },
+    {
+      "name": "library_sync_network",
+      "value": "本机已保存，网络恢复后自动重试"
+    },
+    {
+      "name": "library_sync_wifi",
+      "value": "本机已保存，等待 Wi-Fi 后自动重试"
+    },
+    {
+      "name": "library_sync_battery",
+      "value": "本机已保存，电量恢复后自动重试"
+    },
+    {
+      "name": "library_sync_cloud_full",
+      "value": "本机已保存，请释放华为云空间后重试"
+    },
+    {
+      "name": "library_sync_local_full",
+      "value": "存储空间不足，请释放本机空间后重试"
+    },
+    {
+      "name": "library_sync_hot",
+      "value": "本机已保存，设备降温后自动重试"
+    },
+    {
+      "name": "library_sync_system_wait",
+      "value": "本机已保存，系统同步暂未完成，将自动重试"
+    },
+    {
+      "name": "library_sync_resume_check",
+      "value": "正在检查云端续听位置…"
+    },
+    {
+      "name": "library_sync_resume_local",
+      "value": "暂未确认云端最新位置，已使用本机进度"
     }
   ]
 }

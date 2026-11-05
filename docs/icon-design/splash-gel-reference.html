@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><title>简听阅读 · 启动页</title>
+<style>
+  body{margin:0;background:#E9EBF0;padding:40px;display:flex;gap:32px;
+       justify-content:center;align-items:flex-start;
+       font-family:-apple-system,"PingFang SC",sans-serif}
+  .wrap{display:flex;flex-direction:column;align-items:center}
+  .phone{position:relative;width:300px;height:667px;border-radius:36px;overflow:hidden;
+         box-shadow:0 20px 50px rgba(20,22,30,.2)}
+  .cap{font-size:12px;color:#7A7F8C;margin-top:12px;letter-spacing:1px}
+  .light{background:#FFFFFF}
+  .dark{background:#0A0A0E}
+
+  /* 幻彩团：先出现 */
+  .aurora{position:absolute;left:50%;top:43%;width:300px;height:300px;
+          margin:-150px 0 0 -150px;border-radius:50%;
+          background:radial-gradient(circle closest-side at 40% 38%,
+            #7B4DFF 0%, #B45BE8 34%, #FF4FCB 62%, #3FC3FF 88%, rgba(255,255,255,0) 100%);
+          filter:blur(46px);opacity:0;
+          animation:au 2.4s cubic-bezier(.25,0,.2,1) infinite}
+  @keyframes au{
+    0%   {opacity:0;   transform:scale(.72)}
+    12%  {opacity:.45; transform:scale(1.05)}
+    90%  {opacity:.45; transform:scale(1.05)}
+    100% {opacity:0;   transform:scale(.72)}
+  }
+
+  /* 图标 */
+  .logo{position:absolute;left:50%;top:224px;width:132px;height:132px;margin-left:-66px}
+  .bar{opacity:0;transform-box:view-box;animation-duration:2.4s;
+       animation-iteration-count:infinite;animation-timing-function:ease-out}
+
+  .b1{animation-name:b1k}
+  .b2{animation-name:b2k}
+  .b3{animation-name:b3k}
+  .b4{animation-name:b4k}
+
+  @keyframes b1k{
+    0%,13%   {opacity:0;filter:brightness(1.55);transform:translateY(10px)}
+    19%      {opacity:1;filter:brightness(1.28);transform:translateY(0)}
+    24%,90%  {opacity:1;filter:brightness(1);transform:translateY(0)}
+    96%,100% {opacity:0;filter:brightness(1.55);transform:translateY(10px)}
+  }
+  @keyframes b2k{
+    0%,22%   {opacity:0;filter:brightness(1.55);transform:translateY(10px)}
+    28%      {opacity:1;filter:brightness(1.28);transform:translateY(0)}
+    33%,90%  {opacity:1;filter:brightness(1);transform:translateY(0)}
+    96%,100% {opacity:0;filter:brightness(1.55);transform:translateY(10px)}
+  }
+  @keyframes b3k{
+    0%,31%   {opacity:0;filter:brightness(1.55);transform:translateY(10px)}
+    37%      {opacity:1;filter:brightness(1.28);transform:translateY(0)}
+    42%,90%  {opacity:1;filter:brightness(1);transform:translateY(0)}
+    96%,100% {opacity:0;filter:brightness(1.55);transform:translateY(10px)}
+  }
+  @keyframes b4k{
+    0%,40%   {opacity:0;filter:brightness(1.55);transform:translateY(10px)}
+    46%      {opacity:1;filter:brightness(1.28);transform:translateY(0)}
+    51%,90%  {opacity:1;filter:brightness(1);transform:translateY(0)}
+    96%,100% {opacity:0;filter:brightness(1.55);transform:translateY(10px)}
+  }
+
+  /* 字标 */
+  .wm{position:absolute;left:0;width:100%;top:388px;text-align:center;
+      font-size:19px;font-weight:600;letter-spacing:3px;opacity:0;
+      animation:wmk 2.4s ease-out infinite}
+  .tag{position:absolute;left:0;width:100%;top:420px;text-align:center;
+       font-size:10px;letter-spacing:3px;opacity:0;
+       animation:tagk 2.4s ease-out infinite}
+  @keyframes wmk{
+    0%,44%   {opacity:0;transform:translateY(14px)}
+    52%,90%  {opacity:1;transform:translateY(0)}
+    96%,100% {opacity:0;transform:translateY(14px)}
+  }
+  @keyframes tagk{
+    0%,48%   {opacity:0;transform:translateY(14px)}
+    56%,90%  {opacity:1;transform:translateY(0)}
+    96%,100% {opacity:0;transform:translateY(14px)}
+  }
+  .light .wm{color:#16181D}  .light .tag{color:#9AA0AC}
+  .dark  .wm{color:#F5F7FA}  .dark  .tag{color:#7C8290}
+
+  /* 进度条：与动画同一时间轴 */
+  .load{position:absolute;left:90px;top:560px;width:120px;height:3px;border-radius:2px;opacity:0;
+        animation:loadk 2.4s ease-out infinite}
+  .track{position:absolute;inset:0;border-radius:2px}
+  .fill{position:absolute;left:0;top:0;height:3px;border-radius:2px;width:0;
+        animation:fillk 2.4s cubic-bezier(.4,0,.2,1) infinite}
+  @keyframes loadk{
+    0%,4%{opacity:0} 10%,90%{opacity:1} 96%,100%{opacity:0}
+  }
+  @keyframes fillk{
+    0%   {width:0%}
+    12%  {width:8%}
+    22%  {width:24%}
+    32%  {width:44%}
+    41%  {width:64%}
+    56%  {width:80%}
+    75%  {width:100%}
+    90%  {width:100%}
+    100% {width:0%}
+  }
+  .light .track{background:#ECEEF3} .light .fill{background:#8B5CF6}
+  .dark  .track{background:#22242C} .dark  .fill{background:#8B5CF6}
+
+  /* 循环回位遮罩 */
+  .reset{position:absolute;inset:0;pointer-events:none;opacity:0;
+         animation:rs 2.4s linear infinite}
+  @keyframes rs{0%,93%{opacity:0}97%,99%{opacity:1}100%{opacity:0}}
+  .light .reset{background:#fff}
+  .dark  .reset{background:#0A0A0E}
+
+  .btn{margin-top:14px;padding:8px 18px;border:none;border-radius:18px;
+       background:#16181D;color:#fff;font-size:12px;letter-spacing:1px;cursor:pointer}
+  .paused *{animation:none !important}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="phone light">
+    <div class="aurora"></div>
+
+    <svg class="logo" viewBox="0 0 1024 1024">
+      <defs>
+        <linearGradient id="satL" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.26"/>
+          <stop offset="0.26" stop-color="#FFFFFF" stop-opacity="0.08"/>
+          <stop offset="0.52" stop-color="#000000" stop-opacity="0"/>
+          <stop offset="1" stop-color="#000000" stop-opacity="0.36"/>
+        </linearGradient>
+      </defs>
+      <g stroke-linecap="round" stroke-width="133">
+        <g class="bar b1"><line x1="228" y1="352" x2="352" y2="228" stroke="#8B5CF6"/></g>
+        <g class="bar b2"><line x1="233" y1="643" x2="643" y2="233" stroke="#F97316"/></g>
+        <g class="bar b3"><line x1="440" y1="732" x2="732" y2="440" stroke="#FACC15"/></g>
+        <g class="bar b4"><line x1="672" y1="796" x2="796" y2="672" stroke="#C4B5FD"/></g>
+      </g>
+      <g stroke-linecap="round" stroke-width="133" stroke="url(#satL)">
+        <line x1="228" y1="352" x2="352" y2="228"/>
+        <line x1="233" y1="643" x2="643" y2="233"/>
+        <line x1="440" y1="732" x2="732" y2="440"/>
+        <line x1="672" y1="796" x2="796" y2="672"/>
+      </g>
+    </svg>
+
+    <div class="wm">简听阅读</div>
+    <div class="tag">听见每一页</div>
+    <div class="load"><div class="track"></div><div class="fill"></div></div>
+    <div class="reset"></div>
+  </div>
+  <div class="cap">浅色 · 幻彩 → 依次点亮</div>
+</div>
+
+<div class="wrap">
+  <div class="phone dark">
+    <div class="aurora"></div>
+
+    <svg class="logo" viewBox="0 0 1024 1024">
+      <defs>
+        <linearGradient id="satD" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.22"/>
+          <stop offset="0.26" stop-color="#FFFFFF" stop-opacity="0.06"/>
+          <stop offset="0.52" stop-color="#000000" stop-opacity="0"/>
+          <stop offset="1" stop-color="#000000" stop-opacity="0.42"/>
+        </linearGradient>
+      </defs>
+      <g stroke-linecap="round" stroke-width="133">
+        <g class="bar b1"><line x1="228" y1="352" x2="352" y2="228" stroke="#8B5CF6"/></g>
+        <g class="bar b2"><line x1="233" y1="643" x2="643" y2="233" stroke="#F97316"/></g>
+        <g class="bar b3"><line x1="440" y1="732" x2="732" y2="440" stroke="#FACC15"/></g>
+        <g class="bar b4"><line x1="672" y1="796" x2="796" y2="672" stroke="#C4B5FD"/></g>
+      </g>
+      <g stroke-linecap="round" stroke-width="133" stroke="url(#satD)">
+        <line x1="228" y1="352" x2="352" y2="228"/>
+        <line x1="233" y1="643" x2="643" y2="233"/>
+        <line x1="440" y1="732" x2="732" y2="440"/>
+        <line x1="672" y1="796" x2="796" y2="672"/>
+      </g>
+    </svg>
+
+    <div class="wm">简听阅读</div>
+    <div class="tag">听见每一页</div>
+    <div class="load"><div class="track"></div><div class="fill"></div></div>
+    <div class="reset"></div>
+  </div>
+  <div class="cap">深色 · 幻彩 → 依次点亮</div>
+</div>
+
+<button class="btn" onclick="
+  document.body.classList.add('paused');
+  requestAnimationFrame(()=>requestAnimationFrame(()=>document.body.classList.remove('paused')));
+">重播 ↻</button>
+
+</body>
+</html>

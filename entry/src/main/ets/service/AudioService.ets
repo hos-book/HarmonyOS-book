@@ -2272,8 +2272,14 @@ export class AudioService {
     if (this.state?.currentBook && this.state.currentChapter) {
       AVSessionService.getInstance().updateMetadata(this.state.currentBook, this.state.currentChapter);
     }
-    if (await this.resumeAfterSleep()) return;
+    const resumeBook = this.state?.currentBook;
+    const resumeGeneration = this.playGen;
+    if (resumeBook && !this.state?.isPlaying && !this.state?.isLoading && !this.isApplying) {
+      await LibrarySyncActivity.prepareResume(resumeBook.id);
+      if (this.pauseRequested || this.playGen !== resumeGeneration || this.state?.currentBook?.id !== resumeBook.id) return;
+    }
     if (await this.resumeSyncedProgress()) return;
+    if (await this.resumeAfterSleep()) return;
     if (PlaybackCoordinator.speechActive || this.pauseRequested || this.isApplying || this.state?.isLoading) return;
     if (this.player?.state === 'released') this.player = null;
     if (!this.player || this.player.state === 'idle' || this.player.state === 'stopped'

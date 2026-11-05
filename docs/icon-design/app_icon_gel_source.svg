@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="512" height="512">
+  <defs>
+    <radialGradient id="bg" cx="0.5" cy="0.4" r="0.92">
+      <stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#F0F2F7"/>
+    </radialGradient>
+    <filter id="aurora" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="95"/>
+    </filter>
+    <filter id="castShadow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="14"/>
+    </filter>
+
+    <!-- 硅胶：明暗圆 -->
+    <linearGradient id="sat" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0"    stop-color="#FFFFFF" stop-opacity="0.26"/>
+      <stop offset="0.26" stop-color="#FFFFFF" stop-opacity="0.08"/>
+      <stop offset="0.52" stop-color="#000000" stop-opacity="0"/>
+      <stop offset="1"    stop-color="#000000" stop-opacity="0.36"/>
+    </linearGradient>
+
+    <filter id="grain">
+      <feTurbulence type="fractalNoise" baseFrequency="2.6" numOctaves="2" seed="4"/>
+      <feColorMatrix type="saturate" values="0"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.6"/></feComponentTransfer>
+    </filter>
+
+    <filter id="softEdge" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="12"/>
+    </filter>
+
+    <mask id="barsMask">
+      <g stroke="#FFFFFF" stroke-width="133" stroke-linecap="round" fill="none">
+        <line x1="228" y1="352" x2="352" y2="228"/>
+        <line x1="233" y1="643" x2="643" y2="233"/>
+        <line x1="440" y1="732" x2="732" y2="440"/>
+        <line x1="672" y1="796" x2="796" y2="672"/>
+      </g>
+    </mask>
+  </defs>
+
+  <rect width="1024" height="1024" rx="231" fill="url(#bg)"/>
+  <rect x="1.5" y="1.5" width="1021" height="1021" rx="230"
+        fill="none" stroke="#FFFFFF" stroke-width="3" opacity="0.9"/>
+
+  <g transform="translate(512,532) scale(0.85) translate(-512,-512)"
+     filter="url(#aurora)" opacity="0.48">
+    <ellipse cx="452" cy="432" rx="250" ry="250" fill="#7B4DFF"/>
+    <ellipse cx="648" cy="566" rx="230" ry="230" fill="#FF4FCB"/>
+    <ellipse cx="430" cy="654" rx="210" ry="210" fill="#3FC3FF"/>
+  </g>
+
+  <g transform="translate(0,20)" filter="url(#castShadow)"
+     stroke-linecap="round" stroke-width="133">
+    <line x1="228" y1="352" x2="352" y2="228" stroke="#3E2478" opacity="0.46"/>
+    <line x1="233" y1="643" x2="643" y2="233" stroke="#8E3404" opacity="0.44"/>
+    <line x1="440" y1="732" x2="732" y2="440" stroke="#8F7300" opacity="0.52"/>
+    <line x1="672" y1="796" x2="796" y2="672" stroke="#665399" opacity="0.50"/>
+  </g>
+
+  <g stroke-linecap="round" stroke-width="133">
+    <line x1="228" y1="352" x2="352" y2="228" stroke="#8B5CF6"/>
+    <line x1="233" y1="643" x2="643" y2="233" stroke="#F97316"/>
+    <line x1="440" y1="732" x2="732" y2="440" stroke="#FACC15"/>
+    <line x1="672" y1="796" x2="796" y2="672" stroke="#C4B5FD"/>
+  </g>
+
+  <g stroke-linecap="round" stroke-width="133" stroke="url(#sat)">
+    <line x1="228" y1="352" x2="352" y2="228"/>
+    <line x1="233" y1="643" x2="643" y2="233"/>
+    <line x1="440" y1="732" x2="732" y2="440"/>
+    <line x1="672" y1="796" x2="796" y2="672"/>
+  </g>
+
+  <!-- 胶体边缘的柔光（可整组删掉） -->
+  <g stroke-linecap="round" stroke-width="40" stroke="#FFFFFF" opacity="0.10"
+     filter="url(#softEdge)" transform="translate(-8,-8)">
+    <line x1="228" y1="352" x2="352" y2="228"/>
+    <line x1="233" y1="643" x2="643" y2="233"/>
+    <line x1="440" y1="732" x2="732" y2="440"/>
+    <line x1="672" y1="796" x2="796" y2="672"/>
+  </g>
+
+  <rect width="1024" height="1024" filter="url(#grain)"
+        mask="url(#barsMask)" opacity="0.05"
+        style="mix-blend-mode:overlay"/>
+</svg>

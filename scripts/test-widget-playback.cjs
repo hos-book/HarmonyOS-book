@@ -31,6 +31,19 @@ vm.runInNewContext(code, { module: moduleContext, exports: moduleContext.exports
 } });
 const router = moduleContext.exports.WidgetPlaybackService;
 (async () => {
+  // Execute the real card command sender: controls must never route to a foreground window.
+  const cardSource = fs.readFileSync(path.join(__dirname,
+    '../entry/src/main/ets/widget/pages/PlayerCard.ets'), 'utf8');
+  const sender = cardSource.slice(cardSource.indexOf('  private postCall('), cardSource.indexOf('  /** 手机卡片'));
+  const actions = [];
+  const cardScope = { postCardAction: (_card, action) => actions.push(action) };
+  vm.runInNewContext(ts.transpileModule(`class CardHost { ${sender} } globalThis.CardHost = CardHost;`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2020 }
+  }).outputText, cardScope);
+  const card = new cardScope.CardHost();
+  for (const method of ['toggle', 'prev', 'next']) card.postCall(method);
+  assert.deepEqual(actions.map(action => action.action), ['call', 'call', 'call']);
+  assert.deepEqual(actions.map(action => action.params.method), ['toggle', 'prev', 'next']);
   for (const command of ['play', 'pause', 'next', 'prev']) await router.execute({}, command);
   assert.deepEqual(calls, ['resume', 'pause', 1, -1]);
   calls.length = 0; speech.state.active = false; speech.currentBook = () => null;
@@ -76,5 +89,24 @@ const router = moduleContext.exports.WidgetPlaybackService;
   calls.length = 0;
   await router.execute({}, 'next');
   assert.deepEqual(calls, ['audio-next'], 'stale TTS snapshot cannot redirect currently playing audio');
-  console.log('PASS widget active/cold TTS commands, position restore, reverse chapters, legacy audio and cancellation');
+  playback.playing = false;
+  prefs.snapshot = { bookId: 'cold-audio', isPlaying: true };
+  let initialized;
+  router.setInitializer(() => new Promise(resolve => { initialized = resolve; }));
+  calls.length = 0;
+  const coldToggle = router.execute({}, 'toggle');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(calls, [], 'cold playback waits for actual restoration, not the audio readiness timeout');
+  initialized(); await coldToggle;
+  assert.deepEqual(calls, ['audio-play'], 'stale playing card resumes a reclaimed process instead of pausing nothing');
+  playback.playing = true;
+  await router.execute({}, 'toggle');
+  assert.equal(calls.at(-1), 'audio-pause:widget', 'warm toggle pauses immediately');
+  playback.playing = false;
+  calls.length = 0;
+  const cancelled = router.execute({}, 'play');
+  await router.execute({}, 'pause');
+  initialized(); await cancelled;
+  assert.deepEqual(calls, ['audio-pause:widget'], 'pause cancels queued restoration playback');
+  console.log('PASS widget active/cold commands, stale toggle, restoration gate, position restore and cancellation');
 })().catch(error => { console.error(error); process.exitCode = 1; });

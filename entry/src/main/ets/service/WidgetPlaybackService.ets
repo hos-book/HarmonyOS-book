@@ -9,11 +9,21 @@ import { BookSourceService } from './BookSourceService';
 /** 卡片命令按当前播放类型分发，冷启动也保留电子书身份和字符进度。 */
 export class WidgetPlaybackService {
   private static generation: number = 0;
+  private static initialize: (() => Promise<void>) | null = null;
+
+  static setInitializer(initialize: () => Promise<void>): void {
+    WidgetPlaybackService.initialize = initialize;
+  }
 
   static async execute(context: common.UIAbilityContext, command: string): Promise<void> {
     const ticket = ++WidgetPlaybackService.generation;
     const audio = AudioService.getInstance();
     const speech = TextToSpeechService.getInstance();
+    // 卡片的 isPlaying 可能来自已被回收的进程，只信任当前进程的播放状态。
+    if (command === 'toggle') {
+      command = (speech.state.active && (speech.state.playing || speech.state.loading)) ||
+        PlaybackStore.getInstance().isPlayingNow() ? 'pause' : 'play';
+    }
     // 暂停优先直达运行中的播放器，同时取消尚未完成的冷启动播放。
     // 卡片快照可能陈旧，偏好缓存刷新也可能暂时不可读，均不能阻断暂停。
     if (command === 'pause') {
@@ -21,6 +31,8 @@ export class WidgetPlaybackService {
       else await audio.pause('widget');
       return;
     }
+    if (WidgetPlaybackService.initialize !== null) await WidgetPlaybackService.initialize();
+    if (ticket !== WidgetPlaybackService.generation) return;
     await audio.whenReady();
     if (ticket !== WidgetPlaybackService.generation) return;
     if (speech.state.active && speech.currentBook() !== null) {

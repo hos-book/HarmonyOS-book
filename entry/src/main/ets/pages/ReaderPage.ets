@@ -31,6 +31,7 @@ import { ReaderScreenOnService } from '../service/text/ReaderScreenOnService';
 import { HdsTabs, HdsTabsFloatingStyle } from '@kit.UIDesignKit';
 import { HdsCompat, CompatibleTabsModifier } from '../utils/HdsCompat';
 import { PreferenceService } from '../service/PreferenceService';
+import { TextChapterPreloader } from '../service/text/TextChapterPreloader';
 import { ReaderSpeechText } from '../components/ReaderSpeechText';
 import { ReaderSpeechSheet } from '../components/ReaderSpeechSheet';
 import { ImmersiveActionButton } from '../components/ImmersiveActionButton';
@@ -311,6 +312,7 @@ export struct ReaderPage {
   private diskCacheOwner: string = ReaderCacheService.owner();
   private onlineTextContentRequests: Map<number, Promise<string>> = new Map();
   private onlineTextLoadSerial: number = 0;
+  private textPreloader: TextChapterPreloader = new TextChapterPreloader();
   @Local readerViewportWidthVp: number = 0;
   @Local readerViewportHeightVp: number = 0;
   private readerTextWidthVp: number = 0;
@@ -391,7 +393,17 @@ export struct ReaderPage {
     });
   }
 
+  private readonly speechDisplayChanged = (settings: TextReadingSettings): void => {
+    this.speechFollowPage = settings.speechFollowPage;
+    this.speechMark = settings.speechMark;
+    this.speechMarkColor = settings.speechMarkColor;
+    this.dialogueHighlight = settings.dialogueHighlight;
+    this.dialogueHighlightColor = settings.dialogueHighlightColor;
+    if (this.speechFollowPage && this.speechBrowsing && this.readerVisible) this.returnToSpeech();
+  };
+
   aboutToAppear(): void {
+    TextReadingSettingsService.addListener(this.speechDisplayChanged);
     LibrarySyncActivity.reading.add(this.bookId);
     this.holdingHand.onChange = (left: boolean): void => { this.updateHoldingHand(left ? 1 : 2); };
     this.holdingHand.setVisible(this.generalSettings.adaptiveHandedness);
@@ -424,6 +436,8 @@ export struct ReaderPage {
   }
 
   aboutToDisappear(): void {
+    TextReadingSettingsService.removeListener(this.speechDisplayChanged);
+    this.textPreloader.cancel();
     LibrarySyncActivity.reading.delete(this.bookId);
     this.stopAutoPage();
     ReaderCacheService.release(this.diskCacheOwner);
@@ -545,6 +559,7 @@ export struct ReaderPage {
           hilog.warn(READER_LOG_DOMAIN, READER_LOG_TAG, 'background toc failed: %{public}s', error.message);
         });
       }
+      if (this.targetResourceIndex < 0) await LibrarySyncActivity.prepareResume(value.id);
       const startPosition = await this.resolveStartPosition(value);
       if (this.leaving) return;
       if (this.isOnlineTextBookValue(value)) {
@@ -565,7 +580,8 @@ export struct ReaderPage {
 
   private async resolveStartPosition(book: Book): Promise<TextReadingPosition> {
     if (!this.context) return TextReadingPosition.of(book.id, 0, '', 0, this.chapterTitle(0));
-    if (this.speechState.active && this.speechState.bookId === book.id) {
+    if (this.speechState.active && this.speechState.bookId === book.id &&
+      !LibrarySyncActivity.remoteText.has(book.id)) {
       return TextReadingPosition.atChar(book.id, this.speechState.chapterIndex, '', TextToSpeechService.getInstance().currentRawOffset(), 0, this.speechState.chapterTitle);
     }
     if (this.targetResourceIndex >= 0) {
@@ -1139,20 +1155,9 @@ export struct ReaderPage {
   private prefetchAdjacentOnlineTextChapters(resourceIndex: number): void {
     const currentBook = this.book;
     if (currentBook === null || !this.isOnlineTextBook()) return;
-    const previousIndex = resourceIndex - 1;
-    const nextIndex = resourceIndex + 1;
-    if (previousIndex >= 0) {
-      this.getOnlineTextChapterContent(currentBook, previousIndex).catch((error: Error): void => {
-        hilog.warn(READER_LOG_DOMAIN, READER_LOG_TAG,
-          'previous chapter preload failed: %{public}s', error.message);
-      });
-    }
-    if (nextIndex < currentBook.chapters.length) {
-      this.getOnlineTextChapterContent(currentBook, nextIndex).catch((error: Error): void => {
-        hilog.warn(READER_LOG_DOMAIN, READER_LOG_TAG,
-          'next chapter preload failed: %{public}s', error.message);
-      });
-    }
+    this.textPreloader.start(resourceIndex, currentBook.chapters.length, async (index: number): Promise<void> => {
+      await this.getRawOnlineTextChapterContent(currentBook, index);
+    }, (): boolean => !this.leaving && this.book === currentBook && this.currentResourceIndex === resourceIndex);
   }
 
   private async prepareReaderKitReader(book: Book, startPosition: TextReadingPosition): Promise<void> {
@@ -2685,17 +2690,10 @@ export struct ReaderPage {
   }
 
   private async openSpeechSheet(): Promise<void> {
-    if (!this.isOnlineTextBook() || this.context === null || this.book === null) return;
     this.showChapterSheet = false;
     this.showSettingsSheet = false;
-    const speech = TextToSpeechService.getInstance();
-    try {
-      await speech.initialize(this.context);
-      if (this.leaving) return;
-      this.hideReaderBar();
-      this.showSpeechSheet = true;
-      speech.refreshVoices();
-    } catch (_error) { this.showToast($r('app.string.tts_engine_error')); }
+    this.hideReaderBar();
+    this.navStack.pushPathByName('readingSettings', '');
   }
 
   private async openSpeechPlayer(preservePaused: boolean = false): Promise<void> {

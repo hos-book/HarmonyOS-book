@@ -29,7 +29,9 @@ export async function renderPdfPages(path: string, directory: string): Promise<n
         const targetHeight = Math.max(1, Math.floor(height * scale));
         const matrix = new pdfService.PdfMatrix();
         matrix.x = 0; matrix.y = 0;
-        matrix.width = scale; matrix.height = scale;
+        // PdfMatrix 的宽高是页面渲染区域尺寸，不是缩放倍数。
+        // 传入 scale（通常为 2）会把整页压进左上角的极小区域。
+        matrix.width = targetWidth; matrix.height = targetHeight;
         // PDF 自带的页面旋转由渲染器处理，此处不叠加旋转。
         matrix.rotate = 0;
         const options = new pdfService.PixelOptions();

@@ -75,6 +75,7 @@ export class LightSourceBridge {
     control.action = item.action ?? '';
     control.url = item.url ?? '';
     control.group = item.group ?? '';
+    control.discoveryFilter = item.discoveryFilter === true;
     control.placeholder = item.placeholder ?? '';
     return control;
   }

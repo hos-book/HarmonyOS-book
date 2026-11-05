@@ -8,6 +8,13 @@ let recognizer: OfflineRecognizer | null = null;
 let punctuation: OfflinePunctuation | null = null;
 port.onmessage = (event: MessageEvents): void => {
   const request: SubtitleWorkerRequest = event.data;
+  // 排在同步 native 推理之后执行，避免在推理/解码过程中销毁 Worker 环境。
+  if (request.shutdown) {
+    recognizer = null;
+    punctuation = null;
+    port.close();
+    return;
+  }
   const response = new SubtitleWorkerResponse();
   response.requestId = request.requestId;
   response.preview = request.preview;
