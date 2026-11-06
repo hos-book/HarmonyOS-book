@@ -78,3 +78,7 @@ reader_shot.png
 /entry/libs/aiengine.har.json
 /entry/libs/aiengine.har.pending
 __pycache__/
+
+# 一次性浏览器记录与测试目录（任务结束仍须删除实际文件）
+/.playwright-mcp/
+/tmp/

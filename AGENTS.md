@@ -121,6 +121,13 @@ Single HarmonyOS module (`entry/`) + optional Node server (`server/`):
 
 Generated dirs (never edit, never commit): `build/`, `.hvigor/`, `oh_modules/`, `server/node_modules/`, `server/dist/`, `third_party/quickjs/.hvigor/`, `third_party/quickjs/oh_modules/`, `third_party/quickjs/quickjs/.cxx/`, `third_party/quickjs/quickjs/build/`, `third_party/quickjs/quickjs/oh_modules/`
 
+## Workspace Hygiene
+
+- 临时测试脚本、模拟数据、截图、UI dump、日志、探针程序及一次性下载文件，在当前任务完成后立即删除；不要只靠 `.gitignore` 长期堆积，也不要加入提交。
+- 一次性验证文件统一放在任务专属临时目录；验证结束清理该目录，长期维护的回归测试与共享夹具仍按项目测试规范保留。
+- 素材已纳入项目后，删除不再使用的重复导出、拆分包和过程文件；保留项目使用的正式资源、必要源素材、许可证及正式发布归档。
+- 交付前检查 Git 状态，清理已完成或明确作废的分支、失效工作树记录及构建目录中的临时嵌套仓库；不得为清理工作区丢弃仍有用途的代码或本机签名配置。
+
 ## Testing
 
 - **App unit tests**: `entry/src/test/*.test.ets` (Hypium framework) — source persistence and management, bulk testing, search history/cache, pagination/themes, playback progress and download policies
