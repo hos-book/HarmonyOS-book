@@ -10,11 +10,12 @@ export class ComicZoomTransform {
   x: number = 0;
   y: number = 0;
 
-  static fit(width: number, height: number, top: number, bottom: number): ComicZoomTransform {
+  static fit(width: number, height: number, top: number, bottom: number,
+    viewportWidth: number = width): ComicZoomTransform {
     const value = new ComicZoomTransform();
     value.imageWidth = Math.max(1, width);
     value.imageHeight = Math.max(1, height);
-    value.viewportWidth = value.imageWidth;
+    value.viewportWidth = Math.max(1, viewportWidth);
     return value.viewport(top, bottom);
   }
 
@@ -62,11 +63,12 @@ export class ComicZoomTransform {
       return this;
     }
     if (this.scale <= 1) {
-      this.x = 0;
+      this.x = (this.viewportWidth - this.imageWidth) / 2;
       this.y = 0;
       return this;
     }
-    this.x = Math.max(this.imageWidth - this.width(), Math.min(0, this.x));
+    this.x = this.width() <= this.viewportWidth ? (this.viewportWidth - this.width()) / 2 :
+      Math.max(this.viewportWidth - this.width(), Math.min(0, this.x));
     // 长图可能只有中间一段在屏幕内；仍允许将图片顶部和底部拖到这一段。
     this.y = Math.max(this.visibleBottom - this.height(), Math.min(this.visibleTop, this.y));
     return this;

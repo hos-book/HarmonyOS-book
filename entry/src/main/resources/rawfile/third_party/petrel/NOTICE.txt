@@ -1,0 +1,14 @@
+Petrel / Petrelgram — deletion dissolve animation
+Source: https://github.com/miramira8295/Petrel
+Revision: ed218f4559cf083b51b08c5bf0bb27ea6215cbb9
+Authors: miramira8295 and Petrel contributors
+License: Apache License 2.0 (LICENSE.txt)
+
+RecordDissolveEffect.ets and cpp/record_dissolve adapt the fragment subdivision,
+wavefront, motion and fade algorithm from ShatterCanvasFallback.ets and the native
+shatter_renderer.cpp/.h, shatter_geometry.h and shatter_shaders.h implementation.
+Local changes: independent NAPI module, ArkUI V2, bounded single-row snapshot and
+particles, async pixel preparation, NativeVSync-driven GPU instancing, capture and
+render timeouts, opacity fallback, resize/disposal cleanup, list collapse,
+automatic-height bookshelf cards, visible-item batch budgets and per-animation
+render timing summaries. No ArkTS per-frame Canvas drawing remains.

@@ -1,4 +1,6 @@
+import { promptAction } from '@kit.ArkUI';
 import { PlatformCompat } from '../utils/PlatformCompat';
+import { WindowUtils } from '../utils/WindowUtils';
 import { ImmersiveActionButton } from './ImmersiveActionButton';
 import { ImmersiveOptionTabs } from './ImmersiveOptionTabs';
 import { AppAppearance } from '../model/AppAppearance';
@@ -43,11 +45,63 @@ const ACCENT_CHOICES: AccentChoice[] = [
 @ComponentV2
 export struct AppearanceSettingsComponent {
   @Local appearance: AppAppearance = AppAppearance.current;
-  @Local showAccent: boolean = false;
   @Local customHex: string = '';
   @Local accentDraft: string = '';
   @Local colorInvalid: boolean = false;
   @Local saving: boolean = false;
+  private accentDialogId: number = -1;
+  private accentDialogOpen: boolean = false;
+
+  aboutToDisappear(): void {
+    this.closeAccentDialog();
+  }
+
+  private async openAccentDialog(): Promise<void> {
+    if (this.saving || this.accentDialogOpen) return;
+    this.accentDraft = this.appearance.accent;
+    this.customHex = this.appearance.accent || AppAppearance.defaultAccent;
+    this.colorInvalid = false;
+    this.accentDialogOpen = true;
+    const prompt = this.getUIContext().getPromptAction();
+    try {
+      const options: promptAction.CustomDialogOptions = {
+        builder: (): void => { this.accentContent(); },
+        alignment: DialogAlignment.Center,
+        width: Math.min(320, WindowUtils.getWindowWidthVp() - 32),
+        cornerRadius: AppRadius.Xl,
+        autoCancel: true,
+        onWillDismiss: (action: DismissDialogAction): void => {
+          if (!this.saving) action.dismiss();
+        },
+        onDidDisappear: (): void => {
+          this.accentDialogId = -1;
+          this.accentDialogOpen = false;
+        }
+      };
+      if (PlatformCompat.immersiveMaterial) {
+        options.systemMaterial = AppMaterial.DialogUltraThick;
+      } else {
+        options.backgroundBlurStyle = BlurStyle.COMPONENT_ULTRA_THICK;
+      }
+      const dialogId: number = await prompt.openCustomDialog(options);
+      if (this.accentDialogOpen) {
+        this.accentDialogId = dialogId;
+      } else {
+        prompt.closeCustomDialog(dialogId);
+      }
+    } catch (_error) {
+      this.accentDialogOpen = false;
+    }
+  }
+
+  private closeAccentDialog(): void {
+    this.accentDialogOpen = false;
+    if (this.accentDialogId < 0) return;
+    try {
+      this.getUIContext().getPromptAction().closeCustomDialog(this.accentDialogId);
+    } catch (_error) { /* 页面退出时弹窗可能已被系统关闭。 */ }
+    this.accentDialogId = -1;
+  }
 
   private async applyMaterial(value: number): Promise<void> {
     if (this.saving) return;
@@ -103,31 +157,45 @@ export struct AppearanceSettingsComponent {
   }
 
   @Builder
-  accentSheet() {
-    Column({ space: AppSpace.Md }) {
+  accentContent() {
+    Column({ space: AppSpace.Sm }) {
+      Row({ space: AppSpace.Sm }) {
+        Text($r('app.string.appearance_accent'))
+          .fontSize(AppFont.Title).fontWeight(FontWeight.Bold)
+          .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r('sys.symbol.xmark')).fontSize(18)
+            .fontColor([$r('sys.color.font_secondary')])
+        }.width(36).height(36).backgroundColor(Color.Transparent)
+          .accessibilityText($r('app.string.common_cancel')).enabled(!this.saving)
+          .onClick((): void => { this.closeAccentDialog(); })
+          .id('appearance-accent-close')
+      }.width('100%')
       Text($r('app.string.appearance_accent_hint'))
         .fontSize(AppFont.Caption)
         .fontColor($r('sys.color.font_secondary'))
         .width('100%')
-      Flex({ wrap: FlexWrap.Wrap, justifyContent: FlexAlign.SpaceBetween }) {
+      GridRow({ columns: 3, gutter: { x: AppSpace.Xs, y: AppSpace.Xs } }) {
         ForEach(ACCENT_CHOICES, (choice: AccentChoice) => {
-          Column({ space: AppSpace.Xs }) {
-            Stack() {
-              Row().width(42).height(42).borderRadius(21).backgroundColor(choice.color || AppAppearance.defaultAccent)
-              if ((this.accentDraft || AppAppearance.defaultAccent) === (choice.color || AppAppearance.defaultAccent)) {
-                SymbolGlyph($r('sys.symbol.checkmark'))
-                  .fontSize(20)
-                  .fontColor([AppAppearance.foreground(choice.color || AppAppearance.defaultAccent)])
+          GridCol() {
+            Column({ space: AppSpace.Xs }) {
+              Stack() {
+                Row().width(42).height(42).borderRadius(21).backgroundColor(choice.color || AppAppearance.defaultAccent)
+                if ((this.accentDraft || AppAppearance.defaultAccent) === (choice.color || AppAppearance.defaultAccent)) {
+                  SymbolGlyph($r('sys.symbol.checkmark'))
+                    .fontSize(20)
+                    .fontColor([AppAppearance.foreground(choice.color || AppAppearance.defaultAccent)])
+                }
               }
+              Text(choice.label).fontSize(AppFont.Caption).fontColor($r('sys.color.font_primary'))
             }
-            Text(choice.label).fontSize(AppFont.Caption).fontColor($r('sys.color.font_primary'))
+            .width('100%')
+            .padding({ top: AppSpace.Xs, bottom: AppSpace.Sm })
+            .borderRadius(AppRadius.Lg)
+            .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveThin))
+            .enabled(!this.saving)
+            .onClick(() => this.selectAccent(choice.color))
           }
-          .width('30%')
-          .padding({ top: AppSpace.Xs, bottom: AppSpace.Sm })
-          .borderRadius(AppRadius.Lg)
-          .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveThin))
-          .enabled(!this.saving)
-          .onClick(() => this.selectAccent(choice.color))
         }, (choice: AccentChoice) => choice.color || 'default')
       }
       Row({ space: AppSpace.Sm }) {
@@ -154,7 +222,10 @@ export struct AppearanceSettingsComponent {
       }
     }
     .width('100%')
-    .padding({ left: AppSpace.Lg, right: AppSpace.Lg, bottom: AppSpace.Lg })
+    .padding(20)
+    .borderRadius(AppRadius.Xl)
+    .clip(true)
+    .id('appearance-accent-dialog')
   }
 
   build() {
@@ -189,21 +260,8 @@ export struct AppearanceSettingsComponent {
           .fontColor($r('sys.color.font_secondary'))
       }
       .width('100%').padding(AppSpace.Md).constraintSize({ minHeight: 56 })
-      .onClick(() => {
-        if (this.saving) return;
-        this.accentDraft = this.appearance.accent;
-        this.customHex = this.appearance.accent || AppAppearance.defaultAccent;
-        this.colorInvalid = false;
-        this.showAccent = true;
-      })
-      .bindSheet($$this.showAccent, this.accentSheet(), {
-        height: SheetSize.FIT_CONTENT,
-        detents: [SheetSize.FIT_CONTENT, '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM,
-        title: { title: $r('app.string.appearance_accent') },
-        backgroundColor: AppMaterial.SheetBackground,
-        blurStyle: AppMaterial.SheetBlur,
-        systemMaterial: AppMaterial.Sheet
-      })
+      .id('appearance-accent-entry')
+      .onClick((): void => { this.openAccentDialog(); })
     }
     .width('100%')
   }

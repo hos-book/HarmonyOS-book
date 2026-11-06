@@ -10,6 +10,9 @@ export class MobiBookInfo {
   coverOffset: number = -1;
   thumbnailOffset: number = -1;
   encoding: string = 'utf-8';
+  firstImageRecord: number = -1;
+  textRecords: number = 0;
+  recordOffsets: number[] = [];
 }
 
 /** MOBI6/PalmDOC: bounded record reads; hybrid MOBI uses its legacy rendition. */
@@ -52,6 +55,18 @@ export class MobiBookParser {
 
   private static decode(bytes: Uint8Array, encoding: string): string {
     return util.TextDecoder.create(encoding).decodeToString(bytes).replace(/\u0000/g, '').trim();
+  }
+
+  /** recindex is one-based and relative to the first image record. */
+  static async readImage(fd: number, info: MobiBookInfo, recindex: number): Promise<ArrayBuffer> {
+    const record = info.firstImageRecord + recindex - 1;
+    if (!Number.isInteger(recindex) || recindex < 1 || info.firstImageRecord <= info.textRecords ||
+      record < info.firstImageRecord || record + 1 >= info.recordOffsets.length) {
+      throw new Error('import_mobi_image_missing');
+    }
+    const length = info.recordOffsets[record + 1] - info.recordOffsets[record];
+    if (length <= 0 || length > 20 * 1024 * 1024) throw new Error('import_mobi_image_limit');
+    return (await MobiBookParser.readBytes(fd, info.recordOffsets[record], length, 20 * 1024 * 1024)).buffer;
   }
 
   private static metadata(header: Uint8Array, headerLength: number, encoding: string): MobiBookInfo {
@@ -217,6 +232,9 @@ export class MobiBookParser {
       const encoding = codepage === 65001 ? 'utf-8' : 'windows-1252';
       const info = MobiBookParser.metadata(header, headerLength, encoding);
       const records = MobiBookParser.u16(header, 8);
+      info.textRecords = records;
+      info.recordOffsets = offsets;
+      info.firstImageRecord = headerLength >= 96 ? MobiBookParser.u32(header, 108) : -1;
       const recordSize = MobiBookParser.u16(header, 10);
       if (info.textLength > MobiBookParser.MAX_TEXT_BYTES) throw new Error('import_mobi_size');
       if (records === 0 || records >= count || recordSize === 0 || info.textLength === 0 ||

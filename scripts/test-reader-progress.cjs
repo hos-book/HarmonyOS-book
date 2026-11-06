@@ -30,7 +30,7 @@ function compile(relative, source) {
   const exports = {};
   vm.runInNewContext(ts.transpileModule(source ?? fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
-  }).outputText, { exports, require: name => mocks[name] || {}, setTimeout, clearTimeout, KeyType: { Down: 0, Up: 1 }, ScrollAlign: { START: 0 },
+  }).outputText, { exports, require: name => mocks[name] || {}, setTimeout, clearTimeout, Computed: () => {}, KeyType: { Down: 0, Up: 1 }, ScrollAlign: { START: 0 },
     DataOperationType: { ADD: 'add', DELETE: 'delete', RELOAD: 'reload' } }, { filename });
   return exports;
 }

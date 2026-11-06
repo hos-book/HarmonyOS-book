@@ -18,4 +18,5 @@ export class EpubReaderParams {
   onError: (message: string, code: number) => void = () => {};
   onReaderPageShow: (info: readerCore.PageDataInfo) => void = () => {};
   onContentTap: () => void = () => {};
+  onManualPageTurn: (active: boolean, immediate?: boolean) => void = () => {};
 }

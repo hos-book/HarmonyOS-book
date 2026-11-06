@@ -2,6 +2,7 @@ import { LocalBookCover } from '../components/LocalBookCover';
 import { CoverImage } from '../components/CoverImage';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
 import { ImmersiveSummaryTag } from '../components/ImmersiveSummaryTag';
+import { RecordDissolveEffect } from '../components/RecordDissolveEffect';
 import { DailyQuoteService } from '../service/DailyQuoteService';
 import { DailyQuote } from '../model/DailyQuote';
 import { PlatformCompat } from '../utils/PlatformCompat';
@@ -71,6 +72,13 @@ class ListeningRecordDataSource implements IDataSource {
   unregisterDataChangeListener(listener: DataChangeListener): void {
     this.listeners = this.listeners.filter((item: DataChangeListener): boolean => item !== listener);
   }
+  removeRecords(bookIds: Set<string>): void {
+    for (let index = this.items.length - 1; index >= 0; index--) {
+      if (!bookIds.has(this.items[index].bookId)) continue;
+      this.items.splice(index, 1);
+      for (const listener of this.listeners) listener.onDataDelete(index);
+    }
+  }
   setRecords(records: ListenRecordView[]): void {
     const structureChanged: boolean = records.length !== this.items.length ||
       records.some((record: ListenRecordView, index: number): boolean => record.bookId !== this.items[index]?.bookId);
@@ -134,10 +142,18 @@ export struct ReadingStatsPage {
   @Local loading: boolean = true;
   @Local refreshing: boolean = false;
   @Local selectMode: boolean = false;
+  @Local recordEditLocked: boolean = false;
+  @Local recordEditLockReady: boolean = false;
+  @Local savingRecordEditLock: boolean = false;
   @Local selectedIds: Set<string> = new Set();
   @Local deletingRecords: boolean = false;
+  @Local dissolvingBookId: string = '';
+  @Local collapsingBookId: string = '';
 
-  private scroller: Scroller = new Scroller();
+  private scroller: ListScroller = new ListScroller();
+  private recordLoadGeneration: number = 0;
+  private recordEditLockGeneration: number = 0;
+  private deleteAnimationFinished: (() => void) | undefined = undefined;
   private recordDataSource: ListeningRecordDataSource = new ListeningRecordDataSource();
   private recoveryRunning: boolean = false;
   private openingDetail: boolean = false;
@@ -168,6 +184,7 @@ export struct ReadingStatsPage {
     this.onBackHandlerChange((): boolean => this.handleBack());
     DiagnosticLogService.info('records.open', `unfavorited=${this.onlyUnfavorited}`);
     this.recoveryActive = true;
+    this.loadRecordEditLock();
     this.recoveryAttempted.clear();
     const cached = StatsService.getCachedStatsBundle(1);
     if (cached !== undefined) this.applyStatsBundle(cached);
@@ -180,6 +197,8 @@ export struct ReadingStatsPage {
   aboutToDisappear(): void {
     this.onBackHandlerChange(undefined);
     this.recoveryActive = false;
+    this.recordEditLockGeneration++;
+    this.finishDeleteAnimation();
     this.pageVisible = false;
     this.cancelVisibleRefresh();
     if (this.dayTimer !== -1) clearTimeout(this.dayTimer);
@@ -223,6 +242,7 @@ export struct ReadingStatsPage {
       this.visibleRefreshTimer = -1;
       if (!this.recoveryActive) return;
       this.pageVisible = true;
+      this.loadRecordEditLock();
       this.loadStats();
       this.loadDailyQuote();
       this.scheduleDayRefresh();
@@ -271,12 +291,13 @@ export struct ReadingStatsPage {
   private async loadStats(): Promise<void> {
     // 缓存 Tab 的事件只在重新显示时统一读取，避免后台记录页争抢切换帧。
     if (!this.recoveryActive || !this.pageVisible) return;
-    if (this.loadingStats || this.listScrolling) {
+    if (this.loadingStats || this.listScrolling || this.deletingRecords) {
       this.reloadPending = true;
       return;
     }
     this.reloadPending = false;
     this.loadingStats = true;
+    const generation = this.recordLoadGeneration;
     const ctx = this.getUIContext().getHostContext();
     if (!ctx) { this.loadingStats = false; this.refreshing = false; return; }
     try {
@@ -298,6 +319,7 @@ export struct ReadingStatsPage {
       if (this.listScrolling) { this.reloadPending = true; return; }
       const allRecords = await this.buildRecordViews(ctx, bundle.records, history, reading);
       if (!this.recoveryActive || !this.pageVisible) return;
+      if (generation !== this.recordLoadGeneration || this.deletingRecords) { this.reloadPending = true; return; }
       if (this.listScrolling) { this.reloadPending = true; return; }
       this.records = allRecords.filter((item: ListenRecordView): boolean =>
         this.shouldShowRecord(item, favoriteIds));
@@ -317,7 +339,7 @@ export struct ReadingStatsPage {
       if (this.recoveryActive && this.pageVisible && !this.listScrolling) this.loading = false;
       this.refreshing = false;
       this.loadingStats = false;
-      if (this.reloadPending && !this.listScrolling) {
+      if (this.reloadPending && !this.listScrolling && !this.deletingRecords) {
         this.reloadPending = false;
         this.loadStats();
       }
@@ -543,7 +565,66 @@ export struct ReadingStatsPage {
     return this.monthSeconds;
   }
 
+  private canEditRecords(): boolean {
+    return this.recordEditLockReady && !this.recordEditLocked && !this.savingRecordEditLock && !this.deletingRecords;
+  }
+
+  private async loadRecordEditLock(): Promise<void> {
+    if (this.savingRecordEditLock) return;
+    const generation = ++this.recordEditLockGeneration;
+    this.recordEditLockReady = false;
+    try {
+      const locked = await PreferenceService.getRecordEditLocked();
+      if (!this.recoveryActive || generation !== this.recordEditLockGeneration) return;
+      this.recordEditLocked = locked;
+      if (locked) {
+        this.clearSelection();
+        this.closeRecordSwipe();
+      }
+      this.recordEditLockReady = true;
+    } catch (error) {
+      DiagnosticLogService.info('records.editLock.load.failed', String(error));
+    }
+  }
+
+  private async setRecordEditLocked(locked: boolean): Promise<void> {
+    if (!this.recordEditLockReady || this.savingRecordEditLock || this.deletingRecords ||
+      this.recordEditLocked === locked) return;
+    this.recordEditLockGeneration++;
+    const previous = this.recordEditLocked;
+    this.savingRecordEditLock = true;
+    this.recordEditLocked = locked;
+    this.contentFilterVisible = false;
+    this.clearSelection();
+    this.closeRecordSwipe();
+    try {
+      await PreferenceService.setRecordEditLocked(locked);
+    } catch (error) {
+      this.recordEditLocked = previous;
+      DiagnosticLogService.info('records.editLock.save.failed', String(error));
+      if (this.recoveryActive) {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
+      }
+    } finally {
+      this.savingRecordEditLock = false;
+    }
+  }
+
+  private handleRecordEditPress(): void {
+    if (!this.recordEditLockReady || this.savingRecordEditLock || this.deletingRecords) return;
+    if (this.recordEditLocked) {
+      this.setRecordEditLocked(false);
+      return;
+    }
+    if (this.loading || this.filteredRecords().length === 0) return;
+    this.contentFilterVisible = false;
+    this.closeRecordSwipe();
+    if (this.selectMode) this.clearSelection();
+    else this.selectMode = true;
+  }
+
   private toggleSelect(bookId: string): void {
+    if (!this.canEditRecords()) return;
     const next = new Set(this.selectedIds);
     if (next.has(bookId)) {
       next.delete(bookId);
@@ -555,6 +636,7 @@ export struct ReadingStatsPage {
   }
 
   private selectAll(): void {
+    if (!this.canEditRecords()) return;
     this.selectedIds = new Set(this.filteredRecords().map((item: ListenRecordView): string => item.bookId));
     this.selectMode = this.selectedIds.size > 0;
   }
@@ -572,51 +654,99 @@ export struct ReadingStatsPage {
   }
 
   private async confirmDeleteSelected(): Promise<void> {
-    if (this.selectedIds.size === 0 || this.deletingRecords) return;
-    const count = this.selectedIds.size;
-    const deletedIds = new Set<string>(this.selectedIds);
+    if (!this.canEditRecords() || this.selectedIds.size === 0) return;
+    await this.confirmDeleteRecords(new Set<string>(this.selectedIds));
+  }
+
+  private async confirmDeleteRecord(item: ListenRecordView): Promise<void> {
+    if (!this.canEditRecords() || this.selectMode) return;
+    await this.confirmDeleteRecords(new Set<string>([item.bookId]), item);
+  }
+
+  private async confirmDeleteRecords(recordIds: Set<string>, single?: ListenRecordView): Promise<void> {
+    if (!this.canEditRecords()) return;
+    const deletedIds = new Set<string>(recordIds);
     for (const item of this.records) {
-      if (!this.selectedIds.has(item.bookId)) continue;
+      if (!recordIds.has(item.bookId)) continue;
       for (const aliasBookId of item.aliasBookIds) deletedIds.add(aliasBookId);
     }
     const ids = Array.from(deletedIds);
     this.deletingRecords = true;
+    this.recordLoadGeneration++;
     try {
       const result = await this.getUIContext().getPromptAction().showDialog({
         title: $r('app.string.record_delete_title'),
-        message: $r('app.string.record_delete_confirm', count),
+        message: single ? $r('app.string.record_delete_single_confirm', single.title) :
+          $r('app.string.record_delete_confirm', recordIds.size),
         buttons: [
           { text: $r('app.string.common_cancel'), color: AppTheme.TextPrimary },
           { text: $r('app.string.common_delete'), color: AppColor.BrandDark }
         ]
       });
-      if (result.index !== 1 || !this.recoveryActive) return;
+      if (result.index !== 1 || !this.recoveryActive || this.recordEditLocked) return;
+      await this.closeRecordSwipe();
       await this.deleteSelected(ids);
+      if (single && this.recoveryActive && this.pageVisible) await this.animateRecordDelete(single.bookId);
+      this.recordDataSource.removeRecords(recordIds);
+      this.records = this.records.filter((item: ListenRecordView): boolean => !recordIds.has(item.bookId));
+      this.clearSelection();
     } catch (error) {
       DiagnosticLogService.info('records.delete.failed', String(error));
       if (this.recoveryActive) {
         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.record_delete_failed') });
       }
     } finally {
+      this.dissolvingBookId = '';
+      this.collapsingBookId = '';
       this.deletingRecords = false;
+      this.loadStats();
     }
+  }
+
+  private closeRecordSwipe(): Promise<void> {
+    return new Promise<void>((resolve: () => void): void => {
+      const timer = setTimeout(resolve, 350);
+      try {
+        this.scroller.closeAllSwipeActions({ onFinish: (): void => { clearTimeout(timer); resolve(); } });
+      } catch (_error) { clearTimeout(timer); resolve(); }
+    });
+  }
+
+  private finishDeleteAnimation(): void {
+    const finish = this.deleteAnimationFinished;
+    this.deleteAnimationFinished = undefined;
+    finish?.();
+  }
+
+  private async animateRecordDelete(bookId: string): Promise<void> {
+    await new Promise<void>((resolve: () => void): void => {
+      const timer = setTimeout((): void => this.finishDeleteAnimation(), 4050);
+      this.deleteAnimationFinished = (): void => { clearTimeout(timer); resolve(); };
+      this.dissolvingBookId = bookId;
+    });
+    if (!this.recoveryActive || !this.pageVisible) return;
+    await new Promise<void>((resolve: () => void): void => {
+      const timer = setTimeout(resolve, 280);
+      this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut,
+        onFinish: (): void => { clearTimeout(timer); resolve(); } }, (): void => {
+        this.collapsingBookId = bookId;
+      });
+    });
   }
 
   private async deleteSelected(ids: string[]): Promise<void> {
     const context = this.getUIContext().getHostContext();
-    if (!context) return;
+    if (!context) throw new Error('Record context unavailable');
     await StatsService.removeBookStats(ids);
     for (const id of ids) {
       await PreferenceService.removeHistory(id);
       await PreferenceService.removeProgress(id);
       await TextReadingProgressService.remove(context, id);
     }
-    this.clearSelection();
-    await this.loadStats();
   }
 
   private async openDetail(item: ListenRecordView): Promise<void> {
-    if (!item.bookId || this.selectMode || this.openingDetail || this.playerTransition.active) return;
+    if (!item.bookId || this.selectMode || this.deletingRecords || this.openingDetail || this.playerTransition.active) return;
     this.openingDetail = true;
     const bookId = item.bookId;
     const stackSize = this.navStack.size();
@@ -634,7 +764,7 @@ export struct ReadingStatsPage {
   }
 
   private async resumeRecord(item: ListenRecordView): Promise<void> {
-    if (!item.bookId || this.selectMode || this.openingDetail || this.playerTransition.active) return;
+    if (!item.bookId || this.selectMode || this.deletingRecords || this.openingDetail || this.playerTransition.active) return;
     if (item.isText) {
       const context = this.getUIContext().getHostContext();
       if (!context) return;
@@ -729,15 +859,16 @@ export struct ReadingStatsPage {
           if (this.onlyUnfavorited) this.navStack.pop();
           else this.navStack.pushPathByName('unfavoriteHistory', null, false);
         } })
-      ImmersiveCircleButton({ icon: this.selectMode ? $r('sys.symbol.checkmark') : $r('sys.symbol.square_and_pencil'),
-        label: this.selectMode ? $r('app.string.record_edit_done') : $r('app.string.record_edit'),
-        iconColor: this.selectMode ? AppColor.Brand : AppTheme.IconPrimary,
-        onPress: (): void => {
-          this.contentFilterVisible = false;
-          if (this.selectMode) this.clearSelection();
-          else this.selectMode = true;
-        } }).enabled(!this.loading && this.filteredRecords().length > 0)
-    }.width('100%').height(MINI_TITLE_BAR_HEIGHT)
+      ImmersiveCircleButton({ icon: this.recordEditLocked ? $r('sys.symbol.lock') :
+        (this.selectMode ? $r('sys.symbol.checkmark') : $r('sys.symbol.square_and_pencil')),
+        label: this.recordEditLocked ? $r('app.string.record_edit_locked') :
+          (this.selectMode ? $r('app.string.record_edit_done') : $r('app.string.record_edit')),
+        iconColor: this.recordEditLocked || this.selectMode ? AppColor.Brand : AppTheme.IconPrimary,
+        longPressEnabled: !this.selectMode && !this.recordEditLocked,
+        onPress: (): void => this.handleRecordEditPress(),
+        onLongPress: (): void => { this.setRecordEditLocked(true); } })
+        .enabled(this.recordEditLockReady && !this.savingRecordEditLock)
+    }.width('100%').height(MINI_TITLE_BAR_HEIGHT).enabled(!this.deletingRecords)
       .padding({ left: AppSpace.Md, right: AppSpace.Md }).clip(false)
   }
 
@@ -753,7 +884,8 @@ export struct ReadingStatsPage {
 
       HdsNavigation() {
         Refresh({ refreshing: $$this.refreshing, builder: this.refreshIndicator() }) {
-          List({ scroller: this.scroller }) {
+          // 间距由各条目 margin 保持；显式为 0，避免链式动效额外加入默认 20vp。
+          List({ scroller: this.scroller, space: 0 }) {
             if (!this.onlyUnfavorited) {
               ListItem() { this.buildDailyQuoteCard() }.margin({ bottom: AppSpace.Sm })
               ListItem() { this.buildSummaryCard() }
@@ -772,18 +904,36 @@ export struct ReadingStatsPage {
                 }
               }
               LazyForEach(this.recordDataSource, (item: ListenRecordView) => {
-                ListItem() { this.buildRecordItem(item) }.margin({ bottom: AppSpace.Md })
+                ListItem() {
+                  RecordDissolveEffect({ snapshotId: `${this.recordCoverId(item)}-dissolve`,
+                    active: this.dissolvingBookId === item.bookId,
+                    content: (): void => this.buildRecordItem(item),
+                    onFinished: (): void => this.finishDeleteAnimation() })
+                }
+                .height(this.collapsingBookId === item.bookId ? 0 : 88)
+                .margin({ bottom: this.collapsingBookId === item.bookId ? 0 : AppSpace.Md })
+                .clip(false)
+                .swipeAction({ end: this.selectMode || !this.canEditRecords() ? undefined :
+                  (): void => this.buildRecordDeleteAction(item),
+                  edgeEffect: SwipeEdgeEffect.None })
               }, (item: ListenRecordView): string => item.bookId)
             }
           }
           .width('100%')
           .height('100%')
           .cachedCount(5)
-          .onScrollStart((): void => { this.listScrolling = true; })
+          .enableScrollInteraction(!this.deletingRecords)
+          .onScrollStart((): void => {
+            this.listScrolling = true;
+          })
           .onScrollStop((): void => this.finishRecordScroll())
-           .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
+          .onDidScroll((offset: number, state: ScrollState): void => {
+            this.onContentScroll(offset, state);
+          })
           .scrollBar(BarState.Off)
           .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+          .chainAnimation(this.visible && !this.loading && !this.selectMode &&
+            !this.deletingRecords && !this.playerTransition.active)
           .padding({
             left: AppSpace.Md,
             right: AppSpace.Md
@@ -950,6 +1100,21 @@ export struct ReadingStatsPage {
   }
 
   @Builder
+  buildRecordDeleteAction(item: ListenRecordView) {
+    Row() {
+      Button({ type: ButtonType.Circle }) {
+        SymbolGlyph($r('sys.symbol.trash'))
+          .fontSize(22).fontColor([$r('sys.color.ohos_id_color_warning')])
+      }
+      .width(44).height(44).padding(0)
+      .backgroundColor(Color.Transparent)
+      .accessibilityText($r('app.string.record_delete_title'))
+      .enabled(!this.deletingRecords)
+      .onClick((): void => { this.confirmDeleteRecord(item); })
+    }.width(52).height(88).justifyContent(FlexAlign.End).alignItems(VerticalAlign.Center)
+  }
+
+  @Builder
   buildRecordItem(item: ListenRecordView) {
     Row({ space: AppSpace.Md }) {
       if (this.selectMode) {
@@ -1046,6 +1211,7 @@ export struct ReadingStatsPage {
     .alignItems(VerticalAlign.Center)
     .clickEffect({ level: ClickEffectLevel.LIGHT })
     .onClick(() => {
+      if (this.deletingRecords) return;
       if (this.selectMode) {
         this.toggleSelect(item.bookId);
       } else {
@@ -1055,6 +1221,8 @@ export struct ReadingStatsPage {
     .gesture(
       LongPressGesture({ repeat: false, duration: 500 })
         .onAction(() => {
+          if (!this.canEditRecords()) return;
+          this.closeRecordSwipe();
           this.selectMode = true;
           this.toggleSelect(item.bookId);
         })
@@ -1073,6 +1241,7 @@ export struct ReadingStatsPage {
         .border({ width: 0.5, color: $r('sys.color.comp_divider') })
         .accessibilityText($r('app.string.session_history'))
         .onClick((): void => {
+          if (this.deletingRecords) return;
           const params: Record<string, Object> = { 'bookIds': JSON.stringify([item.bookId, ...item.aliasBookIds]) };
           this.navStack.pushPathByName('sessionHistory', params);
         })

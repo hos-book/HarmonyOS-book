@@ -12,6 +12,7 @@ import { ThemeIconRole } from '../theme/ThemeIcons';
 import { ThemeIconComponent } from '../components/ThemeIconComponent';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
 import { WindowUtils } from '../utils/WindowUtils';
+import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { Book, Chapter } from '../model/Book';
 import { SearchResult, HomeBlockSection } from '../model/BookSource';
@@ -28,7 +29,7 @@ import { BookPosterSkeleton } from '../components/BookPosterCarousel';
 import { HomeCategorySheet } from '../components/HomeCategorySheet';
 import { LocalRuleControl } from '../model/LocalRulePanel';
 import { LocalRulePanelService } from '../service/rulesource/LocalRulePanelService';
-import { HomeCategoryBookRow, HomeCategoryRowDataSource } from '../utils/HomeCategoryRowDataSource';
+import { BookDataSource } from '../utils/BookDataSource';
 import { HomeBlockDataSource } from '../utils/HomeBlockDataSource';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
 import { BookIdentity } from '../utils/BookIdentity';
@@ -43,6 +44,22 @@ import { HomeSourceCategory, HomeSourceContent, HomeSourceService } from '../ser
 import { RankingHomePage } from './RankingHomePage';
 import { RankingService } from '../service/ranking/RankingService';
 import { ReleasePolicy } from '../utils/ReleasePolicy';
+
+class HomeFilterOptionItem {
+  control: LocalRuleControl;
+  label: string;
+  value: string;
+  group: string;
+  key: string;
+
+  constructor(control: LocalRuleControl, label: string, value: string, group: string) {
+    this.control = control;
+    this.label = label;
+    this.value = value;
+    this.group = group;
+    this.key = JSON.stringify([control.id, group, value, label]);
+  }
+}
 
 class HomeCategoryDataSource implements IDataSource {
   private categories: HomeSourceCategory[] = [];
@@ -314,6 +331,13 @@ export struct HomePage {
   @Local homeFilters: LocalRuleControl[] = [];
   @Local savingHomeFilter: boolean = false;
   @Local homeFilterMenuVisible: boolean = false;
+  @Local homeFilterKeyword: string = '';
+  @Local homeFilterGroup: string = '';
+  @Local homeFilterGroupMenuVisible: boolean = false;
+  @Local homeFilterMatchCount: number = 0;
+  private homeFilterMenuData: HomeRecommendationDataSource<HomeFilterOptionItem> = new HomeRecommendationDataSource();
+  private homeFilterGroupMenuData: HomeRecommendationDataSource<string> = new HomeRecommendationDataSource();
+  private homeFilterMenuScroller: Scroller = new Scroller();
   @Local homeChannels: string[] = [];
   @Local selectedHomeChannel: string = '';
   private channelDataSource: HomeRecommendationDataSource<string> = new HomeRecommendationDataSource();
@@ -357,13 +381,18 @@ export struct HomePage {
   private recommendationScroller: Scroller = new Scroller();
   private headerScroller: Scroller = new Scroller();
   private categoryNavScroller: Scroller = new Scroller();
-  private categoryDS: HomeCategoryRowDataSource = new HomeCategoryRowDataSource();
+  private categoryDS: BookDataSource = new BookDataSource();
   private categoryNavDataSource: HomeCategoryDataSource = new HomeCategoryDataSource();
   @Local categorySheetVisible: boolean = false;
   private homeBlockDataSource: HomeBlockDataSource = new HomeBlockDataSource();
   private homeCoverDataSources: Map<string, HomeRecommendationDataSource<SearchResult>> = new Map();
   private emptyHomeCoverDataSource: HomeRecommendationDataSource<SearchResult> = new HomeRecommendationDataSource();
   private featuredPageDataSource: HomeRecommendationDataSource<SearchResult[]> = new HomeRecommendationDataSource();
+  @Local moreRecommendations: SearchResult[] = [];
+  @Local moreRecommendationsLoading: boolean = false;
+  @Local moreRecommendationsFailed: boolean = false;
+  @Local moreRecommendationColumns: number = 1;
+  private moreRecommendationDataSource: HomeRecommendationDataSource<SearchResult[]> = new HomeRecommendationDataSource();
   private homeGen: number = 0;
   private refreshInFlight: boolean = false;
   private readonly searchTitleBarBuilder: CustomBuilder = (): void => this.buildSearchTitleBar();
@@ -540,10 +569,13 @@ export struct HomePage {
     this.loadingHome = true;
     this.categoryLoading = false;
     this.homeError = '';
+    this.moreRecommendationsFailed = false;
+    this.moreRecommendationsLoading = false;
     if (!preserveContent) {
       this.updateHomeBlocks([]);
+      this.updateMoreRecommendations([]);
       this.updateHomeCategories([]);
-      this.homeFilters = [];
+      this.updateHomeFilters([]);
       this.updateHomeChannels([]);
       this.selectedHomeChannel = '';
       this.currentSource = undefined;
@@ -562,7 +594,9 @@ export struct HomePage {
         item.bookSourceUrl === source?.bookSourceUrl);
       if (source === undefined || source.bookSourceUrl !== this.currentSource?.bookSourceUrl) {
         this.updateHomeBlocks([]);
+        this.updateMoreRecommendations([]);
         this.updateHomeCategories([]);
+        this.updateHomeFilters([]);
         this.updateHomeChannels([]);
         this.selectedHomeChannel = '';
       }
@@ -583,17 +617,25 @@ export struct HomePage {
         (partial: HomeSourceContent): void => {
           if (generation !== this.homeGen) return;
           this.updateHomeChannels(partial.channels);
-          this.homeFilters = partial.filters;
+          this.updateHomeFilters(partial.filters);
           this.selectedHomeChannel = partial.channel;
           this.homeError = HomeSourceService.isSupportedChannel(partial.channel) ? '' :
             $r('app.string.home_channel_unsupported');
           if (this.homeCategories !== partial.categories) this.updateHomeCategories(partial.categories);
           // 刷新时保留现有书单；首次加载则哪个分类先完成就先展示。
           if (partial.blocks.length > 0 && this.homeBlocks !== partial.blocks) this.updateHomeBlocks(partial.blocks);
+          this.moreRecommendationsLoading = partial.moreLoading;
+          this.moreRecommendationsFailed = partial.moreFailed;
+          if (partial.moreRecommendations.length > 0 || !preserveContent) {
+            this.updateMoreRecommendations(partial.moreRecommendations);
+          }
         }, channel);
       if (generation !== this.homeGen) return;
       const blocks = content.blocks;
       this.updateHomeBlocks(blocks);
+      this.updateMoreRecommendations(content.moreRecommendations);
+      this.moreRecommendationsLoading = false;
+      this.moreRecommendationsFailed = content.moreFailed;
       const covers: string[] = [];
       for (const block of blocks) {
         for (const book of block.books) {
@@ -609,7 +651,10 @@ export struct HomePage {
       this.homeError = $r('app.string.home_source_load_failed');
       hilog.error(DOMAIN, TAG, 'loadHomeBlocks failed: %{public}s', String(error));
     } finally {
-      if (generation === this.homeGen) this.loadingHome = false;
+      if (generation === this.homeGen) {
+        this.loadingHome = false;
+        this.moreRecommendationsLoading = false;
+      }
     }
   }
 
@@ -743,7 +788,7 @@ export struct HomePage {
 
   private handleCategorySwipe(event: GestureEvent): void {
     if (GeneralSettings.current.swipeSwitchTabs) return;
-    if (!this.visible || !this.homeResolved || this.rankingMode || this.homeSourceMenuVisible ||
+    if (!this.visible || !this.homeResolved || this.rankingMode || this.homeSourceMenuVisible || this.homeFilterMenuVisible ||
       this.isRefreshing || this.openingCarouselBook) return;
     if (Math.abs(event.offsetX) < 48 || Math.abs(event.offsetX) <= Math.abs(event.offsetY) * 1.2) return;
     const next: number = this.selectedCategoryIndex + (event.offsetX < 0 ? 1 : -1);
@@ -759,7 +804,8 @@ export struct HomePage {
   private async selectHomeFilter(control: LocalRuleControl, value: string): Promise<void> {
     const source = this.currentSource;
     const active = this.homeFilters.find((item: LocalRuleControl): boolean => item.id === control.id);
-    if (source === undefined || this.savingHomeFilter || this.loadingHome ||
+    // 分类选项已就绪即可切换；推荐书单仍在加载时不锁入口。
+    if (source === undefined || this.savingHomeFilter ||
       active === undefined || active.value === value || !active.optionValues.includes(value)) return;
     this.savingHomeFilter = true;
     const previous = active.value;
@@ -839,7 +885,11 @@ export struct HomePage {
         newBooks.push(this.homeBookFromResult(item));
       }
       this.categoryBooks = append ? this.categoryBooks.concat(newBooks) : newBooks;
-      this.categoryDS.setBooks(this.categoryBooks, this.categoryListMode ? 1 : 3);
+      if (append) {
+        this.categoryDS.appendBooks(newBooks);
+      } else {
+        this.categoryDS.setBooks(newBooks.slice());
+      }
       if (animateEntrance) this.animateContentEntrance();
       this.categoryNextUrl = page.nextUrl;
       this.categoryNextPage = page.nextPage ?? (pageNumber + 1);
@@ -875,7 +925,6 @@ export struct HomePage {
     this.categoryLoadOnReachEnd = false;
     this.contentScroller.scrollEdge(Edge.Top);
     this.categoryListMode = !this.categoryListMode;
-    this.categoryDS.setBooks(this.categoryBooks, this.categoryListMode ? 1 : 3);
   }
 
   @Local coverState: OneShotCoverState = OneShotTransitionCoordinator.getInstance().coverState;
@@ -1011,6 +1060,32 @@ export struct HomePage {
       this.carouselCover = carousel[0]?.coverUrl ?? '';
     }
     this.homeBlockDataSource.setBlocks(blocks);
+  }
+
+  private updateMoreRecommendations(books: SearchResult[]): void {
+    if (this.moreRecommendations === books) return;
+    this.moreRecommendations = books;
+    this.rebuildMoreRecommendationRows();
+  }
+
+  @Monitor('viewportWidth', 'leftSafeVp', 'rightSafeVp')
+  private onMoreRecommendationWidthChanged(): void {
+    const columns: number = this.contentWidth >= AdaptiveLayout.MEDIUM_WIDTH ? 2 : 1;
+    if (columns === this.moreRecommendationColumns) return;
+    this.moreRecommendationColumns = columns;
+    this.rebuildMoreRecommendationRows();
+  }
+
+  private rebuildMoreRecommendationRows(): void {
+    const rows: SearchResult[][] = [];
+    for (let index: number = 0; index < this.moreRecommendations.length; index += this.moreRecommendationColumns) {
+      rows.push(this.moreRecommendations.slice(index, index + this.moreRecommendationColumns));
+    }
+    this.moreRecommendationDataSource.setItems(rows);
+  }
+
+  private moreRecommendationRowKey(books: SearchResult[]): string {
+    return JSON.stringify(books.map((book: SearchResult): string => `${book.sourceUrl}#${book.bookUrl}`));
   }
 
   /** 首板块按每页三条分组，横向切换时保留稳定的书籍顺序。 */
@@ -1710,6 +1785,92 @@ export struct HomePage {
 
   @Builder
   buildHomeContent(recommendations: boolean) {
+    if (!recommendations && !this.categoryListMode && this.categoryBooks.length > 0) {
+      this.buildCategoryWaterFlow()
+    } else {
+      this.buildHomeList(recommendations)
+    }
+  }
+
+  @Builder
+  buildCategoryPagination() {
+    Row({ space: AppSpace.Xs }) {
+      if (this.categoryLoading) {
+        LoadingProgress().width(24).height(24).color(AppColor.Brand)
+      }
+      Text(this.categoryError || (this.categoryLoading ?
+        $r('app.string.home_category_loading_more') : (this.categoryHasMore ?
+          $r('app.string.home_category_load_more') : $r('app.string.home_category_load_complete'))))
+        .fontSize(AppFont.Caption)
+        .fontColor(AppTheme.TextSecondary)
+    }
+    .width('100%').height(48).justifyContent(FlexAlign.Center)
+    .onClick(() => this.loadCategoryPage(this.categoryNextPage !== 1))
+  }
+
+  @Builder
+  buildCategoryWaterFlowFooter() {
+    Column() {
+      this.buildCategoryPagination()
+      Column().height(WindowUtils.getFloatingTabBottomVp(this.bottomSafeVp) + AppSpace.Lg)
+    }.width('100%')
+  }
+
+  @Builder
+  buildCategoryWaterFlow() {
+    // 每本书独立测量高度；封面原始比例更新后，由 WaterFlow 向最短列继续排放。
+    WaterFlow({ scroller: this.contentScroller, footer: this.buildCategoryWaterFlowFooter() }) {
+      LazyForEach(this.categoryDS, (book: Book, index: number) => {
+        FlowItem() {
+          BookCard({
+            book: book,
+            indexHint: index,
+            useOriginalCoverRatio: true,
+            coverImageFit: ImageFit.Contain,
+            coverRadius: AppRadius.Sm,
+            showSourceBadge: false,
+            showRating: true,
+            onTap: () => this.openBook(book)
+          })
+        }.width('100%')
+      }, (book: Book) => book.id)
+    }
+    .columnsTemplate(`repeat(${AdaptiveLayout.bookColumns(this.viewportWidth - this.leftSafeVp - this.rightSafeVp)}, 1fr)`)
+    .columnsGap(AppSpace.Sm)
+    .rowsGap(AppSpace.Md)
+    .padding({ left: AppSpace.Md, right: AppSpace.Md })
+    .width('100%')
+    .height(Math.max(1, this.contentHeight - this.topSafeVp - CATEGORY_NAV_ROW_HEIGHT))
+    .enableScrollInteraction(!this.carouselTransitioning)
+    .nestedScroll({
+      scrollForward: NestedScrollMode.PARENT_FIRST,
+      scrollBackward: NestedScrollMode.SELF_FIRST
+    })
+    .scrollBar(BarState.Off)
+    .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+    .cachedCount(6)
+    .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
+    .onScrollFrameBegin((offset: number, state: ScrollState) => {
+      if (this.selectedCategoryIndex >= 0 && !this.categoryLoading && state === ScrollState.Scroll && offset > 0) {
+        this.categoryLoadOnReachEnd = true;
+      }
+      return { offsetRemain: offset };
+    })
+    .onReachEnd(() => {
+      if (this.selectedCategoryIndex >= 0 && this.categoryLoadOnReachEnd && !this.categoryError && !this.isRefreshing) {
+        this.loadCategoryPage(true);
+      }
+    })
+    .translate({ y: this.refreshPullOffset + (this.contentEntered ? 0 : 12) })
+    .opacity(this.contentEntered ? 1 : 0)
+    .clip(false)
+    .backgroundColor(Color.Transparent)
+    .visibility(this.selectedCategoryIndex >= 0 ? Visibility.Visible : Visibility.Hidden)
+    .enabled(this.selectedCategoryIndex >= 0)
+  }
+
+  @Builder
+  buildHomeList(recommendations: boolean) {
     List({ scroller: recommendations ? this.recommendationScroller : this.contentScroller }) {
       ListItemGroup() {
         // 第2~N项：分类总览、推荐板块或分类书单。
@@ -1725,6 +1886,56 @@ export struct HomePage {
               }
               .margin({ bottom: AppSpace.Sm })
             }, (block: HomeBlockSection) => `${block.sourceUrl}#${block.moreUrl}#${block.title}`)
+            if (this.moreRecommendations.length > 0 || this.moreRecommendationsLoading || this.moreRecommendationsFailed) {
+              ListItem() {
+                Text($r('app.string.home_more_recommendations'))
+                  .fontSize(AppFont.Title)
+                  .fontWeight(FontWeight.Bold)
+                  .fontColor(AppTheme.TextPrimary)
+                  .width('100%')
+                  .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Md, bottom: AppSpace.Sm })
+              }
+              LazyForEach(this.moreRecommendationDataSource, (rowBooks: SearchResult[]) => {
+                ListItem() {
+                  Row({ space: AppSpace.Md }) {
+                    ForEach(rowBooks, (book: SearchResult) => {
+                      Column() {
+                        HomeBookRow({
+                          result: book,
+                          detailed: true,
+                          onOpen: (result: SearchResult, nodeId: string, radius: number): void => {
+                            this.openCoverBook(result, nodeId, radius);
+                          }
+                        })
+                      }.layoutWeight(1)
+                    }, (book: SearchResult) => `${book.sourceUrl}#${book.bookUrl}`)
+                    if (rowBooks.length < this.moreRecommendationColumns) {
+                      Blank().layoutWeight(1)
+                    }
+                  }
+                  .width('100%')
+                  .alignItems(VerticalAlign.Top)
+                  .padding({ left: AppSpace.Md, right: AppSpace.Md })
+                }.margin({ bottom: AppSpace.Sm })
+              }, (rowBooks: SearchResult[]) => this.moreRecommendationRowKey(rowBooks))
+              if (this.moreRecommendationsLoading || this.moreRecommendationsFailed) {
+                ListItem() {
+                  Row({ space: AppSpace.Xs }) {
+                    if (this.moreRecommendationsLoading) {
+                      LoadingProgress().width(24).height(24).color(AppColor.Brand)
+                    }
+                    Text(this.moreRecommendationsLoading ? $r('app.string.common_content_loading') :
+                      $r('app.string.home_more_recommendations_failed'))
+                      .fontSize(AppFont.Caption)
+                      .fontColor(AppTheme.TextSecondary)
+                  }
+                  .width('100%').height(48).justifyContent(FlexAlign.Center)
+                  .onClick((): void => {
+                    if (!this.loadingHome && this.moreRecommendationsFailed) this.loadHomeBlocks(true, true);
+                  })
+                }
+              }
+            }
           } else {
             ListItem() {
               Column() {
@@ -1777,56 +1988,19 @@ export struct HomePage {
             .justifyContent(FlexAlign.Center)
           }
         } else if (this.categoryBooks.length > 0) {
-          // LazyVGridLayout 嵌入 List 从 API 26 才支持；统一使用 API 20 可用的懒加载行。
-          LazyForEach(this.categoryDS, (row: HomeCategoryBookRow) => {
+          LazyForEach(this.categoryDS, (book: Book) => {
             ListItem() {
-              Row({ space: AppSpace.Sm }) {
-                ForEach(row.books, (book: Book, columnIndex: number) => {
-                  Column() {
-                    if (this.categoryListMode) {
-                      BrowseBookRow({ book: book, onTap: () => this.openBook(book) })
-                    } else {
-                      BookCard({
-                        book: book,
-                        indexHint: row.startIndex + columnIndex,
-                        useOriginalCoverRatio: true,
-                        coverImageFit: ImageFit.Contain,
-                        coverRadius: AppRadius.Sm,
-                        showSourceBadge: false,
-                        showRating: true,
-                        onTap: () => this.openBook(book)
-                      })
-                    }
-                  }
-                  .layoutWeight(1)
-                }, (book: Book) => book.id)
-                if (!this.categoryListMode && row.books.length < 3) {
-                  Column().layoutWeight(1)
-                }
-                if (!this.categoryListMode && row.books.length < 2) {
-                  Column().layoutWeight(1)
-                }
+              Column() {
+                BrowseBookRow({ book: book, onTap: () => this.openBook(book) })
               }
               .width('100%')
-              .alignItems(VerticalAlign.Top)
               .padding({ left: AppSpace.Md, right: AppSpace.Md })
             }
             .margin({ bottom: AppSpace.Md })
-          }, (row: HomeCategoryBookRow) => `${this.categoryListMode ? 'list' : 'grid'}:${row.key}`)
+          }, (book: Book) => book.id)
           if (this.categoryBooks.length > 0 || this.categoryLoading || this.categoryHasMore || this.categoryError) {
             ListItem() {
-              Row({ space: AppSpace.Xs }) {
-                if (this.categoryLoading) {
-                  LoadingProgress().width(24).height(24).color(AppColor.Brand)
-                }
-                Text(this.categoryError || (this.categoryLoading ?
-                  $r('app.string.home_category_loading_more') : (this.categoryHasMore ?
-                    $r('app.string.home_category_load_more') : $r('app.string.home_category_load_complete'))))
-                  .fontSize(AppFont.Caption)
-                  .fontColor(AppTheme.TextSecondary)
-              }
-              .width('100%').height(48).justifyContent(FlexAlign.Center)
-              .onClick(() => this.loadCategoryPage(this.categoryNextPage !== 1))
+              this.buildCategoryPagination()
             }
           }
         }
@@ -2038,16 +2212,126 @@ export struct HomePage {
     .height(this.carouselFullHeight + this.homeCategoryNavHeight)
   }
 
-  private homeFilterMenuOptions(): CustomPopupOptions {
+  private updateHomeFilters(filters: LocalRuleControl[]): void {
+    if (this.homeFilters === filters) return;
+    this.homeFilters = filters;
+    if (filters.length === 0) {
+      this.homeFilterMenuVisible = false;
+      this.homeFilterGroupMenuVisible = false;
+      this.homeFilterKeyword = '';
+      this.homeFilterGroup = '';
+      this.homeFilterMatchCount = 0;
+      this.homeFilterMenuData.setItems([]);
+      this.homeFilterGroupMenuData.setItems([]);
+    } else if (this.homeFilterMenuVisible) {
+      this.filterHomeOptions(this.homeFilterKeyword, false);
+    }
+  }
+
+  private toggleHomeFilterMenu(): void {
+    this.homeFilterGroupMenuVisible = false;
+    if (this.homeFilterMenuVisible) {
+      this.homeFilterMenuVisible = false;
+      return;
+    }
+    this.homeFilterGroup = '';
+    this.filterHomeOptions('', false);
+    this.homeFilterMenuVisible = true;
+  }
+
+  private filterHomeOptions(value: string, resetPosition: boolean = true): void {
+    this.homeFilterKeyword = value;
+    const keyword: string = value.trim().toLowerCase();
+    const groups: string[] = [''];
+    for (const control of this.homeFilters) {
+      const group: string = control.group.trim() || control.title.trim();
+      if (control.options.length > 0 && !groups.includes(group)) groups.push(group);
+    }
+    if (!groups.includes(this.homeFilterGroup)) this.homeFilterGroup = '';
+    this.homeFilterGroupMenuData.setItems(groups);
+    const matches: HomeFilterOptionItem[] = [];
+    const keys: Set<string> = new Set();
+    for (const control of this.homeFilters) {
+      const group: string = control.group.trim() || control.title.trim();
+      if (this.homeFilterGroup.length > 0 && group !== this.homeFilterGroup) continue;
+      const matchesControl: boolean = control.title.toLowerCase().includes(keyword) ||
+        group.toLowerCase().includes(keyword);
+      for (let index: number = 0; index < control.options.length; index++) {
+        const label: string = control.options[index];
+        const optionValue: string | undefined = control.optionValues[index];
+        if (optionValue === undefined || (!matchesControl && !label.toLowerCase().includes(keyword))) continue;
+        const item: HomeFilterOptionItem = new HomeFilterOptionItem(control, label, optionValue, group);
+        if (keys.has(item.key)) continue;
+        keys.add(item.key);
+        matches.push(item);
+      }
+    }
+    this.homeFilterMenuData.setItems(matches);
+    this.homeFilterMatchCount = matches.length;
+    if (resetPosition) this.homeFilterMenuScroller.scrollTo({ xOffset: 0, yOffset: 0 });
+  }
+
+  @Computed
+  get homeFilterMenuListMaxHeight(): number {
+    const rows: number = Math.ceil(this.homeFilterMatchCount / this.homeSourceMenuColumns);
+    const contentHeight: number = rows * 56 + Math.max(0, rows - 1) * AppSpace.Xxs;
+    return Math.min(contentHeight, Math.max(56, this.homeSourceMenuHeight - 88 - AppSpace.Xs * 4));
+  }
+
+  private homeFilterGroupMenuOptions(): CustomPopupOptions {
     const options: CustomPopupOptions = {
-      builder: this.buildHomeFilterMenu,
-      width: Math.min(248, this.homeSourceMenuViewportWidth - this.leftSafeVp - this.rightSafeVp - AppSpace.Md * 2),
-      placement: Placement.BottomLeft,
+      builder: this.buildHomeFilterGroupMenu,
+      width: Math.min(224, this.homeSourceMenuWidth),
+      placement: Placement.BottomRight,
       popupColor: AppMaterial.SheetBackground,
       radius: AppRadius.Xl,
       enableArrow: false,
       focusable: true,
-      onStateChange: (event): void => { this.homeFilterMenuVisible = event.isVisible; }
+      onStateChange: (event): void => { this.homeFilterGroupMenuVisible = event.isVisible; }
+    };
+    if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
+    else options.backgroundBlurStyle = AppMaterial.SheetBlur;
+    return options;
+  }
+
+  @LocalBuilder
+  private buildHomeFilterGroupMenu() {
+    List({ space: AppSpace.Xxs }) {
+      LazyForEach(this.homeFilterGroupMenuData, (group: string) => {
+        ListItem() {
+          Text(group || $r('app.string.home_filter_group_all')).fontSize(16)
+            .fontColor(group === this.homeFilterGroup ? AppColor.Brand : AppTheme.TextPrimary)
+            .width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            .borderRadius(AppRadius.Xl - AppSpace.Xs)
+            .backgroundColor(group === this.homeFilterGroup ? AppColor.BrandSoft : Color.Transparent)
+            .accessibilitySelected(group === this.homeFilterGroup)
+            .onClick((): void => {
+              this.homeFilterGroup = group;
+              this.homeFilterGroupMenuVisible = false;
+              this.filterHomeOptions(this.homeFilterKeyword);
+            })
+        }
+      }, (group: string): string => group)
+    }.width('100%').padding(AppSpace.Xs)
+      .constraintSize({ maxHeight: Math.min(320, this.homeSourceMenuHeight) })
+      .scrollBar(BarState.Auto).id('home-filter-group-menu')
+  }
+
+  private homeFilterMenuOptions(): CustomPopupOptions {
+    const options: CustomPopupOptions = {
+      builder: this.buildHomeFilterMenu,
+      width: this.homeSourceMenuWidth,
+      placement: Placement.BottomLeft,
+      keyboardAvoidMode: KeyboardAvoidMode.DEFAULT,
+      popupColor: AppMaterial.SheetBackground,
+      radius: AppRadius.Xl,
+      enableArrow: false,
+      focusable: true,
+      onStateChange: (event): void => {
+        this.homeFilterMenuVisible = event.isVisible;
+        if (!event.isVisible) this.homeFilterGroupMenuVisible = false;
+      }
     };
     if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
     else options.backgroundBlurStyle = AppMaterial.SheetBlur;
@@ -2056,35 +2340,79 @@ export struct HomePage {
 
   @LocalBuilder
   private buildHomeFilterMenu() {
-    Scroll() {
-      Column({ space: AppSpace.Xxs }) {
-        ForEach(this.homeFilters, (control: LocalRuleControl) => {
-          Text(control.title).fontSize(13).fontWeight(FontWeight.Medium)
-            .fontColor(AppTheme.TextSecondary).width('100%').height(32)
-            .padding({ left: AppSpace.Sm, right: AppSpace.Sm })
-          ForEach(control.options, (option: string, index: number) => {
-            Row({ space: AppSpace.Xs }) {
-              Text(option).fontSize(16).layoutWeight(1)
-                .fontColor(control.value === control.optionValues[index] ? AppColor.Brand : AppTheme.TextPrimary)
-                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-              SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([AppColor.Brand])
-                .visibility(control.value === control.optionValues[index] ? Visibility.Visible : Visibility.Hidden)
-            }.width('100%').height(48)
-              .padding({ left: AppSpace.Sm, right: AppSpace.Sm })
-              .borderRadius(AppRadius.Xl - AppSpace.Xs)
-              .backgroundColor(control.value === control.optionValues[index] ? AppColor.BrandSoft : Color.Transparent)
-              .enabled(!this.loadingHome && !this.savingHomeFilter)
-              .accessibilityGroup(true)
-              .accessibilitySelected(control.value === control.optionValues[index])
-              .onClick((): void => {
-                this.homeFilterMenuVisible = false;
-                this.selectHomeFilter(control, control.optionValues[index]);
-              })
-          }, (option: string): string => `${control.id}:${option}`)
-        }, (control: LocalRuleControl): string => `${control.id}:${control.value}:${JSON.stringify(control.options)}`)
-      }.width('100%').padding(AppSpace.Xs)
-    }.width('100%').constraintSize({ maxHeight: this.homeSourceMenuHeight })
-      .scrollBar(BarState.Auto)
+    Column({ space: AppSpace.Xs }) {
+      Row() {
+        Text(this.homeFilterGroup || $r('app.string.home_filter_menu_title')).fontSize(16)
+          .fontColor(AppTheme.TextPrimary).layoutWeight(1).height(48)
+          .padding({ left: AppSpace.Sm, right: AppSpace.Xs })
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        Button({ type: ButtonType.Circle }) {
+          ThemeIconComponent({ role: this.homeSourceMenuColumns === 1 ? ThemeIconRole.Grid : ThemeIconRole.List,
+            symbol: this.homeSourceMenuColumns === 1 ? $r('sys.symbol.square_grid_2x2') : $r('sys.symbol.list_bullet'),
+            iconSize: 22, tint: AppTheme.IconPrimary })
+        }.width(40).height(48).backgroundColor(Color.Transparent)
+          .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
+          .enabled(!this.savingHomeSourceMenuColumns).id('home-filter-menu-layout')
+          .accessibilityText(this.homeSourceMenuColumns === 1 ?
+            $r('app.string.home_source_menu_switch_two_columns') : $r('app.string.home_source_menu_switch_one_column'))
+          .onClick((): void => {
+            this.homeFilterGroupMenuVisible = false;
+            this.changeHomeSourceMenuColumns(this.homeSourceMenuColumns === 1 ? 2 : 1);
+          })
+        Button({ type: ButtonType.Circle }) {
+          ThemeIconComponent({ role: ThemeIconRole.Filter, symbol: $r('sys.symbol.funnel'), iconSize: 22,
+            tint: this.homeFilterGroup.length > 0 ? AppColor.Brand : AppTheme.IconPrimary })
+        }.width(40).height(48).backgroundColor(Color.Transparent)
+          .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
+          .id('home-filter-menu-group')
+          .accessibilityText($r('app.string.home_filter_group_filter'))
+          .onClick((): void => { this.homeFilterGroupMenuVisible = !this.homeFilterGroupMenuVisible; })
+          .bindPopup(this.homeFilterGroupMenuVisible, this.homeFilterGroupMenuOptions())
+      }.width('100%').height(48).flexShrink(0)
+      Search({ value: this.homeFilterKeyword, placeholder: $r('app.string.home_categories_search') })
+        .width('100%').height(40).margin(0).flexShrink(0)
+        .borderRadius(AppRadius.Xl - AppSpace.Xs)
+        .fontColor(AppTheme.TextPrimary).placeholderColor(AppTheme.TextTertiary)
+        .id('home-filter-menu-search')
+        .onChange((value: string): void => this.filterHomeOptions(value))
+      if (this.homeFilterMatchCount === 0) {
+        Text($r('app.string.home_categories_no_match'))
+          .fontSize(14).fontColor(AppTheme.TextSecondary)
+          .width('100%').height(64).textAlign(TextAlign.Center)
+      } else {
+        List({ space: AppSpace.Xxs, scroller: this.homeFilterMenuScroller }) {
+          LazyForEach(this.homeFilterMenuData, (item: HomeFilterOptionItem) => {
+            ListItem() {
+              Row({ space: AppSpace.Xs }) {
+                Column({ space: 2 }) {
+                  Text(item.label).fontSize(16)
+                    .fontColor(item.control.value === item.value ? AppColor.Brand : AppTheme.TextPrimary)
+                    .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  Text(item.control.title || item.group).fontSize(12).fontColor(AppTheme.TextSecondary)
+                    .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([AppColor.Brand])
+                  .visibility(item.control.value === item.value ? Visibility.Visible : Visibility.Hidden)
+              }.width('100%').height(56)
+                .padding({ left: AppSpace.Sm, right: AppSpace.Sm })
+                .borderRadius(AppRadius.Xl - AppSpace.Xs)
+                .backgroundColor(item.control.value === item.value ? AppColor.BrandSoft : HomeTheme.ProgressTrack)
+                .enabled(!this.savingHomeFilter)
+                .accessibilityGroup(true)
+                .accessibilitySelected(item.control.value === item.value)
+                .onClick((): void => {
+                  this.homeFilterGroupMenuVisible = false;
+                  this.homeFilterMenuVisible = false;
+                  this.selectHomeFilter(item.control, item.value);
+                })
+            }
+          }, (item: HomeFilterOptionItem): string => item.key)
+        }.width('100%').constraintSize({ maxHeight: this.homeFilterMenuListMaxHeight })
+          .padding({ right: 10 })
+          .lanes(this.homeSourceMenuColumns, AppSpace.Xs).scrollBar(BarState.Auto)
+      }
+    }.width(this.homeSourceMenuWidth).constraintSize({ maxHeight: this.homeSourceMenuHeight }).padding(AppSpace.Xs)
+      .id('home-filter-menu')
   }
 
   @Builder
@@ -2102,8 +2430,9 @@ export struct HomePage {
           .height(34).flexShrink(0).borderRadius(AppRadius.Pill)
           .backgroundColor(Color.Transparent)
           .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
-          .enabled(!this.loadingHome && !this.savingHomeFilter)
-          .onClick((): void => { this.homeFilterMenuVisible = !this.homeFilterMenuVisible; })
+          .enabled(!this.savingHomeFilter)
+          .id('home-discovery-filter-button')
+          .onClick((): void => this.toggleHomeFilterMenu())
           .bindPopup(this.homeFilterMenuVisible, this.homeFilterMenuOptions())
       }
       List({ space: AppSpace.Xs }) {

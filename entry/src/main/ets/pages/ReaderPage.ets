@@ -28,6 +28,7 @@ import { ReaderSpeechFloating } from '../components/ReaderSpeechFloating';
 import { CoverImage } from '../components/CoverImage';
 import { ReaderFontService, ReaderImportedFont } from '../service/text/ReaderFontService';
 import { ReaderScreenOnService } from '../service/text/ReaderScreenOnService';
+import { ReaderHapticService } from '../service/text/ReaderHapticService';
 import { HdsTabs, HdsTabsFloatingStyle } from '@kit.UIDesignKit';
 import { HdsCompat, CompatibleTabsModifier } from '../utils/HdsCompat';
 import { PreferenceService } from '../service/PreferenceService';
@@ -62,6 +63,7 @@ import {
 } from '../model/TextReading';
 import { emitter } from '@kit.BasicServicesKit';
 import { ReaderPalette, ReaderPattern, ReaderImageMode, ReaderThemeId, ReaderCustomTheme, resolvePalette, resolveEffectiveThemeId } from '../model/ReaderTheme';
+import { resolveReaderAccent } from '../theme/ReaderAccentColor';
 import { ReaderBackground } from '../components/ReaderBackground';
 import { ReaderContinuousComponent } from '../components/ReaderContinuousComponent';
 import { ReaderPageTurnComponent } from '../components/ReaderPageTurnComponent';
@@ -166,11 +168,17 @@ export struct ReaderPage {
   @Local marginTopMax: number = 64;
   @Local chapterQuery: string = '';
   private readonly readerColorListener = (): void => {
-    if (this.followSystemTheme && !this.leaving) {
-      this.refreshPalette();
-      this.applyReadingSettings(false);
-    }
+    if (this.leaving) return;
+    this.refreshPalette();
+    if (this.followSystemTheme) this.applyReadingSettings(false);
   };
+  @Computed
+  get themeAccent(): ResourceStr { return AppColor.Brand; }
+
+  @Monitor('themeAccent')
+  refreshThemeAccent(): void {
+    if (!this.leaving) this.refreshPalette();
+  }
   @Local themeId: string = TextReadingSettings.THEME_DEFAULT;
   @Local customBackground: string = TextReadingSettings.CUSTOM_BACKGROUND_DEFAULT;
   @Local customThemes: ReaderCustomTheme[] = ReaderCustomTheme.defaults();
@@ -194,6 +202,7 @@ export struct ReaderPage {
   @Local showHeader: boolean = true;
   @Local cornerLayout: string = ReaderCornerLayout.DEFAULT;
   @Local showFooter: boolean = true;
+  @Local showPageRules: boolean = true;
   @Local showChapterTitle: boolean = true;
   @Local showPageNumber: boolean = true;
   @Local showChapterNumber: boolean = true;
@@ -212,6 +221,8 @@ export struct ReaderPage {
   private autoPage: ReaderAutoPageService = new ReaderAutoPageService();
   private autoPageKitPosition: string = '';
   @Local pageTurnMode: string = TextReadingSettings.PAGE_TURN_MODE_DEFAULT;
+  @Local pageTurnHaptic: string = 'none';
+  private readerKitManualTurnUntil: number = 0;
   @Local showReadingStatus: boolean = TextReadingSettings.SHOW_READING_STATUS_DEFAULT;
   @Local alwaysShowStatusBar: boolean = TextReadingSettings.ALWAYS_SHOW_STATUS_BAR_DEFAULT;
   /** 由 themeId / customBackground 解析出的当前配色；所有阅读色都从这里取 */
@@ -924,6 +935,7 @@ export struct ReaderPage {
       if (await this.loadOnlineTextChapter(index, mark.charOffset, 0, false, false)) this.followReadingWithSpeech();
     }
     else if (this.readerKitReady && this.readerKitController) {
+      this.readerKitManualTurnUntil = 0;
       try { await this.readerKitController.startPlay(index, mark.domPos); }
       catch (_error) { this.showToast($r('app.string.reader_bookmark_missing')); }
     }
@@ -1457,6 +1469,7 @@ export struct ReaderPage {
       this.showHeader = settings.showHeader;
       this.cornerLayout = settings.cornerLayout;
       this.showFooter = settings.showFooter;
+      this.showPageRules = settings.showPageRules;
       this.showChapterTitle = settings.showChapterTitle;
       this.showPageNumber = settings.showPageNumber;
       this.showChapterNumber = settings.showChapterNumber;
@@ -1466,6 +1479,7 @@ export struct ReaderPage {
       // 智控键入口暂时隐藏，旧配置也不再启用事件订阅。
       this.smartKeyPageTurn = false;
       this.pageTurnMode = settings.pageTurnMode;
+      this.pageTurnHaptic = settings.pageTurnHaptic;
       this.speechFollowPage = settings.speechFollowPage;
       this.showReadingStatus = settings.showReadingStatus;
       this.alwaysShowStatusBar = settings.alwaysShowStatusBar;
@@ -1526,6 +1540,7 @@ export struct ReaderPage {
     this.showHeader = true;
     this.cornerLayout = ReaderCornerLayout.DEFAULT;
     this.showFooter = true;
+    this.showPageRules = true;
     this.showChapterTitle = true;
     this.showPageNumber = true;
     this.showChapterNumber = true;
@@ -1534,6 +1549,7 @@ export struct ReaderPage {
     this.volumeKeyPageTurn = false;
     this.smartKeyPageTurn = false;
     this.pageTurnMode = TextReadingSettings.PAGE_TURN_MODE_DEFAULT;
+    this.pageTurnHaptic = 'none';
     this.showReadingStatus = TextReadingSettings.SHOW_READING_STATUS_DEFAULT;
     this.alwaysShowStatusBar = TextReadingSettings.ALWAYS_SHOW_STATUS_BAR_DEFAULT;
     this.syncReaderStatusBar();
@@ -1547,8 +1563,10 @@ export struct ReaderPage {
     this.systemNightOverride = this.followSystemTheme && systemDark;
     // 系统夜间只覆盖显示，不改写用户保存的图片、蒙层和白天主题。
     this.effectiveThemeId = resolveEffectiveThemeId(this.themeId, this.followSystemTheme, systemDark);
-    this.palette = resolvePalette(this.effectiveThemeId, this.customBackground, this.fontColor,
+    const palette = resolvePalette(this.effectiveThemeId, this.customBackground, this.fontColor,
       this.imageBackground, this.imageFontColor);
+    palette.accent = resolveReaderAccent(this.getUIContext().getHostContext(), this.themeAccent);
+    this.palette = palette;
     // 深色底配白字状态栏，浅色底配黑字
     WindowUtils.setReaderStatusBarLight(this.palette.isDark).catch((_e: Error): void => {});
   }
@@ -1578,6 +1596,7 @@ export struct ReaderPage {
     settings.alwaysShowStatusBar = this.alwaysShowStatusBar;
     settings.volumeKeyPageTurn = this.volumeKeyPageTurn;
     settings.smartKeyPageTurn = this.smartKeyPageTurn;
+    settings.pageTurnHaptic = this.pageTurnHaptic;
     settings.tapRegions = this.tapRegions;
     settings.tapLeftPercent = this.tapLeftPercent;
     settings.tapRightPercent = this.tapRightPercent;
@@ -1589,6 +1608,7 @@ export struct ReaderPage {
     settings.showHeader = this.showHeader;
     settings.cornerLayout = this.cornerLayout;
     settings.showFooter = this.showFooter;
+    settings.showPageRules = this.showPageRules;
     settings.showChapterTitle = this.showChapterTitle;
     settings.showPageNumber = this.showPageNumber;
     settings.showChapterNumber = this.showChapterNumber;
@@ -1636,6 +1656,7 @@ export struct ReaderPage {
   }
 
   private applyReadingSettings(reflow: boolean = true): void {
+    this.readerKitManualTurnUntil = 0;
     try {
       if (this.isOnlineTextBook()) {
         if (reflow) this.repaginateOnlineText();
@@ -1872,6 +1893,10 @@ export struct ReaderPage {
   private handleReaderKitPageShow(info: readerCore.PageDataInfo): void {
     const currentBook = this.book;
     if (currentBook === null) return;
+    const moved = info.resourceIndex !== this.currentResourceIndex || info.startDomPos !== this.readerKitDomPos ||
+      info.pageOffset !== this.readerKitPageOffset;
+    const manualTurn = this.readerKitReady && moved && Date.now() < this.readerKitManualTurnUntil;
+    if (moved) this.readerKitManualTurnUntil = 0;
     const keepReaderBar = info.resourceIndex === this.readerBarChapterTarget && info.pageOffset === 0;
     if (!keepReaderBar && !this.showChapterSheet && !this.showSettingsSheet &&
       (info.resourceIndex !== this.currentResourceIndex || info.startDomPos !== this.readerKitDomPos ||
@@ -1890,6 +1915,7 @@ export struct ReaderPage {
     this.currentPosition = TextReadingPosition.atChar(
       currentBook.id, resourceIndex, this.readerKitDomPos, 0, this.readerKitPageOffset, this.currentChapterTitle);
     this.saveProgress();
+    if (manualTurn) this.playPageTurnHaptic();
   }
 
   private failReader(message: string): void {
@@ -1961,6 +1987,7 @@ export struct ReaderPage {
     this.readerBarChapterTarget = keepReaderBar ? resourceIndex : -1;
     this.jumpingResourceIndex = resourceIndex;
     try {
+      this.readerKitManualTurnUntil = 0;
       await this.readerKitController.startPlay(resourceIndex, '');
       this.currentResourceIndex = resourceIndex;
       this.currentChapterTitle = this.chapterTitle(resourceIndex);
@@ -2068,6 +2095,31 @@ export struct ReaderPage {
     }
   }
 
+  private playPageTurnHaptic(): void {
+    if (!this.readerVisible || !this.readingForeground || this.leaving || this.autoPageRunning) return;
+    ReaderHapticService.play(this.pageTurnHaptic);
+  }
+
+  private playOnlineTextTurnHaptic(forward: boolean): void {
+    const currentBook = this.book;
+    if (currentBook === null || this.onlineTextLoading || this.leaving || this.selectingText) return;
+    const displayIndex = PreferenceService.chapterDisplayIndex(currentBook, this.currentResourceIndex);
+    const target: OnlineTextNavigationTarget = forward ? OnlineTextPageNavigator.next(
+      displayIndex, this.onlineTextPageIndex, this.onlineTextPages.length, currentBook.chapters.length) :
+      OnlineTextPageNavigator.previous(displayIndex, this.onlineTextPageIndex);
+    if (target.moved) this.playPageTurnHaptic();
+  }
+
+  private markReaderKitManualTurn(active: boolean, immediate: boolean = false): void {
+    if (immediate) {
+      // 点击/按键已即时反馈，pageShow 只保存位置，避免完成后重复震动。
+      this.readerKitManualTurnUntil = 0;
+      if (active && this.canTurnWithKeyboard()) this.playPageTurnHaptic();
+      return;
+    }
+    this.readerKitManualTurnUntil = active && this.canTurnWithKeyboard() && !this.autoPageRunning ? Date.now() + 1500 : 0;
+  }
+
   private currentOnlineTextPageLayout(): OnlineTextPage {
     const preview = this.onlineTextTurnPreview;
     return (preview !== null ? preview.pages[preview.pageIndex] :
@@ -2105,7 +2157,7 @@ export struct ReaderPage {
 
   private onlineTextTurnRevision(): string {
     return `${this.currentResourceIndex}:${this.onlineTextPageIndex}:${this.fontSize}:${this.lineHeight}:${this.paragraphSpacing}:${this.letterSpacing}:` +
-      `${this.cornerLayout}:${this.showChapterTitle}:${this.showPageNumber}:${this.showChapterNumber}:${this.showBookName}:${this.showReadingStatus}:` +
+      `${this.cornerLayout}:${this.showChapterTitle}:${this.showPageNumber}:${this.showChapterNumber}:${this.showBookName}:${this.showReadingStatus}:${this.showPageRules}:` +
       `${this.textAlignment}:${this.fontFamily}:${this.systemTypographyRevision}:${this.fontWeight}:${this.fontColor}:${this.themeId}:${this.customBackground}:${this.backgroundPattern}:${this.bgImagePath}:${this.backgroundImageMode}:${this.overlayAlpha}:` +
       `${this.readerHeaderHeight()}:${this.readerFooterHeight()}:${this.readerTopInsetVp()}:${this.leftSafeVp}:${this.rightSafeVp}:${this.topSafeVp}:${this.readerBottomInsetVp()}:${this.marginLeft}:${this.marginRight}:${this.marginTop}:${this.marginBottom}:${this.palette.background}:${this.palette.primary}`;
   }
@@ -2195,6 +2247,7 @@ export struct ReaderPage {
       const position = `${this.currentResourceIndex}:${this.readerKitDomPos}:${this.readerKitPageOffset}`;
       if (this.autoPageKitPosition === position) { this.stopAutoPage(); return; }
       this.autoPageKitPosition = position;
+      this.readerKitManualTurnUntil = 0;
       try { this.readerKitController?.flipPage(true); } catch (_error) { this.stopAutoPage(); }
     }
   }
@@ -2239,7 +2292,8 @@ export struct ReaderPage {
     if (this.isOnlineTextBook()) {
       this.keyTurnRequest = (Math.abs(this.keyTurnRequest) + 1) * (forward ? 1 : -1);
     } else if (this.readerKitReady) {
-      try { this.readerKitController?.flipPage(forward); } catch (_error) {}
+      this.markReaderKitManualTurn(true, true);
+      try { this.readerKitController?.flipPage(forward); } catch (_error) { this.markReaderKitManualTurn(false); }
     }
   }
 
@@ -2725,7 +2779,7 @@ export struct ReaderPage {
   private buildSpeechSheet(): void {
     ReaderSpeechSheet({ state: this.speechState,
       speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
-      speechDefaultColor: this.palette.isDark ? '#FFB4A8' : '#A33245',
+      speechDefaultColor: this.palette.accent,
       onSpeechMarkColorChange: (color: string): void => {
         this.speechMarkColor = TextReadingSettings.normalizeSpeechMarkColor(color);
         this.saveReadingSettings();
@@ -2802,6 +2856,7 @@ export struct ReaderPage {
                     onReady: (): void => this.handleReaderKitReady(),
                     onError: (message: string, code: number): void => this.handleReaderKitError(message, code),
                     onReaderPageShow: (info: readerCore.PageDataInfo): void => this.handleReaderKitPageShow(info),
+                    onManualPageTurn: (active: boolean, immediate?: boolean): void => this.markReaderKitManualTurn(active, immediate),
                     onContentTap: (): void => this.toggleReaderBar()
                   })
                 }
@@ -3079,6 +3134,7 @@ export struct ReaderPage {
   private buildReaderPageRule(): void {
     Divider().width('100%').height(0.5).strokeWidth(0.5)
       .color(this.palette.primary).opacity(0.16)
+      .visibility(this.showPageRules ? Visibility.Visible : Visibility.None)
       .hitTestBehavior(HitTestMode.None)
   }
 
@@ -3154,6 +3210,7 @@ export struct ReaderPage {
                 this.updateContinuousPosition(index, offset, content, persist),
               onCenterTap: (): void => this.toggleReaderBar(),
               onScrollStart: (): void => this.beginContinuousSpeechTurn(),
+              onPageTurn: (): void => this.playPageTurnHaptic(),
               onForwardEnd: (): void => this.stopAutoPage(),
               onAutoPageDelay: (): void => this.autoPage.restart()
             })
@@ -3240,6 +3297,7 @@ export struct ReaderPage {
           paperColor: this.palette.background,
           pageContent: (): void => this.buildOnlineTextPage(),
           onPrepare: (forward: boolean): Promise<boolean> => this.prepareOnlineTextTurn(forward),
+          onTurnFeedback: (forward: boolean): void => this.playOnlineTextTurnHaptic(forward),
           onConfirm: (): void => { this.onlineTextTurnConfirmed = true; },
           onComplete: (commit: boolean): void => this.completeOnlineTextTurn(commit),
           onCenterTap: (): void => this.toggleReaderBar()
@@ -3494,6 +3552,7 @@ export struct ReaderPage {
         this.saveReadingSettings();
       },
       showFooter: this.showFooter,
+      showPageRules: this.showPageRules,
       showChapterTitle: this.showChapterTitle,
       showPageNumber: this.showPageNumber,
       showChapterNumber: this.showChapterNumber,
@@ -3511,6 +3570,11 @@ export struct ReaderPage {
         this.tapRegions = ReaderTapPolicy.DEFAULT; this.saveReadingSettings();
       },
       onChromeChange: (field: string, enabled: boolean): void => {
+        if (field === 'showPageRules') {
+          this.showPageRules = enabled;
+          this.saveReadingSettings();
+          return;
+        }
         if (field === 'showBrightnessBar') this.showBrightnessBar = enabled;
         if (field === 'showChapterBar') this.showChapterBar = enabled;
         if (field === 'showHeader') this.showHeader = enabled;
@@ -3531,6 +3595,12 @@ export struct ReaderPage {
         this.saveReadingSettings();
       },
       pageTurnMode: this.pageTurnMode,
+      pageTurnHaptic: this.pageTurnHaptic,
+      onPageTurnHapticChange: (value: string): void => {
+        this.pageTurnHaptic = TextReadingSettings.normalizePageTurnHaptic(value);
+        this.saveReadingSettings();
+        ReaderHapticService.play(this.pageTurnHaptic);
+      },
       showReadingStatus: this.showReadingStatus,
       alwaysShowStatusBar: this.alwaysShowStatusBar,
       onStatusBarChange: (enabled: boolean): void => {

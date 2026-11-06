@@ -22,6 +22,12 @@
   LocalRuleQuickJsRuntime
   # N-API export name is fixed in libsubtitle_audio.so.
   decodeSubtitleAudio
+  # Fixed exports from libcba_archive.so and librecord_dissolve.so.
+  extract
+  shatterPrepare
+  shatterAttach
+  shatterBegin
+  shatterClose
 
 -keep-property-name
   EpubParserService
@@ -30,6 +36,11 @@
   LocalRuleQuickJsRequest
   LocalRuleQuickJsRuntime
   decodeSubtitleAudio
+  extract
+  shatterPrepare
+  shatterAttach
+  shatterBegin
+  shatterClose
 
 # ─── 保留 JSON 序列化/反序列化的属性名 ───
 # 这些属性来自外部 JSON（Legado 书源格式）或本地持久化，

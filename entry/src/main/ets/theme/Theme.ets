@@ -339,6 +339,10 @@ export class AppCurve {
   static readonly Accelerate = curves.cubicBezierCurve(0.4, 0, 1, 1);
   static readonly Spring = curves.springMotion(0.4, 0.85);
   static readonly SpringSoft = curves.springMotion(0.6, 0.9);
+  // 页面几何使用临界阻尼，封面/裁剪边缘不越过终点；短拖取消用更快的同类曲线。
+  static readonly PlayerExpand = curves.springMotion(0.38, 1);
+  static readonly PlayerCollapse = curves.springMotion(0.32, 1);
+  static readonly GestureSettle = curves.springMotion(0.28, 1);
 }
 
 /** 首页与记录页共享语义色；不绑定套装名称。 */

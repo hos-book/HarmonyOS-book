@@ -12,6 +12,7 @@ import { SettingsPage } from './SettingsPage';
 import { ReadingSettingsPage } from './ReadingSettingsPage';
 import { VoiceManagementPage } from './VoiceManagementPage';
 import { SpeechDisplaySettingsPage } from './SpeechDisplaySettingsPage';
+import { DialogueHighlightSettingsPage } from './DialogueHighlightSettingsPage';
 import { SpeechSynthesisSettingsPage } from './SpeechSynthesisSettingsPage';
 import { MembershipPage } from './MembershipPage';
 import { MembershipSubscriptionPage } from './MembershipSubscriptionPage';
@@ -49,7 +50,7 @@ import { emitter } from '@kit.BasicServicesKit';
 import { EVT_WIDGET_ROUTE, KEY_WIDGET_ROUTE, WidgetRoute } from '../entryability/EntryAbility';
 import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { HdsCompat } from '../utils/HdsCompat';
-import { AppRadius, AppTheme } from '../theme/Theme';
+import { AppRadius, AppTheme, AppMotion, AppCurve } from '../theme/Theme';
 import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
 import { WindowUtils } from '../utils/WindowUtils';
 import { JianjianCompanionComponent } from '../components/JianjianCompanionComponent';
@@ -308,13 +309,15 @@ struct Index {
               this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
                 if (finished) return;
                 this.getUIContext().animateTo({
-                  duration: 300,
-                  curve: Curve.FastOutSlowIn,
+                  curve: AppCurve.PlayerCollapse,
                   onFinish: (): void => { if (!finished) proxy.finishTransition(); }
                 }, (): void => {
                   if (origin === undefined) this.playerOpacity = 0;
-                  else drag.collapseToBar(origin);
+                  else drag.collapseToBar(origin, false);
                 });
+                // 正文先收起，避免文字与播控一路挤进来源封面；几何完成后再结束导航。
+                this.getUIContext().animateTo({ duration: AppMotion.Fast, curve: AppCurve.Accelerate },
+                  (): void => { this.playerDragState.contentOpacity = 0; });
               }));
             }));
           }));
@@ -335,7 +338,7 @@ struct Index {
       const animation: NavigationAnimatedTransition = {
         timeout: 1400,
         transition: (proxy: NavigationTransitionProxy): void => {
-          // 点击和上拖确认后都走同一段定时动画，不再让原生交互式补间决定耗时。
+          // 点击与上拖确认共用弹簧收敛；以几何动画完成回调结束导航。
           this.navigationEnabled = false;
           this.playerOpacity = 1;
           this.playerRenderGroup = false;
@@ -351,7 +354,7 @@ struct Index {
                 drag.complete();
                 this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
                   if (finished) return;
-                  this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn,
+                  this.getUIContext().animateTo({ duration: AppMotion.Base, curve: AppCurve.Decelerate,
                     onFinish: (): void => { if (!finished) proxy.finishTransition(); }
                   }, (): void => { this.playerOpacity = 1; });
                 }));
@@ -359,10 +362,21 @@ struct Index {
               }
               console.info(`[PlayerTransition] target cover=${cover.leftPx},${cover.topPx},` +
                 `${cover.widthPx},${cover.heightPx}`);
-              this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn,
-                onFinish: (): void => { if (!finished) proxy.finishTransition(); }
+              this.getUIContext().animateTo({ curve: AppCurve.PlayerExpand,
+                onFinish: (): void => {
+                  if (finished) return;
+                  // 正式封面先提交可见帧，再移除运动封面，避免释放快照与出图之间闪空。
+                  this.playerDragState.coverRevealed = true;
+                  this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+                    if (finished) return;
+                    this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+                      if (!finished) proxy.finishTransition();
+                    }));
+                  }));
+                }
               }, (): void => { drag.expandToPlayer(cover, viewport); });
-              this.getUIContext().animateTo({ duration: 160, curve: Curve.Linear }, (): void => {
+              this.getUIContext().animateTo({ duration: AppMotion.Base,
+                delay: this.playerDragState.contentOpacity > 0.1 ? 0 : 60, curve: AppCurve.Decelerate }, (): void => {
                 this.playerDragState.contentOpacity = 1;
               });
               this.getUIContext().animateTo({ duration: 80, curve: Curve.Linear }, (): void => {
@@ -391,9 +405,20 @@ struct Index {
     if (operation === NavigationOperation.POP && from.name === 'player') {
       return this.playerFadeTransition(false);
     }
-    // 详情采用双栏时使用原生转场；全宽播放器已在上方按窗口实际坐标处理。
+    // 全宽播放器已在上方按窗口实际坐标处理。
     if (this.navigationWidth >= 720) {
       OneShotTransitionCoordinator.getInstance().discardPending();
+      // 根页进出双栏会改变 NavBar/目的页宽度；不能叠加目的页的百分比平移动画。
+      // Navigation 级转场优先于 ProfileMenuDestination，自行完成后只提交最终布局。
+      const destinationName: string = from.index === -1 ? (to.name ?? '') : (from.name ?? '');
+      if ((from.index === -1 || to.index === -1) &&
+        AdaptiveLayout.navigationUsesColumns(this.navigationWidth, [destinationName])) {
+        const transition: NavigationAnimatedTransition = {
+          transition: (proxy: NavigationTransitionProxy): void => { proxy.finishTransition(); }
+        };
+        return transition;
+      }
+      // 同一分栏内的跳转及沉浸页保留原有转场。
       return undefined;
     }
     const coordinator = OneShotTransitionCoordinator.getInstance();
@@ -585,6 +610,10 @@ struct Index {
       ProfileMenuDestination() {
         SpeechDisplaySettingsPage({ navStack: this.navStack })
       }
+    } else if (name === 'dialogueHighlightSettings') {
+      ProfileMenuDestination() {
+        DialogueHighlightSettingsPage({ navStack: this.navStack })
+      }
     } else if (name === 'speechSynthesisSettings') {
       ProfileMenuDestination() {
         SpeechSynthesisSettingsPage({ navStack: this.navStack })
@@ -740,6 +769,8 @@ struct Index {
     })
     .hideTitleBar(true)
     .mode(this.parallelNavigation ? NavigationMode.Split : NavigationMode.Stack)
+    // 模式由路由和实际容器宽度决定，避免模式切换动画与页面转场争用布局。
+    .enableModeChangeAnimation(false)
     .navBarWidth('42%')
     .navBarWidthRange([320, 440])
     .minContentWidth(400)
@@ -1029,6 +1060,33 @@ struct PlayerPageWrapper {
   @Local dragState: PlayerDragState = PlayerDragTransition.getInstance().state;
   private draggingDismiss: boolean = false;
 
+  private readyCoverSource(source: string): ResourceStr {
+    if (source.startsWith('/')) return `file://${source}`;
+    if (source.startsWith('file://') || source.startsWith('http')) return source;
+    return $rawfile(source);
+  }
+
+  @Builder
+  private decodedTransitionCover(source: string, size: number) {
+    // 仅接收播放页已解码成功的同源同尺寸图片，同步复用缓存，截图留在底层作兜底。
+    Image(this.readyCoverSource(source))
+      .width('100%').height('100%').objectFit(ImageFit.Cover)
+      .sourceSize({ width: size, height: size })
+      .syncLoad(true)
+      .interpolation(ImageInterpolation.Medium)
+      .draggable(false)
+      .opacity(this.dragState.coverImageOpacity)
+      .transition(TransitionEffect.IDENTITY)
+      .onComplete((event) => {
+        if (event?.loadingStatus !== 1 || !this.dragState.active ||
+          this.dragState.coverSource !== source || this.dragState.coverDecodeSize !== size ||
+          this.dragState.coverImageOpacity === 1) return;
+        this.getUIContext().animateTo({ duration: 80, curve: Curve.Linear }, (): void => {
+          this.dragState.coverImageOpacity = 1;
+        });
+      })
+  }
+
   private resolveBookId(): string {
     if (typeof this.param === 'string') return this.param as string;
     const r = this.param as Record<string, Object>;
@@ -1069,8 +1127,17 @@ struct PlayerPageWrapper {
           .translate({ x: this.dragState.active ? -this.dragState.frameX : 0,
             y: this.dragState.active ? -this.dragState.frameY : 0 })
           .opacity(this.dragState.contentOpacity)
-        if (this.dragState.active && this.dragState.snapshot !== undefined) {
-          Image(this.dragState.snapshot)
+        if (this.dragState.active && (this.dragState.snapshot !== undefined || this.dragState.coverSource.length > 0)) {
+          Stack() {
+            if (this.dragState.snapshot !== undefined) {
+              Image(this.dragState.snapshot)
+                .width('100%').height('100%').objectFit(ImageFit.Cover)
+                .syncLoad(true)
+            }
+            if (this.dragState.coverSource.length > 0) {
+              this.decodedTransitionCover(this.dragState.coverSource, this.dragState.coverDecodeSize)
+            }
+          }
             .width(this.dragState.coverWidth)
             .height(this.dragState.coverHeight)
             .position({ x: 0, y: 0 })
@@ -1078,7 +1145,7 @@ struct PlayerPageWrapper {
               y: this.dragState.coverY - this.dragState.frameY })
             .borderRadius(this.dragState.coverRadius)
             .clip(true)
-            .objectFit(ImageFit.Cover)
+            .transition(TransitionEffect.IDENTITY)
             .hitTestBehavior(HitTestMode.None)
         }
       }
@@ -1102,7 +1169,7 @@ struct PlayerPageWrapper {
         drag.beginDismissGesture(this.getUIContext(), event.offsetY,
           (): void => { this.navStack.pop(); },
           (finish: () => void): void => {
-            this.getUIContext().animateTo({ duration: 220, curve: Curve.FastOutSlowIn, onFinish: finish },
+            this.getUIContext().animateTo({ curve: AppCurve.GestureSettle, onFinish: finish },
               (): void => drag.restoreDismiss());
           });
       })

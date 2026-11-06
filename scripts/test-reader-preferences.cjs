@@ -52,6 +52,10 @@ function load(relative) {
   assert.equal(migrated.speechFollowPage, true, 'existing readers retain page-following speech');
   migrated.speechFollowPage = false;
   assert.equal(migrated.showBrightnessBar, true);
+  assert.equal(migrated.showPageRules, true, 'existing readers retain header and footer rules');
+  migrated.showPageRules = false;
+  assert.equal(migrated.pageTurnHaptic, 'none', 'existing readers must not start vibrating after upgrade');
+  migrated.pageTurnHaptic = 'medium';
   assert.equal(migrated.brightness, -1, 'existing readers retain system brightness');
   assert.equal(migrated.cornerLayout, '0123', 'legacy settings keep their original four corners');
   for (let corner = 0; corner < 4; corner++) {
@@ -96,15 +100,30 @@ function load(relative) {
   assert.equal(restored.speechMarkColor, '#56CD78', 'speech mark color persists independently of dialogue color');
   assert.equal(restored.speechFollowPage, false, 'independent browsing survives reload');
   assert.equal(restored.showBrightnessBar, false);
+  assert.equal(restored.showPageRules, false, 'hidden page rules survive reopening');
   assert.equal(restored.brightness, 0.37);
   assert.equal(restored.cornerLayout, '3120', 'corner order survives a preferences reload');
   assert.equal(restored.pageTurnMode, 'vertical');
+  assert.equal(restored.pageTurnHaptic, 'medium', 'haptic level survives reopening');
+  for (const level of ['none', 'strong', 'medium', 'weak']) {
+    restored.pageTurnHaptic = level;
+    await service.save({}, restored);
+    assert.equal((await service.get({})).pageTurnHaptic, level);
+  }
   assert.equal(restored.paragraphSpacing, 1.2, 'paragraph spacing survives reload');
   assert.equal(restored.volumeKeyPageTurn, true);
   assert.equal(restored.smartKeyPageTurn, true);
   assert.equal(restored.followSystemTheme, true);
   assert.equal(restored.alwaysShowStatusBar, false, 'toolbar-following mode survives a preferences reload');
   assert.deepEqual([restored.marginLeft, restored.marginRight, restored.marginTop, restored.marginBottom], [8, 26, 32, 0]);
+  restored.dialogueHighlightColor = '';
+  await service.save({}, restored);
+  const themeFollowing = await service.get({});
+  assert.equal(themeFollowing.dialogueHighlightColor, '', 'enabling theme follow persists the mode without freezing a resolved color');
+  assert.equal(themeFollowing.dialogueHighlight, true, 'theme follow does not disable dialogue highlighting');
+  themeFollowing.dialogueHighlightColor = '#21dd21';
+  await service.save({}, themeFollowing);
+  assert.equal((await service.get({})).dialogueHighlightColor, '#21DD21', 'choosing a color leaves follow mode and survives reopening');
   values.set('marginLeft', -20);
   values.set('dialogue_highlight_color', '#invalid');
   values.set('speech_mark_color', '#invalid');
@@ -115,6 +134,7 @@ function load(relative) {
   values.set('volume_key_page_turn', 'bad');
   values.set('smart_key_page_turn', 'bad');
   values.set('page_turn_mode', 'bad');
+  values.set('page_turn_haptic', 'bad');
   values.set('always_show_status_bar', 'bad');
   const sanitized = await service.get({});
   assert.equal(sanitized.dialogueHighlightColor, '', 'invalid persisted colors use the theme fallback');
@@ -122,6 +142,7 @@ function load(relative) {
   assert.equal(sanitized.cornerLayout, '0123', 'invalid corner layouts return to the original order');
   assert.deepEqual([sanitized.marginLeft, sanitized.marginRight, sanitized.marginTop, sanitized.marginBottom], [0, 64, 12, 12]);
   assert.equal(sanitized.pageTurnMode, PageTurnMode.Cover);
+  assert.equal(sanitized.pageTurnHaptic, 'none');
   assert.equal(sanitized.volumeKeyPageTurn, false);
   assert.equal(sanitized.smartKeyPageTurn, false);
   assert.equal(sanitized.alwaysShowStatusBar, true, 'invalid status-bar preference falls back to visible');
@@ -131,6 +152,8 @@ function load(relative) {
   assert.equal(reset.speechMarkColor, '', 'reset restores automatic speech mark colors');
   assert.equal(reset.speechFollowPage, true);
   assert.equal(reset.cornerLayout, '0123');
+  assert.equal(reset.showPageRules, true, 'reset restores visible page rules');
+  assert.equal(reset.pageTurnHaptic, 'none', 'reset disables haptics');
   assert.equal(reset.followSystemTheme, true);
   assert.equal(reset.volumeKeyPageTurn, false);
   assert.equal(reset.smartKeyPageTurn, false);
@@ -138,7 +161,7 @@ function load(relative) {
   assert.equal(reset.marginLeft, 16);
   assert.equal(reset.paragraphSpacing, 0);
   assert.equal(reset.marginRight, 16);
-  assert.equal(flushes, 2);
+  assert.equal(flushes, 8, 'each explicit save, including four haptic levels and follow/custom changes, flushes once');
   values.set('follow_system_theme', false);
   assert.equal((await service.get({})).followSystemTheme, false, 'explicit opt-out survives the new default');
   const { ReaderThemeId, resolvePalette } = load('model/ReaderTheme');
@@ -185,6 +208,8 @@ function load(relative) {
   typography.volumeKeyPageTurn = true;
   typography.smartKeyPageTurn = true;
   typography.textAlignment = 'end';
+  typography.showPageRules = false;
+  typography.pageTurnHaptic = 'strong';
   typography.dialogueHighlight = true;
   typography.dialogueHighlightColor = '#3478AB';
   typography.speechMarkColor = '#AB7834';
@@ -194,6 +219,8 @@ function load(relative) {
   assert.equal(snapshot.settings.dialogueHighlightColor, '#3478AB');
   assert.equal(snapshot.settings.speechMarkColor, '#AB7834');
   assert.equal(snapshot.settings.textAlignment, 'end');
+  assert.equal(snapshot.settings.showPageRules, false);
+  assert.equal(snapshot.settings.pageTurnHaptic, 'strong');
   assert.equal(snapshot.settings.paragraphSpacing, 1.4);
   assert.equal(snapshot.settings.volumeKeyPageTurn, true);
   assert.equal(snapshot.settings.smartKeyPageTurn, true);
@@ -202,17 +229,23 @@ function load(relative) {
   assert.equal((await service.get({})).dialogueHighlightColor, '#3478AB', 'backup retains dialogue color');
   assert.equal((await service.get({})).speechMarkColor, '#AB7834', 'backup retains speech mark color');
   assert.equal((await service.get({})).textAlignment, 'end');
+  assert.equal((await service.get({})).showPageRules, false, 'backup restores hidden page rules');
+  assert.equal((await service.get({})).pageTurnHaptic, 'strong', 'backup restores haptic level');
   assert.equal((await service.get({})).paragraphSpacing, 1.4);
   assert.equal((await service.get({})).volumeKeyPageTurn, true);
   assert.equal((await service.get({})).smartKeyPageTurn, true);
   delete snapshot.settings.volumeKeyPageTurn;
   delete snapshot.settings.smartKeyPageTurn;
   delete snapshot.settings.textAlignment;
+  delete snapshot.settings.showPageRules;
+  delete snapshot.settings.pageTurnHaptic;
   delete snapshot.settings.paragraphSpacing;
   delete snapshot.settings.dialogueHighlightColor;
   delete snapshot.settings.speechMarkColor;
   await backup.restoreSnapshot({}, snapshot);
   assert.equal((await service.get({})).textAlignment, 'justify', 'old backups adopt justified text');
+  assert.equal((await service.get({})).showPageRules, true, 'old backups retain visible page rules');
+  assert.equal((await service.get({})).pageTurnHaptic, 'none', 'old backups disable haptics');
   assert.equal((await service.get({})).dialogueHighlightColor, '', 'old backups retain automatic dialogue colors');
   assert.equal((await service.get({})).speechMarkColor, '', 'old backups retain automatic speech colors');
   assert.equal((await service.get({})).paragraphSpacing, 0, 'old backups use the original paragraph layout');

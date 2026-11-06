@@ -28,7 +28,7 @@ function load(relative, imports) {
 const routingModule = load('utils/FileOpenRouting.ets', { '@kit.CoreFileKit': { fileUri } });
 const routing = routingModule.FileOpenRouting;
 const view = (uri, type = '') => ({ action: 'ohos.want.action.viewData', uri, type });
-for (const ext of ['txt', 'epub', 'mobi', 'pdf', 'html', 'htm', 'zip']) {
+for (const ext of ['txt', 'epub', 'mobi', 'cba', 'pdf', 'html', 'htm', 'zip']) {
   for (const scheme of ['file', 'content']) {
     assert.equal(routing.target(view(`${scheme}://provider/书籍.${ext.toUpperCase()}`)), 'localBookImport');
   }
@@ -41,6 +41,8 @@ assert.equal(routing.extension('content://provider/42', 'Application/EPUB+ZIP; c
 assert.equal(routing.target(view('content://provider/42', 'general.json')), 'ruleSourceImport');
 assert.equal(routing.target(view('content://provider/42', 'application/x-zip-compressed')), 'localBookImport');
 assert.equal(routing.target(view('content://provider/42', 'com.amazon.mobi')), 'localBookImport');
+assert.equal(routing.extension('content://provider/42', 'application/x-cba'), '.cba');
+assert.equal(routing.target(view('content://provider/42', 'application/x-ace-compressed')), 'localBookImport');
 assert.equal(routing.target(view('https://example.org/novel.epub')), '');
 assert.equal(routing.target(view('file://docs/novel.pdf', 'text/plain')), 'localBookImport');
 assert.equal(routing.extension('content://provider/42', 'Application/PDF; version=1.7'), '.pdf');

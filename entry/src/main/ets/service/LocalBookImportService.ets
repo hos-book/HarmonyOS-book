@@ -7,6 +7,7 @@ import { Book, Chapter } from '../model/Book';
 import { KkBiqugeHtmlParser } from './text/KkBiqugeHtmlParser';
 import { EpubCoverService } from './text/EpubCoverService';
 import { MobiBookParser, MobiBookInfo } from './text/MobiBookParser';
+import { MobiBookImages } from './text/MobiBookImages';
 import { FileOpenRouting } from '../utils/FileOpenRouting';
 import { DiagnosticLogService } from './DiagnosticLogService';
 import { LocalImportTaskQueue } from './LocalImportTaskQueue';
@@ -527,7 +528,7 @@ export class LocalBookImportService {
 
   private static async importMobi(context: common.Context, book: Book, directory: string,
     file: LocalImportFile, title: string, author: string, progress: (text: string) => void,
-    writes: LocalImportTaskQueue): Promise<void> {
+    writes: LocalImportTaskQueue, mode: EpubImportMode, profile: EpubContentProfile): Promise<void> {
     const chunks: string[] = [];
     const info = await LocalBookImportService.readMobi(context, file.uri,
       async (text: string, metadata: MobiBookInfo, percent: number): Promise<void> => {
@@ -539,10 +540,24 @@ export class LocalBookImportService {
     if (!author && info.author) book.author = info.author;
     const html = chunks.join('');
     chunks.length = 0;
-    for (const part of LocalBookCatalog.html(html, book.title, file.name, info.encoding)) {
-      await LocalBookImportService.appendText(book, directory, part.title,
-        LocalBookImportService.htmlText(html.substring(part.start, part.end)), writes);
-    }
+    const images = new MobiBookImages();
+    const source = await fileIo.open(file.uri, fileIo.OpenMode.READ_ONLY);
+    try {
+      const parts = LocalBookCatalog.html(html, book.title, file.name, info.encoding);
+      for (let index = 0; index < parts.length; index++) {
+        const part = parts[index];
+        const section = html.substring(part.start, part.end);
+        if (mode === 'auto') profile.observe(section);
+        await LocalBookImportService.appendText(book, directory, part.title,
+          await images.body(context, source.fd, info, section, directory), writes);
+        progress(`${book.title} ${index + 1}/${parts.length}`);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('import_mobi_')) {
+        throw new Error(context.resourceManager.getStringByNameSync(error.message));
+      }
+      throw new Error(error instanceof Error ? error.message : String(error));
+    } finally { await fileIo.close(source); }
   }
 
   private static async importPdf(context: common.Context, book: Book, directory: string,
@@ -583,6 +598,37 @@ export class LocalBookImportService {
       else if (code === 'import_pdf_space') message = $r('app.string.import_pdf_space');
       else if (code === 'import_pdf_write_failed') message = $r('app.string.import_pdf_write_failed');
       throw new Error(context.resourceManager.getStringSync(message.id));
+    }
+  }
+
+  private static async importCba(context: common.Context, book: Book, directory: string,
+    file: LocalImportFile, progress: (text: string) => void, writes: LocalImportTaskQueue): Promise<void> {
+    try {
+      const cba = await import('./text/CbaImportService');
+      const pages = await cba.CbaImportService.extract(file.uri, directory, (completed: number, total: number): void => {
+        progress(context.resourceManager.getStringSync($r('app.string.import_cba_progress').id, completed, total));
+      });
+      for (let start = 0; start < pages; start += 50) {
+        const end = Math.min(pages, start + 50);
+        const tokens: string[] = [];
+        for (let index = start; index < end; index++) {
+          tokens.push(LocalTextImage.token(`${directory}/image_${index}_0.img`));
+        }
+        await LocalBookImportService.appendText(book, directory,
+          context.resourceManager.getStringSync($r('app.string.import_pdf_section').id, start + 1, end),
+          tokens.join('\n'), writes);
+      }
+      if (!book.cover) {
+        const cover = await import('./text/BookCoverImageService');
+        book.cover = await cover.BookCoverImageService.decode(`${directory}/image_0_0.img`, directory);
+      }
+      book.contentType = 'comic';
+      book.intro = context.resourceManager.getStringSync($r('app.string.import_local_comic').id);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : '';
+      const known = ['import_cba_invalid', 'import_cba_limit', 'import_cba_password', 'import_cba_volume',
+        'import_cba_method', 'import_cba_space', 'import_cba_write', 'import_cba_no_images', 'import_cba_image'];
+      throw new Error(context.resourceManager.getStringByNameSync(known.includes(code) ? code : 'import_cba_invalid'));
     }
   }
 
@@ -628,11 +674,15 @@ export class LocalBookImportService {
       stage = 'parse';
       parseStarted = Date.now();
       prepareMs = parseStarted - started;
-      if (file.ext === '.pdf') {
+      if (file.ext === '.cba') {
+        await LocalBookImportService.importCba(context, book, directory, file, report, writes);
+        if (epubMode === 'text') book.contentType = 'text';
+      } else if (file.ext === '.pdf') {
         await LocalBookImportService.importPdf(context, book, directory, file, size, report, writes);
         if (epubMode === 'text') book.contentType = 'text';
       } else if (file.ext === '.mobi') {
-        await LocalBookImportService.importMobi(context, book, directory, file, title, author, report, writes);
+        await LocalBookImportService.importMobi(context, book, directory, file, title, author, report, writes,
+          epubMode, epubStats.profile);
       } else if (file.ext === '.epub') {
         if (size > LocalBookImportService.MAX_EPUB_BYTES) {
           throw new Error(context.resourceManager.getStringSync($r('app.string.import_epub_size_limit').id));
@@ -720,7 +770,7 @@ export class LocalBookImportService {
       }
       stage = 'write';
       await writes.finish();
-      if (file.ext === '.epub' && (epubMode === 'comic' ||
+      if ((file.ext === '.epub' || file.ext === '.mobi') && (epubMode === 'comic' ||
         (epubMode === 'auto' && epubStats.profile.isComic()))) {
         if (epubStats.imageFailures > 0) {
           throw new Error(context.resourceManager.getStringSync($r('app.string.import_epub_images_failed').id,

@@ -17,12 +17,16 @@ import { FileOpenRouting } from '../utils/FileOpenRouting';
 import { DiagnosticLogService } from '../service/DiagnosticLogService';
 import { ImmersiveOptionTabs } from '../components/ImmersiveOptionTabs';
 import { EpubImportMode } from '../service/text/EpubContentProfile';
+import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
+import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 
 export const EVT_SWITCH_TAB = 'app.nav.switchTab';
 const TAB_INDEX_FAVORITE = 1;
 
+@ObservedV2
 class PickedFile extends LocalImportFile {
-  preview: LocalBookPreview | null = null;
+  @Trace preview: LocalBookPreview | null = null;
+  @Trace previewFailed: boolean = false;
 }
 
 class ImportFileDataSource implements IDataSource {
@@ -57,6 +61,7 @@ export struct ImportPage {
   @Local importing: boolean = false;
   @Local parsing: boolean = false;
   @Local showImportHelp: boolean = false;
+  @Local contentWidth: number = 0;
   private disposed: boolean = false;
   private autoTitle: string = '';
   private autoAuthor: string = '';
@@ -107,10 +112,12 @@ export struct ImportPage {
         if (file.preview !== null) continue;
         try {
           file.preview = await LocalBookImportService.preview(this.context, file);
+          file.previewFailed = false;
           if (this.disposed && file.preview.directory.length > 0) {
             await LocalBookImportService.releasePreview(file.preview);
           }
         } catch (error) {
+          file.previewFailed = true;
           failures++;
           DiagnosticLogService.failure('import.preview', error, `format=${file.ext}`);
         }
@@ -122,6 +129,9 @@ export struct ImportPage {
         if (!this.bookAuthor || this.bookAuthor === this.autoAuthor) this.bookAuthor = info.author;
         if (!this.coverPath || this.coverPath === this.autoCover) this.coverPath = info.cover;
         this.autoTitle = info.title; this.autoAuthor = info.author; this.autoCover = info.cover;
+      } else if (!this.usesSharedBookInfo()) {
+        this.bookTitle = ''; this.bookAuthor = ''; this.coverPath = '';
+        this.autoTitle = ''; this.autoAuthor = ''; this.autoCover = '';
       } else {
         if (this.bookTitle === this.autoTitle) this.bookTitle = '';
         if (this.bookAuthor === this.autoAuthor) this.bookAuthor = '';
@@ -370,7 +380,8 @@ export struct ImportPage {
       try {
         const book = await LocalBookImportService.importBook(this.context!, file, `${batchId}_text_${index}`,
           files.length === 1 ? title : file.preview?.title || '',
-          this.bookAuthor || file.preview?.author || '', this.coverPath || file.preview?.cover || '',
+          (this.usesSharedBookInfo() ? this.bookAuthor : '') || file.preview?.author || '',
+          (this.usesSharedBookInfo() ? this.coverPath : '') || file.preview?.cover || '',
           (progress: string): void => { this.progressText = progress; }, this.epubMode);
         await this.saveImported(book);
         imported++;
@@ -486,165 +497,184 @@ export struct ImportPage {
       } })
   }
 
+  private usesSharedBookInfo(): boolean {
+    return this.pickedFiles.length === 1 || (this.pickedFiles.length > 0 &&
+      this.pickedFiles.every((file: PickedFile): boolean => this.isAudioExt(file.ext)));
+  }
+
+  private async removeFile(file: PickedFile): Promise<void> {
+    if (this.importing || this.parsing) return;
+    this.pickedFiles = this.pickedFiles.filter((item: PickedFile): boolean => item.uri !== file.uri);
+    this.fileDataSource.setFiles(this.pickedFiles);
+    this.bookTitle = ''; this.bookAuthor = ''; this.coverPath = '';
+    this.autoTitle = ''; this.autoAuthor = ''; this.autoCover = '';
+    if (file.preview !== null) await LocalBookImportService.releasePreview(file.preview);
+    if (!this.disposed) await this.previewFiles(this.pickedFiles);
+  }
+
   build() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Column() {
-        Row() {
-          SymbolGlyph($r('sys.symbol.chevron_left'))
-            .fontSize(24)
+    Column() {
+      Row({ space: AppSpace.Sm }) {
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(24)
             .fontColor([$r('sys.color.font_primary')])
-            .enabled(!this.importing)
-            .onClick(() => this.navStack.pop())
-          Text('本地导入')
-            .fontSize(AppFont.Title)
-            .fontColor($r('sys.color.font_primary'))
-            .fontWeight(FontWeight.Bold)
-            .margin({ left: AppSpace.Sm })
-        }
-        .width('100%')
-        .padding({
-          top: WindowUtils.getStatusBarHeightVp() + AppSpace.Sm,
-          left: AppSpace.Md, right: AppSpace.Md, bottom: AppSpace.Md
-        })
+        }.width(40).height(40).backgroundColor(Color.Transparent)
+          .enabled(!this.importing).onClick((): void => { this.navStack.pop(); })
+        Text($r('app.string.profile_local_import'))
+          .fontSize(AppFont.Title).fontColor($r('sys.color.font_primary')).fontWeight(FontWeight.Bold)
+          .layoutWeight(1)
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r('sys.symbol.exclamationmark_circle')).fontSize(22)
+            .fontColor([$r('sys.color.font_secondary')])
+        }.width(40).height(40).backgroundColor(Color.Transparent)
+          .accessibilityText(this.showImportHelp ? $r('app.string.import_help_collapse') :
+            $r('app.string.import_help_expand'))
+          .onClick((): void => { this.showImportHelp = !this.showImportHelp; })
+      }.width('100%')
+        .padding({ top: WindowUtils.getStatusBarHeightVp() + AppSpace.Sm,
+          left: AppSpace.Sm, right: AppSpace.Md, bottom: AppSpace.Sm })
 
-        Scroll() {
-          Column({ space: AppSpace.Lg }) {
-            this.buildFileSection()
-            if (this.pickedFiles.some((file: PickedFile): boolean =>
-              file.ext === '.epub' || file.ext === '.pdf' || file.ext === '.zip')) {
-              this.buildEpubModeSection()
+      Stack({ alignContent: Alignment.BottomEnd }) {
+        List() {
+          ListItemGroup({ header: this.buildFileSection(), footer: this.buildImportOptions(), space: AppSpace.Sm }) {
+            if (this.pickedFiles.length > 1) {
+              LazyForEach(this.fileDataSource, (file: PickedFile) => {
+                ListItem() { this.buildBookPreview(file) }
+              }, (file: PickedFile): string => file.uri)
             }
-            this.buildCoverSection()
-            this.buildInfoSection()
-            Row({ space: AppSpace.Sm }) {
-              Text($r('app.string.book_group_action')).fontSize(AppFont.Body)
-                .fontColor($r('sys.color.font_primary')).layoutWeight(1)
-              Text(this.shelfGroup || $r('app.string.shelf_group_none')).fontColor(AppColor.Brand)
-              SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(16).fontColor([AppColor.Brand])
-            }.width('100%').padding(AppSpace.Md).borderRadius(AppRadius.Lg)
-              .backgroundColor($r('sys.color.comp_background_secondary'))
-              .enabled(!this.importing && !this.parsing).onClick((): void => { this.showGroupSheet = true; })
-              .bindSheet($$this.showGroupSheet, this.buildGroupSheet(), { height: '65%', detents: ['65%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, dragBar: true, showClose: true })
           }
-          .width('100%')
-          .padding({
-            left: AppSpace.Md, right: AppSpace.Md,
-            top: AppSpace.Sm,
-            bottom: 96 + WindowUtils.getBottomSafeVp()
-          })
-        }
-        .layoutWeight(1)
-        .scrollBar(BarState.Off)
-        .edgeEffect(EdgeEffect.Spring)
-      }
-      .width('100%')
-      .height('100%')
-
+        }.width('100%').height('100%')
+          .lanes(this.pickedFiles.length > 1 && this.contentWidth >= AdaptiveLayout.MEDIUM_WIDTH ? 2 : 1, AppSpace.Sm)
+          .padding({ left: AppSpace.Md, right: AppSpace.Md })
+          .contentEndOffset(88).scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+        Stack() {
+          ImmersiveCircleButton({ icon: $r('sys.symbol.plus'), label: $r('app.string.import_add_files'),
+            diameter: 56, iconSize: 28, iconColor: $r('sys.color.font_primary') })
+            .hitTestBehavior(HitTestMode.None).accessibilityLevel('no-hide-descendants')
+          Button({ type: ButtonType.Circle }).width(56).height(56).backgroundColor(Color.Transparent)
+            .accessibilityText($r('app.string.import_add_files'))
+            .enabled(!this.importing && !this.parsing).onClick((): void => { this.pickFiles(); })
+        }.width(56).height(56)
+          .opacity(this.importing || this.parsing ? 0.45 : 1)
+          .margin({ right: AppSpace.Lg, bottom: AppSpace.Md })
+      }.width('100%').layoutWeight(1)
+        .onSizeChange((_previous: SizeOptions, current: SizeOptions): void => {
+          this.contentWidth = Number(current.width);
+        })
       this.buildActionBar()
-    }
-    .width('100%')
-    .height('100%')
-    .backgroundColor(AppTheme.Background)
-    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    }.width('100%').height('100%').backgroundColor(AppTheme.Background)
+      .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 
   @Builder
   buildFileSection() {
     Column({ space: AppSpace.Sm }) {
-      Row({ space: AppSpace.Xs }) {
-        Text('选择文件')
-          .fontSize(AppFont.Body)
-          .fontColor($r('sys.color.font_tertiary'))
-        Button({ type: ButtonType.Circle }) {
-          SymbolGlyph($r('sys.symbol.exclamationmark_circle'))
-            .fontSize(20)
-            .fontColor([AppColor.Brand])
-        }
-        .width(40).height(40)
-        .backgroundColor(Color.Transparent)
-        .accessibilityText(this.showImportHelp ? $r('app.string.import_help_collapse') :
-          $r('app.string.import_help_expand'))
-        .onClick((): void => { this.showImportHelp = !this.showImportHelp; })
-      }
-
       if (this.showImportHelp) {
         Column({ space: AppSpace.Sm }) {
-          Text($r('app.string.import_supported_formats'))
-            .fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_secondary'))
-            .width('100%')
-          Text($r('app.string.import_limits_hint'))
-            .fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_secondary'))
-            .width('100%')
-        }
-        .width('100%')
-        .padding(AppSpace.Md)
-        .backgroundColor($r('sys.color.comp_background_primary'))
-        .borderRadius(AppRadius.Lg)
+          Text($r('app.string.import_supported_formats')).fontSize(AppFont.Caption)
+            .fontColor($r('sys.color.font_secondary')).width('100%')
+          Text($r('app.string.import_limits_hint')).fontSize(AppFont.Caption)
+            .fontColor($r('sys.color.font_secondary')).width('100%')
+        }.width('100%').padding(AppSpace.Md)
+          .backgroundColor($r('sys.color.comp_background_primary')).borderRadius(AppRadius.Lg)
       }
-
-      Column() {
-        if (this.pickedFiles.length === 0) {
-          Column({ space: AppSpace.Sm }) {
-            SymbolGlyph($r('sys.symbol.plus_circle'))
-              .fontSize(40)
-              .fontColor([AppColor.Brand])
-            Text('点击选择文件')
-              .fontSize(AppFont.BodyL)
-              .fontColor($r('sys.color.font_secondary'))
+      if (this.pickedFiles.length === 0) {
+        Column({ space: AppSpace.Sm }) {
+          Text($r('app.string.import_empty_title')).fontSize(AppFont.BodyL)
+            .fontColor($r('sys.color.font_primary')).fontWeight(FontWeight.Medium)
+          Text($r('app.string.import_empty_hint')).fontSize(AppFont.Body)
+            .fontColor($r('sys.color.font_tertiary'))
+        }.width('100%').alignItems(HorizontalAlign.Start).padding({ top: AppSpace.Lg })
+      } else {
+        Row({ space: AppSpace.Sm }) {
+          Text($r('app.string.import_selected_files', this.pickedFiles.length))
+            .fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium)
+            .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+          if (this.parsing) { LoadingProgress().width(20).height(20).color(AppColor.Brand) }
+          if (this.pickedFiles.length === 1) {
+            Button({ type: ButtonType.Circle }) {
+              SymbolGlyph($r('sys.symbol.xmark')).fontSize(16).fontColor([$r('sys.color.font_tertiary')])
+            }.width(40).height(40).backgroundColor(Color.Transparent)
+              .accessibilityText($r('app.string.import_remove_file')).enabled(!this.importing && !this.parsing)
+              .onClick((): void => { this.removeFile(this.pickedFiles[0]); })
           }
-          .justifyContent(FlexAlign.Center)
-          .width('100%')
-          .constraintSize({ minHeight: 132 })
-        } else {
-          Column({ space: 0 }) {
-            List() {
-            LazyForEach(this.fileDataSource, (pf: PickedFile) => {
-              ListItem() {
-              Row({ space: AppSpace.Sm }) {
-                Text((this.pickedFiles.indexOf(pf) + 1).toString())
-                  .fontSize(AppFont.Caption)
-                  .fontColor($r('sys.color.font_tertiary'))
-                  .width(24)
-                Text(pf.name + pf.ext)
-                  .fontSize(AppFont.Body)
-                  .fontColor($r('sys.color.font_secondary'))
-                  .layoutWeight(1)
-                  .maxLines(1)
-                  .textOverflow({ overflow: TextOverflow.Ellipsis })
-              }
-              .width('100%')
-              .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Xs, bottom: AppSpace.Xs })
-              }
-            }, (pf: PickedFile) => pf.uri)
-            }
-            .height(Math.min(300, this.pickedFiles.length * 48))
-            .width('100%')
-
-            Row({ space: AppSpace.Sm }) {
-              Text($r('app.string.import_add_files'))
-                .fontSize(AppFont.Body)
-                .fontColor(AppColor.Brand)
-                .onClick(() => this.pickFiles())
-              Text(this.pickedFiles.length + ' 个文件')
-                .fontSize(AppFont.Caption)
-                .fontColor($r('sys.color.font_tertiary'))
-            }
-            .width('100%')
-            .justifyContent(FlexAlign.SpaceBetween)
-            .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Sm, bottom: AppSpace.Sm })
-          }
-          .width('100%')
+        }.width('100%').constraintSize({ minHeight: 40 })
+        if (this.pickedFiles.length > 1) {
+          Text($r('app.string.import_batch_preview_hint')).fontSize(AppFont.Caption)
+            .fontColor($r('sys.color.font_tertiary')).width('100%')
         }
       }
-      .width('100%')
-      .backgroundColor($r('sys.color.comp_background_primary'))
-      .borderRadius(AppRadius.Lg)
-      .onClick(() => { if (this.pickedFiles.length === 0) this.pickFiles(); })
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
+    }.width('100%').alignItems(HorizontalAlign.Start).padding({ bottom: AppSpace.Md })
+  }
+
+  @Builder
+  buildBookPreview(file: PickedFile) {
+    Row({ space: AppSpace.Sm }) {
+      Stack() {
+        LocalBookCover({ title: file.preview?.title || file.name, author: file.preview?.author || '',
+          imgWidth: 72, imgHeight: 100, useFixedHeight: true, radius: AppRadius.Sm, themedDecoration: false })
+        if (file.preview?.cover) {
+          Image('file://' + file.preview!.cover).width(72).height(100)
+            .objectFit(ImageFit.Cover).borderRadius(AppRadius.Sm).draggable(false)
+        }
+        CoverDecoration({ radius: AppRadius.Sm })
+      }.width(72).height(100)
+      Column({ space: 6 }) {
+        Text(file.preview?.title || file.name).fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium)
+          .fontColor($r('sys.color.font_primary')).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(file.preview?.author || $r('app.string.import_author_unknown')).fontSize(AppFont.Caption)
+          .fontColor($r('sys.color.font_secondary')).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text(file.name + file.ext).fontSize(AppFont.Caption).fontColor($r('sys.color.font_tertiary'))
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        Row({ space: AppSpace.Sm }) {
+          Text(file.ext.substring(1).toUpperCase()).fontSize(10).fontWeight(FontWeight.Medium)
+            .fontColor($r('sys.color.font_primary')).padding({ left: 6, right: 6, top: 3, bottom: 3 })
+            .backgroundColor($r('sys.color.comp_background_tertiary')).borderRadius(4)
+          if (file.previewFailed) {
+            Text($r('app.string.import_preview_unavailable')).fontSize(10)
+              .fontColor($r('sys.color.font_tertiary')).maxLines(1).layoutWeight(1)
+          } else if (file.ext === '.zip') {
+            Text($r('app.string.import_archive_preview_hint')).fontSize(10)
+              .fontColor($r('sys.color.font_tertiary')).maxLines(1).layoutWeight(1)
+          } else if (this.isAudioExt(file.ext)) {
+            Text($r('app.string.import_audio_preview_hint')).fontSize(10)
+              .fontColor($r('sys.color.font_tertiary')).maxLines(1).layoutWeight(1)
+          }
+        }
+      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+      Button({ type: ButtonType.Circle }) {
+        SymbolGlyph($r('sys.symbol.xmark')).fontSize(14).fontColor([$r('sys.color.font_tertiary')])
+      }.width(32).height(40).backgroundColor(Color.Transparent).alignSelf(ItemAlign.Start)
+        .accessibilityText($r('app.string.import_remove_named_file', file.name))
+        .enabled(!this.importing && !this.parsing).onClick((): void => { this.removeFile(file); })
+    }.width('100%').padding(AppSpace.Sm)
+      .backgroundColor($r('sys.color.comp_background_primary')).borderRadius(AppRadius.Lg)
+  }
+
+  @Builder
+  buildImportOptions() {
+    Column({ space: AppSpace.Lg }) {
+      if (this.pickedFiles.length > 0) {
+        if (this.usesSharedBookInfo()) { this.buildCoverSection() }
+        if (this.pickedFiles.some((file: PickedFile): boolean =>
+          file.ext === '.epub' || file.ext === '.mobi' || file.ext === '.cba' ||
+          file.ext === '.pdf' || file.ext === '.zip')) {
+          this.buildEpubModeSection()
+        }
+        Row({ space: AppSpace.Sm }) {
+          Text($r('app.string.book_group_action')).fontSize(AppFont.Body)
+            .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+          Text(this.shelfGroup || $r('app.string.shelf_group_none')).fontColor($r('sys.color.font_primary'))
+          SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(16).fontColor([$r('sys.color.font_primary')])
+        }.width('100%').padding(AppSpace.Md).borderRadius(AppRadius.Lg)
+          .backgroundColor($r('sys.color.comp_background_secondary'))
+          .enabled(!this.importing && !this.parsing).onClick((): void => { this.showGroupSheet = true; })
+          .bindSheet($$this.showGroupSheet, this.buildGroupSheet(), {
+            height: '65%', detents: ['65%', '45%', SheetSize.LARGE],
+            preferType: SheetType.BOTTOM, dragBar: true, showClose: true
+          })
+      }
+    }.width('100%').padding({ top: this.pickedFiles.length > 1 ? AppSpace.Lg : 0 })
   }
 
   // PLACEHOLDER_BUILDERS
@@ -666,80 +696,44 @@ export struct ImportPage {
   @Builder
   buildCoverSection() {
     Column({ space: AppSpace.Sm }) {
-      Text('封面（可选）')
-        .fontSize(AppFont.Body)
-        .fontColor($r('sys.color.font_tertiary'))
-
+      if (this.pickedFiles.length > 1) {
+        Text($r('app.string.import_audio_book_info')).fontSize(AppFont.Body)
+          .fontColor($r('sys.color.font_secondary'))
+      }
       Row({ space: AppSpace.Md }) {
-        Stack() {
-          if (this.coverPath) {
-            Image('file://' + this.coverPath)
-              .width(80)
-              .height(112)
-              .borderRadius(0)
-              .objectFit(ImageFit.Cover)
-          } else {
+        Column({ space: AppSpace.Sm }) {
+          Stack() {
             LocalBookCover({ title: this.bookTitle, author: this.bookAuthor,
-              imgWidth: 80, imgHeight: 112, useFixedHeight: true, radius: 0, themedDecoration: false })
-          }
-          CoverDecoration({ radius: 0 })
-        }
-        .width(80).height(112)
-        .onClick(() => this.pickCover())
-
-        Column({ space: AppSpace.Xs }) {
-          Text(this.coverPath ? $r('app.string.import_cover_replace_hint') : $r('app.string.import_cover_default_hint'))
-            .fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_tertiary'))
-            .maxLines(2)
-          Row({ space: AppSpace.Sm }) {
-            Text(this.coverPath ? '更换' : '上传封面')
-              .fontSize(AppFont.Body)
-              .fontColor(AppColor.Brand)
-              .onClick(() => this.pickCover())
+              imgWidth: 80, imgHeight: 112, useFixedHeight: true, radius: AppRadius.Sm, themedDecoration: false })
             if (this.coverPath) {
-              Text('移除')
-                .fontSize(AppFont.Body)
-                .fontColor($r('sys.color.font_tertiary'))
-                .onClick(() => { this.coverPath = ''; })
+              Image('file://' + this.coverPath).width(80).height(112)
+                .borderRadius(AppRadius.Sm).objectFit(ImageFit.Cover).draggable(false)
             }
-          }
+            CoverDecoration({ radius: AppRadius.Sm })
+          }.width(80).height(112).onClick((): void => { this.pickCover(); })
+          Text($r('app.string.import_edit_cover')).fontSize(AppFont.Caption).fontColor($r('sys.color.font_primary'))
+            .onClick((): void => { this.pickCover(); })
         }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
-      }
-      .width('100%')
-      .padding(AppSpace.Md)
-      .backgroundColor($r('sys.color.comp_background_primary'))
-      .borderRadius(AppRadius.Lg)
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-  }
-
-  @Builder
-  buildInfoSection() {
-    Column({ space: AppSpace.Sm }) {
-      Text('书籍信息')
-        .fontSize(AppFont.Body)
-        .fontColor($r('sys.color.font_tertiary'))
-
-      Column({ space: AppSpace.Sm }) {
-        TextInput({ placeholder: $r('app.string.import_title_optional'), text: this.bookTitle!! })
-          .height(44)
-          .backgroundColor($r('sys.color.comp_background_primary'))
-          .borderRadius(AppRadius.Md)
-          .padding({ left: AppSpace.Md, right: AppSpace.Md })
-
-        TextInput({ placeholder: '作者（选填）', text: this.bookAuthor!! })
-          .height(44)
-          .backgroundColor($r('sys.color.comp_background_primary'))
-          .borderRadius(AppRadius.Md)
-          .padding({ left: AppSpace.Md, right: AppSpace.Md })
-      }
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
+        Column({ space: AppSpace.Sm }) {
+          TextInput({ placeholder: $r('app.string.import_title_optional'), text: this.bookTitle!! })
+            .height(44).fontSize(AppFont.Body).fontColor($r('sys.color.font_primary')).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
+            .backgroundColor($r('sys.color.comp_background_secondary')).borderRadius(AppRadius.Md)
+          TextInput({ placeholder: $r('app.string.import_author_optional'), text: this.bookAuthor!! })
+            .height(44).fontSize(AppFont.Body).fontColor($r('sys.color.font_primary')).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
+            .backgroundColor($r('sys.color.comp_background_secondary')).borderRadius(AppRadius.Md)
+          if (this.pickedFiles.length === 1) {
+            Text(this.pickedFiles[0].name + this.pickedFiles[0].ext).fontSize(AppFont.Caption)
+              .fontColor($r('sys.color.font_tertiary')).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          }
+          if (this.coverPath) {
+            Text($r('app.string.import_remove_cover')).fontSize(AppFont.Caption)
+              .fontColor($r('sys.color.font_tertiary')).onClick((): void => { this.coverPath = ''; })
+          }
+        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+      }.width('100%').padding(AppSpace.Md)
+        .backgroundColor($r('sys.color.comp_background_primary')).borderRadius(AppRadius.Lg)
+        .enabled(!this.importing && !this.parsing)
+    }.width('100%').alignItems(HorizontalAlign.Start)
   }
 
   @Builder
@@ -756,7 +750,18 @@ export struct ImportPage {
         .margin({ bottom: AppSpace.Sm })
       }
       Stack() {
-        // 视觉内容独立绘制，避免原生 Button 禁用时同步淡化文字。
+        // 视觉内容独立绘制，透明按钮放在最上层，确保中央文字区同样可点。
+        Row() {
+          Text(this.importing ? $r('app.string.rule_source_importing') : $r('app.string.import_action_start'))
+            .fontColor(this.canImport() && !this.importing ?
+              $r('sys.color.comp_background_primary') : $r('sys.color.font_tertiary'))
+            .fontSize(AppFont.BodyL)
+            .fontWeight(FontWeight.Medium)
+        }
+        .justifyContent(FlexAlign.Center)
+        .hitTestBehavior(HitTestMode.None)
+        .accessibilityLevel('no-hide-descendants')
+
         Button()
           .width('100%')
           .height('100%')
@@ -765,20 +770,11 @@ export struct ImportPage {
           .enabled(this.canImport() && !this.importing)
           .accessibilityText(this.importing ? $r('app.string.rule_source_importing') : $r('app.string.import_action_start'))
           .onClick(() => this.doImport())
-
-        Row() {
-          Text(this.importing ? $r('app.string.rule_source_importing') : $r('app.string.import_action_start'))
-            .fontColor(this.importActionForeground())
-            .fontSize(AppFont.BodyL)
-            .fontWeight(FontWeight.Medium)
-        }
-        .justifyContent(FlexAlign.Center)
-        .hitTestBehavior(HitTestMode.None)
-        .accessibilityLevel('no-hide-descendants')
       }
       .width('100%')
       .height(48)
-      .backgroundColor(this.canImport() && !this.importing ? AppColor.Brand : $r('app.color.input_background'))
+      .backgroundColor(this.canImport() && !this.importing ?
+        $r('sys.color.font_primary') : $r('sys.color.comp_background_tertiary'))
       .borderRadius(AppRadius.Md)
     }
     .width('100%')
@@ -795,18 +791,4 @@ export struct ImportPage {
     return this.pickedFiles.length > 0 && !this.parsing;
   }
 
-  private importColorChannel(hex: string, offset: number): number {
-    const channel: number = parseInt(hex.substring(offset, offset + 2), 16) / 255;
-    return channel <= 0.04045 ? channel / 12.92 : Math.pow((channel + 0.055) / 1.055, 2.4);
-  }
-
-  private importActionForeground(): ResourceColor {
-    if (!this.canImport() || this.importing) return $r('app.color.text_secondary');
-    const brand: ResourceStr = AppColor.Brand;
-    // 默认深浅两套橙色都配黑字；自定义色按 sRGB 相对亮度选择对比度更高的黑/白。
-    if (typeof brand !== 'string') return Color.Black;
-    const luminance: number = 0.2126 * this.importColorChannel(brand, 1) +
-      0.7152 * this.importColorChannel(brand, 3) + 0.0722 * this.importColorChannel(brand, 5);
-    return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? Color.Black : Color.White;
-  }
 }

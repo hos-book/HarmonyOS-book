@@ -11,6 +11,7 @@ import { ThemeIconComponent } from '../components/ThemeIconComponent';
 import { HdsCompat } from '../utils/HdsCompat';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { WindowUtils } from '../utils/WindowUtils';
+import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
 import { RankingBoardOrderComponent } from '../components/RankingBoardOrderComponent';
@@ -39,7 +40,7 @@ const RANKING_DECK_HEIGHT: number = BOOK_POSTER_DECK_HEIGHT;
 // 折叠与展开共用封面尺寸，窗口增加的宽度分配给介绍，避免图片随窗口放大。
 const RANKING_COVER_WIDTH: number = BOOK_POSTER_COVER_WIDTH;
 const RANKING_SEARCH_HEIGHT: number = 56;
-// 榜单区块：每列上下两本，列横向排列，最多六本；一屏一列，右侧露出下一列提示可滑动。
+// 榜单区块：每列上下两本，最多六本；按容器宽度显示一至三列。
 const RANKING_SECTION_COLUMN_SIZE: number = 2;
 const RANKING_SECTION_ITEMS: number = 6;
 const RANKING_SECTION_ROW_HEIGHT: number = 94;
@@ -47,7 +48,7 @@ const RANKING_SECTION_ROW_GAP: number = 4;
 const RANKING_SECTION_COLUMN_GAP: number = 12;
 const RANKING_SECTION_HEIGHT: number = RANKING_SECTION_COLUMN_SIZE * RANKING_SECTION_ROW_HEIGHT +
   RANKING_SECTION_ROW_GAP;
-// 左侧内边距 24vp，右侧固定露出 28vp 的下一列，提示还能左滑。
+// 左侧内边距 24vp，有未展示的列时右侧露出 28vp，全部同屏时两侧对齐。
 const RANKING_SECTION_EDGE: number = 24;
 const RANKING_SECTION_PEEK: number = 28;
 
@@ -110,6 +111,8 @@ struct RankingSection {
   @Event onChoose: (book: RankingBook) => void = () => {};
   @Event onMore: (board: RankingBoard) => void = () => {};
   @Local columns: RankingColumn[] = [];
+  @Local visibleColumns: number = 1;
+  @Local currentColumn: number = 0;
   private audioData: HomeRecommendationDataSource<RankingBook> = new HomeRecommendationDataSource<RankingBook>();
 
   aboutToAppear(): void { this.syncBooks(); }
@@ -125,7 +128,16 @@ struct RankingSection {
         column.map((book: RankingBook): string => book.id).join('|')));
     }
     this.columns = columns;
+    this.currentColumn = Math.min(this.currentColumn, Math.max(0, columns.length - this.visibleColumns));
     this.audioData.setItems(books);
+  }
+
+  private updateLayout(width: number): void {
+    if (!Number.isFinite(width) || width <= 0) return;
+    const count: number = AdaptiveLayout.rankingColumns(width);
+    if (count === this.visibleColumns) return;
+    this.visibleColumns = count;
+    this.currentColumn = Math.min(this.currentColumn, Math.max(0, this.columns.length - count));
   }
 
   build() {
@@ -150,7 +162,7 @@ struct RankingSection {
         Text(this.board.unavailable ? $r('app.string.ranking_unavailable') : $r('app.string.ranking_loading'))
           .fontSize(13).fontColor(AppTheme.TextTertiary).width('100%').height(90)
       } else if (this.board.books[0]?.contentType !== 'audio') {
-        // 一屏一列（上下两本），prevMargin 提供左侧内边距，nextMargin 露出下一列。
+        // 使用当前榜单容器宽度，分栏和分屏收窄后自动减少列数。
         Swiper() {
           ForEach(this.columns, (column: RankingColumn) => {
             Column({ space: RANKING_SECTION_ROW_GAP }) {
@@ -161,8 +173,13 @@ struct RankingSection {
             .padding({ right: RANKING_SECTION_COLUMN_GAP })
           }, (column: RankingColumn): string => column.key)
         }.width('100%').height(RANKING_SECTION_HEIGHT)
+        .displayCount(this.visibleColumns)
+        .index(this.currentColumn)
+        .onChange((index: number): void => { this.currentColumn = index; })
+        .disableSwipe(this.columns.length <= this.visibleColumns)
         .loop(false).indicator(false).duration(300).curve(Curve.EaseOut)
-        .prevMargin(RANKING_SECTION_EDGE).nextMargin(RANKING_SECTION_PEEK)
+        .prevMargin(RANKING_SECTION_EDGE)
+        .nextMargin(this.columns.length > this.visibleColumns ? RANKING_SECTION_PEEK : RANKING_SECTION_EDGE)
       } else {
         List({ space: 16 }) {
           LazyForEach(this.audioData, (book: RankingBook) => {
@@ -196,6 +213,9 @@ struct RankingSection {
       }
       Divider().color(AppColor.Divider).margin({ left: 24, right: 24, top: 8 })
     }.width('100%').padding({ top: 26, bottom: 4 }).alignItems(HorizontalAlign.Start)
+    .onSizeChange((_oldSize: SizeOptions, size: SizeOptions): void => {
+      if (typeof size.width === 'number') this.updateLayout(size.width);
+    })
   }
 }
 

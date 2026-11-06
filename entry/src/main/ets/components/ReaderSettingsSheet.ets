@@ -62,6 +62,7 @@ struct ReaderSpacingStepButton {
         .fontSize(16).fontColor([$r('sys.color.font_primary')])
     }.width(34).height(34).backgroundColor(AppColor.GlassSheetControlTint)
       .enabled(this.canStep).opacity(this.canStep ? 1 : 0.4)
+      .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
       .onClick((): void => this.onStep())
       .id(this.decrease ? 'reader-paragraph-spacing-minus' : 'reader-paragraph-spacing-plus')
   }
@@ -86,6 +87,8 @@ struct ReaderSettingChip {
       .backgroundColor(this.selected ? $r('sys.color.comp_background_tertiary') : AppColor.GlassSheetControlTint)
       .border({ width: this.selected ? 1 : 0, color: $r('sys.color.font_primary') })
       .animation({ duration: AppMotion.Fast, curve: AppCurve.Standard })
+      .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
+      .accessibilitySelected(this.selected)
       .onClick(() => this.onSelect())
   }
 }
@@ -112,18 +115,22 @@ struct ReaderThemeSwatch {
             Row().width('70%').height(2).borderRadius(1).backgroundColor(this.preset.primary).opacity(0.2)
             Row().width('48%').height(2).borderRadius(1).backgroundColor(this.preset.primary).opacity(0.12)
           }.width('100%').height('100%').padding(12).alignItems(HorizontalAlign.Start)
-          if (this.selected) {
-            Stack() {
-              SymbolGlyph($r('sys.symbol.checkmark'))
-                .fontSize(10).fontColor([AppColor.OnBrand])
-            }.width(18).height(18).borderRadius(9).backgroundColor(AppColor.Brand)
-              .margin({ top: 6, right: 6 })
-          }
+          Stack() {
+            SymbolGlyph($r('sys.symbol.checkmark'))
+              .fontSize(10).fontColor([AppColor.OnBrand])
+          }.width(18).height(18).borderRadius(9).backgroundColor(AppColor.Brand)
+            .margin({ top: 6, right: 6 })
+            .opacity(this.selected ? 1 : 0)
+            .scale({ x: this.selected ? 1 : 0.6, y: this.selected ? 1 : 0.6 })
+            .animation({ curve: AppCurve.Spring })
+            .hitTestBehavior(HitTestMode.None)
         }
         .width('100%').height(72).borderRadius(AppRadius.Md)
         .backgroundColor(this.preset.background)
         .border({ width: this.selected ? 2 : 0.5,
           color: this.selected ? AppColor.Brand : AppColor.GlassSheetStroke })
+        .translate({ y: this.selected ? -2 : 0 })
+        .animation({ curve: AppCurve.Spring })
 
         Text(this.themeLabel())
           .fontSize(AppFont.Caption)
@@ -135,6 +142,7 @@ struct ReaderThemeSwatch {
       .width('100%').alignItems(HorizontalAlign.Center)
     }
     .layoutWeight(1).padding(0).borderRadius(AppRadius.Md).backgroundColor(Color.Transparent)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.97 })
     .accessibilityText(this.themeLabel()).accessibilitySelected(this.selected)
     .id(`reader-theme-preset-${this.preset.id}`)
     .onClick(() => this.onSelect())
@@ -170,6 +178,7 @@ struct ReaderCustomThemeSwatch {
           }.width('100%').alignItems(HorizontalAlign.Center)
         }.width('100%').alignItems(HorizontalAlign.Center)
       }.width('100%').height(104).padding(0).borderRadius(AppRadius.Sm).backgroundColor(Color.Transparent)
+      .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.97 })
       .accessibilityText(this.theme.name || this.getUIContext().getHostContext()?.resourceManager.getStringSync(
         $r('app.string.reader_custom_theme_slot').id, this.theme.slot + 1) || '')
       .accessibilitySelected(this.selected).id(`reader-theme-custom-${this.theme.slot}`)
@@ -181,12 +190,14 @@ struct ReaderCustomThemeSwatch {
         }
       }.width('100%').height(32).padding({ left: 4, right: 4 })
         .backgroundColor(AppColor.GlassSheetControlTint)
+        .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
         .accessibilityText($r('app.string.reader_custom_theme_edit_slot', this.theme.slot + 1))
         .id(`reader-theme-edit-${this.theme.slot}`)
         .onClick((): void => this.onEdit())
     }.width('100%').padding(6).borderRadius(AppRadius.Md).alignItems(HorizontalAlign.Center)
       .backgroundColor(AppColor.GlassSheetControlTint)
       .border({ width: 1, color: this.selected ? AppColor.Brand : AppColor.GlassSheetStroke })
+      .animation({ duration: AppMotion.Fast, curve: AppCurve.Standard })
   }
 }
 
@@ -209,6 +220,7 @@ struct ReaderMarginSlider {
     .backgroundColor(AppColor.GlassSheetControlTint)
     .enabled(enabled)
     .opacity(enabled ? 1 : 0.4)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
     .onClick((): void => {
       this.onChange(Math.max(0, Math.min(this.max, this.value + delta)), true);
     })
@@ -262,6 +274,7 @@ struct ReaderTapSizeSlider {
         }
         .width(34).height(34).backgroundColor(AppColor.GlassSheetControlTint)
         .enabled(this.current > 5).opacity(this.current > 5 ? 1 : 0.4)
+        .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
         .onClick((): void => this.update(this.current - 1, true))
         Slider({ value: this.current, min: 5, max: 90 - this.other, step: 1 })
           .layoutWeight(1).selectedColor(AppColor.Brand)
@@ -273,6 +286,7 @@ struct ReaderTapSizeSlider {
         }
         .width(34).height(34).backgroundColor(AppColor.GlassSheetControlTint)
         .enabled(this.current < 90 - this.other).opacity(this.current < 90 - this.other ? 1 : 0.4)
+        .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
         .onClick((): void => this.update(this.current + 1, true))
       }.width('100%')
     }.width('100%')
@@ -289,16 +303,31 @@ struct ReaderEdgeTabs {
     Row({ space: 4 }) {
       ForEach([$r('app.string.reader_margin_top'), $r('app.string.reader_margin_bottom'),
         $r('app.string.reader_margin_left'), $r('app.string.reader_margin_right')], (label: Resource, index: number) => {
-        Button(label, { type: ButtonType.Capsule })
+        Button({ type: ButtonType.Capsule, stateEffect: false }) {
+          Stack() {
+            if (this.selected === index) {
+              Row().width('100%').height('100%').borderRadius(18)
+                .backgroundColor($r('sys.color.comp_background_primary'))
+                .geometryTransition(`${this.groupId}-selection`)
+                .hitTestBehavior(HitTestMode.None)
+            }
+            Text(label).fontSize(AppFont.Body)
+              .fontColor(this.selected === index ? AppColor.Brand : $r('sys.color.font_primary'))
+          }.width('100%').height(36)
+        }
           .id(`${this.groupId}-${index}`)
-          .layoutWeight(1).height(36).fontSize(AppFont.Body)
-          .fontColor(this.selected === index ? AppColor.Brand : $r('sys.color.font_primary'))
-          .backgroundColor(this.selected === index ? $r('sys.color.comp_background_primary') : Color.Transparent)
+          .layoutWeight(1).height(36).padding(0).backgroundColor(Color.Transparent).clip(false)
+          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.97 })
+          .accessibilityText(label)
           .accessibilitySelected(this.selected === index)
-          .onClick((): void => this.onSelect(index))
+          .onClick((): void => {
+            if (this.selected === index) return;
+            // 两组设置各用独立的共享元素 ID，选中底板随弹簧滑动。
+            this.getUIContext().animateTo({ curve: AppCurve.Spring }, (): void => this.onSelect(index));
+          })
       }, (label: Resource): string => `${label.id}`)
     }.width('100%').padding(4).borderRadius(22)
-      .backgroundColor($r('sys.color.comp_background_tertiary'))
+      .backgroundColor($r('sys.color.comp_background_tertiary')).clip(true)
   }
 }
 
@@ -373,6 +402,7 @@ export struct ReaderSettingsSheet {
   @Param cornerLayout: string = ReaderCornerLayout.DEFAULT;
   @Event onCornerChange: (corner: number, content: number) => void = () => {};
   @Param showFooter: boolean = true;
+  @Param showPageRules: boolean = true;
   @Param showChapterTitle: boolean = true;
   @Param showPageNumber: boolean = true;
   @Param showChapterNumber: boolean = true;
@@ -384,6 +414,8 @@ export struct ReaderSettingsSheet {
   @Param volumeKeyPageTurn: boolean = false;
   @Event onVolumeKeyPageTurnChange: (enabled: boolean) => void = () => {};
   @Param pageTurnMode: string = PageTurnMode.Cover;
+  @Param pageTurnHaptic: string = 'none';
+  @Event onPageTurnHapticChange: (value: string) => void = () => {};
   @Param showReadingStatus: boolean = TextReadingSettings.SHOW_READING_STATUS_DEFAULT;
   @Param alwaysShowStatusBar: boolean = TextReadingSettings.ALWAYS_SHOW_STATUS_BAR_DEFAULT;
   /** 由父页面依 themeId / customBackground 解析好的配色 */
@@ -455,7 +487,9 @@ export struct ReaderSettingsSheet {
     .height(34)
     .borderRadius(17)
     .backgroundColor(AppColor.GlassSheetControlTint)
+    .enabled(enabled)
     .opacity(enabled ? 1 : 0.4)
+    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
     .onClick(() => {
       if (enabled) onTap();
     })
@@ -658,6 +692,18 @@ export struct ReaderSettingsSheet {
     }
   }
 
+  @Builder
+  buildPageTurnHapticSection() {
+    ReaderSettingCard({ title: $r('app.string.reader_turn_haptic'), inline: true }) {
+      ImmersiveOptionTabs({
+        labels: [$r('app.string.reader_turn_none'), $r('app.string.reader_haptic_strong'),
+          $r('app.string.reader_haptic_medium'), $r('app.string.reader_haptic_weak')],
+        selected: ['none', 'strong', 'medium', 'weak'].indexOf(this.pageTurnHaptic),
+        onSelect: (index: number): void => this.onPageTurnHapticChange(['none', 'strong', 'medium', 'weak'][index])
+      }).id('reader-page-turn-haptic')
+    }
+  }
+
   private tapRegionLabel(index: number): Resource {
     const action = Number(ReaderTapPolicy.normalize(this.tapRegions).charAt(index));
     if (action === 0) return $r('app.string.reader_tap_previous');
@@ -744,6 +790,12 @@ export struct ReaderSettingsSheet {
           this.cornerSelector(1)
         }
       }.width('100%')
+    }
+    ReaderSettingCard({ title: $r('app.string.reader_show_page_rules'), inline: true }) {
+      Toggle({ type: ToggleType.Switch, isOn: this.showPageRules }).selectedColor(AppColor.Brand)
+        .id('reader-show-page-rules')
+        .accessibilityText($r('app.string.reader_show_page_rules'))
+        .onChange((enabled: boolean): void => this.onChromeChange('showPageRules', enabled))
     }
   }
 
@@ -967,6 +1019,7 @@ export struct ReaderSettingsSheet {
           .padding({ left: AppSpace.Sm, right: AppSpace.Sm, top: 6, bottom: 6 })
           .borderRadius(AppRadius.Pill)
           .backgroundColor(AppColor.GlassSheetControlTint)
+          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.97 })
           .onClick(() => this.onResetDefaults())
         Stack({ alignContent: Alignment.Center }) {
           SymbolGlyph($r('sys.symbol.xmark'))
@@ -977,6 +1030,7 @@ export struct ReaderSettingsSheet {
         .height(36)
         .borderRadius(18)
         .margin({ left: AppSpace.Xs })
+        .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
         .onClick(() => this.onClose())
       }
       .width('100%')
@@ -1008,6 +1062,7 @@ export struct ReaderSettingsSheet {
             this.buildFontAppearance()
           } else {
             this.buildPageTurnModeSection()
+            this.buildPageTurnHapticSection()
             ReaderAutoPageSettings({ seconds: this.autoPageSeconds, running: this.autoPageRunning, paused: this.autoPagePaused,
               scrolling: this.autoScrolling, speed: this.autoScrollSpeed, onSpeed: this.onAutoScrollSpeed,
               available: this.autoPageAvailable, onInterval: this.onAutoPageInterval, onToggle: this.onAutoPageToggle })

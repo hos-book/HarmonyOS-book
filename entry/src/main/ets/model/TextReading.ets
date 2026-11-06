@@ -109,6 +109,7 @@ export class TextReadingSettings {
   showChapterBar: boolean = true;
   showHeader: boolean = true;
   showFooter: boolean = true;
+  showPageRules: boolean = true;
   showChapterTitle: boolean = true;
   showPageNumber: boolean = true;
   showChapterNumber: boolean = true;
@@ -214,6 +215,13 @@ export class TextReadingSettings {
   /** 音量加上一页、音量减下一页；默认保留系统音量行为。 */
   volumeKeyPageTurn: boolean = false;
   smartKeyPageTurn: boolean = false;
+  /** 手动翻页触觉；旧配置和恢复默认均不振动。 */
+  pageTurnHaptic: string = 'none';
+
+  static normalizePageTurnHaptic(value?: string): string {
+    return value === 'strong' || value === 'medium' || value === 'weak' ? value : 'none';
+  }
+
   /** 翻页模式 */
   pageTurnMode: string = TextReadingSettings.PAGE_TURN_MODE_DEFAULT;
   /** 底部居中显示电量和时间，不影响正文视口。 */

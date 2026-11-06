@@ -10,7 +10,7 @@ import { TextToSpeechState } from '../model/TextToSpeechState';
 import { CompatibleTabsModifier, HdsCompat } from '../utils/HdsCompat';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { common } from '@kit.AbilityKit';
-import { AppStorageV2 } from '@kit.ArkUI';
+import { AppStorageV2, SymbolGlyphModifier } from '@kit.ArkUI';
 import { HdsTabs, HdsTabsController, HdsBarStyle, HdsTabsBarChangeMode, HdsTabsFloatingStyle } from '@kit.UIDesignKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -55,6 +55,7 @@ const FLOATING_BAR_GAP: number = 8;
 const FLOATING_WIDE_BREAKPOINT: number = 600;
 const TAB_RESTORE_WIDTH_GROWTH: number = 48;
 const TAB_RESTORE_HEIGHT_GROWTH: number = 80;
+const TAB_SWITCH_DURATION: number = 350;
 
 class MainTabsAppearance {
   style: HdsTabsFloatingStyle | undefined = undefined;
@@ -81,15 +82,16 @@ export struct MainPage {
   private onTabStyleChanged(): void {
     if (this.miniBarExpandTimer !== -1) clearTimeout(this.miniBarExpandTimer);
     this.miniBarExpandTimer = -1;
-    this.resetTabFade();
     // 开关切换时重建对应的原生底栏，不能沿用另一种布局的控制器和折叠状态。
     this.tabController = new HdsTabsController();
     this.appliedVerticalBarStyle = undefined;
+    this.requestedMiniBarStyle = undefined;
+    this.miniBarAnimationRunning = false;
+    this.miniBarCompactControls = false;
     this.scrollers.clear();
     this.verticalBarCollapsed = false;
     this.scrollDistance = 0;
     this.miniBarCollapsed = this.useFloatingTabs();
-    this.tabBarCollapsed = false;
     this.restoreTabBarOnWindowGrow = false;
     this.lastTabClickIndex = -1;
   }
@@ -102,11 +104,7 @@ export struct MainPage {
     this.syncVerticalBars();
   }
   @Local currentTab: number = 0;
-  @Local tabContentOpacity: number = 1;
-  private tabFadeRunning: boolean = false;
-  private tabFadeCommitIndex: number = -1;
-  private tabFadeGeneration: number = 0;
-  // 原生 Tabs 已完成选中切换；这里只镜像物理索引，供后续属性刷新使用。
+  // 镜像原生 Tabs 已选中的物理索引，动画开始时同步，供后续属性刷新使用。
   // 不参与状态观测，避免 onChange 再刷新 HdsTabs 整组属性并重建 MiniPlayer。
   private nativeTabIndex: number = 0;
   @Local tabsReady: boolean = false;
@@ -117,13 +115,16 @@ export struct MainPage {
   @Local miniBarCollapsed: boolean = PlatformCompat.floatingTabs;
   // 新版普通态为上下双行；紧凑态为当前页签圆按钮 + 完整横向播放器。
   @Local verticalBarCollapsed: boolean = false;
+  // 请求状态与呈现状态分离：播控只在原生动画真正开始时换尺寸。
+  @Local miniBarCompactControls: boolean = false;
+  private miniBarAnimationRunning: boolean = false;
+  private requestedMiniBarStyle: HdsBarStyle | undefined = undefined;
   private scrollDistance: number = 0;
   @Local showMiniChapters: boolean = false;
   @Local miniChapterBook: Book | null = null;
   @Local miniChaptersLoading: boolean = false;
   @Local miniChaptersFailed: boolean = false;
   private miniChapterRequest: number = 0;
-  @Local tabBarCollapsed: boolean = false;
   @Local speechState: TextToSpeechState = TextToSpeechService.getInstance().state;
   @Local miniPlayerIdleHidden: boolean = false;
   private miniPlayerIdleTimer: number = -1;
@@ -216,7 +217,6 @@ export struct MainPage {
     this.clearMiniPlayerIdleTimer();
     this.miniChapterRequest++;
     this.defaultTabRequest++;
-    this.resetTabFade();
     this.onHomeShownHandlerChange(undefined);
     this.pendingHomeResume = undefined;
     this.onBackHandlerChange(undefined);
@@ -307,10 +307,8 @@ export struct MainPage {
     const collapsed = this.scrollDistance > 0;
     this.scrollDistance = 0;
     if (collapsed === this.verticalBarCollapsed) return;
-    this.getUIContext().animateTo({ duration: AppMotion.Slow, curve: AppCurve.Standard }, (): void => {
-      this.verticalBarCollapsed = collapsed;
-    });
-    this.syncVerticalBars();
+    this.verticalBarCollapsed = collapsed;
+    this.syncVerticalBars(false);
   }
 
   private handleViewportSizeChange(newValue: SizeOptions): void {
@@ -335,11 +333,23 @@ export struct MainPage {
 
   private handleBarStyleChange(miniStyle: HdsBarStyle, tabStyle: HdsBarStyle,
     _miniBarWidth: number, _tabBarWidth: number, mode: HdsTabsBarChangeMode): void {
+    // 反向请求已提交时，旧控制器通知不能覆盖新的目标；原生点击始终以用户选择为准。
+    if (this.useVerticalTabs() && mode !== HdsTabsBarChangeMode.NORMAL &&
+      mode !== HdsTabsBarChangeMode.USER_CLICK && this.requestedMiniBarStyle !== undefined &&
+      miniStyle !== this.requestedMiniBarStyle) return;
     this.miniBarCollapsed = miniStyle === HdsBarStyle.COLLAPSE;
-    this.tabBarCollapsed = tabStyle === HdsBarStyle.COLLAPSE;
     if (this.useVerticalTabs()) {
       this.appliedVerticalBarStyle = miniStyle;
+      if (mode !== HdsTabsBarChangeMode.NORMAL) {
+        this.requestedMiniBarStyle = miniStyle;
+      }
+      // 初始化/窗口变化可能没有收展动画；点击和控制器路径由动画回调驱动内容。
+      if (mode === HdsTabsBarChangeMode.NORMAL && !this.miniBarAnimationRunning) {
+        this.miniBarCompactControls = this.useWideFloatingBars() || miniStyle === HdsBarStyle.EXPAND;
+        this.requestedMiniBarStyle = undefined;
+      }
       if (!this.useWideFloatingBars() && mode === HdsTabsBarChangeMode.USER_CLICK) {
+        this.requestedMiniBarStyle = miniStyle;
         this.verticalBarCollapsed = tabStyle === HdsBarStyle.COLLAPSE;
         this.scrollDistance = 0;
       }
@@ -356,6 +366,33 @@ export struct MainPage {
       this.tabCollapseViewportWidth = this.viewportWidth;
       this.tabCollapseViewportHeight = this.viewportHeight;
     }
+  }
+
+  private handleMiniBarAnimationStart(style: HdsBarStyle, targetWidth: number): void {
+    if (!this.useVerticalTabs()) return;
+    // start.style 是起始态，width 才是终点宽度。只观察宽度，不回写外观配置重建 MiniBar。
+    const targetStyle: HdsBarStyle = this.requestedMiniBarStyle ??
+      (style === HdsBarStyle.COLLAPSE ? HdsBarStyle.EXPAND : HdsBarStyle.COLLAPSE);
+    this.miniBarAnimationRunning = true;
+    this.requestedMiniBarStyle = targetStyle;
+    this.getUIContext().animateTo({ duration: AppMotion.Slow, curve: AppCurve.Standard }, (): void => {
+      this.miniBarCompactControls = this.useWideFloatingBars() || targetStyle === HdsBarStyle.EXPAND;
+    });
+    hilog.info(0x0000, 'MainTabs', 'animation start style=%{public}d target=%{public}d width=%{public}d',
+      style, targetStyle, targetWidth);
+  }
+
+  private handleMiniBarAnimationEnd(style: HdsBarStyle): void {
+    if (!this.useVerticalTabs()) return;
+    // 原生反向动画可能先结束旧一段；仅校准最新目标，不能把播控尺寸跳回旧态。
+    const latestStyle: HdsBarStyle | undefined = this.requestedMiniBarStyle ?? this.appliedVerticalBarStyle;
+    if (latestStyle !== undefined && style !== latestStyle) return;
+    this.miniBarAnimationRunning = false;
+    this.requestedMiniBarStyle = undefined;
+    this.appliedVerticalBarStyle = style;
+    this.miniBarCollapsed = style === HdsBarStyle.COLLAPSE;
+    this.miniBarCompactControls = this.useWideFloatingBars() || style === HdsBarStyle.EXPAND;
+    hilog.info(0x0000, 'MainTabs', 'animation end style=%{public}d', style);
   }
 
   private restoreExpandedTabBars(): void {
@@ -447,42 +484,11 @@ export struct MainPage {
     this.tabController.changeIndex(MainTabPolicy.physical(index, this.generalSettings.historyEnabled));
   }
 
-  private resetTabFade(): void {
-    this.tabFadeGeneration++;
-    this.tabFadeRunning = false;
-    this.tabFadeCommitIndex = -1;
-    this.getUIContext().animateTo({ duration: 0 }, (): void => { this.tabContentOpacity = 1; });
-  }
-
-  private requestTabFade(index: number): void {
+  private requestTabChange(index: number): void {
     const count: number = MainTabPolicy.order(this.generalSettings.historyEnabled).length;
-    if (!this.tabsReady || this.tabFadeRunning || !Number.isInteger(index) ||
+    if (!this.tabsReady || !Number.isInteger(index) ||
       index < 0 || index >= count || index === this.nativeTabIndex) return;
-    this.tabFadeRunning = true;
-    const generation: number = ++this.tabFadeGeneration;
-    this.getUIContext().animateTo({ duration: 90, curve: Curve.EaseOut,
-      onFinish: (): void => {
-        if (generation !== this.tabFadeGeneration) return;
-        this.tabFadeCommitIndex = index;
-        this.tabController.changeIndex(index);
-      }
-    }, (): void => { this.tabContentOpacity = 0; });
-  }
-
-  private allowTabContentChange(index: number): boolean {
-    if (index === this.nativeTabIndex || index === this.tabFadeCommitIndex) return true;
-    this.requestTabFade(index);
-    return false;
-  }
-
-  private finishTabFade(): void {
-    this.tabFadeCommitIndex = -1;
-    const generation: number = this.tabFadeGeneration;
-    this.getUIContext().animateTo({ duration: 150, curve: Curve.EaseOut,
-      onFinish: (): void => {
-        if (generation === this.tabFadeGeneration) this.tabFadeRunning = false;
-      }
-    }, (): void => { this.tabContentOpacity = 1; });
+    this.tabController.changeIndex(index);
   }
 
   private judgeTabSwipe(info: GestureInfo): GestureJudgeResult {
@@ -493,13 +499,12 @@ export struct MainPage {
   private handleTabSwipe(event: GestureEvent): void {
     if (!this.generalSettings.swipeSwitchTabs) return;
     if (Math.abs(event.offsetX) < 48 || Math.abs(event.offsetX) <= Math.abs(event.offsetY) * 1.2) return;
-    this.requestTabFade(this.nativeTabIndex + (event.offsetX < 0 ? 1 : -1));
+    this.requestTabChange(this.nativeTabIndex + (event.offsetX < 0 ? 1 : -1));
   }
 
   @Monitor('generalSettings.historyEnabled')
   private onHistoryVisibilityChanged(): void {
     if (!this.tabsReady) return;
-    this.resetTabFade();
     const logical = !this.generalSettings.historyEnabled && this.currentTab === 2 ? 0 : this.currentTab;
     this.nativeTabIndex = MainTabPolicy.physical(logical, this.generalSettings.historyEnabled);
     this.currentTab = logical;
@@ -518,6 +523,14 @@ export struct MainPage {
     const chapter = book.chapters[idx];
     // 独立 KV 为权威:贴回跳过头尾,纠正缓存书壳可能丢失的 skip
     await PreferenceService.applySkipConfig(book);
+    const progress = await PreferenceService.getProgress(book.id);
+    const savedSpeed = progress?.speed ?? last.speed;
+    const speed = typeof savedSpeed === 'number' && Number.isFinite(savedSpeed) && savedSpeed > 0
+      ? Math.min(4.0, Math.max(0.125, savedSpeed)) : await PreferenceService.getDefaultPlaybackSpeed();
+    // 与 EntryAbility 恢复并行；异步读取期间已有播放状态时，不能用旧快照覆盖。
+    if (this.playerState.currentBook) return;
+    // 先还原倍速再公布当前书籍，避免同书续播跳过倍速读取并把默认 1 倍重新落盘。
+    this.playerState.speed = speed;
     this.playerState.currentBook = book;
     this.playerState.currentChapter = chapter;
     this.playerState.progressMs = last.progressMs;
@@ -532,29 +545,24 @@ export struct MainPage {
     );
   }
 
-  @Builder
-  buildTabBar(icon: Resource, label: string, role: ThemeIconRole, index: number): void {
-    // 不使用 BottomTabBarStyle 的隐藏文字占位与内置图文间距。
-    // 使用内容固有尺寸；HDS 内部内容区小于外层 56vp，填满外层会溢出并向下偏移。
-    Column({ space: 2 }) {
-      if (ThemeIcons.resolve(role) !== undefined) {
-        Image(ThemeIcons.resolve(role))
-          .width(24).height(24)
-          .fillColor(this.currentTab === index ? AppColor.Brand : AppTheme.TextSecondary)
-      } else {
-        SymbolGlyph(icon)
-          .fontSize(this.currentTab === index ? 26 : 24)
-          .fontColor([this.currentTab === index ? AppColor.Brand : $r('sys.color.font_primary')])
-      }
-      if (!this.useFloatingTabs() || !this.tabBarCollapsed) {
-        Text(label).fontSize(12).fontWeight(FontWeight.Medium)
-          .fontColor(this.currentTab === index ? AppColor.Brand : AppTheme.TextSecondary)
-          .maxLines(1)
-      }
-    }
-    .justifyContent(FlexAlign.Center)
-    .alignItems(HorizontalAlign.Center)
-    .accessibilityText(label)
+  private buildTabBar(icon: Resource, label: string, role: ThemeIconRole): BottomTabBarStyle {
+    // 标签及图标的收展交给原生 HdsTabs，避免样式回调中销毁/重建 Text 引起闪现。
+    const themeIcon: Resource | undefined = ThemeIcons.resolve(role);
+    const symbol: TabBarSymbol = {
+      normal: new SymbolGlyphModifier(icon).fontSize(24).fontColor([$r('sys.color.font_primary')]),
+      selected: new SymbolGlyphModifier(icon).fontSize(26).fontColor([AppColor.Brand])
+    };
+    const tabBar: BottomTabBarStyle = new BottomTabBarStyle(themeIcon ?? symbol, label);
+    return tabBar
+      .labelStyle({
+        font: { size: 12, weight: FontWeight.Medium },
+        selectedColor: AppColor.Brand,
+        unselectedColor: AppTheme.TextSecondary,
+        maxLines: 1
+      })
+      .iconStyle({ selectedColor: AppColor.Brand, unselectedColor: AppTheme.TextSecondary })
+      .layoutMode(LayoutMode.VERTICAL)
+      .verticalAlign(VerticalAlign.Center);
   }
 
   /**
@@ -573,7 +581,7 @@ export struct MainPage {
         progressPercent: this.playbackProgressPercent(),
         collapsed: !this.useVerticalTabs() && this.miniBarCollapsed,
         verticalStyle: this.useVerticalTabs(),
-        compactControls: this.useVerticalTabs() && (this.useWideFloatingBars() || this.verticalBarCollapsed),
+        compactControls: this.useVerticalTabs() && (this.useWideFloatingBars() || this.miniBarCompactControls),
         onChapters: (): void => { this.openMiniChapters(); },
         onInteract: (): void => this.refreshMiniPlayerIdle(true),
         onPlayerPanStart: (offsetY: number): void => this.beginPlayerDrag(offsetY),
@@ -602,27 +610,48 @@ export struct MainPage {
         hilog.info(0x0000, 'MainTabs', 'mini mount');
         this.syncVerticalBars();
       })
-        .onDisAppear((): void => { hilog.info(0x0000, 'MainTabs', 'mini unmount'); })
+        .onDisAppear((): void => {
+          // 隐藏/重建时原生可能取消结束回调，不能让下一次挂载一直停在动画中。
+          this.miniBarAnimationRunning = false;
+          this.requestedMiniBarStyle = undefined;
+          this.appliedVerticalBarStyle = undefined;
+          hilog.info(0x0000, 'MainTabs', 'mini unmount');
+        })
     }
   }
 
-  private syncVerticalBars(): void {
+  private syncVerticalBars(defer: boolean = true): void {
     if (this.miniBarExpandTimer !== -1) clearTimeout(this.miniBarExpandTimer);
     this.miniBarExpandTimer = -1;
     if (!this.useVerticalTabs()) return;
+    if (!defer) {
+      this.applyVerticalBarStyle();
+      return;
+    }
+    // 首次挂载/窗口布局更新只等待本次构建提交，不给每次滚动额外增加 80ms 延迟。
     this.miniBarExpandTimer = setTimeout((): void => {
       this.miniBarExpandTimer = -1;
-      if (!this.useVerticalTabs() || !this.miniPlayerVisible() || this.currentPlaybackBook() === null) return;
-      const style: HdsBarStyle = this.useWideFloatingBars() || this.verticalBarCollapsed ?
-        HdsBarStyle.EXPAND : HdsBarStyle.COLLAPSE;
-      if (this.appliedVerticalBarStyle === style) return;
-      try {
-        // 600vp 起原生两栏同时展开；窄容器才使用双行/圆页签的收展动画。
-        this.appliedVerticalBarStyle = style;
-        this.tabController.applyMiniBarStyle(style);
-        hilog.info(0x0000, 'MainTabs', 'scroll collapsed=%{public}s', String(this.verticalBarCollapsed));
-      } catch (_error) { this.appliedVerticalBarStyle = undefined; }
-    }, 80);
+      this.applyVerticalBarStyle();
+    }, 0);
+  }
+
+  private applyVerticalBarStyle(): void {
+    if (!this.useVerticalTabs() || !this.miniPlayerVisible() ||
+      this.currentPlaybackBook() === null) return;
+    const style: HdsBarStyle = this.useWideFloatingBars() || this.verticalBarCollapsed ?
+      HdsBarStyle.EXPAND : HdsBarStyle.COLLAPSE;
+    if (this.appliedVerticalBarStyle === style) return;
+    try {
+      // 反向滚动立即交给原生接续动画，不等待上一段结束；同目标仍去重。
+      // 600vp 起原生两栏同时展开；窄容器才使用双行/圆页签的收展动画。
+      this.appliedVerticalBarStyle = style;
+      this.requestedMiniBarStyle = style;
+      this.tabController.applyMiniBarStyle(style);
+      hilog.info(0x0000, 'MainTabs', 'scroll collapsed=%{public}s', String(this.verticalBarCollapsed));
+    } catch (_error) {
+      this.appliedVerticalBarStyle = undefined;
+      this.requestedMiniBarStyle = undefined;
+    }
   }
 
   private floatingBarStyle(): HdsTabsFloatingStyle | undefined {
@@ -650,10 +679,10 @@ export struct MainPage {
           this.handleBarStyleChange(miniStyle, tabStyle, miniBarWidth, tabBarWidth, mode);
         },
         onMiniBarAnimationStart: (miniStyle: HdsBarStyle, width: number): void => {
-          hilog.info(0x0000, 'MainTabs', 'animation start style=%{public}d width=%{public}d', miniStyle, width);
+          this.handleMiniBarAnimationStart(miniStyle, width);
         },
         onMiniBarAnimationEnd: (miniStyle: HdsBarStyle): void => {
-          hilog.info(0x0000, 'MainTabs', 'animation end style=%{public}d', miniStyle);
+          this.handleMiniBarAnimationEnd(miniStyle);
         }
       } : undefined
     };
@@ -705,10 +734,12 @@ export struct MainPage {
   }
 
   private handleTabChange(index: number): void {
-    const changed = this.nativeTabIndex !== index;
+    const previous: number = this.nativeTabIndex;
     this.nativeTabIndex = index;
     this.currentTab = MainTabPolicy.logical(index, this.generalSettings.historyEnabled);
-    if (changed) { this.finishTabFade(); this.resetTabStyle(); }
+    if (previous !== index) {
+      this.resetTabStyle();
+    }
   }
 
   @Builder
@@ -740,12 +771,11 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.registerTabScroller(0, scroller); },
             onContentScroll: (offset: number, state: ScrollState): void => this.onContentScroll(0, offset, state)
           })
-          .opacity(this.tabContentOpacity)
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
         }
-        .tabBar(this.buildTabBar($r('sys.symbol.house_fill'), '首页', ThemeIconRole.Home, 0))
+        .tabBar(this.buildTabBar($r('sys.symbol.house_fill'), '首页', ThemeIconRole.Home))
 
         TabContent() {
           FavoritePage({
@@ -758,12 +788,11 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.registerTabScroller(1, scroller); },
             onContentScroll: (offset: number, state: ScrollState): void => this.onContentScroll(1, offset, state)
           })
-          .opacity(this.tabContentOpacity)
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
         }
-        .tabBar(this.buildTabBar($r('sys.symbol.bookshelf'), '书架', ThemeIconRole.Shelf, 1))
+        .tabBar(this.buildTabBar($r('sys.symbol.bookshelf'), '书架', ThemeIconRole.Shelf))
 
         if (this.generalSettings.historyEnabled) {
         TabContent() {
@@ -777,12 +806,11 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.registerTabScroller(2, scroller); },
             onContentScroll: (offset: number, state: ScrollState): void => this.onContentScroll(2, offset, state)
           })
-          .opacity(this.tabContentOpacity)
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
         }
-        .tabBar(this.buildTabBar($r('sys.symbol.calendar_fill'), '记录', ThemeIconRole.Record, 2))
+        .tabBar(this.buildTabBar($r('sys.symbol.calendar_fill'), '记录', ThemeIconRole.Record))
         }
 
         TabContent() {
@@ -791,12 +819,11 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.registerTabScroller(3, scroller); },
             onContentScroll: (offset: number, state: ScrollState): void => this.onContentScroll(3, offset, state)
           })
-          .opacity(this.tabContentOpacity)
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
         }
-        .tabBar(this.buildTabBar($r('sys.symbol.person_fill'), '我的', ThemeIconRole.Profile, 3))
+        .tabBar(this.buildTabBar($r('sys.symbol.person_fill'), '我的', ThemeIconRole.Profile))
   }
 
   @Builder
@@ -813,11 +840,11 @@ export struct MainPage {
       .barFloatingStyle(this.tabsAppearance.style)
       .barBackgroundColor(this.tabsAppearance.surface)
       .barBackgroundBlurStyle(this.tabsAppearance.materialSupported ? BlurStyle.NONE : BlurStyle.COMPONENT_REGULAR)
-      .onContentWillChange((_current: number, coming: number): boolean => this.allowTabContentChange(coming))
       .onTabBarClick((index: number): void => this.handleTabBarClick(index))
+      .onAnimationStart((_index: number, targetIndex: number): void => this.handleTabChange(targetIndex))
       .onChange((index: number): void => this.handleTabChange(index))
-      // 淡出结束后原位换页，再淡入；底栏与迷你播放器不参与内容动画。
-      .animationDuration(0)
+      // 使用 HdsTabs 原生整页横向滑动，底栏与迷你播放器保持原位。
+      .animationDuration(TAB_SWITCH_DURATION)
       .width('100%')
       .height('100%')
       .backgroundColor(this.tabsAppearance.background)
@@ -836,11 +863,11 @@ export struct MainPage {
       // 关闭原生跟手横滑，由偏好决定自定义手势切底部 Tab 或页面内类型。
       .scrollable(false)
       .attributeModifier(new CompatibleTabsModifier(this.floatingBarStyle(), 56 + this.bottomSafeVp))
-      .onContentWillChange((_current: number, coming: number): boolean => this.allowTabContentChange(coming))
       .onTabBarClick((index: number): void => this.handleTabBarClick(index))
+      .onAnimationStart((_index: number, targetIndex: number): void => this.handleTabChange(targetIndex))
       .onChange((index: number): void => this.handleTabChange(index))
-      // 淡出结束后原位换页，再淡入；底栏与迷你播放器不参与内容动画。
-      .animationDuration(0)
+      // 使用 HdsTabs 原生整页横向滑动，底栏与迷你播放器保持原位。
+      .animationDuration(TAB_SWITCH_DURATION)
       .width('100%')
       .height('100%')
       .backgroundColor(HomeTheme.BgNeutral)
@@ -1022,7 +1049,7 @@ export struct MainPage {
         transition.beginPreviewGesture(gestureHeight, offsetY, origin, book.id,
           (): void => { this.navStack.pushPathByName('player', book.id); },
           (finish: () => void): void => {
-            this.getUIContext().animateTo({ duration: 220, curve: Curve.FastOutSlowIn, onFinish: finish },
+            this.getUIContext().animateTo({ curve: AppCurve.GestureSettle, onFinish: finish },
               (): void => transition.collapsePreview());
           });
         return;

@@ -1910,9 +1910,11 @@ export struct PlayerPage {
     Row({ space: AppSpace.Lg }) {
       PlayerCoverImage({ title: this.book!.title, url: this.book!.cover,
         author: this.book!.author, localPlaceholder: this.book!.id.startsWith('import_'),
-        fallback: this.book!.coverFallback ?? '', highQuality: this.highQualityCover, radius: 12 })
+        fallback: this.book!.coverFallback ?? '', highQuality: this.highQualityCover, radius: 12,
+        onImageReady: (source: string, size: number): void =>
+          PlayerDragTransition.getInstance().setReadyCover(source, size) })
         .width(this.isCompactPlayer() ? 88 : 104).aspectRatio(1).borderRadius(12).clip(true)
-        .id('player-page-cover').opacity(this.dragState.active ? 0 : 1)
+        .id('player-page-cover').opacity(this.dragState.active && !this.dragState.coverRevealed ? 0 : 1)
         .accessibilityText($r('app.string.reader_details'))
         .onClick((): void => { if (!this.dragState.active) this.openBookDetail(); })
       Column({ space: AppSpace.Sm }) {
@@ -1934,7 +1936,9 @@ export struct PlayerPage {
         PlayerCoverImage({
           author: this.book!.author, localPlaceholder: this.book!.id.startsWith('import_'),
           title: this.book!.title, url: this.book!.cover, fallback: this.book!.coverFallback ?? '',
-          highQuality: this.highQualityCover
+          highQuality: this.highQualityCover,
+          onImageReady: (source: string, size: number): void =>
+            PlayerDragTransition.getInstance().setReadyCover(source, size)
         })
         if (this.sourceName !== '') {
           Text(this.sourceName)
@@ -1956,7 +1960,7 @@ export struct PlayerPage {
       .borderRadius(16)
       .clip(true)
       .id('player-page-cover')
-      .opacity(this.dragState.active ? 0 : 1)
+      .opacity(this.dragState.active && !this.dragState.coverRevealed ? 0 : 1)
       .accessibilityText($r('app.string.reader_details'))
       .onClick((): void => { if (!this.dragState.active) this.openBookDetail(); })
     }

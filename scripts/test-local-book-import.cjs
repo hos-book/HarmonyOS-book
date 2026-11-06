@@ -5,6 +5,7 @@ const fsp = fs.promises;
 const path = require('node:path');
 const os = require('node:os');
 const vm = require('node:vm');
+if (process.argv[2]) process.env.MOBI_TEST_FILE = process.argv[2];
 const { mobiFixture, MOBI_COVER_PNG } = require('./mobi-fixture.cjs');
 const ts = require(path.join(process.env.DEVECO_HOME, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = path.resolve(__dirname, '../entry/src/main/ets');
@@ -149,13 +150,27 @@ const preference = {
 };
 const modules = new Map();
 const decodedImages = [];
+let realMobiImages = null;
+let cbaFailure = '';
+let cbaCount = 53;
+function imageBytes(input) {
+  if (typeof input === 'string') return fs.readFileSync(input);
+  if (typeof input === 'number') return fs.readFileSync(handlePaths.get(input));
+  return Buffer.from(input);
+}
 let liveImages = 0;
 const image = {
   createImageSource(input) {
     liveImages++;
-    const bytes = Buffer.from(input);
+    const bytes = imageBytes(input);
     return {
       async getImageInfo() {
+        if (realMobiImages) {
+          const hash = require('node:crypto').createHash('sha256').update(bytes).digest('hex');
+          const size = realMobiImages.get(hash);
+          if (!size) throw new Error('not an independently verified MOBI image');
+          return { size };
+        }
         if (realEpubArchive) {
           const size = realEpubArchive.imageSizes[bytes.toString('base64')];
           if (!size) throw new Error('not a decoded archive image');
@@ -166,7 +181,7 @@ const image = {
       },
       async createPixelMap(options) {
         decodedImages.push(bytes); liveImages++;
-        assert.equal(options.desiredSize.width, 60);
+        if (!realMobiImages) assert.equal(options.desiredSize.width, 60);
         return { release: async () => { liveImages--; } };
       },
       release: async () => { liveImages--; }
@@ -196,6 +211,17 @@ function load(relative) {
     if (name === '@kit.PDFKit') { assert.ok(pdfAvailable); return { pdfService }; }
     if (name === '@kit.CoreFileKit') return { fileIo, statfs: { getFreeSize: async () => free } };
     if (name === '@kit.ImageKit') return { image };
+    if (name === 'libcba_archive.so') return { extract(fd, directory, progress) {
+      assert.ok(handles.has(fd), 'original granted URI is opened by the worker');
+      const paths = [];
+      for (let index = 0; index < cbaCount; index++) {
+        const target = `${directory}/image_${index}_0.img`;
+        fs.writeFileSync(target, MOBI_COVER_PNG); paths.push(target);
+        if (cbaFailure && index === 1) throw new Error(cbaFailure);
+        progress(index + 1, cbaCount);
+      }
+      return paths;
+    } };
     if (name === '@kit.PerformanceAnalysisKit') return { hilog: {
       info() { diagnosticOutputCount++; }, error() { diagnosticOutputCount++; }
     } };
@@ -893,6 +919,83 @@ function load(relative) {
     assert.equal(liveImages, 0);
   }
   console.log('PASS MOBI covers: EXTH index, thumbnail/legacy fallback, direct ZIP import, persisted cover, manual override, corrupt image isolation');
+
+  const imageHtml = '<body><img recindex="1"><img recindex=2 /><img recindex=\'1\'><img recindex="3"></body>';
+  await fsp.writeFile(file.uri, mobiFixture({ text: imageHtml, images: [MOBI_COVER_PNG, MOBI_COVER_PNG, MOBI_COVER_PNG] }));
+  for (const mode of ['auto', 'comic', 'text']) {
+    const result = await service.importBook(context, file, `import_mobi_images_${mode}`, '', '', '', () => {}, mode);
+    assert.equal(result.contentType, mode === 'text' ? 'text' : 'comic');
+    const text = (await Promise.all(result.chapters.map(ch => fsp.readFile(ch.source.value, 'utf8')))).join('\n');
+    const tokens = [...text.matchAll(images.pattern())];
+    assert.equal(tokens.length, 4);
+    assert.deepEqual(tokens.map(token => path.basename(token[1])), ['image_1_0.img', 'image_2_0.img', 'image_1_0.img', 'image_3_0.img']);
+    assert.equal((await fsp.readdir(path.join(temp, 'ebooks', result.id))).filter(name => name.endsWith('.img')).length, 3);
+    for (const token of tokens) {
+      assert.ok(images.resolve(token[1]), 'reader accepts the generated image path');
+      assert.deepEqual(await fsp.readFile(token[1]), MOBI_COVER_PNG);
+    }
+  }
+  await fsp.writeFile(file.uri, mobiFixture({ text: '<h1>第一章</h1><p>插图前</p><img recindex="1"><p>插图后</p>', images: [MOBI_COVER_PNG] }));
+  const illustrated = await service.importBook(context, file, 'import_mobi_illustrated', '', '', '', () => {});
+  assert.equal(illustrated.contentType, 'text');
+  assert.match(await fsp.readFile(illustrated.chapters[0].source.value, 'utf8'), /插图前[\s\S]+\uFFF9[\s\S]+插图后/);
+  for (const options of [
+    { text: '<img recindex="99">', images: [MOBI_COVER_PNG] },
+    { text: '<img recindex="1">', images: [Buffer.from('bad image')] }
+  ]) {
+    await fsp.writeFile(file.uri, mobiFixture(options));
+    await assert.rejects(service.importBook(context, file, 'import_mobi_image_failure', '', '', '', () => {}), /图片缺失/);
+    assert.equal(fs.existsSync(path.join(temp, 'ebooks/import_mobi_image_failure')), false);
+  }
+  await fsp.writeFile(file.uri, mobiFixture({ text: imageHtml, images: [MOBI_COVER_PNG, MOBI_COVER_PNG, MOBI_COVER_PNG] }));
+  failingWrite = 'image_2_0.img';
+  await assert.rejects(service.importBook(context, file, 'import_mobi_image_failure', '', '', '', () => {}));
+  failingWrite = '';
+  assert.equal(fs.existsSync(path.join(temp, 'ebooks/import_mobi_image_failure')), false);
+  assert.equal(handles.size, 0); assert.equal(liveImages, 0);
+  console.log('PASS MOBI images: image-only comics, reading modes, recindex order/dedup, inline text, missing/corrupt images and write rollback');
+
+  if (process.env.MOBI_TEST_FILE) {
+    const { execFileSync } = require('node:child_process');
+    const manifest = JSON.parse(execFileSync('python', [path.join(__dirname, 'mobi-image-manifest.py'), process.env.MOBI_TEST_FILE], { encoding: 'utf8', maxBuffer: 1024 ** 2 }));
+    realMobiImages = new Map(manifest.images.map(item => [item.sha256, item.size]));
+    const input = { uri: process.env.MOBI_TEST_FILE, ext: '.mobi', name: path.basename(process.env.MOBI_TEST_FILE) };
+    const result = await service.importBook(context, input, 'import_real_mobi', '', '', '', () => {});
+    const tokens = [];
+    for (const chapter of result.chapters) {
+      const content = await fsp.readFile(chapter.source.value, 'utf8');
+      for (const match of content.matchAll(images.pattern())) tokens.push(match[1]);
+    }
+    assert.equal(result.contentType, 'comic');
+    assert.deepEqual(tokens.map(value => Number(/image_(\d+)_0/.exec(value)[1])), manifest.references);
+    for (const item of manifest.images) {
+      const saved = await fsp.readFile(`${context.filesDir}/ebooks/${result.id}/image_${item.index}_0.img`);
+      assert.equal(require('node:crypto').createHash('sha256').update(saved).digest('hex'), item.sha256);
+      assert.ok(images.resolve(`${context.filesDir}/ebooks/${result.id}/image_${item.index}_0.img`));
+    }
+    await data.addImportedBook(result); data.cache = null;
+    assert.equal((await data.getBookById(context, result.id)).contentType, 'comic');
+    console.log(`PASS real MOBI: ${tokens.length} ordered image references, ${manifest.images.length} byte-identical images, comic classification and persistence`);
+    realMobiImages = null;
+  }
+
+  assert.ok(service.TEXT_EXTS.includes('.cba'));
+  assert.ok(strings.get('import_file_filter').includes('.cba'));
+  file.ext = '.cba';
+  for (const mode of ['auto', 'text']) {
+    const result = await service.importBook(context, file, `import_cba_${mode}`, '', '', '', () => {}, mode);
+    assert.equal(result.contentType, mode === 'text' ? 'text' : 'comic');
+    assert.equal(result.chapters.length, 2);
+    assert.equal([...(await fsp.readFile(result.chapters[0].source.value, 'utf8')).matchAll(images.pattern())].length, 50);
+    assert.equal([...(await fsp.readFile(result.chapters[1].source.value, 'utf8')).matchAll(images.pattern())].length, 3);
+    assert.ok(fs.existsSync(result.cover));
+  }
+  cbaFailure = 'import_cba_invalid';
+  await assert.rejects(service.importBook(context, file, 'import_cba_failure', '', '', '', () => {}), /校验失败/);
+  cbaFailure = '';
+  assert.equal(fs.existsSync(path.join(temp, 'ebooks/import_cba_failure')), false);
+  assert.equal(handles.size, 0); assert.equal(liveImages, 0);
+  console.log('PASS CBA integration: worker routing, 50-page sections, cover, reading modes, native failure rollback (decoder verified separately on device)');
 
   const online = { ...book, id: 'search_text_history', sourceUrl: 'source', bookUrl: 'book' };
   const largeChapters = Array.from({length:600},(_,i)=>({...online.chapters[0],id:`large_${i}`,

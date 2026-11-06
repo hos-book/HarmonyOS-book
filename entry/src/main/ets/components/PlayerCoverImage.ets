@@ -16,7 +16,7 @@ class PlayerCoverRequest {
   }
 }
 
-/** 小图负责首帧和回退，大图解码成功后才显示；尺寸按组件 vp 传给 sourceSize。 */
+/** 原图按布局尺寸提前解码，完成后通知转场复用；增强处理仍由 highQuality 控制。 */
 @ComponentV2
 export struct PlayerCoverImage {
   @Param url: string = '';
@@ -26,6 +26,7 @@ export struct PlayerCoverImage {
   @Param fallback: string = '';
   @Param highQuality: boolean = false;
   @Param radius: number = 16;
+  @Event onImageReady: (source: string, decodeSize: number) => void = () => {};
   @Local decodeSize: number = 300;
   @Local loadedKey: string = '';
   @Local failedKey: string = '';
@@ -35,9 +36,11 @@ export struct PlayerCoverImage {
   private generation: number = 0;
   private handles: CoverLoadHandle[] = [];
   private resizeTimer: number = -1;
+  private measured: boolean = false;
+  private appeared: boolean = false;
 
-  aboutToAppear(): void { this.reset(); }
-  aboutToDisappear(): void { this.cancelResize(); this.generation++; this.releaseLoads(); }
+  aboutToAppear(): void { this.appeared = true; this.reset(); }
+  aboutToDisappear(): void { this.appeared = false; this.cancelResize(); this.generation++; this.releaseLoads(); }
 
   @Monitor('url', 'fallback')
   onCoverChanged(): void { this.reset(); }
@@ -80,8 +83,13 @@ export struct PlayerCoverImage {
     if (!Number.isFinite(width) || width <= 0) return;
     // sourceSize 单位为 vp，不能再乘屏幕密度；分档减少小窗拖动时反复解码。
     const size = Math.min(1024, Math.max(64, Math.ceil(width / 32) * 32));
-    if (size === this.decodeSize) return;
     this.cancelResize();
+    if (!this.measured) {
+      this.measured = true;
+      this.decodeSize = size;
+      return;
+    }
+    if (size === this.decodeSize) return;
     this.resizeTimer = setTimeout((): void => {
       this.resizeTimer = -1;
       this.decodeSize = size;
@@ -106,10 +114,11 @@ export struct PlayerCoverImage {
       Image(this.source(this.previewFailed ? this.resolvedUrl : (this.resolvedFallback || this.resolvedUrl)))
         .draggable(false)
         .width('100%').height('100%').objectFit(ImageFit.Cover)
-        .sourceSize({ width: 300, height: 300 })
+        .sourceSize({ width: this.decodeSize, height: this.decodeSize })
+        .interpolation(ImageInterpolation.Medium)
         .alt(CoverTheme.playerPlaceholder())
         .onError((): void => { this.previewFailed = true; })
-      if (this.highQuality && this.resolvedUrl) {
+      if (this.resolvedUrl) {
         ForEach([new PlayerCoverRequest(this.resolvedUrl, this.decodeSize)], (request: PlayerCoverRequest) => {
           Image(this.source(request.url))
             .draggable(false)
@@ -117,16 +126,20 @@ export struct PlayerCoverImage {
             .sourceSize({ width: request.size, height: request.size })
             .interpolation(ImageInterpolation.Medium)
             .opacity(this.loadedKey === request.key && this.failedKey !== request.key ? 1 : 0)
+            .transition(TransitionEffect.IDENTITY)
             .onComplete((event) => {
-              if (event?.loadingStatus === 1 && this.requestKey() === request.key) {
+              if (this.appeared && event?.loadingStatus === 1 && this.requestKey() === request.key) {
                 this.loadedKey = request.key;
+                this.onImageReady(request.url, request.size);
               }
             })
             .onError((): void => {
               if (this.requestKey() === request.key) this.failedKey = request.key;
             })
         }, (request: PlayerCoverRequest): string => request.key)
-        EnhancedPlayerCover({ url: this.failedKey === this.requestKey() ? (this.resolvedFallback || this.resolvedUrl) : this.resolvedUrl })
+        if (this.highQuality) {
+          EnhancedPlayerCover({ url: this.failedKey === this.requestKey() ? (this.resolvedFallback || this.resolvedUrl) : this.resolvedUrl })
+        }
       }
       }
       CoverDecoration({ radius: this.radius, compact: true })

@@ -24,6 +24,7 @@ export struct ComicContinuousComponent {
   @Param initialPages: ComicPage[] = [];
   @Param pageWidth: number = 360;
   @Param pageHeight: number = 600;
+  @Param displayMode: number = 0;
   @Param viewportTop: number = 0;
   @Param zoomOwner: string = '';
   @Param paged: boolean = false;
@@ -102,7 +103,7 @@ export struct ComicContinuousComponent {
   @Monitor('resetToken')
   onReset(): void { if (!this.disposed) this.reset(); }
 
-  @Monitor('pageWidth', 'pageHeight')
+  @Monitor('pageWidth', 'pageHeight', 'displayMode')
   onWidthChanged(): void { if (!this.disposed) this.restoreVisible(); }
 
   @Monitor('keyTurnRequest')
@@ -333,7 +334,8 @@ export struct ComicContinuousComponent {
         LazyForEach(this.source, (row: ComicScrollRow) => {
           ListItem() {
             ComicPageImage({ page: row.page, pageWidth: this.pageWidth, superResolution: this.superResolution,
-              pageHeight: this.pageHeight, viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
+              pageHeight: this.pageHeight, displayMode: this.displayMode,
+              viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
               colorization: this.colorization, colorizationActive: this.colorizationActive,
               translation: this.translation, translationDirection: this.translationDirection,
               onColorError: (message: string): void => this.onColorError(message),

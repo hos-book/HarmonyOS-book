@@ -17,7 +17,8 @@ class NoticeSection {
 const NOTICE_SECTIONS: NoticeSection[] = [
   new NoticeSection('components', $r('app.string.open_source_section_components'), [
     $r('app.string.open_source_quickjs'), $r('app.string.open_source_binding'),
-    $r('app.string.open_source_napi'), $r('app.string.open_source_crypto')
+    $r('app.string.open_source_napi'), $r('app.string.open_source_crypto'), $r('app.string.open_source_acefile'),
+    $r('app.string.open_source_petrel')
   ]),
   new NoticeSection('boundary', $r('app.string.open_source_section_boundary'), [
     $r('app.string.open_source_boundary_body')

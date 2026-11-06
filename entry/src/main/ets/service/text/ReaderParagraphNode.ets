@@ -84,7 +84,7 @@ class ReaderParagraphFrameNode extends FrameNode {
       start: page.nativeOffsets?.nativeOffsetForDisplay(displayStart) ?? displayStart,
       end: page.nativeOffsets?.nativeOffsetForDisplay(displayEnd) ?? displayEnd
     }, graphicsText.RectWidthStyle.TIGHT, graphicsText.RectHeightStyle.TIGHT);
-    const accent = this.color(customColor || (this.palette.isDark ? '#FFB4A8' : '#A33245'));
+    const accent = this.color(customColor || this.palette.accent);
     const brush = new drawing.Brush();
     const tint = this.color(this.palette.primary);
     tint.alpha = 51;
@@ -135,7 +135,10 @@ export class ReaderParagraphNodeController extends NodeController {
 
   update(page: OnlineTextPage, range: SpeechHighlightRange, palette: ReaderPalette, speechMark: string = 'color', dialogueHighlight: boolean = false, dialogueHighlightColor: string = '', speechMarkColor: string = ''): void {
     if (this.page === page && this.range.start === range.start && this.range.end === range.end &&
-      this.palette.primary === palette.primary && this.palette.background === palette.background && this.speechMark === speechMark && this.dialogueHighlight === dialogueHighlight && this.dialogueHighlightColor === dialogueHighlightColor && this.speechMarkColor === speechMarkColor) return;
+      this.palette.primary === palette.primary && this.palette.background === palette.background &&
+      this.palette.accent === palette.accent && this.speechMark === speechMark &&
+      this.dialogueHighlight === dialogueHighlight && this.dialogueHighlightColor === dialogueHighlightColor &&
+      this.speechMarkColor === speechMarkColor) return;
     this.page = page;
     this.range = range;
     this.palette = palette;

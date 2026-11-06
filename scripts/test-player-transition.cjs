@@ -44,6 +44,9 @@ const resetCheck = () => {
   assert.equal(drag.state.sourceOpacity, 1);
   assert.equal(drag.state.contentOpacity, 1);
   assert.equal(drag.state.snapshot, undefined);
+  assert.equal(drag.state.coverSource, '');
+  assert.equal(drag.state.coverImageOpacity, 0);
+  assert.equal(drag.state.coverRevealed, false);
 };
 assert.equal(drag.beginTap(origin()), true);
 drag.complete(); resetCheck();
@@ -210,3 +213,106 @@ geometryKeys.forEach((key, i) => assert.ok(Math.abs(drag.state[key] - expandedGe
   `${key}: downward drag must exactly reverse the held upward drag`));
 drag.cancel(); finishCancel(); resetCheck();
 console.log('PASS identical geometry and opacity at the same held position in both directions');
+
+const cardOrigin = origin();
+cardOrigin.sourceNodeId = 'detail-cover-book-a';
+cardOrigin.radius = 8;
+cardOrigin.coverWidth = 120;
+cardOrigin.coverHeight = 160;
+drag.beginPreviewGesture(320, -8, cardOrigin, 'book-a', () => {}, cancelPreview);
+drag.setPreviewTarget(rect(48, 200, 704, 704), rect(0, 40, 800, 1600));
+drag.update(0);
+assert.equal(drag.state.coverRadius, cardOrigin.radius,
+  'detail cover starts at its measured corner radius instead of a circular mini-player radius');
+drag.update(-350);
+const intermediateCardRadius = drag.state.coverRadius;
+drag.update(-cardOrigin.top);
+assert.ok(intermediateCardRadius > cardOrigin.radius && intermediateCardRadius < drag.state.coverRadius,
+  'detail cover corners interpolate continuously to the expanded cover');
+drag.cancel(); finishCancel(); resetCheck(); drag.clearReturnTarget();
+console.log('PASS non-mini-player cover preserves its source corner geometry');
+
+const opacityOrigin = origin();
+const offsets = [0, 35, 140, 350, 560, opacityOrigin.top];
+const sourceOpacities = [];
+drag.beginPreviewGesture(320, -8, opacityOrigin, 'book-a', () => {}, cancelPreview);
+drag.setPreviewTarget(rect(48, 200, 704, 704), rect(0, 40, 800, 1600));
+const opacities = offsets.map(offset => {
+  drag.update(-offset);
+  sourceOpacities.push(drag.state.sourceOpacity);
+  return drag.state.contentOpacity;
+});
+assert.equal(opacities[0], 0, 'collapsed content remains hidden');
+assert.equal(opacities.at(-1), 1, 'fully expanded content is visible');
+assert.ok(opacities.some(value => value > 0 && value < 1), 'content fades through intermediate states');
+opacities.forEach((value, index) => {
+  assert.ok(value >= 0 && value <= 1, 'opacity stays within the drawable range');
+  if (index > 0) assert.ok(value >= opacities[index - 1], 'opacity increases monotonically during expansion');
+});
+assert.equal(sourceOpacities[0], 1, 'mini text and controls are already visible at the collapsed position');
+assert.equal(sourceOpacities.at(-1), 0, 'expanded player does not leave duplicate mini controls visible');
+assert.ok(sourceOpacities.some(value => value > 0 && value < 1),
+  'mini contents crossfade during the gesture instead of appearing only after completion');
+sourceOpacities.forEach((value, index) => {
+  assert.ok(value >= 0 && value <= 1);
+  if (index > 0) assert.ok(value <= sourceOpacities[index - 1]);
+});
+drag.complete();
+drag.beginDismissGesture(ui, 8, () => {}, cancelDismiss);
+for (let index = offsets.length - 1; index >= 0; index--) {
+  drag.update(opacityOrigin.top - offsets[index]);
+  assert.ok(Math.abs(drag.state.contentOpacity - opacities[index]) < 1e-8,
+    'dismissal retraces the same opacity for every sampled geometry');
+  assert.ok(Math.abs(drag.state.sourceOpacity - sourceOpacities[index]) < 1e-8,
+    'mini contents return at the same held position before the dismissal finishes');
+}
+drag.cancel();
+assert.equal(drag.state.sourceOpacity, 0, 'cancel fades mini contents away while restoring the full player');
+finishCancel(); resetCheck(); drag.clearReturnTarget();
+console.log('PASS bounded, monotonic and reversible player/mini content crossfade');
+
+const separateFadeOrigin = origin();
+drag.beginTap(separateFadeOrigin);
+drag.state.contentOpacity = 0.6;
+drag.state.sourceOpacity = 0;
+drag.collapseToBar(separateFadeOrigin, false);
+assert.equal(drag.state.active, true, 'return is still animating before Navigation completion');
+assert.equal(drag.state.sourceOpacity, 1, 'return animation targets visible mini contents before complete()');
+assert.equal(drag.state.contentOpacity, 0.6, 'geometry-only collapse leaves the independent fade untouched');
+assert.equal(drag.state.frameY, separateFadeOrigin.top, 'geometry-only collapse still reaches its target');
+drag.collapseToBar(separateFadeOrigin);
+assert.equal(drag.state.contentOpacity, 0, 'default collapse still hides content for preview cancellation');
+drag.complete(); resetCheck(); drag.clearReturnTarget();
+console.log('PASS independent return fade and default preview cancellation');
+
+// Decoded covers must survive preview-to-page handoff, but never leak into a later return.
+drag.setReadyCover('/cover-before-opening.jpg', 352);
+assert.equal(drag.state.coverSource, '', 'idle pages cannot populate the transition cover');
+drag.beginPreviewGesture(320, -140, origin(), 'book-a', () => {}, cancelPreview);
+const coverSnapshot = drag.state.snapshot;
+drag.setReadyCover('', 352);
+drag.setReadyCover('/invalid.jpg', NaN);
+drag.setReadyCover('/invalid.jpg', 0);
+assert.equal(drag.state.coverSource, '', 'invalid decode notifications keep the snapshot fallback');
+drag.setReadyCover('/ready-cover.jpg', 352);
+drag.state.coverImageOpacity = 1;
+drag.end(-140, 0);
+assert.equal(drag.state.previewing, false);
+assert.equal(drag.state.coverSource, '/ready-cover.jpg');
+assert.equal(drag.state.coverDecodeSize, 352);
+assert.equal(drag.state.coverImageOpacity, 1, 'formal page keeps the already-visible decoded cover');
+assert.equal(drag.state.snapshot, coverSnapshot, 'snapshot remains available until handoff finishes');
+drag.state.coverRevealed = true;
+drag.complete(); resetCheck();
+drag.setReadyCover('/late-cover.jpg', 352);
+assert.equal(drag.state.coverSource, '', 'late decode after entry completion is ignored');
+drag.beginDismissGesture(ui, 8, () => {}, cancelDismiss);
+drag.setReadyCover('/late-cover.jpg', 352);
+assert.equal(drag.state.coverSource, '', 'return uses the current full-size snapshot');
+drag.cancel(); finishCancel(); resetCheck(); drag.clearReturnTarget();
+drag.beginPreviewGesture(320, -12, origin(), 'book-a', () => {}, cancelPreview);
+drag.setReadyCover('/cancelled-cover.jpg', 352);
+drag.end(-12, 0);
+assert.equal(drag.state.coverSource, '/cancelled-cover.jpg', 'cancellation retains the cover while settling');
+finishCancel(); resetCheck(); drag.clearReturnTarget();
+console.log('PASS decoded cover handoff, snapshot fallback, late callback isolation and cancellation cleanup');

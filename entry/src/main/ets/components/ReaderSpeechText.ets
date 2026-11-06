@@ -209,7 +209,7 @@ struct ReaderTextFragment {
       if (this.highlightRange.start >= 0) {
         Span(this.text.substring(0, this.highlightRange.start))
         Span(this.text.substring(this.highlightRange.start, this.highlightRange.end))
-          .fontColor(this.speechMark === 'color' && !this.selecting ? (this.speechMarkColor || (this.palette.isDark ? '#FFB4A8' : '#A33245')) : this.palette.primary)
+          .fontColor(this.speechMark === 'color' && !this.selecting ? (this.speechMarkColor || this.palette.accent) : this.palette.primary)
           .decoration({ type: this.speechMark === 'underline' && !this.selecting ? TextDecorationType.Underline : TextDecorationType.None })
           .textBackgroundStyle({ color: this.speechMark === 'highlight' || this.selecting ? '#33' + this.palette.primary.substring(1) : '#00000000', radius: 3 })
         Span(this.text.substring(this.highlightRange.end))

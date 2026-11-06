@@ -9,7 +9,8 @@ const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-l
 const root = path.resolve(__dirname, '../entry/src/main/ets');
 const read = file => fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
 function compile(source, globals) {
-  const context = { exports: {}, Set, Map, JSON, console, LocalBuilder: () => {}, Builder: () => {}, ...globals };
+  const context = { exports: {}, Set, Map, JSON, console, setTimeout, clearTimeout,
+    LocalBuilder: () => {}, Builder: () => {}, ...globals };
   const output = ts.transpileModule(source, {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
@@ -43,7 +44,7 @@ PreferenceService.store = store;
 const fileCalls = [];
 let failFile = '';
 const page = read('pages/FavoritePage.ets');
-const methods = page.slice(page.indexOf('  private async deleteBookFilesAndRecords('), page.indexOf('  private bookMenuOptions('));
+const methods = page.slice(page.indexOf('  private markShelfBookVisible('), page.indexOf('  private bookMenuOptions('));
 const filter = page.slice(page.indexOf('  private filteredBooks('), page.indexOf('  private handleBookTap('));
 const { Shelf } = compile(`export class Shelf { ${filter}\n${methods}\n }`, {
   PreferenceService,
@@ -74,14 +75,17 @@ const { Shelf } = compile(`export class Shelf { ${filter}\n${methods}\n }`, {
 function makeShelf() {
   const shelf = new Shelf();
   Object.assign(shelf, {
-    context: {}, visible: true, shelfFilter: 0, shelfStatusFilter: 0, shelfKeyword: '',
+    context: {}, alive: true, visible: true, shelfFilter: 0, shelfStatusFilter: 0, shelfKeyword: '',
     isManaging: false, showBatchDelete: false,
     removingBook: false, isRefreshing: false, resolvingTocId: '', showBookActions: false,
     selectedBookIds: new Set(), favoritesLoadSerial: 0, favoriteIdsByBookId: new Map(),
+    visibleShelfBookIds: new Set(), pendingDissolveIds: new Set(), dissolvingBookIds: new Set(),
+    cancelAutoUpdate: () => {},
     favoriteBooks: [{ id: 'audio', contentType: 'audio' }, { id: 'import_text', contentType: 'text' },
       { id: 'other', contentType: 'text' }],
     bookDataSource: { setBooks() {} },
     loadFavorites: async () => {},
+    dismissDeleteSheet: async () => { shelf.showBatchDelete = false; },
     getUIContext: () => ({ getPromptAction: () => ({ showToast() {} }) })
   });
   return shelf;
@@ -101,6 +105,36 @@ async function run() {
   assert.equal(writes, 1);
 
   const shelf = makeShelf();
+  // The real animation gate must wait for all visible cards and ignore offscreen selections.
+  const animated = makeShelf();
+  animated.visibleShelfBookIds = new Set(['audio', 'import_text']);
+  let animationDone = false;
+  const animation = animated.animateShelfDelete(['audio', 'import_text', 'other'])
+    .then(() => { animationDone = true; });
+  assert.deepEqual([...animated.dissolvingBookIds], ['audio', 'import_text']);
+  animated.completeShelfDissolve('audio');
+  await Promise.resolve();
+  assert.equal(animationDone, false);
+  animated.completeShelfDissolve('import_text');
+  await animation;
+  animated.cancelShelfDissolve();
+  assert.equal(animated.dissolvingBookIds.size, 0);
+  const leaving = animated.animateShelfDelete(['audio']);
+  animated.cancelShelfDissolve();
+  await leaving;
+
+  // File cleanup/persistence waits for the snapshot animation, preventing missing-cover frames.
+  favorites(['audio', 'import_text', 'other']);
+  animated.enterManagement('import_text');
+  animated.confirmBatchDelete();
+  const deleting = animated.deleteSelectedBooks();
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(animated.pendingDissolveIds.has('import_text'), true);
+  assert.deepEqual(await PreferenceService.getFavorites(), ['audio', 'import_text', 'other']);
+  animated.completeShelfDissolve('import_text');
+  await deleting;
+  assert.deepEqual(await PreferenceService.getFavorites(), ['audio', 'other']);
+  assert.equal(animated.dissolvingBookIds.size, 0);
   shelf.enterManagement();
   shelf.toggleBookSelection('audio');
   assert.equal(shelf.selectedBookIds.size, 1);
@@ -272,5 +306,6 @@ async function run() {
   console.log('PASS: source-switch cancel keeps both, replacement preserves order/pin, deduplication and no-op guards');
   console.log('PASS: persistent pin order, unpin, newly added books, removal/re-add and write failures');
   console.log('PASS: filter-scoped selection, cancel/back, default file retention, bulk persistence, alias IDs, partial failure/retry and busy guards');
+  console.log('PASS: visible-card dissolve completion, offscreen exclusion, page-exit cleanup and persistence after animation');
 }
 run().catch(error => { console.error(error); process.exitCode = 1; });

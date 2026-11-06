@@ -44,6 +44,10 @@
     {"name":"theme_paper_status_scrim","value":"#E6181E1B"},
     {"name":"theme_paper_floating_mask","value":"#88181E1B"},
     { "name": "shelf_toolbar_background", "value": "#801A1A1A" },
+    { "name": "shelf_filter_background", "value": "#66252221" },
+    { "name": "shelf_filter_border", "value": "#40FFFFFF" },
+    { "name": "shelf_filter_selected_background", "value": "#20FFFFFF" },
+    { "name": "shelf_filter_selected_border", "value": "#A6FFFFFF" },
     { "name": "ranking_match_surface", "value": "#26000000" },
     { "name": "ranking_match_border", "value": "#14FFFFFF" },
     {"name": "membership_name_month", "value": "#EBC775"},
@@ -119,6 +123,30 @@
     {"name":"theme_ink_cover_text","value":"#EEEDE5"},
     {"name":"theme_ink_cover_label","value":"#F21C201F"},
     {"name":"theme_ink_local_cover_text","value":"#EEEDE5"},
-    {"name":"theme_ink_local_cover_author","value":"#E0E3D7"}
+    {"name":"theme_ink_local_cover_author","value":"#E0E3D7"},
+    {
+      "name": "shelf_score_text",
+      "value": "#AACBFF"
+    },
+    {
+      "name": "shelf_score_background",
+      "value": "#243753"
+    },
+    {
+      "name": "shelf_category_text",
+      "value": "#8ED4AB"
+    },
+    {
+      "name": "shelf_category_background",
+      "value": "#203D2D"
+    },
+    {
+      "name": "shelf_status_text",
+      "value": "#F1C578"
+    },
+    {
+      "name": "shelf_status_background",
+      "value": "#4A3820"
+    }
   ]
 }

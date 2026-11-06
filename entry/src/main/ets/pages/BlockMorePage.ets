@@ -206,7 +206,7 @@ export struct BlockMorePage {
         } else if (this.listMode) {
           this.buildList()
         } else {
-          this.buildGrid()
+          this.buildWaterFlow()
         }
       }
       .width('100%')
@@ -358,43 +358,39 @@ export struct BlockMorePage {
   }
 
   @Builder
-  buildGrid() {
-    Grid(this.scroller) {
+  buildWaterFlowFooter() {
+    Row({ space: AppSpace.Xs }) {
+      if (this.loadingMore) {
+        LoadingProgress().width(20).height(20).color(AppColor.Brand)
+      }
+      if (this.loadingMore || !this.hasMore) {
+        Text(this.loadingMore ? $r('app.string.home_category_loading_more') :
+          $r('app.string.home_category_load_complete'))
+          .fontSize(AppFont.Caption)
+          .fontColor($r('sys.color.font_tertiary'))
+      }
+    }
+    .height(this.loadingMore || !this.hasMore ? 48 : 0)
+    .width('100%')
+    .justifyContent(FlexAlign.Center)
+  }
+
+  @Builder
+  buildWaterFlow() {
+    WaterFlow({ scroller: this.scroller, footer: this.buildWaterFlowFooter() }) {
       LazyForEach(this.dataSource, (book: Book, idx: number) => {
-        GridItem() {
+        FlowItem() {
           BookCard({
             book: book,
             indexHint: idx,
+            useOriginalCoverRatio: true,
+            coverImageFit: ImageFit.Contain,
+            coverRadius: AppRadius.Sm,
             showRating: true,
             onTap: () => this.handleBookTap(book.id)
           })
-        }
+        }.width('100%')
       }, (book: Book) => book.id)
-
-      if (this.loadingMore) {
-        GridItem() {
-          Row({ space: AppSpace.Xs }) {
-            LoadingProgress().width(20).height(20).color(AppColor.Brand)
-            Text($r('app.string.home_category_loading_more'))
-              .fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_tertiary'))
-          }
-          .height(48)
-          .width('100%')
-          .justifyContent(FlexAlign.Center)
-        }
-        .columnStart(0).columnEnd(this.bookColumns - 1)
-      } else if (!this.hasMore && this.books.length > 0) {
-        GridItem() {
-          Text($r('app.string.home_category_load_complete'))
-            .fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_tertiary'))
-            .height(48)
-            .textAlign(TextAlign.Center)
-            .width('100%')
-        }
-        .columnStart(0).columnEnd(this.bookColumns - 1)
-      }
     }
     .columnsTemplate(`repeat(${this.bookColumns}, 1fr)`)
     .onSizeChange((_oldSize: SizeOptions, size: SizeOptions): void => {

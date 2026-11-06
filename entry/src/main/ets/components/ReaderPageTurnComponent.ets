@@ -32,6 +32,7 @@ export struct ReaderPageTurnComponent {
   @Param paperColor: string = '#F5F2EA';
   @BuilderParam pageContent: () => void = this.emptyPage;
   @Event onPrepare: (forward: boolean) => Promise<boolean> = async (_forward: boolean): Promise<boolean> => false;
+  @Event onTurnFeedback: (forward: boolean) => void = (): void => {};
   @Event onConfirm: () => void = (): void => {};
   @Event onComplete: (commit: boolean) => void = (_commit: boolean): void => {};
   @Event onCenterTap: () => void = (): void => {};
@@ -56,6 +57,7 @@ export struct ReaderPageTurnComponent {
   private frameQueued: boolean = false;
   private released: boolean = false;
   private commitOnRelease: boolean = false;
+  private feedbackOnConfirm: boolean = false;
   private touchBlocked: boolean = false;
   private touchStartedAt: number = 0;
   private touchStartedSelecting: boolean = false;
@@ -116,6 +118,9 @@ export struct ReaderPageTurnComponent {
     this.anchor = Math.max(0, Math.min(1, anchorY / Math.max(1, this.pageHeight)));
     this.released = tap;
     this.commitOnRelease = tap;
+    this.feedbackOnConfirm = !tap;
+    // 点击反馈先于截图、跨章加载和动画；拖动则等确认翻页再反馈。
+    if (tap) this.onTurnFeedback(forward);
     try {
       if (this.mode === PageTurnMode.None && tap) {
         const prepared = await this.onPrepare(forward);
@@ -225,6 +230,10 @@ export struct ReaderPageTurnComponent {
   }
 
   private settle(commit: boolean): void {
+    if (commit && this.feedbackOnConfirm) {
+      this.feedbackOnConfirm = false;
+      this.onTurnFeedback(this.forward);
+    }
     if (commit) this.onConfirm();
     if (this.mode === PageTurnMode.None) {
       this.phase = 'idle';

@@ -21,6 +21,12 @@ export class AdaptiveLayout {
     return Math.max(4, Math.floor((width - 32) / 144));
   }
 
+  /** 榜单每列上下两本，按榜单容器宽度展示一至三列。 */
+  static rankingColumns(width: number): number {
+    if (!Number.isFinite(width) || width < AdaptiveLayout.MEDIUM_WIDTH) return 1;
+    return width < AdaptiveLayout.LARGE_WIDTH ? 2 : 3;
+  }
+
   static playerUsesColumns(width: number, height: number): boolean {
     return width >= AdaptiveLayout.MEDIUM_WIDTH && height > 0;
   }

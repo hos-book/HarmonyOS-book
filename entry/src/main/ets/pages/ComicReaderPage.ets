@@ -69,6 +69,7 @@ export struct ComicReaderPage {
   @Local rightSafe: number = WindowUtils.getRightSafeVp();
   @Local mode: number = 0;
   @Local pageLayout: number = 1;
+  @Local displayMode: number = 0;
   @Local pageOverlap: number = 10;
   private pageFraction: number = 0;
   @Local scrollInitialFraction: number = 0;
@@ -320,6 +321,7 @@ export struct ComicReaderPage {
       const autoPageSeconds = await PreferenceService.getAutoPageSeconds(true);
       const autoScrollSpeed = await PreferenceService.getAutoScrollSpeed(true);
       const pageLayout = await PreferenceService.getComicPageLayout();
+      const displayMode = await PreferenceService.getComicDisplayMode();
       const pageOverlap = await PreferenceService.getComicPageOverlap();
       const volumeKeyPageTurn = await PreferenceService.getComicVolumeKeyPageTurn();
       const showBrightnessBar = await PreferenceService.getComicBrightnessBar();
@@ -345,6 +347,7 @@ export struct ComicReaderPage {
       this.autoPageSeconds = autoPageSeconds;
       this.autoScrollSpeed = autoScrollSpeed;
       this.pageLayout = pageLayout;
+      this.displayMode = displayMode;
       this.pageOverlap = pageOverlap;
       const initialIndex = Math.max(0, Math.min(book.chapters.length - 1,
         explicit ? this.params.resourceIndex : position?.resourceIndex ?? 0));
@@ -541,6 +544,26 @@ export struct ComicReaderPage {
     } catch (_error) {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
     } finally { this.settingsSaving = false; }
+  }
+
+  private async changeDisplayMode(mode: number): Promise<void> {
+    if (this.settingsSaving || mode === this.displayMode) return;
+    this.settingsSaving = true;
+    try {
+      await PreferenceService.setComicDisplayMode(mode);
+      if (!this.alive) return;
+      this.displayMode = mode;
+      this.autoPage.restart();
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    } finally { this.settingsSaving = false; }
+  }
+
+  private displayModeHint(): Resource {
+    if (this.displayMode === 1) return $r('app.string.comic_display_width_hint');
+    if (this.displayMode === 2) return $r('app.string.comic_display_screen_hint');
+    if (this.displayMode === 3) return $r('app.string.comic_display_original_hint');
+    return $r('app.string.comic_display_default_hint');
   }
 
   private async changePageOverlap(overlap: number): Promise<void> {
@@ -787,7 +810,11 @@ export struct ComicReaderPage {
     this.scheduleSave();
   }
 
-  private imageWidth(): number { return this.widthVp - this.leftSafe - this.rightSafe - 2 * AdaptiveLayout.readerGutter(this.widthVp, this.leftSafe, this.rightSafe); }
+  private imageWidth(): number {
+    const available = Math.max(1, this.widthVp - this.leftSafe - this.rightSafe);
+    return this.displayMode === 0 ? Math.max(1, available -
+      2 * AdaptiveLayout.readerGutter(this.widthVp, this.leftSafe, this.rightSafe)) : available;
+  }
 
   build() {
     Stack({ alignContent: Alignment.Top }) {
@@ -818,7 +845,8 @@ export struct ComicReaderPage {
             keyTurnRequest: this.keyTurnRequest, paged: this.usesJoinedPages(), overlap: this.pageOverlap,
             initialFraction: this.scrollInitialFraction,
             initialChapterIndex: this.chapterIndex, initialPageIndex: this.pageIndex,
-            initialPages: this.scrollInitialPages, pageWidth: this.imageWidth(), superResolution: this.superResolution,
+            initialPages: this.scrollInitialPages, pageWidth: this.imageWidth(), displayMode: this.displayMode,
+            superResolution: this.superResolution,
             pageHeight: this.heightVp, viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
             colorization: this.colorization, translation: this.translation, translationDirection: this.translationDirection,
             colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
@@ -842,6 +870,7 @@ export struct ComicReaderPage {
                   onColorError: (message: string): void => this.colorizationFailed(message),
                   onZoomChange: (owner: string, active: boolean): void => this.onZoomChanged(owner, active),
                   pageWidth: this.imageWidth(), pageHeight: this.heightVp, paged: true, fitScreen: this.pageLayout !== 0,
+                  displayMode: this.displayMode,
                   viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
                   onToggle: (event: ClickEvent): void => { this.onContentTap(event); } })
               }.width('100%').height('100%').transition(TransitionEffect.OPACITY)
@@ -861,7 +890,8 @@ export struct ComicReaderPage {
                    colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
                    onColorError: (message: string): void => this.colorizationFailed(message),
                    onZoomChange: (owner: string, active: boolean): void => this.onZoomChanged(owner, active),
-                   paged: true, fitScreen: this.pageLayout !== 0, viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
+                    paged: true, fitScreen: this.pageLayout !== 0, displayMode: this.displayMode,
+                    viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
                    onToggle: (event: ClickEvent): void => { this.onContentTap(event); } })
               }.width('100%').height('100%').justifyContent(FlexAlign.Center)
             }, (page: ComicPage): string => page.key)
@@ -1692,7 +1722,14 @@ export struct ComicReaderPage {
           $r('app.string.comic_rtl'), $r('app.string.comic_dissolve')], selected: this.mode,
           onSelect: (index: number): void => { this.changeMode(index); } }).enabled(!this.settingsSaving)
       }
-      if (this.mode !== 0) {
+      ReaderSettingCard({ title: $r('app.string.comic_display_title'), inline: true,
+        description: this.displayModeHint() }) {
+        ImmersiveOptionTabs({ labels: [$r('app.string.comic_display_default'), $r('app.string.comic_display_width'),
+          $r('app.string.comic_display_screen'), $r('app.string.comic_display_original')], selected: this.displayMode,
+          onSelect: (index: number): void => { this.changeDisplayMode(index); } })
+          .id('comic-display-mode').enabled(!this.settingsSaving)
+      }
+      if (this.mode !== 0 && this.displayMode === 0) {
         ReaderSettingCard({ title: $r('app.string.comic_page_layout'), inline: true,
           description: $r('app.string.comic_page_layout_hint') }) {
           ImmersiveOptionTabs({ labels: this.mode === 1 ? [$r('app.string.comic_layout_width'),
@@ -1700,6 +1737,14 @@ export struct ComicReaderPage {
             [$r('app.string.comic_layout_width'), $r('app.string.comic_layout_screen')],
             selected: this.mode === 1 ? this.pageLayout : Math.min(1, this.pageLayout),
             onSelect: (index: number): void => { this.changePageLayout(index); } }).enabled(!this.settingsSaving)
+        }
+      } else if (this.mode === 1) {
+        ReaderSettingCard({ title: $r('app.string.comic_page_layout'), inline: true,
+          description: $r('app.string.comic_pagination_hint') }) {
+          ImmersiveOptionTabs({ labels: [$r('app.string.comic_layout_single'), $r('app.string.comic_layout_joined')],
+            selected: this.pageLayout === 2 ? 1 : 0,
+            onSelect: (index: number): void => { this.changePageLayout(index === 1 ? 2 : 1); } })
+            .enabled(!this.settingsSaving)
         }
       }
       if (this.usesJoinedPages()) {

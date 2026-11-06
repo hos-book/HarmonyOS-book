@@ -60,6 +60,9 @@ export struct ReaderContinuousComponent {
   @Event onPosition: (chapter: number, offset: number, content: string, persist: boolean) => void = () => {};
   @Event onCenterTap: () => void = () => {};
   @Event onScrollStart: () => void = () => {};
+  @Event onPageTurn: () => void = () => {};
+  private manualScrollPosition: string = '';
+  private manualScrollFeedbackGiven: boolean = false;
   @Local previousLoading: boolean = false;
   @Local nextLoading: boolean = false;
   @Local previousFailed: boolean = false;
@@ -91,6 +94,7 @@ export struct ReaderContinuousComponent {
   private syncAutoScroll(): void {
     this.autoScroll.stop();
     if (!this.autoScrollReady || this.disposed) { this.reportPosition(true); return; }
+    this.manualScrollPosition = '';
     this.autoScroll.start(this.getUIContext(), (): void => this.advanceAutoScroll());
   }
 
@@ -135,8 +139,7 @@ export struct ReaderContinuousComponent {
       else this.loadNeighbor(true);
       return;
     }
-    this.onScrollStart();
-    this.scroller.scrollBy(0, (this.keyTurnRequest > 0 ? 1 : -1) * this.contentHeight * 0.85);
+    this.scrollManualPage(this.keyTurnRequest > 0);
   }
 
   @Monitor('followOffset')
@@ -144,6 +147,7 @@ export struct ReaderContinuousComponent {
     if (this.followOffset < 0 || this.restoring) return;
     const target = this.source.findPosition(this.chapterIndex, this.followOffset);
     if (target >= 0 && (target < this.firstVisible || target >= this.lastVisible)) {
+      this.manualScrollPosition = '';
       this.followingSpeech = true;
       this.scroller.scrollToIndex(target, false, ScrollAlign.START);
     }
@@ -170,6 +174,7 @@ export struct ReaderContinuousComponent {
   }
 
   private reset(): void {
+    this.manualScrollPosition = '';
     if (this.contentWidth <= 0 || this.disposed) return;
     this.autoScroll.pause();
     const ticket = ++this.serial;
@@ -254,6 +259,40 @@ export struct ReaderContinuousComponent {
         }
       }
     }
+  }
+
+  private visiblePositionKey(): string {
+    const row = this.source.getData(this.firstVisible);
+    return row === undefined ? '' : `${row.chapterIndex}:${row.startOffset}`;
+  }
+
+  private beginManualScroll(): void {
+    if (this.restoring || this.followingSpeech || this.autoScrollReady || this.selectionActive || this.disposed) return;
+    if (this.manualScrollPosition.length === 0) {
+      this.manualScrollPosition = this.visiblePositionKey();
+      this.manualScrollFeedbackGiven = false;
+    }
+  }
+
+  private scrollManualPage(forward: boolean): void {
+    if (this.restoring || this.selectionActive || this.disposed || this.contentHeight <= 0) return;
+    const canMove = forward ? !this.scroller.isAtEnd() : this.scroller.currentOffset().yOffset > 0;
+    if (!canMove) return;
+    this.beginManualScroll();
+    this.manualScrollFeedbackGiven = true;
+    this.onPageTurn();
+    this.onScrollStart();
+    this.scroller.scrollBy(0, (forward ? 1 : -1) * this.contentHeight * 0.85);
+  }
+
+  private completeManualScroll(): void {
+    const previous = this.manualScrollPosition;
+    const feedbackGiven = this.manualScrollFeedbackGiven;
+    this.manualScrollPosition = '';
+    this.manualScrollFeedbackGiven = false;
+    if (this.restoring || this.followingSpeech || this.autoScrollReady || this.selectionActive || this.disposed) return;
+    const current = this.visiblePositionKey();
+    if (!feedbackGiven && previous.length > 0 && current.length > 0 && previous !== current) this.onPageTurn();
   }
 
   private reportPosition(persist: boolean): void {
@@ -411,17 +450,20 @@ export struct ReaderContinuousComponent {
               this.tapLeftPercent, this.tapRightPercent, this.tapTopPercent, this.tapBottomPercent);
             if (action === 1) this.onCenterTap();
             else if (action === 0 || action === 2) {
-              this.onScrollStart();
-              this.scroller.scrollBy(0, (action === 2 ? 1 : -1) * this.contentHeight * 0.85);
+              this.scrollManualPage(action === 2);
             }
           }
         }
       })
       .onScrollStart((): void => {
         this.tapTracker.cancel();
-        if (!this.restoring && !this.followingSpeech && !this.autoScrollReady) this.onScrollStart();
+        if (!this.restoring && !this.followingSpeech && !this.autoScrollReady) {
+          this.beginManualScroll();
+          this.onScrollStart();
+        }
       })
       .onScrollStop((): void => {
+        this.completeManualScroll();
         if (this.autoScrollReady) return;
         if (this.followingSpeech) { this.followingSpeech = false; return; }
         this.reportPosition(true);

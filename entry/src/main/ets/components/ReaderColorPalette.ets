@@ -13,9 +13,13 @@ export struct ReaderColorPalette {
   @Local hexInput: string = '';
   @Local inputValid: boolean = true;
   @Event onValidityChange: (valid: boolean) => void = () => {};
-  private paletteWidth: number = 1;
+  private inputDirty: boolean = false;
+  // 调色盘完成布局后宽度才可用；必须是响应式状态，否则重新进入页面时
+  // 圆点虽然已经根据已保存色值算出饱和度，却不会按实际宽度重绘到正确位置。
+  @Local paletteWidth: number = 1;
 
   private publishColor(color: string, commit: boolean): void {
+    this.inputDirty = false;
     this.hexInput = color;
     this.inputValid = true;
     this.onValidityChange(true);
@@ -23,12 +27,18 @@ export struct ReaderColorPalette {
   }
 
   private inputColor(value: string, commit: boolean): void {
+    // 仅提交实际编辑；单纯聚焦再离开色值框不算手动选色。
+    if (commit && !this.inputDirty) return;
+    if (!commit) this.inputDirty = true;
     this.hexInput = value;
     this.inputValid = isReaderHexColor(value);
     this.onValidityChange(this.inputValid);
     if (!this.inputValid) return;
     const color = normalizeHex(value);
-    if (commit) this.hexInput = color;
+    if (commit) {
+      this.hexInput = color;
+      this.inputDirty = false;
+    }
     this.onChange(color, commit);
   }
 
@@ -38,6 +48,7 @@ export struct ReaderColorPalette {
 
   @Monitor('resetRevision')
   resetInput(): void {
+    this.inputDirty = false;
     this.hexInput = normalizeHex(this.color);
     this.inputValid = true;
     this.onValidityChange(true);

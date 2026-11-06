@@ -1,7 +1,7 @@
-import { HomeBlockSection } from '../../model/BookSource';
+import { HomeBlockSection, SearchResult } from '../../model/BookSource';
 import { LocalRuleSource } from '../../model/LocalRuleSource';
 import { LocalRuleControl, LocalRulePanel } from '../../model/LocalRulePanel';
-import { BookSourceService } from '../BookSourceService';
+import { BookSourceService, ExploreFetchResult } from '../BookSourceService';
 import { PreferenceService } from '../PreferenceService';
 import { SourceDataService } from '../SourceDataService';
 import { LocalRulePanelService } from './LocalRulePanelService';
@@ -26,7 +26,20 @@ export class HomeSourceContent {
   channels: string[] = [];
   channel: string = '';
   blocks: HomeBlockSection[] = [];
+  moreRecommendations: SearchResult[] = [];
+  moreLoading: boolean = false;
+  moreFailed: boolean = false;
   loadedAt: number = 0;
+}
+
+class HomeRecommendationCursor {
+  url: string;
+  page: number = 1;
+  seenBooks: Set<string> = new Set();
+
+  constructor(url: string) {
+    this.url = url;
+  }
 }
 
 class HomeSourceLoad {
@@ -74,7 +87,7 @@ export class HomeSourceService {
     const task = new HomeSourceLoad();
     task.listeners.push(onUpdate);
     HomeSourceService.pending.set(key, task);
-    task.promise = HomeSourceService.fetchHome(source, task, channel).then((content: HomeSourceContent): HomeSourceContent => {
+    task.promise = HomeSourceService.fetchHome(source, task, channel, revision).then((content: HomeSourceContent): HomeSourceContent => {
       if (revision === HomeSourceService.syncRevision() && HomeSourceService.pending.get(key) === task &&
         content.blocks.length > 0) {
         content.loadedAt = Date.now();
@@ -95,7 +108,7 @@ export class HomeSourceService {
   }
 
   private static async fetchHome(source: LocalRuleSource, task: HomeSourceLoad,
-    channel: string): Promise<HomeSourceContent> {
+    channel: string, revision: string): Promise<HomeSourceContent> {
     const panel = await LocalRulePanelService.load(source, false);
     task.content.filters = panel.controls.filter((control: LocalRuleControl): boolean =>
       control.discoveryFilter && control.options.length > 0 && control.action.length > 0);
@@ -113,7 +126,86 @@ export class HomeSourceService {
         task.content.blocks = blocks;
         HomeSourceService.notifyHome(task);
       });
+    // 预览先展示，后续书单独立补齐；单个发现分类失败不影响已显示的首页。
+    if (task.content.blocks.length > 0 && revision === HomeSourceService.syncRevision()) {
+      await HomeSourceService.loadMoreRecommendations(source, task, revision);
+    }
     return task.content;
+  }
+
+  private static async loadMoreRecommendations(source: LocalRuleSource, task: HomeSourceLoad,
+    revision: string): Promise<void> {
+    const limit: number = 50;
+    const requestBudget: number = 8;
+    const books: SearchResult[] = [];
+    const seen: Set<string> = new Set();
+    const previewUrls: Set<string> = new Set();
+    for (const block of task.content.blocks) {
+      previewUrls.add(block.moreUrl);
+      for (const book of block.books) seen.add(JSON.stringify([book.sourceUrl || source.bookSourceUrl, book.bookUrl]));
+    }
+    // 优先补充尚未展示的分类，再沿预览分类取后续内容；始终限定在当前源和频道。
+    const ordered: HomeSourceCategory[] = task.content.categories
+      .filter((category: HomeSourceCategory): boolean => !previewUrls.has(category.url))
+      .concat(task.content.categories.filter((category: HomeSourceCategory): boolean => previewUrls.has(category.url)));
+    const queue: HomeRecommendationCursor[] = [];
+    const categoryUrls: Set<string> = new Set();
+    for (const category of ordered) {
+      if (categoryUrls.has(category.url)) continue;
+      categoryUrls.add(category.url);
+      queue.push(new HomeRecommendationCursor(category.url));
+    }
+    const requested: Set<string> = new Set();
+    let requests: number = 0;
+    let failed: boolean = false;
+    task.content.moreLoading = queue.length > 0;
+    HomeSourceService.notifyHome(task);
+    while (books.length < limit && queue.length > 0 && requests < requestBudget &&
+      revision === HomeSourceService.syncRevision()) {
+      const batch: HomeRecommendationCursor[] = queue.splice(0, Math.min(2, requestBudget - requests));
+      const results: Array<ExploreFetchResult | undefined> = await Promise.all(batch.map(
+        async (cursor: HomeRecommendationCursor): Promise<ExploreFetchResult | undefined> => {
+          const key: string = JSON.stringify([cursor.url, cursor.page]);
+          if (requested.has(key)) return undefined;
+          requested.add(key);
+          requests++;
+          try {
+            return await BookSourceService.getExploreBooksByUrl(source, cursor.url, cursor.page, limit);
+          } catch (_error) {
+            failed = true;
+            return undefined;
+          }
+        }));
+      if (revision !== HomeSourceService.syncRevision()) break;
+      for (let index: number = 0; index < results.length; index++) {
+        const result: ExploreFetchResult | undefined = results[index];
+        if (result === undefined) continue;
+        const cursor: HomeRecommendationCursor = batch[index];
+        let progressed: boolean = false;
+        for (const book of result.books) {
+          if (!book.bookUrl || !book.name) continue;
+          const key: string = JSON.stringify([book.sourceUrl || source.bookSourceUrl, book.bookUrl]);
+          if (!cursor.seenBooks.has(key)) {
+            cursor.seenBooks.add(key);
+            progressed = true;
+          }
+          if (seen.has(key) || books.length >= limit) continue;
+          seen.add(key);
+          books.push(book);
+        }
+        // 下一页必须由书源提供；重复页停止，不自行猜测 URL。
+        if (result.nextUrl && progressed && books.length < limit) {
+          cursor.url = result.nextUrl;
+          cursor.page = result.nextPage ?? cursor.page + 1;
+          queue.push(cursor);
+        }
+      }
+      task.content.moreRecommendations = books.slice();
+      HomeSourceService.notifyHome(task);
+    }
+    task.content.moreLoading = false;
+    task.content.moreFailed = failed && books.length < limit;
+    HomeSourceService.notifyHome(task);
   }
 
   private static notifyHome(task: HomeSourceLoad): void {

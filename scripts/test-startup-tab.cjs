@@ -12,21 +12,22 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname, '../e
 const source = fs.readFileSync(path.join(__dirname, '../entry/src/main/ets/pages/MainPage.ets'), 'utf8');
 const methods = source.slice(source.indexOf('  private async restoreDefaultTab'), source.indexOf("  @Monitor('generalSettings.historyEnabled')"));
 const tabOptions = source.match(/HdsTabs\((\{[\s\S]*?\})\)\s*\{/)[1];
-const tabChanged = source.match(/\.onChange\(\(index: number\) => \{([\s\S]*?)\n      \}\)/)[1];
+const tabChanged = source.slice(source.indexOf('  private handleTabChange'),
+  source.indexOf('  @Builder', source.indexOf('  private handleTabChange')));
 const historyChanged = source.slice(source.indexOf('  private onHistoryVisibilityChanged'),
   source.indexOf('  private async restoreLastPlayed'));
 function page(read, historyEnabled = true) {
   const exports = {};
-  vm.runInNewContext(ts.transpileModule(`export class Page { ${methods} ${historyChanged}
+  vm.runInNewContext(ts.transpileModule(`export class Page { ${methods} ${historyChanged} ${tabChanged}
     renderTabs() { return ${tabOptions}; }
-    tabChanged(index: number) { ${tabChanged} }
+    tabChanged(index: number) { this.handleTabChange(index); }
+    resetTabStyle() {}
   }`, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
   }).outputText, { exports, PreferenceService: { getDefaultTab: read }, Curve: { EaseOut: 'ease-out' },
     MainTabPolicy: policyExports.MainTabPolicy, GestureJudgeResult: { CONTINUE: 0, REJECT: 1 } });
   const value = new exports.Page();
   Object.assign(value, { tabsReady: false, defaultTabRequest: 0, pendingInitialTab: -1,
-    tabFadeRunning: false, tabFadeCommitIndex: -1, tabFadeGeneration: 0, tabContentOpacity: 1,
     currentTab: 0, generalSettings: { historyEnabled, swipeSwitchTabs: true }, switches: [] });
   value.tabController = { changeIndex: i => value.switches.push(i) };
   value.getUIContext = () => ({ animateTo: (_options, update) => update() });
@@ -96,77 +97,57 @@ function page(read, historyEnabled = true) {
   hidden.onHistoryVisibilityChanged();
   assert.equal(hidden.currentTab, 0);
   assert.equal(hidden.renderTabs().index, 0, 'hiding the active history tab must fall back to home');
-  const fade = page(async () => 1);
-  await fade.restoreDefaultTab();
-  const finishes = [];
-  fade.getUIContext = () => ({ animateTo: (options, update) => {
-    update();
-    if (options.onFinish) finishes.push(options.onFinish);
+  const motion = page(async () => 1);
+  await motion.restoreDefaultTab();
+  motion.getUIContext = () => ({ animateTo: () => {
+    assert.fail('tab changes must use HdsTabs native animation');
   } });
-  fade.tabController = { changeIndex: index => {
-    if (fade.allowTabContentChange(index)) {
-      fade.switches.push(index);
-      fade.tabChanged(index);
-    }
+  motion.tabController = { changeIndex: index => {
+    motion.switches.push(index);
+    motion.tabChanged(index);
   } };
-  fade.changeTab(2);
-  assert.equal(fade.currentTab, 1, 'outgoing page stays selected until fade-out finishes');
-  assert.equal(fade.tabContentOpacity, 0);
-  assert.deepEqual(fade.switches, []);
-  fade.changeTab(3);
-  assert.equal(finishes.length, 1, 'rapid taps must not enqueue competing fade-outs');
-  finishes.shift()();
-  assert.equal(fade.currentTab, 2);
-  assert.equal(fade.tabContentOpacity, 1);
-  assert.equal(fade.tabFadeRunning, true, 'keep the transition locked until fade-in completes');
-  finishes.shift()();
-  assert.equal(fade.tabFadeRunning, false);
-  fade.changeTab(3);
-  finishes.shift()();
-  finishes.shift()();
-  assert.equal(fade.currentTab, 3);
-  fade.changeTab(3);
-  assert.equal(finishes.length, 0, 'clicking the selected tab must not animate again');
-  fade.changeTab(2);
-  const obsoleteFinish = finishes.shift();
-  fade.generalSettings.historyEnabled = false;
-  fade.onHistoryVisibilityChanged();
-  obsoleteFinish();
-  assert.equal(fade.currentTab, 3, 'history visibility changes cancel stale transition commits');
-  assert.equal(fade.nativeTabIndex, 2);
-  assert.equal(fade.tabContentOpacity, 1);
-  fade.changeTab(1);
-  finishes.shift()();
-  finishes.shift()();
-  assert.equal(fade.currentTab, 1, 'clicking shelf works with hidden history');
-  fade.changeTab(0);
-  const disposedFinish = finishes.shift();
-  fade.resetTabFade();
-  disposedFinish();
-  assert.equal(fade.currentTab, 1, 'disposed transitions cannot navigate later');
-  assert.equal(fade.tabContentOpacity, 1);
+  motion.changeTab(2);
+  assert.equal(motion.currentTab, 2, 'native animation start selects the target');
+  motion.changeTab(3);
+  motion.changeTab(0);
+  assert.equal(motion.currentTab, 0, 'new requests are delegated to the native controller');
+  assert.deepEqual(motion.switches, [2, 3, 0]);
+  const repeatedCount = motion.switches.length;
+  motion.changeTab(0);
+  motion.tabChanged(0);
+  assert.equal(motion.switches.length, repeatedCount, 'reselecting the current tab does not request a switch');
+  motion.changeTab(3);
+  motion.generalSettings.historyEnabled = false;
+  motion.onHistoryVisibilityChanged();
+  assert.equal(motion.currentTab, 3);
+  assert.equal(motion.nativeTabIndex, 2, 'profile follows shelf when history is hidden');
+  motion.changeTab(1);
+  assert.equal(motion.currentTab, 1);
   assert.ok(source.includes('.scrollable(false)'), 'native bottom-tab swipes stay disabled');
-  fade.generalSettings.swipeSwitchTabs = false;
-  assert.equal(fade.judgeTabSwipe({ tag: 'main-tab-swipe' }), 1, 'disabled tab gesture rejects before it steals type swipes');
-  assert.equal(fade.judgeTabSwipe({ tag: 'other' }), 0, 'unrelated gestures remain available');
-  fade.handleTabSwipe({ offsetX: -100, offsetY: 0 });
-  assert.equal(finishes.length, 0, 'disabled swipe mode never schedules navigation');
-  fade.generalSettings.swipeSwitchTabs = true;
-  assert.equal(fade.judgeTabSwipe({ tag: 'main-tab-swipe' }), 0);
-  for (const event of [{ offsetX: -20, offsetY: 0 }, { offsetX: 60, offsetY: 100 }]) fade.handleTabSwipe(event);
-  assert.equal(finishes.length, 0);
-  fade.handleTabSwipe({ offsetX: -100, offsetY: 0 });
-  finishes.shift()(); finishes.shift()();
-  assert.equal(fade.currentTab, 3, 'profile follows shelf when history is hidden');
-  fade.generalSettings.historyEnabled = true;
-  fade.onHistoryVisibilityChanged();
-  assert.equal(fade.currentTab, 3, 'showing history preserves profile');
-  assert.equal(fade.renderTabs().index, 3);
-  fade.generalSettings.historyEnabled = false;
-  fade.onHistoryVisibilityChanged();
-  assert.equal(fade.currentTab, 3, 'enabled swipe follows visible tab order with history hidden');
-  fade.handleTabSwipe({ offsetX: -100, offsetY: 0 });
-  assert.equal(finishes.length, 0, 'last tab does not wrap');
-  console.log('PASS: configurable tab swipes, click navigation, fade ordering, repeated input, hidden history and stale callbacks');
+  motion.generalSettings.swipeSwitchTabs = false;
+  assert.equal(motion.judgeTabSwipe({ tag: 'main-tab-swipe' }), 1);
+  assert.equal(motion.judgeTabSwipe({ tag: 'other' }), 0);
+  motion.handleTabSwipe({ offsetX: -100, offsetY: 0 });
+  assert.equal(motion.currentTab, 1, 'disabled tab swipes leave type navigation available');
+  motion.generalSettings.swipeSwitchTabs = true;
+  assert.equal(motion.judgeTabSwipe({ tag: 'main-tab-swipe' }), 0);
+  for (const event of [{ offsetX: -20, offsetY: 0 }, { offsetX: 60, offsetY: 100 }]) motion.handleTabSwipe(event);
+  assert.equal(motion.currentTab, 1, 'short and vertical gestures do not switch tabs');
+  motion.handleTabSwipe({ offsetX: -100, offsetY: 0 });
+  assert.equal(motion.currentTab, 3, 'swipe skips hidden history');
+  motion.generalSettings.historyEnabled = true;
+  motion.onHistoryVisibilityChanged();
+  assert.equal(motion.currentTab, 3);
+  assert.equal(motion.renderTabs().index, 3);
+  motion.generalSettings.historyEnabled = false;
+  motion.onHistoryVisibilityChanged();
+  const edgeSwitchCount = motion.switches.length;
+  motion.handleTabSwipe({ offsetX: -100, offsetY: 0 });
+  assert.equal(motion.switches.length, edgeSwitchCount, 'last tab does not wrap');
+  motion.changeTab(0);
+  const firstSwitchCount = motion.switches.length;
+  motion.handleTabSwipe({ offsetX: 100, offsetY: 0 });
+  assert.equal(motion.switches.length, firstSwitchCount, 'first tab does not wrap');
+  console.log('PASS: native tab selection, rapid input, gesture preference and hidden history');
   console.log('PASS: cold-start defaults, current tab across playback/return/refresh, hidden history mapping, pending navigation, disposal and storage fallback');
 })().catch(error => { console.error(error); process.exitCode = 1; });

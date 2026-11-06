@@ -29,6 +29,17 @@ export struct MiniPlayer {
   private draggingPlayer: boolean = false;
   @Local dragState: PlayerDragState = PlayerDragTransition.getInstance().state;
 
+  private controlTransition(delay: number): TransitionEffect {
+    // 双层栏的控件始终存在；播放器返回统一由 sourceOpacity 回显，避免再从透明错峰入场。
+    if (this.verticalStyle || this.dragState.active) return TransitionEffect.IDENTITY;
+    // 展开时轻移入场；收起立即淡出，避免控件拖在收拢的胶囊外。
+    return TransitionEffect.asymmetric(
+      TransitionEffect.opacity(0).combine(TransitionEffect.translate({ x: 10 }))
+        .animation({ duration: AppMotion.Base, curve: AppCurve.Decelerate, delay: delay }),
+      TransitionEffect.opacity(0).animation({ duration: AppMotion.Fast, curve: AppCurve.Accelerate })
+    );
+  }
+
   @Builder
   coverImageBuilder(): void {
     if (this.book) {
@@ -99,7 +110,6 @@ export struct MiniPlayer {
         }
         .width(this.collapsed ? '100%' : this.verticalStyle && !this.compactControls ? 32 : 44)
         .height(this.collapsed ? '100%' : this.verticalStyle && !this.compactControls ? 32 : 44)
-        .animation(this.verticalStyle ? { duration: AppMotion.Slow, curve: AppCurve.Standard } : undefined)
         .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
         .onClick(() => {
           if (this.collapsed) {
@@ -128,7 +138,7 @@ export struct MiniPlayer {
           .layoutWeight(1)
           .alignItems(HorizontalAlign.Start)
           .onClick(() => this.onTapBody())
-          .transition(this.verticalStyle ? TransitionEffect.OPACITY.animation({ duration: AppMotion.Fast }) : undefined)
+          .transition(this.controlTransition(0))
 
           Stack() {
             if (this.loading) {
@@ -145,6 +155,7 @@ export struct MiniPlayer {
               SymbolGlyph(this.playing ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'))
                 .fontSize(24)
                 .fontColor([$r('sys.color.font_primary')])
+                .symbolEffect(new ReplaceSymbolEffect(EffectScope.WHOLE), this.playing ? 1 : 0)
             }
           }.width(this.verticalStyle ? 30 : 24).height(this.verticalStyle ? 30 : 24)
             .id('mini-player-toggle')
@@ -152,7 +163,7 @@ export struct MiniPlayer {
             .accessibilityText(this.playing || this.loading ? $r('app.string.tts_pause') : $r('app.string.tts_play'))
             .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
             .onClick(() => this.onToggle())
-            .transition(this.verticalStyle ? TransitionEffect.OPACITY.animation({ duration: AppMotion.Fast }) : undefined)
+            .transition(this.controlTransition(25))
 
           SymbolGlyph($r('sys.symbol.forward_end_fill'))
             .fontSize(22)
@@ -161,21 +172,23 @@ export struct MiniPlayer {
             .id('mini-player-next').accessibilityText($r('app.string.tts_next'))
             .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
             .onClick(() => this.onNext())
-            .transition(this.verticalStyle ? TransitionEffect.OPACITY.animation({ duration: AppMotion.Fast }) : undefined)
+            .transition(this.controlTransition(45))
 
           if (this.verticalStyle) {
             SymbolGlyph($r('sys.symbol.music_note_list'))
               .fontSize(22).fontColor([$r('sys.color.font_primary')])
               .width(28).height(32).hitTestBehavior(HitTestMode.Block)
               .id('mini-player-chapters').accessibilityText($r('app.string.reader_catalog'))
+              .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
               .onClick((): void => this.onChapters())
-              .transition(TransitionEffect.OPACITY.animation({ duration: AppMotion.Fast }))
+              .transition(this.controlTransition(65))
           }
         }
       }
       .width('100%')
       .height('100%')
       .id('mini-player-bar')
+      .transition(TransitionEffect.IDENTITY)
       .opacity(this.dragState.sourceNodeId === 'mini-player-bar' ? this.dragState.sourceOpacity : 1)
       // 双层栏由内容自行处理上拖，隔离 HDS 祖先的原生收展手势；子播控仍正常命中。
       .hitTestBehavior(this.verticalStyle ? HitTestMode.BLOCK_HIERARCHY : HitTestMode.Default)

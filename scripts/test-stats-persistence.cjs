@@ -91,24 +91,34 @@ async function check(name, test) {
 }
 
 // Execute page lifecycle/loading methods; ArkUI rendering remains covered by ArkTS build/device checks.
-function statsPage(service, preference) {
+function statsPage(service, preference, readingProgress = { getAll: async () => [] }) {
   const file = path.join(__dirname, '../entry/src/main/ets/pages/ReadingStatsPage.ets');
   const pageSource = fs.readFileSync(file, 'utf8').split('  build() {')[0]
     .replace('export struct ReadingStatsPage', 'export class ReadingStatsPage')
-    .replace(/@(ObservedV2|ComponentV2|Trace|Local|Param|Event)\s*/g, '') + '\n}';
+    .replace(/@(ObservedV2|ComponentV2|Trace|Local|Param|Event)\s*/g, '')
+    .replace(/@Monitor\([^\n]+\)\s*/g, '') + '\n}';
   const pageCode = ts.transpileModule(pageSource, {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
   }).outputText;
   const module = { exports: {} };
   vm.runInNewContext(pageCode, {
-    module, exports: module.exports, Date: TestDate, Scroller: class {}, NavPathStack: class {},
+    module, exports: module.exports, Date: TestDate, Scroller: class {},
+    ListScroller: class { closeAllSwipeActions(options) { options.onFinish(); } },
+    NavPathStack: class {}, $r: name => name, Builder: () => {},
     console: { error() {} }, setTimeout: () => 1, clearTimeout() {},
     require: name => name === '../service/StatsService' ? { StatsService: service } :
       name === '../service/DiagnosticLogService' ? { DiagnosticLogService: { info() {} } } :
+      name === '../utils/PlayerDragTransition' ? { PlayerDragTransition: { getInstance: () => ({ state: {} }) } } :
+      name === '../utils/OneShotTransition' ? { OneShotTransitionCoordinator: { getInstance: () => ({ coverState: {} }) } } :
+      name === '../theme/Theme' ? { AppColor: {}, AppTheme: {} } :
+      name === '../service/text/TextReadingProgressService' ? { TextReadingProgressService: readingProgress } :
       name === '../service/PreferenceService' ? { PreferenceService: preference } : {}
   }, { filename: file });
   const page = new module.exports.ReadingStatsPage();
   page.getUIContext = () => ({ getHostContext: () => context });
+  page.recoveryActive = true;
+  page.pageVisible = true;
+  page.recordEditLockReady = true;
   return page;
 }
 
@@ -325,6 +335,118 @@ function statsPage(service, preference) {
     assert.equal((await newProcess().exportBackupStats(context))[0].bookId, 'valid');
     fs.writeFileSync(primaryPath, JSON.stringify({ book_usage_records_v2: 'invalid' }));
     await assert.rejects(newProcess().exportBackupStats(context), /could not be read/);
+  });
+  await check('记录锁定阻止选择和删除，重新进入恢复，解锁不直接进入编辑', async () => {
+    let savedLock = false;
+    const preference = {
+      getRecordEditLocked: async () => savedLock,
+      setRecordEditLocked: async value => { savedLock = value; }
+    };
+    const page = statsPage({}, preference);
+    const item = { bookId: 'fixture', aliasBookIds: [], title: '临时记录' };
+    page.records = [item];
+    page.loading = false;
+    await page.loadRecordEditLock();
+    assert.equal(page.recordEditLocked, false);
+    page.handleRecordEditPress();
+    page.toggleSelect(item.bookId);
+    await page.setRecordEditLocked(true);
+    assert.equal(page.selectMode, false);
+    assert.equal(page.selectedIds.size, 0);
+    assert.equal(savedLock, true);
+    page.toggleSelect(item.bookId);
+    page.selectAll();
+    await page.confirmDeleteRecord(item);
+    await page.confirmDeleteSelected();
+    await page.confirmDeleteRecords(new Set([item.bookId]));
+    assert.equal(page.selectMode, false);
+    assert.equal(page.selectedIds.size, 0);
+    assert.equal(page.records.length, 1);
+    const restored = statsPage({}, preference);
+    await restored.loadRecordEditLock();
+    assert.equal(restored.recordEditLocked, true);
+    restored.handleRecordEditPress();
+    await Promise.resolve();
+    assert.equal(restored.recordEditLocked, false);
+    assert.equal(restored.selectMode, false);
+    assert.equal(savedLock, false);
+  });
+  await check('锁定偏好读取期间禁止删除，保存失败恢复状态并提示', async () => {
+    const page = statsPage({}, {
+      getRecordEditLocked: async () => true,
+      setRecordEditLocked: async () => { throw new Error('Storage unavailable'); }
+    });
+    let notices = 0;
+    page.getUIContext = () => ({ getPromptAction: () => ({ showToast: () => { notices++; } }) });
+    page.recordEditLockReady = false;
+    page.selectAll();
+    await page.confirmDeleteRecords(new Set(['fixture']));
+    assert.equal(page.selectMode, false);
+    await page.loadRecordEditLock();
+    await page.setRecordEditLocked(false);
+    assert.equal(page.recordEditLocked, true);
+    assert.equal(page.savingRecordEditLock, false);
+    assert.equal(notices, 1);
+  });
+  await check('单条删除取消、别名清理和失败保留列表', async () => {
+    const operations = [];
+    let confirm = false;
+    let failDelete = false;
+    const page = statsPage({ removeBookStats: async ids => {
+      if (failDelete) throw new Error('Storage unavailable');
+      operations.push(['stats', ...ids]);
+    } }, {
+      removeHistory: async id => operations.push(['history', id]),
+      removeProgress: async id => operations.push(['audio', id])
+    }, { remove: async (_context, id) => operations.push(['text', id]) });
+    page.loadStats = async () => {};
+    page.getUIContext = () => ({ getHostContext: () => context, getPromptAction: () => ({
+      showDialog: async () => ({ index: confirm ? 1 : 0 }),
+      showToast: () => operations.push(['error'])
+    }) });
+    page.animateRecordDelete = async id => operations.push(['animate', id]);
+    const item = { bookId: 'fixture', aliasBookIds: ['old-fixture'], title: '临时记录' };
+    const other = { bookId: 'other', aliasBookIds: [] };
+    page.records = [item, other];
+    page.recordDataSource.setRecords(page.records);
+    await page.confirmDeleteRecord(item);
+    assert.equal(operations.length, 0);
+    assert.equal(page.records.length, 2);
+    confirm = true;
+    failDelete = true;
+    await page.confirmDeleteRecord(item);
+    assert.deepEqual(operations, [['error']]);
+    assert.equal(page.recordDataSource.totalCount(), 2);
+    assert.equal(page.deletingRecords, false);
+    operations.length = 0;
+    failDelete = false;
+    await page.confirmDeleteRecord(item);
+    assert.deepEqual(operations, [
+      ['stats', 'fixture', 'old-fixture'], ['history', 'fixture'], ['audio', 'fixture'],
+      ['text', 'fixture'], ['history', 'old-fixture'], ['audio', 'old-fixture'],
+      ['text', 'old-fixture'], ['animate', 'fixture']
+    ]);
+    assert.equal(page.records.length, 1);
+    assert.equal(page.recordDataSource.getData(0).bookId, 'other');
+  });
+  await check('删除使进行中的明细加载失效，旧结果不能把已删行补回', async () => {
+    let releaseViews, enteredViews;
+    const entered = new Promise(resolve => { enteredViews = resolve; });
+    const blocked = new Promise(resolve => { releaseViews = resolve; });
+    const page = statsPage({ init: async () => {}, getStatsBundle: async () => ({
+      streak: 0, summary: { totalSeconds: 0, monthSeconds: 0 }, records: []
+    }), getCachedStatsBundle: () => undefined }, {
+      ensureReady: async () => {}, getHistory: async () => [], getFavorites: async () => []
+    });
+    page.buildRecordViews = async () => { enteredViews(); await blocked; return [{ bookId: 'stale' }]; };
+    const pending = page.loadStats();
+    await entered;
+    page.recordLoadGeneration++;
+    page.deletingRecords = true;
+    releaseViews();
+    await pending;
+    assert.equal(page.records.length, 0);
+    assert.equal(page.reloadPending, true);
   });
   console.log(`${passed} statistics persistence checks passed (real temporary files, simulated platform APIs).`);
 })().catch(error => {

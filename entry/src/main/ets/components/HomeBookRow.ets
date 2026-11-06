@@ -18,6 +18,7 @@ export struct HomeBookRow {
     lastChapter: '', sourceName: '', sourceUrl: ''
   };
   @Param featured: boolean = false;
+  @Param detailed: boolean = false;
   @Param showDivider: boolean = false;
   @Param favorite: boolean = false;
   @Param savingFavorite: boolean = false;
@@ -190,22 +191,22 @@ export struct HomeBookRow {
           .fontSize(AppFont.Body)
           .fontColor($r('sys.color.font_primary'))
           .fontWeight(FontWeight.Medium)
-          .maxLines(1)
+          .maxLines(this.detailed ? 2 : 1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
-        if (r.author) {
-          Text(r.author)
+        if (r.author || this.detailed) {
+          Text(r.author || $r('app.string.home_book_author_unknown'))
             .fontSize(AppFont.Caption)
             .fontColor($r('sys.color.font_secondary'))
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
         }
-        if (r.intro) {
-          Text(r.intro)
+        if (r.intro || this.detailed) {
+          Text(r.intro || $r('app.string.home_book_intro_empty'))
             .fontSize(AppFont.Caption)
             .fontColor($r('sys.color.font_tertiary'))
-            .maxLines(2)
+            .maxLines(this.detailed ? 3 : 2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .width('100%')
         }

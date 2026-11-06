@@ -1,5 +1,18 @@
 # 第三方软件声明
 
+## Petrel 删除消散效果
+
+- 上游：https://github.com/miramira8295/Petrel ，固定提交 `ed218f4559cf083b51b08c5bf0bb27ea6215cbb9`，作者 miramira8295 与 Petrel contributors，Apache-2.0。
+- `RecordDissolveEffect.ets` 与 `entry/src/main/cpp/record_dissolve/` 改编上游 `ShatterCanvasFallback.ets`、`shatter_renderer.cpp/.h`、`shatter_geometry.h`、`shatter_shaders.h`。保留随机切块、波前、运动和淡出算法，使用 ArkUI V2 单行截图、后台像素准备、NativeVSync 与 OpenGL ES 3 实例化绘制。修改包括独立 NAPI 模块、颗粒预算、截图/渲染超时、轻量淡出回退、自动高度书卡、屏内批量删除、窗口变化/离页清理及每次完成时的绘制耗时汇总。
+- 完整许可证随 HAP 保存在 `rawfile/third_party/petrel/LICENSE.txt`，来源与修改说明见同目录 `NOTICE.txt`。
+
+## CBA / ACE 漫画解码
+
+- 算法来源：https://github.com/droe/acefile ，固定提交 `11ed076ae19e8228148731cfbc05f019a395b3b9`。
+- Copyright (c) 2017-2026, Daniel Roethlisberger and contributors，BSD-2-Clause。
+- `entry/src/main/cpp/ace/` 为 BitStream、Huffman、LZ77、DELTA、EXE、SOUND、PIC 算法的有界 C++ 移植，增加应用容器校验、固定输出路径及容量/时限控制；应用不含 Python 运行时。
+- 完整许可证保留于该目录 `LICENSE`，同时随 HAP 保存在 `rawfile/third_party/acefile/LICENSE.txt`。
+
 ## 有声书端侧字幕
 
 - 成语边界保护词库使用 [pwxcoo/chinese-xinhua](https://github.com/pwxcoo/chinese-xinhua) 的成语词条，MIT 许可，固定提交 `fe6d6c2e8baa82187f4c96bbe042e43f96c05666`；仅提取并去重 30,345 条中文成语，不含释义。来源、转换方式、SHA256 和许可全文随应用保存在 `rawfile/audio_subtitles/IDIOMS-NOTICE.txt`、`LICENSE.idioms.txt`。

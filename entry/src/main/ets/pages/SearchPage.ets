@@ -1,4 +1,7 @@
 import { BookCoverPolicy } from '../utils/BookCoverPolicy';
+import { BookMetadataPolicy } from '../utils/BookMetadataPolicy';
+import { BookMetadataText } from '../utils/BookMetadataText';
+import { LengthMetrics } from '@kit.ArkUI';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { HdsCompat } from '../utils/HdsCompat';
@@ -945,6 +948,22 @@ export struct SearchPage {
   }
 
   @Builder
+  buildResultGroupTags(category: string) {
+    if (BookMetadataPolicy.categories(BookMetadataText.intro(category)).length > 0) {
+      Flex({ direction: FlexDirection.Row, wrap: FlexWrap.Wrap,
+        space: { main: LengthMetrics.vp(6), cross: LengthMetrics.vp(4) } }) {
+        ForEach(BookMetadataPolicy.categories(BookMetadataText.intro(category)), (tag: string) => {
+          Text(tag).fontSize(12).fontColor(AppColor.Brand)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            .padding({ left: 8, right: 8, top: 3, bottom: 3 })
+            .backgroundColor(AppColor.BrandSoft).borderRadius(AppRadius.Pill)
+            .constraintSize({ maxWidth: '100%' })
+        }, (tag: string): string => tag)
+      }.width('100%')
+    }
+  }
+
+  @Builder
   buildResultGroup() {
     List() {
       LazyForEach(this.groupedBooks, (book: Book) => {
@@ -954,15 +973,15 @@ export struct SearchPage {
             Column({ space: 6 }) {
               Text(book.title).fontColor($r('sys.color.font_primary')).fontSize(16)
                 .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+              this.buildResultGroupTags(book.category)
               Text(book.narrator || book.author).fontColor($r('sys.color.font_secondary')).fontSize(13)
                 .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+              if (book.latestChapterTitle) {
+                Text($r('app.string.source_latest_chapter', book.latestChapterTitle))
+                  .fontSize(12).fontColor($r('sys.color.font_secondary'))
+                  .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+              }
             }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-            if (book.latestChapterTitle) {
-              Text($r('app.string.source_latest_chapter', book.latestChapterTitle))
-                .fontSize(12).fontColor($r('sys.color.font_secondary'))
-                .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-                .textAlign(TextAlign.End).width('42%')
-            }
           }.width('100%').padding(12).onClick((): void => { this.openBookDetail(book); })
         }
       }, (book: Book): string => book.id)

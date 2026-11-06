@@ -340,6 +340,17 @@ export class PreferenceService {
     return value === 0 || value === 2 ? value : 1;
   }
 
+  static async getComicDisplayMode(): Promise<number> {
+    const store = await PreferenceService.ensureStore();
+    const value = store.getSync('comic_display_mode', 0);
+    return value === 1 || value === 2 || value === 3 ? value : 0;
+  }
+
+  static async setComicDisplayMode(mode: number): Promise<void> {
+    if (![0, 1, 2, 3].includes(mode)) throw new Error('Invalid comic display mode');
+    await PreferenceService.saveComicPreference('comic_display_mode', mode, 0);
+  }
+
   static async setComicPageLayout(layout: number): Promise<void> {
     if (![0, 1, 2].includes(layout)) throw new Error('Invalid comic page layout');
     await PreferenceService.saveComicPreference('comic_page_layout', layout, 1);
@@ -1199,6 +1210,23 @@ export class PreferenceService {
     const store = await PreferenceService.ensureStore();
     const value = await store.get('shelf_view_mode', 0);
     return value === 1 ? 1 : 0;
+  }
+
+  static async getRecordEditLocked(): Promise<boolean> {
+    const store = await PreferenceService.ensureStore();
+    return await store.get('record_edit_locked', false) === true;
+  }
+
+  static async setRecordEditLocked(locked: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const previous = await store.get('record_edit_locked', false);
+    try {
+      await store.put('record_edit_locked', locked);
+      await store.flush();
+    } catch (error) {
+      await store.put('record_edit_locked', previous);
+      throw new Error(`Failed to save record edit lock: ${String(error)}`);
+    }
   }
 
   static async setShelfViewMode(mode: number): Promise<void> {

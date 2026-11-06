@@ -46,6 +46,8 @@ export class ReaderPalette {
   scrim: string = '#CCF5F2EA';
   /** 当前章节高亮底 */
   highlight: string = '#14FFC15C';
+  /** 跟随 App 主题的实际强调色，由 UI 在主题或深浅色变化时重新解析。 */
+  accent: string = '#C4475B';
   /** 该配色是否为深色底（决定状态栏字色等） */
   isDark: boolean = false;
 

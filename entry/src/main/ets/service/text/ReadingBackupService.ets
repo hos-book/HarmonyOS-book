@@ -31,6 +31,7 @@ export class ReadingSettingsBackup {
   tapBottomPercent: number = 33;
   showHeader: boolean = true;
   showFooter: boolean = true;
+  showPageRules: boolean = true;
   showChapterTitle: boolean = true;
   showPageNumber: boolean = true;
   showChapterNumber: boolean = true;
@@ -38,6 +39,7 @@ export class ReadingSettingsBackup {
   volumeKeyPageTurn: boolean = false;
   smartKeyPageTurn: boolean = false;
   pageTurnMode: string = 'cover';
+  pageTurnHaptic: string = 'none';
   showReadingStatus: boolean = true;
   alwaysShowStatusBar: boolean = true;
   speechFollowPage: boolean = true;
@@ -93,6 +95,7 @@ export class ReadingBackupService {
     saved.showHeader = settings.showHeader;
     saved.cornerLayout = ReaderCornerLayout.normalize(settings.cornerLayout);
     saved.showFooter = settings.showFooter;
+    saved.showPageRules = settings.showPageRules;
     saved.showChapterTitle = settings.showChapterTitle;
     saved.showPageNumber = settings.showPageNumber;
     saved.showChapterNumber = settings.showChapterNumber;
@@ -101,6 +104,7 @@ export class ReadingBackupService {
     saved.volumeKeyPageTurn = settings.volumeKeyPageTurn;
     saved.smartKeyPageTurn = settings.smartKeyPageTurn;
     saved.pageTurnMode = settings.pageTurnMode;
+    saved.pageTurnHaptic = settings.pageTurnHaptic;
     saved.showReadingStatus = settings.showReadingStatus;
     saved.alwaysShowStatusBar = settings.alwaysShowStatusBar;
     saved.speechFollowPage = settings.speechFollowPage;
@@ -164,6 +168,7 @@ export class ReadingBackupService {
     settings.showHeader = saved.showHeader !== false;
     settings.cornerLayout = ReaderCornerLayout.normalize(saved.cornerLayout ?? ReaderCornerLayout.DEFAULT);
     settings.showFooter = saved.showFooter !== false;
+    settings.showPageRules = saved.showPageRules !== false;
     settings.showChapterTitle = saved.showChapterTitle !== false;
     settings.showPageNumber = saved.showPageNumber !== false;
     settings.showChapterNumber = saved.showChapterNumber !== false;
@@ -172,6 +177,7 @@ export class ReadingBackupService {
     settings.volumeKeyPageTurn = saved.volumeKeyPageTurn === true;
     settings.smartKeyPageTurn = saved.smartKeyPageTurn === true;
     settings.pageTurnMode = saved.pageTurnMode;
+    settings.pageTurnHaptic = TextReadingSettings.normalizePageTurnHaptic(saved.pageTurnHaptic);
     settings.showReadingStatus = saved.showReadingStatus;
     settings.alwaysShowStatusBar = saved.alwaysShowStatusBar;
     settings.speechFollowPage = saved.speechFollowPage !== false;

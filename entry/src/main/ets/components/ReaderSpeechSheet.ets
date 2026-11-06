@@ -1,4 +1,5 @@
 import { ReaderColorPalette } from './ReaderColorPalette';
+import { ReaderPalette } from '../model/ReaderTheme';
 import { TextToSpeechState, SpeechVoice } from '../model/TextToSpeechState';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { AppColor } from '../theme/Theme';
@@ -19,7 +20,7 @@ export struct ReaderSpeechSheet {
   emptyContent(): void {}
   @Param speechMark: string = 'color';
   @Param speechMarkColor: string = '';
-  @Param speechDefaultColor: string = '#A33245';
+  @Param speechDefaultColor: string = new ReaderPalette().accent;
   @Local speechColorPreview: string = '';
   @Local speechColorRevision: number = 0;
   @Event onSpeechMarkColorChange: (color: string) => void = () => {};

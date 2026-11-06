@@ -14,6 +14,7 @@ const KEY_PATTERN: string = 'background_pattern';
 const KEY_BACKGROUND_IMAGE: string = 'background_image';
 const KEY_OVERLAY_ALPHA: string = 'overlay_alpha';
 const KEY_PAGE_TURN_MODE: string = 'page_turn_mode';
+const KEY_PAGE_TURN_HAPTIC: string = 'page_turn_haptic';
 const KEY_SHOW_READING_STATUS: string = 'show_reading_status';
 const KEY_ALWAYS_SHOW_STATUS_BAR: string = 'always_show_status_bar';
 
@@ -65,6 +66,8 @@ export class TextReadingSettingsService {
       TextReadingSettings.SHOW_READING_STATUS_DEFAULT;
     const result = TextReadingSettings.ofAll(fontSize, lineHeight, themeId, background, pattern, image, overlay,
       pageTurnMode, showReadingStatus);
+    const haptic = store.getSync(KEY_PAGE_TURN_HAPTIC, 'none');
+    result.pageTurnHaptic = TextReadingSettings.normalizePageTurnHaptic(typeof haptic === 'string' ? haptic : 'none');
     const letterSpacing = store.getSync('letter_spacing', 0);
     result.letterSpacing = TextReadingSettings.normalizeLetterSpacing(typeof letterSpacing === 'number' ? letterSpacing : 0);
     result.dialogueHighlight = store.getSync('dialogue_highlight', false) === true;
@@ -100,6 +103,7 @@ export class TextReadingSettingsService {
     const cornerLayout = store.getSync('corner_layout', ReaderCornerLayout.DEFAULT);
     result.cornerLayout = ReaderCornerLayout.normalize(typeof cornerLayout === 'string' ? cornerLayout : '');
     result.showFooter = store.getSync('showFooter', true) !== false;
+    result.showPageRules = store.getSync('showPageRules', true) !== false;
     result.showChapterTitle = store.getSync('showChapterTitle', true) !== false;
     result.showPageNumber = store.getSync('showPageNumber', true) !== false;
     result.showChapterNumber = store.getSync('showChapterNumber', true) !== false;
@@ -203,6 +207,7 @@ export class TextReadingSettingsService {
     store.putSync('showHeader', settings.showHeader);
     store.putSync('corner_layout', ReaderCornerLayout.normalize(settings.cornerLayout));
     store.putSync('showFooter', settings.showFooter);
+    store.putSync('showPageRules', settings.showPageRules);
     store.putSync('showChapterTitle', settings.showChapterTitle);
     store.putSync('showPageNumber', settings.showPageNumber);
     store.putSync('showChapterNumber', settings.showChapterNumber);
@@ -224,6 +229,7 @@ export class TextReadingSettingsService {
     store.putSync('background_image_mode', TextReadingSettings.normalizeBackgroundImageMode(settings.backgroundImageMode));
     store.putSync(KEY_OVERLAY_ALPHA, TextReadingSettings.normalizeOverlay(settings.overlayAlpha));
     store.putSync(KEY_PAGE_TURN_MODE, TextReadingSettings.normalizePageTurnMode(settings.pageTurnMode));
+    store.putSync(KEY_PAGE_TURN_HAPTIC, TextReadingSettings.normalizePageTurnHaptic(settings.pageTurnHaptic));
     store.putSync(KEY_SHOW_READING_STATUS, settings.showReadingStatus);
     store.putSync(KEY_ALWAYS_SHOW_STATUS_BAR, settings.alwaysShowStatusBar);
     store.putSync('speech_follow_page', settings.speechFollowPage);

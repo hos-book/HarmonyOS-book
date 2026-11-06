@@ -507,7 +507,7 @@
     },
     {
       "name": "import_epub_mode_hint",
-      "value": "适用于本批 EPUB 和 PDF（含 ZIP 内文件）。自动模式识别 EPUB 内容，PDF 默认按漫画导入；也可手动选择电子书或漫画。PDF 保留原版页面，扫描件不会自动转换为文字。EPUB 单文件最大 3 GiB，PDF 最大 128 MiB；大文件导入需要更多时间和存储空间。"
+      "value": "适用于本批 EPUB、MOBI、CBA 和 PDF（含 ZIP 内文件）。自动模式识别 EPUB/MOBI 内容，CBA/PDF 默认按漫画导入，也可手动选择电子书或漫画。图片中的文字不会自动转换为可朗读正文。EPUB/CBA 单文件最大 3 GiB，MOBI/PDF 最大 128 MiB；大文件导入需要更多时间和存储空间。"
     },
     {
       "name": "comic_switch_text",
@@ -535,7 +535,7 @@
     },
     {
       "name": "import_epub_no_images",
-      "value": "未找到可读取的漫画图片，请选择电子书类型或检查 EPUB 原文件。"
+      "value": "未找到可读取的漫画图片，请选择电子书类型或检查原文件。"
     },
     {
       "name": "import_local_comic",
@@ -988,6 +988,10 @@
     {
       "name": "app_icon_default",
       "value": "默认"
+    },
+    {
+      "name": "app_icon_default_description",
+      "value": "默认图标"
     },
     {
       "name": "app_icon_leather",
@@ -1779,11 +1783,11 @@
     },
     {
       "name": "import_supported_formats",
-      "value": "音频：MP3/M4A/FLAC/WAV/OGG/AAC；电子书：TXT/EPUB/MOBI/PDF/HTML/HTM；打包：ZIP。PDF 在本机逐页转换，保留原版文字、图片和排版，使用图像阅读器阅读，不支持文字重排和朗读；单文件不超过 128 MiB、2000 页，转换图片总计不超过 512 MiB，暂不支持需要密码的文件。MOBI 支持未加密 MOBI6（未压缩或 PalmDOC 压缩），自动提取封面，不保留正文图片和原排版。"
+      "value": "音频：MP3/M4A/FLAC/WAV/OGG/AAC；电子书和漫画：TXT/EPUB/MOBI/CBA/PDF/HTML/HTM；打包：ZIP。MOBI 支持未加密 MOBI6（未压缩或 PalmDOC 压缩），保留正文图片、提取封面并自动识别漫画，不完全还原原排版。CBA 为 ACE 漫画压缩包，支持 ACE 1/2（含固实压缩），按文件名数字顺序阅读；不支持密码或分卷包。CBA 最大 3 GiB、50000 个文件，单个内容最多 20 MiB、图片最多 32 兆像素，解压总计最多 6 GiB。PDF 保留原版页面，不支持文字重排和朗读；最大 128 MiB、2000 页、图片总计 512 MiB，不支持密码文件。"
     },
     {
       "name": "import_file_filter",
-      "value": "音频、电子书、ZIP|.mp3,.m4a,.flac,.wav,.ogg,.aac,.txt,.epub,.mobi,.pdf,.html,.htm,.zip"
+      "value": "音频、电子书、漫画、ZIP|.mp3,.m4a,.flac,.wav,.ogg,.aac,.txt,.epub,.mobi,.cba,.pdf,.html,.htm,.zip"
     },
     {
       "name": "import_external_failed",
@@ -1848,6 +1852,62 @@
     {
       "name": "import_mobi_encoding",
       "value": "暂不支持此 MOBI 字符编码，请先转换为 UTF-8 EPUB 再导入"
+    },
+    {
+      "name": "import_mobi_image_missing",
+      "value": "MOBI 正文图片缺失、损坏或引用无效，已取消导入，避免保存缺页书籍"
+    },
+    {
+      "name": "import_mobi_image_limit",
+      "value": "MOBI 图片超过限制：单张最多 20 MiB、32 兆像素，全书图片最多 6 GiB"
+    },
+    {
+      "name": "import_mobi_image_space",
+      "value": "存储空间不足，无法保存 MOBI 正文图片，请清理空间后重试"
+    },
+    {
+      "name": "import_mobi_image_write",
+      "value": "MOBI 图片保存失败，请检查存储空间后重试"
+    },
+    {
+      "name": "import_cba_invalid",
+      "value": "CBA 文件损坏、格式无效或校验失败，已取消导入"
+    },
+    {
+      "name": "import_cba_limit",
+      "value": "CBA 超过导入限制：压缩包最多 3 GiB、50000 个文件；单个内容最多 20 MiB，图片最多 32 兆像素，解压总计最多 6 GiB，解压最长 3 分钟"
+    },
+    {
+      "name": "import_cba_password",
+      "value": "暂不支持加密 CBA，请先解除压缩包密码后导入"
+    },
+    {
+      "name": "import_cba_volume",
+      "value": "暂不支持分卷 CBA，请先合并为单个 ACE 漫画包后导入"
+    },
+    {
+      "name": "import_cba_method",
+      "value": "CBA 使用了无法识别的压缩方式，请使用 ACE 1 或 ACE 2 格式"
+    },
+    {
+      "name": "import_cba_space",
+      "value": "存储空间不足，无法解压 CBA，请清理空间后重试"
+    },
+    {
+      "name": "import_cba_write",
+      "value": "CBA 图片保存失败，请检查存储空间后重试"
+    },
+    {
+      "name": "import_cba_no_images",
+      "value": "CBA 中没有可读取的漫画图片"
+    },
+    {
+      "name": "import_cba_image",
+      "value": "CBA 中有损坏或无法解码的图片，已取消导入，避免保存缺页漫画"
+    },
+    {
+      "name": "import_cba_progress",
+      "value": "正在解压 CBA %d/%d"
     },
     {
       "name": "import_limits_hint",
@@ -2090,6 +2150,22 @@
       "value": "频道偏好保存失败，下次进入可能恢复原频道"
     },
     {
+      "name": "home_more_recommendations",
+      "value": "为你推荐更多精品好书"
+    },
+    {
+      "name": "home_more_recommendations_failed",
+      "value": "更多推荐加载失败，点击重试"
+    },
+    {
+      "name": "home_book_author_unknown",
+      "value": "作者未知"
+    },
+    {
+      "name": "home_book_intro_empty",
+      "value": "暂无简介"
+    },
+    {
       "name": "home_recommendations",
       "value": "精品推荐"
     },
@@ -2226,6 +2302,14 @@
       "value": "CryptoJS 4.2.0 子集（MIT）：仅含 core、cipher-core、tripledes、mode-ecb 和 pad-nopadding，上游 github.com/brix/crypto-js，版权所有 Copyright (c) 2009-2013 Jeff Mott 与 Copyright (c) 2013-2016 Evan Vosberg。"
     },
     {
+      "name": "open_source_acefile",
+      "value": "CBA 解码算法改编自 acefile（BSD-2-Clause），上游 github.com/droe/acefile，固定提交 11ed076ae19e8228148731cfbc05f019a395b3b9。Copyright (c) 2017-2026, Daniel Roethlisberger and contributors。应用采用有界 C++ 移植，许可证随包保存在 third_party/acefile/LICENSE.txt。"
+    },
+    {
+      "name": "open_source_petrel",
+      "value": "阅听记录消散效果改编自 miramira8295/Petrel 的 ShatterCanvasFallback（Apache-2.0），采用 ArkUI V2 与单行颗粒预算适配。许可证随包保存在 third_party/petrel/LICENSE.txt。"
+    },
+    {
       "name": "open_source_section_boundary",
       "value": "二、许可边界"
     },
@@ -2351,7 +2435,11 @@
     },
     {
       "name": "record_delete_confirm",
-      "value": "确定删除所选 %d 本书的阅听记录吗？对应的时长统计和阅读、播放进度也会清除，书架中的书籍及本地文件不会删除。此操作不可撤销。"
+      "value": "确定删除所选 %d 本书的阅听记录吗？对应的阅读、播放进度也会清除，累计阅听时长、书架书籍及本地文件会保留。此操作不可撤销。"
+    },
+    {
+      "name": "record_delete_single_confirm",
+      "value": "确定删除《%s》的阅听记录吗？对应的阅读、播放进度也会清除，累计阅听时长、书架书籍及本地文件会保留。此操作不可撤销。"
     },
     {
       "name": "record_delete_title",
@@ -3495,7 +3583,7 @@
     },
     {
       "name": "guide_import_files_desc",
-      "value": "音频支持 MP3、M4A、FLAC、WAV、OGG、AAC；电子书支持 TXT、EPUB、MOBI、PDF、HTML/HTM，也可选择 ZIP 压缩包。点击「选择文件」旁的说明图标，可查看格式与大小限制。"
+      "value": "音频支持 MP3、M4A、FLAC、WAV、OGG、AAC；电子书和漫画支持 TXT、EPUB、MOBI、CBA、PDF、HTML/HTM，也可选择 ZIP 压缩包。点击「选择文件」旁的说明图标，可查看格式与大小限制。"
     },
     {
       "name": "guide_import_save_action",
@@ -3511,7 +3599,7 @@
     },
     {
       "name": "guide_import_formats_desc",
-      "value": "TXT 等文字电子书可调整字体和排版；EPUB 支持文字及可提取的内嵌图片，不完全还原原书排版。PDF 按页面图片阅读，保留版式但不能重排文字或朗读。MOBI 支持未加密的 MOBI6，纯 KF8/AZW3、加密或不支持的压缩格式会提示无法导入。"
+      "value": "TXT 等文字电子书可调整字体和排版；EPUB/MOBI 支持文字及内嵌图片，可自动识别漫画，不完全还原原书排版。MOBI 支持未加密 MOBI6，纯 KF8/AZW3、加密或不支持的压缩格式会提示无法导入。CBA 支持 ACE 1/2 漫画压缩包，按文件名自然排序。PDF 保留页面版式；漫画图片与 PDF 页面不能重排文字或朗读。"
     },
     {
       "name": "guide_group_download",
@@ -5178,6 +5266,10 @@
       "value": "显示页脚"
     },
     {
+      "name": "reader_show_page_rules",
+      "value": "显示页眉页脚分隔线"
+    },
+    {
       "name": "reader_show_chapter_title",
       "value": "章节名称"
     },
@@ -6586,6 +6678,10 @@
       "value": "编辑记录"
     },
     {
+      "name": "record_edit_locked",
+      "value": "记录已锁定，点击解锁"
+    },
+    {
       "name": "record_edit_done",
       "value": "完成编辑"
     },
@@ -6612,6 +6708,50 @@
     {
       "name": "comic_page_layout",
       "value": "图片分页"
+    },
+    {
+      "name": "comic_display_title",
+      "value": "显示效果"
+    },
+    {
+      "name": "comic_display_default",
+      "value": "原版"
+    },
+    {
+      "name": "comic_display_width",
+      "value": "铺满宽度"
+    },
+    {
+      "name": "comic_display_screen",
+      "value": "完整显示"
+    },
+    {
+      "name": "comic_display_original",
+      "value": "原图大小"
+    },
+    {
+      "name": "comic_display_default_hint",
+      "value": "沿用原有布局，大屏保留舒适阅读宽度。"
+    },
+    {
+      "name": "comic_display_width_hint",
+      "value": "等比铺满可用宽度，减少两侧留白；长图可上下滑动。"
+    },
+    {
+      "name": "comic_display_screen_hint",
+      "value": "整张图片完整显示，可能留白；双指捏合可放大细节。"
+    },
+    {
+      "name": "comic_display_original_hint",
+      "value": "按原图像素显示，不放大小图；超出可用区域时等比缩小。"
+    },
+    {
+      "name": "comic_layout_single",
+      "value": "单图分页"
+    },
+    {
+      "name": "comic_pagination_hint",
+      "value": "单图分页每次切换一张图片；拼接分页连接相邻图片，按屏切换。"
     },
     {
       "name": "comic_layout_width",
@@ -7334,6 +7474,18 @@
       "value": "搜索分类名称"
     },
     {
+      "name": "home_filter_menu_title",
+      "value": "分类选项"
+    },
+    {
+      "name": "home_filter_group_all",
+      "value": "全部分组"
+    },
+    {
+      "name": "home_filter_group_filter",
+      "value": "按书源分类分组筛选"
+    },
+    {
       "name": "home_categories_close",
       "value": "关闭分类"
     },
@@ -7992,6 +8144,44 @@
     {
       "name": "library_sync_resume_local",
       "value": "暂未确认云端最新位置，已使用本机进度"
-    }
+    },
+    {
+      "name": "shelf_read_chapter",
+      "value": "阅读至 %d/%d 章"
+    },
+    {
+      "name": "shelf_listen_chapter",
+      "value": "收听至 %d/%d 集"
+    },
+    {
+      "name": "shelf_read_not_started",
+      "value": "未开始阅读"
+    },
+    {
+      "name": "shelf_listen_not_started",
+      "value": "未开始收听"
+    },
+    {
+      "name": "shelf_narrator",
+      "value": "播音：%s"
+    },
+    {"name":"import_empty_title","value":"把喜欢的书放进来"},
+    {"name":"import_empty_hint","value":"点击右下角 ＋，可一次选择多本书籍"},
+    {"name":"import_selected_files","value":"已选 %d 个文件"},
+    {"name":"import_remove_file","value":"移除所选文件"},
+    {"name":"import_remove_named_file","value":"移除 %s"},
+    {"name":"import_batch_preview_hint","value":"电子书逐本导入，分别保留各自的封面和信息"},
+    {"name":"import_author_unknown","value":"暂无作者信息"},
+    {"name":"import_preview_unavailable","value":"未能读取信息"},
+    {"name":"import_archive_preview_hint","value":"导入时展开"},
+    {"name":"import_audio_preview_hint","value":"合并为音频章节"},
+    {"name":"import_audio_book_info","value":"合并后的有声书信息"},
+    {"name":"import_edit_cover","value":"更换封面"},
+    {"name":"import_remove_cover","value":"移除封面"},
+    {"name":"import_author_optional","value":"作者（选填）"},
+    {"name":"reader_turn_haptic","value":"翻页震感"},
+    {"name":"reader_haptic_strong","value":"强劲"},
+    {"name":"reader_haptic_medium","value":"中等"},
+    {"name":"reader_haptic_weak","value":"弱感"}
   ]
 }

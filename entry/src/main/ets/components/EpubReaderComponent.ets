@@ -30,7 +30,8 @@ export function buildEpubReader(params: EpubReaderParams) {
       onReady: params.onReady,
       onError: params.onError,
       onReaderPageShow: params.onReaderPageShow,
-      onContentTap: params.onContentTap
+      onContentTap: params.onContentTap,
+      onManualPageTurn: params.onManualPageTurn
     })
   }
 }
@@ -53,6 +54,7 @@ export struct EpubReaderComponent {
   @Event onError: (message: string, code: number) => void = (_message: string, _code: number): void => {};
   @Event onReaderPageShow: (info: readerCore.PageDataInfo) => void = (_info: readerCore.PageDataInfo): void => {};
   @Event onContentTap: () => void = () => {};
+  @Event onManualPageTurn: (active: boolean, immediate?: boolean) => void = () => {};
 
   private initialized: boolean = false;
   private pageShowRegistered: boolean = false;
@@ -122,9 +124,10 @@ export struct EpubReaderComponent {
     if (finger === undefined) return;
     const action = ReaderTapPolicy.resolve(this.tapRegions, finger.localX, finger.localY,
       this.contentWidth, this.contentHeight, this.tapLeftPercent, this.tapRightPercent, this.tapTopPercent, this.tapBottomPercent);
-    if (action === 1) this.onContentTap();
+    if (action === 1) { this.onManualPageTurn(false); this.onContentTap(); }
     else if ((action === 0 || action === 2) && this.initialized) {
-      try { this.controller.flipPage(action === 2); } catch (_error) {}
+      this.onManualPageTurn(true, true);
+      try { this.controller.flipPage(action === 2); } catch (_error) { this.onManualPageTurn(false); }
     }
   }
 
@@ -142,7 +145,11 @@ export struct EpubReaderComponent {
     .width('100%')
     .height('100%')
     // 底色/纹理由父页面的 ReaderBackground 铺；ReaderKit 自身底色走 pageConfig.themeColor
-    .onTouch((event: TouchEvent): void => this.tapTracker.update(event))
+    .onTouch((event: TouchEvent): void => {
+      this.tapTracker.update(event);
+      if (event.type === TouchType.Down || event.type === TouchType.Cancel) this.onManualPageTurn(false);
+      else if (!this.tapTracker.canTap()) this.onManualPageTurn(true);
+    })
     .onSizeChange((_oldValue: SizeOptions, newValue: SizeOptions): void => {
       if (typeof newValue.height === 'number') this.contentHeight = newValue.height;
       if (typeof newValue.width === 'number') {

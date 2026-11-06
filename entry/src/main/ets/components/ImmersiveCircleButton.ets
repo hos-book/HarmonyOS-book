@@ -30,12 +30,16 @@ export struct ImmersiveCircleButton {
   @Param useMaterial: boolean = true;
   /** 图标色；已选态（如已加入书架）传品牌色。 */
   @Param iconColor: ResourceColor = $r('sys.color.font_primary');
+  @Param longPressEnabled: boolean = false;
   @Event onPress: () => void = () => {};
+  @Event onLongPress: () => void = () => {};
   @Local touching: boolean = false;
   @Local touchX: number = 20;
   @Local touchY: number = 20;
+  private longPressAccepted: boolean = false;
 
   private updateTouch(event: TouchEvent): void {
+    if (event.type === TouchType.Down) this.longPressAccepted = false;
     if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
       this.touching = false;
     } else if (event.touches.length > 0) {
@@ -43,6 +47,22 @@ export struct ImmersiveCircleButton {
       this.touchY = Math.max(0, Math.min(this.diameter, event.touches[0].y));
       this.touching = true;
     }
+  }
+
+  private handlePress(): void {
+    // 长按成功后的同一次抬手不能再点击解锁；下次按下才恢复短按。
+    if (!this.longPressAccepted) this.onPress();
+  }
+
+  private handleLongPress(): void {
+    if (!this.longPressEnabled) return;
+    this.longPressAccepted = true;
+    this.onLongPress();
+  }
+
+  private judgeLongPress(info: GestureInfo): GestureJudgeResult {
+    return info.tag === 'immersive-circle-long-press' && !this.longPressEnabled ?
+      GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE;
   }
 
   @Builder
@@ -66,7 +86,10 @@ export struct ImmersiveCircleButton {
             color: $r('app.color.shelf_toolbar_background') })
           .border({ width: 0.5, color: $r('sys.color.comp_divider') })
           .onTouch((event: TouchEvent): void => this.updateTouch(event))
-          .accessibilityText(this.label).onClick((): void => this.onPress())
+          .accessibilityText(this.label).onClick((): void => this.handlePress())
+          .priorityGesture(LongPressGesture({ repeat: false, duration: 500 })
+            .tag('immersive-circle-long-press').onAction((): void => this.handleLongPress()))
+          .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeLongPress(info))
       } else if (PlatformCompat.floatingTabs) {
         HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
           TabContent() { Column() }.height(this.diameter).tabBar(this.materialContent())
@@ -85,14 +108,20 @@ export struct ImmersiveCircleButton {
           .width(this.diameter).height(this.diameter).padding(0).backgroundColor(Color.Transparent)
           .hitTestBehavior(HitTestMode.Transparent)
           .onTouch((event: TouchEvent): void => this.updateTouch(event))
-          .accessibilityText(this.label).onClick((): void => this.onPress())
+          .accessibilityText(this.label).onClick((): void => this.handlePress())
+          .priorityGesture(LongPressGesture({ repeat: false, duration: 500 })
+            .tag('immersive-circle-long-press').onAction((): void => this.handleLongPress()))
+          .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeLongPress(info))
       } else {
         Button({ type: ButtonType.Circle }) { this.iconContent() }
           .width(this.diameter).height(this.diameter).padding(0).backgroundColor($r('sys.color.comp_background_primary'))
           .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
           .border({ width: 0.5, color: $r('sys.color.comp_divider') })
           .onTouch((event: TouchEvent): void => this.updateTouch(event))
-          .accessibilityText(this.label).onClick((): void => this.onPress())
+          .accessibilityText(this.label).onClick((): void => this.handlePress())
+          .priorityGesture(LongPressGesture({ repeat: false, duration: 500 })
+            .tag('immersive-circle-long-press').onAction((): void => this.handleLongPress()))
+          .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeLongPress(info))
       }
       Row().width(this.diameter).height(this.diameter)
         .radialGradient({ center: [this.touchX, this.touchY], radius: this.diameter,

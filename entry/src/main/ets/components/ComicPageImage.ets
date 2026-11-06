@@ -19,6 +19,8 @@ export struct ComicPageImage {
   @Param zoomOwner: string = '';
   @Param paged: boolean = false;
   @Param fitScreen: boolean = false;
+  // 0 保留原版布局；1 铺满可用宽度；2 完整显示；3 原图大小（只缩小，不放大）。
+  @Param displayMode: number = 0;
   @Param autoPageRequest: number = 0;
   @Param autoPageActive: boolean = false;
   @Event onAutoPageEnd: () => void = (): void => {};
@@ -101,7 +103,7 @@ export struct ComicPageImage {
     if (this.failed) { this.onAutoPageFailure(); return; }
     if (!this.loaded) return;
     // 适宽长图先读完当前图片，不能直接切走遗漏下半部分。
-    if (this.fitScreen || this.pageScroller.isAtEnd()) this.onAutoPageEnd();
+    if (this.fitsViewport() || this.pageScroller.isAtEnd()) this.onAutoPageEnd();
     else this.pageScroller.scrollBy(0, this.pageHeight * 0.85);
   }
 
@@ -232,24 +234,37 @@ export struct ComicPageImage {
     }).finally((): void => { if (ticket === this.colorSerial) this.colorBusy = false; });
   }
 
-  private imageHeight(): number {
-    const ratio = this.ratio > 0 ? this.ratio : this.page.width > 0 && this.page.height > 0 ?
+  private imageRatio(): number {
+    return this.ratio > 0 ? this.ratio : this.page.width > 0 && this.page.height > 0 ?
       this.page.height / this.page.width : 1.45;
+  }
+
+  private fitsViewport(): boolean {
+    return this.displayMode === 2 || (this.displayMode === 3 && this.paged) ||
+      (this.displayMode === 0 && this.fitScreen);
+  }
+
+  private imageHeight(): number {
     // 分片连续拼接时高度必须落在物理像素上，避免逐片取整露出深色底。
     const ui = this.getUIContext();
-    const height = this.fitScreen ? Math.min(this.pageHeight, this.pageWidth * ratio) : this.pageWidth * ratio;
+    const height = this.imageWidth() * this.imageRatio();
     return ui.px2vp(Math.max(1, Math.round(ui.vp2px(height))));
   }
 
   private imageWidth(): number {
-    if (!this.fitScreen) return this.pageWidth;
-    const ratio = this.ratio > 0 ? this.ratio : this.page.width > 0 && this.page.height > 0 ?
-      this.page.height / this.page.width : 1.45;
-    return Math.min(this.pageWidth, this.pageHeight / ratio);
+    let width = this.fitsViewport() ? Math.min(this.pageWidth, this.pageHeight / this.imageRatio()) : this.pageWidth;
+    if (this.displayMode === 3 && this.page.width > 0) {
+      width = Math.min(width, this.getUIContext().px2vp(this.page.width));
+    }
+    return Math.max(1, width);
+  }
+
+  private contentHeight(): number {
+    return this.paged && this.fitsViewport() ? this.pageHeight : this.imageHeight();
   }
 
   private imageX(): number { return this.zoomState.scale > 1 ? this.zoomState.x : (this.pageWidth - this.imageWidth()) / 2; }
-  private imageY(): number { return this.zoomState.scale > 1 ? this.zoomState.y : this.fitScreen ? (this.pageHeight - this.imageHeight()) / 2 : 0; }
+  private imageY(): number { return this.zoomState.scale > 1 ? this.zoomState.y : (this.contentHeight() - this.imageHeight()) / 2; }
 
   private decodeWidth(): number {
     const ratio = this.imageHeight() / Math.max(1, this.imageWidth());
@@ -260,7 +275,7 @@ export struct ComicPageImage {
       Math.sqrt((enlarged ? 8 : 4) * 1024 * 1024 / ratio), nativeWidth)));
   }
 
-  @Monitor('pageWidth', 'pageHeight', 'viewportTop', 'fitScreen')
+  @Monitor('pageWidth', 'pageHeight', 'viewportTop', 'fitScreen', 'displayMode')
   private onZoomLayoutChanged(): void { this.resetZoom(); }
 
   @Monitor('zoomOwner')
@@ -298,10 +313,10 @@ export struct ComicPageImage {
   private beginPinch(event: GestureEvent): void {
     const top = this.viewportTop - this.imageWindowY;
     const bottom = top + this.pageHeight;
-    this.gestureStart = this.fitScreen ? (this.zoomState.scale > 1 ? this.zoomState :
+    this.gestureStart = this.paged && this.fitsViewport() ? (this.zoomState.scale > 1 ? this.zoomState :
       ComicZoomTransform.contain(this.imageWidth(), this.imageHeight(), this.pageWidth, this.pageHeight)) :
       this.zoomState.scale > 1 ? this.zoomState.viewport(top, bottom) :
-        ComicZoomTransform.fit(this.pageWidth, this.imageHeight(), top, bottom);
+        ComicZoomTransform.fit(this.imageWidth(), this.imageHeight(), top, bottom, this.pageWidth);
     this.pinchX = event.pinchCenterX;
     this.pinchY = event.pinchCenterY;
     this.updatePinch(event);
@@ -379,7 +394,7 @@ export struct ComicPageImage {
         }.padding(8).backgroundColor('#99000000').borderRadius(12).margin({ top: 8, left: 8 })
           .hitTestBehavior(HitTestMode.None)
       }
-    }.width(this.pageWidth).height(this.fitScreen ? this.pageHeight : this.imageHeight()).clip(true)
+    }.width(this.pageWidth).height(this.contentHeight()).clip(true)
       .onTouch((event: TouchEvent): void => this.zoomTouch(event))
       .priorityGesture(GestureGroup(GestureMode.Exclusive,
         PinchGesture({ fingers: 2 })
@@ -409,7 +424,7 @@ export struct ComicPageImage {
           Button($r('app.string.comic_retry')).backgroundColor(AppColor.Brand).fontColor(Color.White)
             .onClick(() => { this.retry++; this.loadImage(); })
         }
-      } else if (this.resolvedUrl && this.fitScreen) {
+      } else if (this.resolvedUrl && this.fitsViewport()) {
         this.imageContent()
       } else if (this.resolvedUrl && this.paged) {
         Scroll(this.pageScroller) {

@@ -32,6 +32,7 @@ export struct BookCard {
   @Local coverState: OneShotCoverState = OneShotTransitionCoordinator.getInstance().coverState;
   @Local imageLoadFailed: boolean = false;
   @Local appeared: boolean = false;
+  @Local coverPressed: boolean = false;
   @Local ratingCoverWidth: number = 100;
   @Local originalCoverRatio: number = 0.75;
 
@@ -56,6 +57,9 @@ export struct BookCard {
   private transitionNodeId: string = '';
   private static openingDetail: boolean = false;
   private disposed: boolean = false;
+  private entranceTimer: number = -1;
+  private touchScreenX: number = 0;
+  private touchScreenY: number = 0;
 
   aboutToAppear(): void {
     this.disposed = false;
@@ -70,10 +74,13 @@ export struct BookCard {
       return;
     }
     BookCard.shownIds.add(this.book.id);
-    // 仅前12个卡片有交错入场动画，后续直接显示，避免滑动时大量动画叠加掉帧
-    if (this.indexHint < 12) {
-      const delay = this.indexHint * 50;
-      setTimeout(() => { this.appeared = true; }, delay);
+    // 首屏短错峰，不让后续书卡在滚动时持续等待动画。
+    if (this.indexHint < 8) {
+      const delay = Math.max(0, this.indexHint) * 30;
+      this.entranceTimer = setTimeout((): void => {
+        this.entranceTimer = -1;
+        if (!this.disposed) this.appeared = true;
+      }, delay);
     } else {
       this.appeared = true;
     }
@@ -95,6 +102,25 @@ export struct BookCard {
 
   aboutToDisappear(): void {
     this.disposed = true;
+    if (this.entranceTimer !== -1) clearTimeout(this.entranceTimer);
+    this.entranceTimer = -1;
+  }
+
+  private handleCoverTouch(event: TouchEvent): void {
+    if (event.type === TouchType.Down) {
+      const touch = event.touches[0];
+      if (touch === undefined) return;
+      this.touchScreenX = touch.screenX;
+      this.touchScreenY = touch.screenY;
+      this.coverPressed = true;
+    } else if (this.coverPressed) {
+      const touch = event.touches[0];
+      if (event.type === TouchType.Up || event.type === TouchType.Cancel ||
+        (event.type === TouchType.Move && touch !== undefined &&
+          (Math.abs(touch.screenX - this.touchScreenX) > 8 || Math.abs(touch.screenY - this.touchScreenY) > 8))) {
+        this.coverPressed = false;
+      }
+    }
   }
 
   private async openDetail(): Promise<void> {
@@ -166,6 +192,11 @@ export struct BookCard {
 
         CoverDecoration({ radius: this.coverRadius })
 
+        Row().width('100%').height('100%').backgroundColor(Color.Black)
+          .opacity(this.coverPressed ? 0.12 : 0)
+          .animation({ duration: AppMotion.Fast, curve: AppCurve.Standard })
+          .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
+
         if (this.showSourceBadge && this.sourceName()) {
           Text(this.sourceName())
             .fontSize(10)
@@ -221,13 +252,14 @@ export struct BookCard {
       .alignItems(HorizontalAlign.Start)
     }
     .scale({
-      x: this.appeared ? 1 : 0.92,
-      y: this.appeared ? 1 : 0.92
+      x: this.appeared ? 1 : 0.97,
+      y: this.appeared ? 1 : 0.97
     })
     .opacity(this.appeared ? 1 : 0)
-    .translate({ y: this.appeared ? 0 : 20 })
+    .translate({ y: this.appeared ? 0 : 12 })
     .animation({ duration: AppMotion.Base, curve: AppCurve.Emphasized })
     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 1 })
+    .onTouch((event: TouchEvent): void => this.handleCoverTouch(event))
     .onClick(() => {
       this.openDetail();
     })

@@ -97,7 +97,9 @@ def main():
             'model/LocalRulePanel.ets',
             'model/AudioSubtitle.ets',
         ]
-        wire_names = {'version', 'chunks', 'samples', 'sampleRate', 'decodeSubtitleAudio'}
+        wire_names = {'version', 'chunks', 'samples', 'sampleRate', 'decodeSubtitleAudio',
+                      'extract', 'shatterPrepare', 'shatterAttach', 'shatterBegin', 'shatterClose',
+                      'handle', 'width', 'height', 'surfaceWidth', 'surfaceHeight', 'top'}
         for contract in contracts:
             wire_names.update(re.findall(r'^  (\w+)\??\s*:',
                                          (source_root / contract).read_text(encoding='utf-8'), re.MULTILINE))

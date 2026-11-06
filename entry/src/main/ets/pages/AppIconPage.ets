@@ -134,10 +134,13 @@ export struct AppIconPage {
                   .fontColor($r('sys.color.font_primary'))
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
-                if (MembershipState.featureEnabled && option.name !== '') {
-                  Text(this.service.membershipRequired ? $r('app.string.membership_icon_exclusive') :
-                    $r('app.string.app_icon_invite_free')).fontSize(AppFont.Caption)
+                if (MembershipState.featureEnabled) {
+                  Text(option.name === '' ? $r('app.string.app_icon_default_description') :
+                    (this.service.membershipRequired ? $r('app.string.membership_icon_exclusive') :
+                      $r('app.string.app_icon_invite_free'))).fontSize(AppFont.Caption)
                     .fontColor($r('sys.color.font_secondary'))
+                    .maxLines(1)
+                    .textOverflow({ overflow: TextOverflow.Ellipsis })
                 }
               }
               .width('100%')

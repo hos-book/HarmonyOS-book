@@ -160,6 +160,25 @@ for (const size of [14, 18, 30]) {
 console.log('PASS fixed two-em indentation, mixed Unicode whitespace, font sizes and source offsets');
 
 const paletteModule = load('main/ets/model/ReaderTheme.ets');
+const { resolveReaderAccent } = load('main/ets/theme/ReaderAccentColor.ets', {
+  '../model/AppAppearance': { AppAppearance: {
+    normalizeAccent: value => /^#[\dA-F]{6}$/i.test(value) ? value.toUpperCase() : '',
+    defaultAccent: '#C4475B'
+  } },
+  './Theme': { AppTheme: { resolve: () => ({ accent: '#2468AC' }) } }
+});
+let resourceColor = 0xFF2678AB;
+const resourceContext = { resourceManager: { getColorSync: id => {
+  assert.equal(id, 101, 'resolve the selected brand resource by its SDK-compatible numeric ID');
+  return resourceColor;
+} } };
+assert.equal(resolveReaderAccent(resourceContext, '#12ab34'), '#12AB34');
+assert.equal(resolveReaderAccent(resourceContext, { id: 101 }), '#2678AB');
+resourceColor = 0xFF90CAEF;
+assert.equal(resolveReaderAccent(resourceContext, { id: 101 }), '#90CAEF',
+  'the same resource ID resolves again after dark/light configuration changes');
+assert.equal(resolveReaderAccent(undefined, { id: 101 }), '#2468AC', 'unavailable resources retain the current bundle accent');
+console.log('PASS theme accent resources, custom accent and dark/light re-resolution');
 const highlighter = load('main/ets/service/text/SpeechTextHighlighter.ets');
 let paintedColor;
 const paints = [];
@@ -190,6 +209,7 @@ const controller = new nodeModule.ReaderParagraphNodeController();
 const nativeRange = new highlighter.SpeechHighlightRange();
 nativeRange.start = 0; nativeRange.end = 2;
 const palette = paletteModule.ReaderPalette.of('#FFFFFF', '#112233', '#555555', false);
+palette.accent = '#2678AB';
 controller.update(page, nativeRange, palette, 'highlight');
 const node = controller.makeNode({});
 const clips = [];
@@ -238,9 +258,22 @@ assert.equal(paintedColor.red, 17, 'dialogue painting restores the shared text c
 controller.update(page, dialogueRange, palette, 'color', true, '');
 paints.length = 0;
 node.onDraw({ canvas: { save() {}, restore() {}, clipRect() {} } });
-assert.equal(paints[1].color.red, 0xA3, 'automatic color retains the light reading theme fallback');
+assert.equal(paints[1].color.red, 0x26, 'automatic dialogue color uses the actual theme accent');
+assert.equal(paints[1].color.blue, 0xAB);
+const changedPalette = paletteModule.ReaderPalette.of('#FFFFFF', '#112233', '#555555', false);
+changedPalette.accent = '#32965A';
+const beforeThemeChange = frameInvalidations;
+controller.update(page, dialogueRange, changedPalette, 'color', true, '');
+assert.equal(frameInvalidations, beforeThemeChange + 1, 'theme-only changes invalidate the mounted paragraph');
+paints.length = 0;
+node.onDraw({ canvas: { save() {}, restore() {}, clipRect() {} } });
+assert.equal(paints[1].color.green, 0x96, 'existing dialogue repaints with the new accent');
+controller.update(page, dialogueRange, changedPalette, 'color', true, '#AB7834');
+paints.length = 0;
+node.onDraw({ canvas: { save() {}, restore() {}, clipRect() {} } });
+assert.equal(paints[1].color.red, 0xAB, 'an explicit dialogue color overrides any theme accent');
 page.dialogueRanges = [];
-console.log('PASS custom dialogue colors, color-only repaint and automatic fallback');
+console.log('PASS custom dialogue colors, live theme repaint and custom-color isolation');
 
 controller.update(page, nativeRange, palette, 'color', false, '', '#2678AB');
 paints.length = 0;
@@ -255,6 +288,10 @@ paints.length = 0;
 node.onDraw({ canvas: { save() {}, restore() {}, clipRect() {}, attachBrush() {}, detachBrush() {}, drawRect() {} } });
 assert.equal(paints[1].color.red, 17, 'background highlighting retains the original text color');
 console.log('PASS custom speech mark colors, repaint and independent highlight mode');
+controller.update(page, nativeRange, changedPalette, 'color', false, '', '');
+paints.length = 0;
+node.onDraw({ canvas: { save() {}, restore() {}, clipRect() {} } });
+assert.equal(paints[1].color.green, 0x96, 'automatic speech marks share the same theme accent');
 
 const spreadContent = '甲乙丙丁戊己庚辛壬癸';
 const columnPages = native.OnlineTextPaginator.paginate(spreadContent, 100, 20, 18, 1.9);

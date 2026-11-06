@@ -39,6 +39,7 @@ function reader(index = 2, descending = false) {
   Object.assign(r, { source: new scope.ComicScrollDataSource(), chapters: [chapter], serial: 1,
     firstVisible: 0, lastVisible: 2, disposed: false, restoring: false, restoreSerial: 0, zoomOwner: '',
     nextLoading: false, previousLoading: false, nextFailed: false, previousFailed: false,
+    onAutoPageDelay() {}, autoScroll: { pause() {} }, imageReady: new Map(),
     book: { chapters: new Array(20), chaptersDescending: descending },
     scroller: { isAtEnd: () => false, currentOffset: () => ({ yOffset: 100 }),
       scrollToIndex: () => assert.fail('joining chapters must not reposition the list') },

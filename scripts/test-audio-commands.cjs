@@ -226,6 +226,24 @@ async function fixture(initialState = 'paused', realUsage = false) {
     advance: ms => { uptime += ms; } };
 }
 
+function restoredHomePage(f, getBook) {
+  const mainSource = fs.readFileSync(path.join(__dirname, '../entry/src/main/ets/pages/MainPage.ets'), 'utf8');
+  const start = mainSource.indexOf('  private async restoreLastPlayed');
+  const end = mainSource.indexOf('  @Builder', start);
+  assert.ok(start >= 0 && end > start);
+  const exports = {};
+  vm.runInNewContext(ts.transpileModule('export class Page { ' + mainSource.slice(start, end) + ' }', {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 }
+  }).outputText, { exports, PreferenceService: f.preference,
+    DataService: { getBookById: getBook,
+      resolveChapterIndex: (book, id) => book.chapters.findIndex(ch => ch.id === id) },
+    PlaybackStore: { getInstance: () => ({ update() {} }) } });
+  const page = new exports.Page();
+  page.playerState = f.state;
+  page.context = {};
+  return page;
+}
+
 let passed = 0;
 async function check(name, test) {
   await test();
@@ -388,6 +406,68 @@ async function check(name, test) {
     f.service.playGen++;
     f.service.setForeground(true);
     assert.equal(f.state.progressMs, 90000);
+  });
+  await check('home cold restore keeps the current book speed through same-book resume and persistence', async () => {
+    const f = await fixture('idle');
+    f.service.persistHistory = Object.getPrototypeOf(f.service).persistHistory;
+    const chapter = { id: 'current-1', title: '第一章', duration: 180,
+      source: { type: 'file', value: '/current.mp3' } };
+    const book = { id: 'current', chapters: [chapter] };
+    f.state.currentBook = book;
+    f.state.currentChapter = chapter;
+    await f.preference.setDefaultPlaybackSpeed(2);
+    await f.service.setSpeed(1.8);
+    f.preference.progressMemo.clear();
+    Object.assign(f.state, { currentBook: null, currentChapter: null, speed: 1,
+      progressMs: 0, durationMs: 0, isPlaying: false });
+    await restoredHomePage(f, async () => book).restoreLastPlayed();
+    assert.equal(f.state.speed, 1.8, 'the home path must restore speed before publishing the current book');
+    assert.equal(f.state.progressMs, 42000);
+    await f.service.flushBeforeSwitch(book, chapter);
+    f.player.transition('prepared');
+    await flush();
+    assert.equal(f.player.rates.at(-1), 1.8, 'AVPlayer receives the saved rate on resume');
+    await f.service.flushHistory();
+    f.preference.progressMemo.clear();
+    assert.equal((await f.preference.getProgress(book.id)).speed, 1.8);
+    assert.equal((await f.preference.getLastPlayed()).speed, 1.8);
+  });
+  await check('home speed restore prefers per-book settings and falls back to last-played or global speed', async () => {
+    const f = await fixture('idle');
+    const chapter = { id: 'saved-1', duration: 180, source: { value: '/saved.mp3' } };
+    const book = { id: 'saved', chapters: [chapter] };
+    await f.preference.setDefaultPlaybackSpeed(2);
+    for (const [perBook, lastSpeed, expected] of [[1.8, 1.5, 1.8], [1, 1.5, 1],
+      [undefined, 1.65, 1.65], [undefined, undefined, 2], [0, undefined, 2]]) {
+      await f.preference.saveProgress({ bookId: book.id, chapterId: chapter.id, speed: perBook });
+      await f.preference.setLastPlayed(book.id, chapter.id, 42000, '', 180000, lastSpeed);
+      f.preference.progressMemo.clear();
+      Object.assign(f.state, { currentBook: null, currentChapter: null, speed: 1 });
+      await restoredHomePage(f, async () => book).restoreLastPlayed();
+      assert.equal(f.state.speed, expected);
+    }
+  });
+  await check('delayed home recovery cannot overwrite a book already restored or selected by the user', async () => {
+    for (const selectedId of ['saved', 'selected']) {
+      const f = await fixture('idle');
+      const chapter = { id: 'saved-1', duration: 180, source: { value: '/saved.mp3' } };
+      const book = { id: 'saved', chapters: [chapter] };
+      await f.preference.setLastPlayed(book.id, chapter.id, 42000, '', 180000, 1.8);
+      Object.assign(f.state, { currentBook: null, currentChapter: null, speed: 1 });
+      let finishRead;
+      const home = restoredHomePage(f, () => new Promise(resolve => { finishRead = resolve; }));
+      const restoring = home.restoreLastPlayed();
+      await flush();
+      const selected = { id: selectedId, chapters: [chapter] };
+      Object.assign(f.state, { currentBook: selected, currentChapter: chapter,
+        speed: 2.5, progressMs: 90000, isPlaying: true });
+      finishRead(book);
+      await restoring;
+      assert.equal(f.state.currentBook, selected);
+      assert.equal(f.state.speed, 2.5);
+      assert.equal(f.state.progressMs, 90000);
+      assert.equal(f.state.isPlaying, true);
+    }
   });
   await check('global speed defaults only new books, survives reload, and never overwrites per-book speed', async () => {
     const f = await fixture();
