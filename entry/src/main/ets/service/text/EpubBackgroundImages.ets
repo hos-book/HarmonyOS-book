@@ -1,12 +1,13 @@
-/** EPUB 卷首常用 body 的 CSS 背景承载插图；转文字时将它保留为正文前的图片。
- * 仅解释 body 的简单标签/class/id 选择器，不执行 CSS、脚本或网络请求。
- */
-class EpubBackgroundRule {
-  path: string = '';
+import { EpubPageStyle } from './EpubPageStyle';
+
+class EpubCssValue {
+  value: string = '';
+  base: string = '';
   specificity: number = -1;
   important: boolean = false;
 }
 
+/** 提取 body/html 与标题背景；不执行书内 CSS、脚本或网络请求。 */
 export class EpubBackgroundImages {
   private styles: Map<string, string> = new Map();
   private styleChars: number = 0;
@@ -32,18 +33,20 @@ export class EpubBackgroundImages {
   }
 
   private static attr(tag: string, name: string): string {
-    const match = new RegExp(`\\s${name}\\s*=\\s*["']([^"']*)["']`, 'i').exec(tag);
+    const match = new RegExp('\\s' + name + '\\s*=\\s*["\']([^"\']*)["\']', 'i').exec(tag);
     return match === null ? '' : match[1];
   }
 
-  private static specificity(selector: string, body: string): number {
+  private static specificity(selector: string, tag: string): number {
     const simple = selector.trim();
-    if (!/^(?:body)?(?:[.#][\w-]+)*$/i.test(simple) || !simple) return -1;
-    const classes = EpubBackgroundImages.attr(body, 'class').split(/\s+/);
-    const id = EpubBackgroundImages.attr(body, 'id');
+    if (!/^(?:[a-z][a-z0-9]*|\*)?(?:[.#][\w-]+)*$/i.test(simple) || !simple) return -1;
+    const type = /^[a-z][a-z0-9]*/i.exec(simple);
+    if (type && !new RegExp('^<' + type[0] + '(?:\\s|>)', 'i').test(tag)) return -1;
+    const classes = EpubBackgroundImages.attr(tag, 'class').split(/\s+/);
+    const id = EpubBackgroundImages.attr(tag, 'id');
     const pattern = /([.#])([\w-]+)/g;
     let match = pattern.exec(simple);
-    let score = /^body/i.test(simple) ? 1 : 0;
+    let score = type ? 1 : 0;
     while (match !== null) {
       if (match[1] === '.' ? !classes.includes(match[2]) : id !== match[2]) return -1;
       score += match[1] === '.' ? 10 : 100;
@@ -52,23 +55,43 @@ export class EpubBackgroundImages {
     return score;
   }
 
-  private static apply(declarations: string, base: string, specificity: number, result: EpubBackgroundRule): void {
+  private static put(result: Map<string, EpubCssValue>, property: string, value: string, base: string,
+    specificity: number, important: boolean): void {
+    const previous = result.get(property);
+    if (previous && (previous.important && !important || previous.important === important && specificity < previous.specificity)) return;
+    const next = new EpubCssValue();
+    next.value = value; next.base = base; next.specificity = specificity; next.important = important;
+    result.set(property, next);
+  }
+
+  private static apply(declarations: string, base: string, specificity: number, result: Map<string, EpubCssValue>): void {
     for (const declaration of declarations.split(';')) {
-      const property = /^\s*background(?:-image)?\s*:\s*([\s\S]*)$/i.exec(declaration);
-      if (property === null) continue;
-      const important = /!important\s*$/i.test(property[1]);
-      if (result.important && !important) continue;
-      if (important === result.important && specificity < result.specificity) continue;
-      const url = /url\(\s*["']?([^"')]+)["']?\s*\)/i.exec(property[1]);
-      result.path = url === null ? '' : EpubBackgroundImages.resolve(base, url[1]);
-      result.specificity = specificity;
-      result.important = important;
+      const property = /^\s*(background(?:-image|-color|-size|-repeat|-position)?|color)\s*:\s*([\s\S]*)$/i.exec(declaration);
+      if (!property) continue;
+      const name = property[1].toLowerCase();
+      const important = /!important\s*$/i.test(property[2]);
+      const value = property[2].replace(/!important\s*$/i, '').trim();
+      if (name !== 'background') {
+        EpubBackgroundImages.put(result, name, value, base, specificity, important);
+        continue;
+      }
+      // shorthand 重置背景属性，但不能覆盖更高优先级的 longhand。
+      const image = /url\(\s*["']?[^"')]+["']?\s*\)/i.exec(value);
+      const rest = value.replace(/url\([^)]*\)/gi, '').toLowerCase();
+      const size = /\/\s*(cover|contain|auto)\b/.exec(rest);
+      const repeat = /\b(no-repeat|repeat-x|repeat-y|repeat)\b/.exec(rest);
+      const color = /#[0-9a-f]{3,8}\b|rgb\([^)]*\)|\b(?:white|black|transparent)\b/i.exec(rest);
+      const position = rest.split('/')[0].match(/\b(?:left|right|top|bottom|center)\b|(?:0|50|100)%/g);
+      EpubBackgroundImages.put(result, 'background-image', image ? image[0] : 'none', base, specificity, important);
+      EpubBackgroundImages.put(result, 'background-size', size ? size[1] : 'auto', base, specificity, important);
+      EpubBackgroundImages.put(result, 'background-repeat', repeat ? repeat[1] : 'repeat', base, specificity, important);
+      EpubBackgroundImages.put(result, 'background-color', color ? color[0] : 'transparent', base, specificity, important);
+      EpubBackgroundImages.put(result, 'background-position', position ? position.join(' ') : 'top left', base, specificity, important);
     }
   }
 
-  private static rules(css: string, base: string, body: string, result: EpubBackgroundRule): void {
+  private static rules(css: string, base: string, tag: string, result: Map<string, EpubCssValue>): void {
     const text = css.replace(/\/\*[\s\S]*?\*\//g, '');
-    // 顶层规则；跳过 @media/@font-face 等嵌套块，避免误应用条件样式。
     let start = 0;
     while (start < text.length) {
       const open = text.indexOf('{', start);
@@ -80,41 +103,88 @@ export class EpubBackgroundImages {
         end++;
       }
       const selector = text.substring(start, open).replace(/^\s*@charset[^;]*;\s*/i, '').trim();
+      // 不猜测 @media 等条件，只应用可明确匹配的简单选择器。
       if (!selector.startsWith('@')) for (const part of selector.split(',')) {
-        const score = EpubBackgroundImages.specificity(part, body);
+        const score = EpubBackgroundImages.specificity(part, tag);
         if (score >= 0) EpubBackgroundImages.apply(text.substring(open + 1, end - 1), base, score, result);
       }
       start = end;
     }
   }
 
-  async expand(html: string, spine: string, read: (relative: string) => Promise<string>): Promise<string> {
+  async inspect(html: string, spine: string, read: (relative: string) => Promise<string>): Promise<EpubPageStyle> {
     const body = /<body\b[^>]*>/i.exec(html);
-    if (body === null) return html;
-    const result = new EpubBackgroundRule();
+    if (!body) return new EpubPageStyle();
+    const root = /<html\b[^>]*>/i.exec(html);
+    const heading = /<h[1-6]\b[^>]*>/i.exec(html.substring(body.index));
+    const bodyRules: Map<string, EpubCssValue> = new Map();
+    const rootRules: Map<string, EpubCssValue> = new Map();
+    const headingRules: Map<string, EpubCssValue> = new Map();
     const styles = /<link\b[^>]*>|<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi;
-    let match = styles.exec(html.substring(0, body.index));
-    while (match !== null) {
-      if (match[1] !== undefined) EpubBackgroundImages.rules(match[1], spine, body[0], result);
-      else if (EpubBackgroundImages.attr(match[0], 'rel').toLowerCase().split(/\s+/).includes('stylesheet')) {
-        const path = EpubBackgroundImages.resolve(spine, EpubBackgroundImages.attr(match[0], 'href'));
-        if (path) {
-          let css = this.styles.get(path);
-          if (css === undefined && this.styles.size < 128 && this.styleChars < 8 * 1024 * 1024) {
-            try { css = await read(EpubBackgroundImages.relative(spine, path)); } catch (_error) { css = ''; }
-            if (css.length > 512 * 1024) css = '';
-            this.styleChars += css.length;
-            this.styles.set(path, css);
+    const head = html.substring(0, body.index);
+    let match = styles.exec(head);
+    while (match) {
+      let css = match[1] ?? '';
+      let base = spine;
+      if (match[1] === undefined && EpubBackgroundImages.attr(match[0], 'rel').toLowerCase().split(/\s+/).includes('stylesheet')) {
+        base = EpubBackgroundImages.resolve(spine, EpubBackgroundImages.attr(match[0], 'href'));
+        if (base) {
+          let cached = this.styles.get(base);
+          if (cached === undefined && this.styles.size < 128 && this.styleChars < 8 * 1024 * 1024) {
+            try { cached = await read(EpubBackgroundImages.relative(spine, base)); } catch (_error) { cached = ''; }
+            if (cached.length > 512 * 1024) cached = '';
+            this.styleChars += cached.length;
+            this.styles.set(base, cached);
           }
-          if (css) EpubBackgroundImages.rules(css, path, body[0], result);
+          css = cached ?? '';
         }
       }
-      match = styles.exec(html.substring(0, body.index));
+      if (css) {
+        EpubBackgroundImages.rules(css, base, body[0], bodyRules);
+        if (root) EpubBackgroundImages.rules(css, base, root[0], rootRules);
+        if (heading) EpubBackgroundImages.rules(css, base, heading[0], headingRules);
+      }
+      match = styles.exec(head);
     }
-    EpubBackgroundImages.apply(EpubBackgroundImages.attr(body[0], 'style'), spine, 1000, result);
-    if (!result.path) return html;
-    const relative = EpubBackgroundImages.relative(spine, result.path).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    EpubBackgroundImages.apply(EpubBackgroundImages.attr(body[0], 'style'), spine, 1000, bodyRules);
+    if (root) EpubBackgroundImages.apply(EpubBackgroundImages.attr(root[0], 'style'), spine, 1000, rootRules);
+    if (heading) EpubBackgroundImages.apply(EpubBackgroundImages.attr(heading[0], 'style'), spine, 1000, headingRules);
+    const result = EpubBackgroundImages.style(bodyRules);
+    const rootStyle = EpubBackgroundImages.style(rootRules);
+    if (!result.image && !result.color && (rootStyle.image || rootStyle.color)) {
+      result.image = rootStyle.image; result.color = rootStyle.color; result.size = rootStyle.size;
+      result.repeat = rootStyle.repeat; result.position = rootStyle.position;
+    }
+    result.foreground = result.foreground || rootStyle.foreground;
+    result.headingColor = EpubPageStyle.color(headingRules.get('background-color')?.value ?? '');
+    result.headingForeground = EpubPageStyle.color(headingRules.get('color')?.value ?? '');
+    if (!result.visible()) { result.foreground = ''; result.headingForeground = ''; }
+    return result;
+  }
+
+  private static style(rules: Map<string, EpubCssValue>): EpubPageStyle {
+    const result = new EpubPageStyle();
+    const image = rules.get('background-image');
+    const url = /url\(\s*["']?([^"')]+)["']?\s*\)/i.exec(image?.value ?? '');
+    if (image && url) result.image = EpubBackgroundImages.resolve(image.base, url[1]);
+    result.color = EpubPageStyle.color(rules.get('background-color')?.value ?? '');
+    result.foreground = EpubPageStyle.color(rules.get('color')?.value ?? '');
+    const size = rules.get('background-size')?.value.toLowerCase() ?? '';
+    if (size === 'cover' || size === 'contain') result.size = size;
+    const repeat = rules.get('background-repeat')?.value.toLowerCase() ?? '';
+    if (['no-repeat', 'repeat-x', 'repeat-y'].includes(repeat)) result.repeat = repeat;
+    const position = rules.get('background-position');
+    if (position) result.position = EpubPageStyle.position(position.value);
+    return result;
+  }
+
+  /** 显式漫画模式将卷首背景作为一张漫画页；文字模式使用独立背景层。 */
+  async expand(html: string, spine: string, read: (relative: string) => Promise<string>): Promise<string> {
+    const style = await this.inspect(html, spine, read);
+    const body = /<body\b[^>]*>/i.exec(html);
+    if (!style.image || !body) return html;
+    const relative = EpubBackgroundImages.relative(spine, style.image).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
     const offset = body.index + body[0].length;
-    return html.substring(0, offset) + `<img src="${relative}"/>` + html.substring(offset);
+    return html.substring(0, offset) + '<img src="' + relative + '"/>' + html.substring(offset);
   }
 }

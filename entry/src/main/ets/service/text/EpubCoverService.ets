@@ -1,51 +1,14 @@
-import { fileIo } from '@kit.CoreFileKit';
 import { BookCoverImageService } from './BookCoverImageService';
-import { bookParser } from '@hms.core.readerservice.bookParser';
+import { EpubParserService } from './EpubParserService';
 
-/** 通过 ReaderKit 解包资源，再由 ImageKit 解码为独立封面，不保存解析器临时路径。 */
+/** 从原 EPUB 的封面资源直接解码，不依赖章节渲染或系统阅读组件。 */
 export class EpubCoverService {
-  static async extract(handler: bookParser.BookParserHandler, directory: string): Promise<string> {
-    const cover = handler.getBookInfo().bookCoverImage;
-    if (cover === undefined || cover.length === 0) return '';
+  static async extract(parser: EpubParserService, directory: string): Promise<string> {
+    const path = parser.getBookInfo().bookCoverImage;
+    if (!path) return '';
     try {
-      // 不同 ReaderKit 版本可能返回解包后的沙箱文件，或 EPUB 内相对资源路径。
-      if (cover.startsWith('/') || cover.startsWith('file://')) {
-        const path = cover.startsWith('file://') ? cover.substring(7) : cover;
-        if (await fileIo.access(path)) {
-          const stat = await fileIo.stat(path);
-          if (stat.size > 0 && stat.size <= 16 * 1024 * 1024) {
-            return await BookCoverImageService.decode(path, directory);
-          }
-        }
-      }
-      const count = Math.min(handler.getSpineList().length, 8);
-      for (let index = 0; index < count; index++) {
-        try {
-          // ReaderKit 先加载 spine，资源查询才有相对路径上下文。
-          await handler.getSpineItemContent(index);
-          const href = handler.getSpineList()[index].href;
-          const parent = href.substring(0, href.lastIndexOf('/') + 1);
-          const candidates: string[] = [cover, EpubCoverService.relativePath(parent, cover)];
-          const parts = cover.split('/');
-          for (let part = 1; part < parts.length; part++) candidates.push(parts.slice(part).join('/'));
-          for (const candidate of candidates) {
-            try {
-              const bytes = handler.getResourceContent(index, candidate);
-              if (bytes === undefined || bytes.byteLength === 0 || bytes.byteLength > 16 * 1024 * 1024) continue;
-              return await BookCoverImageService.decode(bytes, directory);
-            } catch (_e) { /* 继续兼容包内路径和章节相对路径。 */ }
-          }
-        } catch (_e) { /* 无效 spine 不影响其他候选。 */ }
-      }
-    } catch (_e) { /* 缺少或损坏的可选封面不阻断正文导入。 */ }
-    return '';
+      const bytes = await parser.readResource(path, 16 * 1024 * 1024);
+      return bytes.byteLength > 0 ? await BookCoverImageService.decode(bytes, directory) : '';
+    } catch (_error) { return ''; }
   }
-
-  private static relativePath(parent: string, target: string): string {
-    const from = parent.split('/').filter((part: string): boolean => part.length > 0);
-    const to = target.split('/').filter((part: string): boolean => part.length > 0);
-    while (from.length > 0 && to.length > 0 && from[0] === to[0]) { from.shift(); to.shift(); }
-    return '../'.repeat(from.length) + to.join('/');
-  }
-
 }

@@ -351,6 +351,8 @@ export class NativeSourceRunner {
   private expr: NativeExpr;
   private varValues: Record<string, string>;
   private cancelled: () => boolean = (): boolean => false;
+  /** 搜索脚本每调用一次 ui.emitSearch，解析出的那批书籍就交给它；由宿主在搜索前设置。 */
+  private partialSearchListener: ((books: NativeBookRecord[]) => void) | null = null;
   private credential: NativeLoginCredential = { token: '', user: '' };
   /** 已保存的全部书源变量，包括没有在 vars 里声明、由脚本写入的键。 */
   private storedVars: Record<string, NativeValue>;
@@ -544,6 +546,12 @@ export class NativeSourceRunner {
     return this;
   }
 
+  /** 搜索脚本每调用一次 ui.emitSearch，那批页面按 search 的 list、fields 解析后交给 listener，不等脚本返回。 */
+  setPartialSearchListener(listener: ((books: NativeBookRecord[]) => void) | null): NativeSourceRunner {
+    this.partialSearchListener = listener;
+    return this;
+  }
+
   /**
    * 合并默认值与已保存的值；已保存的值不在选项内时回退到默认值。
    * 写了 optionsScript 的变量不按静态 options 校验：选项来自脚本（如测速得到的线路），保存的值以设置页为准。
@@ -563,7 +571,24 @@ export class NativeSourceRunner {
   async search(key: string, page: number = 1): Promise<NativeBookRecord[]> {
     const stage = this.scripted(this.requireStage(this.definition.search, '搜索'), BOOK_FIELD_NAMES);
     const scope = (await this.baseScope()).set('key', key).set('page', page);
-    const loaded = await this.loadStage(stage, scope, '', '搜索');
+    const listener = this.partialSearchListener;
+    // 脚本在后台线程里同步等宿主，而解析一批可能要用脚本引擎本身求字段表达式，所以不在宿主调用里解析：
+    // 先排进队列让脚本继续搜下一个站，各批按顺序解析后交给 listener，最后的结果等队列清空后再读。
+    let partial: Promise<void> = Promise.resolve();
+    // 没有监听者（例如校验、调试）时 ui.emitSearch 是空操作，脚本不必区分宿主。
+    const emit = stage.script ? async (value: NativeValue): Promise<void> => {
+      if (!listener) return;
+      partial = partial.then(async (): Promise<void> => {
+        if (this.cancelled()) return;
+        const page = await this.finishStage(stage, this.scriptPage(value, scope), '搜索');
+        const books = await this.readBooks(stage, page, 'search');
+        if (books.length > 0 && !this.cancelled()) listener(books);
+      }).catch((e: Error): void => {
+        this.traceScript('search', String(stage.script || ''), 'emitSearch', '', e.message);
+      });
+    } : null;
+    const loaded = await this.loadStage(stage, scope, '', '搜索', '', emit);
+    await partial;
     return (await this.readBooks(stage, loaded, 'search'));
   }
 
@@ -1339,8 +1364,10 @@ export class NativeSourceRunner {
 
   /** 请求一个阶段的页面并准备好求值环境；地址渲染为空时不发请求。reuse 见 StageReuse。 */
   private async loadStage(stage: NativeStageSpec, scope: NativeScope, defaultUrl: string, label: string,
-    reuse: StageReuse = ''): Promise<StagePage> {
-    if (stage.script) return (await this.finishStage(stage, await this.loadScriptStage(stage, scope, label), label));
+    reuse: StageReuse = '', emit: ((value: NativeValue) => Promise<void>) | null = null): Promise<StagePage> {
+    if (stage.script) {
+      return (await this.finishStage(stage, await this.loadScriptStage(stage, scope, label, emit), label));
+    }
     const request = (await this.buildRequest(stage, scope, defaultUrl, true, `${STAGE_NAMES[label] || label}.url`));
     this.traceRule(`${STAGE_NAMES[label] || label}.url`, stage.url === undefined ? '(默认地址)' : stage.url,
       request.url, false);
@@ -1388,7 +1415,8 @@ export class NativeSourceRunner {
    * 出错时抛出原始原因，由调用方加上是哪个阶段、哪个按钮。
    */
   private async runScriptFunction(fn: string, ctx: Record<string, NativeValue>, stageName: string, scope: NativeScope,
-    interactive: boolean, keep: Record<string, string> | null): Promise<ScriptRun> {
+    interactive: boolean, keep: Record<string, string> | null,
+    emit: ((value: NativeValue) => Promise<void>) | null = null): Promise<ScriptRun> {
     const limits = NativeScriptLimits.of(this.definition.scriptLimits ? this.definition.scriptLimits.requests : undefined);
     const scriptHost = new NativeScriptHost({
       host: this.host,
@@ -1404,6 +1432,7 @@ export class NativeSourceRunner {
       credential: (): NativeValue => ({ token: this.credential.token, user: this.credential.user }),
       saveCredential: async (token: string, user: string): Promise<void> => (await this.saveCredential(token, user)),
       keep: keep,
+      emit: emit ?? undefined,
       interactive: interactive,
       requestHeaders: (own: Record<string, string>): Promise<Record<string, string>> => this.requestHeaders(own, scope)
     });
@@ -1423,18 +1452,28 @@ export class NativeSourceRunner {
     }
   }
 
-  private async loadScriptStage(stage: NativeStageSpec, scope: NativeScope, label: string): Promise<StagePage> {
+  private async loadScriptStage(stage: NativeStageSpec, scope: NativeScope, label: string,
+    emit: ((value: NativeValue) => Promise<void>) | null = null): Promise<StagePage> {
     const fn = String(stage.script || '').trim();
     const stageName = STAGE_NAMES[label] || label;
     const interactive = stageName === 'detail' || stageName === 'toc' || stageName === 'content';
     let run: ScriptRun;
     try {
       run = await this.runScriptFunction(fn, this.scriptContext(scope, stageName), stageName, scope, interactive,
-        stageName === 'detail' ? this.scriptKeep : null);
+        stageName === 'detail' ? this.scriptKeep : null, emit);
     } catch (e) {
       throw new NativeSourceError(`${label}脚本 ${fn}：${(e as Error).message}`);
     }
-    const value: NativeValue = run.value;
+    const page = this.scriptPage(run.value, scope);
+    const data = page.scope.get('data');
+    this.traceScript(stageName, fn, 'return', `${Array.isArray(data) ? `${data.length} 项` :
+      (data !== null ? '对象' : `${NativeExpr.toText(page.scope.get('body')).length} 字`)}，请求 ${run.requests} 次，` +
+      `${run.ms} ms`, '');
+    return page;
+  }
+
+  /** 脚本返回值（或 ui.emitSearch 交出的一批）当作页面：字符串是原文，数组或对象是已解析的 JSON，page() 带地址。 */
+  private scriptPage(value: NativeValue, scope: NativeScope): StagePage {
     let baseUrl = NativeExpr.toText(scope.get('baseUrl')) || this.definition.url;
     let pageScope: NativeScope;
     if (NativeJsPrelude.isPage(value) || typeof value === 'string') {
@@ -1449,9 +1488,6 @@ export class NativeSourceRunner {
     }
     const data = pageScope.get('data');
     pageScope.set('__items', Array.isArray(data) ? data : (data === null || data === undefined ? [] : [data]));
-    this.traceScript(stageName, fn, 'return', `${Array.isArray(data) ? `${data.length} 项` :
-      (data !== null ? '对象' : `${NativeExpr.toText(pageScope.get('body')).length} 字`)}，请求 ${run.requests} 次，` +
-      `${run.ms} ms`, '');
     return { scope: pageScope, baseUrl: baseUrl };
   }
 

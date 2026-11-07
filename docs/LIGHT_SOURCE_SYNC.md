@@ -4,6 +4,33 @@
 
 ## 固定版本与维护边界
 
+### EPUB 原版精排核心（2026-11-07）
+
+从同一轻页应用仓库 `wip3l/qingye-reader` 的当日 main 提交 `0e4334d1690c7aa9d44eab8dd1a26e667e173fba` 同步 `core/book/EpubOriginalScript.ts`，生成到 `service/text/light/EpubOriginalScript.ets`。EPUB 独立清单为 `third_party/light-source/epub-upstream.json`；不改变下文书源核心及其 96 个生成文件的版本。
+
+```sh
+node scripts/sync-light-source.cjs --epub <完整的轻页提交 SHA>
+node scripts/sync-light-source.cjs --epub --check
+```
+
+生成文件禁止手改；同步脚本校验原始源码与生成结果 SHA256，宿主补丁集中在 `scripts/light-epub-sync.cjs`。沿用上游 CSS 多栏、视口滚动、字体就绪和文字定位，仅适配宿主导入、翻页手势独占、页码查询与重排位置。原生覆盖/仿真动画通过 `epub_original.js` 的预览/提交/取消接口衔接；取消后恢复原页，预览不保存阅读进度。章节文档使用上游固定缩放 viewport，防止移动端把横向多栏扩成数倍布局视口而少算页数、跳页。原书背景不再随 body transform 移位，完整 Web 视口保留固定背景，页眉页脚透明叠放。宿主字符映射同步上下标数字归一化。
+
+导入解析、资源隔离、章节 ID 和持久化仍使用现有实现，本次替换精排核心，不迁入轻页整套阅读页面。在线参考：
+
+- https://github.com/wip3l/qingye-reader/blob/0e4334d1690c7aa9d44eab8dd1a26e667e173fba/entry/src/main/ets/core/book/EpubOriginalScript.ts
+- https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md
+- https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md
+
+### 公共包更新（2026-11-07）
+
+已从两个上游 `main` 拉取并固定独立书源内核 `acf847091342d578b9a4bf9ccd857b9196e37a30`、轻页应用辅助代码 `48ec5bf45a0fa5993e455b2fe889c789d16fba1f`。分支整理后同步路径恢复为 `entry/src/main/ets/service/rulesource/light/upstream/`，清单共 96 个生成文件，本轮实际更新 14 个公共源码文件；保留既有宿主隔离、缓存、Cookie 和许可证适配；书源模块拆分另存于 `feature/booksource-module` 工作区。
+
+上游变化包括搜索分批结果接口、按类型限制搜索结果、原生源缺省类型继承、封面脚本解码及视频请求头修复。公共接口同步不表示简听页面已接入全部新增交互。本地同步脚本补齐 `NativeImageScriptRunner.run` 新增的 `label` 可选参数，封面脚本仍通过已有有界图片宿主执行；不引入上游默认 QuickJS 会话。
+
+分支分离前的验证（当时为 97 文件的可选模块布局）：97 文件 `--check`、`test-light-source-engine.cjs`、`test-image-scripts.cjs`、`test-comic-web-wait.cjs` 通过。图片回归新增真实公共封面加载器的下载隔离、上下文/参数、普通图片跳过脚本、非法输出及错误标签验证。使用 Release SDK 26.0.0.105 完成 `booksource@default` debug HSP 增量构建；MCP 构建遇到本机 ohpm 批处理递归错误后，改用同一 Release IDE 的 Node/Hvigor 直接入口与 `--no-daemon`。本轮未执行完整 APP 构建、设备安装及真实书源导入→搜索→阅读/播放验证。
+
+在线依据：已刷新当前目录并读取 [Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[ArkTS 编译修复技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md) 和[错误修复参考](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/references/error-fixing-examples.md)。实际验证以本机回归与编译结果为准。
+
 ### 公共包更新（2026-11-04）
 
 按本轮查询的轻页应用 `b312651f7e07ed4c5fdb04e6955777663f9e87f2` 成套同步：书源内核为 `6ca2b6e3f649c3d2dfc8451bc23e9868140e5a33`，AI 子模块为 `010dde13eefbef46ebb2982163021923ccf635b0`。两个子模块均与各自上游 HEAD 一致。应用归档下载超时后，使用本机 Git 对象复用与 GitHub blob 增量取数，在项目外临时目录还原并验证两个完整 Git tree，再由 `sync-light-source.cjs` 生成和 `--check` 校验 96 个文件；临时源码已清理。

@@ -1,4 +1,5 @@
 import { AppThemeVisual } from './AppThemeVisual';
+import { AppAppearance } from './AppAppearance';
 
 /** 内置主题定义。资源随应用发布，书籍图片与阅读纸张不属于套装数据。 */
 export class AppThemeBundle {
@@ -25,9 +26,10 @@ export class AppThemeSelection {
   schemaVersion: number = 1;
   themeBundleId: string = 'default';
   accentColor: string = '';
-  materialStyle: number = 3;
+  materialStyle: number = AppAppearance.systemMaterial;
 
-  constructor(themeBundleId: string = 'default', accentColor: string = '', materialStyle: number = 3) {
+  constructor(themeBundleId: string = 'default', accentColor: string = '',
+    materialStyle: number = AppAppearance.systemMaterial) {
     this.themeBundleId = themeBundleId;
     this.accentColor = accentColor;
     this.materialStyle = materialStyle;

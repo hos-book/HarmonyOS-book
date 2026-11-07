@@ -11,6 +11,7 @@ const root = path.resolve(__dirname, '../entry/src/main/ets');
 const values = new Map();
 const events = new EventEmitter();
 const mocks = {
+  '../service/PreferenceService': { PreferenceService: { chapterDisplayIndex: (_book, index) => index } },
   '../PreferenceService': { PreferenceService: { promoteFavorite: async () => {} } },
   '../../model/GeneralSettings': { GeneralSettings: { current: { historyEnabled: true } } },
   '@kit.InputKit': { KeyCode: { KEYCODE_VOLUME_UP: 16, KEYCODE_VOLUME_DOWN: 17,
@@ -193,24 +194,6 @@ for (const field of ['readerBarVisible', 'showSettingsSheet', 'showChapterSheet'
   keyReader[field] = false;
 }
 assert.equal(consumed, 2);
-// Real ReaderKit settings must follow the window, including density on an external display.
-const windowReader = Object.create(ReaderPage.prototype);
-Object.assign(windowReader, { readerViewportWidthVp: 1200, readerViewportHeightVp: 700,
-  pageTurnMode: PageTurnMode.Vertical,
-  marginLeft: 16, marginRight: 24, leftSafeVp: 0, rightSafeVp: 0, marginTop: 12,
-  fontSize: 20, lineHeight: 1.5, palette: { primary: '#000000', background: '#ffffff', isDark: false },
-  getUIContext: () => ({ vp2px: value => value * 2, fp2px: value => value * 2.4 }),
-  readerTopInsetVp: () => 30, readerTextBottomPaddingVp: () => 16, readerFooterHeight: () => 24 });
-let windowSettings = windowReader.createReaderSetting();
-assert.equal(windowSettings.viewPortWidth, 760 * 2, 'large-screen reading line width is bounded');
-assert.equal(windowSettings.viewPortHeight, (700 - 30 - 16 - 24) * 2);
-windowReader.readerViewportWidthVp = 360;
-windowReader.readerViewportHeightVp = 500;
-windowSettings = windowReader.createReaderSetting();
-assert.equal(windowSettings.viewPortWidth, (360 - 16 - 24) * 2, 'split window restores phone content width');
-assert.equal(windowSettings.viewPortHeight, (500 - 30 - 16 - 24) * 2);
-assert.equal(windowReader.marginLeft, 16, 'automatic gutter never overwrites user preferences');
-assert.equal(windowReader.marginRight, 24);
 // The tablet's automatic centering must not cancel the user's horizontal margin changes.
 const columnsReader = Object.create(ReaderPage.prototype);
 let marginSaves = 0;
@@ -273,6 +256,33 @@ function reader() {
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 (async () => {
+  const headingReader = reader();
+  Object.assign(headingReader, {
+    fontSize: 18, lineHeight: 1.9, chapterHeadingVisible: true, chapterHeadingSize: 32, chapterHeadingStyle: 'bold',
+    readerViewportWidthVp: 360, readerViewportHeightVp: 780, readerTextWidthVp: 328, readerTextHeightVp: 640,
+    marginTop: 12, readerTopInsetVp: () => 24, readerTextBottomPaddingVp: () => 16,
+    readerHeaderHeight: () => 24, readerFooterHeight: () => 24, useReaderColumns: () => false,
+    getUIContext: () => ({ vp2px: value => value * 2, fp2px: value => value * 2.4 })
+  });
+  const realPaginate = mocks['./OnlineTextPaginator'].OnlineTextPaginator.paginate;
+  const headingCalls = [];
+  mocks['./OnlineTextPaginator'].OnlineTextPaginator.paginate = (...args) => { headingCalls.push(args); return normal; };
+  headingReader.paginateOnlineTextContent = ReaderPage.prototype.paginateOnlineTextContent;
+  headingReader.paginateOnlineTextContent(content, 1);
+  assert.equal(headingCalls.at(-1)[10], '第二章', 'pagination must use the target title before current chapter changes');
+  assert.equal(headingCalls.at(-1)[11], 32 * 2.4, 'title follows the same fp density as body text');
+  assert.equal(headingCalls.at(-1)[12], 'bold');
+  for (const visible of [false, true]) {
+    headingReader.chapterHeadingVisible = visible;
+    headingReader.repaginateOnlineText();
+    assert.equal(headingCalls.at(-1)[10], visible ? '第一章' : '');
+    assert.equal(headingReader.currentPosition.charOffset, 100, 'toggling headings preserves exact body position');
+  }
+  headingReader.hideReaderBar = () => {};
+  headingReader.onlineTextPageIndex = normal.length - 1;
+  assert.equal(await headingReader.prepareOnlineTextTurn(true), true);
+  assert.equal(headingCalls.at(-1)[10], '第二章', 'cross-chapter preview measures the new heading');
+  mocks['./OnlineTextPaginator'].OnlineTextPaginator.paginate = realPaginate;
   const { LocalTextImage } = mocks['../service/text/LocalTextImage'];
   const tokens = [0, 1, 2].map(index => LocalTextImage.token(`/files/ebooks/import_pdf/image_${index}_0.img`));
   importedBody = '前言\n' + tokens.join('\n说明\n');
@@ -450,6 +460,16 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   assert.ok(positioned >= 0, 'the restore timer must position the list before checking its row');
   assert.equal(continuous.source.getData(positioned).chapterIndex, 10);
   assert.equal(continuous.source.getData(positioned).startOffset, 110);
+  const priorRows = continuous.source.getData(positioned);
+  continuous.makeChapter = index => {
+    const chapter = makeChapter(index);
+    chapter.layoutSignature = 'heading-hidden';
+    return chapter;
+  };
+  continuous.reset();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.notEqual(continuous.source.getData(positioned), priorRows, 'heading settings replace visible rows even when body layout is cached');
+  assert.equal(continuous.source.getData(positioned).startOffset, 110, 'heading reflow retains the same body anchor');
   continuous.visibleChanged(positioned, positioned + 2);
   continuous.reportPosition(true);
   assert.equal(reported, 10, 'font change stays in the current chapter');

@@ -81,6 +81,8 @@ const { SourceEngineHost } = load('core/host/SourceEngineHost');
 const { NativeSourceSpec } = load('core/nativesource/NativeSourceSpec');
 const { NativeSourceCrypto } = load('core/nativesource/NativeSourceCrypto');
 const { NativeImageScriptRunner } = load('core/nativesource/NativeImageScriptRunner');
+const { SourceCoverLoader } = load('core/nativesource/SourceCoverLoader');
+const { SourceCoverUrl } = load('core/nativesource/SourceCoverUrl');
 const { ComicImagePipeline } = load('core/book/ComicImagePipeline');
 SourceEngineHost.install({ requests: { isCancelled: () => cancelled }, imageScripts: {
   async run(program, input) {
@@ -188,6 +190,30 @@ async function materialize(options) { return ComicImagePipeline.materialize(http
     assert.deepEqual(files.get(retried),Buffer.from(image));
     files.delete(retried);cacheWrites.pop();
   }
+  const coverAddress = 'https://images.test/cover';
+  const coverSource = { bookSourceUrl: 'https://fixture.test', jsLib: NativeSourceSpec.pack({
+    sourceFormat: 'native', name: 'cover', url: 'https://fixture.test',
+    coverDecode: { script: 'decodeCover', params: { skip: 2 } },
+    js: 'function decodeCover(input,ctx){if(ctx.index!==0||ctx.url!=="https://images.test/cover")throw Error("context");return input.subarray(ctx.params.skip);}'
+  }) };
+  const coverUrl = SourceCoverUrl.wrap(coverAddress, coverSource.bookSourceUrl);
+  let coverBody = Uint8Array.from([1, 2, ...image]);
+  const coverHttp = { async executeBinary(request, limit) {
+    assert.equal(request.cookieSource, coverSource.bookSourceUrl);
+    assert.equal(request.url, coverAddress);
+    assert.equal(limit, 8 * 1024 * 1024);
+    return { success: true, data: coverBody };
+  } };
+  assert.deepEqual(Array.from(await SourceCoverLoader.load(coverHttp, coverSource, coverUrl)), Array.from(image));
+  coverBody = image;
+  const beforePlainCover = executions;
+  await SourceCoverLoader.load(coverHttp, coverSource, coverUrl);
+  assert.equal(executions, beforePlainCover, 'plain covers bypass the isolated image script');
+  coverBody = Uint8Array.from([1, 2, 3, 4]);
+  await assert.rejects(SourceCoverLoader.load(coverHttp, coverSource, coverUrl), /coverDecode.script.*图片格式/);
+  await assert.rejects(NativeImageScriptRunner.run('function other(){}', 'missing', image,
+    { url: coverAddress, index: 0, params: {} }, () => false, 'coverDecode'), /coverDecode.script: function missing/);
+  console.log('cover scripts: source-bound download, params/context, isolated decoding, plain-image bypass and labelled failures passed');
   console.log('image protection: decoded size/type, oversized input, short/zero/failed writes, cancellation cleanup and retry passed');
   console.log('image scripts: pipeline bytes, async/ArrayBuffer, params/index, cache identity, plain-image opt-in, cancellation, failed decode, prefix IV, strip host parameters and four crypto operations passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

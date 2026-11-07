@@ -11,7 +11,7 @@ export class HdsCompat {
   }
 
   static get scrollEffect(): ScrollEffectType {
-    return PlatformCompat.floatingTabs ? ScrollEffectType.IMMERSIVE_GRADIENT_BLUR : ScrollEffectType.GRADIENT_BLUR;
+    return HdsCompat.materialSupported ? ScrollEffectType.IMMERSIVE_GRADIENT_BLUR : ScrollEffectType.GRADIENT_BLUR;
   }
 
   static get material(): SystemMaterialParams | undefined {
@@ -23,15 +23,16 @@ export class HdsCompat {
     };
   }
 
-  /** 材质类型与 API 版本分开探测；部分设备只提供自适应材质。 */
+  /** ADAPTIVE 只是系统策略，不能作为设备能绘制沉浸材质的证明。 */
   private static resolveMaterialType(followsSystem: boolean): hdsMaterial.MaterialType {
+    if (PlatformCompat.supports(26) && !PlatformCompat.immersiveMaterial) return hdsMaterial.MaterialType.NONE;
     try {
       const supported: hdsMaterial.MaterialType[] = hdsMaterial.getSystemMaterialTypes();
+      if (!supported.includes(hdsMaterial.MaterialType.IMMERSIVE)) return hdsMaterial.MaterialType.NONE;
       if (followsSystem && supported.includes(hdsMaterial.MaterialType.ADAPTIVE)) {
         return hdsMaterial.MaterialType.ADAPTIVE;
       }
-      if (supported.includes(hdsMaterial.MaterialType.IMMERSIVE)) return hdsMaterial.MaterialType.IMMERSIVE;
-      if (supported.includes(hdsMaterial.MaterialType.ADAPTIVE)) return hdsMaterial.MaterialType.ADAPTIVE;
+      return hdsMaterial.MaterialType.IMMERSIVE;
     } catch (_error) { /* 能力查询失败时保留系统普通控件。 */ }
     return hdsMaterial.MaterialType.NONE;
   }

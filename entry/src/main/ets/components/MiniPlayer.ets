@@ -1,9 +1,10 @@
-import { AppColor, AppSpace, AppFont, HomeTheme, AppMotion, AppCurve } from '../theme/Theme';
+import { AppColor, AppSpace, AppFont, HomeTheme, AppMotion, AppCurve, AppTheme } from '../theme/Theme';
 import { Book } from '../model/Book';
 import { PlaybackLoadingIndicator } from './PlaybackLoadingIndicator';
 import { CoverImage } from './CoverImage';
 import { CoverDecoration } from './CoverDecoration';
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
+import { HdsCompat } from '../utils/HdsCompat';
 
 @ComponentV2
 export struct MiniPlayer {
@@ -187,6 +188,9 @@ export struct MiniPlayer {
       }
       .width('100%')
       .height('100%')
+      .borderRadius(999)
+      .backgroundColor(HdsCompat.materialSupported ? Color.Transparent : AppTheme.Surface)
+      .backgroundBlurStyle(HdsCompat.materialSupported ? BlurStyle.NONE : BlurStyle.COMPONENT_REGULAR)
       .id('mini-player-bar')
       .transition(TransitionEffect.IDENTITY)
       .opacity(this.dragState.sourceNodeId === 'mini-player-bar' ? this.dragState.sourceOpacity : 1)

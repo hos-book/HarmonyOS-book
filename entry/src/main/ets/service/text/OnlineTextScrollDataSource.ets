@@ -14,6 +14,7 @@ export class OnlineTextScrollRow {
 }
 
 export class OnlineTextScrollChapter {
+  layoutSignature: string = '';
   index: number = 0;
   content: string = '';
   rows: OnlineTextScrollRow[] = [];
@@ -23,16 +24,11 @@ export class OnlineTextScrollChapter {
     const chapter = new OnlineTextScrollChapter();
     chapter.index = index;
     chapter.content = content;
-    const heading = new OnlineTextScrollRow();
-    heading.key = `${key}:heading`;
-    heading.chapterIndex = index;
-    heading.text = title;
-    heading.heading = true;
-    chapter.rows.push(heading);
     for (const line of lines) {
       const row = new OnlineTextScrollRow();
       row.page = line;
-      row.key = `${key}:${line.startOffset}:${line.endOffset}:${line.layoutKey}`;
+      row.heading = line.isHeading;
+      row.key = `${key}:${line.isHeading ? 'heading' : 'body'}:${line.firstLine}:${line.startOffset}:${line.endOffset}:${line.layoutKey}`;
       row.chapterIndex = index;
       row.startOffset = line.startOffset;
       row.endOffset = line.endOffset;
@@ -88,7 +84,9 @@ export class OnlineTextScrollDataSource implements IDataSource {
     let last = -1;
     for (let index = 0; index < this.rows.length; index++) {
       const row = this.rows[index];
-      if (row.chapterIndex !== chapterIndex || row.heading) continue;
+      if (row.chapterIndex !== chapterIndex) continue;
+      if (offset <= 0) return index;
+      if (row.heading) continue;
       last = index;
       if (offset < row.endOffset || row.endOffset === 0) return index;
     }

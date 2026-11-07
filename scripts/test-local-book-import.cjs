@@ -60,16 +60,13 @@ const pdfService = {
     }
   }
 };
-let parserAvailable = true;
-let parserLoads = 0;
 let parserOpens = 0;
 let epubCount = 2;
-let epubRaw = false;
 let epubBodies = null;
+let epubCatalog = null;
 let epubMissingImage = false;
 let realEpubArchive = null;
 let epubExpandedSize = 1024;
-let layoutCalls = 0;
 let writeDelay = 0;
 let failingWrite = '';
 let activeWrites = 0;
@@ -207,7 +204,7 @@ function load(relative) {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
   }).outputText;
   vm.runInNewContext(code, { exports, console, Error, ArrayBuffer, Uint8Array, setTimeout,
-    canIUse: capability => capability.includes('PDFService') ? pdfAvailable : parserAvailable, $r: id => ({ id }), require: name => {
+    canIUse: capability => capability.includes('PDFService') ? pdfAvailable : false, $r: id => ({ id }), require: name => {
     if (name === '@kit.PDFKit') { assert.ok(pdfAvailable); return { pdfService }; }
     if (name === '@kit.CoreFileKit') return { fileIo, statfs: { getFreeSize: async () => free } };
     if (name === '@kit.ImageKit') return { image };
@@ -236,7 +233,7 @@ function load(relative) {
         try { return await fn.fn(...fn.args); } finally { receivingTask = undefined; }
       }
       return fn(...args);
-    } }, util: { TextDecoder: { create(encoding, options) {
+    } }, util: { TextEncoder: { create() { return { encodeInto: text => new TextEncoder().encode(text) }; } }, TextDecoder: { create(encoding, options) {
       const decoder = new TextDecoder(encoding, options);
       return { decodeToString: (bytes, opts) => decoder.decode(bytes, opts) };
     } } } };
@@ -244,42 +241,34 @@ function load(relative) {
       emitter: { emit: (event, payload) => typeEvents.push({ event, payload,
         saved: JSON.parse(values.get('books') || '[]') }) },
       deviceInfo: { sdkApiVersion: 20, deviceType: 'phone' },
-      zlib: { getOriginalSize: async () => epubExpandedSize }
+      zlib: require('./epub-fixture.cjs').platformZlib
     };
-    if (name === '@hms.core.readerservice.bookParser') {
-      parserLoads++;
-      assert.ok(parserAvailable, 'unsupported devices must never load the ReaderKit HSP');
-      return { bookParser: {
-      getDefaultHandler: async () => {
-        parserOpens++;
-        if (realEpubArchive) return {
-          getBookInfo: () => realEpubArchive.bookInfo,
-          getSpineList: () => realEpubArchive.spines,
-          getCatalogList: () => realEpubArchive.catalog,
-          getSpineItemContent: async index => Buffer.from(realEpubArchive.entries[realEpubArchive.spines[index].href], 'base64').toString('utf8'),
-          getResourceContent: (index, resource) => {
-            const target = path.posix.normalize(path.posix.join(path.posix.dirname(realEpubArchive.spines[index].href), resource));
-            const encoded = realEpubArchive.entries[target];
-            if (!encoded) throw new Error(`Missing archive resource: ${target}`);
-            return Uint8Array.from(Buffer.from(encoded, 'base64')).buffer;
-          }
-        };
-        return ({
-        getBookInfo: () => ({ bookTitle: 'EPUB 标题', bookCreator: '作者' }),
-        getSpineList: () => Array.from({ length: epubBodies?.length ?? epubCount }, (_, index) => ({ idRef: String(index), href: `text/${index}.html` })),
-        getCatalogList: () => [{ idRef: '0', catalogName: '第一章' }, { idRef: '1', catalogName: '第二章' },
-          { idRef: '1', catalogName: '同章内的二级目录，不应覆盖' }],
-        getSpineItemContent: async index => { layoutCalls++; return epubBodies?.[index] ?? `<body><p>章节 ${index + 1}</p><script>bad()</script></body>`; },
-        getResourceContent: (index, resource) => {
-          if (epubBodies && resource.endsWith('.png')) {
-            if (epubMissingImage) throw new Error('image missing');
-            return Uint8Array.from(MOBI_COVER_PNG).buffer;
-          }
-          if (!epubRaw) throw new Error('resource unavailable');
-          return Uint8Array.from(Buffer.from(`<body><p>章节 ${index + 1}</p><script>bad()</script></body>`)).buffer;
+    if (name.endsWith('/EpubParserService')) {
+      const actual = load(path.resolve(path.dirname(filename), name));
+      return { ...actual, EpubParserService: class extends actual.EpubParserService {
+        static async open(filename) {
+          parserOpens++;
+          if (realEpubArchive) return actual.EpubParserService.open(filename);
+          if (epubExpandedSize > 6 * 1024 ** 3) throw new Error('EPUB_EXPANDED_LIMIT');
+          return {
+            expandedSize: epubExpandedSize, close: async () => {},
+            getBookInfo: () => ({ bookTitle: 'EPUB 标题', bookCreator: '作者', bookCoverImage: '' }),
+            getSpineList: () => Array.from({ length: epubBodies?.length ?? epubCount }, (_, index) => ({
+              idRef: String(index), href: `text/${index}.html`
+            })),
+            getCatalogList: () => epubCatalog ?? [
+              ...Array.from({ length: epubBodies?.length ?? epubCount }, (_, index) => ({
+                idRef: String(index), catalogName: index === 0 ? '第一章' : index === 1 ? '第二章' : `原目录第${index + 1}章`
+              })), { idRef: '1', catalogName: '同章内的二级目录，不应覆盖' }
+            ],
+            getSpineItemContent: async index => epubBodies?.[index] ?? `<body><p>章节 ${index + 1}</p><script>bad()</script></body>`,
+            getResourceContent: async (_index, resource) => {
+              if (epubBodies && resource.endsWith('.png') && !epubMissingImage) return Uint8Array.from(MOBI_COVER_PNG).buffer;
+              throw new Error('resource unavailable');
+            }
+          };
         }
-      }); }
-    } };
+      } };
     }
     if (name.endsWith('/TextReadingProgressService')) return { TextReadingProgressService: {
       async getAll() { return [...readingIds].map(bookId => ({ bookId })); }
@@ -354,83 +343,6 @@ function load(relative) {
   assert.ok(images.pattern().test(aboveBody), 'comic images beyond the old 2 GiB limit must be retained');
   await assert.rejects(service.epubBody(context, { getResourceContent: () => Uint8Array.from(MOBI_COVER_PNG).buffer },
     1, '<img src="page.png"/>', imageDirectory, { imageBytes: 6 * 1024 ** 3, imageCount: 21 }), /6 GiB/);
-  assert.equal(parserLoads, 0, 'loading import service at startup must not load ReaderKit');
-  parserAvailable = false;
-  await assert.rejects(service.openEpub(context, '/unavailable.epub'), /当前设备不支持 EPUB 解析/);
-  assert.equal(parserLoads, 0, 'capability failure must be handled before resolving the HSP');
-  parserAvailable = true;
-  const rawHtml = '<html><body>带空格路径的完整章节</body></html>';
-  const rawBytes = Uint8Array.from(Buffer.from(rawHtml)).buffer;
-  const directPath = path.join(temp, 'direct-spine.xhtml');
-  await fsp.writeFile(directPath, rawHtml);
-  assert.equal(await service.epubSpineText({
-    getAbsoluteResourcePath: () => directPath,
-    getResourceContent: () => { throw new Error('resource lookup must be bypassed'); },
-    getSpineItemContent: () => { throw new Error('layout must be bypassed'); }
-  }, 0, 'chapter.xhtml'), rawHtml);
-  assert.equal(handles.size, 0, 'direct chapter reads close their handles');
-  assert.equal(await service.epubSpineText({
-    getAbsoluteResourcePath: () => path.join(temp, 'missing.xhtml'),
-    getSpineItemContent: async () => { throw new Error('Invalid request.'); },
-    getResourceContent: (_index, name) => {
-      if (name !== '33 - 副本.html') throw new Error('Not found');
-      return rawBytes;
-    }
-  }, 29, 'text/33%20-%20副本.html'), rawHtml);
-  const newReadStats = () => ({ file: 0, filePathAvailable: false, raw: 0, rawAttempts: 0,
-    rawMisses: 0, rawProbeAt: 0, layout: 0 });
-  const fallbackStats = newReadStats();
-  let unavailableReads = 0;
-  const fallbackParser = {
-    getResourceContent: () => { unavailableReads++; throw new Error('Header package does not contain the file'); },
-    getSpineItemContent: async index => `<body>完整正文 ${index}</body>`
-  };
-  for (let index = 0; index < 6226; index++) {
-    assert.equal(await service.epubSpineText(fallbackParser, index, `Text/${index}.xhtml`, fallbackStats),
-      `<body>完整正文 ${index}</body>`);
-  }
-  assert.ok(unavailableReads < 110, `failed resource attempts must stay bounded: ${unavailableReads}`);
-  assert.equal(fallbackStats.layout, 6226, 'every chapter still reaches the working parser');
-  const recoveryStats = newReadStats();
-  let rawRecovered = false;
-  const recoveringParser = {
-    getResourceContent: index => {
-      if (index < 4) throw new Error('resource unavailable');
-      rawRecovered = true;
-      return rawBytes;
-    },
-    getSpineItemContent: async index => `<body>正文 ${index}</body>`
-  };
-  for (let index = 0; index < 140; index++) {
-    assert.ok((await service.epubSpineText(recoveringParser, index, `Text/${index}.xhtml`, recoveryStats)).length > 0);
-  }
-  assert.equal(rawRecovered, true, 'periodic probes recover raw reads for later sections');
-  assert.equal(recoveryStats.rawMisses, 0);
-  const rescueStats = newReadStats();
-  for (let index = 0; index < 3; index++) {
-    await service.epubSpineText(fallbackParser, index, `Text/${index}.xhtml`, rescueStats);
-  }
-  let rescueAttempts = 0;
-  const rescueParser = {
-    getResourceContent: (_index, name) => {
-      rescueAttempts++;
-      if (name !== 'Text/rescue.xhtml') throw new Error('relative path unavailable');
-      return rawBytes;
-    },
-    getSpineItemContent: async () => { throw new Error('single chapter layout failure'); }
-  };
-  assert.equal(await service.epubSpineText(rescueParser, 3, 'Text/rescue.xhtml', rescueStats), rawHtml);
-  assert.equal(rescueAttempts, 2, 'layout failure retries every raw candidate for the same chapter');
-  assert.equal(rescueStats.rawMisses, 0);
-  const emptyLayoutStats = { ...newReadStats(), rawMisses: 3, rawProbeAt: 128 };
-  assert.equal(await service.epubSpineText({ ...rescueParser, getSpineItemContent: async () => '' },
-    4, 'Text/rescue.xhtml', emptyLayoutStats), rawHtml, 'empty layout output also retries raw content');
-  const failedStats = { ...newReadStats(), rawMisses: 3, rawProbeAt: 128 };
-  await assert.rejects(service.epubSpineText({
-    getResourceContent: () => { throw new Error('resource unavailable'); },
-    getSpineItemContent: async () => { throw new Error('unreadable chapter'); }
-  }, 4, 'Text/unreadable.xhtml', failedStats), /unreadable chapter/);
-  console.log(`PASS 6226-chapter fallback: ${unavailableReads} failed resource attempts, periodic recovery, no skipped failures`);
   const { LocalImportTaskQueue: Queue } = load('service/LocalImportTaskQueue');
   const queue = new Queue();
   let unblockSlow;
@@ -444,10 +356,6 @@ function load(relative) {
   assert.ok(replacementStarted, 'free slots accept new work while an earlier write is still pending');
   unblockSlow();
   await queue.finish();
-  await assert.rejects(service.epubSpineText({
-    getSpineItemContent: async () => { throw new Error('Invalid request.'); },
-    getResourceContent: () => { throw new Error('Not found'); }
-  }, 29, 'missing.html'), /Invalid request/);
   const { DataService: data } = load('service/DataService');
   const comicFile = { uri: path.join(temp, 'comic.epub'), name: '漫画', ext: '.epub' };
   await fsp.writeFile(comicFile.uri, 'epub fixture');
@@ -489,6 +397,174 @@ function load(relative) {
   assert.equal(largeChapterEpub.chapters.length, 1, 'oversized chapters fail before mutating the catalog');
   epubBodies = null;
   console.log('PASS long EPUB: batched and large chapters preserve boundaries and all Unicode text');
+  // ReaderKit can expose more spines than the archive: unlisted spines continue the preceding TOC chapter.
+  epubBodies = [
+    '<body><h1 id="one">正文标题</h1><p>第一章开头</p></body>',
+    '<body><h2>章内小标题</h2><p>第一章后半段😀</p><img src="one.png"/></body>',
+    '<body><p>第一章末尾</p><h1 id="two">第二章标题</h1><p>第二章开头</p></body>',
+    '<body><p>第二章后半段</p></body>'
+  ];
+  epubCatalog = [
+    { idRef: '0', href: 'text/0.html#one', catalogName: '原书第一章' },
+    { idRef: '2', href: 'text/2.html#two', catalogName: '原书第二章' }
+  ];
+  const splitEpub = await service.importBook(context, comicFile, 'import_epub_split', '', '', '', () => {}, 'text');
+  assert.equal(splitEpub.chapters.map(ch => ch.title).join(','), '原书第一章,原书第二章');
+  const splitTexts = await Promise.all(splitEpub.chapters.map(ch => fsp.readFile(ch.source.value, 'utf8')));
+  assert.equal(splitTexts[0].replace(images.pattern(), '[图片]'),
+    '正文标题\n\n第一章开头\n\n章内小标题\n\n第一章后半段😀\n\n[图片]\n\n第一章末尾');
+  assert.equal(splitTexts[1], '第二章标题\n\n第二章开头\n\n第二章后半段');
+  assert.equal([...splitTexts[0].matchAll(images.pattern())].length, 1);
+  const { EpubOriginalStore: Originals } = load('service/text/EpubOriginalStore');
+  const { EpubOriginalDocument: OriginalDocument, EpubOriginalPart: OriginalPart } = load('service/text/EpubOriginalDocument');
+  const { EpubOriginalPosition: OriginalPosition } = load('service/text/EpubOriginalPosition');
+  const splitRoot = Originals.root(context.filesDir, splitEpub.id);
+  const firstParts = await Originals.parts(splitRoot, 0);
+  const secondParts = await Originals.parts(splitRoot, 1);
+  assert.equal(firstParts.length, 3, 'all split spines retain their original layout within one chapter');
+  assert.equal(secondParts.length, 2);
+  assert.equal(secondParts[0].start, epubBodies[2].indexOf('<h1 id="two">'));
+  assert.equal(firstParts[2].end, secondParts[0].start, 'anchor-split native and original chapters have the same boundary');
+  assert.equal(splitTexts[0].substring(firstParts[2].offset, firstParts[2].offset + firstParts[2].length), '第一章末尾');
+  const originalTheme = await Originals.theme(context.filesDir, splitEpub.id, splitEpub.chapters.length);
+  assert.equal(originalTheme.enabled, true, 'a newly imported EPUB defaults to its own original preset');
+  await Originals.select(context.filesDir, originalTheme, false);
+  assert.equal((await Originals.theme(context.filesDir, splitEpub.id, 2)).enabled, false, 'manual selection survives reopening');
+  assert.equal(await Originals.theme(context.filesDir, splitEpub.id, 3), null, 'a changed comic catalog must not reuse old mappings');
+  assert.equal(await Originals.theme(context.filesDir, 'import_txt_filename', 1), null);
+  await Originals.select(context.filesDir, originalTheme, true);
+  const imagePosition = splitTexts[0].indexOf('第一章末尾');
+  assert.equal(OriginalPosition.offset(splitTexts[0], OriginalPosition.spot(splitTexts[0], imagePosition)), imagePosition,
+    'switching layout retains raw character offsets across image markers');
+  const noteText = '前文\n注¹²后文\u200b\ufeff末尾';
+  const noteSpot = { snippet: '注12后文末尾', fraction: 0 };
+  assert.equal(OriginalPosition.offset(noteText, noteSpot), noteText.indexOf('注'),
+    'Qingye normalized footnote digits restore the same raw character offset');
+  assert.equal(OriginalPosition.compact('注¹²₃\u2060'), '注123\u2060');
+  const repeatText = '首段\n重复句子\n不同内容\n重复句子\n末尾';
+  assert.equal(OriginalPosition.offset(repeatText, OriginalPosition.spot(repeatText, repeatText.lastIndexOf('重复'))),
+    repeatText.lastIndexOf('重复'), 'repeated text is disambiguated by progress');
+  epubBodies = ['<body><p>章首引言</p><h1>正文标题</h1><p>后文</p></body>'];
+  epubCatalog = [{ idRef: '0', href: 'text/0.html#missing', catalogName: '原目录标题' }];
+  const missingAnchor = await service.importBook(context, comicFile, 'import_epub_anchor', '', '', '', () => {}, 'text');
+  assert.equal(missingAnchor.chapters.length, 1);
+  assert.equal(missingAnchor.chapters[0].title, '原目录标题');
+  assert.equal(await fsp.readFile(missingAnchor.chapters[0].source.value, 'utf8'), '章首引言\n\n正文标题\n\n后文');
+  epubCatalog = [];
+  const noToc = await service.importBook(context, comicFile, 'import_epub_no_toc', '', '', '', () => {}, 'text');
+  assert.equal(noToc.chapters.length, 2, 'books without a TOC retain heading fallback and leading content');
+  epubBodies = ['<body>甲</body>', `<body>${'字'.repeat(8 * 1024 * 1024)}</body>`];
+  epubCatalog = [{ idRef: '0', catalogName: '超长原章节' }];
+  await assert.rejects(service.importBook(context, comicFile, 'import_epub_merge_limit', '', '', '', () => {}, 'text'),
+    /EPUB.*章节|单章/);
+  assert.equal(fs.existsSync(path.join(temp, 'ebooks/import_epub_merge_limit')), false);
+  epubBodies = null; epubCatalog = null;
+  console.log('PASS EPUB TOC boundaries: SDK continuation spines, image/text paths, anchor prefixes, missing anchors, no TOC and merged size rollback');
+  const { EpubBackgroundImages: Backgrounds } = load('service/text/EpubBackgroundImages');
+  const { EpubStyleStore: Styles } = load('service/text/EpubStyleStore');
+  const backgroundCss = 'body.vol { background: url(../Images/bg.png) repeat; color: #123456; }' +
+    'body.vol { background-size: cover; background-position: bottom center; }' +
+    'h2.title { background-color: #C1CCC0; color: black; }';
+  const parsedStyle = await new Backgrounds().inspect(
+    '<html><head><link rel="stylesheet" href="../Styles/main.css"/></head><body class="vol"><h2 class="title">标题</h2></body></html>',
+    'OEBPS/Text/first.xhtml', async () => backgroundCss);
+  assert.equal(parsedStyle.image, 'OEBPS/Images/bg.png');
+  assert.equal(parsedStyle.repeat, 'repeat');
+  assert.equal(parsedStyle.size, 'cover');
+  assert.equal(parsedStyle.position, 'bottom center');
+  assert.equal(parsedStyle.headingColor, '#c1ccc0');
+  const cascade = await new Backgrounds().inspect('<html><head><style>' +
+    'body.vol { background-image: url(kept.png) !important; background-size: contain; }' +
+    'body { background: url(ignored.png) no-repeat; }' +
+    '</style></head><body class="vol" style="background-color:#fff"></body></html>', 'text/0.html', async () => '');
+  assert.equal(cascade.image, 'text/kept.png');
+  assert.equal(cascade.size, 'contain');
+  assert.equal(cascade.color, '#ffffff');
+  assert.equal(Backgrounds.resolve('text/0.html', 'https://external.test/image.png'), '');
+  assert.equal(Backgrounds.resolve('text/0.html', '../../private.png'), '');
+  epubBodies = [
+    '<html><head><style>body{background:url(bg.png) center/cover no-repeat}h2{background-color:#c1ccc0}</style></head>' +
+      '<body><h2>标题</h2><p>第一段</p></body></html>',
+    '<body><p>无背景续段</p></body>',
+    '<body style="background:url(bg.png) repeat"><p>&#160;</p></body>'
+  ];
+  epubCatalog = [{ idRef: '0', catalogName: '第一章' }, { idRef: '2', catalogName: '卷首图' }];
+  const backgroundBook = await service.importBook(context, comicFile, 'import_epub_background', '', '', '', () => {}, 'text');
+  assert.equal(backgroundBook.chapters.length, 2, 'background-only TOC pages are retained');
+  const styledText = await fsp.readFile(backgroundBook.chapters[0].source.value, 'utf8');
+  assert.equal(styledText, '标题\n\n第一段\n\n无背景续段');
+  assert.equal([...styledText.matchAll(images.pattern())].length, 0, 'a background must not occupy the body image flow');
+  const storedStyles = await Styles.read(context.filesDir, backgroundBook.id, backgroundBook.chapters[0].source.value);
+  assert.equal(storedStyles[0].style.size, 'cover');
+  assert.equal(storedStyles[0].style.headingColor, '#c1ccc0');
+  assert.ok(fs.existsSync(storedStyles[0].style.image));
+  assert.equal(Styles.at(storedStyles, styledText.indexOf('无背景')).image, '', 'continuation clears previous background');
+  assert.equal((await Styles.read(context.filesDir, backgroundBook.id, backgroundBook.chapters[1].source.value))[0].style.repeat, 'repeat');
+  assert.equal((await fsp.readdir(path.join(temp, 'ebooks', backgroundBook.id))).filter(name => name.endsWith('.img')).length, 1,
+    'shared background resources are saved once');
+  assert.equal((await Styles.read(context.filesDir, backgroundBook.id, '/outside/0.txt')).length, 0);
+  epubBodies = null; epubCatalog = null;
+  console.log('PASS EPUB backgrounds: CSS cascade, cover/tile/alignment, heading colors, isolated persistence, reset, empty pages and shared image reuse');
+  assert.equal((await Originals.theme(context.filesDir, backgroundBook.id, 2)).enabled, true,
+    'theme selection is isolated per book');
+  const originalAssets = new Map([
+    ['Styles/book.css', '@import "more.css"; @font-face{font-family:Book;src:url(../Fonts/book.woff2)} body{background:url(../Images/paper.png);font-family:Book}'],
+    ['Styles/more.css', '@import "book.css"; h1{border:1px solid red}'],
+    ['Fonts/book.woff2', Uint8Array.from([119, 79, 70, 50, 1, 2, 3])],
+    ['Images/paper.png', Uint8Array.from(MOBI_COVER_PNG)]
+  ]);
+  const styledHtml = '<html lang="zh"><head><link rel="stylesheet" href="../Styles/book.css"/>' +
+    '<script>bookScript()</script></head><body class="paper" style="color:#123456" onclick=bad()>' +
+    '<div class="frame"><h1 id="one">前章</h1><p>甲</p><h1 id="two">后章</h1><p>乙</p></div></body></html>';
+  const captureRoot = path.join(context.filesDir, 'ebooks/import_original_assets');
+  await fsp.mkdir(captureRoot, { recursive: true });
+  const assetStore = new Originals(captureRoot.replaceAll('\\', '/'));
+  await assetStore.capture(3, 'Text/missing.xhtml', '<head><link href="absent.css"/></head><body>正文</body>',
+    async () => undefined);
+  assert.ok((await fsp.readFile(captureRoot + '/original/3.html', 'utf8')).includes('正文'),
+    'a missing optional stylesheet cannot abort the book import');
+  const resourceReads = [];
+  const resourceReader = async relative => {
+    const name = path.posix.normalize(path.posix.join('Text', relative)); resourceReads.push(name);
+    assert.ok(originalAssets.has(name), name);
+    return Uint8Array.from(typeof originalAssets.get(name) === 'string' ? Buffer.from(originalAssets.get(name)) : originalAssets.get(name)).buffer;
+  };
+  await assetStore.capture(0, 'Text/a.xhtml', styledHtml, resourceReader);
+  await assetStore.capture(1, 'Text/b.xhtml', styledHtml, resourceReader);
+  assert.equal(resourceReads.length, 4, 'shared CSS, cyclic imports, fonts and backgrounds are each copied once');
+  assert.deepEqual(Buffer.from(await Originals.resource(captureRoot + '/original', 'Fonts/book.woff2')),
+    Buffer.from(originalAssets.get('Fonts/book.woff2')), 'embedded font bytes remain intact');
+  const originalPart = new OriginalPart(0, 'Text/a.xhtml', styledHtml.indexOf('<h1 id="two">'), styledHtml.length);
+  const renderedOriginal = OriginalDocument.build(styledHtml, originalPart, 'window.readerReady=true;', 'testNonce');
+  assert.ok(renderedOriginal.includes('<body class="paper" style="color:#123456"><div class="frame"><h1 id="two">'));
+  assert.ok(renderedOriginal.includes(OriginalDocument.url('Styles/book.css')));
+  assert.ok(!renderedOriginal.includes('前章') && !renderedOriginal.includes('bookScript') && !renderedOriginal.includes('onclick'));
+  assert.ok(renderedOriginal.includes('nonce="testNonce"') && renderedOriginal.includes('Content-Security-Policy'));
+  assert.equal(OriginalDocument.path(OriginalDocument.ORIGIN + 'assets/%2e%2e/private'), '');
+  assert.equal(OriginalDocument.resolve('Text/a.xhtml', '../../outside'), '');
+  assert.equal(OriginalDocument.resolve('Text/a.xhtml', 'https://example.com/font.woff2'), '');
+  assert.ok(OriginalDocument.css(originalAssets.get('Styles/book.css'), 'Styles/book.css')
+    .includes(OriginalDocument.url('Fonts/book.woff2')));
+  const specialCss = 'Styles/:*版式.css';
+  const specialFont = 'Fonts/:*正文字体.woff2';
+  const specialImage = 'Images/:**封面.jpg';
+  originalAssets.set(specialCss, '@font-face{font-family:Original;src:url("../Fonts/:*正文字体.woff2")}body{background:url("../Images/:**封面.jpg")}');
+  originalAssets.set(specialFont, originalAssets.get('Fonts/book.woff2'));
+  originalAssets.set(specialImage, originalAssets.get('Images/paper.png'));
+  const specialHtml = '<html><head><link rel="stylesheet" href="../Styles/:*版式.css"/></head>' +
+    '<body><svg><image xlink:href="../Images/:**封面.jpg"/></svg></body></html>';
+  await assetStore.capture(2, 'Text/:*章.xhtml', specialHtml, resourceReader);
+  for (const name of [specialCss, specialFont, specialImage]) {
+    const address = OriginalDocument.url(name);
+    assert.equal(OriginalDocument.path(address), name, 'encoded special names round-trip through the resource URL');
+    assert.ok(!/[:*]/.test(OriginalDocument.assetPath(name)), 'ZIP names are safe for desktop and device storage');
+    assert.deepEqual(Buffer.from(await Originals.resource(captureRoot + '/original', OriginalDocument.path(address))),
+      Buffer.from(originalAssets.get(name)), `original bytes preserved for ${name}`);
+  }
+  assert.ok(OriginalDocument.build(specialHtml, new OriginalPart(2, 'Text/:*章.xhtml', 0, specialHtml.length), '', 'testNonce')
+    .includes(OriginalDocument.url(specialImage)), 'SVG cover resolves special filenames');
+  assert.ok(OriginalDocument.css(originalAssets.get(specialCss), specialCss).includes(OriginalDocument.url(specialFont)));
+  console.log('PASS EPUB original presets: embedded CSS/fonts/assets, chapter mapping, per-book selection, position conversion and script isolation');
   assert.equal(liveImages, 0);
   assert.equal(handles.size, 0);
   console.log('PASS EPUB comic auto/manual modes, SVG, limits and failure cleanup');
@@ -699,7 +775,7 @@ function load(relative) {
   const duplicateSpines = anonymousSpines.slice(0, 2).map(spine => ({ ...spine, idRef: 'same' }));
   const duplicateIndex = catalog.epubIndex(duplicateSpines, anonymousCatalog.slice(0, 2).map(item => ({ ...item, idRef: 'same' })));
   assert.equal(duplicateIndex.get(catalog.spineKey(duplicateSpines[1]))[0].catalogName, '原始第2章');
-  console.log('PASS 5000 EPUB catalog entries with empty/duplicate SDK IDs: distinct titles and bounded per-chapter lookup');
+  console.log('PASS 5000 EPUB catalog entries with empty/duplicate IDs: distinct titles and bounded per-chapter lookup');
   file.ext = '.epub';
   const epub = await service.importBook(context, file, 'import_epub', '', '', '', () => {});
   await data.addImportedBook(epub); // Existing imported_toc must not block a second import.
@@ -722,7 +798,7 @@ function load(relative) {
   const opensBeforeRetry = parserOpens;
   await service.importBook(context, file, 'import_preview_discarded', '', '', '', () => {});
   assert.equal(parserOpens, opensBeforeRetry + 1, 'discarded previews open a fresh parser');
-  console.log('PASS direct EPUB files, resource/layout fallback, preview reuse/cleanup and rolling I/O slots');
+  console.log('PASS EPUB import orchestration, preview reuse/cleanup and rolling I/O slots');
 
   // 模拟文件元数据边界，避免回归测试实际分配或复制数 GiB 文件。
   const originalFileSize = service.fileSize;
@@ -757,14 +833,15 @@ function load(relative) {
   }
   console.log('PASS EPUB 3 GiB / expanded 6 GiB metadata boundaries, preview reuse, space checks and rollback (simulated)');
 
-  epubCount = 2200; epubRaw = true; layoutCalls = 0;
+  epubCount = 2200;
   writeDelay = 2; maxWrites = 0;
   const updates = [];
+  const pipelineStarted = Date.now();
   const largeEpub = await service.importBook(context, file, 'import_pipeline', '', '', '', value => updates.push(value));
   assert.equal(largeEpub.chapters.length, 2200);
-  assert.equal(layoutCalls, 0, 'available raw HTML must bypass layout conversion');
   assert.ok(maxWrites > 1 && maxWrites <= 4, `bounded writes: ${maxWrites}`);
-  assert.ok(updates.length < 220 && updates.at(-1).endsWith('2200/2200'), 'throttled progress still emits final update');
+  assert.ok(updates.length <= Math.ceil((Date.now() - pipelineStarted) / 150) + 2 && updates.at(-1).endsWith('2200/2200'),
+    'progress is throttled by elapsed time and still emits the final update when original assets add I/O');
   for (let index = 0; index < largeEpub.chapters.length; index++) {
     const chapter = largeEpub.chapters[index];
     assert.equal(chapter.index, index + 1);
@@ -775,8 +852,8 @@ function load(relative) {
   assert.equal(activeWrites, 0, 'pending writes must settle before rollback');
   assert.equal(handles.size, 0);
   assert.equal(fs.existsSync(path.join(temp, 'ebooks/import_pipeline_fail')), false);
-  failingWrite = ''; writeDelay = 0; epubCount = 2; epubRaw = false;
-  console.log('PASS 2200-chapter EPUB: raw fast path, order/content, bounded writes, final progress, failure rollback');
+  failingWrite = ''; writeDelay = 0; epubCount = 2;
+  console.log('PASS 2200-chapter EPUB: chapter order/content, bounded writes, final progress, failure rollback');
 
   const audioInputs = [];
   for (let index = 0; index < 9; index++) {
@@ -1153,6 +1230,7 @@ function load(relative) {
     const realBook = await service.importBook(context,
       { uri: process.env.EPUB_TEST_FILE, ext: '.epub', name: 'user EPUB' }, 'import_real_epub', '', '', '', () => {}, 'text');
     let extracted = 0;
+    let persistedBackgrounds = 0;
     const realTexts = [];
     for (const chapter of realBook.chapters) {
       const text = await fsp.readFile(chapter.source.value, 'utf8'); realTexts.push(text);
@@ -1161,8 +1239,41 @@ function load(relative) {
         assert.ok(realEpubArchive.imageSizes[saved.toString('base64')], 'saved image bytes must equal a decoded original image');
         extracted++;
       }
+      const styleFile = chapter.source.value.replace(/\.txt$/, '.style.json');
+      if (fs.existsSync(styleFile)) {
+        const runs = JSON.parse(await fsp.readFile(styleFile, 'utf8'));
+        for (const run of runs) {
+          if (!run.style || !run.style.image) continue;
+          const saved = await fsp.readFile(path.join(path.dirname(styleFile), run.style.image));
+          assert.ok(realEpubArchive.imageSizes[saved.toString('base64')], 'saved background bytes must equal a decoded original image');
+          persistedBackgrounds++;
+        }
+      }
     }
-    assert.equal(extracted, expectedImages, 'all inline and matched body-background images survive import');
+    assert.equal(extracted + persistedBackgrounds, expectedImages,
+      'all inline images and independently persisted body-background images survive import');
+    // Resolve the real book's links using the platform URL parser, independently of the importer.
+    const originalResources = new Set();
+    const scan = realEpubArchive.spines.map(spine => spine.href);
+    for (let at = 0; at < scan.length; at++) {
+      const name = scan[at];
+      const source = Buffer.from(realEpubArchive.entries[name], 'base64').toString('utf8');
+      const links = /(?:\b(?:src|href|xlink:href|poster)\s*=\s*|@import\s+)["']([^"']+)["']|url\(\s*["']?([^"')]+)["']?\s*\)/gi;
+      for (const match of source.matchAll(links)) {
+        const address = new URL(match[1] || match[2], 'https://epub.test/' + name);
+        if (address.origin !== 'https://epub.test') continue;
+        const target = decodeURIComponent(address.pathname.substring(1));
+        if (!realEpubArchive.entries[target] || !/\.(?:css|svg|jpe?g|png|gif|webp|avif|bmp|ttf|otf|woff2?)$/i.test(target) ||
+          originalResources.has(target)) continue;
+        originalResources.add(target);
+        if (/\.(css|svg)$/i.test(target)) scan.push(target);
+      }
+    }
+    const realOriginalRoot = Originals.root(context.filesDir, realBook.id);
+    for (const name of originalResources) {
+      assert.deepEqual(Buffer.from(await Originals.resource(realOriginalRoot, name)),
+        Buffer.from(realEpubArchive.entries[name], 'base64'), `original EPUB resource survives import: ${name}`);
+    }
     const { ReaderFullTextSearch: Search } = load('service/text/ReaderFullTextSearch');
     const lastIndex = realTexts.length - 1;
     const query = realTexts[lastIndex].replace(images.pattern(), '').trim().slice(-25);
@@ -1171,7 +1282,9 @@ function load(relative) {
     assert.equal(result.failed, 0);
     assert.equal(result.completed, realTexts.length);
     assert.ok(result.matches.some(match => match.chapterIndex === lastIndex && realTexts[lastIndex].slice(match.offset, match.offset + query.length) === query));
-    console.log(`PASS actual EPUB archive: ${realBook.chapters.length} chapters; ${extracted}/${expectedImages} original images incl. ${backgrounds} background pages; full-book search reaches last chapter`);
+    console.log(`PASS actual EPUB archive: ${realBook.chapters.length} chapters; ` +
+      `${extracted} inline + ${persistedBackgrounds} background occurrences/${expectedImages} original images; ` +
+      `${originalResources.size} original CSS/font/image files byte-verified; full-book search reaches last chapter`);
   }
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   for (const handle of handles.values()) await handle.close();

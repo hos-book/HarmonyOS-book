@@ -11,6 +11,7 @@ import { PlayerPage, PlayerBackInterceptor, PlayerEntryDecider } from './PlayerP
 import { SettingsPage } from './SettingsPage';
 import { ReadingSettingsPage } from './ReadingSettingsPage';
 import { VoiceManagementPage } from './VoiceManagementPage';
+import { FontManagementPage } from './FontManagementPage';
 import { SpeechDisplaySettingsPage } from './SpeechDisplaySettingsPage';
 import { DialogueHighlightSettingsPage } from './DialogueHighlightSettingsPage';
 import { SpeechSynthesisSettingsPage } from './SpeechSynthesisSettingsPage';
@@ -34,7 +35,6 @@ import { DownloadManagerPage } from './DownloadManagerPage';
 import { LogManagementPage } from './LogManagementPage';
 import { ComicReaderPage } from './ComicReaderPage';
 import { ReaderPage } from './ReaderPage';
-// import { ReaderKitVerifyPage } from './ReaderKitVerifyPage';
 import { SearchPage } from './SearchPage';
 import { RuleSourcePage } from './RuleSourcePage';
 import { RuleSourceAccountPage } from './RuleSourceAccountPage';
@@ -277,10 +277,6 @@ struct Index {
       const cur = this.navStack.getAllPathName();
       if (cur && cur.length > 0 && cur[cur.length - 1] === 'downloads') return;
       this.navStack.pushPathByName('downloads', null, false);
-    } else if (target === 'readerKitVerify') {
-      const cur = this.navStack.getAllPathName();
-      if (cur && cur.length > 0 && cur[cur.length - 1] === 'readerKitVerify') return;
-      this.navStack.pushPathByName('readerKitVerify', null, false);
     }
     // target === 'home' 默认停在 Tab,不需要跳转
   }
@@ -579,27 +575,12 @@ struct Index {
       SearchPage({ navStack: this.navStack, initialKeyword: this.resolveParam(param, 'keyword') })
     } else if (name === 'podcast') {
       PodcastPage({ navStack: this.navStack })
-    } else if (name === 'readerKitVerify') {
-      // 华为 ReaderKit 验证页面已禁用（需要 HMS Core ReaderService 依赖）
-      NavDestination() {
-        Column() {
-          Text('ReaderKit 验证功能暂时禁用')
-            .fontSize(16)
-            .fontColor('#999999')
-        }
-        .width('100%')
-        .height('100%')
-        .justifyContent(FlexAlign.Center)
-      }
-      .hideTitleBar(true)
-      .backgroundColor('#F5F2EA')
-      .systemTransition(NavigationSystemTransitionType.SLIDE_RIGHT)
     } else if (name === 'achievements') {
       AchievementPage({ navStack: this.navStack })
     } else if (name === 'account') {
       AccountPage({ navStack: this.navStack })
     } else if (name === 'settings') {
-      ProfileMenuDestination() {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
         SettingsPage({ navStack: this.navStack })
       }
     } else if (name === 'readingSettings') {
@@ -618,12 +599,16 @@ struct Index {
       ProfileMenuDestination() {
         SpeechSynthesisSettingsPage({ navStack: this.navStack })
       }
+    } else if (name === 'fontManagement') {
+      ProfileMenuDestination() {
+        FontManagementPage({ navStack: this.navStack })
+      }
     } else if (name === 'voiceManagement') {
       ProfileMenuDestination() {
         VoiceManagementPage({ navStack: this.navStack })
       }
     } else if (name === 'membershipSubscription') {
-      ProfileMenuDestination() {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
         if (MembershipState.featureEnabled) {
           MembershipSubscriptionPage({ navStack: this.navStack })
         } else {
@@ -631,7 +616,7 @@ struct Index {
         }
       }
     } else if (name === 'membership') {
-      ProfileMenuDestination() {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
         MembershipPage({ navStack: this.navStack })
       }
     } else if (name === 'ruleSources') {
@@ -666,7 +651,7 @@ struct Index {
     } else if (name === 'ruleSourceExplore' || name === 'ruleSourceLoginPanel') {
       RuleSourcePanelPage({ navStack: this.navStack, sourceUrl: String(param), login: name === 'ruleSourceLoginPanel' })
     } else if (name === 'logs') {
-      ProfileMenuDestination() {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
         LogManagementPage({ navStack: this.navStack })
       }
     } else if (name === 'downloads') {
@@ -674,7 +659,7 @@ struct Index {
         DownloadManagerPage({ navStack: this.navStack })
       }
     } else if (name === 'about') {
-      ProfileMenuDestination() {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
         AboutPage({ navStack: this.navStack })
       }
     } else if (name === 'technicalSupport') {

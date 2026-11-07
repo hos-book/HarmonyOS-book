@@ -7,11 +7,17 @@ export class ReaderImportedFont {
   path: string = '';
   name: string = '';
   family: string = '';
+  enabled: boolean = true;
 }
 
 export class ReaderFontImportResult {
   fonts: ReaderImportedFont[] = [];
   failures: string[] = [];
+}
+
+export class ReaderFontDeleteResult {
+  fonts: ReaderImportedFont[] = [];
+  failedCount: number = 0;
 }
 
 /** 用户字体仅复制到私有目录；同步注册到正文和分页共用的全局字体集合。 */
@@ -47,6 +53,7 @@ export class ReaderFontService {
       if (!await fileIo.access(item.path)) continue;
       const font = new ReaderImportedFont();
       font.path = item.path; font.name = item.name;
+      font.enabled = item.enabled !== false;
       result.push(font); paths.add(font.path);
     }
     // 迁移旧版已导入文件，包括之前被切换掉但仍保留在沙箱的字体。
@@ -68,20 +75,66 @@ export class ReaderFontService {
   }
 
   static async remove(context: common.Context, path: string): Promise<ReaderImportedFont[]> {
+    const result = await ReaderFontService.removeBatch(context, [path]);
+    if (result.failedCount > 0) throw new Error('Font deletion failed');
+    return result.fonts;
+  }
+
+  static async listEnabled(context: common.Context, legacyPath: string = '',
+    legacyName: string = ''): Promise<ReaderImportedFont[]> {
+    return (await ReaderFontService.list(context, legacyPath, legacyName))
+      .filter((font: ReaderImportedFont): boolean => font.enabled);
+  }
+
+  static async setEnabled(context: common.Context, paths: string[], enabled: boolean): Promise<ReaderImportedFont[]> {
     const catalog = await ReaderFontService.list(context);
-    if (!catalog.some((font: ReaderImportedFont): boolean => font.path === path)) {
-      throw new Error('Font unavailable');
+    const selected = new Set(paths);
+    for (const font of catalog) {
+      if (selected.has(font.path)) font.enabled = enabled;
     }
-    await fileIo.unlink(path);
-    const remaining = catalog.filter((font: ReaderImportedFont): boolean => font.path !== path);
-    await ReaderFontService.saveCatalog(context, remaining);
-    return remaining;
+    await ReaderFontService.saveCatalog(context, catalog);
+    return catalog;
+  }
+
+  static async reorder(context: common.Context, paths: string[]): Promise<ReaderImportedFont[]> {
+    const catalog = await ReaderFontService.list(context);
+    const byPath: Map<string, ReaderImportedFont> = new Map();
+    for (const font of catalog) byPath.set(font.path, font);
+    const ordered: ReaderImportedFont[] = [];
+    for (const path of paths) {
+      const font = byPath.get(path);
+      if (font) { ordered.push(font); byPath.delete(path); }
+    }
+    for (const font of catalog) {
+      if (byPath.has(font.path)) ordered.push(font);
+    }
+    await ReaderFontService.saveCatalog(context, ordered);
+    return ordered;
+  }
+
+  static async removeBatch(context: common.Context, paths: string[]): Promise<ReaderFontDeleteResult> {
+    const catalog = await ReaderFontService.list(context);
+    const selected = new Set(paths);
+    const result = new ReaderFontDeleteResult();
+    for (const font of catalog) {
+      if (selected.has(font.path)) {
+        try { await fileIo.unlink(font.path); }
+        catch (_error) { result.fonts.push(font); result.failedCount++; }
+      } else { result.fonts.push(font); }
+    }
+    await ReaderFontService.saveCatalog(context, result.fonts);
+    return result;
   }
 
   private static async saveCatalog(context: common.Context, fonts: ReaderImportedFont[]): Promise<void> {
     const store = await preferences.getPreferences(context, { name: 'reader_fonts' });
+    const previous = store.getSync('catalog', '[]');
     store.putSync('catalog', JSON.stringify(fonts));
-    await store.flush();
+    try { await store.flush(); }
+    catch (error) {
+      store.putSync('catalog', previous);
+      throw new Error(error instanceof Error ? error.message : 'Font catalog save failed');
+    }
   }
 
   static async pick(context: common.UIAbilityContext): Promise<ReaderFontImportResult> {

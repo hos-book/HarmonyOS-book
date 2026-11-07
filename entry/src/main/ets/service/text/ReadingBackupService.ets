@@ -14,6 +14,9 @@ import { TextToSpeechService } from './TextToSpeechService';
 export class ReadingSettingsBackup {
   cornerLayout: string | undefined = undefined;
   textAlignment: string = 'justify';
+  chapterHeadingVisible: boolean = true;
+  chapterHeadingSize: number = 26;
+  chapterHeadingStyle: string = 'center';
   fontSize: number = 18;
   lineHeight: number = 1.9;
   letterSpacing: number = 0;
@@ -78,6 +81,9 @@ export class ReadingBackupService {
     const settings = await TextReadingSettingsService.get(context);
     const saved = snapshot.settings;
     saved.textAlignment = settings.textAlignment;
+    saved.chapterHeadingVisible = settings.chapterHeadingVisible;
+    saved.chapterHeadingSize = settings.chapterHeadingSize;
+    saved.chapterHeadingStyle = settings.chapterHeadingStyle;
     saved.fontSize = settings.fontSize;
     saved.lineHeight = settings.lineHeight;
     saved.letterSpacing = settings.letterSpacing;
@@ -144,6 +150,9 @@ export class ReadingBackupService {
     const settings = await TextReadingSettingsService.get(context);
     const saved = snapshot.settings;
     settings.textAlignment = TextReadingSettings.normalizeTextAlignment(saved.textAlignment);
+    settings.chapterHeadingVisible = saved.chapterHeadingVisible !== false;
+    settings.chapterHeadingSize = TextReadingSettings.normalizeChapterHeadingSize(saved.chapterHeadingSize);
+    settings.chapterHeadingStyle = TextReadingSettings.normalizeChapterHeadingStyle(saved.chapterHeadingStyle);
     settings.fontSize = saved.fontSize;
     settings.lineHeight = saved.lineHeight;
     settings.letterSpacing = TextReadingSettings.normalizeLetterSpacing(saved.letterSpacing);
@@ -228,6 +237,9 @@ export class ReadingBackupService {
       (settings.cornerLayout === undefined || (typeof settings.cornerLayout === 'string' &&
         ReaderCornerLayout.normalize(settings.cornerLayout) === settings.cornerLayout)) &&
       (settings.textAlignment === undefined || ['justify', 'start', 'center', 'end'].includes(settings.textAlignment)) &&
+      (settings.chapterHeadingVisible === undefined || typeof settings.chapterHeadingVisible === 'boolean') &&
+      (settings.chapterHeadingSize === undefined || ReadingBackupService.inRange(settings.chapterHeadingSize, 18, 48)) &&
+      (settings.chapterHeadingStyle === undefined || ['plain', 'bold', 'center'].includes(settings.chapterHeadingStyle)) &&
       ReadingBackupService.inRange(settings.lineHeight, 1, 2.4) &&
       (settings.paragraphSpacing === undefined || ReadingBackupService.inRange(settings.paragraphSpacing, 0, 2)) &&
       ReadingBackupService.inRange(settings.fontWeight, 100, 900) &&

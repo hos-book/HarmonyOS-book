@@ -260,13 +260,19 @@ export interface NativeContentSpec extends NativeStageSpec {
   replace?: NativeReplaceSpec[];
 }
 
-/** Literal cover parameters, shared by search, explore and detail. IV is hex or a 16-byte file prefix. */
+/**
+ * Literal cover parameters, shared by search, explore and detail. IV is hex or a 16-byte file prefix.
+ * script names a js function (bytes, ctx) => bytes for formats AES cannot describe; it runs in the same
+ * image-only sandbox as content.imageDecode.script and excludes the AES fields.
+ */
 export interface NativeCoverDecodeSpec {
-  algorithm: string;
-  key: string;
+  algorithm?: string;
+  key?: string;
   keyEncoding?: 'hex' | 'utf8';
   iv?: string;
   ivPrefixBytes?: number;
+  script?: string;
+  params?: Record<string, NativeValue>;
 }
 
 export interface NativeSourceDefinition {
@@ -315,6 +321,9 @@ export class NativeSourceSpec {
   /** 定义里所有指向 js 函数的地方：阶段 script、脚本分类、动作按钮、动态选项、脚本登录。 */
   static scriptRefs(definition: NativeSourceDefinition): Array<{ path: string, fn: NativeValue }> {
     const refs: Array<{ path: string, fn: NativeValue }> = [];
+    if (definition.coverDecode && definition.coverDecode.script !== undefined) {
+      refs.push({ path: 'coverDecode.script', fn: definition.coverDecode.script });
+    }
     if (definition.content?.imageDecode?.script !== undefined) {
       refs.push({ path: 'content.imageDecode.script', fn: definition.content.imageDecode.script });
     }
@@ -453,7 +462,16 @@ export class NativeSourceSpec {
   static validate(definition: NativeSourceDefinition): string[] {
     const errors: string[] = [];
     const cover = definition.coverDecode;
-    if (cover !== undefined) {
+    if (cover && cover.script !== undefined) {
+      if ([cover.algorithm, cover.key, cover.iv, cover.keyEncoding, cover.ivPrefixBytes]
+        .some((value: NativeValue): boolean => value !== undefined)) {
+        errors.push('coverDecode.script 不能与 algorithm/key/iv/keyEncoding/ivPrefixBytes 混用');
+      }
+      if (cover.params !== undefined && (!cover.params || typeof cover.params !== 'object' || Array.isArray(cover.params))) {
+        errors.push('coverDecode.params 必须是对象');
+      }
+    } else if (cover !== undefined) {
+      if (cover && cover.params !== undefined) errors.push('coverDecode.params 需要 script');
       if (!cover || !/^AES\/CBC\/PKCS(?:5|7)Padding$/i.test(cover.algorithm || '') ||
         ![16, 24, 32].includes(NativeSourceSpec.coverKeyBytes(cover)) ||
         (cover.ivPrefixBytes === 16 ? !!cover.iv :

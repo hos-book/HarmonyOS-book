@@ -1,6 +1,8 @@
+import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { TextReaderRouteParams, TextReadingPosition, ReaderJumpChapterEvent, EVT_READER_JUMP_CHAPTER } from '../model/TextReading';
 import { TextReadingProgressService } from '../service/text/TextReadingProgressService';
 import { ChapterSheetActions } from '../components/ChapterSheetActions';
+import { ReaderSettingsPopup } from '../components/ReaderSettingsPopup';
 import { PlaybackWaveIcon } from '../components/PlaybackWaveIcon';
 import { ChapterSegmentGrid } from '../components/ChapterSegmentGrid';
 import { PlaybackLoadingIndicator } from '../components/PlaybackLoadingIndicator';
@@ -52,6 +54,14 @@ import { PlatformCompat } from '../utils/PlatformCompat';
 
 const DOMAIN = 0xFF00;
 const TAG = 'ListenBook_Player';
+
+enum PlayerPanel {
+  None,
+  Speed,
+  Sleep,
+  Skip,
+  Chapters
+}
 
 class PlayerSourceSwitchRoute {
   bookId: string = '';
@@ -158,6 +168,7 @@ export struct PlayerPage {
   @Local showChapterList: boolean = false;
   @Local chapterGridVisible: boolean = false;
   @Local showSleepSheet: boolean = false;
+  @Local sleepPanelContentHeight: number = 0;
   @Local sleepSheetMode: SleepMode = SleepMode.Duration;
   @Local sleepCustomVisible: boolean = false;
   @Local sleepCustomValue: string = '';
@@ -205,6 +216,10 @@ export struct PlayerPage {
   @Local bottomSafeVp: number = WindowUtils.getBottomSafeVp();
   @Local leftSafeVp: number = WindowUtils.getLeftSafeVp();
   @Local rightSafeVp: number = WindowUtils.getRightSafeVp();
+  @Local playerGlobalX: number = 0;
+  @Local playerGlobalY: number = 0;
+  @Local bottomBarGlobalCenterX: number = -1;
+  @Local bottomBarGlobalBottom: number = -1;
 
   private context: common.UIAbilityContext | null = null;
   private safeAreaChangeHandler = (topVp: number, bottomVp: number): void => {
@@ -421,10 +436,62 @@ export struct PlayerPage {
     return AdaptiveLayout.playerCoverSize(this.viewportWidth, this.viewportHeight);
   }
 
-  /**
-   * 返回拦截:任一抽屉打开时先关抽屉并消费返回事件,否则放行让 NavDestination 正常退页。
-   * 实际同时只会有一个抽屉打开,逐个判断即可。
-   */
+  private playerPanelVisible(): boolean {
+    return this.showSpeedSheet || this.showSleepSheet || this.showSkipSheet || this.showChapterList;
+  }
+
+  private switchPlayerPanel(panel: PlayerPanel): void {
+    // 只切换宿主内的内容；底部入口始终可点击，无需先关闭再打开。
+    if (panel !== PlayerPanel.None) this.showVolumePopup = false;
+    if (panel === PlayerPanel.Speed) this.showSpeedSheet = true;
+    else if (panel === PlayerPanel.Sleep) this.showSleepSheet = true;
+    else if (panel === PlayerPanel.Skip) this.showSkipSheet = true;
+    else if (panel === PlayerPanel.Chapters) this.showChapterList = true;
+    this.showSpeedSheet = panel === PlayerPanel.Speed;
+    this.showSleepSheet = panel === PlayerPanel.Sleep;
+    this.showSkipSheet = panel === PlayerPanel.Skip;
+    this.showChapterList = panel === PlayerPanel.Chapters;
+    if (panel !== PlayerPanel.Chapters) this.cancelChapterPosition();
+    if (panel !== PlayerPanel.Sleep) {
+      this.sleepCustomVisible = false;
+      this.sleepInputError = '';
+    }
+  }
+
+  private closePlayerPanel(): void {
+    this.switchPlayerPanel(PlayerPanel.None);
+  }
+
+  private playerPanelAnchorTop(): number {
+    const measuredTop = this.bottomBarGlobalBottom >= 0
+      ? this.bottomBarGlobalBottom - this.playerGlobalY - 44
+      : this.viewportHeight - this.playerBottomPadding() - 44;
+    return Math.max(this.topSafeVp, Math.min(measuredTop, this.viewportHeight - this.bottomSafeVp - 44));
+  }
+
+  private playerPanelCenterX(): number {
+    return this.bottomBarGlobalCenterX >= 0 ? this.bottomBarGlobalCenterX - this.playerGlobalX : -1;
+  }
+
+  private playerPanelHeight(): number {
+    if (this.showSpeedSheet) return 196;
+    if (this.showSkipSheet) return 256;
+    if (this.showSleepSheet) {
+      // 定时内容随模式、自定义输入和当前任务变化，按实测内容收紧底部留白。
+      return this.sleepPanelContentHeight > 0 ? this.sleepPanelContentHeight : (this.isSpeechBook() ? 220 : 360);
+    }
+    return 760;
+  }
+
+  private updateSleepPanelHeight(size: SizeOptions): void {
+    const height = Math.ceil(Number(size.height));
+    if (this.showSleepSheet && Number.isFinite(height) && height > 0 &&
+      Math.abs(height - this.sleepPanelContentHeight) > 0.5) {
+      this.sleepPanelContentHeight = height;
+    }
+  }
+
+  /** 返回先关闭当前面板，再由 NavDestination 处理退页。 */
   private handleBack(): boolean {
     if (this.showSourceVoice) {
       this.showSourceVoice = false;
@@ -434,20 +501,8 @@ export struct PlayerPage {
       this.showSourceSwitch = false;
       return true;
     }
-    if (this.showChapterList) {
-      this.showChapterList = false;
-      return true;
-    }
-    if (this.showSleepSheet) {
-      this.showSleepSheet = false;
-      return true;
-    }
-    if (this.showSkipSheet) {
-      this.showSkipSheet = false;
-      return true;
-    }
-    if (this.showSpeedSheet) {
-      this.showSpeedSheet = false;
+    if (this.playerPanelVisible()) {
+      this.closePlayerPanel();
       return true;
     }
     return false;
@@ -1186,6 +1241,7 @@ export struct PlayerPage {
       Row({ space: 8 }) {
         SymbolGlyph($r('sys.symbol.speaker_wave_2_fill')).fontSize(18).fontColor([$r('sys.color.font_secondary')])
         Slider({ value: this.volumeGainValue, min: 0, max: 24, step: 1 })
+          .attributeModifier(new SliderGestureModifier(0, 24))
           .layoutWeight(1).selectedColor($r('sys.color.font_primary')).trackThickness(4)
           .enabled(this.canChangeLoudnessGain())
           .accessibilityText($r('app.string.player_volume_boost'))
@@ -1284,9 +1340,10 @@ export struct PlayerPage {
 
   /** 打开章节列表,加载全部章节 */
   private openChapterList(): void {
+    if (this.showChapterList) return;
     this.cancelChapterPosition();
     this.chapterListInteracted = false;
-    this.showChapterList = true;
+    this.switchPlayerPanel(PlayerPanel.Chapters);
     this.listOffsetFromCurrent = 0;
     this.chapterSearchKeyword = '';
     this.chapterDescending = this.book?.chaptersDescending ?? false;
@@ -1295,6 +1352,7 @@ export struct PlayerPage {
     if (this.book.chapters.length === 0) {
       this.reloadEmptyChapterList(this.book);
     }
+    this.scrollToCurrentChapter();
   }
 
   @Monitor('showChapterList')
@@ -1346,7 +1404,7 @@ export struct PlayerPage {
   private scrollToCurrentChapter(): void {
     this.cancelChapterPosition();
     if (this.chapterGridVisible || this.chapterSearchKeyword.trim().length > 0) return;
-    if (!this.book || !this.playerState.currentChapter) return;
+    if (!this.book) return;
     const idx = this.currentChapterIndex();
     this.scrollChapterListToIndex(this.book ? PreferenceService.chapterDisplayIndex(this.book, idx) : idx);
   }
@@ -1451,10 +1509,9 @@ export struct PlayerPage {
     return this.formatSleepRemaining();
   }
 
-  private sleepSheetDismissUntil: number = 0;
-
   private openSleepSheet(): void {
-    if (this.showSleepSheet || Date.now() < this.sleepSheetDismissUntil) return;
+    if (this.showSleepSheet) return;
+    this.sleepPanelContentHeight = 0;
     if (this.sleepActive()) {
       this.sleepSheetMode = this.playerState.sleepMode;
       this.sleepSmartStopDraft = this.playerState.sleepSmartStop;
@@ -1463,7 +1520,7 @@ export struct PlayerPage {
     }
     this.sleepCustomVisible = false;
     this.sleepInputError = '';
-    this.showSleepSheet = true;
+    this.switchPlayerPanel(PlayerPanel.Sleep);
   }
 
   private selectSleepMode(mode: SleepMode): void {
@@ -1630,6 +1687,41 @@ export struct PlayerPage {
         right: this.playerRightPadding()
       })
 
+      if (this.playerPanelVisible()) {
+        // 关闭热区避开底部四个入口，保留切换和长按操作。
+        Column().width('100%').height(this.playerPanelAnchorTop())
+          .position({ x: 0, y: 0 }).backgroundColor(Color.Transparent)
+          .accessibilityLevel('no').onClick((): void => this.closePlayerPanel())
+        Column().width('100%').height(Math.max(0, this.viewportHeight - this.playerPanelAnchorTop() - 44))
+          .position({ x: 0, y: this.playerPanelAnchorTop() + 44 }).backgroundColor(Color.Transparent)
+          .accessibilityLevel('no').onClick((): void => this.closePlayerPanel())
+      }
+
+      ReaderSettingsPopup({
+        visible: this.playerPanelVisible(),
+        viewportWidth: this.viewportWidth,
+        viewportHeight: this.viewportHeight,
+        topInset: this.topSafeVp,
+        leftInset: this.leftSafeVp,
+        rightInset: this.rightSafeVp,
+        anchorBottom: this.viewportHeight - this.playerPanelAnchorTop(),
+        anchorCenterX: this.playerPanelCenterX(),
+        preferredHeight: this.playerPanelHeight(),
+        maxHeightRatio: this.showChapterList ? 0.84 : 0.64,
+        onVisibilityChange: (visible: boolean): void => {
+          if (!visible) this.closePlayerPanel();
+        }
+      }) {
+        if (this.showChapterList) {
+          this.buildChapterSheet()
+        } else if (this.showSleepSheet) {
+          this.buildPlaybackSleepSheet()
+        } else if (this.showSkipSheet) {
+          this.buildSkipSheet()
+        } else if (this.showSpeedSheet) {
+          this.buildSpeedSheet()
+        }
+      }
     }
     .width('100%')
     .height('100%')
@@ -1637,6 +1729,10 @@ export struct PlayerPage {
       [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
     .onSizeChange((_oldValue: SizeOptions, newValue: SizeOptions) => {
       this.handleViewportSizeChange(newValue);
+    })
+    .onAreaChange((_oldArea: Area, area: Area): void => {
+      this.playerGlobalX = Number(area.globalPosition.x);
+      this.playerGlobalY = Number(area.globalPosition.y);
     })
   }
 
@@ -2161,6 +2257,7 @@ export struct PlayerPage {
     Column({ space: AppSpace.Xxs }) {
       if (this.isSpeechBook()) {
         Slider({ value: this.speechProgress(), min: 0, max: 100, step: 0.1, style: SliderStyle.OutSet })
+          .attributeModifier(new SliderGestureModifier(0, 100))
           .selectedColor('#FFFFFF').trackColor('#33FFFFFF').blockColor('#FFFFFF')
           .blockSize({ width: 18, height: 18 }).trackThickness(6).width('100%')
           .enabled(this.canSkipPlayback())
@@ -2185,6 +2282,7 @@ export struct PlayerPage {
         step: 1000,
         style: SliderStyle.OutSet
       })
+        .attributeModifier(new SliderGestureModifier(0, this.sliderMaxMs()))
         .selectedColor('#FFFFFF')
         .trackColor('#33FFFFFF')
         .blockColor('#FFFFFF')
@@ -2306,27 +2404,19 @@ export struct PlayerPage {
         Text(this.fmtSpeed(this.isLiveBook() ? 1 : this.playbackSpeed()) + 'x')
           .fontSize(AppFont.Body + 1)
           .height(26)
-          .fontColor(this.playbackSpeed() !== 1.0 ? AppColor.Brand : '#B3B3B3')
+          .fontColor(this.showSpeedSheet || this.playbackSpeed() !== 1.0 ? AppColor.Brand : '#B3B3B3')
           .fontWeight(FontWeight.Medium)
       }
       .width(56)
       .alignItems(HorizontalAlign.Start)
       .height(44)
       .justifyContent(FlexAlign.Center)
+      .id('player-panel-speed')
+      .accessibilityText($r('app.string.player_speed_title'))
       .onClick(() => {
-        if (this.isLiveBook()) return;
+        if (this.isLiveBook() || this.showSpeedSheet) return;
         this.speedValue = this.playbackSpeed();
-        this.showSpeedSheet = true;
-      })
-      .bindSheet($$this.showSpeedSheet, this.buildSpeedSheet(), {
-        height: '55%',
-        detents: ['55%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
-        showClose: false,
-        dragBar: true,
-        backgroundColor: AppMaterial.SheetBackground,
-        blurStyle: AppMaterial.PlayerSheetBlur,
-        systemMaterial: AppMaterial.PlayerSheet,
-        onDisappear: () => { this.showSpeedSheet = false; }
+        this.switchPlayerPanel(PlayerPanel.Speed);
       })
       .gesture(
         LongPressGesture({ repeat: false, duration: 500 })
@@ -2339,7 +2429,7 @@ export struct PlayerPage {
         Stack() {
           SymbolGlyph($r('sys.symbol.alarm'))
             .fontSize(20)
-            .fontColor([this.sleepActive() ? AppColor.Brand : '#B3B3B3'])
+            .fontColor([this.showSleepSheet || this.sleepActive() ? AppColor.Brand : '#B3B3B3'])
         }
         .width(20).height(20)
         // Path 的路径坐标使用 px；须与 20vp 图标按同一屏幕密度换算。
@@ -2360,23 +2450,9 @@ export struct PlayerPage {
       }
       .width(56)
       .height(44)
+      .id('player-panel-sleep')
       .accessibilityText(this.sleepLabel())
       .onClick(() => this.openSleepSheet())
-      .bindSheet($$this.showSleepSheet, this.buildPlaybackSleepSheet(), {
-        height: SheetSize.FIT_CONTENT,
-        detents: [SheetSize.FIT_CONTENT, '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
-        showClose: false,
-        dragBar: true,
-        backgroundColor: AppMaterial.SheetBackground,
-        blurStyle: AppMaterial.PlayerSheetBlur,
-        systemMaterial: AppMaterial.PlayerSheet,
-        onWillDisappear: (): void => { this.sleepSheetDismissUntil = Date.now() + 400; },
-        onWillDismiss: (action: DismissSheetAction): void => {
-          this.sleepSheetDismissUntil = Date.now() + 400;
-          this.showSleepSheet = false;
-          action.dismiss();
-        }
-      })
       .gesture(LongPressGesture().onAction(() => {
         if (this.sleepActive()) {
           this.hapticTick();
@@ -2392,6 +2468,7 @@ export struct PlayerPage {
         }.width(56).height(44).backgroundColor(Color.Transparent)
           .accessibilityText($r('app.string.tts_stop')).id('tts-stop')
           .onClick((): void => {
+            this.closePlayerPanel();
             this.closeSpeechToReader();
           })
       } else {
@@ -2400,7 +2477,7 @@ export struct PlayerPage {
           SymbolGlyph($r('sys.symbol.chevron_left_2'))
             .fontSize(25)
             .rotate({ angle: 180 })
-            .fontColor([this.hasSkipConfig() ? AppColor.Brand : '#B3B3B3'])
+            .fontColor([this.showSkipSheet || this.hasSkipConfig() ? AppColor.Brand : '#B3B3B3'])
         }
         .width(26)
         .height(26)
@@ -2409,20 +2486,13 @@ export struct PlayerPage {
       .alignItems(HorizontalAlign.Center)
       .height(44)
       .justifyContent(FlexAlign.Center)
+      .id('player-panel-skip')
+      .accessibilityText($r('app.string.player_skip_title'))
       .onClick(() => {
+        if (this.showSkipSheet) return;
         this.skipIntroValue = this.book?.skipIntro ?? 0;
         this.skipOutroValue = this.book?.skipOutro ?? 0;
-        this.showSkipSheet = true;
-      })
-      .bindSheet($$this.showSkipSheet, this.buildSkipSheet(), {
-        height: '55%',
-        detents: ['55%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
-        showClose: false,
-        dragBar: true,
-        backgroundColor: AppMaterial.SheetBackground,
-        blurStyle: AppMaterial.PlayerSheetBlur,
-        systemMaterial: AppMaterial.PlayerSheet,
-        onDisappear: () => { this.showSkipSheet = false; }
+        this.switchPlayerPanel(PlayerPanel.Skip);
       })
       .gesture(LongPressGesture().onAction(() => {
         if (this.hasSkipConfig()) {
@@ -2439,32 +2509,40 @@ export struct PlayerPage {
       Stack({ alignContent: Alignment.End }) {
         SymbolGlyph($r('sys.symbol.music_note_list'))
           .fontSize(21)
-          .fontColor(['#B3B3B3'])
+          .fontColor([this.showChapterList ? AppColor.Brand : '#B3B3B3'])
       }
       .width(44)
       .height(44)
+      .id('player-panel-chapters')
       .accessibilityText($r('app.string.reader_chapters'))
       .onClick(() => this.openChapterList())
-      .bindSheet($$this.showChapterList, this.buildChapterSheet(), {
-        height: '80%',
-        detents: ['80%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
-        showClose: false,
-        dragBar: true,
-        backgroundColor: AppMaterial.SheetBackground,
-        blurStyle: AppMaterial.PlayerSheetBlur,
-        systemMaterial: AppMaterial.PlayerSheet,
-        onAppear: () => {
-          if (!this.chapterListInteracted) this.scrollToCurrentChapter();
-        },
-        onDisappear: () => {
-          this.cancelChapterPosition();
-          this.showChapterList = false;
-        }
-      })
 
     }
     .width('calc(100% - 18vp)')
     .padding({ top: this.isLandscapePlayer() ? AppSpace.Md : AppSpace.Lg })
+    .onAreaChange((_oldArea: Area, area: Area): void => {
+      this.bottomBarGlobalCenterX = Number(area.globalPosition.x) + Number(area.width) / 2;
+      this.bottomBarGlobalBottom = Number(area.globalPosition.y) + Number(area.height);
+    })
+  }
+
+  @Builder
+  private buildPlayerPanelCloseButton(): void {
+    Button({ type: ButtonType.Circle }) {
+      SymbolGlyph($r('sys.symbol.xmark'))
+        .fontSize(18).fontColor([$r('sys.color.font_secondary')])
+    }.width(40).height(40).backgroundColor(Color.Transparent)
+      .accessibilityText($r('app.string.common_close'))
+      .onClick((): void => this.closePlayerPanel())
+  }
+
+  @Builder
+  private buildPlayerPanelHeader(title: ResourceStr): void {
+    Row({ space: 8 }) {
+      Text(title).fontSize(18).fontWeight(FontWeight.Bold)
+        .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+      this.buildPlayerPanelCloseButton()
+    }.width('100%')
   }
 
   @Builder
@@ -2473,7 +2551,7 @@ export struct PlayerPage {
       Column({ space: AppSpace.Xs }) {
       Row() {
         Text(this.book?.title ?? '')
-          .fontSize(AppFont.Title)
+          .fontSize(18)
           .fontColor($r('sys.color.font_primary'))
           .fontWeight(FontWeight.Bold).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
         Button($r('app.string.chapter_total_switch', this.book?.chapters.length ?? 0))
@@ -2483,13 +2561,10 @@ export struct PlayerPage {
             this.chapterGridVisible = !this.chapterGridVisible;
             if (!this.chapterGridVisible) this.applyChapterFilter(this.chapterSearchKeyword);
           })
-        SymbolGlyph($r('sys.symbol.xmark'))
-          .fontSize(20)
-          .fontColor([$r('sys.color.font_secondary')])
-          .onClick(() => { this.showChapterList = false; })
+        this.buildPlayerPanelCloseButton()
       }
       .width('100%')
-      .padding({ left: AppSpace.Lg, right: AppSpace.Lg, top: AppSpace.Xs })
+      .padding({ left: 12, right: 8, top: 4 })
 
       ChapterSheetActions({
         descending: this.chapterDescending,
@@ -2515,7 +2590,7 @@ export struct PlayerPage {
         .height(40)
         .borderRadius(AppRadius.Lg)
         .backgroundColor($r('sys.color.comp_background_tertiary'))
-        .margin({ left: AppSpace.Lg, right: AppSpace.Lg, top: 0, bottom: 0 })
+        .margin({ left: 12, right: 12, top: 0, bottom: 0 })
 
       if (this.chapterGridVisible) {
         ChapterSegmentGrid({
@@ -2630,7 +2705,7 @@ export struct PlayerPage {
     Button(mode === SleepMode.Duration ? $r('app.string.player_sleep_by_time') : $r('app.string.player_sleep_by_chapter'))
       .type(ButtonType.Normal)
       .layoutWeight(1)
-      .height(40)
+      .height(36)
       .fontSize(AppFont.Body)
       .fontWeight(this.sleepSheetMode === mode ? FontWeight.Medium : FontWeight.Normal)
       .fontColor(this.sleepSheetMode === mode ? AppColor.Brand : $r('sys.color.font_secondary'))
@@ -2642,6 +2717,7 @@ export struct PlayerPage {
   @Builder
   private buildSpeechTimerButton(label: ResourceStr, minutes: number, chapterEnd: boolean = false): void {
     Button(label).fontSize(AppFont.Caption).fontColor(AppColor.Brand)
+      .type(ButtonType.Normal).borderRadius(AppRadius.Md).height(40).layoutWeight(1)
       .backgroundColor($r('sys.color.comp_background_tertiary'))
       .onClick((): void => {
         TextToSpeechService.getInstance().setSleep(minutes, chapterEnd);
@@ -2651,27 +2727,36 @@ export struct PlayerPage {
 
   @Builder
   private buildPlaybackSleepSheet(): void {
-    if (this.isSpeechBook()) {
-      Column({ space: AppSpace.Lg }) {
-        Text($r('app.string.tts_sleep')).fontSize(AppFont.Title).fontWeight(FontWeight.Bold)
-          .fontColor($r('sys.color.font_primary')).width('100%')
-        Row({ space: AppSpace.Xs }) {
-          this.buildSpeechTimerButton($r('app.string.tts_sleep_off'), 0)
-          this.buildSpeechTimerButton($r('app.string.tts_sleep_15'), 15)
-          this.buildSpeechTimerButton($r('app.string.tts_sleep_30'), 30)
-          this.buildSpeechTimerButton($r('app.string.tts_sleep_60'), 60)
-        }.width('100%').justifyContent(FlexAlign.SpaceBetween)
-        this.buildSpeechTimerButton($r('app.string.tts_sleep_chapter'), 0, true)
-        if (this.speechState.remainingSeconds > 0) {
-          Text($r('app.string.tts_sleep_remaining', Math.ceil(this.speechState.remainingSeconds / 60)))
-            .fontColor(AppColor.Brand).fontSize(AppFont.Body)
-        } else if (this.speechState.stopAtChapterEnd) {
-          Text($r('app.string.tts_sleep_chapter_active')).fontColor(AppColor.Brand).fontSize(AppFont.Body)
-        }
-      }.width('100%').padding(AppSpace.Lg).alignItems(HorizontalAlign.Start)
-    } else {
-      this.buildSleepSheet()
-    }
+    Scroll() {
+      Column() {
+      if (this.isSpeechBook()) {
+        Column({ space: 8 }) {
+          this.buildPlayerPanelHeader($r('app.string.tts_sleep'))
+          Row({ space: 8 }) {
+            this.buildSpeechTimerButton($r('app.string.tts_sleep_off'), 0)
+            this.buildSpeechTimerButton($r('app.string.tts_sleep_15'), 15)
+          }.width('100%')
+          Row({ space: 8 }) {
+            this.buildSpeechTimerButton($r('app.string.tts_sleep_30'), 30)
+            this.buildSpeechTimerButton($r('app.string.tts_sleep_60'), 60)
+          }.width('100%')
+          Row() {
+            this.buildSpeechTimerButton($r('app.string.tts_sleep_chapter'), 0, true)
+          }.width('100%')
+          if (this.speechState.remainingSeconds > 0) {
+            Text($r('app.string.tts_sleep_remaining', Math.ceil(this.speechState.remainingSeconds / 60)))
+              .fontColor(AppColor.Brand).fontSize(AppFont.Body)
+          } else if (this.speechState.stopAtChapterEnd) {
+            Text($r('app.string.tts_sleep_chapter_active')).fontColor(AppColor.Brand).fontSize(AppFont.Body)
+          }
+        }.width('100%').padding({ left: 12, right: 12, top: 4, bottom: 10 })
+          .alignItems(HorizontalAlign.Start)
+      } else {
+        this.buildSleepSheet()
+      }
+      }.width('100%')
+        .onSizeChange((_oldSize: SizeOptions, newSize: SizeOptions): void => this.updateSleepPanelHeight(newSize))
+    }.width('100%').height('100%').align(Alignment.TopStart).scrollBar(BarState.Off)
   }
 
   @Builder
@@ -2679,7 +2764,7 @@ export struct PlayerPage {
     Button(this.sleepOptionLabel(value))
       .type(ButtonType.Normal)
       .layoutWeight(1)
-      .height(48)
+      .height(40)
       .fontSize(AppFont.BodyL)
       .fontColor(this.sleepOptionSelected(value) ? AppColor.Brand : $r('sys.color.font_primary'))
       .backgroundColor(this.sleepOptionSelected(value) ? AppColor.BrandSoft : $r('sys.color.comp_background_tertiary'))
@@ -2691,25 +2776,8 @@ export struct PlayerPage {
 
   @Builder
   buildSleepSheet() {
-    Column({ space: AppSpace.Md }) {
-      Row() {
-        Text($r('app.string.player_sleep_title'))
-          .fontSize(AppFont.Title)
-          .fontColor($r('sys.color.font_primary'))
-          .fontWeight(FontWeight.Bold)
-        Blank()
-        Button({ type: ButtonType.Circle }) {
-          SymbolGlyph($r('sys.symbol.xmark'))
-            .fontSize(20)
-            .fontColor([$r('sys.color.font_secondary')])
-        }
-        .width(40)
-        .height(40)
-        .backgroundColor(Color.Transparent)
-        .accessibilityText($r('app.string.player_sleep_close'))
-        .onClick(() => { this.showSleepSheet = false; })
-      }
-      .width('100%')
+    Column({ space: 8 }) {
+      this.buildPlayerPanelHeader($r('app.string.player_sleep_title'))
 
       Row({ space: AppSpace.Md }) {
         Column({ space: 4 }) {
@@ -2778,7 +2846,7 @@ export struct PlayerPage {
             .type(InputType.Number)
             .enterKeyType(EnterKeyType.Done)
             .maxLength(4)
-            .height(48)
+            .height(40)
             .layoutWeight(1)
             .caretColor(AppColor.Brand)
             .onChange((value: string) => {
@@ -2854,19 +2922,19 @@ export struct PlayerPage {
       }
     }
     .width('100%')
-    .padding({ left: AppSpace.Lg, right: AppSpace.Lg, top: AppSpace.Sm, bottom: AppSpace.Lg })
+    .padding({ left: 12, right: 12, top: 4, bottom: 10 })
   }
 
   @Builder
   buildAdjustmentButton(action: string) {
-    Button({ type: ButtonType.Circle }) {
+    Button({ type: ButtonType.Circle, stateEffect: false }) {
       SymbolGlyph(action.endsWith('Down') ? $r('sys.symbol.minus') : $r('sys.symbol.plus'))
         .fontSize(20)
         .fontColor([AppColor.Brand])
     }
     .width(44)
     .height(44)
-    .backgroundColor(AppColor.BrandSoft)
+    .backgroundColor(Color.Transparent).hoverEffect(HoverEffect.None)
     .enabled(this.adjustmentEnabled(action))
     .opacity(this.adjustmentEnabled(action) ? 1 : 0.4)
     .accessibilityText(this.adjustmentLabel(action))
@@ -2909,25 +2977,8 @@ export struct PlayerPage {
   @Builder
   buildSkipSheet() {
     Scroll() {
-      Column({ space: AppSpace.Lg }) {
-        Row() {
-          Text($r('app.string.player_skip_title'))
-            .fontSize(AppFont.Title)
-            .fontColor($r('sys.color.font_primary'))
-            .fontWeight(FontWeight.Bold)
-          Blank()
-          Button({ type: ButtonType.Circle }) {
-            SymbolGlyph($r('sys.symbol.xmark'))
-              .fontSize(20)
-              .fontColor([$r('sys.color.font_secondary')])
-          }
-          .width(44)
-          .height(44)
-          .backgroundColor(Color.Transparent)
-          .onClick(() => { this.showSkipSheet = false; })
-        }
-        .width('100%')
-        .padding({ left: AppSpace.Lg, right: AppSpace.Lg })
+      Column({ space: 8 }) {
+        this.buildPlayerPanelHeader($r('app.string.player_skip_title'))
 
         Column({ space: AppSpace.Xs }) {
           Row() {
@@ -2941,11 +2992,12 @@ export struct PlayerPage {
               .fontWeight(FontWeight.Medium)
           }
           .width('100%')
-          .padding({ left: AppSpace.Lg, right: AppSpace.Lg })
+          .padding({ left: 2, right: 2 })
 
           Row({ space: AppSpace.Sm }) {
             this.buildAdjustmentButton('introDown')
             Slider({ value: this.skipIntroValue, min: 0, max: 120, step: 1 })
+              .attributeModifier(new SliderGestureModifier(0, 120))
               .blockColor(AppColor.Brand)
               .trackColor($r('sys.color.comp_divider'))
               .selectedColor(AppColor.Brand)
@@ -2959,10 +3011,10 @@ export struct PlayerPage {
             this.buildAdjustmentButton('introUp')
           }
           .width('100%')
-          .padding({ left: AppSpace.Lg, right: AppSpace.Lg })
+          .padding({ left: 2, right: 2 })
         }
         .width('100%')
-        .padding({ top: AppSpace.Sm })
+        .padding({ top: 4 })
 
         Column({ space: AppSpace.Xs }) {
           Row() {
@@ -2976,11 +3028,12 @@ export struct PlayerPage {
               .fontWeight(FontWeight.Medium)
           }
           .width('100%')
-          .padding({ left: AppSpace.Lg, right: AppSpace.Lg })
+          .padding({ left: 2, right: 2 })
 
           Row({ space: AppSpace.Sm }) {
             this.buildAdjustmentButton('outroDown')
             Slider({ value: this.skipOutroValue, min: 0, max: 120, step: 1 })
+              .attributeModifier(new SliderGestureModifier(0, 120))
               .blockColor(AppColor.Brand)
               .trackColor($r('sys.color.comp_divider'))
               .selectedColor(AppColor.Brand)
@@ -2994,13 +3047,13 @@ export struct PlayerPage {
             this.buildAdjustmentButton('outroUp')
           }
           .width('100%')
-          .padding({ left: AppSpace.Lg, right: AppSpace.Lg })
+          .padding({ left: 2, right: 2 })
         }
         .width('100%')
-        .padding({ top: AppSpace.Sm })
+        .padding({ top: 4 })
       }
       .width('100%')
-      .padding({ top: AppSpace.Xs, bottom: AppSpace.Xl })
+      .padding({ left: 10, right: 10, top: 4, bottom: 10 })
     }
     .width('100%')
     .height('100%')
@@ -3011,25 +3064,8 @@ export struct PlayerPage {
   @Builder
   buildSpeedSheet() {
     Scroll() {
-      Column({ space: AppSpace.Lg }) {
-        Row() {
-          Text($r('app.string.player_speed_title'))
-            .fontSize(AppFont.Title)
-            .fontColor($r('sys.color.font_primary'))
-            .fontWeight(FontWeight.Bold)
-          Blank()
-          Button({ type: ButtonType.Circle }) {
-            SymbolGlyph($r('sys.symbol.xmark'))
-              .fontSize(20)
-              .fontColor([$r('sys.color.font_secondary')])
-          }
-          .width(44)
-          .height(44)
-          .backgroundColor(Color.Transparent)
-          .onClick(() => { this.showSpeedSheet = false; })
-        }
-        .width('100%')
-        .padding({ left: AppSpace.Lg, right: AppSpace.Lg })
+      Column({ space: 8 }) {
+        this.buildPlayerPanelHeader($r('app.string.player_speed_title'))
 
         Column({ space: AppSpace.Xs }) {
           Row() {
@@ -3043,11 +3079,12 @@ export struct PlayerPage {
               .fontWeight(FontWeight.Bold)
           }
           .width('100%')
-          .padding({ left: AppSpace.Lg, right: AppSpace.Lg })
+          .padding({ left: 2, right: 2 })
 
           Row({ space: AppSpace.Sm }) {
             this.buildAdjustmentButton('speedDown')
             Slider({ value: this.speedValue, min: 0.5, max: 3, step: 0.05 })
+              .attributeModifier(new SliderGestureModifier(0.5, 3))
               .blockColor(AppColor.Brand)
               .trackColor($r('sys.color.comp_divider'))
               .selectedColor(AppColor.Brand)
@@ -3061,8 +3098,8 @@ export struct PlayerPage {
             this.buildAdjustmentButton('speedUp')
           }
           .width('100%')
-          .padding({ left: AppSpace.Lg, right: AppSpace.Lg })
-          .margin({ top: AppSpace.Md })
+          .padding({ left: 2, right: 2 })
+          .margin({ top: 4 })
 
           Row() {
             Text('0.5x')
@@ -3074,13 +3111,13 @@ export struct PlayerPage {
               .fontColor($r('sys.color.font_tertiary'))
           }
           .width('100%')
-          .padding({ left: AppSpace.Lg, right: AppSpace.Lg })
+          .padding({ left: 2, right: 2 })
         }
         .width('100%')
-        .padding({ top: AppSpace.Sm })
+        .padding({ top: 4 })
       }
       .width('100%')
-      .padding({ top: AppSpace.Xs, bottom: AppSpace.Xl })
+      .padding({ left: 10, right: 10, top: 4, bottom: 10 })
     }
     .width('100%')
     .height('100%')

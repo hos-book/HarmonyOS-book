@@ -22,7 +22,7 @@ export struct PodcastSearchSurface {
   @Builder empty() { Row() }
   build() {
     Stack() {
-      if (PlatformCompat.floatingTabs) {
+      if (HdsCompat.materialSupported) {
         HdsTabs({ index: 0, barPosition: BarPosition.End }) {
           TabContent() { Column() }.height(this.surfaceHeight).tabBar(this.empty())
         }.barMode(BarMode.Fixed).barHeight(this.surfaceHeight).barOverlap(true)

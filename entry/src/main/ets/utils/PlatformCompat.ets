@@ -3,11 +3,6 @@ import lazy { uiMaterial } from '@kit.ArkUI';
 
 /** 最低支持 API 20；按接口引入版本选择实现，不能用编译版本判断设备能力。 */
 export class PlatformCompat {
-  static get readerKit(): boolean {
-    return canIUse('SystemCapability.Reader.ReaderService.ReaderCore') &&
-      canIUse('SystemCapability.Reader.ReaderService.BookParser');
-  }
-
   static get wearable(): boolean {
     return deviceInfo.deviceType === 'wearable';
   }
@@ -21,21 +16,12 @@ export class PlatformCompat {
   }
 
   static get immersiveMaterial(): boolean {
-    // API 可用不代表设备支持材质；不支持时 systemMaterial 会静默失效。
+    // SMOOTH 是设备算力档，不是系统设置的“弱”；这类设备统一用可见底色回退。
     if (!PlatformCompat.supports(26)) return false;
     try {
       return uiMaterial.isImmersiveMaterialSupported() &&
-        uiMaterial.getMaterialInfo().state !== uiMaterial.MaterialState.DISABLE;
-    } catch (_error) {
-      return false;
-    }
-  }
-
-  /** API 26 查询的是设备算力档，不是用户在系统设置中的光感强度。 */
-  static get weakMaterialLevel(): boolean {
-    if (!PlatformCompat.supports(26)) return false;
-    try {
-      return uiMaterial.getGlobalMaterialLevel() === uiMaterial.MaterialLevel.SMOOTH;
+        uiMaterial.getMaterialInfo().state !== uiMaterial.MaterialState.DISABLE &&
+        uiMaterial.getGlobalMaterialLevel() !== uiMaterial.MaterialLevel.SMOOTH;
     } catch (_error) {
       return false;
     }

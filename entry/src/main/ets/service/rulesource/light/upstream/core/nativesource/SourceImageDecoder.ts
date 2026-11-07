@@ -21,8 +21,8 @@ export class SourceImageDecoder {
 
   /** Call after validate(). */
   private static keyHex(spec: NativeCoverDecodeSpec): string {
-    if (spec.keyEncoding !== 'utf8') return spec.key;
-    return Array.from(new util.TextEncoder().encodeInto(spec.key))
+    if (spec.keyEncoding !== 'utf8') return spec.key || '';
+    return Array.from(new util.TextEncoder().encodeInto(spec.key || ''))
       .map(value => value.toString(16).padStart(2, '0')).join('');
   }
 
@@ -45,7 +45,7 @@ export class SourceImageDecoder {
     const offset = this.prepare(input, spec, this.MAX_BYTES);
     if (offset < 0) return input;
     const iv = this.ivHex(input, spec, offset);
-    const output = NativeSourceCrypto.decryptBytes(spec.algorithm, input.subarray(offset), this.keyHex(spec), iv);
+    const output = NativeSourceCrypto.decryptBytes(spec.algorithm || '', input.subarray(offset), this.keyHex(spec), iv);
     if (!this.isImage(output)) throw new Error('Decoded content is not an image');
     return output;
   }
@@ -54,7 +54,7 @@ export class SourceImageDecoder {
     maxBytes: number = SourceImageDecoder.MAX_BYTES): Promise<Uint8Array> {
     const offset = this.prepare(input, spec, maxBytes);
     if (offset < 0) return input;
-    const output = await NativeSourceCrypto.decryptBytesAsync(spec.algorithm, input.subarray(offset),
+    const output = await NativeSourceCrypto.decryptBytesAsync(spec.algorithm || '', input.subarray(offset),
       this.keyHex(spec), this.ivHex(input, spec, offset));
     if (!this.isImage(output)) throw new Error('Decoded content is not an image');
     return output;

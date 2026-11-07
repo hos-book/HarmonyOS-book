@@ -35,6 +35,7 @@ import { ThemeIcons, ThemeIconRole } from '../theme/ThemeIcons';
 import { BookSourceAudioWebRuntimeHost } from '../service/rulesource/light/BookSourceAudioWebRuntimeHost';
 import { RuleSourceImportWebHost } from '../service/rulesource/light/RuleSourceImportWebHost';
 import { MainTabPolicy } from '../utils/MainTabPolicy';
+import { BottomTabIconService } from '../service/BottomTabIconService';
 
 /**
  * 全局事件:点击某本书时调,统一收口路由策略。
@@ -52,6 +53,7 @@ const FLOATING_BOTTOM: number = 4;
 const FLOATING_MIN_SAFE_BOTTOM: number = 8;
 const FLOATING_SIDE_MARGIN: number = 16;
 const FLOATING_BAR_GAP: number = 8;
+const FLOATING_TAB_HEIGHT: number = 60;
 const FLOATING_WIDE_BREAKPOINT: number = 600;
 const TAB_RESTORE_WIDTH_GROWTH: number = 48;
 const TAB_RESTORE_HEIGHT_GROWTH: number = 80;
@@ -75,9 +77,16 @@ export struct MainPage {
   private shelfBackHandler: (() => boolean) | undefined = undefined;
   private recordsBackHandler: (() => boolean) | undefined = undefined;
   @Local appearance: AppAppearance = AppAppearance.current;
+  @Local bottomTabIcons: BottomTabIconService = BottomTabIconService.instance;
   private useFloatingTabs(): boolean { return PlatformCompat.floatingTabs; }
   private useVerticalTabs(): boolean { return PlatformCompat.supports(24) && this.appearance.verticalBottomTabs; }
   private useWideFloatingBars(): boolean { return this.useVerticalTabs() && this.viewportWidth >= FLOATING_WIDE_BREAKPOINT; }
+
+  private bottomTabInset(): number {
+    return this.useFloatingTabs()
+      ? Math.max(this.bottomSafeVp, FLOATING_MIN_SAFE_BOTTOM) + FLOATING_BOTTOM + FLOATING_TAB_HEIGHT
+      : this.bottomSafeVp + 56;
+  }
   @Monitor('appearance.verticalBottomTabs')
   private onTabStyleChanged(): void {
     if (this.miniBarExpandTimer !== -1) clearTimeout(this.miniBarExpandTimer);
@@ -547,7 +556,7 @@ export struct MainPage {
 
   private buildTabBar(icon: Resource, label: string, role: ThemeIconRole): BottomTabBarStyle {
     // 标签及图标的收展交给原生 HdsTabs，避免样式回调中销毁/重建 Text 引起闪现。
-    const themeIcon: Resource | undefined = ThemeIcons.resolve(role);
+    const themeIcon: ResourceStr | undefined = this.bottomTabIcons.resolve(role) ?? ThemeIcons.resolve(role);
     const symbol: TabBarSymbol = {
       normal: new SymbolGlyphModifier(icon).fontSize(24).fontColor([$r('sys.color.font_primary')]),
       selected: new SymbolGlyphModifier(icon).fontSize(26).fontColor([AppColor.Brand])
@@ -783,6 +792,8 @@ export struct MainPage {
               this.shelfBackHandler = handler;
             },
             visible: this.currentTab === 1,
+            bottomTabInset: this.bottomTabInset(),
+            miniPlayerVisible: this.miniPlayerVisible(),
             navStack: this.navStack,
             onBookTap: (id: string) => this.navigateToBook(id, '', 0, false),
             onScrollerReady: (scroller: Scroller) => { this.registerTabScroller(1, scroller); },
@@ -914,7 +925,7 @@ export struct MainPage {
     .height('100%')
     .backgroundColor(HomeTheme.BgNeutral)
     .bindSheet($$this.showMiniChapters, this.buildMiniChapterSheet(), {
-      height: '80%', detents: ['80%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
+      height: '90%', detents: ['90%', '60%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
       showClose: false, dragBar: true,
       backgroundColor: AppMaterial.SheetBackground,
       blurStyle: AppMaterial.PlayerSheetBlur, systemMaterial: AppMaterial.PlayerSheet,

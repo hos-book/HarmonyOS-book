@@ -1,124 +1,101 @@
-// Real font library service: batch selection, persistence and partial failure.
+// DEVECO_HOME points to the Release IDE. Uses the real font service with isolated files/preferences.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const fsp = fs.promises;
-const path = require('node:path');
 const os = require('node:os');
+const path = require('node:path');
 const vm = require('node:vm');
-const ts = require(path.join(process.env.DEVECO_HOME, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
-const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'hsda-fonts-')).replaceAll('\\', '/');
-const handles = new Map();
+const ide = process.env.DEVECO_HOME;
+if (!ide) throw new Error('Set DEVECO_HOME to the installed Release IDE');
+const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
+const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'reader-fonts-'));
+const context = { filesDir: temp.replaceAll('\\', '/') };
+const directory = context.filesDir + '/reader_fonts';
+fs.mkdirSync(directory);
 const values = new Map();
-let selected = [];
-let selectionLimit = 0;
-const fileIo = {
-  OpenMode: { READ_ONLY: 0 },
-  async access(filename) { return fs.existsSync(filename); },
-  accessSync: fs.existsSync,
-  async open(filename) { const file = await fsp.open(filename, 'r'); handles.set(file.fd, file); return file; },
-  async close(file) { handles.delete(file.fd); await file.close(); },
-  async stat(fd) { return handles.get(fd).stat(); },
-  async read(fd, data, options) {
-    return (await handles.get(fd).read(Buffer.from(data), 0, options.length, options.offset)).bytesRead;
-  },
-  async copyFile(fd, dest) {
-    const source = handles.get(fd);
-    const bytes = Buffer.alloc((await source.stat()).size);
-    await source.read(bytes, 0, bytes.length, 0);
-    await fsp.writeFile(dest, bytes);
-  },
-  async mkdir(dir) { if (fs.existsSync(dir)) throw new Error('File exists'); await fsp.mkdir(dir, { recursive: true }); },
-  listFile: dir => fsp.readdir(dir),
-  unlink: file => fsp.unlink(file)
+let flushCount = 0;
+let failFlushAt = -1;
+const undeletable = new Set();
+const store = {
+  getSync: (key, fallback) => values.get(key) ?? fallback,
+  putSync: (key, value) => values.set(key, value),
+  flush: async () => {
+    if (++flushCount === failFlushAt) throw new Error('disk unavailable');
+  }
 };
-function load() {
-  const exports = {};
-  const file = path.resolve(__dirname, '../entry/src/main/ets/service/text/ReaderFontService.ets');
-  const code = ts.transpileModule(fs.readFileSync(file, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
-  }).outputText;
-  vm.runInNewContext(code, { exports, console, ArrayBuffer, Uint8Array, require: name => {
-    if (name === '@kit.CoreFileKit') return { fileIo, picker: {
-      DocumentSelectOptions: class {}, DocumentViewPicker: class {
-        async select(options) { selectionLimit = options.maxSelectNumber; return selected; }
-      }
-    } };
-    if (name === '@kit.ArkData') return { preferences: { getPreferences: async () => ({
-      getSync: (key, fallback) => values.get(key) ?? fallback,
-      putSync: (key, value) => values.set(key, value), flush: async () => {}
-    }) } };
-    if (name === '@kit.ArkGraphics2D') return { text: { FontCollection: {
-      getGlobalInstance: () => ({ loadFontSync: () => {} })
-    } } };
-    return {};
-  } }, { filename: file });
-  return exports.ReaderFontService;
-}
-
-function verifyPaginatorFonts() {
-  let measuredStyle;
-  const graphicsText = {
-    TextAlign: { START: 0 }, WordBreak: { BREAK_WORD: 0 }, BreakStrategy: { GREEDY: 0 },
-    FontCollection: { getGlobalInstance: () => ({}) },
-    ParagraphBuilder: class {
-      constructor(style) { measuredStyle = style.textStyle; }
-      pushStyle() {}
-      addText() {}
-      popStyle() {}
-      build() { return { layoutSync() {}, getMaxIntrinsicWidth: () => 9, getLineMetrics: () => [{ startIndex: 0, height: 24 }] }; }
+const filename = path.resolve(__dirname, '../entry/src/main/ets/service/text/ReaderFontService.ets');
+const output = ts.transpileModule(fs.readFileSync(filename, 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
+}).outputText;
+const moduleObject = { exports: {} };
+vm.runInNewContext(output, { exports: moduleObject.exports, Error, require: name => {
+  if (name === '@kit.ArkData') return { preferences: { getPreferences: async () => store } };
+  if (name === '@kit.CoreFileKit') return { fileIo: {
+    access: async file => fs.existsSync(file),
+    listFile: async dir => fs.readdirSync(dir),
+    unlink: async file => {
+      if (undeletable.has(file)) throw new Error('file busy');
+      fs.unlinkSync(file);
     }
-  };
-  const file = path.resolve(__dirname, '../entry/src/main/ets/service/text/OnlineTextPaginator.ets');
-  const exports = {};
-  vm.runInNewContext(ts.transpileModule(fs.readFileSync(file, 'utf8'), {
-    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
-  }).outputText, { exports, require: name => name === '../../utils/PlatformCompat' ?
-    { PlatformCompat: { supports: () => false } } : { text: graphicsText } }, { filename: file });
-  const { OnlineTextPaginator: paginator } = exports;
-  paginator.paginate('System font text', 300, 500, 18, 1.9);
-  assert.deepEqual(Array.from(measuredStyle.fontFamilies), [], 'default pagination lets the system choose its current font');
-  paginator.paginate('System font text', 300, 500, 18, 1.9, '');
-  assert.deepEqual(Array.from(measuredStyle.fontFamilies), [], 'system selection does not pin a named font');
-  paginator.paginate('Imported font text', 300, 500, 18, 1.9, 'ReaderFont_Custom');
-  assert.deepEqual(Array.from(measuredStyle.fontFamilies), ['ReaderFont_Custom'], 'imported font remains explicitly selected');
-}
+  } };
+  if (name === '@kit.ArkGraphics2D') return {};
+  throw new Error(`Unexpected dependency: ${name}`);
+} }, { filename });
+const { ReaderFontService: service } = moduleObject.exports;
+const fontPaths = ['a.ttf', 'b.otf', 'c.ttf'].map(name => directory + '/' + name);
+const pathsOf = fonts => Array.from(fonts, font => font.path);
 
 (async () => {
-  verifyPaginatorFonts();
-  const context = { filesDir: temp };
-  let service = load();
-  assert.equal((await service.list(context)).length, 0);
-  for (let i = 0; i < 7; i++) {
-    const bytes = Buffer.alloc(64); bytes[1] = 1; bytes[10] = i;
-    await fsp.writeFile(`${temp}/Test-${i}.ttf`, bytes);
-  }
-  selected = [0, 1, 2, 3, 4].map(i => `${temp}/Test-${i}.ttf`);
-  const first = await service.pick(context);
-  assert.equal(selectionLimit, 5);
-  assert.equal(first.fonts.length, 5);
-  assert.equal(new Set(first.fonts.map(font => font.path)).size, 5);
-  assert.equal(first.fonts.at(-1).name, 'Test-4.ttf');
-  await fsp.writeFile(`${temp}/broken.ttf`, 'not a font at all');
-  selected = [`${temp}/Test-5.ttf`, `${temp}/broken.ttf`, `${temp}/Test-6.ttf`];
-  const second = await service.pick(context);
-  assert.equal(second.fonts.length, 2);
-  assert.equal(second.failures.length, 1);
-  service = load(); // process restart
-  const library = await service.list(context);
-  assert.equal(library.length, 7);
-  assert.ok(library.some(font => font.name === 'Test-0.ttf'), 'old font remains selectable');
-  for (const font of library) assert.ok(service.register(context, font.path).startsWith('ReaderFont_'));
-  selected = [];
-  assert.equal((await service.pick(context)).fonts.length, 0);
-  assert.equal((await service.list(context)).length, 7, 'cancel does not erase library');
-  const deleted = library[0];
-  const remaining = await service.remove(context, deleted.path);
-  assert.equal(remaining.length, 6);
-  assert.ok(!fs.existsSync(deleted.path));
-  assert.equal((await load().list(context)).length, 6, 'deleted font stays removed after restart');
-  await assert.rejects(service.remove(context, `${temp}/Test-0.ttf`));
-  assert.ok(fs.existsSync(`${temp}/Test-0.ttf`), 'cannot delete outside the font library');
-  assert.equal(handles.size, 0);
-  console.log('PASS: system/custom pagination fonts, five-font selection, unique files, retained library, restart, partial failure, cancellation');
+  for (const file of fontPaths) fs.writeFileSync(file, 'test-font');
+  values.set('catalog', JSON.stringify([
+    { path: fontPaths[1], name: '乙' },
+    { path: fontPaths[0], name: '甲' },
+    { path: fontPaths[0], name: '重复' },
+    { path: directory + '/../outside.ttf', name: '越界' }
+  ]));
+  let fonts = await service.list(context);
+  assert.deepEqual(pathsOf(fonts), [fontPaths[1], fontPaths[0], fontPaths[2]]);
+  assert.ok(fonts.every(font => font.enabled), 'legacy fonts default to enabled');
+  console.log('PASS legacy catalog migration, stable order and duplicate/path filtering');
+
+  await service.setEnabled(context, [fontPaths[0], fontPaths[2]], false);
+  assert.deepEqual(pathsOf(await service.listEnabled(context)), [fontPaths[1]]);
+  fonts = await service.list(context);
+  assert.equal(fonts.length, 3, 'disabled fonts remain manageable');
+  assert.ok(fontPaths.every(file => fs.existsSync(file)), 'disabling retains font files');
+  await service.setEnabled(context, fontPaths, true);
+  assert.equal((await service.listEnabled(context)).length, 3);
+  console.log('PASS batch disable/enable persists and reader choices exclude disabled fonts');
+
+  await service.reorder(context, [fontPaths[2], fontPaths[2], 'missing', fontPaths[1]]);
+  assert.deepEqual(pathsOf(await service.list(context)), [fontPaths[2], fontPaths[1], fontPaths[0]]);
+  assert.deepEqual(pathsOf(await service.listEnabled(context)), [fontPaths[2], fontPaths[1], fontPaths[0]]);
+  console.log('PASS reorder survives reload, deduplicates IDs and retains omitted fonts');
+
+  let previous = values.get('catalog');
+  failFlushAt = flushCount + 2; // The first flush normalizes the catalog read.
+  await assert.rejects(service.setEnabled(context, [fontPaths[0]], false), /disk unavailable/);
+  assert.equal(values.get('catalog'), previous);
+  assert.equal((await service.listEnabled(context)).length, 3);
+  previous = values.get('catalog');
+  failFlushAt = flushCount + 2;
+  await assert.rejects(service.reorder(context, fontPaths), /disk unavailable/);
+  assert.equal(values.get('catalog'), previous);
+  console.log('PASS failed writes preserve both enabled state and prior order');
+
+  undeletable.add(fontPaths[1]);
+  const deleted = await service.removeBatch(context, [fontPaths[0], fontPaths[1]]);
+  assert.equal(deleted.failedCount, 1);
+  assert.deepEqual(pathsOf(deleted.fonts), [fontPaths[2], fontPaths[1]]);
+  assert.ok(!fs.existsSync(fontPaths[0]));
+  assert.deepEqual(pathsOf(await service.list(context)), [fontPaths[2], fontPaths[1]]);
+  undeletable.clear();
+  assert.deepEqual(pathsOf(await service.remove(context, fontPaths[1])), [fontPaths[2]]);
+  console.log('PASS partial batch deletion retains failed items and retry removes only selected fonts');
+
+  failFlushAt = flushCount + 2;
+  await assert.rejects(service.removeBatch(context, [fontPaths[2]]), /disk unavailable/);
+  assert.equal((await service.list(context)).length, 0, 'reload reconciles a deleted file after catalog failure');
+  assert.equal((await service.listEnabled(context)).length, 0);
+  console.log('PASS deletion failure reconciliation and empty reader choices');
 })().catch(error => { console.error(error); process.exitCode = 1; })
   .finally(() => fs.rmSync(temp, { recursive: true, force: true }));

@@ -224,7 +224,7 @@ export struct ThemeBundleComponent {
     }.width('100%')
     .bindSheet($$this.showPreview, this.previewSheet(), {
       height: '80%', preferType: SheetType.BOTTOM, dragBar: true, showClose: true,
-      backgroundColor: AppTheme.Background,
+      backgroundColor: AppTheme.SettingsBackground,
       onDisappear: (): void => { this.showPreview = false; }
     })
   }

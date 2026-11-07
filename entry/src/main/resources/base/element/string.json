@@ -1,6 +1,9 @@
 {
   "string": [
-    { "name": "app_icon_gel", "value": "胶彩" },
+    {
+      "name": "app_icon_gel",
+      "value": "胶彩"
+    },
     {
       "name": "app_icon_nostalgia",
       "value": "怀旧"
@@ -379,7 +382,7 @@
     },
     {
       "name": "tts_synthesis_hint",
-      "value": "短句合并后提前合成下一段，减少段间等待。系统音色每段最多 300 字并提前准备下一段；网络音色支持以下字数、超时、重试和并发设置，接口限流时请降低并发。"
+      "value": "短句合并后提前合成下一段，减少段间等待。系统音色每段最多 300 字并提前准备下一段；下方段落、字数与网络参数用于网络音色。\n\n渐进短段合成开启时，段落和字数作为上限；接口限流时请降低并发。"
     },
     {
       "name": "tts_synthesis_paragraphs",
@@ -890,16 +893,8 @@
       "value": "保留最近 2000 条章节会话；异常退出以最后保存位置为准"
     },
     {
-      "name": "epub_parser_unavailable",
-      "value": "当前设备不支持 EPUB 解析，请转换为 TXT 后导入。"
-    },
-    {
-      "name": "reader_kit_unavailable",
-      "value": "当前设备不支持 ReaderKit，无法打开旧版 EPUB 书籍。在线文字及已转换的本地书籍可正常阅读。"
-    },
-    {
       "name": "reader_paragraph_spacing",
-      "value": "段落间距"
+      "value": "段距"
     },
     {
       "name": "reader_paragraph_preview_first",
@@ -1087,7 +1082,7 @@
     },
     {
       "name": "reader_custom_font_title",
-      "value": "自定义字体"
+      "value": "自定义"
     },
     {
       "name": "reader_delete_font_option",
@@ -2782,6 +2777,10 @@
       "value": "取消"
     },
     {
+      "name": "common_close",
+      "value": "关闭"
+    },
+    {
       "name": "common_back",
       "value": "返回"
     },
@@ -3023,11 +3022,11 @@
     },
     {
       "name": "reader_font_size",
-      "value": "字体大小"
+      "value": "字号"
     },
     {
       "name": "reader_line_height",
-      "value": "行间距"
+      "value": "行高"
     },
     {
       "name": "reader_line_height_compact",
@@ -3100,46 +3099,6 @@
     {
       "name": "reader_verify_source",
       "value": "验证书源"
-    },
-    {
-      "name": "reader_kit_verify",
-      "value": "ReaderKit 验证"
-    },
-    {
-      "name": "reader_kit_verify_title",
-      "value": "ReaderKit 调用验证"
-    },
-    {
-      "name": "reader_kit_verify_running",
-      "value": "正在初始化 ReaderKit"
-    },
-    {
-      "name": "reader_kit_verify_waiting",
-      "value": "请在真机上查看当前签名是否通过调用方校验"
-    },
-    {
-      "name": "reader_kit_verify_success",
-      "value": "ReaderKit 初始化成功"
-    },
-    {
-      "name": "reader_kit_verify_failed",
-      "value": "ReaderKit 初始化失败"
-    },
-    {
-      "name": "reader_kit_verify_no_invalid_caller",
-      "value": "当前签名未触发 Invalid caller"
-    },
-    {
-      "name": "reader_kit_verify_invalid_caller",
-      "value": "当前签名触发 Invalid caller，请检查 Reader Kit 调用方配置"
-    },
-    {
-      "name": "reader_kit_verify_other_error",
-      "value": "ReaderKit 返回了其他错误，请结合错误码和设备日志排查"
-    },
-    {
-      "name": "reader_kit_verify_error_code",
-      "value": "错误码"
     },
     {
       "name": "guide_group_mini_player",
@@ -3655,7 +3614,7 @@
     },
     {
       "name": "guide_common_settings_desc",
-      "value": "可调整外观、启动页面、播放、搜索及历史记录等偏好；阅读页的字体和翻页设置在阅读工具栏中调整。「我的 → 主题」可选择主题图标和主题套装，具体可用项以页面提示为准。"
+      "value": "可调整外观、启动页面、播放、搜索及历史记录等偏好；阅读页的字体和翻页设置在阅读工具栏中调整。「我的 → 主题」可选择主题图标、主题套装和自定义 Tab 图标，具体可用项以页面提示为准。"
     },
     {
       "name": "guide_group_problems",
@@ -5198,6 +5157,14 @@
       "value": "点击区域"
     },
     {
+      "name": "reader_tap_expand",
+      "value": "点击展开"
+    },
+    {
+      "name": "reader_tap_collapse",
+      "value": "点击收起"
+    },
+    {
       "name": "reader_tap_hint",
       "value": "点击格子切换：上一页 → 工具栏 → 下一页 → 无操作。至少保留一个工具栏区域；滑动不会呼出工具栏。"
     },
@@ -6388,6 +6355,30 @@
     {
       "name": "app_icon_invite_free",
       "value": "邀测免费体验"
+    },
+    {
+      "name": "settings_appearance_group",
+      "value": "外观"
+    },
+    {
+      "name": "settings_theme_mode",
+      "value": "主题模式"
+    },
+    {
+      "name": "settings_interaction_group",
+      "value": "布局与交互"
+    },
+    {
+      "name": "settings_launch_group",
+      "value": "启动"
+    },
+    {
+      "name": "settings_playback_group",
+      "value": "播放"
+    },
+    {
+      "name": "settings_cache_group",
+      "value": "缓存与预加载"
     },
     {
       "name": "settings_default_playback_speed",
@@ -7995,15 +7986,15 @@
     },
     {
       "name": "tts_continuous_preset",
-      "value": "应用连续朗读推荐配置"
+      "value": "应用推荐"
     },
     {
       "name": "tts_continuous_hint",
-      "value": "先准备起读短句，后续按约 64 字短段连续预合成，最多提前准备 3 份音频。合成字数设置作为上限；服务返回较慢或高倍速播放时仍可能等待。"
+      "value": "仅用于自定义网络音色。开启后先合成起读短句，后续按约 64 字短段连续预合成，最多提前准备 3 份音频。服务较慢或高倍速时仍可能等待。\n\n“应用推荐”会开启此功能，将段落上限设为 3、字数上限设为 500、并发设为 3，并立即保存。手动调整请点击底部“保存并应用”。"
     },
     {
       "name": "tts_quick_start",
-      "value": "自定义音色渐进短段合成（推荐）"
+      "value": "渐进短段合成"
     },
     {
       "name": "tts_error_auth",
@@ -8063,7 +8054,7 @@
     },
     {
       "name": "tts_sort_hint",
-      "value": "调整当前筛选结果的顺序，自动保存并同步到音色选择列表"
+      "value": "长按音色拖动排序，松手自动保存；仅调整当前筛选结果"
     },
     {
       "name": "tts_sort_up",
@@ -8083,7 +8074,7 @@
     },
     {
       "name": "tts_batch_all",
-      "value": "全选当前结果"
+      "value": "全选"
     },
     {
       "name": "tts_batch_enable",
@@ -8165,23 +8156,286 @@
       "name": "shelf_narrator",
       "value": "播音：%s"
     },
-    {"name":"import_empty_title","value":"把喜欢的书放进来"},
-    {"name":"import_empty_hint","value":"点击右下角 ＋，可一次选择多本书籍"},
-    {"name":"import_selected_files","value":"已选 %d 个文件"},
-    {"name":"import_remove_file","value":"移除所选文件"},
-    {"name":"import_remove_named_file","value":"移除 %s"},
-    {"name":"import_batch_preview_hint","value":"电子书逐本导入，分别保留各自的封面和信息"},
-    {"name":"import_author_unknown","value":"暂无作者信息"},
-    {"name":"import_preview_unavailable","value":"未能读取信息"},
-    {"name":"import_archive_preview_hint","value":"导入时展开"},
-    {"name":"import_audio_preview_hint","value":"合并为音频章节"},
-    {"name":"import_audio_book_info","value":"合并后的有声书信息"},
-    {"name":"import_edit_cover","value":"更换封面"},
-    {"name":"import_remove_cover","value":"移除封面"},
-    {"name":"import_author_optional","value":"作者（选填）"},
-    {"name":"reader_turn_haptic","value":"翻页震感"},
-    {"name":"reader_haptic_strong","value":"强劲"},
-    {"name":"reader_haptic_medium","value":"中等"},
-    {"name":"reader_haptic_weak","value":"弱感"}
+    {
+      "name": "import_empty_title",
+      "value": "把喜欢的书放进来"
+    },
+    {
+      "name": "import_empty_hint",
+      "value": "点击右下角 ＋，可一次选择多本书籍"
+    },
+    {
+      "name": "import_selected_files",
+      "value": "已选 %d 个文件"
+    },
+    {
+      "name": "import_remove_file",
+      "value": "移除所选文件"
+    },
+    {
+      "name": "import_remove_named_file",
+      "value": "移除 %s"
+    },
+    {
+      "name": "import_batch_preview_hint",
+      "value": "电子书逐本导入，分别保留各自的封面和信息"
+    },
+    {
+      "name": "import_author_unknown",
+      "value": "暂无作者信息"
+    },
+    {
+      "name": "import_preview_unavailable",
+      "value": "未能读取信息"
+    },
+    {
+      "name": "import_archive_preview_hint",
+      "value": "导入时展开"
+    },
+    {
+      "name": "import_audio_preview_hint",
+      "value": "合并为音频章节"
+    },
+    {
+      "name": "import_audio_book_info",
+      "value": "合并后的有声书信息"
+    },
+    {
+      "name": "import_edit_cover",
+      "value": "更换封面"
+    },
+    {
+      "name": "import_remove_cover",
+      "value": "移除封面"
+    },
+    {
+      "name": "import_author_optional",
+      "value": "作者（选填）"
+    },
+    {
+      "name": "reader_turn_haptic",
+      "value": "翻页震感"
+    },
+    {
+      "name": "reader_haptic_strong",
+      "value": "强劲"
+    },
+    {
+      "name": "reader_haptic_medium",
+      "value": "中等"
+    },
+    {
+      "name": "reader_haptic_weak",
+      "value": "弱感"
+    },
+    {
+      "name": "reader_chapter_heading",
+      "value": "章节大标题"
+    },
+    {
+      "name": "reader_chapter_heading_visible",
+      "value": "显示章节大标题"
+    },
+    {
+      "name": "reader_chapter_heading_size",
+      "value": "标题字号"
+    },
+    {
+      "name": "bottom_tab_icon_title",
+      "value": "Tab 图标"
+    },
+    {
+      "name": "bottom_tab_icon_hint",
+      "value": "为首页、书架、记录和我的选择图片，保存后立即生效。建议使用透明背景的正方形图片；其他图片将居中裁剪。恢复默认后跟随当前主题套装。"
+    },
+    {
+      "name": "bottom_tab_icon_home",
+      "value": "首页"
+    },
+    {
+      "name": "bottom_tab_icon_shelf",
+      "value": "书架"
+    },
+    {
+      "name": "bottom_tab_icon_record",
+      "value": "记录"
+    },
+    {
+      "name": "bottom_tab_icon_profile",
+      "value": "我的"
+    },
+    {
+      "name": "bottom_tab_icon_preview",
+      "value": "底栏预览 · 点击切换选中项"
+    },
+    {
+      "name": "bottom_tab_icon_follow_theme",
+      "value": "跟随主题套装"
+    },
+    {
+      "name": "bottom_tab_icon_custom",
+      "value": "自定义图片"
+    },
+    {
+      "name": "bottom_tab_icon_choose",
+      "value": "选择图片"
+    },
+    {
+      "name": "bottom_tab_icon_reset",
+      "value": "恢复默认图标"
+    },
+    {
+      "name": "bottom_tab_icon_reset_all",
+      "value": "全部恢复默认"
+    },
+    {
+      "name": "bottom_tab_icon_saved",
+      "value": "Tab 图标已更新"
+    },
+    {
+      "name": "bottom_tab_icon_failed",
+      "value": "图标保存失败，请选择 20 MB 以内的有效图片后重试"
+    },
+    {
+      "name": "bottom_tab_icon_reset_failed",
+      "value": "恢复失败，请重试"
+    },
+    {
+      "name": "reader_heading_plain",
+      "value": "简约"
+    },
+    {
+      "name": "reader_heading_bold",
+      "value": "加粗"
+    },
+    {
+      "name": "reader_heading_center",
+      "value": "居中"
+    },
+    {
+      "name": "reader_epub_legacy_reimport",
+      "value": "这本旧格式 EPUB 需要重新导入，以生成原版精排和章节目录。"
+    },
+    {
+      "name": "reader_epub_original_theme",
+      "value": "EPUB 原版精排"
+    },
+    {
+      "name": "reader_epub_original_hint",
+      "value": "此书专属预设，使用书内字体、背景与样式。选择其他主题可切回应用排版。"
+    },
+    {
+      "name": "reader_epub_original_failed",
+      "value": "原版精排暂时无法显示，已切回应用排版，可在主题中重试。"
+    },
+    {
+      "name": "reading_font_import_hint",
+      "value": "已导入 %d 个 · 支持 TTF / OTF"
+    },
+    {
+      "name": "reading_font_import_success",
+      "value": "已导入 %d 个字体，可在阅读页的字体面板中选择"
+    },
+    {
+      "name": "reader_font_management",
+      "value": "字体管理"
+    },
+    {
+      "name": "reader_font_management_empty",
+      "value": "暂无导入字体，点击右上角导入字体"
+    },
+    {
+      "name": "reader_font_load_failed",
+      "value": "字体列表加载失败，请重试"
+    },
+    {
+      "name": "reader_font_delete_confirm",
+      "value": "删除后，使用该字体的阅读页面将恢复系统字体。"
+    },
+    {
+      "name": "reader_font_batch_delete_confirm",
+      "value": "确定删除选中的 %d 个字体？删除后需要重新导入，正在使用的字体将恢复为系统字体。"
+    },
+    {
+      "name": "reader_font_delete_partial",
+      "value": "%d 个字体删除失败，已保留，可重试"
+    },
+    {
+      "name": "reader_font_save_failed",
+      "value": "字体设置保存失败，请重试"
+    },
+    {
+      "name": "reader_font_enabled",
+      "value": "启用字体 %s"
+    },
+    {
+      "name": "reader_font_sort_hint",
+      "value": "长按拖动字体排序，松手自动保存"
+    }
+    ,{ "name": "reader_epub_original_custom_hint", "value": "调整字体、字号或边距会切换到应用排版，可随时选择此书的原版精排主题恢复。" },
+    {
+      "name": "settings_hint_action",
+      "value": "查看说明"
+    },
+    {
+      "name": "tts_continuous_title",
+      "value": "连续朗读"
+    },
+    {
+      "name": "tts_synthesis_length_group",
+      "value": "合成长度"
+    },
+    {
+      "name": "tts_synthesis_network_group",
+      "value": "网络请求"
+    },
+    {
+      "name": "tts_synthesis_text_group",
+      "value": "文本处理"
+    },
+    {
+      "name": "reader_settings_turn_group",
+      "value": "翻页与操作"
+    },
+    {
+      "name": "reader_settings_display_group",
+      "value": "页面与显示"
+    },
+    {
+      "name": "reader_settings_assistance_group",
+      "value": "阅读辅助"
+    },
+    {
+      "name": "reader_settings_theme_group",
+      "value": "主题外观"
+    },
+    {
+      "name": "reader_settings_font_group",
+      "value": "字体"
+    },
+    {
+      "name": "reader_settings_paragraph_group",
+      "value": "段落排版"
+    },
+    {
+      "name": "comic_settings_reading_group",
+      "value": "阅读方式"
+    },
+    {
+      "name": "comic_settings_display_group",
+      "value": "界面显示"
+    },
+    {
+      "name": "comic_settings_image_group",
+      "value": "图像与翻译"
+    },
+    {
+      "name": "comic_settings_gesture_title",
+      "value": "漫画阅读手势"
+    },
+    {
+      "name": "reader_auto_page_seconds_short",
+      "value": "%d 秒"
+    }
   ]
 }

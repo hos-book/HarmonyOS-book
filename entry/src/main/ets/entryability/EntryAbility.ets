@@ -12,6 +12,7 @@ import { BusinessError, emitter } from '@kit.BasicServicesKit';
 import { WindowUtils } from '../utils/WindowUtils';
 import { PreferenceService } from '../service/PreferenceService';
 import { AppIconService } from '../service/AppIconService';
+import { BottomTabIconService } from '../service/BottomTabIconService';
 import lazy { AuthService } from '../service/AuthService';
 import lazy { MembershipService } from '../service/MembershipService';
 import lazy { AutoBackupService } from '../service/AutoBackupService';
@@ -418,11 +419,6 @@ export default class EntryAbility extends UIAbility {
       });
       return;
     }
-    if (action === 'readerKitVerify') {
-      // ReaderKit 验证功能已禁用（需要 HMS Core ReaderService 依赖）
-      hilog.warn(DOMAIN, TAG, 'readerKitVerify action ignored: ReaderKit dependency disabled');
-      return;
-    }
     const params = this.extractRouteParams(want);
     if (!params) return;
     const from = params['from'] as string | undefined;
@@ -567,6 +563,7 @@ export default class EntryAbility extends UIAbility {
     // 恢复本地主题和展示状态后再构建页面，避免首帧默认套装闪烁；不等待网络核验。
     await Promise.all([
       PreferenceService.init(this.context).catch((): void => {}),
+      BottomTabIconService.instance.init(this.context).catch((): void => {}),
       MembershipService.instance.prepareAppearance(this.context)
     ]);
     windowStage.loadContent('pages/Index', (err) => {

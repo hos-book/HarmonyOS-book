@@ -1,4 +1,6 @@
-import { ReaderSettingCard } from './ReaderSettingCard';
+import { SliderGestureModifier } from '../utils/SliderGestureModifier';
+import { ReaderSettingCard, ReaderSettingsSectionHeader } from './ReaderSettingCard';
+import { SettingsHintButton } from './SettingsHintButton';
 import { ReaderAutoPageSettings } from './ReaderAutoPageSettings';
 import { ReaderTapPolicy } from '../utils/ReaderTapPolicy';
 import { ReaderImportedFont } from '../service/text/ReaderFontService';
@@ -10,7 +12,7 @@ import { ImmersiveOptionTabs } from './ImmersiveOptionTabs';
  * ReaderSettingsSheet - 阅读设置面板
  *
  * 按鸿蒙分组卡片规范重排：字号 / 行高 / 翻页 / 主题设置卡。
- * 面板由父页面的原生 bindSheet 提供材质，内容文字跟随系统深浅模式。
+ * 面板由 ReaderSettingsPopup 提供悬浮材质，内容文字跟随系统深浅模式。
  * 阅读纸张配色只影响正文与主题色样，不修改 App 的外观偏好。
  *
  * 本组件只负责呈现与回调，不落盘；持久化由 ReaderPage 统一做。
@@ -29,67 +31,98 @@ import {
 } from '../model/ReaderTheme';
 import { ReaderBackground } from './ReaderBackground';
 
-/** 行高预设档位 */
-class LineHeightPreset {
-  label: string = '';
-  value: number = 1.9;
-
-  static of(label: string, value: number): LineHeightPreset {
-    const preset = new LineHeightPreset();
-    preset.label = label;
-    preset.value = value;
-    return preset;
-  }
-}
-
-const LINE_HEIGHT_PRESETS: LineHeightPreset[] = [
-  LineHeightPreset.of('紧凑', 1.5),
-  LineHeightPreset.of('适中', 1.7),
-  LineHeightPreset.of('标准', 1.9),
-  LineHeightPreset.of('宽松', 2.2)
-];
-
 /** 按钮边界状态随参数刷新，避免多参数 Builder 保留首次 enabled 值。 */
 @ComponentV2
 struct ReaderSpacingStepButton {
   @Param decrease: boolean = false;
   @Param canStep: boolean = false;
+  @Param idPrefix: string = 'reader-paragraph-spacing';
   @Event onStep: () => void = () => {};
 
   build() {
-    Button({ type: ButtonType.Circle }) {
+    Button({ type: ButtonType.Circle, stateEffect: false }) {
       SymbolGlyph(this.decrease ? $r('sys.symbol.minus') : $r('sys.symbol.plus'))
         .fontSize(16).fontColor([$r('sys.color.font_primary')])
-    }.width(34).height(34).backgroundColor(AppColor.GlassSheetControlTint)
+    }.width(34).height(34).backgroundColor(Color.Transparent).hoverEffect(HoverEffect.None)
       .enabled(this.canStep).opacity(this.canStep ? 1 : 0.4)
       .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
       .onClick((): void => this.onStep())
-      .id(this.decrease ? 'reader-paragraph-spacing-minus' : 'reader-paragraph-spacing-plus')
+      .id(`${this.idPrefix}-${this.decrease ? 'minus' : 'plus'}`)
   }
 }
 
-/** 分档按钮使用 @Param 观察选中态，避免 @Builder 按值参数停留在首次渲染。 */
+/** 数值设置统一一行：名称、步进、滑条和当前值。 */
 @ComponentV2
-struct ReaderSettingChip {
-  @Param label: ResourceStr = '';
-  @Param selected: boolean = false;
-  @Event onSelect: () => void = () => {};
+struct ReaderTypographySetting {
+  @Param label: Resource = $r('app.string.reader_font_size');
+  @Param settingValue: number = 0;
+  @Param min: number = 0;
+  @Param max: number = 100;
+  @Param step: number = 1;
+  @Param buttonStep: number = 1;
+  @Param fractionDigits: number = 0;
+  @Param idPrefix: string = 'reader-font-size';
+  @Event onChange: (value: number, commit: boolean) => void = () => {};
 
   build() {
-    Text(this.label)
-      .fontSize(AppFont.Caption)
-      .fontColor($r('sys.color.font_primary'))
-      .fontWeight(this.selected ? FontWeight.Medium : FontWeight.Normal)
-      .textAlign(TextAlign.Center)
-      .layoutWeight(1)
-      .height(34)
-      .borderRadius(AppRadius.Pill)
-      .backgroundColor(this.selected ? $r('sys.color.comp_background_tertiary') : AppColor.GlassSheetControlTint)
-      .border({ width: this.selected ? 1 : 0, color: $r('sys.color.font_primary') })
-      .animation({ duration: AppMotion.Fast, curve: AppCurve.Standard })
-      .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
-      .accessibilitySelected(this.selected)
-      .onClick(() => this.onSelect())
+    ReaderSettingCard({ showTitle: false, compact: true }) {
+      Row({ space: 4 }) {
+        Text(this.label).fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
+          .maxLines(1).constraintSize({ minWidth: 28 })
+        ReaderSpacingStepButton({ decrease: true, canStep: this.settingValue > this.min,
+          idPrefix: this.idPrefix, onStep: (): void =>
+            this.onChange(Math.max(this.min, this.settingValue - this.buttonStep), true) })
+        Slider({ value: this.settingValue, min: this.min, max: this.max, step: this.step, style: SliderStyle.InSet })
+          .attributeModifier(new SliderGestureModifier(this.min, this.max))
+          .layoutWeight(1).height(40)
+          .blockColor(AppColor.OnBrand).trackColor($r('sys.color.comp_divider'))
+          .selectedColor(AppColor.Brand).trackThickness(6)
+          .accessibilityText(this.label).id(this.idPrefix)
+          .onChange((value: number, mode: SliderChangeMode): void =>
+            this.onChange(value, mode === SliderChangeMode.End || mode === SliderChangeMode.Click))
+        ReaderSpacingStepButton({ canStep: this.settingValue < this.max,
+          idPrefix: this.idPrefix, onStep: (): void =>
+            this.onChange(Math.min(this.max, this.settingValue + this.buttonStep), true) })
+        Text(this.settingValue.toFixed(this.fractionDigits)).fontSize(AppFont.Body)
+          .fontColor($r('sys.color.font_primary')).fontWeight(FontWeight.Medium)
+          .width(30).textAlign(TextAlign.End)
+      }.width('100%').alignItems(VerticalAlign.Center)
+    }
+  }
+}
+
+/** 标题样式与边距分段控件保持一致，按钮直接参与 Row 的等宽布局。 */
+@ComponentV2
+struct ReaderHeadingStyleTabs {
+  @Param selected: string = 'center';
+  @Event onSelect: (style: string) => void = () => {};
+
+  private label(style: string): Resource {
+    return style === 'plain' ? $r('app.string.reader_heading_plain') :
+      style === 'bold' ? $r('app.string.reader_heading_bold') : $r('app.string.reader_heading_center');
+  }
+
+  build() {
+    Row({ space: 4 }) {
+      ForEach(['plain', 'bold', 'center'], (style: string) => {
+        Button({ type: ButtonType.Capsule, stateEffect: false }) {
+          Text(this.label(style)).fontSize(AppFont.Body)
+            .fontWeight(this.selected === style ? FontWeight.Medium : FontWeight.Normal)
+            .fontColor(this.selected === style ? AppColor.Brand : $r('sys.color.font_primary'))
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }
+          .layoutWeight(1).height(36).padding({ left: 8, right: 8 })
+          .backgroundColor(this.selected === style ? $r('sys.color.comp_background_primary') : Color.Transparent)
+          .animation({ duration: AppMotion.Fast, curve: AppCurve.Standard })
+          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.97 })
+          .accessibilityText(this.label(style)).accessibilitySelected(this.selected === style)
+          .id(`reader-heading-${style}`)
+          .onClick((): void => {
+            if (this.selected !== style) this.onSelect(style);
+          })
+      }, (style: string): string => style)
+    }.width('100%').padding(4).borderRadius(22)
+      .backgroundColor($r('sys.color.comp_background_tertiary')).clip(true)
   }
 }
 
@@ -210,14 +243,14 @@ struct ReaderMarginSlider {
 
   @Builder
   stepper(icon: Resource, enabled: boolean, delta: number) {
-    Button({ type: ButtonType.Circle }) {
+    Button({ type: ButtonType.Circle, stateEffect: false }) {
       SymbolGlyph(icon)
         .fontSize(16)
         .fontColor([$r('sys.color.font_primary')])
     }
     .width(34)
     .height(34)
-    .backgroundColor(AppColor.GlassSheetControlTint)
+    .backgroundColor(Color.Transparent).hoverEffect(HoverEffect.None)
     .enabled(enabled)
     .opacity(enabled ? 1 : 0.4)
     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
@@ -231,6 +264,7 @@ struct ReaderMarginSlider {
       Text(this.label).fontSize(AppFont.Caption).width(36).fontColor($r('sys.color.font_primary'))
       this.stepper($r('sys.symbol.minus'), this.value > 0, -1)
       Slider({ value: this.value, min: 0, max: this.max, step: 1 })
+        .attributeModifier(new SliderGestureModifier(0, this.max))
         .layoutWeight(1).selectedColor(AppColor.Brand)
         .accessibilityText(this.label)
         .onChange((next: number, mode: SliderChangeMode): void => {
@@ -269,22 +303,23 @@ struct ReaderTapSizeSlider {
           .width(44).textAlign(TextAlign.End)
       }.width('100%')
       Row({ space: 8 }) {
-        Button({ type: ButtonType.Circle }) {
+        Button({ type: ButtonType.Circle, stateEffect: false }) {
           SymbolGlyph($r('sys.symbol.minus')).fontSize(16).fontColor([$r('sys.color.font_primary')])
         }
-        .width(34).height(34).backgroundColor(AppColor.GlassSheetControlTint)
+        .width(34).height(34).backgroundColor(Color.Transparent).hoverEffect(HoverEffect.None)
         .enabled(this.current > 5).opacity(this.current > 5 ? 1 : 0.4)
         .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
         .onClick((): void => this.update(this.current - 1, true))
         Slider({ value: this.current, min: 5, max: 90 - this.other, step: 1 })
+          .attributeModifier(new SliderGestureModifier(5, 90 - this.other))
           .layoutWeight(1).selectedColor(AppColor.Brand)
           .onChange((next: number, mode: SliderChangeMode): void => {
             this.update(next, mode === SliderChangeMode.End || mode === SliderChangeMode.Click);
           })
-        Button({ type: ButtonType.Circle }) {
+        Button({ type: ButtonType.Circle, stateEffect: false }) {
           SymbolGlyph($r('sys.symbol.plus')).fontSize(16).fontColor([$r('sys.color.font_primary')])
         }
-        .width(34).height(34).backgroundColor(AppColor.GlassSheetControlTint)
+        .width(34).height(34).backgroundColor(Color.Transparent).hoverEffect(HoverEffect.None)
         .enabled(this.current < 90 - this.other).opacity(this.current < 90 - this.other ? 1 : 0.4)
         .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
         .onClick((): void => this.update(this.current + 1, true))
@@ -333,6 +368,11 @@ struct ReaderEdgeTabs {
 
 @ComponentV2
 export struct ReaderSettingsSheet {
+  @Param epubOriginalAvailable: boolean = false;
+  @Param epubOriginalEnabled: boolean = false;
+  @Param epubOriginalSwitching: boolean = false;
+  @Param epubOriginalBookTitle: string = '';
+  @Event onEpubOriginalSelect: () => void = () => {};
   @Param autoPageSeconds: number = 10;
   @Param autoScrolling: boolean = false;
   @Param autoScrollSpeed: number = 20;
@@ -344,7 +384,9 @@ export struct ReaderSettingsSheet {
   @Event onAutoPageToggle: () => void = (): void => {};
   @Local marginEdge: number = 0;
   @Local tapSizeEdge: number = 0;
+  @Local tapRegionsExpanded: boolean = false;
   @Param fontPanel: boolean = false;
+  private settingsScroller: Scroller = new Scroller();
   @Param supportsSpeech: boolean = false;
   @Event onSpeechSettings: () => void = () => {};
   @Param fontWeight: number = 400;
@@ -384,6 +426,12 @@ export struct ReaderSettingsSheet {
   @Param letterSpacing: number = 0;
   @Event onLetterSpacingChange: (value: number, commit: boolean) => void = () => {};
   @Param paragraphSpacingEnabled: boolean = true;
+  @Param chapterHeadingVisible: boolean = true;
+  @Param chapterHeadingSize: number = 26;
+  @Param chapterHeadingStyle: string = 'center';
+  @Event onChapterHeadingVisibleChange: (visible: boolean) => void = () => {};
+  @Event onChapterHeadingSizeChange: (value: number, commit: boolean) => void = () => {};
+  @Event onChapterHeadingStyleChange: (style: string) => void = () => {};
   @Event onParagraphSpacingChange: (value: number, commit: boolean) => void = () => {};
   @Param themeId: string = ReaderThemeId.Parchment;
   @Param pattern: string = ReaderPattern.None;
@@ -433,178 +481,83 @@ export struct ReaderSettingsSheet {
   @Event onResetDefaults: () => void = () => {};
   @Event onClose: () => void = () => {};
 
-  /** 字号：左右步进 + 滑杆，步进按钮到边界自动置灰 */
   @Builder
   buildFontSizeSection() {
-    ReaderSettingCard({ title: '字号', compact: true }) {
-      Row({ space: AppSpace.Sm }) {
-        this.stepper($r('sys.symbol.minus'), this.fontSize > TextReadingSettings.FONT_SIZE_MIN, () => {
-          this.onFontSizeChange(this.fontSize - 1, true);
-        })
-
-        Slider({
-          value: this.fontSize,
-          min: TextReadingSettings.FONT_SIZE_MIN,
-          max: TextReadingSettings.FONT_SIZE_MAX,
-          step: 1,
-          style: SliderStyle.InSet
-        })
-          .layoutWeight(1)
-          .height(40)
-          .blockColor(AppColor.OnBrand)
-          .trackColor($r('sys.color.comp_divider'))
-          .selectedColor(AppColor.Brand)
-          .trackThickness(6)
-          .onChange((value: number, mode: SliderChangeMode): void => {
-            this.onFontSizeChange(value, mode === SliderChangeMode.End || mode === SliderChangeMode.Click);
-          })
-
-        this.stepper($r('sys.symbol.plus'), this.fontSize < TextReadingSettings.FONT_SIZE_MAX, () => {
-          this.onFontSizeChange(this.fontSize + 1, true);
-        })
-
-        Text(`${this.fontSize}`)
-          .fontSize(AppFont.Body)
-          .fontColor($r('sys.color.font_primary'))
-          .fontWeight(FontWeight.Medium)
-          .width(28)
-          .textAlign(TextAlign.End)
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-    }
+    ReaderTypographySetting({ label: $r('app.string.reader_font_size'), settingValue: this.fontSize,
+      min: TextReadingSettings.FONT_SIZE_MIN, max: TextReadingSettings.FONT_SIZE_MAX,
+      onChange: (value: number, commit: boolean): void => this.onFontSizeChange(value, commit) })
   }
 
-  /** 圆形步进按钮 */
-  @Builder
-  stepper(icon: Resource, enabled: boolean, onTap: () => void) {
-    Stack({ alignContent: Alignment.Center }) {
-      SymbolGlyph(icon)
-        .fontSize(16)
-        .fontColor([enabled ? $r('sys.color.font_primary') : $r('sys.color.font_tertiary')])
-    }
-    .width(34)
-    .height(34)
-    .borderRadius(17)
-    .backgroundColor(AppColor.GlassSheetControlTint)
-    .enabled(enabled)
-    .opacity(enabled ? 1 : 0.4)
-    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
-    .onClick(() => {
-      if (enabled) onTap();
-    })
-  }
-
-  /** 当前行高是否命中某个预设档（容差 0.05，避免浮点误差导致选中态丢失） */
-  private isLineHeightPreset(value: number): boolean {
-    return Math.abs(this.lineHeight - value) < 0.05;
-  }
-
-  /** 行高：四档快选 + 滑杆微调，两者双向同步 */
   @Builder
   buildLineHeightSection() {
-    ReaderSettingCard({ title: '行高', compact: true }) {
-      Column({ space: 6 }) {
-        Row({ space: AppSpace.Xs }) {
-          ForEach(
-            LINE_HEIGHT_PRESETS,
-            (preset: LineHeightPreset) => {
-              ReaderSettingChip({
-                label: preset.label,
-                selected: this.isLineHeightPreset(preset.value),
-                onSelect: () => this.onLineHeightChange(preset.value, true)
-              })
-            },
-            (preset: LineHeightPreset) => `lh-${preset.label}`
-          )
-        }
-        .width('100%')
-
-        Row({ space: AppSpace.Sm }) {
-          this.stepper($r('sys.symbol.minus'), this.lineHeight > TextReadingSettings.LINE_HEIGHT_MIN, () => {
-            this.onLineHeightChange(TextReadingSettings.normalizeLineHeight(this.lineHeight - 0.1), true);
-          })
-
-          Slider({
-            value: this.lineHeight,
-            min: TextReadingSettings.LINE_HEIGHT_MIN,
-            max: TextReadingSettings.LINE_HEIGHT_MAX,
-            step: 0.1,
-            style: SliderStyle.InSet
-          })
-            .layoutWeight(1)
-            .height(40)
-            .blockColor(AppColor.OnBrand)
-            .trackColor($r('sys.color.comp_divider'))
-            .selectedColor(AppColor.Brand)
-            .trackThickness(6)
-            .onChange((value: number, mode: SliderChangeMode): void => {
-              this.onLineHeightChange(value, mode === SliderChangeMode.End || mode === SliderChangeMode.Click);
-            })
-
-          this.stepper($r('sys.symbol.plus'), this.lineHeight < TextReadingSettings.LINE_HEIGHT_MAX, () => {
-            this.onLineHeightChange(TextReadingSettings.normalizeLineHeight(this.lineHeight + 0.1), true);
-          })
-
-          Text(`${this.lineHeight.toFixed(1)}`)
-            .fontSize(AppFont.Body)
-            .fontColor($r('sys.color.font_primary'))
-            .fontWeight(FontWeight.Medium)
-            .width(28)
-            .textAlign(TextAlign.End)
-        }
-        .width('100%')
-        .alignItems(VerticalAlign.Center)
-      }
-      .width('100%')
-    }
+    ReaderTypographySetting({ label: $r('app.string.reader_line_height'), settingValue: this.lineHeight,
+      min: TextReadingSettings.LINE_HEIGHT_MIN, max: TextReadingSettings.LINE_HEIGHT_MAX,
+      step: 0.1, buttonStep: 0.1, fractionDigits: 1, idPrefix: 'reader-line-height',
+      onChange: (value: number, commit: boolean): void =>
+        this.onLineHeightChange(TextReadingSettings.normalizeLineHeight(value), commit) })
   }
 
   @Builder
   buildParagraphSpacingSection() {
-    ReaderSettingCard({ title: $r('app.string.reader_paragraph_spacing'), compact: true }) {
-      Row({ space: AppSpace.Sm }) {
-        ReaderSpacingStepButton({ decrease: true,
-          canStep: this.paragraphSpacing > TextReadingSettings.PARAGRAPH_SPACING_MIN, onStep: (): void => {
-          this.onParagraphSpacingChange(TextReadingSettings.normalizeParagraphSpacing(this.paragraphSpacing - 0.1), true);
-        } })
-        Slider({
-          value: this.paragraphSpacing,
-          min: TextReadingSettings.PARAGRAPH_SPACING_MIN,
-          max: TextReadingSettings.PARAGRAPH_SPACING_MAX,
-          step: 0.1,
-          style: SliderStyle.InSet
-        })
-          .layoutWeight(1)
-          .height(40)
-          .blockColor(AppColor.OnBrand)
-          .trackColor($r('sys.color.comp_divider'))
-          .selectedColor(AppColor.Brand)
-          .trackThickness(6)
-          .accessibilityText($r('app.string.reader_paragraph_spacing'))
-          .onChange((value: number, mode: SliderChangeMode): void => {
-            this.onParagraphSpacingChange(value, mode === SliderChangeMode.End || mode === SliderChangeMode.Click);
-          })
-        ReaderSpacingStepButton({ canStep: this.paragraphSpacing < TextReadingSettings.PARAGRAPH_SPACING_MAX,
-          onStep: (): void => {
-          this.onParagraphSpacingChange(TextReadingSettings.normalizeParagraphSpacing(this.paragraphSpacing + 0.1), true);
-        } })
-        Text(`${this.paragraphSpacing.toFixed(1)}`)
-          .fontSize(AppFont.Body)
-          .fontColor($r('sys.color.font_primary'))
-          .fontWeight(FontWeight.Medium)
-          .width(28)
-          .textAlign(TextAlign.End)
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
+    ReaderTypographySetting({ label: $r('app.string.reader_paragraph_spacing'), settingValue: this.paragraphSpacing,
+      min: TextReadingSettings.PARAGRAPH_SPACING_MIN, max: TextReadingSettings.PARAGRAPH_SPACING_MAX,
+      step: 0.1, buttonStep: 0.1, fractionDigits: 1, idPrefix: 'reader-paragraph-spacing',
+      onChange: (value: number, commit: boolean): void =>
+        this.onParagraphSpacingChange(TextReadingSettings.normalizeParagraphSpacing(value), commit) })
+  }
+
+  @Builder
+  buildLetterSpacingSection() {
+    ReaderTypographySetting({ label: $r('app.string.reader_letter_spacing'), settingValue: this.letterSpacing,
+      min: 0, max: 10, step: 0.5, buttonStep: 0.5, fractionDigits: 1, idPrefix: 'reader-letter-spacing',
+      onChange: (value: number, commit: boolean): void =>
+        this.onLetterSpacingChange(TextReadingSettings.normalizeLetterSpacing(value), commit) })
+  }
+
+  @Builder
+  buildChapterHeadingSection() {
+    ReaderSettingCard({ showTitle: false, compact: true }) {
+      Column({ space: 8 }) {
+        Row() {
+          Text($r('app.string.reader_chapter_heading_visible'))
+            .fontSize(AppFont.Body).fontColor($r('sys.color.font_primary')).layoutWeight(1)
+          Toggle({ type: ToggleType.Switch, isOn: this.chapterHeadingVisible })
+            .selectedColor(AppColor.Brand)
+            .onChange((visible: boolean): void => this.onChapterHeadingVisibleChange(visible))
+            .id('reader-heading-visible')
+        }.width('100%')
+        if (this.chapterHeadingVisible) {
+          ReaderHeadingStyleTabs({ selected: this.chapterHeadingStyle,
+            onSelect: (style: string): void => this.onChapterHeadingStyleChange(style) })
+          Row({ space: AppSpace.Sm }) {
+            ReaderSpacingStepButton({ decrease: true, canStep: this.chapterHeadingSize > TextReadingSettings.CHAPTER_HEADING_MIN,
+              idPrefix: 'reader-heading-size',
+              onStep: (): void => this.onChapterHeadingSizeChange(this.chapterHeadingSize - 1, true) })
+            Slider({ value: this.chapterHeadingSize, min: TextReadingSettings.CHAPTER_HEADING_MIN,
+              max: TextReadingSettings.CHAPTER_HEADING_MAX, step: 1, style: SliderStyle.InSet })
+              .attributeModifier(new SliderGestureModifier(TextReadingSettings.CHAPTER_HEADING_MIN, TextReadingSettings.CHAPTER_HEADING_MAX))
+              .layoutWeight(1).height(40)
+              .blockColor(AppColor.OnBrand).trackColor($r('sys.color.comp_divider'))
+              .selectedColor(AppColor.Brand).trackThickness(6)
+              .accessibilityText($r('app.string.reader_chapter_heading_size'))
+              .onChange((value: number, mode: SliderChangeMode): void =>
+                this.onChapterHeadingSizeChange(value, mode === SliderChangeMode.End || mode === SliderChangeMode.Click))
+              .id('reader-heading-size')
+            ReaderSpacingStepButton({ canStep: this.chapterHeadingSize < TextReadingSettings.CHAPTER_HEADING_MAX,
+              idPrefix: 'reader-heading-size',
+              onStep: (): void => this.onChapterHeadingSizeChange(this.chapterHeadingSize + 1, true) })
+            Text(`${this.chapterHeadingSize}`).fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
+              .fontWeight(FontWeight.Medium).width(28).textAlign(TextAlign.End)
+          }.width('100%')
+        }
+      }.width('100%')
     }
   }
 
   /** 图片属于自定义主题；可用数量随已核验的权益变化。 */
   @Builder
   buildThemeSection() {
-    ReaderSettingCard({ title: $r('app.string.reader_theme_title') }) {
+    ReaderSettingCard({ compact: true, title: $r('app.string.reader_theme_title') }) {
       Column({ space: AppSpace.Sm }) {
         Text($r('app.string.reader_preset_themes')).fontSize(AppFont.Caption)
           .fontColor($r('sys.color.font_secondary')).width('100%')
@@ -614,7 +567,7 @@ export struct ReaderSettingsSheet {
             (preset: ReaderThemePreset) => {
               ReaderThemeSwatch({
                 preset: preset,
-                selected: this.effectiveThemeId === preset.id,
+                selected: !this.epubOriginalEnabled && this.effectiveThemeId === preset.id,
                 onSelect: () => this.onThemeChange(preset.id)
               })
             },
@@ -623,6 +576,31 @@ export struct ReaderSettingsSheet {
         }
         .width('100%')
         .alignItems(VerticalAlign.Top)
+
+        if (this.epubOriginalAvailable) {
+          Row({ space: AppSpace.Sm }) {
+            SymbolGlyph($r('sys.symbol.book')).fontSize(26).fontColor([AppColor.Brand])
+            Column({ space: 3 }) {
+              Text($r('app.string.reader_epub_original_theme')).fontSize(AppFont.Body)
+                .fontColor($r('sys.color.font_primary'))
+              Text(this.epubOriginalBookTitle).fontSize(AppFont.Caption).maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis }).fontColor($r('sys.color.font_secondary'))
+            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            if (this.epubOriginalSwitching) {
+              LoadingProgress().width(22).height(22).color(AppColor.Brand)
+            } else if (this.epubOriginalEnabled) {
+              SymbolGlyph($r('sys.symbol.checkmark_circle_fill')).fontSize(22).fontColor([AppColor.Brand])
+            }
+          }.width('100%').padding(12).borderRadius(AppRadius.Md)
+            .backgroundColor(AppColor.GlassSheetControlTint)
+            .border({ width: this.epubOriginalEnabled ? 1.5 : 0, color: AppColor.Brand })
+            .enabled(!this.epubOriginalSwitching)
+            .onClick((): void => this.onEpubOriginalSelect())
+            .accessibilityText($r('app.string.reader_epub_original_theme'))
+            .accessibilitySelected(this.epubOriginalEnabled).id('reader-theme-epub-original')
+          Text($r('app.string.reader_epub_original_hint')).fontSize(12)
+            .fontColor($r('sys.color.font_secondary')).width('100%')
+        }
 
         Column({ space: 4 }) {
           Row({ space: AppSpace.Xs }) {
@@ -639,7 +617,7 @@ export struct ReaderSettingsSheet {
             ReaderCustomTheme.canUse(theme.slot, this.membership.hasAccess)), (theme: ReaderCustomTheme) => {
             ListItem() {
               ReaderCustomThemeSwatch({ theme: this.customThemes[theme.slot],
-                selected: this.effectiveThemeId === ReaderThemeId.Custom && this.customThemeIndex === theme.slot,
+                selected: !this.epubOriginalEnabled && this.effectiveThemeId === ReaderThemeId.Custom && this.customThemeIndex === theme.slot,
                 onSelect: (): void => this.onCustomThemeSelect(theme.slot),
                 onEdit: (): void => {
                   if (ReaderCustomTheme.canUse(theme.slot, this.membership.hasAccess)) this.editingThemeIndex = theme.slot;
@@ -668,7 +646,7 @@ export struct ReaderSettingsSheet {
 
   @Builder
   buildTextAlignmentSection() {
-    ReaderSettingCard({ title: $r('app.string.reader_alignment_title'), inline: true }) {
+    ReaderSettingCard({ compact: true, title: $r('app.string.reader_alignment_title'), inline: true }) {
       ImmersiveOptionTabs({
         labels: [$r('app.string.reader_alignment_justify'), $r('app.string.reader_alignment_start'),
           $r('app.string.reader_alignment_center'), $r('app.string.reader_alignment_end')],
@@ -681,7 +659,7 @@ export struct ReaderSettingsSheet {
   /** 翻页模式：覆盖、仿真 */
   @Builder
   buildPageTurnModeSection() {
-    ReaderSettingCard({ title: $r('app.string.reader_turn_title'), inline: true }) {
+    ReaderSettingCard({ compact: true, title: $r('app.string.reader_turn_title'), inline: true }) {
       ImmersiveOptionTabs({
         labels: [$r('app.string.reader_turn_none'), $r('app.string.reader_turn_cover'),
           $r('app.string.reader_turn_simulation'), $r('app.string.reader_vertical_turn')],
@@ -694,7 +672,7 @@ export struct ReaderSettingsSheet {
 
   @Builder
   buildPageTurnHapticSection() {
-    ReaderSettingCard({ title: $r('app.string.reader_turn_haptic'), inline: true }) {
+    ReaderSettingCard({ compact: true, title: $r('app.string.reader_turn_haptic'), inline: true }) {
       ImmersiveOptionTabs({
         labels: [$r('app.string.reader_turn_none'), $r('app.string.reader_haptic_strong'),
           $r('app.string.reader_haptic_medium'), $r('app.string.reader_haptic_weak')],
@@ -714,51 +692,71 @@ export struct ReaderSettingsSheet {
 
   @Builder
   buildTapRegionsSection() {
-    ReaderSettingCard({ title: $r('app.string.reader_tap_title') }) {
+    ReaderSettingCard({ compact: true, showTitle: false }) {
       Column({ space: 8 }) {
-        Text($r('app.string.reader_tap_hint'))
-          .fontSize(12).fontColor($r('sys.color.font_secondary')).width('100%')
-        Column({ space: 4 }) {
-        ForEach([0, 1, 2], (row: number) => {
-          Row({ space: 4 }) {
-            ForEach([0, 1, 2], (column: number) => {
-              Button(this.tapRegionLabel(row * 3 + column), { type: ButtonType.Normal })
-                .layoutWeight(column === 0 ? this.tapLeftPercent : column === 2 ? this.tapRightPercent :
-                  100 - this.tapLeftPercent - this.tapRightPercent).height('100%').borderRadius(8).fontSize(11)
-                .fontColor($r('sys.color.font_primary'))
-                .backgroundColor($r('sys.color.comp_background_tertiary'))
-                .onClick((): void => this.onTapRegionsChange(ReaderTapPolicy.cycle(this.tapRegions, row * 3 + column)))
-            }, (column: number): string => `column-${column}`)
-          }.width('100%').layoutWeight(row === 0 ? this.tapTopPercent : row === 2 ? this.tapBottomPercent :
-            100 - this.tapTopPercent - this.tapBottomPercent)
-        }, (row: number): string => `row-${row}`)
-        }.width('100%').height(210)
-        ReaderEdgeTabs({ selected: this.tapSizeEdge, groupId: 'reader-tap-edge',
-          onSelect: (index: number): void => { this.tapSizeEdge = index; } })
-        if (this.tapSizeEdge === 2) {
-        ReaderTapSizeSlider({
-          label: $r('app.string.reader_tap_left_width'), value: this.tapLeftPercent, other: this.tapRightPercent,
-          onChange: (value: number, commit: boolean): void => this.onTapSizeChange('left', value, commit)
-        })
-        } else if (this.tapSizeEdge === 3) {
-        ReaderTapSizeSlider({
-          label: $r('app.string.reader_tap_right_width'), value: this.tapRightPercent, other: this.tapLeftPercent,
-          onChange: (value: number, commit: boolean): void => this.onTapSizeChange('right', value, commit)
-        })
-        } else if (this.tapSizeEdge === 0) {
-        ReaderTapSizeSlider({
-          label: $r('app.string.reader_tap_top_height'), value: this.tapTopPercent, other: this.tapBottomPercent,
-          onChange: (value: number, commit: boolean): void => this.onTapSizeChange('top', value, commit)
-        })
-        } else {
-        ReaderTapSizeSlider({
-          label: $r('app.string.reader_tap_bottom_height'), value: this.tapBottomPercent, other: this.tapTopPercent,
-          onChange: (value: number, commit: boolean): void => this.onTapSizeChange('bottom', value, commit)
-        })
+        Row({ space: 2 }) {
+        Button({ type: ButtonType.Normal }) {
+          Row({ space: AppSpace.Sm }) {
+            Text($r('app.string.reader_tap_title'))
+              .fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
+              .fontWeight(FontWeight.Medium).layoutWeight(1).textAlign(TextAlign.Start)
+            SymbolGlyph($r('sys.symbol.chevron_down'))
+              .fontSize(14).fontColor([$r('sys.color.font_secondary')])
+              .rotate({ angle: this.tapRegionsExpanded ? 180 : 0 })
+              .animation({ duration: AppMotion.Fast, curve: AppCurve.Standard })
+          }.width('100%')
+        }.layoutWeight(1).height(32).padding(0).borderRadius(8)
+          .backgroundColor(Color.Transparent)
+          .accessibilityText($r('app.string.reader_tap_title'))
+          .accessibilityDescription(this.tapRegionsExpanded ? $r('app.string.reader_tap_collapse') :
+            $r('app.string.reader_tap_expand'))
+          .onClick((): void => { this.tapRegionsExpanded = !this.tapRegionsExpanded; })
+          .id('reader-tap-regions-toggle')
+        SettingsHintButton({ title: $r('app.string.reader_tap_title'), message: $r('app.string.reader_tap_hint') })
+        }.width('100%')
+        if (this.tapRegionsExpanded) {
+          Column({ space: 4 }) {
+            ForEach([0, 1, 2], (row: number) => {
+              Row({ space: 4 }) {
+                ForEach([0, 1, 2], (column: number) => {
+                  Button(this.tapRegionLabel(row * 3 + column), { type: ButtonType.Normal })
+                    .layoutWeight(column === 0 ? this.tapLeftPercent : column === 2 ? this.tapRightPercent :
+                      100 - this.tapLeftPercent - this.tapRightPercent).height('100%').borderRadius(8).fontSize(11)
+                    .fontColor($r('sys.color.font_primary'))
+                    .backgroundColor($r('sys.color.comp_background_tertiary'))
+                    .onClick((): void => this.onTapRegionsChange(ReaderTapPolicy.cycle(this.tapRegions, row * 3 + column)))
+                }, (column: number): string => `column-${column}`)
+              }.width('100%').layoutWeight(row === 0 ? this.tapTopPercent : row === 2 ? this.tapBottomPercent :
+                100 - this.tapTopPercent - this.tapBottomPercent)
+            }, (row: number): string => `row-${row}`)
+          }.width('100%').height(210)
+          ReaderEdgeTabs({ selected: this.tapSizeEdge, groupId: 'reader-tap-edge',
+            onSelect: (index: number): void => { this.tapSizeEdge = index; } })
+          if (this.tapSizeEdge === 2) {
+            ReaderTapSizeSlider({
+              label: $r('app.string.reader_tap_left_width'), value: this.tapLeftPercent, other: this.tapRightPercent,
+              onChange: (value: number, commit: boolean): void => this.onTapSizeChange('left', value, commit)
+            })
+          } else if (this.tapSizeEdge === 3) {
+            ReaderTapSizeSlider({
+              label: $r('app.string.reader_tap_right_width'), value: this.tapRightPercent, other: this.tapLeftPercent,
+              onChange: (value: number, commit: boolean): void => this.onTapSizeChange('right', value, commit)
+            })
+          } else if (this.tapSizeEdge === 0) {
+            ReaderTapSizeSlider({
+              label: $r('app.string.reader_tap_top_height'), value: this.tapTopPercent, other: this.tapBottomPercent,
+              onChange: (value: number, commit: boolean): void => this.onTapSizeChange('top', value, commit)
+            })
+          } else {
+            ReaderTapSizeSlider({
+              label: $r('app.string.reader_tap_bottom_height'), value: this.tapBottomPercent, other: this.tapTopPercent,
+              onChange: (value: number, commit: boolean): void => this.onTapSizeChange('bottom', value, commit)
+            })
+          }
+          Button($r('app.string.reader_tap_reset'))
+            .fontSize(12).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
+            .onClick((): void => this.onResetTapAreas())
         }
-        Button($r('app.string.reader_tap_reset'))
-          .fontSize(12).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
-.onClick((): void => this.onResetTapAreas())
       }.width('100%')
     }
   }
@@ -774,15 +772,15 @@ export struct ReaderSettingsSheet {
 
   @Builder
   buildHeaderSection() {
-    ReaderSettingCard({ title: $r('app.string.reader_show_brightness_bar'), inline: true }) {
+    ReaderSettingCard({ compact: true, title: $r('app.string.reader_show_brightness_bar'), inline: true }) {
       Toggle({ type: ToggleType.Switch, isOn: this.showBrightnessBar }).selectedColor(AppColor.Brand)
         .onChange((enabled: boolean): void => this.onChromeChange('showBrightnessBar', enabled))
     }
-    ReaderSettingCard({ title: $r('app.string.reader_show_chapter_bar'), inline: true }) {
+    ReaderSettingCard({ compact: true, title: $r('app.string.reader_show_chapter_bar'), inline: true }) {
       Toggle({ type: ToggleType.Switch, isOn: this.showChapterBar }).selectedColor(AppColor.Brand)
         .onChange((enabled: boolean): void => this.onChromeChange('showChapterBar', enabled))
     }
-    ReaderSettingCard({ title: $r('app.string.reader_header_title') }) {
+    ReaderSettingCard({ compact: true, showTitle: false }) {
       Column({ space: 8 }) {
         this.chromeToggle($r('app.string.reader_show_header'), 'showHeader', this.showHeader)
         if (this.showHeader) {
@@ -791,7 +789,7 @@ export struct ReaderSettingsSheet {
         }
       }.width('100%')
     }
-    ReaderSettingCard({ title: $r('app.string.reader_show_page_rules'), inline: true }) {
+    ReaderSettingCard({ compact: true, title: $r('app.string.reader_show_page_rules'), inline: true }) {
       Toggle({ type: ToggleType.Switch, isOn: this.showPageRules }).selectedColor(AppColor.Brand)
         .id('reader-show-page-rules')
         .accessibilityText($r('app.string.reader_show_page_rules'))
@@ -859,10 +857,15 @@ export struct ReaderSettingsSheet {
 
   @Builder
   buildMarginSection() {
-    ReaderSettingCard({ title: $r('app.string.reader_margins') }) {
-      Column({ space: AppSpace.Sm }) {
+    ReaderSettingCard({ compact: true, showTitle: false }) {
+      Column({ space: 4 }) {
+        Row({ space: 8 }) {
+          Text($r('app.string.reader_margins')).fontSize(AppFont.Body)
+            .fontColor($r('sys.color.font_primary'))
         ReaderEdgeTabs({ selected: this.marginEdge, groupId: 'reader-margin-edge',
           onSelect: (index: number): void => { this.marginEdge = index; } })
+          .layoutWeight(1)
+        }.width('100%')
         if (this.linkedHorizontalMargins) {
           Text($r('app.string.reader_margin_columns_linked'))
             .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary')).width('100%')
@@ -894,24 +897,17 @@ export struct ReaderSettingsSheet {
 
   @Builder
   buildStatusBarSection() {
-    ReaderSettingCard({ title: $r('app.string.reader_status_bar_title') }) {
-      Row({ space: AppSpace.Sm }) {
-        Column({ space: AppSpace.Xxs }) {
-          Text($r('app.string.reader_status_bar_always'))
-            .fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
-          Text($r('app.string.reader_status_bar_hint'))
-            .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
-        }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-        Toggle({ type: ToggleType.Switch, isOn: this.alwaysShowStatusBar })
-          .selectedColor(AppColor.Brand)
-          .onChange((enabled: boolean): void => this.onStatusBarChange(enabled))
-      }.width('100%').alignItems(VerticalAlign.Center)
+    ReaderSettingCard({ compact: true, inline: true, title: $r('app.string.reader_status_bar_always'),
+      description: $r('app.string.reader_status_bar_hint') }) {
+      Toggle({ type: ToggleType.Switch, isOn: this.alwaysShowStatusBar })
+        .selectedColor(AppColor.Brand)
+        .onChange((enabled: boolean): void => this.onStatusBarChange(enabled))
     }
   }
 
   @Builder
   buildReadingStatusSection() {
-    ReaderSettingCard({ title: $r('app.string.reader_footer_title') }) {
+    ReaderSettingCard({ compact: true, showTitle: false }) {
       Column({ space: 8 }) {
       this.chromeToggle($r('app.string.reader_show_footer'), 'showFooter', this.showFooter)
       if (this.showFooter) {
@@ -936,51 +932,26 @@ export struct ReaderSettingsSheet {
   @Builder
   buildFontWeightSection() {
     if (this.fontPath.length === 0) {
-    ReaderSettingCard({ title: $r('app.string.reader_font_weight'), compact: true }) {
-      Row({ space: AppSpace.Sm }) {
-        this.stepper($r('sys.symbol.minus'), this.fontWeight > 100, () => {
-          this.onWeightChange(TextReadingSettings.normalizeFontWeight(this.fontWeight - 100), true);
-        })
-        Slider({ value: this.fontWeight, min: 100, max: 900, step: 1, style: SliderStyle.InSet })
-          .layoutWeight(1).height(40)
-          .blockColor(AppColor.OnBrand).trackColor($r('sys.color.comp_divider'))
-          .selectedColor(AppColor.Brand).trackThickness(6)
-          .onChange((value: number, mode: SliderChangeMode): void => this.onWeightChange(value,
-            mode === SliderChangeMode.End || mode === SliderChangeMode.Click))
-        this.stepper($r('sys.symbol.plus'), this.fontWeight < 900, () => {
-          this.onWeightChange(TextReadingSettings.normalizeFontWeight(this.fontWeight + 100), true);
-        })
-        Text(`${this.fontWeight}`)
-          .fontSize(AppFont.Body)
-          .fontColor($r('sys.color.font_primary'))
-          .fontWeight(FontWeight.Medium)
-          .width(28)
-          .textAlign(TextAlign.End)
-      }
-      .width('100%')
-      .alignItems(VerticalAlign.Center)
-    }
+      ReaderTypographySetting({ label: $r('app.string.reader_font_weight'), settingValue: this.fontWeight,
+        min: 100, max: 900, buttonStep: 100, idPrefix: 'reader-font-weight',
+        onChange: (value: number, commit: boolean): void =>
+          this.onWeightChange(TextReadingSettings.normalizeFontWeight(value), commit) })
     }
   }
 
   @Builder
   buildFontAppearance() {
-    ReaderSettingCard({ title: $r('app.string.reader_custom_font_title'), inline: true }) {
+    ReaderSettingCard({ compact: true, title: $r('app.string.reader_custom_font_title'), inline: true }) {
       ReaderFontTabs({ fonts: this.fonts, selectedPath: this.fontPath,
         onSelect: (font: ReaderImportedFont): void => this.onSelectFont(font),
         onDelete: (font: ReaderImportedFont): void => this.onDeleteFont(font) })
-        .width('68%')
+        .width('76%')
     }
-      Row({ space: AppSpace.Sm }) {
-        Button($r('app.string.reader_import_font')).fontColor($r('sys.color.font_primary'))
-          .backgroundColor(AppColor.GlassSheetControlTint).onClick((): void => this.onPickFont())
-      }
-      Text($r('app.string.reader_import_font_hint')).fontSize(12).fontColor($r('sys.color.font_secondary'))
   }
 
   @Builder
   buildScreenOnSection() {
-    ReaderSettingCard({ title: $r('app.string.reader_screen_on'), inline: true }) {
+    ReaderSettingCard({ compact: true, title: $r('app.string.reader_screen_on'), inline: true }) {
       ImmersiveOptionTabs({
         labels: [$r('app.string.reader_screen_system'), $r('app.string.reader_screen_minutes', 1),
           $r('app.string.reader_screen_minutes', 5), $r('app.string.reader_screen_minutes', 10),
@@ -993,6 +964,13 @@ export struct ReaderSettingsSheet {
 
   aboutToDisappear(): void {
     this.editingThemeIndex = -1;
+    this.tapRegionsExpanded = false;
+  }
+
+  @Monitor('fontPanel')
+  private onPanelTabChanged(): void {
+    this.editingThemeIndex = -1;
+    try { this.settingsScroller.scrollTo({ xOffset: 0, yOffset: 0 }); } catch (_error) { }
   }
 
   build() {
@@ -1009,7 +987,7 @@ export struct ReaderSettingsSheet {
 
       Row() {
         Text(this.fontPanel ? $r('app.string.reader_font_theme_title') : $r('app.string.reader_settings'))
-          .fontSize(AppFont.Title)
+          .fontSize(18)
           .fontColor($r('sys.color.font_primary'))
           .fontWeight(FontWeight.Bold)
         Blank()
@@ -1031,68 +1009,69 @@ export struct ReaderSettingsSheet {
         .borderRadius(18)
         .margin({ left: AppSpace.Xs })
         .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
+        .accessibilityText($r('app.string.common_close')).id('reader-settings-close')
         .onClick(() => this.onClose())
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
-      .padding({ left: AppSpace.Lg, right: AppSpace.Md, bottom: AppSpace.Sm })
+      .padding({ left: 16, right: 8, top: 4, bottom: 4 })
 
-      Scroll() {
-        Column({ space: this.fontPanel ? 8 : AppSpace.Md }) {
+      Scroll(this.settingsScroller) {
+        Column({ space: 6 }) {
           if (this.fontPanel) {
+            ReaderSettingsSectionHeader({ title: $r('app.string.reader_settings_theme_group') })
             this.buildThemeSection()
+            if (this.epubOriginalEnabled) {
+              Text($r('app.string.reader_epub_original_custom_hint'))
+                .fontSize(12).fontColor($r('sys.color.font_secondary')).width('100%')
+            }
+            ReaderSettingsSectionHeader({ title: $r('app.string.reader_settings_font_group') })
+            this.buildFontAppearance()
             this.buildFontSizeSection()
+            this.buildFontWeightSection()
+            ReaderSettingsSectionHeader({ title: $r('app.string.reader_settings_paragraph_group') })
+            this.buildTextAlignmentSection()
             this.buildLineHeightSection()
             if (this.paragraphSpacingEnabled) {
               this.buildParagraphSpacingSection()
-              ReaderSettingCard({ title: $r('app.string.reader_letter_spacing'), compact: true }) {
-                Row({ space: 8 }) {
-                  Slider({ value: this.letterSpacing, min: 0, max: 10, step: 0.5 })
-                    .layoutWeight(1).selectedColor(AppColor.Brand)
-                    .onChange((value: number, mode: SliderChangeMode): void =>
-                      this.onLetterSpacingChange(value, mode === SliderChangeMode.End || mode === SliderChangeMode.Click))
-                    .id('reader-letter-spacing')
-                  Text(`${this.letterSpacing.toFixed(1)} vp`).fontColor($r('sys.color.font_primary')).fontSize(14)
-                }.width('100%')
-              }
-
+              this.buildLetterSpacingSection()
+              this.buildChapterHeadingSection()
             }
-            this.buildFontWeightSection()
-            this.buildTextAlignmentSection()
-            this.buildFontAppearance()
           } else {
+            ReaderSettingsSectionHeader({ title: $r('app.string.reader_settings_turn_group') })
             this.buildPageTurnModeSection()
             this.buildPageTurnHapticSection()
-            ReaderAutoPageSettings({ seconds: this.autoPageSeconds, running: this.autoPageRunning, paused: this.autoPagePaused,
+            ReaderSettingCard({ compact: true, title: $r('app.string.reader_volume_key_turn'), inline: true,
+              description: $r('app.string.reader_volume_key_hint') }) {
+              Toggle({ type: ToggleType.Switch, isOn: this.volumeKeyPageTurn })
+                .selectedColor(AppColor.Brand)
+                .onChange((enabled: boolean): void => this.onVolumeKeyPageTurnChange(enabled))
+            }
+            this.buildTapRegionsSection()
+            ReaderAutoPageSettings({ compact: true, seconds: this.autoPageSeconds, running: this.autoPageRunning, paused: this.autoPagePaused,
               scrolling: this.autoScrolling, speed: this.autoScrollSpeed, onSpeed: this.onAutoScrollSpeed,
               available: this.autoPageAvailable, onInterval: this.onAutoPageInterval, onToggle: this.onAutoPageToggle })
+            ReaderSettingsSectionHeader({ title: $r('app.string.reader_settings_display_group') })
+            this.buildMarginSection()
+            this.buildStatusBarSection()
+            this.buildHeaderSection()
+            this.buildReadingStatusSection()
+            ReaderSettingsSectionHeader({ title: $r('app.string.reader_settings_assistance_group') })
+            this.buildScreenOnSection()
             if (this.supportsSpeech) {
-              ReaderSettingCard({ title: $r('app.string.tts_title'), inline: true }) {
+              ReaderSettingCard({ compact: true, title: $r('app.string.tts_title'), inline: true }) {
                 Button($r('app.string.reader_speech_display')).fontColor(AppColor.Brand)
                   .backgroundColor(AppColor.GlassSheetControlTint)
                   .onClick((): void => this.onSpeechSettings()).id('reader-speech-display-settings')
               }
             }
-            ReaderSettingCard({ title: $r('app.string.reader_volume_key_turn'), inline: true }) {
-              Toggle({ type: ToggleType.Switch, isOn: this.volumeKeyPageTurn })
-                .selectedColor(AppColor.Brand)
-                .onChange((enabled: boolean): void => this.onVolumeKeyPageTurnChange(enabled))
-            }
-            Text($r('app.string.reader_volume_key_hint'))
-              .fontSize(12).fontColor($r('sys.color.font_secondary')).width('100%')
-            this.buildMarginSection()
-            this.buildScreenOnSection()
-            this.buildStatusBarSection()
-            this.buildHeaderSection()
-            this.buildReadingStatusSection()
-            this.buildTapRegionsSection()
           }
         }
         .width('100%')
         .padding({
-          left: AppSpace.Lg,
-          right: AppSpace.Lg,
-          bottom: AppSpace.Lg
+          left: 10,
+          right: 10,
+          bottom: 10
         })
       }
       .width('100%')

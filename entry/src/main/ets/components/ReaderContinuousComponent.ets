@@ -8,6 +8,7 @@ import { OnlineTextPaginator } from '../service/text/OnlineTextPaginator';
 import { OnlineTextScrollChapter, OnlineTextScrollDataSource, OnlineTextScrollRow } from '../service/text/OnlineTextScrollDataSource';
 import { ReaderSpeechText } from './ReaderSpeechText';
 import { ReaderAutoScrollService } from '../service/text/ReaderAutoScrollService';
+import { EpubPageStyle } from '../service/text/EpubPageStyle';
 
 /** 按真实排版行懒加载的连续正文。只保留当前章附近内容，补章不替换可见正文。 */
 @ComponentV2
@@ -49,6 +50,9 @@ export struct ReaderContinuousComponent {
   @Param fontSize: number = 18;
   @Param lineHeight: number = 1.9;
   @Param paragraphSpacing: number = 0;
+  @Param chapterHeadingVisible: boolean = true;
+  @Param chapterHeadingSize: number = 26;
+  @Param chapterHeadingStyle: string = 'center';
   @Param palette: ReaderPalette = new ReaderPalette();
   @Param speechState: TextToSpeechState = new TextToSpeechState();
   @Param bookId: string = '';
@@ -56,6 +60,7 @@ export struct ReaderContinuousComponent {
   @Param topGestureInset: number = 0;
   @Event getContent: (index: number) => Promise<string> = async (): Promise<string> => '';
   @Event getTitle: (index: number) => string = (): string => '';
+  @Event getEpubStyle: (index: number, offset: number) => EpubPageStyle = (): EpubPageStyle => new EpubPageStyle();
   @Event getKey: (index: number) => string = (index: number): string => `${index}`;
   @Event onPosition: (chapter: number, offset: number, content: string, persist: boolean) => void = () => {};
   @Event onCenterTap: () => void = () => {};
@@ -118,7 +123,7 @@ export struct ReaderContinuousComponent {
     }
   }
 
-  @Monitor('revision', 'fontFamily', 'fontWeight', 'fontSize', 'lineHeight', 'paragraphSpacing', 'textAlignment', 'letterSpacing')
+  @Monitor('revision', 'fontFamily', 'fontWeight', 'fontSize', 'lineHeight', 'paragraphSpacing', 'textAlignment', 'letterSpacing', 'chapterHeadingVisible', 'chapterHeadingSize', 'chapterHeadingStyle')
   onRevisionChanged(): void { this.scheduleReset(); }
 
   private scheduleReset(): void {
@@ -169,8 +174,12 @@ export struct ReaderContinuousComponent {
     const fontPx = ui.fp2px(this.fontSize);
     this.rowHeight = ui.px2vp(fontPx) * this.lineHeight;
     // 高度 1px 将测量结果按行输出；列表按像素连续滚动，不做分页吸附。
-    const lines = OnlineTextPaginator.paginate(content, ui.vp2px(this.contentWidth), 1, fontPx, this.lineHeight, this.fontFamily, this.fontWeight, this.textAlignment, this.paragraphSpacing, ui.vp2px(this.letterSpacing));
-    return OnlineTextScrollChapter.create(index, this.getKey(index), this.getTitle(index), content, lines);
+    const title = this.chapterHeadingVisible ? this.getTitle(index) : '';
+    const headingPx = ui.fp2px(this.chapterHeadingSize);
+    const lines = OnlineTextPaginator.paginate(content, ui.vp2px(this.contentWidth), 1, fontPx, this.lineHeight, this.fontFamily, this.fontWeight, this.textAlignment, this.paragraphSpacing, ui.vp2px(this.letterSpacing), title, headingPx, this.chapterHeadingStyle);
+    const chapter = OnlineTextScrollChapter.create(index, this.getKey(index), title, content, lines);
+    chapter.layoutSignature = `${this.contentWidth}:${fontPx}:${this.fontFamily}:${this.fontWeight}:${this.lineHeight}:${this.textAlignment}:${this.paragraphSpacing}:${this.letterSpacing}:${title}:${headingPx}:${this.chapterHeadingStyle}`;
+    return chapter;
   }
 
   private reset(): void {
@@ -194,7 +203,9 @@ export struct ReaderContinuousComponent {
       (chapter: OnlineTextScrollChapter, index: number): boolean => {
         const previous = this.chapters[index];
         return chapter.index === previous.index && chapter.content === previous.content &&
-          chapter.rows[1]?.page.layoutKey === previous.rows[1]?.page.layoutKey;
+          chapter.layoutSignature === previous.layoutSignature &&
+          chapter.rows.find((row: OnlineTextScrollRow): boolean => !row.heading)?.page.layoutKey ===
+          previous.rows.find((row: OnlineTextScrollRow): boolean => !row.heading)?.page.layoutKey;
       });
     this.chapters = nextChapters;
     if (!sameLayout) {
@@ -383,12 +394,8 @@ export struct ReaderContinuousComponent {
       List({ scroller: this.scroller, space: 0 }) {
         LazyForEach(this.source, (row: OnlineTextScrollRow) => {
           ListItem() {
-            if (row.heading) {
-              Text(row.text)
-                .fontSize(this.fontSize).fontWeight(FontWeight.Medium).fontColor(this.palette.primary)
-                .width('100%').height(this.rowHeight * 2).maxLines(2)
-            } else {
               ReaderSpeechText({
+                epubStyle: this.getEpubStyle(row.chapterIndex, row.startOffset),
                 letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
                 selectionEnabled: this.selectionEnabled,
                 onSelectionChange: (active: boolean): void => {
@@ -404,7 +411,6 @@ export struct ReaderContinuousComponent {
               })
                 .width('100%').height(this.getUIContext().px2vp(row.page.layoutHeight))
                 .margin({ bottom: this.getUIContext().px2vp(row.page.trailingSpacing) })
-            }
           }
         }, (row: OnlineTextScrollRow): string => row.key)
       }

@@ -1,3 +1,4 @@
+import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { ReaderColorPalette } from './ReaderColorPalette';
 import { ReaderBackground } from './ReaderBackground';
 import { ImmersiveOptionTabs } from './ImmersiveOptionTabs';
@@ -114,6 +115,7 @@ export struct ReaderThemeEditor {
         Row({ space: AppSpace.Sm }) {
           Text($r('app.string.reader_image_overlay')).fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
           Slider({ value: this.draftOverlay * 100, min: 0, max: TextReadingSettings.OVERLAY_MAX * 100, step: 1 })
+            .attributeModifier(new SliderGestureModifier(0, TextReadingSettings.OVERLAY_MAX * 100))
             .layoutWeight(1).selectedColor(AppColor.Brand)
             .onChange((value: number): void => { this.draftOverlay = TextReadingSettings.normalizeOverlay(value / 100); })
           Text(`${Math.round(this.draftOverlay * 100)}%`).fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))

@@ -65,6 +65,8 @@ export interface NativeScriptContext {
   saveCredential: (token: string, user: string) => Promise<void>;
   /** 详情阶段用来收集 keep()；其他阶段为 null。 */
   keep: Record<string, string> | null;
+  /** 搜索阶段的 ui.emitSearch(页面)：脚本每搜完一个站点就交出一批结果；其他阶段不提供。 */
+  emit?: (value: NativeValue) => Promise<void>;
   /**
    * 用户主动发起的操作（打开书籍的详情、目录、正文，设置页按钮，登录）：可以弹出网页。
    * 搜索、发现是多个书源同时跑的，不弹网页，browser.verify 改走「去验证」。
@@ -168,6 +170,10 @@ export class NativeScriptHost {
         const host = this.context.host;
         if (!host.refreshExplore) throw new Error('当前环境不支持刷新发现页');
         return host.refreshExplore().then((): NativeValue => null);
+      }
+      case '@emitSearch': {
+        if (!this.context.emit) throw new Error('ui.emitSearch 只能在搜索阶段使用');
+        return this.context.emit(args[0] === undefined ? null : args[0]).then((): NativeValue => null);
       }
       case '@browserVerify':
         return this.browserVerify(this.url(args[0]), this.text(args[1]), args[2]);

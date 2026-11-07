@@ -90,7 +90,7 @@ export struct ImmersiveCircleButton {
           .priorityGesture(LongPressGesture({ repeat: false, duration: 500 })
             .tag('immersive-circle-long-press').onAction((): void => this.handleLongPress()))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeLongPress(info))
-      } else if (PlatformCompat.floatingTabs) {
+      } else if (HdsCompat.materialSupported) {
         HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
           TabContent() { Column() }.height(this.diameter).tabBar(this.materialContent())
         }

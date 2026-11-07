@@ -2,12 +2,14 @@ import { MEDALS, MedalAward, MedalDefinition } from '../model/Medal';
 import { MedalService } from '../service/MedalService';
 import { AuthService } from '../service/AuthService';
 import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
-import { AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
+import { FrostedPageHeader } from '../components/FrostedPageHeader';
+import { AppTheme, AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
 
 @ComponentV2
 export struct AchievementPage {
   @Param navStack: NavPathStack = new NavPathStack();
+  @Local headerHeight: number = WindowUtils.getStatusBarHeightVp() + 56;
   @Local auth: AuthService = AuthService.instance;
   @Local medalService: MedalService = MedalService.instance;
   @Local medalBusy: boolean = false;
@@ -60,7 +62,7 @@ export struct AchievementPage {
         title: item.name,
         message,
         buttons: unlocked ? [
-          { text: $r('app.string.medal_close'), color: $r('sys.color.font_secondary') },
+          { text: $r('app.string.medal_close'), color: AppTheme.TextSecondary },
           { text: wearing ? $r('app.string.medal_unequip') : $r('app.string.medal_equip'), color: AppColor.Brand }
         ] : [{ text: $r('app.string.medal_close'), color: AppColor.Brand }]
       });
@@ -86,25 +88,8 @@ export struct AchievementPage {
   }
 
   build() {
-    ProfileMenuDestination({ pageBackground: $r('sys.color.background_secondary') }) {
-      Column() {
-        Row({ space: AppSpace.Sm }) {
-          SymbolGlyph($r('sys.symbol.chevron_left'))
-            .fontSize(24)
-            .fontColor([$r('sys.color.font_primary')])
-            .width(44)
-            .height(44)
-            .onClick(() => this.navStack.pop())
-            .accessibilityText($r('app.string.account_back'))
-          Text($r('app.string.achievement_title'))
-            .fontSize(AppFont.Title)
-            .fontWeight(FontWeight.Bold)
-            .fontColor($r('sys.color.font_primary'))
-        }
-        .width('100%')
-        .padding({ top: WindowUtils.getStatusBarHeightVp() + AppSpace.Sm,
-          left: AppSpace.Sm, right: AppSpace.Md, bottom: AppSpace.Sm })
-
+    ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
+      Stack({ alignContent: Alignment.Top }) {
         // 两个方向均使用原生弹簧反馈；横向内容与视口等宽，仅作边界回弹。
         Scroll() {
           Scroll() {
@@ -115,21 +100,21 @@ export struct AchievementPage {
                 Column({ space: AppSpace.Md }) {
                   Text($r('app.string.achievement_login_hint'))
                     .fontSize(AppFont.Body)
-                    .fontColor($r('sys.color.font_secondary'))
+                    .fontColor(AppTheme.TextSecondary)
                   Button($r('app.string.hw_auth_login_title'))
-                    .fontColor(Color.White)
+                    .fontColor(AppColor.OnBrand)
                     .backgroundColor(AppColor.Brand)
                     .enabled(!this.auth.logging && !this.auth.restoring)
                     .onClick(() => this.navStack.pushPathByName('account', ''))
                 }
                 .width('100%')
                 .padding(AppSpace.Lg)
-                .backgroundColor($r('sys.color.comp_background_primary'))
+                .backgroundColor(AppTheme.Surface)
                 .borderRadius(AppRadius.Lg)
               }
             }
             .width('100%')
-            .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Sm,
+            .padding({ left: AppSpace.Md, right: AppSpace.Md, top: this.headerHeight + AppSpace.Sm,
               bottom: WindowUtils.getBottomSafeVp() + AppSpace.Xl })
           }
           .width('100%')
@@ -140,15 +125,26 @@ export struct AchievementPage {
           .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
         }
         .width('100%')
-        .layoutWeight(1)
+        .height('100%')
         .scrollable(ScrollDirection.Horizontal)
         .align(Alignment.TopStart)
         .scrollBar(BarState.Off)
         .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+        FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {
+          Row({ space: AppSpace.Sm }) {
+            SymbolGlyph($r('sys.symbol.chevron_left'))
+              .fontSize(24).fontColor([AppTheme.TextPrimary]).width(44).height(44)
+              .onClick(() => this.navStack.pop()).accessibilityText($r('app.string.account_back'))
+            Text($r('app.string.achievement_title')).fontSize(AppFont.Title)
+              .fontWeight(FontWeight.Bold).fontColor(AppTheme.TextPrimary)
+          }.width('100%')
+            .padding({ top: WindowUtils.getStatusBarHeightVp() + AppSpace.Sm,
+              left: AppSpace.Sm, right: AppSpace.Md, bottom: AppSpace.Sm })
+        }
       }
       .width('100%')
       .height('100%')
-      .backgroundColor($r('sys.color.background_secondary'))
+      .backgroundColor(AppTheme.SettingsBackground)
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     }
   }
@@ -159,7 +155,7 @@ export struct AchievementPage {
       Text($r('app.string.account_medal_list'))
         .fontSize(AppFont.BodyL)
         .fontWeight(FontWeight.Medium)
-        .fontColor($r('sys.color.font_primary'))
+        .fontColor(AppTheme.TextPrimary)
       if (this.medalService.failed) {
         Button($r('app.string.medal_load_failed'))
           .fontColor(AppColor.Brand)
@@ -171,7 +167,7 @@ export struct AchievementPage {
         Text($r('app.string.medal_summary', this.medalService.awards.length, this.medals.length,
           (Math.floor(this.medalService.totalSeconds / 360) / 10).toFixed(1)))
           .fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_secondary'))
+          .fontColor(AppTheme.TextSecondary)
         if (this.medalService.newAwardCount > 0) {
           Text($r('app.string.medal_new_awards', this.medalService.newAwardCount))
             .fontSize(AppFont.Caption)
@@ -191,12 +187,12 @@ export struct AchievementPage {
                   .accessibilityText(item.name)
                 Text(item.name)
                   .fontSize(AppFont.Caption)
-                  .fontColor($r('sys.color.font_primary'))
+                  .fontColor(AppTheme.TextPrimary)
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                 Text(this.awardDateLabel(item.id))
                   .fontSize(11)
-                  .fontColor($r('sys.color.font_secondary'))
+                  .fontColor(AppTheme.TextSecondary)
                   .textAlign(TextAlign.Center)
                 if (this.medalService.selectedMedalId === item.id) {
                   Text($r('app.string.medal_wearing'))
@@ -220,7 +216,7 @@ export struct AchievementPage {
         .width('100%')
         Text($r('app.string.medal_scope_hint'))
           .fontSize(11)
-          .fontColor($r('sys.color.font_tertiary'))
+          .fontColor(AppTheme.TextTertiary)
       } else if (!this.medalService.failed) {
         LoadingProgress().width(24).height(24).color(AppColor.Brand)
       }
@@ -228,7 +224,7 @@ export struct AchievementPage {
     .alignItems(HorizontalAlign.Start)
     .width('100%')
     .padding(AppSpace.Md)
-    .backgroundColor($r('sys.color.comp_background_primary'))
+    .backgroundColor(AppTheme.Surface)
     .borderRadius(AppRadius.Lg)
   }
 

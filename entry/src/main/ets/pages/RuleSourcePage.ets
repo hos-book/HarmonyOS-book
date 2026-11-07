@@ -28,11 +28,12 @@ import {
 } from '../service/rulesource/RuleSourceAccountService';
 import { RuleSourceChildService } from '../service/rulesource/RuleSourceChildService';
 import { SourceDataService } from '../service/SourceDataService';
-import { AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
+import { AppTheme, AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
 import { CharsetCodec } from '../utils/CharsetCodec';
 import { WindowUtils } from '../utils/WindowUtils';
 import { promptAction } from '@kit.ArkUI';
 import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
+import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { TalebookConnectComponent } from '../components/TalebookConnectComponent';
 import { TalebookSourceIdentity } from '../service/rulesource/talebook/TalebookSourceIdentity';
 
@@ -107,6 +108,7 @@ class RuleSourceDataSource implements IDataSource {
 
 @ComponentV2
 export struct RuleSourcePage {
+  @Local headerHeight: number = WindowUtils.getStatusBarHeightVp() + 56;
   @Param navStack: NavPathStack = new NavPathStack();
   @Local externalImports: RuleSourceImportQueue = RuleSourceImportQueue.getInstance();
   private pageAttached: boolean = false;
@@ -1283,7 +1285,7 @@ export struct RuleSourcePage {
     if (status === LocalRuleSourceStatus.READY) return RULE_SOURCE_SUCCESS;
     if (status === LocalRuleSourceStatus.FAILED) return RULE_SOURCE_DANGER;
     if (status === LocalRuleSourceStatus.UNSUPPORTED) return RULE_SOURCE_WARNING;
-    return $r('sys.color.font_tertiary');
+    return AppTheme.TextTertiary;
   }
 
   private statusMessage(source: LocalRuleSource): ResourceStr {
@@ -1305,7 +1307,7 @@ export struct RuleSourcePage {
 
   build() {
     ProfileMenuDestination({
-      pageBackground: $r('sys.color.background_secondary'),
+      pageBackground: AppTheme.SettingsBackground,
       onBackRequested: (): boolean => this.requestBack()
     }) {
       Stack({ alignContent: Alignment.BottomEnd }) {
@@ -1316,9 +1318,9 @@ export struct RuleSourcePage {
             SymbolGlyph($r('sys.symbol.plus')).fontSize(25).fontColor([AppColor.Brand])
           }
           .width(52).height(52)
-          .backgroundColor($r('sys.color.comp_background_primary'))
+          .backgroundColor(AppTheme.Surface)
           .border({ width: 1, color: AppColor.BrandSoft })
-          .shadow({ radius: 12, color: '#20000000', offsetY: 4 })
+          .shadow({ radius: 12, color: AppColor.Shadow, offsetY: 4 })
           .margin({ right: AppSpace.Lg, bottom: Math.max(this.safeBottom, RULE_SOURCE_MIN_BOTTOM_INSET) + 16 })
           .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
           .accessibilityText($r('app.string.rule_source_import_title'))
@@ -1329,6 +1331,7 @@ export struct RuleSourcePage {
       .bindSheet($$this.showImportPanel, this.buildImportSheet(), {
         height: SheetSize.LARGE,
         detents: [SheetSize.LARGE, '45%', '70%'], preferType: SheetType.BOTTOM, dragBar: true, showClose: true,
+        backgroundColor: AppTheme.SettingsBackground,
         onWillDismiss: (action: DismissSheetAction): void => {
           if (!this.isImporting) action.dismiss();
         }
@@ -1338,11 +1341,12 @@ export struct RuleSourcePage {
 
   @Builder
   buildBody() {
-    Column() {
-      this.buildHeader()
-
+    Stack({ alignContent: Alignment.Top }) {
+      Column() {
       if (this.managementView.length > 0) {
-        this.buildManagementBody()
+        Column() {
+          this.buildManagementBody()
+        }.width('100%').layoutWeight(1).padding({ top: this.headerHeight })
       } else if (this.isLoading) {
         Column({ space: AppSpace.Sm }) {
           LoadingProgress()
@@ -1351,29 +1355,31 @@ export struct RuleSourcePage {
             .color(AppColor.Brand)
           Text($r('app.string.rule_source_loading'))
             .fontSize(AppFont.Body)
-            .fontColor($r('sys.color.font_tertiary'))
+            .fontColor(AppTheme.TextTertiary)
         }
         .width('100%')
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
+        .padding({ top: this.headerHeight })
       } else {
         List({ space: AppSpace.Sm, scroller: this.sourceListScroller }) {
           ListItem() {
             Row() {
               Text($r('app.string.rule_source_installed'))
                 .fontSize(AppFont.Body)
-                .fontColor($r('sys.color.font_tertiary'))
+                .fontColor(AppTheme.TextTertiary)
               Blank()
               Text(`${this.filteredSourceCount}/${this.sourceCount}`)
                 .fontSize(AppFont.Caption)
-                .fontColor($r('sys.color.font_tertiary'))
+                .fontColor(AppTheme.TextTertiary)
               Text($r('app.string.rule_source_count_unit'))
                 .fontSize(AppFont.Caption)
-                .fontColor($r('sys.color.font_tertiary'))
+                .fontColor(AppTheme.TextTertiary)
                 .margin({ left: 2 })
             }
             .width('100%')
-            .padding({ left: AppSpace.Xs, right: AppSpace.Xs, top: AppSpace.Xs })
+            // 将动态顶栏留白纳入首项布局，避免筛选栏出现后只更新滚动偏移而遮住前几条书源。
+            .padding({ left: AppSpace.Xs, right: AppSpace.Xs, top: this.headerHeight + AppSpace.Xs })
           }
 
           if (!this.loadFailed && this.bulkTestTotal > 0) {
@@ -1414,16 +1420,21 @@ export struct RuleSourcePage {
         .scrollBar(BarState.Off)
         .edgeEffect(EdgeEffect.Spring)
       }
+      }.width('100%').height('100%')
+      FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {
+        this.buildHeader()
+      }
     }
     .width('100%')
     .height('100%')
     // 底部避让取系统安全区与 28vp 的较大值，避免重复叠加导航条留白。
     .padding({ bottom: Math.max(this.safeBottom, RULE_SOURCE_MIN_BOTTOM_INSET) })
-    .backgroundColor($r('sys.color.background_secondary'))
+    .backgroundColor(AppTheme.SettingsBackground)
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
     .bindSheet($$this.showTalebook, this.buildTalebookConnection(), {
       height: SheetSize.LARGE,
       detents: [SheetSize.LARGE, '45%', '70%'], preferType: SheetType.BOTTOM, dragBar: true, showClose: true,
+      backgroundColor: AppTheme.SettingsBackground,
       onWillDismiss: (action: DismissSheetAction): void => {
         if (!this.isImporting) action.dismiss();
       }
@@ -1473,7 +1484,7 @@ export struct RuleSourcePage {
         Stack({ alignContent: Alignment.Center }) {
           SymbolGlyph($r('sys.symbol.chevron_left'))
             .fontSize(24)
-            .fontColor([$r('sys.color.font_primary')])
+            .fontColor([AppTheme.TextPrimary])
         }
         .width(44)
         .height(44)
@@ -1484,7 +1495,7 @@ export struct RuleSourcePage {
 
         Text(this.managementTitle())
           .fontSize(AppFont.TitleL)
-          .fontColor($r('sys.color.font_primary'))
+          .fontColor(AppTheme.TextPrimary)
           .fontWeight(FontWeight.Bold)
           .layoutWeight(1)
           .maxLines(1)
@@ -1548,8 +1559,8 @@ export struct RuleSourcePage {
             .width('100%')
             .height(40)
             .fontSize(AppFont.Body)
-            .fontColor($r('sys.color.font_primary'))
-            .backgroundColor($r('sys.color.background_primary'))
+            .fontColor(AppTheme.TextPrimary).placeholderColor(AppTheme.TextTertiary)
+            .backgroundColor(AppTheme.Surface)
             .borderRadius(AppRadius.Sm)
             .padding({ left: 38, right: AppSpace.Sm })
             .enabled(!this.isEditMode && !this.isImporting && !this.isBulkTesting &&
@@ -1561,7 +1572,7 @@ export struct RuleSourcePage {
 
           SymbolGlyph($r('sys.symbol.magnifyingglass'))
             .fontSize(18)
-            .fontColor([$r('sys.color.font_tertiary')])
+            .fontColor([AppTheme.TextTertiary])
             .margin({ left: AppSpace.Sm })
         }
         .width('100%')
@@ -1571,8 +1582,8 @@ export struct RuleSourcePage {
           ForEach([$r('app.string.search_type_all'), $r('app.string.search_type_audio'),
             $r('app.string.search_type_text'), $r('app.string.comic_type')], (label: Resource, index: number) => {
             Button(label).layoutWeight(1).fontSize(13)
-              .backgroundColor(this.contentFilter === index ? AppColor.Brand : $r('sys.color.comp_background_primary'))
-              .fontColor(this.contentFilter === index ? Color.White : $r('sys.color.font_primary'))
+              .backgroundColor(this.contentFilter === index ? AppColor.Brand : AppTheme.Surface)
+              .fontColor(this.contentFilter === index ? AppColor.OnBrand : AppTheme.TextPrimary)
               .enabled(!this.isEditMode && !this.isImporting && !this.isBulkTesting)
               .onClick(() => { this.contentFilter = index; this.applyFilters(); })
           }, (label: Resource): string => label.id.toString())
@@ -1582,6 +1593,8 @@ export struct RuleSourcePage {
             .selected(this.selectedGroupIndex()).value(this.currentGroupLabel())
             .font({ size: AppFont.Caption }).layoutWeight(1).constraintSize({ minWidth: 0 })
             .selectedOptionFontColor(AppColor.Brand).selectedOptionBgColor(AppColor.BrandSoft)
+            .fontColor(AppTheme.TextPrimary).backgroundColor(AppTheme.Surface)
+            .optionFontColor(AppTheme.TextPrimary).menuBackgroundColor(AppTheme.Surface)
             .enabled(!this.isEditMode && !this.isImporting && !this.isBulkTesting)
             .onSelect((index: number) => {
               this.selectedGroup = index === 0 ? '' : index === 1 ? '__ungrouped__' : this.sourceGroups[index - 2];
@@ -1601,6 +1614,8 @@ export struct RuleSourcePage {
             .selected(this.statusFilter).value(this.statusFilterLabel()).font({ size: AppFont.Caption })
             .layoutWeight(1).constraintSize({ minWidth: 0 })
             .selectedOptionFontColor(AppColor.Brand).selectedOptionBgColor(AppColor.BrandSoft)
+            .fontColor(AppTheme.TextPrimary).backgroundColor(AppTheme.Surface)
+            .optionFontColor(AppTheme.TextPrimary).menuBackgroundColor(AppTheme.Surface)
             .enabled(!this.isEditMode && !this.isImporting && !this.isBulkTesting)
             .onSelect((index: number) => { this.statusFilter = index; this.applyFilters(); })
           Button() {
@@ -1621,7 +1636,7 @@ export struct RuleSourcePage {
               $r('app.string.rule_source_selected_count', this.selectedSourceCount) :
               $r('app.string.rule_source_select_hint'))
               .fontSize(AppFont.Body)
-              .fontColor($r('sys.color.font_secondary'))
+              .fontColor(AppTheme.TextSecondary)
               .layoutWeight(1)
 
             Text(this.areAllVisibleSourcesSelected() ? $r('app.string.rule_source_deselect_all') :
@@ -1651,8 +1666,8 @@ export struct RuleSourcePage {
               .constraintSize({ minWidth: 0 })
               .height(36)
               .fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_secondary'))
-              .backgroundColor($r('sys.color.comp_background_primary'))
+              .fontColor(AppTheme.TextSecondary)
+              .backgroundColor(AppTheme.Surface)
               .borderRadius(AppRadius.Sm)
               .enabled(this.selectedSourceCount > 0 && this.busySourceUrl.length === 0)
               .onClick(() => this.batchEnableSelected(false))
@@ -1683,7 +1698,7 @@ export struct RuleSourcePage {
       }
     }
     .width('100%')
-    .backgroundColor($r('sys.color.background_secondary'))
+    .backgroundColor(AppTheme.SettingsBackground)
   }
 
   @Builder
@@ -1759,6 +1774,7 @@ export struct RuleSourcePage {
       Row({ space: AppSpace.Sm }) {
         TextInput({ text: $$this.groupDraft, placeholder: $r('app.string.source_manage_group_name') })
           .layoutWeight(1).height(44).fontSize(AppFont.Body).caretColor(AppColor.Brand)
+          .fontColor(AppTheme.TextPrimary).placeholderColor(AppTheme.TextTertiary).backgroundColor(AppTheme.Surface)
         Button() {
           SymbolGlyph(this.editingGroup.length > 0 ? $r('sys.symbol.checkmark') : $r('sys.symbol.plus'))
             .fontSize(20).fontColor([AppColor.Brand])
@@ -1768,7 +1784,7 @@ export struct RuleSourcePage {
             $r('app.string.source_manage_group_add'))
           .enabled(this.groupDraft.trim().length > 0 && this.busySourceUrl.length === 0).onClick(() => this.saveGroup())
         if (this.editingGroup.length > 0) {
-          Button() { SymbolGlyph($r('sys.symbol.xmark')).fontSize(18).fontColor([$r('sys.color.font_secondary')]) }
+          Button() { SymbolGlyph($r('sys.symbol.xmark')).fontSize(18).fontColor([AppTheme.TextSecondary]) }
             .width(44).height(44).padding(0).backgroundColor(Color.Transparent)
             .accessibilityText($r('app.string.common_cancel'))
             .onClick(() => { this.editingGroup = ''; this.groupDraft = ''; })
@@ -1778,9 +1794,9 @@ export struct RuleSourcePage {
         ForEach(this.sourceGroups, (name: string) => {
           ListItem() {
             Row({ space: AppSpace.Sm }) {
-              Text(name).fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
+              Text(name).fontSize(AppFont.Body).fontColor(AppTheme.TextPrimary)
                 .layoutWeight(1).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-              Text(`${this.groupSourceCount(name)}`).fontSize(AppFont.Caption).fontColor($r('sys.color.font_tertiary'))
+              Text(`${this.groupSourceCount(name)}`).fontSize(AppFont.Caption).fontColor(AppTheme.TextTertiary)
               Button() { SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(18).fontColor([AppColor.Brand]) }
                 .width(40).height(44).padding(0).backgroundColor(Color.Transparent)
                 .accessibilityText($r('app.string.source_manage_group_rename'))
@@ -1794,9 +1810,9 @@ export struct RuleSourcePage {
           }
         }, (name: string) => name)
         if (this.sourceGroups.length === 0) {
-          ListItem() { Text($r('app.string.source_manage_group_none')).fontColor($r('sys.color.font_tertiary')).padding(20) }
+          ListItem() { Text($r('app.string.source_manage_group_none')).fontColor(AppTheme.TextTertiary).padding(20) }
         }
-      }.layoutWeight(1).width('100%').divider({ strokeWidth: 0.5, color: $r('sys.color.comp_divider') })
+      }.layoutWeight(1).width('100%').divider({ strokeWidth: 0.5, color: AppTheme.Divider })
       Button($r('app.string.source_manage_group_empty'), { type: ButtonType.Normal })
         .fontSize(AppFont.Body).fontColor(AppColor.Brand).backgroundColor(AppColor.BrandSoft)
         .width('100%').height(44).borderRadius(AppRadius.Sm)
@@ -1808,12 +1824,15 @@ export struct RuleSourcePage {
   buildGroupAssignment() {
     Column({ space: AppSpace.Md }) {
       Text($r('app.string.rule_source_selected_count', this.selectedSourceCount))
-        .width('100%').fontSize(AppFont.Body).fontColor($r('sys.color.font_secondary'))
+        .width('100%').fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
       Select(this.groupOptions(false)).value(this.groupDraft.length > 0 ? this.groupDraft : $r('app.string.source_manage_ungrouped'))
         .width('100%').font({ size: AppFont.Body }).selectedOptionFontColor(AppColor.Brand)
+        .fontColor(AppTheme.TextPrimary).backgroundColor(AppTheme.Surface)
+        .optionFontColor(AppTheme.TextPrimary).menuBackgroundColor(AppTheme.Surface)
         .onSelect((index: number) => { this.groupDraft = index === 0 ? '' : this.sourceGroups[index - 1]; })
       TextInput({ text: $$this.groupDraft, placeholder: $r('app.string.source_manage_group_name') })
         .width('100%').height(48).fontSize(AppFont.Body).caretColor(AppColor.Brand)
+          .fontColor(AppTheme.TextPrimary).placeholderColor(AppTheme.TextTertiary).backgroundColor(AppTheme.Surface)
       Button($r('app.string.source_manage_apply'), { type: ButtonType.Normal })
         .height(44).width('100%').fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand).borderRadius(AppRadius.Sm)
         .enabled(this.selectedSourceCount > 0 && this.busySourceUrl.length === 0).onClick(() => this.assignSelectedGroup())
@@ -1824,8 +1843,8 @@ export struct RuleSourcePage {
   @Builder
   buildOrderPreview() {
     Text(this.dragSourceName).fontSize(AppFont.Body).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-      .fontColor($r('sys.color.font_primary')).padding(AppSpace.Md).width(240)
-      .backgroundColor($r('sys.color.comp_background_primary')).borderRadius(AppRadius.Sm)
+      .fontColor(AppTheme.TextPrimary).padding(AppSpace.Md).width(240)
+      .backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Sm)
   }
 
   @Builder
@@ -1834,10 +1853,10 @@ export struct RuleSourcePage {
       LazyForEach(this.orderDataSource, (item: RuleSourceListItem) => {
         ListItem() {
           Row({ space: AppSpace.Sm }) {
-            SymbolGlyph($r('sys.symbol.list_bullet')).fontSize(20).fontColor([$r('sys.color.font_tertiary')])
+            SymbolGlyph($r('sys.symbol.list_bullet')).fontSize(20).fontColor([AppTheme.TextTertiary])
               .accessibilityText($r('app.string.source_manage_drag'))
             if (item.source.isPinned) { SymbolGlyph($r('sys.symbol.pin')).fontSize(16).fontColor([AppColor.Brand]) }
-            Text(item.source.bookSourceName).fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
+            Text(item.source.bookSourceName).fontSize(AppFont.Body).fontColor(AppTheme.TextPrimary)
               .layoutWeight(1).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
             Button() { SymbolGlyph($r('sys.symbol.arrow_up')).fontSize(20).fontColor([AppColor.Brand]) }
               .width(40).height(44).padding(0).backgroundColor(Color.Transparent)
@@ -1851,7 +1870,7 @@ export struct RuleSourcePage {
         }
       }, (item: RuleSourceListItem) => item.sourceUrl)
     }
-    .width('100%').layoutWeight(1).divider({ strokeWidth: 0.5, color: $r('sys.color.comp_divider') })
+    .width('100%').layoutWeight(1).divider({ strokeWidth: 0.5, color: AppTheme.Divider })
     .onItemDragStart((_event: ItemDragInfo, itemIndex: number) => {
       this.dragSourceName = itemIndex >= 0 && itemIndex < this.orderedSources.length ?
         this.orderedSources[itemIndex].bookSourceName : '';
@@ -1884,10 +1903,13 @@ export struct RuleSourcePage {
             { value: $r('app.string.source_manage_test_selected') }
           ]).selected(this.testScope).value(this.testScopeLabel()).width('100%')
             .font({ size: AppFont.Body }).enabled(!this.isBulkTesting)
+            .fontColor(AppTheme.TextPrimary).backgroundColor(AppTheme.Surface)
+            .optionFontColor(AppTheme.TextPrimary).menuBackgroundColor(AppTheme.Surface)
             .onSelect((index: number) => { this.testScope = index; })
           if (this.testMode === 'search') {
             TextInput({ text: $$this.testKeyword, placeholder: $r('app.string.source_manage_test_keyword') })
-              .height(44).width('100%').fontSize(AppFont.Body).caretColor(AppColor.Brand).enabled(!this.isBulkTesting)
+              .height(44).width('100%').fontSize(AppFont.Body).caretColor(AppColor.Brand)
+          .fontColor(AppTheme.TextPrimary).placeholderColor(AppTheme.TextTertiary).backgroundColor(AppTheme.Surface).enabled(!this.isBulkTesting)
           }
           Button(this.isBulkTesting ? $r('app.string.source_manage_test_cancel') : $r('app.string.source_manage_test_start'),
             { type: ButtonType.Normal })
@@ -1916,13 +1938,13 @@ export struct RuleSourcePage {
           ListItem() {
             Column({ space: AppSpace.Xs }) {
               Row({ space: AppSpace.Sm }) {
-                Text(item.source.bookSourceName).fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
+                Text(item.source.bookSourceName).fontSize(AppFont.Body).fontColor(AppTheme.TextPrimary)
                   .layoutWeight(1).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
                 Button() { SymbolGlyph($r('sys.symbol.scope')).fontSize(20).fontColor([AppColor.Brand]) }
                   .width(44).height(44).padding(0).backgroundColor(Color.Transparent)
                   .accessibilityText($r('app.string.source_manage_debug')).onClick(() => this.debugSource(item.source))
               }.width('100%')
-              Text(item.source.validationMessage).fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+              Text(item.source.validationMessage).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
                 .width('100%')
               if (this.certificateFailureHost(item.source).length > 0) {
                 Button($r('app.string.source_manage_tls_retry'), { type: ButtonType.Normal })
@@ -1930,7 +1952,7 @@ export struct RuleSourcePage {
                   .borderRadius(AppRadius.Sm).enabled(this.busySourceUrl.length === 0)
                   .onClick(() => this.confirmTrustHosts([this.certificateFailureHost(item.source)], [item.source]))
               }
-              Divider().color($r('sys.color.comp_divider')).margin({ top: AppSpace.Sm })
+              Divider().color(AppTheme.Divider).margin({ top: AppSpace.Sm })
             }.width('100%')
           }
         }, (item: RuleSourceListItem) => item.sourceUrl)
@@ -1952,6 +1974,7 @@ export struct RuleSourcePage {
       Row({ space: AppSpace.Sm }) {
         TextInput({ text: $$this.trustHostDraft, placeholder: $r('app.string.source_manage_tls_host') })
           .height(44).layoutWeight(1).fontSize(AppFont.Body).caretColor(AppColor.Brand)
+          .fontColor(AppTheme.TextPrimary).placeholderColor(AppTheme.TextTertiary).backgroundColor(AppTheme.Surface)
         Button() { SymbolGlyph($r('sys.symbol.plus')).fontSize(20).fontColor([AppColor.Brand]) }
           .height(44).width(44).padding(0).backgroundColor(AppColor.BrandSoft)
           .accessibilityText($r('app.string.source_manage_tls_trust'))
@@ -1962,7 +1985,7 @@ export struct RuleSourcePage {
         ForEach(this.trustedHosts, (host: string) => {
           ListItem() {
             Row({ space: AppSpace.Sm }) {
-              Text(host).fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
+              Text(host).fontSize(AppFont.Body).fontColor(AppTheme.TextPrimary)
                 .layoutWeight(1).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
               Button() { SymbolGlyph($r('sys.symbol.trash')).fontSize(18).fontColor([RULE_SOURCE_DANGER]) }
                 .height(44).width(44).padding(0).backgroundColor(Color.Transparent)
@@ -1972,9 +1995,9 @@ export struct RuleSourcePage {
           }
         }, (host: string) => host)
         if (this.trustedHosts.length === 0) {
-          ListItem() { Text($r('app.string.source_manage_tls_empty')).fontColor($r('sys.color.font_tertiary')).padding(20) }
+          ListItem() { Text($r('app.string.source_manage_tls_empty')).fontColor(AppTheme.TextTertiary).padding(20) }
         }
-      }.width('100%').layoutWeight(1).divider({ strokeWidth: 0.5, color: $r('sys.color.comp_divider') })
+      }.width('100%').layoutWeight(1).divider({ strokeWidth: 0.5, color: AppTheme.Divider })
     }.width('100%').layoutWeight(1).padding(AppSpace.Md)
   }
 
@@ -1989,10 +2012,10 @@ export struct RuleSourcePage {
   }
 
   private importActionForeground(): ResourceColor {
-    if (!this.canImportSources()) return $r('app.color.text_secondary');
+    if (!this.canImportSources()) return AppTheme.TextSecondary;
     const brand: ResourceStr = AppColor.Brand;
-    // 默认深浅两套橙色都配黑字；自定义色按 sRGB 相对亮度选择对比度更高的黑/白。
-    if (typeof brand !== 'string') return Color.Black;
+    // 套装资源使用对应前景；自定义色按 sRGB 相对亮度选择对比度更高的黑/白。
+    if (typeof brand !== 'string') return AppColor.OnBrand;
     const luminance: number = 0.2126 * this.importColorChannel(brand, 1) +
       0.7152 * this.importColorChannel(brand, 3) + 0.0722 * this.importColorChannel(brand, 5);
     return (luminance + 0.05) / 0.05 >= 1.05 / (luminance + 0.05) ? Color.Black : Color.White;
@@ -2009,15 +2032,15 @@ export struct RuleSourcePage {
       Column({ space: 2 }) {
         Text($r('app.string.rule_source_import_title'))
           .fontSize(AppFont.BodyL)
-          .fontColor($r('sys.color.font_primary'))
+          .fontColor(AppTheme.TextPrimary)
           .fontWeight(FontWeight.Medium)
         Text($r('app.string.rule_source_import_hint'))
           .fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_tertiary'))
+          .fontColor(AppTheme.TextTertiary)
           .maxLines(2)
         if (MembershipState.featureEnabled) {
           Text($r('app.string.rule_source_membership_hint'))
-            .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
         }
       }
       .width('100%')
@@ -2045,7 +2068,7 @@ export struct RuleSourcePage {
 
       Text($r('app.string.rule_source_import_files_hint'))
         .fontSize(AppFont.Caption)
-        .fontColor($r('sys.color.font_tertiary'))
+        .fontColor(AppTheme.TextTertiary)
         .width('100%')
       if (this.importFileTotal > 0) {
         Text($r('app.string.rule_source_import_files_progress', this.importFileCurrent, this.importFileTotal))
@@ -2056,26 +2079,26 @@ export struct RuleSourcePage {
         Column({ space: 4 }) {
           Text($r('app.string.rule_source_import_files_result', this.fileImportResult.imported,
             this.fileImportResult.skippedSources, this.fileImportResult.skippedFiles))
-            .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
           if (this.fileImportResult.oversizedFiles > 0) {
             Text($r('app.string.rule_source_import_files_oversized', this.fileImportResult.oversizedFiles))
-            .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
           }
           if (this.fileImportResult.budgetFiles > 0) {
             Text($r('app.string.rule_source_import_files_budget', this.fileImportResult.budgetFiles))
-            .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
           }
           if (this.fileImportResult.invalidFiles > 0) {
             Text($r('app.string.rule_source_import_files_invalid', this.fileImportResult.invalidFiles))
-            .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
           }
           if (this.fileImportResult.readFailedFiles > 0) {
             Text($r('app.string.rule_source_import_files_read_failed', this.fileImportResult.readFailedFiles))
-            .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
           }
           if (this.fileImportResult.writeFailedFiles > 0) {
             Text($r('app.string.rule_source_import_files_write_failed', this.fileImportResult.writeFailedFiles))
-            .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary'))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
           }
         }.width('100%').alignItems(HorizontalAlign.Start)
       }
@@ -2108,8 +2131,8 @@ export struct RuleSourcePage {
         .width('100%')
         .height(132)
         .fontSize(AppFont.Body)
-        .fontColor($r('sys.color.font_primary'))
-        .backgroundColor($r('sys.color.background_secondary'))
+        .fontColor(AppTheme.TextPrimary).placeholderColor(AppTheme.TextTertiary)
+        .backgroundColor(AppTheme.SettingsBackground)
         .borderRadius(AppRadius.Sm)
         .padding(AppSpace.Sm)
         .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
@@ -2152,13 +2175,13 @@ export struct RuleSourcePage {
       }
       .width('100%')
       .height(44)
-      .backgroundColor(this.canImportSources() ? AppColor.Brand : $r('app.color.input_background'))
+      .backgroundColor(this.canImportSources() ? AppColor.Brand : AppTheme.SettingsBackground)
       .borderRadius(AppRadius.Sm)
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
     .padding(AppSpace.Md)
-    .backgroundColor($r('sys.color.comp_background_primary'))
+    .backgroundColor(AppTheme.Surface)
     .borderRadius(AppRadius.Sm)
   }
 
@@ -2177,10 +2200,10 @@ export struct RuleSourcePage {
       Row({ space: AppSpace.Xs }) {
         Text($r('app.string.rule_source_bulk_tested'))
           .fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_tertiary'))
+          .fontColor(AppTheme.TextTertiary)
         Text(`${this.bulkTestCompleted}/${this.bulkTestTotal}`)
           .fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_secondary'))
+          .fontColor(AppTheme.TextSecondary)
         Blank()
         Text($r('app.string.rule_source_bulk_passed'))
           .fontSize(AppFont.Caption)
@@ -2196,10 +2219,10 @@ export struct RuleSourcePage {
           .fontColor(RULE_SOURCE_DANGER)
         Text($r('app.string.rule_source_bulk_retained'))
           .fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_tertiary'))
+          .fontColor(AppTheme.TextTertiary)
         Text(`${this.bulkTestRetained}`)
           .fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_secondary'))
+          .fontColor(AppTheme.TextSecondary)
       }
       .width('100%')
       .alignItems(VerticalAlign.Center)
@@ -2208,7 +2231,7 @@ export struct RuleSourcePage {
         Row() {
           if (this.testCancelled) {
             Text($r('app.string.source_manage_test_cancelled')).fontSize(AppFont.Caption)
-              .fontColor($r('sys.color.font_secondary')).layoutWeight(1)
+              .fontColor(AppTheme.TextSecondary).layoutWeight(1)
           } else { Blank() }
           if (this.managementView !== 'test') {
             Button(this.isBulkTesting ? $r('app.string.source_manage_test_settings') : $r('app.string.source_manage_test_failures'),
@@ -2232,7 +2255,7 @@ export struct RuleSourcePage {
       Text(this.sourceKeyUnavailable ? $r('app.string.rule_source_key_unavailable') :
         $r('app.string.rule_source_load_failed'))
         .fontSize(AppFont.Body)
-        .fontColor($r('sys.color.font_secondary'))
+        .fontColor(AppTheme.TextSecondary)
         .textAlign(TextAlign.Center)
       Button($r('app.string.common_retry'))
         .height(40)
@@ -2252,13 +2275,13 @@ export struct RuleSourcePage {
     Column({ space: AppSpace.Xs }) {
       SymbolGlyph($r('sys.symbol.bookshelf'))
         .fontSize(32)
-        .fontColor([$r('sys.color.font_tertiary')])
+        .fontColor([AppTheme.TextTertiary])
       Text($r('app.string.rule_source_empty'))
         .fontSize(AppFont.Body)
-        .fontColor($r('sys.color.font_secondary'))
+        .fontColor(AppTheme.TextSecondary)
       Text($r('app.string.rule_source_empty_hint'))
         .fontSize(AppFont.Caption)
-        .fontColor($r('sys.color.font_tertiary'))
+        .fontColor(AppTheme.TextTertiary)
         .textAlign(TextAlign.Center)
     }
     .width('100%')
@@ -2271,13 +2294,13 @@ export struct RuleSourcePage {
     Column({ space: AppSpace.Xs }) {
       SymbolGlyph($r('sys.symbol.magnifyingglass'))
         .fontSize(32)
-        .fontColor([$r('sys.color.font_tertiary')])
+        .fontColor([AppTheme.TextTertiary])
       Text($r('app.string.rule_source_no_match'))
         .fontSize(AppFont.Body)
-        .fontColor($r('sys.color.font_secondary'))
+        .fontColor(AppTheme.TextSecondary)
       Text($r('app.string.rule_source_no_match_hint'))
         .fontSize(AppFont.Caption)
-        .fontColor($r('sys.color.font_tertiary'))
+        .fontColor(AppTheme.TextTertiary)
         .textAlign(TextAlign.Center)
     }
     .width('100%')
@@ -2311,7 +2334,7 @@ export struct RuleSourcePage {
             .border({
               width: 1.5,
               color: this.isSourceSelected(item.source.bookSourceUrl, this.selectionRevision) ?
-                AppColor.Brand : $r('sys.color.font_tertiary')
+                AppColor.Brand : AppTheme.TextTertiary
             })
             .borderRadius(AppRadius.Pill)
             .accessibilityText($r('app.string.rule_source_select_hint'))
@@ -2323,7 +2346,7 @@ export struct RuleSourcePage {
             Button() {
               SymbolGlyph(this.expandedSourceUrls.has(item.sourceUrl) ?
                 $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
-                .fontSize(18).fontColor([$r('sys.color.font_tertiary')])
+                .fontSize(18).fontColor([AppTheme.TextTertiary])
             }
             .width(32).height(40).padding(0).backgroundColor(Color.Transparent)
             .accessibilityText(this.expandedSourceUrls.has(item.sourceUrl) ?
@@ -2334,12 +2357,12 @@ export struct RuleSourcePage {
                 .accessibilityText($r('app.string.source_manage_pin'))
             }
             if (item.source.isLocked) {
-              SymbolGlyph($r('sys.symbol.lock')).fontSize(16).fontColor([$r('sys.color.font_secondary')])
+              SymbolGlyph($r('sys.symbol.lock')).fontSize(16).fontColor([AppTheme.TextSecondary])
                 .accessibilityText($r('app.string.source_manage_locked'))
             }
             Text(item.source.bookSourceName)
               .fontSize(AppFont.BodyL)
-              .fontColor($r('sys.color.font_primary'))
+              .fontColor(AppTheme.TextPrimary)
               .fontWeight(FontWeight.Medium)
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -2360,18 +2383,18 @@ export struct RuleSourcePage {
             Flex({ direction: FlexDirection.Row, alignItems: ItemAlign.Center, wrap: FlexWrap.Wrap }) {
               Text(this.sourceTypeLabel(item.source))
                 .fontSize(AppFont.Caption)
-                .fontColor($r('sys.color.font_secondary'))
+                .fontColor(AppTheme.TextSecondary)
 
               if (this.sourceGroupLabels(item.source).length > 0) {
                 ForEach(this.sourceGroupLabels(item.source), (groupName: string) => {
                   Text(groupName)
                     .fontSize(AppFont.Caption)
-                    .fontColor($r('sys.color.font_tertiary'))
+                    .fontColor(AppTheme.TextTertiary)
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                     .padding({ left: 6, right: 6, top: 1, bottom: 1 })
                     .margin({ left: AppSpace.Xs })
-                    .backgroundColor($r('sys.color.background_secondary'))
+                    .backgroundColor(AppTheme.SettingsBackground)
                     .borderRadius(AppRadius.Xs)
                 }, (groupName: string) => groupName)
               }
@@ -2413,7 +2436,7 @@ export struct RuleSourcePage {
             .fontWeight(FontWeight.Medium)
           Text(this.statusMessage(item.source))
             .fontSize(AppFont.Caption)
-            .fontColor($r('sys.color.font_tertiary'))
+            .fontColor(AppTheme.TextTertiary)
             .layoutWeight(1)
             .maxLines(2)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -2436,7 +2459,7 @@ export struct RuleSourcePage {
                 this.canOpenSourceLogin(item.source)) {
                 Button(this.sourceLoginLabel(item.source), { type: ButtonType.Normal })
                   .layoutWeight(1).height(40).borderRadius(AppRadius.Sm)
-                  .backgroundColor($r('sys.color.comp_background_secondary')).fontColor(AppColor.Brand)
+                  .backgroundColor(AppTheme.SettingsBackground).fontColor(AppColor.Brand)
                   .enabled(!this.isBulkTesting && !this.isImporting && this.busySourceUrl.length === 0)
                   .onClick(() => this.openLoginEntry(item.source))
               }
@@ -2444,7 +2467,7 @@ export struct RuleSourcePage {
           }
           Divider()
             .strokeWidth(0.5)
-            .color($r('sys.color.comp_divider'))
+            .color(AppTheme.Divider)
 
           Row({ space: AppSpace.Xs }) {
             Button() {
@@ -2480,7 +2503,7 @@ export struct RuleSourcePage {
             .layoutWeight(1)
             .height(36)
             .constraintSize({ minWidth: 0 })
-            .backgroundColor($r('sys.color.comp_background_secondary'))
+            .backgroundColor(AppTheme.SettingsBackground)
             .borderRadius(AppRadius.Sm)
             .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
             .onClick(() => this.debugSource(item.source))
@@ -2489,10 +2512,10 @@ export struct RuleSourcePage {
               Row({ space: AppSpace.Xxs }) {
                 SymbolGlyph($r('sys.symbol.bolt'))
                   .fontSize(16)
-                  .fontColor([item.source.canExecute() ? AppColor.Brand : $r('sys.color.font_tertiary')])
+                  .fontColor([item.source.canExecute() ? AppColor.Brand : AppTheme.TextTertiary])
                 Text($r('app.string.rule_source_test_action'))
                   .fontSize(AppFont.Caption)
-                  .fontColor(item.source.canExecute() ? AppColor.Brand : $r('sys.color.font_tertiary'))
+                  .fontColor(item.source.canExecute() ? AppColor.Brand : AppTheme.TextTertiary)
               }
               .justifyContent(FlexAlign.Center)
             }
@@ -2521,7 +2544,7 @@ export struct RuleSourcePage {
               .layoutWeight(1)
               .height(36)
               .constraintSize({ minWidth: 0 })
-              .backgroundColor($r('sys.color.background_secondary'))
+              .backgroundColor(AppTheme.SettingsBackground)
               .borderRadius(AppRadius.Sm)
               .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
               .accessibilityText($r('app.string.rule_source_child_action'))
@@ -2556,9 +2579,9 @@ export struct RuleSourcePage {
     }
     .width('100%')
     .padding(14)
-    .backgroundColor($r('sys.color.comp_background_primary'))
+    .backgroundColor(AppTheme.Surface)
     .borderRadius(AppRadius.Sm)
-    .border({ width: 1, color: $r('sys.color.comp_divider') })
+    .border({ width: 1, color: AppTheme.Divider })
     .shadow({ radius: 6, color: AppColor.Shadow, offsetY: 2 })
   }
 }

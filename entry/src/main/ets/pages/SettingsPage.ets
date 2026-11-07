@@ -1,4 +1,7 @@
+import { SliderGestureModifier } from '../utils/SliderGestureModifier';
+import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { GeneralSettings } from '../model/GeneralSettings';
+import { AppAppearance } from '../model/AppAppearance';
 import { MembershipState } from '../model/MembershipState';
 import { VipFeatureBadge } from '../components/VipFeatureBadge';
 import { MembershipService } from '../service/MembershipService';
@@ -16,6 +19,7 @@ import { ChapterCacheService } from '../service/ChapterCacheService';
 import { WidgetUpdater } from '../service/WidgetUpdater';
 import { WindowUtils } from '../utils/WindowUtils';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
+import { PlatformCompat } from '../utils/PlatformCompat';
 import { ReaderPage } from './ReaderPage';
 import { RankingSettingsComponent } from '../components/RankingSettingsComponent';
 import { AppearanceSettingsComponent } from '../components/AppearanceSettingsComponent';
@@ -68,7 +72,9 @@ enum SettingsCacheKind { Text, Comic, Audio }
 @ComponentV2
 export struct SettingsPage {
   @Param navStack: NavPathStack = new NavPathStack();
+  @Local headerHeight: number = WindowUtils.getStatusBarHeightVp() + 56;
   @Local generalSettings: GeneralSettings = GeneralSettings.current;
+  @Local appearance: AppAppearance = AppAppearance.current;
   @Local savingGeneral: boolean = false;
   @Local jianjianCompanionEnabled: boolean = false;
   @Local currentMode: number = ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET;
@@ -514,44 +520,45 @@ export struct SettingsPage {
   }
 
   build() {
-    Column() {
-      this.buildHeader()
-
-      if (!this.isLoaded) {
-        Row({ space: AppSpace.Sm }) {
-          if (!this.preferencesLoadFailed) {
-            LoadingProgress().width(20).height(20).color(AppColor.Brand)
-          }
-          Text(this.preferencesLoadFailed ? $r('app.string.settings_load_failed') : $r('app.string.settings_loading'))
-            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).layoutWeight(1)
-          if (this.preferencesLoadFailed) {
-            Button($r('app.string.common_retry'), { buttonStyle: ButtonStyleMode.TEXTUAL })
-              .fontColor(AppColor.Brand).onClick((): void => { this.loadPrefs(); })
-          }
-        }.width('100%').padding({ left: AppSpace.Md, right: AppSpace.Md, bottom: AppSpace.Sm })
-      }
+    Stack({ alignContent: Alignment.Top }) {
       Scroll() {
-        // 设置分组始终铺满当前容器，避免横屏按行配对后短卡片下方出现大块留白。
-        GridRow({ columns: 1,
-          gutter: AdaptiveLayout.sectionSpacing(this.viewportWidth, this.viewportHeight) }) {
-          GridCol() { this.buildAppearanceGroup() }.enabled(this.isLoaded)
-          GridCol() { this.buildLaunchGroup() }.enabled(this.isLoaded)
-          GridCol() { this.buildPlaybackGroup() }.enabled(this.isLoaded)
-          GridCol() { this.buildSearchGroup() }
-          GridCol() { this.buildGeneralGroup() }.enabled(this.isLoaded)
-          GridCol() { RankingSettingsComponent() }
-        }
-        .width('100%')
-        .padding({
-          left: this.horizontalPadding(),
-          right: this.horizontalPadding(),
-          top: this.isCompactLayout() ? 0 : AppSpace.Sm,
-          bottom: AppSpace.Xl
+        Column() {
+          if (!this.isLoaded) {
+            Row({ space: AppSpace.Sm }) {
+              if (!this.preferencesLoadFailed) {
+                LoadingProgress().width(20).height(20).color(AppColor.Brand)
+              }
+              Text(this.preferencesLoadFailed ? $r('app.string.settings_load_failed') : $r('app.string.settings_loading'))
+                .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).layoutWeight(1)
+              if (this.preferencesLoadFailed) {
+                Button($r('app.string.common_retry'), { buttonStyle: ButtonStyleMode.TEXTUAL })
+                  .fontColor(AppColor.Brand).onClick((): void => { this.loadPrefs(); })
+              }
+            }.width('100%').padding({ bottom: AppSpace.Sm })
+          }
+          // 设置分组始终铺满当前容器，避免横屏按行配对后短卡片下方出现大块留白。
+          GridRow({ columns: 1,
+            gutter: Math.max(AppSpace.Sm,
+              AdaptiveLayout.sectionSpacing(this.viewportWidth, this.viewportHeight) - AppSpace.Xxs) }) {
+            GridCol() { this.buildAppearanceGroup() }.enabled(this.isLoaded)
+            GridCol() { this.buildInteractionGroup() }.enabled(this.isLoaded)
+            GridCol() { this.buildLaunchGroup() }.enabled(this.isLoaded)
+            GridCol() { this.buildPlaybackGroup() }.enabled(this.isLoaded)
+            GridCol() { this.buildCacheGroup() }.enabled(this.isLoaded)
+            GridCol() { this.buildSearchGroup() }
+            GridCol() { this.buildGeneralGroup() }.enabled(this.isLoaded)
+            GridCol() { RankingSettingsComponent() }
+          }.width('100%')
+        }.width('100%').padding({
+          left: this.horizontalPadding(), right: this.horizontalPadding(),
+          top: this.headerHeight + AppSpace.Sm, bottom: AppSpace.Xl
         })
+      }.width('100%').height('100%')
+        .scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring)
+      FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {
+        this.buildHeader()
       }
-      .layoutWeight(1)
-      .scrollBar(BarState.Off)
-      .edgeEffect(EdgeEffect.Spring)
     }
     .width('100%')
     .height('100%')
@@ -595,6 +602,16 @@ export struct SettingsPage {
     if (!this.isLoaded || this.savingGeneral || enabled === this.generalSettings.swipeSwitchTabs) return;
     this.savingGeneral = true;
     try { await PreferenceService.setSwipeSwitchTabs(enabled); }
+    catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
+    } finally { this.savingGeneral = false; }
+  }
+
+  private async setVerticalBottomTabs(enabled: boolean): Promise<void> {
+    if (!this.isLoaded || this.savingGeneral || !PlatformCompat.supports(24) ||
+      enabled === this.appearance.verticalBottomTabs) return;
+    this.savingGeneral = true;
+    try { await PreferenceService.setVerticalBottomTabs(enabled); }
     catch (_error) {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
     } finally { this.savingGeneral = false; }
@@ -675,7 +692,7 @@ export struct SettingsPage {
     Text(title)
       .fontSize(AppFont.Body)
       .fontColor(AppTheme.TextTertiary)
-      .padding({ left: AppSpace.Sm, bottom: AppSpace.Xs })
+      .padding({ left: AppSpace.Sm, bottom: 6 })
   }
 
   @Builder
@@ -689,12 +706,12 @@ export struct SettingsPage {
   @Builder
   buildAppearanceGroup() {
     Column() {
-      this.buildGroupTitle('外观')
+      this.buildGroupTitle($r('app.string.settings_appearance_group'))
 
       Column() {
         Row({ space: AppSpace.Sm }) {
           Column({ space: 2 }) {
-            Text('主题模式')
+            Text($r('app.string.settings_theme_mode'))
               .fontSize(AppFont.BodyL)
               .fontColor(AppTheme.TextPrimary)
           }
@@ -712,38 +729,13 @@ export struct SettingsPage {
         .padding({
           left: ROW_INDENT,
           right: AppSpace.Xs,
-          top: AppSpace.Sm,
-          bottom: AppSpace.Sm
+          top: AppSpace.Xs,
+          bottom: AppSpace.Xs
         })
         .constraintSize({ minHeight: 56 })
 
+        this.buildDivider()
         AppearanceSettingsComponent()
-        this.buildDivider()
-        this.buildSwitchItem(
-          $r('app.string.settings_jianjian_companion'),
-          $r('app.string.settings_jianjian_companion_desc'),
-          UIUtils.makeBinding<boolean>(() => this.jianjianCompanionEnabled),
-          (enabled: boolean): void => { this.setJianjianCompanionEnabled(enabled); },
-          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral),
-          false,
-          true
-        )
-        this.buildDivider()
-        this.buildSwitchItem(
-          $r('app.string.settings_swipe_switch_tabs'),
-          $r('app.string.settings_swipe_switch_tabs_desc'),
-          UIUtils.makeBinding<boolean>(() => this.generalSettings.swipeSwitchTabs),
-          (enabled: boolean): void => { this.setSwipeSwitchTabs(enabled); },
-          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral)
-        )
-        this.buildDivider()
-        this.buildSwitchItem(
-          $r('app.string.settings_adaptive_handedness'),
-          $r('app.string.settings_adaptive_handedness_desc'),
-          UIUtils.makeBinding<boolean>(() => this.generalSettings.adaptiveHandedness),
-          (enabled: boolean): void => { this.setAdaptiveHandedness(enabled); },
-          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral)
-        )
         this.buildDivider()
         this.buildSwitchItem(
           $r('app.string.settings_cover_super_resolution'),
@@ -765,9 +757,60 @@ export struct SettingsPage {
   }
 
   @Builder
+  buildInteractionGroup() {
+    Column() {
+      this.buildGroupTitle($r('app.string.settings_interaction_group'))
+      Column() {
+        Row({ space: AppSpace.Sm }) {
+          Text($r('app.string.appearance_floating_bottom_tabs')).fontSize(AppFont.BodyL)
+            .fontColor(AppTheme.TextPrimary).layoutWeight(1)
+          Toggle({ type: ToggleType.Switch, isOn: this.appearance.verticalBottomTabs })
+            .selectedColor(AppColor.Brand)
+            .enabled(this.isLoaded && !this.savingGeneral && PlatformCompat.supports(24))
+            .onChange((enabled: boolean): void => { this.setVerticalBottomTabs(enabled); })
+            .id('appearance-floating-bottom-tabs')
+        }.width('100%')
+          .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Xs, bottom: AppSpace.Xs })
+          .constraintSize({ minHeight: 52 })
+        this.buildDivider()
+        this.buildSwitchItem(
+          $r('app.string.settings_swipe_switch_tabs'),
+          $r('app.string.settings_swipe_switch_tabs_desc'),
+          UIUtils.makeBinding<boolean>(() => this.generalSettings.swipeSwitchTabs),
+          (enabled: boolean): void => { this.setSwipeSwitchTabs(enabled); },
+          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral)
+        )
+        this.buildDivider()
+        this.buildSwitchItem(
+          $r('app.string.settings_adaptive_handedness'),
+          $r('app.string.settings_adaptive_handedness_desc'),
+          UIUtils.makeBinding<boolean>(() => this.generalSettings.adaptiveHandedness),
+          (enabled: boolean): void => { this.setAdaptiveHandedness(enabled); },
+          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral)
+        )
+        this.buildDivider()
+        this.buildSwitchItem(
+          $r('app.string.settings_jianjian_companion'),
+          $r('app.string.settings_jianjian_companion_desc'),
+          UIUtils.makeBinding<boolean>(() => this.jianjianCompanionEnabled),
+          (enabled: boolean): void => { this.setJianjianCompanionEnabled(enabled); },
+          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral),
+          false,
+          true
+        )
+      }
+      .width('100%')
+      .backgroundColor(AppTheme.Surface)
+      .borderRadius(AppRadius.Lg)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
   buildLaunchGroup() {
     Column() {
-      this.buildGroupTitle('启动')
+      this.buildGroupTitle($r('app.string.settings_launch_group'))
 
       Column() {
         this.buildSelectItem(
@@ -800,10 +843,59 @@ export struct SettingsPage {
   @Builder
   buildPlaybackGroup() {
     Column() {
-      this.buildGroupTitle('播放')
+      this.buildGroupTitle($r('app.string.settings_playback_group'))
 
       Column() {
-        Column({ space: AppSpace.Sm }) {
+        Column({ space: AppSpace.Xs }) {
+          Row({ space: AppSpace.Sm }) {
+            Text($r('app.string.settings_default_playback_speed')).fontSize(AppFont.BodyL)
+              .fontColor(AppTheme.TextPrimary).layoutWeight(1)
+            Text(this.defaultPlaybackSpeedDraft.toFixed(2) + 'x')
+              .fontSize(AppFont.BodyL).fontColor(AppColor.Brand)
+              .id('settings-default-speed-value')
+          }.width('100%')
+          Text($r('app.string.settings_default_playback_speed_desc'))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).width('100%')
+          Row({ space: AppSpace.Xs }) {
+            this.buildDefaultSpeedButton(false)
+            Slider({ value: this.defaultPlaybackSpeedDraft, min: 0.5, max: 3, step: 0.05 })
+              .attributeModifier(new SliderGestureModifier(0.5, 3))
+              .blockColor(AppColor.Brand).selectedColor(AppColor.Brand).layoutWeight(1)
+              .accessibilityText($r('app.string.settings_default_playback_speed'))
+              .onChange((value: number, mode: SliderChangeMode): void => {
+                this.defaultPlaybackSpeedDraft = PreferenceService.normalizeDefaultPlaybackSpeed(value);
+                if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
+                  this.setDefaultPlaybackSpeed(this.defaultPlaybackSpeedDraft);
+                }
+              })
+              .id('settings-default-speed-slider')
+            this.buildDefaultSpeedButton(true)
+          }.width('100%')
+        }.width('100%')
+          .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
+          .enabled(this.isLoaded && !this.isSavingDefaultPlaybackSpeed)
+
+        this.buildDivider()
+
+        Column({ space: AppSpace.Xs }) {
+          Row({ space: AppSpace.Sm }) {
+            Text($r('app.string.settings_audio_focus_title'))
+              .fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).layoutWeight(1)
+            ImmersiveOptionTabs({
+              labels: [$r('app.string.settings_audio_focus_resume'), $r('app.string.settings_audio_focus_mix')],
+              selected: this.focusMode,
+              onSelect: (index: number): void => { this.setFocusMode(index); }
+            }).enabled(this.isLoaded && !this.isSavingFocusMode)
+          }.width('100%')
+          Text(this.focusMode === 1 ? $r('app.string.settings_audio_focus_mix_desc') :
+            $r('app.string.settings_audio_focus_resume_desc'))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).width('100%')
+        }.width('100%')
+          .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
+
+        this.buildDivider()
+
+        Column({ space: AppSpace.Xs }) {
           Row({ space: AppSpace.Sm }) {
             Text($r('app.string.settings_mini_player_hide')).fontSize(AppFont.BodyL)
               .fontColor(AppTheme.TextPrimary).layoutWeight(1)
@@ -817,66 +909,58 @@ export struct SettingsPage {
           }.width('100%')
           Text($r('app.string.settings_mini_player_hide_desc'))
             .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).width('100%')
-        }.width('100%').padding(ROW_INDENT)
-        this.buildDivider()
+        }.width('100%')
+          .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
+      }
+      .width('100%')
+      .backgroundColor(AppTheme.Surface)
+      .borderRadius(AppRadius.Lg)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
 
-        Column({ space: AppSpace.Sm }) {
-          Row({ space: AppSpace.Sm }) {
-            Text($r('app.string.settings_default_playback_speed')).fontSize(AppFont.BodyL)
-              .fontColor(AppTheme.TextPrimary).layoutWeight(1)
-            Text(this.defaultPlaybackSpeedDraft.toFixed(2) + 'x')
-              .fontSize(AppFont.BodyL).fontColor(AppColor.Brand)
-          }.width('100%')
-          Text($r('app.string.settings_default_playback_speed_desc'))
-            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).width('100%')
-          Slider({ value: this.defaultPlaybackSpeedDraft, min: 0.5, max: 3, step: 0.05 })
-            .selectedColor(AppColor.Brand).width('100%')
-            .accessibilityText($r('app.string.settings_default_playback_speed'))
-            .onChange((value: number, mode: SliderChangeMode): void => {
-              this.defaultPlaybackSpeedDraft = PreferenceService.normalizeDefaultPlaybackSpeed(value);
-              if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
-                this.setDefaultPlaybackSpeed(this.defaultPlaybackSpeedDraft);
-              }
-            })
-        }.width('100%').padding(ROW_INDENT)
-          .enabled(this.isLoaded && !this.isSavingDefaultPlaybackSpeed)
+  @Builder
+  buildDefaultSpeedButton(increase: boolean) {
+    Button({ type: ButtonType.Circle, stateEffect: false }) {
+      SymbolGlyph(increase ? $r('sys.symbol.plus') : $r('sys.symbol.minus'))
+        .fontSize(20).fontColor([AppColor.Brand])
+    }
+    .width(44).height(44)
+    .backgroundColor(Color.Transparent).hoverEffect(HoverEffect.None)
+    .enabled(this.isLoaded && !this.isSavingDefaultPlaybackSpeed &&
+      (increase ? this.defaultPlaybackSpeedDraft < 3 : this.defaultPlaybackSpeedDraft > 0.5))
+    .opacity((increase ? this.defaultPlaybackSpeedDraft < 3 : this.defaultPlaybackSpeedDraft > 0.5) ? 1 : 0.4)
+    .accessibilityText(increase ? $r('app.string.player_speed_increase') : $r('app.string.player_speed_decrease'))
+    .onClick((): void => {
+      this.setDefaultPlaybackSpeed(this.defaultPlaybackSpeedDraft + (increase ? 0.05 : -0.05));
+    })
+    .id(increase ? 'settings-default-speed-increase' : 'settings-default-speed-decrease')
+  }
 
-        this.buildDivider()
-
-        Column({ space: AppSpace.Sm }) {
-          Row({ space: AppSpace.Sm }) {
-            Text($r('app.string.settings_audio_focus_title'))
-              .fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).layoutWeight(1)
-            ImmersiveOptionTabs({
-              labels: [$r('app.string.settings_audio_focus_resume'), $r('app.string.settings_audio_focus_mix')],
-              selected: this.focusMode,
-              onSelect: (index: number): void => { this.setFocusMode(index); }
-            }).enabled(this.isLoaded && !this.isSavingFocusMode)
-          }.width('100%')
-          Text(this.focusMode === 1 ? $r('app.string.settings_audio_focus_mix_desc') :
-            $r('app.string.settings_audio_focus_resume_desc'))
-            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).width('100%')
-        }.width('100%').padding(ROW_INDENT)
-
-        this.buildDivider()
-
-        Column({ space: AppSpace.Sm }) {
+  @Builder
+  buildCacheGroup() {
+    Column() {
+      this.buildGroupTitle($r('app.string.settings_cache_group'))
+      Column() {
+        Column({ space: AppSpace.Xs }) {
           Text($r('app.string.settings_preload_custom')).fontSize(AppFont.BodyL)
             .fontColor(AppTheme.TextPrimary).width('100%')
           Row({ space: AppSpace.Sm }) {
-          ImmersiveOptionTabs({
-            labels: PRELOAD_OPTIONS.map((opt: PreloadOption): ResourceStr => opt.count < 0 ? $r('app.string.settings_preload_custom_tab') : opt.label),
-            fillWidth: true,
-            selected: this.preloadCustom ? 4 : PRELOAD_OPTIONS.findIndex((opt: PreloadOption): boolean => opt.count === Number(this.preloadDraft)),
-            onSelect: (index: number): void => { this.choosePreload(index); }
-          }).layoutWeight(1.5)
+            ImmersiveOptionTabs({
+              labels: PRELOAD_OPTIONS.map((opt: PreloadOption): ResourceStr => opt.count < 0 ? $r('app.string.settings_preload_custom_tab') : opt.label),
+              fillWidth: true,
+              selected: this.preloadCustom ? 4 : PRELOAD_OPTIONS.findIndex((opt: PreloadOption): boolean => opt.count === Number(this.preloadDraft)),
+              onSelect: (index: number): void => { this.choosePreload(index); }
+            }).layoutWeight(1.5)
             TextInput({ text: this.preloadDraft, placeholder: $r('app.string.settings_preload_input_hint') })
               .type(InputType.Number).maxLength(2).layoutWeight(1).height(40)
               .onChange((value: string): void => { this.preloadDraft = value; this.preloadCustom = true; })
             ImmersiveActionButton({ onPress: (): void => this.submitPreload() }).layoutWeight(0.8)
           }.width('100%').alignItems(VerticalAlign.Center)
           .enabled(this.isLoaded && !this.isSavingPreload)
-        }.width('100%').padding(ROW_INDENT)
+        }.width('100%')
+          .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
 
         this.buildDivider()
 
@@ -911,57 +995,58 @@ export struct SettingsPage {
           (enabled: boolean): void => { this.setSearchRecommendations(enabled); },
           UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral)
         )
-      }.width('100%').backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg).margin({ bottom: AppSpace.Sm })
-
-      Column({ space: AppSpace.Sm }) {
-        Row({ space: AppSpace.Sm }) {
-          Text($r('app.string.settings_search_concurrency'))
-            .fontSize(AppFont.BodyL)
-            .fontColor(AppTheme.TextPrimary)
-            .flexShrink(1)
-          if (MembershipState.featureEnabled) {
-            VipFeatureBadge()
-          }
-        }.width('100%')
-        if (MembershipState.featureEnabled) {
-          Text($r('app.string.settings_search_concurrency_membership_hint'))
-            .fontSize(AppFont.Caption)
-            .fontColor(AppTheme.TextSecondary)
-            .width('100%')
-        }
-        if (this.searchConcurrencyLoadFailed) {
+        this.buildDivider()
+        Column({ space: AppSpace.Xs }) {
           Row({ space: AppSpace.Sm }) {
-            Text($r('app.string.settings_search_load_failed')).fontSize(AppFont.Caption)
-              .fontColor(AppTheme.TextSecondary).layoutWeight(1)
-            Button($r('app.string.common_retry'), { buttonStyle: ButtonStyleMode.TEXTUAL })
-              .fontColor(AppColor.Brand)
-              .onClick((): void => { this.loadSearchConcurrency(this.preferencesLoadSerial); })
-          }.width('100%')
-        }
-        Row({ space: AppSpace.Sm }) {
-          ImmersiveOptionTabs({
-            labels: ['3', '6', '9', '12', $r('app.string.settings_search_custom')],
-            fillWidth: true,
-            selected: this.searchConcurrencyCustom ? 4 : SEARCH_CONCURRENCY_OPTIONS.indexOf(Number(this.searchConcurrencyDraft)),
-            onSelect: (index: number): void => {
-              this.chooseSearchConcurrency(index);
+            Text($r('app.string.settings_search_concurrency'))
+              .fontSize(AppFont.BodyL)
+              .fontColor(AppTheme.TextPrimary)
+              .flexShrink(1)
+            if (MembershipState.featureEnabled) {
+              VipFeatureBadge()
             }
-          }).layoutWeight(1.5)
-          TextInput({ text: this.searchConcurrencyDraft, placeholder: $r('app.string.settings_search_concurrency_hint') })
-            .type(InputType.Number).maxLength(2).layoutWeight(1).height(40)
-            .onChange((value: string): void => {
-              this.searchConcurrencyDraft = value;
-              this.searchConcurrencyCustom = true;
-            })
-          ImmersiveActionButton({ onPress: (): void => { this.submitSearchConcurrency(); } }).layoutWeight(0.8)
+          }.width('100%')
+          if (MembershipState.featureEnabled) {
+            Text($r('app.string.settings_search_concurrency_membership_hint'))
+              .fontSize(AppFont.Caption)
+              .fontColor(AppTheme.TextSecondary)
+              .width('100%')
+          }
+          if (this.searchConcurrencyLoadFailed) {
+            Row({ space: AppSpace.Sm }) {
+              Text($r('app.string.settings_search_load_failed')).fontSize(AppFont.Caption)
+                .fontColor(AppTheme.TextSecondary).layoutWeight(1)
+              Button($r('app.string.common_retry'), { buttonStyle: ButtonStyleMode.TEXTUAL })
+                .fontColor(AppColor.Brand)
+                .onClick((): void => { this.loadSearchConcurrency(this.preferencesLoadSerial); })
+            }.width('100%')
+          }
+          Row({ space: AppSpace.Sm }) {
+            ImmersiveOptionTabs({
+              labels: ['3', '6', '9', '12', $r('app.string.settings_search_custom')],
+              fillWidth: true,
+              selected: this.searchConcurrencyCustom ? 4 : SEARCH_CONCURRENCY_OPTIONS.indexOf(Number(this.searchConcurrencyDraft)),
+              onSelect: (index: number): void => {
+                this.chooseSearchConcurrency(index);
+              }
+            }).layoutWeight(1.5)
+            TextInput({ text: this.searchConcurrencyDraft, placeholder: $r('app.string.settings_search_concurrency_hint') })
+              .type(InputType.Number).maxLength(2).layoutWeight(1).height(40)
+              .onChange((value: string): void => {
+                this.searchConcurrencyDraft = value;
+                this.searchConcurrencyCustom = true;
+              })
+            ImmersiveActionButton({ onPress: (): void => { this.submitSearchConcurrency(); } }).layoutWeight(0.8)
+          }
+          .width('100%')
+          .alignItems(VerticalAlign.Center)
+          .enabled(!this.isSavingSearchConcurrency && !this.searchConcurrencyLoading && !this.searchConcurrencyLoadFailed &&
+            !this.checkingSearchMembership)
         }
         .width('100%')
-        .alignItems(VerticalAlign.Center)
-        .enabled(!this.isSavingSearchConcurrency && !this.searchConcurrencyLoading && !this.searchConcurrencyLoadFailed &&
-          !this.checkingSearchMembership)
+        .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
       }
       .width('100%')
-      .padding(ROW_INDENT)
       .backgroundColor(AppTheme.Surface)
       .borderRadius(AppRadius.Lg)
     }
@@ -991,7 +1076,9 @@ export struct SettingsPage {
         onSelect: (index: number): void => onSelect(index)
       }).enabled(enabled.value)
     }
-    .width('100%').padding(ROW_INDENT)
+    .width('100%')
+    .padding({ left: ROW_INDENT, right: AppSpace.Xs, top: AppSpace.Xs, bottom: AppSpace.Xs })
+    .constraintSize({ minHeight: 56 })
   }
 
   // 多参数 Builder 的普通布尔值只保留首帧；绑定保证加载、保存及失败回滚同步到开关。
@@ -1038,10 +1125,10 @@ export struct SettingsPage {
     .padding({
       left: ROW_INDENT,
       right: ROW_INDENT,
-      top: AppSpace.Sm,
-      bottom: AppSpace.Sm
+      top: AppSpace.Xs,
+      bottom: AppSpace.Xs
     })
-    .constraintSize({ minHeight: 56 })
+    .constraintSize({ minHeight: 52 })
   }
 
   @Builder
@@ -1062,8 +1149,8 @@ export struct SettingsPage {
       }
     }
     .width('100%')
-    .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
-    .constraintSize({ minHeight: 56 })
+    .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Xs, bottom: AppSpace.Xs })
+    .constraintSize({ minHeight: 52 })
     .enabled(!this.clearingCache && !this.cacheLoading(kind))
     .onClick(() => this.clearCache(kind))
   }

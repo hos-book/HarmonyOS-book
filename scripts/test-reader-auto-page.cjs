@@ -144,17 +144,15 @@ page.speechState.active = true;
 page.syncAutoPage();
 assert.equal(page.autoPageRunning, false, 'speech follow and automatic paging never compete');
 const epub = reader();
-Object.assign(epub, { isOnlineTextBook: () => false, readerKitReady: true, currentResourceIndex: 2,
-  readerKitDomPos: 'last', readerKitPageOffset: 8, readerKitController: { flips: 0, flipPage() { this.flips++; } } });
-epub.toggleAutoPage();
-advance(3000);
-assert.equal(epub.readerKitController.flips, 1);
-epub.pauseAutoPage();
-epub.toggleAutoPage();
-advance(3000);
-assert.equal(epub.readerKitController.flips, 2, 'resuming ReaderKit resets its unchanged-position sentinel');
-advance(3000);
-assert.equal(epub.autoPageRunning, false, 'legacy EPUB ends when ReaderKit cannot advance');
+Object.assign(epub, { epubOriginalEnabled: true, onlineTextPages: [],
+  epubOriginalCommands: { flips: 0, turn() { this.flips++; } } });
+epub.toggleAutoPage(); advance(3000);
+assert.equal(epub.keyTurnRequest, 1);
+epub.pauseAutoPage(); advance(6000);
+assert.equal(epub.keyTurnRequest, 1);
+epub.toggleAutoPage(); advance(3000);
+assert.equal(epub.keyTurnRequest, 2, 'original EPUB uses the same native animated turn path');
+epub.stopAutoPage();
 assert.equal(timers.size, 0);
 
 // Continuous mode uses a native scroll animation; page timers do not trigger full-screen jumps.
@@ -336,7 +334,7 @@ assert.equal(reachedEnd, 1);
 const imageSource = fs.readFileSync(path.join(root, 'components/ComicPageImage.ets'), 'utf8');
 const imageMethods = imageSource.slice(imageSource.indexOf('  private advanceAutoPage()'),
   imageSource.indexOf('  private loadImage()')).replace(/  @Monitor\([^\n]*\)\s*/g, '');
-const { ComicImage } = compile(`export class ComicImage { ${imageMethods} }`);
+const { ComicImage } = compile(`export class ComicImage { ${imageMethods} ${extractMethod(imageSource, 'fitsViewport')} }`);
 const comic = new ComicImage();
 let atEnd = false;
 let imageEnds = 0;

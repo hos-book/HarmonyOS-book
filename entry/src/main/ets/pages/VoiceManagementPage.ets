@@ -1,3 +1,5 @@
+import { FrostedPageHeader } from '../components/FrostedPageHeader';
+import { ManagementBatchBar } from '../components/ManagementBatchBar';
 import { sendableContextManager } from '@kit.AbilityKit';
 import { CustomTtsConfig } from '../model/CustomTtsConfig';
 import { SpeechVoice, TextToSpeechState } from '../model/TextToSpeechState';
@@ -10,6 +12,7 @@ import { WindowUtils } from '../utils/WindowUtils';
 
 @ComponentV2
 export struct VoiceManagementPage {
+  @Local headerHeight: number = WindowUtils.getStatusBarHeightVp() + 56;
   @Param navStack: NavPathStack = new NavPathStack();
   @Local state: TextToSpeechState = TextToSpeechService.getInstance().state;
   @Local group: string = '';
@@ -19,7 +22,6 @@ export struct VoiceManagementPage {
   @Local failed: boolean = false;
   @Local busy: boolean = false;
   @Local managing: boolean = false;
-  @Local sorting: boolean = false;
   @Local selectedIds: string[] = [];
   @Local visibleConfigs: CustomTtsConfig[] = [];
   @Local showImport: boolean = false;
@@ -28,6 +30,8 @@ export struct VoiceManagementPage {
   @Local importError: ResourceStr = '';
   private service: TextToSpeechService = TextToSpeechService.getInstance();
   private source: ReaderTtsDataSource = new ReaderTtsDataSource();
+  private readonly moveHandler: (from: number, to: number) => void =
+    (from: number, to: number): void => { this.moveVoice(from, to); };
 
   aboutToAppear(): void { this.initialize(); }
 
@@ -61,24 +65,27 @@ export struct VoiceManagementPage {
     if (selected) this.selectedIds = [...this.selectedIds, id];
   }
 
-  private async sortVoices(descending: boolean, id: string = '', step: number = 0): Promise<void> {
+  private async saveVoiceOrder(catalog: CustomTtsConfig[]): Promise<void> {
     if (this.busy) return;
-    const catalog = this.visibleConfigs.slice();
-    if (id) {
-      const index = catalog.findIndex((item: CustomTtsConfig): boolean => item.id === id);
-      const target = index + step;
-      if (index < 0 || target < 0 || target >= catalog.length) return;
-      const item = catalog[index];
-      catalog[index] = catalog[target];
-      catalog[target] = item;
-    } else {
-      catalog.sort((a: CustomTtsConfig, b: CustomTtsConfig): number =>
-        (descending ? -1 : 1) * a.name.localeCompare(b.name));
-    }
+    const previous = this.visibleConfigs;
     this.busy = true;
+    // 原生落位动画要求在 onMove 返回前同步更新顺序，持久化失败再回滚。
+    this.visibleConfigs = catalog;
+    this.source.update(catalog, false);
     try { await this.service.reorderCustomTts(catalog.map((item: CustomTtsConfig): string => item.id)); }
-    catch (_error) { this.toast($r('app.string.tts_save_error')); }
-    finally { this.busy = false; }
+    catch (_error) {
+      this.visibleConfigs = previous;
+      this.source.update(previous, false);
+      this.toast($r('app.string.tts_save_error'));
+    } finally { this.busy = false; }
+  }
+
+  private moveVoice(from: number, to: number): void {
+    if (this.busy || from === to || from < 0 || to < 0 ||
+      from >= this.visibleConfigs.length || to >= this.visibleConfigs.length) return;
+    const catalog = this.visibleConfigs.slice();
+    catalog.splice(to, 0, catalog.splice(from, 1)[0]);
+    this.saveVoiceOrder(catalog);
   }
 
   private async applyBatch(remove: boolean, enabled: boolean): Promise<void> {
@@ -104,58 +111,15 @@ export struct VoiceManagementPage {
   }
 
   @Builder
-  managementTools() {
-    Column({ space: 8 }) {
-      Row({ space: 8 }) {
-        Button(this.sorting ? $r('app.string.tts_manage_done') : $r('app.string.tts_sort'))
-          .layoutWeight(1).fontColor(AppColor.Brand).backgroundColor(AppTheme.Background)
-          .enabled(!this.busy && !this.managing && (this.sorting || this.visibleConfigs.length > 0))
-          .onClick((): void => { this.sorting = !this.sorting; })
-        Button(this.managing ? $r('app.string.tts_manage_done') : $r('app.string.tts_batch'))
-          .layoutWeight(1).fontColor(AppColor.Brand).backgroundColor(AppTheme.Background)
-          .enabled(!this.busy && !this.sorting && (this.managing || this.visibleConfigs.length > 0))
-          .onClick((): void => { this.managing = !this.managing; this.selectedIds = []; })
-      }.width('100%')
-      if (this.sorting) {
-        Row({ space: 8 }) {
-          Button($r('app.string.tts_sort_name_asc')).layoutWeight(1)
-            .fontColor(AppColor.Brand).backgroundColor(AppTheme.Background).enabled(!this.busy)
-            .onClick((): void => { this.sortVoices(false); })
-          Button($r('app.string.tts_sort_name_desc')).layoutWeight(1)
-            .fontColor(AppColor.Brand).backgroundColor(AppTheme.Background).enabled(!this.busy)
-            .onClick((): void => { this.sortVoices(true); })
-        }.width('100%')
-        Text($r('app.string.tts_sort_hint')).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
-      }
-    }.width('100%')
-  }
-
-  @Builder
-  batchBar() {
-    Column({ space: 8 }) {
-      Row() {
-        Text($r('app.string.tts_batch_selected', this.selectedIds.length)).layoutWeight(1)
-          .fontColor(AppTheme.TextPrimary)
-        Button(this.selectedIds.length === this.visibleConfigs.length && this.visibleConfigs.length > 0 ?
-          $r('app.string.tts_batch_clear') : $r('app.string.tts_batch_all'))
-          .fontColor(AppColor.Brand).backgroundColor(Color.Transparent).enabled(!this.busy)
-          .onClick((): void => {
-            this.selectedIds = this.selectedIds.length === this.visibleConfigs.length ? [] :
-              this.visibleConfigs.map((item: CustomTtsConfig): string => item.id);
-          })
-      }.width('100%')
-      Row({ space: 8 }) {
-        Button($r('app.string.tts_batch_enable')).layoutWeight(1)
-          .fontColor(AppColor.Brand).backgroundColor(AppTheme.Background)
-          .onClick((): void => { this.applyBatch(false, true); })
-        Button($r('app.string.tts_batch_disable')).layoutWeight(1)
-          .fontColor(AppColor.Brand).backgroundColor(AppTheme.Background)
-          .onClick((): void => { this.applyBatch(false, false); })
-        Button($r('app.string.tts_batch_delete')).layoutWeight(1)
-          .fontColor(AppColor.Brand).backgroundColor(AppTheme.Background)
-          .onClick((): void => { this.confirmBatchDelete(); })
-      }.width('100%').enabled(!this.busy && this.selectedIds.length > 0)
-    }.width('100%').constraintSize({ maxWidth: 760 }).padding(16).backgroundColor(AppTheme.Surface)
+  managementButtons() {
+    Row({ space: 6 }) {
+      Button(this.managing ? $r('app.string.tts_manage_done') : $r('app.string.tts_batch'))
+        .height(32).fontSize(AppFont.Caption).padding({ left: 10, right: 10 })
+        .fontColor(this.managing ? AppColor.OnBrand : AppColor.Brand)
+        .backgroundColor(this.managing ? AppColor.Brand : AppTheme.Surface)
+        .enabled(this.ready && !this.busy && (this.managing || this.visibleConfigs.length > 0))
+        .onClick((): void => { this.managing = !this.managing; this.selectedIds = []; }).id('tts-batch-voices')
+    }
   }
 
   private filterOptions(group: boolean): SelectOption[] {
@@ -269,6 +233,9 @@ export struct VoiceManagementPage {
   @Builder
   customRow(config: CustomTtsConfig) {
     Row({ space: 10 }) {
+      SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(22).fontColor([AppTheme.TextSecondary])
+        .width(32).height(40).accessibilityText($r('app.string.tts_sort_hint'))
+        .id(`tts-drag-${config.id}`)
       if (this.managing) {
         Checkbox({ name: config.id }).select(this.selectedIds.includes(config.id))
           .selectedColor(AppColor.Brand).enabled(!this.busy).accessibilityText(config.name)
@@ -276,7 +243,7 @@ export struct VoiceManagementPage {
       }
       Button({ type: ButtonType.Normal }) {
         Row({ space: 8 }) {
-          Column({ space: 4 }) {
+          Column({ space: 2 }) {
             Text(config.name).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary)
               .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
             if (config.group || config.tier) {
@@ -289,24 +256,13 @@ export struct VoiceManagementPage {
           }
         }.width('100%')
       }.layoutWeight(1).backgroundColor(Color.Transparent).padding(0)
-        .enabled(!this.busy && (this.managing || (config.enabled && !this.sorting && !this.state.downloadingVoice)))
+        .enabled(!this.busy && (this.managing || (config.enabled && !this.state.downloadingVoice)))
         .opacity(config.enabled ? 1 : 0.5).accessibilitySelected(this.state.customTtsId === config.id)
         .onClick((): void => {
           if (this.managing) this.selectItem(config.id, !this.selectedIds.includes(config.id));
           else this.service.selectCustomTts(config.id);
         })
-      if (this.sorting) {
-        Column({ space: 4 }) {
-          Button($r('app.string.tts_sort_up')).fontSize(AppFont.Caption).fontColor(AppColor.Brand)
-            .backgroundColor(AppTheme.Background)
-            .enabled(!this.busy && this.visibleConfigs[0]?.id !== config.id)
-            .onClick((): void => { this.sortVoices(false, config.id, -1); })
-          Button($r('app.string.tts_sort_down')).fontSize(AppFont.Caption).fontColor(AppColor.Brand)
-            .backgroundColor(AppTheme.Background)
-            .enabled(!this.busy && this.visibleConfigs[this.visibleConfigs.length - 1]?.id !== config.id)
-            .onClick((): void => { this.sortVoices(false, config.id, 1); })
-        }
-      } else if (!this.managing) {
+      if (!this.managing) {
       Toggle({ type: ToggleType.Switch, isOn: config.enabled }).selectedColor(AppColor.Brand)
         .enabled(!this.busy).accessibilityText($r('app.string.tts_custom_enabled', config.name))
         .onChange((enabled: boolean): void => {
@@ -318,7 +274,7 @@ export struct VoiceManagementPage {
         .accessibilityText($r('app.string.rule_source_delete_action'))
         .onClick((): void => { this.updateVoice(config, true, false); })
       }
-    }.width('100%').constraintSize({ minHeight: 76 }).padding(16)
+    }.width('100%').constraintSize({ minHeight: 56 }).padding({ left: 12, right: 8, top: 6, bottom: 6 })
       .backgroundColor(AppTheme.Surface).borderRadius(16).border({ width: 0.5, color: AppTheme.Divider })
   }
 
@@ -328,7 +284,6 @@ export struct VoiceManagementPage {
       Column({ space: 4 }) {
         Text(voice.label).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary)
           .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(voice.language).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       if (this.state.downloadingVoice === voice.id) {
         LoadingProgress().width(24).height(24).color(AppColor.Brand)
@@ -341,87 +296,107 @@ export struct VoiceManagementPage {
           .enabled(!this.busy && !this.state.downloadingVoice)
           .onClick((): void => { this.service.selectVoice(voice); })
       }
-    }.width('100%').constraintSize({ minHeight: 76 }).padding(16)
+    }.width('100%').constraintSize({ minHeight: 56 }).padding({ left: 12, right: 8, top: 6, bottom: 6 })
       .backgroundColor(AppTheme.Surface).borderRadius(16).border({ width: 0.5, color: AppTheme.Divider })
   }
 
   build() {
-    Column() {
-      Row({ space: 12 }) {
-        Button({ type: ButtonType.Circle }) {
-          SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(24).fontColor([AppTheme.TextPrimary])
-        }.width(40).height(40).backgroundColor(Color.Transparent)
-          .accessibilityText($r('app.string.common_back')).onClick((): void => { this.navStack.pop(); })
-        Text($r('app.string.tts_voice_management')).fontSize(AppFont.Title)
-          .fontWeight(FontWeight.Bold).fontColor(AppTheme.TextPrimary)
-      }.width('100%').padding({ left: 8, right: 16, top: WindowUtils.getStatusBarHeightVp() + 8, bottom: 8 })
-      if (this.ready) {
-        Stack({ alignContent: Alignment.BottomEnd }) {
-          List({ space: 12 }) {
-            ListItem() {
-              Row() {
-                Text($r('app.string.tts_system_voice')).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).layoutWeight(1)
-                Button($r('app.string.tts_refresh')).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
-                  .onClick((): void => { this.service.refreshVoices(); })
-              }.width('100%')
-            }
-            if (this.state.error) {
-              ListItem() { Text(this.state.error).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary) }
-            }
-            ForEach(this.state.voices, (voice: SpeechVoice) => {
-              ListItem() { this.systemRow(voice) }
-            }, (voice: SpeechVoice): string => voice.id)
-            ListItem() {
-              Text($r('app.string.tts_custom_title')).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).padding({ top: 12 })
-            }
-            ListItem() {
-              Column({ space: 12 }) {
-                TextInput({ text: this.query, placeholder: $r('app.string.tts_voice_search') })
-                  .onChange((value: string): void => { this.query = value; })
-                Row({ space: 12 }) {
-                  Text($r('app.string.tts_voice_group')).fontColor(AppTheme.TextSecondary)
-                  Select(this.filterOptions(true)).value(this.group || $r('app.string.tts_filter_all'))
-                    .onSelect((index: number): void => { this.group = index > 0 ? this.filterValues(true)[index - 1] : ''; })
-                  Text($r('app.string.tts_voice_tier')).fontColor(AppTheme.TextSecondary)
-                  Select(this.filterOptions(false)).value(this.tier || $r('app.string.tts_filter_all'))
-                    .onSelect((index: number): void => { this.tier = index > 0 ? this.filterValues(false)[index - 1] : ''; })
+    Stack({ alignContent: Alignment.Top }) {
+      Column() {
+        if (this.ready) {
+          Stack({ alignContent: Alignment.BottomEnd }) {
+            List({ space: 6 }) {
+              ListItem() {
+                Text($r('app.string.tts_custom_title')).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).padding({ top: 2, bottom: 2 })
+              }
+              ListItem() {
+                Column({ space: 8 }) {
+                  TextInput({ text: this.query, placeholder: $r('app.string.tts_voice_search') })
+                    .height(36).fontSize(AppFont.Body).enabled(!this.busy)
+                    .onChange((value: string): void => { this.query = value; })
+                  Row({ space: 8 }) {
+                    Text($r('app.string.tts_voice_group')).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+                    Select(this.filterOptions(true)).value(this.group || $r('app.string.tts_filter_all'))
+                      .controlSize(ControlSize.SMALL).font({ size: AppFont.Caption }).layoutWeight(1).enabled(!this.busy)
+                      .onSelect((index: number): void => { this.group = index > 0 ? this.filterValues(true)[index - 1] : ''; })
+                    Text($r('app.string.tts_voice_tier')).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+                    Select(this.filterOptions(false)).value(this.tier || $r('app.string.tts_filter_all'))
+                      .controlSize(ControlSize.SMALL).font({ size: AppFont.Caption }).layoutWeight(1).enabled(!this.busy)
+                      .onSelect((index: number): void => { this.tier = index > 0 ? this.filterValues(false)[index - 1] : ''; })
+                  }.width('100%')
+                }.padding(10).width('100%').backgroundColor(AppTheme.Surface).borderRadius(14)
+              }
+              if (this.visibleConfigs.length === 0) {
+                ListItem() { Text($r('app.string.tts_voice_empty')).fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary).padding(20) }
+              }
+              LazyForEach(this.source, (config: CustomTtsConfig) => {
+                ListItem() { this.customRow(config) }
+              }, (config: CustomTtsConfig): string => `${config.id}:${config.enabled}`)
+                .onMove(this.busy ? undefined : this.moveHandler)
+              ListItem() {
+                Text($r('app.string.tts_custom_enabled_hint')).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+              }
+              ListItem() {
+                Row() {
+                  Text($r('app.string.tts_system_voice')).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).layoutWeight(1)
+                  Button($r('app.string.tts_refresh')).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
+                    .onClick((): void => { this.service.refreshVoices(); })
                 }.width('100%')
-                this.managementTools()
-              }.padding(12).width('100%').backgroundColor(AppTheme.Surface).borderRadius(16)
+              }
+              if (this.state.error) {
+                ListItem() { Text(this.state.error).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary) }
+              }
+              ForEach(this.state.voices, (voice: SpeechVoice) => {
+                ListItem() { this.systemRow(voice) }
+              }, (voice: SpeechVoice): string => voice.id)
+              ListItem() { Row().height(64) }
+            }.width('100%').height('100%').padding({ left: 16, right: 16 }).scrollBar(BarState.Off)
+              .contentStartOffset(this.headerHeight + 4)
+            if (!this.managing) {
+            Button({ type: ButtonType.Circle }) {
+              if (this.busy) { LoadingProgress().width(28).height(28).color(AppColor.Brand) }
+              else { SymbolGlyph($r('sys.symbol.plus')).fontSize(28).fontColor([AppColor.Brand]) }
+            }.width(56).height(56).backgroundColor(AppTheme.Surface).shadow(ShadowStyle.OUTER_DEFAULT_SM)
+              .margin({ right: 24, bottom: 20 }).enabled(!this.busy).id('tts-add-voice')
+              .accessibilityText($r('app.string.tts_voice_add'))
+              .bindMenu([
+                { value: $r('app.string.tts_custom_import'), action: (): void => { this.pickFile(); } },
+                { value: $r('app.string.tts_custom_url_import'), action: (): void => { this.openImport('url'); } },
+                { value: $r('app.string.tts_custom_paste'), action: (): void => { this.openImport('paste'); } }
+              ])
             }
-            if (this.visibleConfigs.length === 0) {
-              ListItem() { Text($r('app.string.tts_voice_empty')).fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary).padding(20) }
-            }
-            LazyForEach(this.source, (config: CustomTtsConfig) => {
-              ListItem() { this.customRow(config) }
-            }, (config: CustomTtsConfig): string => `${config.id}:${config.enabled}`)
-            ListItem() {
-              Text($r('app.string.tts_custom_enabled_hint')).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
-            }
-            ListItem() { Row().height(84) }
-          }.width('100%').height('100%').padding({ left: 16, right: 16 }).scrollBar(BarState.Off)
-          if (!this.managing && !this.sorting) {
+          }.width('100%').constraintSize({ maxWidth: 760 }).layoutWeight(1)
+        } else if (this.failed) {
+          Text($r('app.string.reading_settings_load_error')).fontColor(AppTheme.TextSecondary).padding(20)
+          Button($r('app.string.common_retry')).onClick((): void => { this.initialize(); })
+            .fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
+        } else { LoadingProgress().width(32).height(32).color(AppColor.Brand) }
+      }.width('100%').height('100%')
+        .padding({ top: this.ready ? 0 : this.headerHeight, bottom: WindowUtils.getBottomSafeVp() })
+      FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {
+        Row({ space: 6 }) {
           Button({ type: ButtonType.Circle }) {
-            if (this.busy) { LoadingProgress().width(28).height(28).color(AppColor.Brand) }
-            else { SymbolGlyph($r('sys.symbol.plus')).fontSize(28).fontColor([AppColor.Brand]) }
-          }.width(56).height(56).backgroundColor(AppTheme.Surface).shadow(ShadowStyle.OUTER_DEFAULT_SM)
-            .margin({ right: 24, bottom: 20 }).enabled(!this.busy).id('tts-add-voice')
-            .accessibilityText($r('app.string.tts_voice_add'))
-            .bindMenu([
-              { value: $r('app.string.tts_custom_import'), action: (): void => { this.pickFile(); } },
-              { value: $r('app.string.tts_custom_url_import'), action: (): void => { this.openImport('url'); } },
-              { value: $r('app.string.tts_custom_paste'), action: (): void => { this.openImport('paste'); } }
-            ])
-          }
-        }.width('100%').constraintSize({ maxWidth: 760 }).layoutWeight(1)
-        if (this.managing) { this.batchBar() }
-      } else if (this.failed) {
-        Text($r('app.string.reading_settings_load_error')).fontColor(AppTheme.TextSecondary).padding(20)
-        Button($r('app.string.common_retry')).onClick((): void => { this.initialize(); })
-          .fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
-      } else { LoadingProgress().width(32).height(32).color(AppColor.Brand) }
+            SymbolGlyph($r('sys.symbol.chevron_left')).fontSize(24).fontColor([AppTheme.TextPrimary])
+          }.width(40).height(40).backgroundColor(Color.Transparent)
+            .accessibilityText($r('app.string.common_back')).onClick((): void => { this.navStack.pop(); })
+          Text($r('app.string.tts_voice_management')).fontSize(AppFont.Title)
+            .fontWeight(FontWeight.Bold).fontColor(AppTheme.TextPrimary).layoutWeight(1)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          this.managementButtons()
+        }.width('100%').padding({ left: 8, right: 16, top: WindowUtils.getStatusBarHeightVp() + 8, bottom: 8 })
+        if (this.managing) {
+          ManagementBatchBar({ selectedCount: this.selectedIds.length, totalCount: this.visibleConfigs.length,
+            busy: this.busy,
+            onSelectAll: (): void => {
+              this.selectedIds = this.selectedIds.length === this.visibleConfigs.length ? [] :
+                this.visibleConfigs.map((item: CustomTtsConfig): string => item.id);
+            },
+            onEnable: (): void => { this.applyBatch(false, true); },
+            onDisable: (): void => { this.applyBatch(false, false); },
+            onDelete: (): void => { this.confirmBatchDelete(); } })
+        }
+      }
     }.width('100%').height('100%').backgroundColor(AppTheme.SettingsBackground)
-      .padding({ bottom: WindowUtils.getBottomSafeVp() })
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
       .bindContentCover($$this.showImport, this.importDialog(), {
         modalTransition: ModalTransition.NONE,

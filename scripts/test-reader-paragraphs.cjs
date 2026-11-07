@@ -123,6 +123,64 @@ assert.equal(scrollImage.layoutHeight, 1000, 'continuous mode does not impose a 
 const pair = native.OnlineTextPage.spreads(mixedBody, splitMixed);
 assert.equal(pair[0].columns[1], splitMixed[1]);
 console.log('PASS EPUB mixed text/images, intrinsic size, aspect ratio, overflow, scrolling, columns and stable source offsets');
+// Headings are measured separately, consume first-page height and never shift body offsets.
+const headingBody = '“甲乙丙丁戊己庚辛壬癸”';
+for (const [style, align, weight] of [['plain', 0, 3], ['bold', 0, 6], ['center', 2, 6]]) {
+  const pages = native.OnlineTextPaginator.paginate(headingBody, 300, 100, 18, 1.9, 'TestFont', 400,
+    'justify', 0, 0, '第一章 很长的章节大标题', 32, style);
+  const heading = pages[0].parts[0];
+  assert.equal(heading.isHeading, true);
+  assert.equal(heading.paragraph.text, '第一章 很长的章节大标题', 'heading has no body indentation');
+  assert.equal(heading.paragraph.style.align, align);
+  assert.equal(heading.paragraph.style.textStyle.fontWeight, weight);
+  assert.equal(heading.paragraph.style.textStyle.fontSize, 32);
+  assert.equal(heading.paragraph.style.textStyle.fontFamilies[0], 'TestFont');
+  assert.equal(heading.startOffset, 0); assert.equal(heading.endOffset, 0);
+  assert.equal(pages.length, 2, 'heading leaves only one body line on the first page');
+  assert.equal(pages[0].parts[1].startOffset, 0);
+  assert.ok(pages.every(page => page.layoutHeight <= 100));
+  assert.ok(pages.slice(1).every(page => page.parts.every(part => !part.isHeading)));
+  assert.equal(pages.at(-1).endOffset, headingBody.length);
+  for (let offset = 1; offset < headingBody.length; offset++) {
+    const page = pages[native.OnlineTextPaginator.pageIndexForOffset(pages, offset)];
+    assert.ok(page.startOffset <= offset && page.endOffset > offset);
+  }
+  assert.ok(pages[1].parts[0].dialogueRanges.some(range => range.end > 4),
+    'merged body lines keep dialogue highlights from the later line');
+  const spreads = native.OnlineTextPage.spreads(headingBody, pages);
+  assert.equal(spreads[0].columns[0].parts[0].isHeading, true);
+  assert.equal(spreads[0].columns[1].parts[0].isHeading, false);
+}
+const hiddenHeading = native.OnlineTextPaginator.paginate(headingBody, 300, 100, 18, 1.9, '', 400,
+  'justify', 0, 0, '', 48, 'bold');
+assert.equal(hiddenHeading.length, 1, 'hidden heading reserves no space');
+const tinyHeading = native.OnlineTextPaginator.paginate(headingBody, 100, 40, 18, 1.9, '', 400,
+  'justify', 0, 0, '跨页的超长标题不能截断', 48, 'center');
+assert.ok(tinyHeading.every(page => page.layoutHeight <= 40));
+assert.equal(tinyHeading[0].endOffset, 0);
+assert.equal(native.OnlineTextPaginator.pageIndexForOffset(tinyHeading, 0), 0, 'chapter start restores title-only first page');
+assert.equal(tinyHeading.flatMap(page => page.parts).filter(part => part.isHeading).map(part => part.text).join(''),
+  '跨页的超长标题不能截断');
+const mixedHeading = native.OnlineTextPaginator.paginate(mixedBody, 300, 200, 18, 1.9, '', 400,
+  'justify', 0, 0, '图文混排章节标题', 26, 'center');
+assert.equal(mixedHeading[0].parts[0].isHeading, true);
+assert.ok(mixedHeading.flatMap(page => page.parts).some(part => part.imageUrl));
+assert.equal(mixedHeading.at(-1).endOffset, mixedBody.length);
+const headingLines = native.OnlineTextPaginator.paginate(headingBody, 300, 1, 18, 1.9, '', 400,
+  'justify', 0, 0, '连续滚动的章节标题', 26, 'center');
+const scrollModel = load('main/ets/service/text/OnlineTextScrollDataSource.ets', {
+  './OnlineTextPaginator': native, '../../utils/PerformanceTrace': { PerformanceTrace: {} }
+});
+const headingChapter = scrollModel.OnlineTextScrollChapter.create(2, 'chapter-2', '连续滚动的章节标题', headingBody, headingLines);
+assert.equal(headingChapter.rows.filter(row => row.heading).length, 3, 'continuous rows use measured heading lines once');
+assert.equal(new Set(headingChapter.rows.map(row => row.key)).size, headingChapter.rows.length);
+const scrollSource = new scrollModel.OnlineTextScrollDataSource();
+scrollSource.rows = headingChapter.rows;
+assert.equal(scrollSource.findPosition(2, 0), 0, 'chapter navigation retains the heading');
+const restoredRow = scrollSource.getData(scrollSource.findPosition(2, 8));
+assert.equal(restoredRow.heading, false);
+assert.ok(restoredRow.startOffset <= 8 && restoredRow.endOffset > 8);
+console.log('PASS heading styles, size, hidden layout, long-title overflow, columns, images, dialogue and scroll offsets');
 for (const [alignment, expected] of [['justify', 3], ['start', 0], ['center', 2], ['end', 1]]) {
   const pages = native.OnlineTextPaginator.paginate('甲乙丙丁戊己庚辛壬癸', 100, 20, 18, 1.9, '', 400, alignment);
   assert.equal(pages.length, 3);

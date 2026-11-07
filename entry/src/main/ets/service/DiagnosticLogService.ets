@@ -162,7 +162,7 @@ export class DiagnosticLogService {
     const context = DiagnosticLogService.context;
     if (context === null) return;
     DiagnosticLogService.info('check.runtime', `api=${deviceInfo.sdkApiVersion}; device=${deviceInfo.deviceType}; ` +
-      `epub=${canIUse('SystemCapability.Reader.ReaderService.BookParser')}`);
+      'epub=self');
     try {
       const free = await statfs.getFreeSize(context.filesDir);
       DiagnosticLogService.info('check.storage', `freeMiB=${Math.floor(free / 1024 / 1024)}`);

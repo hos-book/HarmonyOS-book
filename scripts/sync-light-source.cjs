@@ -1,4 +1,10 @@
-// Import the source engine only. UI, account, database and app configuration stay local.
+// Import upstream cores. UI, account, database and app configuration stay local.
+if (process.argv.includes('--epub')) {
+  require('./light-epub-sync.cjs').sync(process.argv.slice(2)).catch(error => {
+    console.error(error.message); process.exitCode = 1;
+  });
+  return;
+}
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
@@ -155,8 +161,8 @@ export class ReaderCacheBudget {
       .replace(/^import .* from '\.\/NativeSourceCrypto';\n/m, '')
       .replace(/^import .* from '\.\/NativeImageTransform';\n/m, '');
     return replaceMethod(text, 'static async run\\(', `  static async run(js: string, fn: string, input: Uint8Array, context: NativeImageScriptContext,
-    cancelled: () => boolean = (): boolean => false): Promise<Uint8Array> {
-    const code = this.program(js, fn, context);
+    cancelled: () => boolean = (): boolean => false, label: string = 'content.imageDecode'): Promise<Uint8Array> {
+    const code = this.program(js, fn, context, label);
     if (!input.length || input.length > this.MAX_BYTES) throw new Error('图片脚本输入须为 1 字节至 20 MiB');
     if (cancelled()) throw new Error('书源请求已取消');
     const executor = SourceEngineHost.imageScripts();

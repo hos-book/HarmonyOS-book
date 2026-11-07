@@ -45,7 +45,7 @@ export struct ImmersiveSummaryTag {
 
   build() {
     Stack() {
-      if (PlatformCompat.floatingTabs) {
+      if (HdsCompat.materialSupported) {
         HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
           TabContent() { Column() }.height(this.contentHeight()).tabBar(this.backdrop())
         }

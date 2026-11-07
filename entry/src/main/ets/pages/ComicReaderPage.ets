@@ -1,3 +1,4 @@
+import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { ReaderWidgetService } from '../service/ReaderWidgetService';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { ReaderBrightnessBar } from '../components/ReaderBrightnessBar';
@@ -11,7 +12,8 @@ import { ChapterSegmentGrid } from '../components/ChapterSegmentGrid';
 import { ReaderTapPolicy, ReaderTouchTracker } from '../utils/ReaderTapPolicy';
 import { TextReadingSettingsService } from '../service/text/TextReadingSettingsService';
 import { ImmersiveOptionTabs } from '../components/ImmersiveOptionTabs';
-import { ReaderSettingCard } from '../components/ReaderSettingCard';
+import { ReaderSettingCard, ReaderSettingsSectionHeader } from '../components/ReaderSettingCard';
+import { SettingsHintButton } from '../components/SettingsHintButton';
 import { ReaderAutoPageSettings } from '../components/ReaderAutoPageSettings';
 import { ReaderAutoPageService } from '../service/text/ReaderAutoPageService';
 import { ReaderScreenOnService } from '../service/text/ReaderScreenOnService';
@@ -43,6 +45,7 @@ import { ComicTranslationModelService } from '../service/ComicTranslationModelSe
 import { ComicContinuousComponent } from '../components/ComicContinuousComponent';
 import { ChapterCacheIndicator } from '../components/ChapterCacheIndicator';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
+import { ReaderSettingsPopup } from '../components/ReaderSettingsPopup';
 import { ReaderAutoPageControls } from '../components/ReaderAutoPageControls';
 import { BookSourceSwitchSheet } from '../components/BookSourceSwitchSheet';
 import { ChapterDataSource } from '../utils/ChapterDataSource';
@@ -913,6 +916,11 @@ export struct ComicReaderPage {
       .renderGroup(this.usesContinuousPages() && this.sheetPresented && !this.busy)
       .onClick((event: ClickEvent) => this.onContentTap(event))
       .onTouch((event: TouchEvent) => this.contentTouch(event))
+      if (this.showChapters || this.showSettings) {
+        Row().width('100%').height('100%').backgroundColor(Color.Transparent)
+          .hitTestBehavior(HitTestMode.Block)
+          .onClick((): void => this.onReaderPanelVisibilityChange(false))
+      }
       if (this.busy && this.pageCount > 0) {
         Column({ space: 6 }) {
           LoadingProgress().width(36).height(36).color(AppColor.Brand)
@@ -950,12 +958,6 @@ export struct ComicReaderPage {
         .margin({ top: this.topSafe + 4 }).hitTestBehavior(HitTestMode.Transparent)
       }
       // Each sheet needs its own stable host; repeated bindSheet on one node overrides earlier bindings.
-      Column().width(0).height(0).hitTestBehavior(HitTestMode.None)
-        .bindSheet($$this.showSettings, this.settingsSheet(), { height: '70%', detents: ['70%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM,
-          showClose: true, backgroundColor: AppMaterial.SheetBackground, blurStyle: AppMaterial.ReaderSheetBlur,
-          systemMaterial: AppMaterial.ReaderSheetThick, title: { title: $r('app.string.comic_reading_mode') },
-          onWillAppear: (): void => { this.sheetPresented = true; },
-          onDisappear: (): void => { this.sheetPresented = false; } })
       Column().width(0).height(0).hitTestBehavior(HitTestMode.None)
         .bindSheet($$this.showSourceSwitch, this.sourceSwitchSheet(), { height: '82%', detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM,
           showClose: true, backgroundColor: AppMaterial.SheetBackground,
@@ -998,6 +1000,18 @@ export struct ComicReaderPage {
           .hitTestBehavior(HitTestMode.Default)
           .id('comic-auto-page-controls')
       }
+      ReaderSettingsPopup({ visible: this.showChapters || this.showSettings,
+        viewportWidth: this.widthVp, viewportHeight: this.heightVp,
+        topInset: this.topSafe, leftInset: this.leftSafe, rightInset: this.rightSafe,
+        anchorBottom: this.settingsAnchorBottom(),
+        preferredHeight: this.showChapters ? 760 : 520, maxHeightRatio: this.showChapters ? 0.84 : 0.64,
+        onVisibilityChange: (visible: boolean): void => this.onReaderPanelVisibilityChange(visible) }) {
+        if (this.showChapters) {
+          this.chapterSheet()
+        } else {
+          this.settingsSheet()
+        }
+      }
     }.width('100%').height('100%').backgroundColor('#121212')
     .onVisibleAreaChange([0, 1], (visible: boolean): void => {
       this.readerVisible = visible;
@@ -1016,14 +1030,6 @@ export struct ComicReaderPage {
       this.widthVp = width; this.heightVp = height;
       if (!this.busy) this.restorePage();
     })
-    .bindSheet($$this.showChapters, this.chapterSheet(), { height: SheetSize.LARGE, detents: [SheetSize.LARGE, '45%', '70%'], dragBar: true, preferType: SheetType.BOTTOM,
-      showClose: false, maskColor: Color.Transparent, backgroundColor: AppMaterial.SheetBackground,
-      blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick,
-      onWillAppear: (): void => { this.sheetPresented = true; },
-      onAppear: (): void => this.scrollChapterListToCurrent(),
-      onDisappear: (): void => {
-        this.sheetPresented = false; this.showChapters = false; this.chapterPositionGeneration++;
-      } })
 
   }
 
@@ -1118,6 +1124,11 @@ export struct ComicReaderPage {
     return Math.max(1, this.widthVp - 2 * (16 + Math.max(this.leftSafe, this.rightSafe)));
   }
 
+  private settingsAnchorBottom(): number {
+    if (this.showChapterBar && this.pageCount > 0) return 76 + this.bottomSafe + 44 + (this.saveFailed ? 20 : 0);
+    return PlatformCompat.floatingTabs ? 60 + Math.max(this.bottomSafe, 8) + 4 : 60 + this.bottomSafe;
+  }
+
   private floatingStyle(): HdsTabsFloatingStyle | undefined {
     if (!PlatformCompat.floatingTabs) return undefined;
     const width = this.bottomControlsWidth();
@@ -1135,17 +1146,23 @@ export struct ComicReaderPage {
   private tabClick(index: number): void {
     if (index === 0 && this.canChange(-1)) this.loadChapter(this.adjacent(-1));
     else if (index === 1) this.openChapterSheet();
-    else if (index === 2) this.showSettings = true;
+    else if (index === 2) {
+      this.showChapters = false;
+      this.chapterPositionGeneration++;
+      this.showSettings = true;
+    }
     else if (index === 3 && this.canChange(1)) this.loadChapter(this.adjacent(1));
   }
 
   @Builder
   tabStyle(icon: Resource, label: Resource, index: number, direction: number = 0) {
     Column() {
-      SymbolGlyph(icon).fontSize(22).fontColor([$r('sys.color.font_primary')])
+      SymbolGlyph(icon).fontSize(22).fontColor([
+        (index === 1 && this.showChapters) || (index === 2 && this.showSettings) ? AppColor.Brand : $r('sys.color.font_primary')])
     }.width('100%').height(48).justifyContent(FlexAlign.Center)
     .opacity(direction === 0 || this.canChange(direction) ? 1 : 0.35)
     .accessibilityText(label)
+    .id(`comic-panel-tab-${index}`)
     .onClick(() => { this.tabClick(index); })
   }
 
@@ -1224,6 +1241,7 @@ export struct ComicReaderPage {
           this.chapterArrow(-1, $r('sys.symbol.chevron_left'))
             Slider({ value: this.chapterOrdinal(), min: 0, max: Math.max(1, (this.book?.chapters.length ?? 0) - 1),
               step: 1, style: SliderStyle.OutSet })
+              .attributeModifier(new SliderGestureModifier(0, Math.max(1, (this.book?.chapters.length ?? 0) - 1)))
               .layoutWeight(1).height(44).trackThickness(6).blockSize({ width: 16, height: 16 }).selectedColor(AppColor.Brand).showSteps(false)
               .accessibilityText($r('app.string.comic_chapters'))
                .enabled((this.book?.chapters.length ?? 0) > 1 && !this.busy && !this.chapterSliderConfirming)
@@ -1250,20 +1268,19 @@ export struct ComicReaderPage {
         TabContent() {}.tabBar(this.tabStyle($r('sys.symbol.gearshape'), $r('app.string.reader_settings'), 2))
         TabContent() {}.tabBar(this.tabStyle($r('sys.symbol.forward_end_fill'), $r('app.string.comic_next'), 3, 1))
       }.width(this.bottomControlsWidth()).height(120 + this.bottomSafe)
-      .barOverlap(true).barMode(BarMode.Fixed).barPosition(BarPosition.End).scrollable(false)
+      .barOverlap(true).barHeight(60).barMode(BarMode.Fixed).barPosition(BarPosition.End).scrollable(false)
       .attributeModifier(new CompatibleTabsModifier(this.floatingStyle(), 60 + this.bottomSafe))
       .onContentWillChange((): boolean => false)
       Column() {
         if (this.saveFailed) { Text($r('app.string.comic_save_failed')).fontColor('#FFD080').fontSize(12) }
         if (this.showChapterBar && this.pageCount > 0) {
         Stack({ alignContent: Alignment.Center }) {
-        if (PlatformCompat.floatingTabs) {
+        if (HdsCompat.materialSupported) {
           HdsTabs() {
             TabContent() {}.tabBar(this.chapterMaterialContent())
           }.width('100%').height(44).barPosition(BarPosition.End).barMode(BarMode.Fixed)
             .barHeight(44).barOverlap(true).scrollable(false)
             .attributeModifier(new CompatibleTabsModifier(this.chapterFloatingStyle(), 44))
-            .barBackgroundColor(Color.Transparent)
             .backgroundColor(Color.Transparent).borderRadius(22, RenderStrategy.OFFSCREEN).clip(true)
             .onContentWillChange((): boolean => false).hitTestBehavior(HitTestMode.None)
         } else {
@@ -1297,12 +1314,24 @@ export struct ComicReaderPage {
   }
 
   private openChapterSheet(): void {
+    if (this.showChapters) return;
     if (!this.book || this.book.chapters.length === 0) return;
     this.chapterDescending = this.book.chaptersDescending ?? false;
     this.chapterQuery = '';
     this.chapterListOffsetFromCurrent = 0;
     this.chapters.setChapters(PreferenceService.orderedChapters(this.book));
+    this.showSettings = false;
     this.showChapters = true;
+    this.scrollChapterListToCurrent();
+  }
+
+  private onReaderPanelVisibilityChange(visible: boolean): void {
+    if (visible) {
+      if (this.showChapters) this.scrollChapterListToCurrent();
+      return;
+    }
+    this.showSettings = false;
+    this.closeChapterSheet();
   }
 
   private closeChapterSheet(): void {
@@ -1372,7 +1401,7 @@ export struct ComicReaderPage {
       Column({ space: AppSpace.Xs }) {
       Row() {
         Text($r('app.string.comic_chapters'))
-          .fontSize(AppFont.Title)
+          .fontSize(18)
           .fontColor($r('sys.color.font_primary'))
           .fontWeight(FontWeight.Bold)
         Blank()
@@ -1383,13 +1412,14 @@ export struct ComicReaderPage {
             this.chapterListOffsetFromCurrent = 0;
             if (!this.chapterSegmented && this.chapterQuery.length === 0) this.scrollChapterListToCurrent();
           })
-        SymbolGlyph($r('sys.symbol.xmark'))
-          .fontSize(20)
-          .fontColor([$r('sys.color.font_secondary')])
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r('sys.symbol.xmark')).fontSize(18).fontColor([$r('sys.color.font_secondary')])
+        }.width(36).height(36).backgroundColor(Color.Transparent)
+          .accessibilityText($r('app.string.common_close')).id('comic-chapters-close')
           .onClick((): void => this.closeChapterSheet())
       }
       .width('100%')
-      .padding({ left: AppSpace.Lg, right: AppSpace.Lg, top: AppSpace.Xs })
+      .padding({ left: 16, right: 8, top: 4 })
 
       ChapterSheetActions({
         descending: this.chapterDescending,
@@ -1709,20 +1739,26 @@ export struct ComicReaderPage {
 
   @Builder
   settingsSheet() {
+    Column() {
+      Row() {
+        Text($r('app.string.reader_settings')).fontSize(18).fontWeight(FontWeight.Bold)
+          .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+        SettingsHintButton({ title: $r('app.string.comic_settings_gesture_title'), message: $r('app.string.comic_gesture_hint') })
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r('sys.symbol.xmark')).fontSize(18).fontColor([$r('sys.color.font_secondary')])
+        }.width(36).height(36).backgroundColor(Color.Transparent)
+          .accessibilityText($r('app.string.common_close')).id('comic-settings-close')
+          .onClick((): void => { this.showSettings = false; })
+      }.width('100%').padding({ left: 16, right: 8, top: 4, bottom: 4 })
     Scroll() {
-    Column({ space: 12 }) {
-      ReaderAutoPageSettings({ seconds: this.autoPageSeconds, running: this.autoPageRunning, paused: this.autoPagePaused,
-        scrolling: this.mode === 0, comic: true, speed: this.autoScrollSpeed,
-        onSpeed: (speed: number): void => this.setAutoScrollSpeed(speed),
-        available: !this.busy && !this.failed && this.pageCount > 0 && !this.zoomActive,
-        onInterval: (seconds: number): void => this.setAutoPageInterval(seconds),
-        onToggle: (): void => this.toggleAutoPage() })
-      ReaderSettingCard({ title: $r('app.string.reader_turn_title'), inline: true }) {
+    Column({ space: 6 }) {
+      ReaderSettingsSectionHeader({ title: $r('app.string.comic_settings_reading_group') })
+      ReaderSettingCard({ compact: true, title: $r('app.string.reader_turn_title'), inline: true }) {
         ImmersiveOptionTabs({ labels: [$r('app.string.comic_scroll'), $r('app.string.comic_paged'),
           $r('app.string.comic_rtl'), $r('app.string.comic_dissolve')], selected: this.mode,
           onSelect: (index: number): void => { this.changeMode(index); } }).enabled(!this.settingsSaving)
       }
-      ReaderSettingCard({ title: $r('app.string.comic_display_title'), inline: true,
+      ReaderSettingCard({ compact: true, title: $r('app.string.comic_display_title'), inline: true,
         description: this.displayModeHint() }) {
         ImmersiveOptionTabs({ labels: [$r('app.string.comic_display_default'), $r('app.string.comic_display_width'),
           $r('app.string.comic_display_screen'), $r('app.string.comic_display_original')], selected: this.displayMode,
@@ -1730,7 +1766,7 @@ export struct ComicReaderPage {
           .id('comic-display-mode').enabled(!this.settingsSaving)
       }
       if (this.mode !== 0 && this.displayMode === 0) {
-        ReaderSettingCard({ title: $r('app.string.comic_page_layout'), inline: true,
+        ReaderSettingCard({ compact: true, title: $r('app.string.comic_page_layout'), inline: true,
           description: $r('app.string.comic_page_layout_hint') }) {
           ImmersiveOptionTabs({ labels: this.mode === 1 ? [$r('app.string.comic_layout_width'),
             $r('app.string.comic_layout_screen'), $r('app.string.comic_layout_joined')] :
@@ -1739,7 +1775,7 @@ export struct ComicReaderPage {
             onSelect: (index: number): void => { this.changePageLayout(index); } }).enabled(!this.settingsSaving)
         }
       } else if (this.mode === 1) {
-        ReaderSettingCard({ title: $r('app.string.comic_page_layout'), inline: true,
+        ReaderSettingCard({ compact: true, title: $r('app.string.comic_page_layout'), inline: true,
           description: $r('app.string.comic_pagination_hint') }) {
           ImmersiveOptionTabs({ labels: [$r('app.string.comic_layout_single'), $r('app.string.comic_layout_joined')],
             selected: this.pageLayout === 2 ? 1 : 0,
@@ -1748,13 +1784,37 @@ export struct ComicReaderPage {
         }
       }
       if (this.usesJoinedPages()) {
-        ReaderSettingCard({ title: $r('app.string.comic_page_overlap'), inline: true,
+        ReaderSettingCard({ compact: true, title: $r('app.string.comic_page_overlap'), inline: true,
           description: $r('app.string.comic_page_overlap_hint') }) {
           ImmersiveOptionTabs({ labels: ['0%', '10%', '20%', '30%'], selected: this.pageOverlap / 10,
             onSelect: (index: number): void => { this.changePageOverlap(index * 10); } }).enabled(!this.settingsSaving)
         }
       }
-      ReaderSettingCard({ title: $r('app.string.comic_image_preload_title'), inline: true,
+      ReaderSettingsSectionHeader({ title: $r('app.string.reader_settings_turn_group') })
+      ReaderSettingCard({ compact: true, title: $r('app.string.reader_volume_key_turn'), inline: true,
+        description: $r('app.string.reader_volume_key_hint') }) {
+        Toggle({ type: ToggleType.Switch, isOn: this.volumeKeyPageTurn }).selectedColor(AppColor.Brand)
+          .enabled(!this.settingsSaving)
+          .onChange((enabled: boolean): void => { this.setVolumeKeyPageTurn(enabled); })
+      }
+      ReaderAutoPageSettings({ compact: true, seconds: this.autoPageSeconds, running: this.autoPageRunning, paused: this.autoPagePaused,
+        scrolling: this.mode === 0, comic: true, speed: this.autoScrollSpeed,
+        onSpeed: (speed: number): void => this.setAutoScrollSpeed(speed),
+        available: !this.busy && !this.failed && this.pageCount > 0 && !this.zoomActive,
+        onInterval: (seconds: number): void => this.setAutoPageInterval(seconds),
+        onToggle: (): void => this.toggleAutoPage() })
+      ReaderSettingsSectionHeader({ title: $r('app.string.comic_settings_display_group') })
+      ReaderSettingCard({ compact: true, title: $r('app.string.reader_show_chapter_bar'), inline: true }) {
+        Toggle({ type: ToggleType.Switch, isOn: this.showChapterBar }).selectedColor(AppColor.Brand)
+          .enabled(!this.settingsSaving)
+          .onChange((enabled: boolean): void => { this.setChapterBar(enabled); })
+      }
+      ReaderSettingCard({ compact: true, title: $r('app.string.reader_show_brightness_bar'), inline: true }) {
+        Toggle({ type: ToggleType.Switch, isOn: this.showBrightnessBar }).selectedColor(AppColor.Brand)
+          .onChange((enabled: boolean): void => { this.setBrightnessBar(enabled); })
+      }
+      ReaderSettingsSectionHeader({ title: $r('app.string.comic_settings_image_group') })
+      ReaderSettingCard({ compact: true, title: $r('app.string.comic_image_preload_title'), inline: true,
         description: $r('app.string.comic_image_preload_hint') }) {
         ImmersiveOptionTabs({ labels: [$r('app.string.comic_image_preload_off'),
           $r('app.string.comic_image_preload_count', 2), $r('app.string.comic_image_preload_count', 5),
@@ -1763,34 +1823,19 @@ export struct ComicReaderPage {
           onSelect: (index: number): void => { this.setImagePreloadCount([0, 2, 5, 10, 20][index]); }
         }).enabled(!this.settingsSaving)
       }
-      ReaderSettingCard({ title: $r('app.string.reader_volume_key_turn'), inline: true,
-        description: $r('app.string.reader_volume_key_hint') }) {
-        Toggle({ type: ToggleType.Switch, isOn: this.volumeKeyPageTurn }).selectedColor(AppColor.Brand)
-          .enabled(!this.settingsSaving)
-          .onChange((enabled: boolean): void => { this.setVolumeKeyPageTurn(enabled); })
-      }
-      ReaderSettingCard({ title: $r('app.string.reader_show_chapter_bar'), inline: true }) {
-        Toggle({ type: ToggleType.Switch, isOn: this.showChapterBar }).selectedColor(AppColor.Brand)
-          .enabled(!this.settingsSaving)
-          .onChange((enabled: boolean): void => { this.setChapterBar(enabled); })
-      }
-      ReaderSettingCard({ title: $r('app.string.reader_show_brightness_bar'), inline: true }) {
-        Toggle({ type: ToggleType.Switch, isOn: this.showBrightnessBar }).selectedColor(AppColor.Brand)
-          .onChange((enabled: boolean): void => { this.setBrightnessBar(enabled); })
-      }
-      ReaderSettingCard({ title: $r('app.string.comic_ai_sr'), inline: true, showVip: MembershipState.featureEnabled,
+      ReaderSettingCard({ compact: true, title: $r('app.string.comic_ai_sr'), inline: true, showVip: MembershipState.featureEnabled,
         description: $r('app.string.comic_ai_sr_hint') }) {
         Toggle({ type: ToggleType.Switch, isOn: this.superResolution && this.membership.hasAccess })
           .selectedColor(AppColor.Brand).enabled(this.membership.hasAccess && ComicSuperResolutionService.supported() && !this.savingSuperResolution)
           .onChange((enabled: boolean) => { this.setSuperResolution(enabled); })
       }
-      ReaderSettingCard({ title: $r('app.string.comic_ai_color'), inline: true, showVip: MembershipState.featureEnabled,
+      ReaderSettingCard({ compact: true, title: $r('app.string.comic_ai_color'), inline: true, showVip: MembershipState.featureEnabled,
         description: ComicColorizationService.supported() ? $r('app.string.comic_ai_color_hint') : $r('app.string.comic_ai_color_unsupported') }) {
         Toggle({ type: ToggleType.Switch, isOn: this.colorization && this.membership.hasAccess }).selectedColor(AppColor.Brand)
           .enabled(ComicColorizationService.supported())
           .onChange((enabled: boolean): void => { this.setColorization(enabled); })
       }
-      ReaderSettingCard({ title: $r('app.string.comic_ai_translate'), inline: true, showVip: MembershipState.featureEnabled,
+      ReaderSettingCard({ compact: true, title: $r('app.string.comic_ai_translate'), inline: true, showVip: MembershipState.featureEnabled,
         description: $r('app.string.comic_offline_hint') }) {
         Toggle({ type: ToggleType.Switch, isOn: this.translation && this.membership.hasAccess })
           .selectedColor(AppColor.Brand).enabled(!this.settingsSaving)
@@ -1803,7 +1848,7 @@ export struct ComicReaderPage {
           Button($r('app.string.common_cancel')).onClick((): void => { this.translationIntent++; })
         }.width('100%')
       }
-      ReaderSettingCard({ title: $r('app.string.comic_translation_engine'), inline: true }) {
+      ReaderSettingCard({ compact: true, title: $r('app.string.comic_translation_engine'), inline: true }) {
         ImmersiveOptionTabs({ labels: [$r('app.string.comic_translation_ja_zh'), $r('app.string.comic_translation_ko_zh'),
           $r('app.string.comic_translation_en_zh'), $r('app.string.comic_translation_zh_en')],
           selected: ['ja-zh', 'ko-zh', 'en-zh', 'zh-en'].indexOf(this.translationDirection),
@@ -1812,9 +1857,9 @@ export struct ComicReaderPage {
             if (direction) this.setTranslationDirection(direction);
           } }).id('comic-translation-direction').enabled(!this.settingsSaving && this.membership.hasAccess)
       }
-      Text($r('app.string.comic_gesture_hint')).fontSize(12).fontColor($r('sys.color.font_secondary'))
-    }.width('100%').padding(24)
-    }.width('100%').height('100%').scrollBar(BarState.Auto)
+    }.width('100%').padding({ left: 10, right: 10, bottom: 10 })
+    }.width('100%').layoutWeight(1).scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
+    }.width('100%').height('100%')
   }
 
 }

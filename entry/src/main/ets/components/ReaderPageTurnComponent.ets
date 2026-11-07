@@ -16,6 +16,7 @@ class ReaderTurnFrame extends FrameCallback {
 @ComponentV2
 export struct ReaderPageTurnComponent {
   @Param selectionActive: boolean = false;
+  @Param ignoreChildGestures: boolean = false;
   @Param tapLeftPercent: number = 33;
   @Param tapRightPercent: number = 33;
   @Param tapTopPercent: number = 33;
@@ -34,7 +35,7 @@ export struct ReaderPageTurnComponent {
   @Event onPrepare: (forward: boolean) => Promise<boolean> = async (_forward: boolean): Promise<boolean> => false;
   @Event onTurnFeedback: (forward: boolean) => void = (): void => {};
   @Event onConfirm: () => void = (): void => {};
-  @Event onComplete: (commit: boolean) => void = (_commit: boolean): void => {};
+  @Event onComplete: (commit: boolean) => void | Promise<void> = (_commit: boolean): void => {};
   @Event onCenterTap: () => void = (): void => {};
 
   private canvas: CanvasRenderingContext2D = new CanvasRenderingContext2D(new RenderingContextSettings(true));
@@ -95,6 +96,7 @@ export struct ReaderPageTurnComponent {
   }
 
   private cancelTurn(commit: boolean = false): void {
+    if (this.phase === 'completing') return;
     const wasActive = this.phase !== 'idle';
     this.serial++;
     this.frameQueued = false;
@@ -102,9 +104,21 @@ export struct ReaderPageTurnComponent {
     const running = this.animator;
     this.animator = null;
     if (running !== null) running.cancel();
-    if (wasActive) this.onComplete(commit);
+    if (wasActive) { this.finishTurn(commit, this.serial); return; }
     if (this.canvasReady) this.canvas.clearRect(0, 0, this.pageWidth, this.pageHeight);
     this.releaseSnapshot();
+  }
+
+  private async finishTurn(commit: boolean, ticket: number): Promise<void> {
+    this.phase = 'completing';
+    try { await this.onComplete(commit); }
+    finally {
+      if (ticket === this.serial) {
+        this.phase = 'idle';
+        if (this.canvasReady) this.canvas.clearRect(0, 0, this.pageWidth, this.pageHeight);
+        this.releaseSnapshot();
+      }
+    }
   }
 
   private async beginTurn(forward: boolean, tap: boolean, anchorY: number): Promise<void> {
@@ -125,8 +139,7 @@ export struct ReaderPageTurnComponent {
       if (this.mode === PageTurnMode.None && tap) {
         const prepared = await this.onPrepare(forward);
         if (ticket !== this.serial) return;
-        this.phase = 'idle';
-        this.onComplete(prepared);
+        await this.finishTurn(prepared, ticket);
         return;
       }
       const bitmap = await this.getUIContext().getComponentSnapshot().get(this.snapshotId);
@@ -236,10 +249,7 @@ export struct ReaderPageTurnComponent {
     }
     if (commit) this.onConfirm();
     if (this.mode === PageTurnMode.None) {
-      this.phase = 'idle';
-      this.onComplete(commit);
-      this.canvas.clearRect(0, 0, this.pageWidth, this.pageHeight);
-      this.releaseSnapshot();
+      this.finishTurn(commit, this.serial);
       return;
     }
     const ticket = this.serial;
@@ -268,10 +278,7 @@ export struct ReaderPageTurnComponent {
     animation.onFinish = (): void => {
       if (ticket !== this.serial) return;
       this.animator = null;
-      this.phase = 'idle';
-      this.onComplete(commit);
-      this.canvas.clearRect(0, 0, this.pageWidth, this.pageHeight);
-      this.releaseSnapshot();
+      this.finishTurn(commit, ticket);
     };
     animation.play();
   }
@@ -462,6 +469,7 @@ export struct ReaderPageTurnComponent {
         .onActionStart((event: GestureEvent): void => this.handlePanStart(event))
         .onActionUpdate((event: GestureEvent): void => this.handlePanUpdate(event))
         .onActionEnd((event: GestureEvent): void => this.handlePanEnd(event))
-        .onActionCancel((): void => this.handlePanCancel()))
+        .onActionCancel((): void => this.handlePanCancel()),
+      this.ignoreChildGestures ? GestureMask.IgnoreInternal : GestureMask.Normal)
   }
 }

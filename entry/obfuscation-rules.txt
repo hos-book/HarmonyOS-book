@@ -23,6 +23,42 @@
 -enable-export-obfuscation
 # Persisted shelf update report (listenbook_shelf_updates/report_v1).
 -keep-property-name
+# EPUB original theme files and the fixed Web bridge/config contract.
+version
+themeId
+enabled
+chapters
+spine
+href
+offset
+length
+snippet
+fraction
+page
+count
+paged
+spot
+restorePage
+paint
+selected
+token
+direction
+x
+y
+width
+height
+report
+# Durable EPUB chapter background styles (*.style.json).
+image
+color
+foreground
+size
+repeat
+position
+headingColor
+headingForeground
+start
+style
 bookId
 title
 cover

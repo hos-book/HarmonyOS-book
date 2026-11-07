@@ -1,5 +1,6 @@
 import { AppFont, AppRadius, AppSpace } from '../theme/Theme';
 import { VipFeatureBadge } from './VipFeatureBadge';
+import { SettingsHintButton } from './SettingsHintButton';
 
 /**
  * 设置分组卡片。
@@ -9,6 +10,7 @@ import { VipFeatureBadge } from './VipFeatureBadge';
 @ComponentV2
 export struct ReaderSettingCard {
   @Param title: ResourceStr = '';
+  @Param showTitle: boolean = true;
   @Param description: ResourceStr = '';
   @Param inline: boolean = false;
   @Param showVip: boolean = false;
@@ -23,25 +25,28 @@ export struct ReaderSettingCard {
     Column({ space: this.compact ? 4 : AppSpace.Sm }) {
       if (this.inline) {
         Row({ space: AppSpace.Sm }) {
-          Row({ space: AppSpace.Sm }) {
+          Row({ space: 2 }) {
             Text(this.title)
               .fontSize(AppFont.Body)
               .fontColor($r('sys.color.font_primary'))
               .flexShrink(1)
             if (this.showVip) { VipFeatureBadge() }
+            if (this.description) { SettingsHintButton({ title: this.title, message: this.description }) }
           }.layoutWeight(1).alignItems(VerticalAlign.Center)
           this.content()
         }.width('100%').alignItems(VerticalAlign.Center)
       } else {
-      Text(this.title)
-        .fontSize(AppFont.Caption)
-        .fontColor($r('sys.color.font_primary'))
-        .fontWeight(FontWeight.Medium)
-        .width('100%')
-      this.content()
+      if (this.showTitle) {
+        Row({ space: 2 }) {
+          Text(this.title)
+            .fontSize(AppFont.Caption)
+            .fontColor($r('sys.color.font_primary'))
+            .fontWeight(FontWeight.Medium)
+            .flexShrink(1)
+          if (this.description) { SettingsHintButton({ title: this.title, message: this.description }) }
+        }.width('100%')
       }
-      if (this.description) {
-        Text(this.description).fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary')).width('100%')
+      this.content()
       }
     }
     .width('100%')
@@ -51,5 +56,16 @@ export struct ReaderSettingCard {
     .borderRadius(AppRadius.Lg)
     .backgroundColor($r('app.color.reader_setting_card_background'))
     .border({ width: 1, color: $r('app.color.reader_setting_card_border') })
+  }
+}
+
+@ComponentV2
+export struct ReaderSettingsSectionHeader {
+  @Param title: ResourceStr = '';
+
+  build() {
+    Text(this.title).fontSize(AppFont.Caption).fontWeight(FontWeight.Medium)
+      .fontColor($r('sys.color.font_secondary')).width('100%')
+      .padding({ left: 6, right: 6, top: 8, bottom: 2 })
   }
 }

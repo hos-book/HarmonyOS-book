@@ -92,7 +92,7 @@ export struct HdsImmersiveTab {
           .borderRadius(AppRadius.Pill)
           .backgroundColor(AppColor.GlassControlFallback)
           .hitTestBehavior(HitTestMode.None)
-      } else if (PlatformCompat.floatingTabs) {
+      } else if (HdsCompat.materialSupported) {
         // HdsTabs 内部是 Swiper，会抢横向拖动的手势，导致外层横向 Scroll 滑不动。
         // 这里只借它的浮动栏承载材质，命中测试全部让给外层 Stack。
         HdsTabs({ barPosition: BarPosition.End, index: 0 }) {

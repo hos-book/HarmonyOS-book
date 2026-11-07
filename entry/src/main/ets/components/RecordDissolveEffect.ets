@@ -17,6 +17,7 @@ export struct RecordDissolveEffect {
   @Param active: boolean = false;
   @Param itemHeight: number | undefined = 88;
   @Param particleBudget: number = 3000;
+  @Param lightweight: boolean = false;
   @BuilderParam content: () => void = this.emptyContent;
   @Event onFinished: () => void = (): void => {};
   @Local gpuVisible: boolean = false;
@@ -80,6 +81,7 @@ export struct RecordDissolveEffect {
     this.reset();
     this.completed = false;
     const ticket = this.generation;
+    if (this.lightweight) { this.fadeOut(ticket, false); return; }
     if (this.rowWidth <= 0) { this.fadeOut(ticket); return; }
     // 超时仅撤销本次 UI；正在 native worker 中读取的 PixelMap 要等 prepare 返回再释放。
     this.timeout = setTimeout((): void => this.fadeOut(ticket), 650);
@@ -134,9 +136,9 @@ export struct RecordDissolveEffect {
     }
   }
 
-  private fadeOut(ticket: number): void {
+  private fadeOut(ticket: number, warn: boolean = true): void {
     if (!this.valid(ticket)) return;
-    console.warn('[RecordDissolve] GPU unavailable or timed out; using opacity fallback');
+    if (warn) console.warn('[RecordDissolve] GPU unavailable or timed out; using opacity fallback');
     this.generation++;
     const fadeTicket = this.generation;
     this.clearTimer();

@@ -82,6 +82,16 @@ Apache License 2.0 全文见 `third_party/quickjs/LICENSE-APACHE-2.0`。
 
 迁入位置：`entry/src/main/ets/service/rulesource/light/upstream/`。原版权头保留；修改和适配由 `scripts/sync-light-source.cjs` 记录，双来源版本、逐文件归属和校验值见 `third_party/light-source/upstream.json`，维护流程见 `docs/LIGHT_SOURCE_SYNC.md`。独立仓库的 NOTICE 同时保留在 `third_party/light-source/NOTICE` 和应用资源中。内核首版未包含的网页等待修复由可校验补丁保留。没有引入独立仓库附带的第二套 QuickJS HAR。
 
+## 轻页 EPUB 精排核心
+
+- 上游：https://github.com/wip3l/qingye-reader
+- 固定提交：`0e4334d1690c7aa9d44eab8dd1a26e667e173fba`
+- 原文件：`entry/src/main/ets/core/book/EpubOriginalScript.ts`
+- 迁入位置：`entry/src/main/ets/service/text/light/EpubOriginalScript.ets`
+- 许可证：GPL-3.0，全文见 `third_party/light-source/LICENSE`
+
+生成文件保留上游版权信息，宿主适配由 `scripts/light-epub-sync.cjs` 维护。独立版本及 SHA256 见 `third_party/light-source/epub-upstream.json`。只复用排版、分页和定位核心，现有页面与导入存储继续由简听维护。
+
 ## CryptoJS
 
 - 上游项目：https://github.com/brix/crypto-js

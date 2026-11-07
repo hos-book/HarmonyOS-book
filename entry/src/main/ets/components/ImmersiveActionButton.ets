@@ -59,7 +59,7 @@ export struct ImmersiveActionButton {
 
   build() {
     Stack({ alignContent: Alignment.Center }) {
-      if (PlatformCompat.floatingTabs) {
+      if (HdsCompat.materialSupported) {
         HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
           TabContent() { Column() }.height(this.buttonHeight).tabBar(this.materialContent())
         }

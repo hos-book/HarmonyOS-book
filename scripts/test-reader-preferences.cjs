@@ -44,6 +44,12 @@ function load(relative) {
   const { TextReadingSettingsService: service } = load('service/text/TextReadingSettingsService');
   values.set('font_size', 22); // Existing installations have no new preference keys.
   const migrated = await service.get({});
+  assert.equal(migrated.chapterHeadingVisible, true);
+  assert.equal(migrated.chapterHeadingSize, 26);
+  assert.equal(migrated.chapterHeadingStyle, 'center');
+  migrated.chapterHeadingVisible = false;
+  migrated.chapterHeadingSize = 34;
+  migrated.chapterHeadingStyle = 'bold';
   assert.equal(migrated.dialogueHighlightColor, '', 'legacy dialogue colors follow the reading theme');
   migrated.dialogueHighlight = true;
   migrated.dialogueHighlightColor = '#12ab34';
@@ -95,6 +101,9 @@ function load(relative) {
   migrated.marginBottom = 0;
   await service.save({}, migrated);
   const restored = await service.get({});
+  assert.equal(restored.chapterHeadingVisible, false);
+  assert.equal(restored.chapterHeadingSize, 34);
+  assert.equal(restored.chapterHeadingStyle, 'bold');
   assert.equal(restored.dialogueHighlight, true);
   assert.equal(restored.dialogueHighlightColor, '#12AB34', 'dialogue color survives reopening independently of text color');
   assert.equal(restored.speechMarkColor, '#56CD78', 'speech mark color persists independently of dialogue color');
@@ -137,6 +146,14 @@ function load(relative) {
   values.set('page_turn_haptic', 'bad');
   values.set('always_show_status_bar', 'bad');
   const sanitized = await service.get({});
+  assert.equal(TextReadingSettings.normalizeChapterHeadingSize(NaN), 26);
+  assert.equal(TextReadingSettings.normalizeChapterHeadingSize(-1), 18);
+  assert.equal(TextReadingSettings.normalizeChapterHeadingSize(99), 48);
+  values.set('chapter_heading_size', 'broken');
+  values.set('chapter_heading_style', 'broken');
+  const invalidHeading = await service.get({});
+  assert.equal(invalidHeading.chapterHeadingSize, 26);
+  assert.equal(invalidHeading.chapterHeadingStyle, 'center');
   assert.equal(sanitized.dialogueHighlightColor, '', 'invalid persisted colors use the theme fallback');
   assert.equal(sanitized.speechMarkColor, '', 'invalid speech colors use the theme fallback');
   assert.equal(sanitized.cornerLayout, '0123', 'invalid corner layouts return to the original order');
@@ -148,6 +165,9 @@ function load(relative) {
   assert.equal(sanitized.alwaysShowStatusBar, true, 'invalid status-bar preference falls back to visible');
   await service.save({}, new TextReadingSettings());
   const reset = await service.get({});
+  assert.equal(reset.chapterHeadingVisible, true);
+  assert.equal(reset.chapterHeadingSize, 26);
+  assert.equal(reset.chapterHeadingStyle, 'center');
   assert.equal(reset.dialogueHighlightColor, '', 'reset restores automatic dialogue colors');
   assert.equal(reset.speechMarkColor, '', 'reset restores automatic speech mark colors');
   assert.equal(reset.speechFollowPage, true);
@@ -214,8 +234,14 @@ function load(relative) {
   typography.dialogueHighlightColor = '#3478AB';
   typography.speechMarkColor = '#AB7834';
   typography.paragraphSpacing = 1.4;
+  typography.chapterHeadingVisible = false;
+  typography.chapterHeadingSize = 42;
+  typography.chapterHeadingStyle = 'plain';
   await service.save({}, typography);
   const snapshot = await backup.createSnapshot({});
+  assert.equal(snapshot.settings.chapterHeadingVisible, false);
+  assert.equal(snapshot.settings.chapterHeadingSize, 42);
+  assert.equal(snapshot.settings.chapterHeadingStyle, 'plain');
   assert.equal(snapshot.settings.dialogueHighlightColor, '#3478AB');
   assert.equal(snapshot.settings.speechMarkColor, '#AB7834');
   assert.equal(snapshot.settings.textAlignment, 'end');
@@ -226,6 +252,10 @@ function load(relative) {
   assert.equal(snapshot.settings.smartKeyPageTurn, true);
   await service.save({}, new TextReadingSettings());
   await backup.restoreSnapshot({}, snapshot);
+  const restoredHeading = await service.get({});
+  assert.equal(restoredHeading.chapterHeadingVisible, false);
+  assert.equal(restoredHeading.chapterHeadingSize, 42);
+  assert.equal(restoredHeading.chapterHeadingStyle, 'plain');
   assert.equal((await service.get({})).dialogueHighlightColor, '#3478AB', 'backup retains dialogue color');
   assert.equal((await service.get({})).speechMarkColor, '#AB7834', 'backup retains speech mark color');
   assert.equal((await service.get({})).textAlignment, 'end');
@@ -242,7 +272,14 @@ function load(relative) {
   delete snapshot.settings.paragraphSpacing;
   delete snapshot.settings.dialogueHighlightColor;
   delete snapshot.settings.speechMarkColor;
+  delete snapshot.settings.chapterHeadingVisible;
+  delete snapshot.settings.chapterHeadingSize;
+  delete snapshot.settings.chapterHeadingStyle;
   await backup.restoreSnapshot({}, snapshot);
+  const legacyHeading = await service.get({});
+  assert.equal(legacyHeading.chapterHeadingVisible, true);
+  assert.equal(legacyHeading.chapterHeadingSize, 26);
+  assert.equal(legacyHeading.chapterHeadingStyle, 'center');
   assert.equal((await service.get({})).textAlignment, 'justify', 'old backups adopt justified text');
   assert.equal((await service.get({})).showPageRules, true, 'old backups retain visible page rules');
   assert.equal((await service.get({})).pageTurnHaptic, 'none', 'old backups disable haptics');

@@ -1,3 +1,4 @@
+import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { hexToHsv, hsvToHex, normalizeHex, isReaderHexColor } from '../model/ReaderTheme';
 import { AppSpace } from '../theme/Theme';
 
@@ -94,6 +95,7 @@ export struct ReaderColorPalette {
       })
       Row({ space: 12 }) {
         Slider({ value: this.hue, min: 0, max: 360, step: 1 })
+          .attributeModifier(new SliderGestureModifier(0, 360))
           .layoutWeight(1).selectedColor(hsvToHex(this.hue, 1, 1))
           .onChange((value: number, mode: SliderChangeMode): void => {
             this.hue = value;

@@ -566,12 +566,12 @@ export class PreferenceService {
         GeneralSettings.current.jianjianCompanionEnabled = s.getSync(KEY_JIANJIAN_COMPANION_ENABLED, false) === true;
         emitter.emit(EVT_JIANJIAN_COMPANION_CHANGED);
         AppAppearance.current.verticalBottomTabs = s.getSync('vertical_bottom_tabs', false) === true;
-        const material = await s.get(KEY_MATERIAL_STYLE, 0);
+        const material = await s.get(KEY_MATERIAL_STYLE, AppAppearance.systemMaterial);
         const accent = await s.get(KEY_ACCENT_COLOR, '');
         const rawTheme = await s.get(KEY_THEME_SELECTION, '');
         const selection: AppThemeSelection = PreferenceService.decodeThemeSelection(
           typeof rawTheme === 'string' ? rawTheme : '',
-          typeof accent === 'string' ? accent : '', typeof material === 'number' ? material : 0);
+          typeof accent === 'string' ? accent : '', typeof material === 'number' ? material : AppAppearance.systemMaterial);
         PreferenceService.publishThemeSelection(selection);
       });
     }

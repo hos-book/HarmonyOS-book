@@ -257,6 +257,7 @@ class CompatibleSelectMaterialModifier extends CompatibleMaterialModifier {
       instance.menuBackgroundColor(Color.Transparent)
         .menuBackgroundBlurStyle(BlurStyle.NONE).menuSystemMaterial(this.menuMaterial);
     } else {
+      if (PlatformCompat.supports(26)) instance.menuSystemMaterial(uiMaterial.Material.empty);
       instance.menuBackgroundColor($r('sys.color.comp_background_primary')).menuBackgroundBlurStyle(this.menuBlur);
     }
   }

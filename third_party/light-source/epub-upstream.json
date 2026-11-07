@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "repository": "https://github.com/wip3l/qingye-reader",
+  "commit": "0e4334d1690c7aa9d44eab8dd1a26e667e173fba",
+  "upstreamPath": "entry/src/main/ets/core/book/EpubOriginalScript.ts",
+  "path": "entry/src/main/ets/service/text/light/EpubOriginalScript.ets",
+  "license": "GPL-3.0",
+  "patches": [
+    "host-native-turn-and-position-v1"
+  ],
+  "upstreamSha256": "b7ad1ea52d13571ff6083857bcec56cf31dc35699d9aeac14ee9054ae7e11752",
+  "sha256": "b52dc536a6ffc1db3048fd997e51f61de52f0cd0eb8ab78803fe2a3dd1d879e9"
+}

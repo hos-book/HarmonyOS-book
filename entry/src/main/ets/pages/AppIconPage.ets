@@ -1,4 +1,4 @@
-import { AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
+import { AppTheme, AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
 import { AppIconOption, AppIconService } from '../service/AppIconService';
 import { sendableContextManager } from '@kit.AbilityKit';
 import { MembershipService } from '../service/MembershipService';
@@ -76,7 +76,7 @@ export struct AppIconPage {
         Text($r('app.string.app_icon_title'))
           .fontSize(AppFont.BodyL)
           .fontWeight(FontWeight.Bold)
-          .fontColor($r('sys.color.font_primary'))
+          .fontColor(AppTheme.TextPrimary)
         if (MembershipState.featureEnabled) {
           VipFeatureBadge()
         }
@@ -89,13 +89,13 @@ export struct AppIconPage {
       if (MembershipState.featureEnabled) {
         Text($r('app.string.app_icon_hint'))
           .fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_secondary'))
+          .fontColor(AppTheme.TextSecondary)
           .width('100%')
       }
       if (this.loadFailed) {
         Button($r('app.string.app_icon_retry'))
           .fontColor(AppColor.Brand)
-          .backgroundColor($r('sys.color.comp_background_primary'))
+          .backgroundColor(AppTheme.Surface)
           .enabled(!this.loading && !this.switching)
           .onClick(() => this.loadCurrent())
       }
@@ -116,12 +116,12 @@ export struct AppIconPage {
                       SymbolGlyph($r('sys.symbol.checkmark'))
                         .fontSize(14)
                         .fontWeight(FontWeight.Bold)
-                        .fontColor([Color.White])
+                        .fontColor([AppColor.OnBrand])
                     }
                     .width(24)
                     .height(24)
-                    .backgroundColor('#222222')
-                    .border({ width: 2, color: Color.White })
+                    .backgroundColor(AppColor.Brand)
+                    .border({ width: 2, color: AppTheme.Surface })
                     .borderRadius(12)
                     .margin({ right: 4, bottom: 4 })
                     .hitTestBehavior(HitTestMode.None)
@@ -131,14 +131,14 @@ export struct AppIconPage {
                 .width('100%')
                 Text(option.label)
                   .fontSize(AppFont.Body)
-                  .fontColor($r('sys.color.font_primary'))
+                  .fontColor(AppTheme.TextPrimary)
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
                 if (MembershipState.featureEnabled) {
                   Text(option.name === '' ? $r('app.string.app_icon_default_description') :
                     (this.service.membershipRequired ? $r('app.string.membership_icon_exclusive') :
                       $r('app.string.app_icon_invite_free'))).fontSize(AppFont.Caption)
-                    .fontColor($r('sys.color.font_secondary'))
+                    .fontColor(AppTheme.TextSecondary)
                     .maxLines(1)
                     .textOverflow({ overflow: TextOverflow.Ellipsis })
                 }
@@ -149,7 +149,7 @@ export struct AppIconPage {
             .width('100%')
             .padding(0)
             .borderRadius(AppRadius.Lg)
-            .backgroundColor($r('sys.color.comp_background_primary'))
+            .backgroundColor(AppTheme.Surface)
             .enabled(this.service.supported && !this.switching &&
               !this.loading && !this.loadFailed && (!this.service.membershipRequired || !this.membership.busy))
             .accessibilityText(option.label)

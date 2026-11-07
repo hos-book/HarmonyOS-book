@@ -5,7 +5,7 @@ import { ImmersiveActionButton } from './ImmersiveActionButton';
 import { ImmersiveOptionTabs } from './ImmersiveOptionTabs';
 import { AppAppearance } from '../model/AppAppearance';
 import { PreferenceService } from '../service/PreferenceService';
-import { AppColor, AppFont, AppMaterial, AppRadius, AppSpace } from '../theme/Theme';
+import { AppColor, AppFont, AppMaterial, AppRadius, AppSpace, AppTheme } from '../theme/Theme';
 
 class MaterialChoice {
   value: number;
@@ -153,7 +153,7 @@ export struct AppearanceSettingsComponent {
 
   @Builder
   divider() {
-    Divider().color($r('sys.color.comp_divider')).strokeWidth(0.5).margin({ left: AppSpace.Md })
+    Divider().color(AppTheme.Divider).strokeWidth(0.5).margin({ left: AppSpace.Md })
   }
 
   @Builder
@@ -231,18 +231,6 @@ export struct AppearanceSettingsComponent {
   build() {
     Column() {
       Row({ space: AppSpace.Sm }) {
-        Text($r('app.string.appearance_floating_bottom_tabs')).fontSize(AppFont.BodyL)
-          .fontColor($r('sys.color.font_primary')).layoutWeight(1)
-        Toggle({ type: ToggleType.Switch, isOn: this.appearance.verticalBottomTabs }).selectedColor(AppColor.Brand)
-          .enabled(PlatformCompat.supports(24))
-          .onChange((enabled: boolean): void => {
-            PreferenceService.setVerticalBottomTabs(enabled).catch((): void => {
-              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.tts_save_error') });
-            });
-          }).id('appearance-floating-bottom-tabs')
-      }.width('100%').padding(AppSpace.Md)
-      this.divider()
-      Row({ space: AppSpace.Sm }) {
         Text($r('app.string.appearance_material')).fontSize(AppFont.BodyL)
           .fontColor($r('sys.color.font_primary')).layoutWeight(1)
         ImmersiveOptionTabs({
@@ -250,7 +238,9 @@ export struct AppearanceSettingsComponent {
           selected: MATERIAL_CHOICES.findIndex((choice: MaterialChoice): boolean => choice.value === this.appearance.material),
           onSelect: (index: number): void => { this.applyMaterial(MATERIAL_CHOICES[index].value); }
         }).enabled(!this.saving)
-      }.width('100%').padding(AppSpace.Md)
+      }.width('100%')
+        .padding({ left: AppSpace.Md, right: AppSpace.Xs, top: AppSpace.Xs, bottom: AppSpace.Xs })
+        .constraintSize({ minHeight: 56 })
       this.divider()
       Row({ space: AppSpace.Sm }) {
         Text($r('app.string.appearance_accent')).fontSize(AppFont.BodyL)
@@ -259,7 +249,9 @@ export struct AppearanceSettingsComponent {
         Text(this.appearance.accent || $r('app.string.appearance_accent_default')).fontSize(AppFont.Body)
           .fontColor($r('sys.color.font_secondary'))
       }
-      .width('100%').padding(AppSpace.Md).constraintSize({ minHeight: 56 })
+      .width('100%')
+      .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Xs, bottom: AppSpace.Xs })
+      .constraintSize({ minHeight: 52 })
       .id('appearance-accent-entry')
       .onClick((): void => { this.openAccentDialog(); })
     }

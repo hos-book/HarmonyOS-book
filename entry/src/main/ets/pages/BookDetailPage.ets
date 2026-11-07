@@ -1695,8 +1695,8 @@ export struct BookDetailPage {
             .width('100%')
             .height('100%')
             .bindSheet($$this.showChapterSheet, this.buildChapterSheetContent(), {
-              height: '80%',
-              detents: ['80%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
+              height: '90%',
+              detents: ['90%', '60%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
               showClose: false,
               dragBar: true,
               backgroundColor: AppMaterial.SheetBackground,

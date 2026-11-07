@@ -132,7 +132,8 @@ ${script ? NativeJsPrelude.SCRIPT_API : NativeJsPrelude.EXPRESSION_STUBS}
   define('sleep', function (ms) { call('@sleep', [Number(ms) || 0]); });
   define('ui', Object.freeze({
     toast: function (message) { call('@toast', [message === undefined || message === null ? '' : String(message)]); },
-    refreshExplore: function () { call('@refreshExplore', []); }
+    refreshExplore: function () { call('@refreshExplore', []); },
+    emitSearch: function (value) { call('@emitSearch', [value === undefined ? null : value]); }
   }));
   define('browser', Object.freeze({
     verify: function (url, hint, options) {
@@ -249,9 +250,16 @@ ${script ? NativeJsPrelude.SCRIPT_API : NativeJsPrelude.EXPRESSION_STUBS}
     const summary = NativeJsPrelude.shortError(message);
     if (!missing) return summary;
     const name = missing[1] || missing[2];
+    if (NativeJsPrelude.CTX_NAMES.indexOf(name) >= 0) {
+      return `${summary}；${name} 不是全局变量：阶段脚本里用 ctx.${name}，表达式调用的函数请把它作为参数传入`;
+    }
     if (!NativeJsPrelude.isIdentifier(name) || builtins.indexOf(name) < 0) return summary;
     return `${summary}；若要调用原生书源内置函数，请使用 native.${name}(...)`;
   }
+
+  /** 规则里能直接用、在 js 里只能从 ctx 读的名字（http、vars 等接口在脚本里本来就是全局的，不在此列）。 */
+  private static readonly CTX_NAMES: string[] = ['book', 'chapter', 'key', 'page', 'source', 'baseUrl', 'url', 'title',
+    'menu', 'form', 'action', 'stage'];
 
   /** 错误信息只留前几行，避免整段堆栈塞进界面。 */
   static shortError(message: string): string {

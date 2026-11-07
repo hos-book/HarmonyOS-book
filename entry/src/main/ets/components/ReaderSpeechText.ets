@@ -4,10 +4,12 @@ import { ReaderPalette } from '../model/ReaderTheme';
 import { OnlineTextPage } from '../service/text/OnlineTextPaginator';
 import { ReaderParagraphNodeController } from '../service/text/ReaderParagraphNode';
 import { ReaderTouchTracker } from '../utils/ReaderTapPolicy';
+import { EpubPageStyle } from '../service/text/EpubPageStyle';
 
 /** 混排页沿用同一正文绘制组件，各片段保留自己的原文坐标。 */
 @ComponentV2
 export struct ReaderSpeechText {
+  @Param epubStyle: EpubPageStyle = new EpubPageStyle();
   @Param page: OnlineTextPage = new OnlineTextPage();
   @Param text: string = '';
   @Param source: string = '';
@@ -28,29 +30,40 @@ export struct ReaderSpeechText {
   @Param lineHeight: number = 1.9;
   @Param palette: ReaderPalette = new ReaderPalette();
 
+  private fragmentPalette(heading: boolean): ReaderPalette {
+    const style = this.epubStyle;
+    const color = heading && style.headingColor ? style.headingForeground || style.foreground || '#202020' :
+      (style.image || style.color ? style.foreground : '');
+    if (!color) return this.palette;
+    const value = ReaderPalette.of(this.palette.background, color, this.palette.secondary, this.palette.isDark);
+    value.accent = this.palette.accent;
+    return value;
+  }
+
   build() {
     Column() {
       if (this.page.parts.length > 0) {
         ForEach(this.page.parts, (part: OnlineTextPage) => {
           ReaderTextFragment({
-            letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
+            letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight && !part.isHeading, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
             page: part, text: part.text,
             source: this.source.substring(part.startOffset - this.sourceStart, part.endOffset - this.sourceStart),
-            sourceStart: part.startOffset, state: this.state, highlightEnabled: this.highlightEnabled,
-            selectionEnabled: this.selectionEnabled, onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom,
+            sourceStart: part.startOffset, state: this.state, highlightEnabled: this.highlightEnabled && !part.isHeading,
+            selectionEnabled: this.selectionEnabled && !part.isHeading, onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom,
             fontFamily: this.fontFamily, fontWeight: this.fontWeight, fontSize: this.fontSize,
-            lineHeight: this.lineHeight, palette: this.palette
+            lineHeight: this.lineHeight, palette: this.fragmentPalette(part.isHeading)
           }).margin({ top: this.getUIContext().px2vp(part.flowSpacing) })
+            .backgroundColor(part.isHeading ? this.epubStyle.headingColor || Color.Transparent : Color.Transparent)
         }, (part: OnlineTextPage): string => `${part.layoutKey}:${part.startOffset}:${part.endOffset}:${part.imageUrl}:${part.imageWidth}:${part.layoutHeight}:${part.flowSpacing}`)
       } else {
         ReaderTextFragment({
-          letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
+          letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight && !this.page.isHeading, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
           page: this.page, text: this.text, source: this.source, sourceStart: this.sourceStart,
-          state: this.state, highlightEnabled: this.highlightEnabled, selectionEnabled: this.selectionEnabled,
+          state: this.state, highlightEnabled: this.highlightEnabled && !this.page.isHeading, selectionEnabled: this.selectionEnabled && !this.page.isHeading,
           onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom,
           fontFamily: this.fontFamily, fontWeight: this.fontWeight, fontSize: this.fontSize,
-          lineHeight: this.lineHeight, palette: this.palette
-        })
+          lineHeight: this.lineHeight, palette: this.fragmentPalette(this.page.isHeading)
+        }).backgroundColor(this.page.isHeading ? this.epubStyle.headingColor || Color.Transparent : Color.Transparent)
       }
     }.width('100%').alignItems(HorizontalAlign.Center)
   }

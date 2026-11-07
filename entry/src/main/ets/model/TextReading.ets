@@ -96,6 +96,19 @@ export class TextReadingSettings {
   }
   cornerLayout: string = ReaderCornerLayout.DEFAULT;
   textAlignment: string = 'justify';
+  chapterHeadingVisible: boolean = true;
+  chapterHeadingSize: number = 26;
+  chapterHeadingStyle: string = 'center';
+  static readonly CHAPTER_HEADING_MIN: number = 18;
+  static readonly CHAPTER_HEADING_MAX: number = 48;
+
+  static normalizeChapterHeadingSize(value: number): number {
+    return Number.isFinite(value) ? Math.round(Math.max(18, Math.min(48, value))) : 26;
+  }
+
+  static normalizeChapterHeadingStyle(value?: string): string {
+    return value === 'plain' || value === 'bold' ? value : 'center';
+  }
 
   static normalizeTextAlignment(value?: string): string {
     return value === 'start' || value === 'center' || value === 'end' ? value : 'justify';

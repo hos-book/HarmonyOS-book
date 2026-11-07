@@ -32,6 +32,13 @@ export class StageWebRuntimeRequest {
   stage: string = SourceRuntimeStage.URL;
   ownerId: string = '';
   debugContext: BookSourceDebugContext | null = null;
+  /**
+   * Receives the batches a search script hands over through java.emitSearch(batch) while it is still running, so an
+   * aggregating script can show one site's books before it searches the next. A batch is delivered once, as soon as
+   * the replay pass that produced it ends; batches computed from placeholder responses wait for the pass that has the
+   * real response (see deliverSearchBatches).
+   */
+  onPartialResult: ((text: string) => void) | null = null;
 
   applyStageBudget(stage: string): void {
     this.stage = stage || SourceRuntimeStage.URL;
@@ -97,6 +104,7 @@ class StageWebRuntimeStep extends StageWebRuntimeResult {
   javaState: string = '{}';
   sourceState: string = '{}';
   logs: string = '[]';
+  searchBatches: string = '[]';
 }
 
 class StageWebRuntimeCookieOperation {
@@ -488,6 +496,7 @@ export class BookSourceStageWebRuntime {
     let requestCount = 0;
     let totalResponseBytes = 0;
     let lastResponseBody = '';
+    let deliveredBatches = 0;
     // A replay that requests the SAME spec again means the cached response was not reused —
     // that is the runaway pattern the request guard exists to stop. Distinct legitimate
     // requests (a source fetching several categories/tabs) are bounded separately.
@@ -502,6 +511,9 @@ export class BookSourceStageWebRuntime {
       const raw = await this.runJavaScript(script, request.source.bookSourceUrl, timingId);
       this.ensureNotCancelled(request);
       const step = this.parseStep(raw);
+      if (request.onPartialResult && step.searchBatches !== '[]') {
+        deliveredBatches = this.deliverSearchBatches(request.onPartialResult, step.searchBatches, deliveredBatches);
+      }
       if (request.debugContext && step.logs) {
         try {
           const logs = JSON.parse(step.logs) as Object[];
@@ -665,6 +677,36 @@ export class BookSourceStageWebRuntime {
       return step;
     }
     throw new Error('书源脚本执行步骤过多');
+  }
+
+  /**
+   * Hands the batches one pass emitted through java.emitSearch() to the caller. Every replay runs the script from the
+   * top with the same fixed clock and random seed, so the batches before a pass's first pending host action are the
+   * same every time and only the ones past `delivered` are new. A batch emitted after a pending action was computed
+   * from a placeholder response and is skipped: the replay that has the real response emits it again, this time
+   * before any pending action.
+   */
+  private deliverSearchBatches(callback: (text: string) => void, encoded: string, delivered: number): number {
+    let batches: Record<string, Object>[] = [];
+    try {
+      const parsed = JSON.parse(encoded) as Object;
+      if (Array.isArray(parsed)) batches = parsed as Record<string, Object>[];
+    } catch (_) {
+      return delivered;
+    }
+    let settled = 0;
+    for (const batch of batches) {
+      if (!batch || batch['speculative'] === true) break;
+      settled++;
+    }
+    for (; delivered < settled; delivered++) {
+      try {
+        callback(String(batches[delivered]['text'] || ''));
+      } catch (e) {
+        console.warn('[StageWebRuntime] partial search result callback failed:', e);
+      }
+    }
+    return delivered;
   }
 
   private smallApiError(body: string): string {
@@ -1064,7 +1106,7 @@ export class BookSourceStageWebRuntime {
     const codeBase64 = this.encodeBase64(code);
     return `(function(){` +
       `function dec(v){try{return decodeURIComponent(escape(atob(v)));}catch(e){return atob(v);}}` +
-      `const S=JSON.parse(dec('${stateBase64}'));let pending='',pendingHeaders='{}',pendingCookie='',pendingCrypto='',pendingStringRules=[],url='',browserHtml='',toast='',error='',logs=[],refreshExploreRequested=false;` +
+      `const S=JSON.parse(dec('${stateBase64}'));let pending='',pendingHeaders='{}',pendingCookie='',pendingCrypto='',pendingStringRules=[],url='',browserHtml='',toast='',error='',logs=[],refreshExploreRequested=false,searchBatches=[];` +
       `const cookieOps=[];const sourceData=Object.assign({},S.sourceState||{});` +
       `const cacheData=Object.assign({},S.cache||{});` +
       `const infoMap=Object.create(null);` +
@@ -1259,6 +1301,9 @@ export class BookSourceStageWebRuntime {
       `getWebViewUA:function(){return 'Mozilla/5.0 (Linux; HarmonyOS) AppleWebKit/537.36 Mobile Safari/537.36';},` +
       `getAppVariant:function(){return 'harmony';},` +
       `refreshExplore:function(){refreshExploreRequested=true;return true;},refreshBookToc:function(){return true;},` +
+      // A batch emitted after this pass asked the host for something was computed from a placeholder and is
+      // marked speculative; the native side only delivers the settled prefix (see deliverSearchBatches).
+      `emitSearch:function(v){searchBatches.push({text:text(v),speculative:!!(pending||pendingCookie||pendingCrypto||pendingStringRules.length)});return true;},` +
       `refreshContent:function(){return true;},upConfig:function(){return true;},searchBook:function(){return true;}};` +
       `function TimeoutCancellationException(){}const Packages={io:{legato:{kazusa:{utils:{` +
       `TimeoutCancellationException:TimeoutCancellationException}}}}};` +
@@ -1285,7 +1330,7 @@ export class BookSourceStageWebRuntime {
       `bookVariable:JSON.stringify(bookData),bookType:String(book.type??''),chapterImgUrl:String(chapter.imgUrl??''),` +
       `bookDurChapterIndex:String(book.durChapterIndex??''),bookImageStyle:String(book.imageStyle??''),` +
       `cacheState:JSON.stringify(cacheData),javaState:JSON.stringify(javaData),sourceState:JSON.stringify(sourceData),logs:JSON.stringify(logs),` +
-      `refreshExploreRequested:refreshExploreRequested?'true':'false',` +
+      `refreshExploreRequested:refreshExploreRequested?'true':'false',searchBatches:JSON.stringify(searchBatches),` +
       `value:value,requestedUrl:url,requestedHtml:browserHtml,toastMessage:toast,errorMessage:error}));})()`;
   }
 
@@ -1331,6 +1376,7 @@ export class BookSourceStageWebRuntime {
       step.toastMessage = String(record['toastMessage'] || '');
       step.errorMessage = String(record['errorMessage'] || '');
       step.refreshExploreRequested = String(record['refreshExploreRequested'] || '');
+      step.searchBatches = String(record['searchBatches'] || '[]');
       return step;
     } catch (error) {
       // Never print the returned value: it can contain credentials or copyrighted content.

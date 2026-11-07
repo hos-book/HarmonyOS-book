@@ -65,6 +65,9 @@ const SHELF_FILTER_ROW_HEIGHT: number = 48;
 const SHELF_SEARCH_ROW_HEIGHT: number = 50;
 const SHELF_CONTENT_GAP: number = 12;
 const SHELF_SEARCH_GEOMETRY_ID: string = 'shelf-search-morph';
+const SHELF_BATCH_ACTIONS_GAP: number = 8;
+const SHELF_BATCH_ACTIONS_HEIGHT: number = 56;
+const SHELF_LAYOUT_ID: string = 'shelf-page-layout';
 
 class ShelfPlayerRoute {
   bookId: string = '';
@@ -183,13 +186,20 @@ export struct FavoritePage {
   @Local topSafeVp: number = WindowUtils.getStatusBarHeightVp();
   @Local textProgressMap: Map<string, TextReadingPosition> = new Map();
   @Param visible: boolean = false;
+  @Param bottomTabInset: number = 0;
+  @Param miniPlayerVisible: boolean = false;
+  @Local batchActionsBottom: number = -1;
+  private batchLayoutObserved: boolean = false;
+  private readonly batchLayoutHandler: () => void = (): void => this.updateBatchActionsPosition();
   @Local showBookActions: boolean = false;
   @Local pinnedBookIds: Set<string> = new Set();
   @Local pinningBook: boolean = false;
   private pendingPinBookId: string = '';
   @Local removingBook: boolean = false;
   @Local dissolvingBookIds: Set<string> = new Set();
+  @Local pendingShelfRemovalIds: Set<string> = new Set();
   @Local dissolveParticleBudget: number = 3000;
+  @Local lightweightShelfDelete: boolean = false;
   private visibleShelfBookIds: Set<string> = new Set();
   private pendingDissolveIds: Set<string> = new Set();
   private finishShelfDissolve: (() => void) | undefined = undefined;
@@ -344,6 +354,7 @@ export struct FavoritePage {
 
   aboutToDisappear(): void {
     this.alive = false;
+    this.stopBatchLayoutObserver();
     this.cancelShelfDissolve();
     if (this.initialLoadTimer !== -1) clearTimeout(this.initialLoadTimer);
     this.initialLoadTimer = -1;
@@ -375,6 +386,60 @@ export struct FavoritePage {
       this.exitManagement();
     }
     if (!this.visible) this.cancelAutoUpdate();
+  }
+
+  @Monitor('isManaging', 'visible', 'bottomTabInset', 'miniPlayerVisible')
+  private onBatchLayoutChanged(): void {
+    if (!this.alive || !this.visible || !this.isManaging) {
+      this.stopBatchLayoutObserver();
+      this.batchActionsBottom = -1;
+      return;
+    }
+    if (!this.batchLayoutObserved) {
+      this.getUIContext().getUIObserver().on('willDraw', this.batchLayoutHandler);
+      this.batchLayoutObserved = true;
+    }
+    this.updateBatchActionsPosition();
+  }
+
+  private stopBatchLayoutObserver(): void {
+    if (!this.batchLayoutObserved) return;
+    this.getUIContext().getUIObserver().off('willDraw', this.batchLayoutHandler);
+    this.batchLayoutObserved = false;
+  }
+
+  private batchActionsBottomInset(): number {
+    return this.batchActionsBottom >= 0 ? this.batchActionsBottom : this.bottomTabInset + SHELF_BATCH_ACTIONS_GAP;
+  }
+
+  private shelfContentEndOffset(): number {
+    return this.isManaging
+      ? this.batchActionsBottomInset() + SHELF_BATCH_ACTIONS_HEIGHT + SHELF_BATCH_ACTIONS_GAP
+      : WindowUtils.getFloatingTabBottomVp();
+  }
+
+  private updateBatchActionsPosition(): void {
+    if (!this.alive || !this.visible || !this.isManaging) return;
+    let bottom = this.bottomTabInset + SHELF_BATCH_ACTIONS_GAP;
+    if (this.miniPlayerVisible) {
+      try {
+        const uiContext = this.getUIContext();
+        const shelf = PlayerDragTransition.measure(uiContext, SHELF_LAYOUT_ID);
+        const mini = PlayerDragTransition.measure(uiContext, 'mini-player-bar');
+        if (!shelf.isValid() || !mini.isValid()) return;
+        // HDS 收展使用祖先绘制位移，读取包含 transform 的实际位置，不能只依赖布局回调。
+        const overlaps = mini.leftPx < shelf.leftPx + shelf.widthPx &&
+          mini.leftPx + mini.widthPx > shelf.leftPx;
+        if (overlaps && mini.topPx >= shelf.topPx && mini.topPx < shelf.topPx + shelf.heightPx) {
+          bottom = Math.max(bottom,
+            uiContext.px2vp(shelf.topPx + shelf.heightPx - mini.topPx) + SHELF_BATCH_ACTIONS_GAP);
+        }
+      } catch (_error) {
+        // 原生底栏挂载或重建期间沿用上次位置，下次绘制再读取。
+        return;
+      }
+    }
+    if (Math.abs(bottom - this.batchActionsBottom) > 0.5) this.batchActionsBottom = bottom;
   }
 
   /** Appear 与 visible 监控共用入口；下个任务加载缓存，不再额外等待切页动画。 */
@@ -978,6 +1043,7 @@ export struct FavoritePage {
   private filteredBooks(books: Book[]): Book[] {
     const keyword = this.shelfKeyword.trim().toLocaleLowerCase();
     return books.filter((book: Book): boolean => {
+      if (this.pendingShelfRemovalIds.has(book.id)) return false;
       if (!BookPresentation.matchesGroup(book.id, this.shelfGroup)) return false;
       if (this.shelfFilter === 1 && (book.contentType === 'text' || book.contentType === 'comic')) return false;
       if (this.shelfFilter === 2 && book.contentType !== 'text') return false;
@@ -1356,9 +1422,13 @@ export struct FavoritePage {
     this.cancelAutoUpdate();
     try {
       await this.animateShelfDelete([book.id]);
+      this.updatePendingShelfRemoval([book.id]);
+      // 先提交书架补位，再开始可能涉及大目录和大量文件的清理。
+      await new Promise<void>((resolve): void => { setTimeout(resolve, 0); });
       await this.doRemove(book.id, deleteFiles);
     } finally {
       this.cancelShelfDissolve();
+      this.updatePendingShelfRemoval([]);
       this.removingBook = false;
       this.showBookActions = false;
     }
@@ -1366,11 +1436,15 @@ export struct FavoritePage {
 
   private markShelfBookVisible(bookId: string, ratio: number): void {
     if (ratio > 0) this.visibleShelfBookIds.add(bookId);
-    else this.visibleShelfBookIds.delete(bookId);
+    else {
+      this.visibleShelfBookIds.delete(bookId);
+      // 离屏的懒加载节点可能被冻结，不再等待它发出动画完成事件。
+      this.completeShelfDissolve(bookId);
+    }
   }
 
   private completeShelfDissolve(bookId: string): void {
-    this.pendingDissolveIds.delete(bookId);
+    if (!this.pendingDissolveIds.delete(bookId)) return;
     if (this.pendingDissolveIds.size === 0) {
       const finish = this.finishShelfDissolve;
       this.finishShelfDissolve = undefined;
@@ -1406,13 +1480,15 @@ export struct FavoritePage {
     // 只为屏内书卡创建截图；批量删除共享总颗粒预算，离屏数据沿用原删除语义。
     const ids = bookIds.filter((id: string): boolean => this.visibleShelfBookIds.has(id));
     if (ids.length === 0) return;
+    // 多选使用短淡出，避免并行截图和 GPU 准备把页面重排拖到数秒后。
+    this.lightweightShelfDelete = bookIds.length > 1;
     this.dissolveParticleBudget = Math.max(300, Math.min(3000, Math.floor(6000 / ids.length)));
     this.pendingDissolveIds = new Set(ids);
     await new Promise<void>((resolve: () => void): void => {
       const timer = setTimeout((): void => {
         this.finishShelfDissolve = undefined;
         resolve();
-      }, 4050);
+      }, this.lightweightShelfDelete ? 320 : 4050);
       this.finishShelfDissolve = (): void => { clearTimeout(timer); resolve(); };
       this.dissolvingBookIds = new Set(ids);
     });
@@ -1548,6 +1624,33 @@ export struct FavoritePage {
     } })
   }
 
+  private updatePendingShelfRemoval(bookIds: string[]): void {
+    if (bookIds.length === 0 && this.pendingShelfRemovalIds.size === 0) return;
+    // 仅影响展示，持久化成功前保留原书单及别名，失败时可原位恢复。
+    this.pendingShelfRemovalIds = new Set(bookIds);
+    this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
+  }
+
+  private async refreshShelfAfterRemoval(bookIds: string[]): Promise<void> {
+    const removed = new Set<string>(bookIds);
+    // 复用已加载的书籍和进度；无需为删除重读整份目录、扫描章节并重新分页。
+    this.favoriteBooks = this.favoriteBooks.filter((book: Book): boolean => !removed.has(book.id));
+    this.pinnedBookIds = new Set(Array.from(this.pinnedBookIds).filter((id: string): boolean => !removed.has(id)));
+    for (const id of removed) this.favoriteIdsByBookId.delete(id);
+    this.missingFavoriteCount = this.favoriteBooks.filter((book: Book): boolean => this.isMissingCachedBook(book)).length;
+    this.pendingShelfRemovalIds = new Set();
+    this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
+    // 删除期间云同步/其他页面可能增删收藏，仅在集合确实变化时补充加载。
+    const expected = new Set<string>();
+    for (const book of this.favoriteBooks) {
+      for (const id of this.favoriteIdsByBookId.get(book.id) ?? [book.id]) expected.add(id);
+    }
+    const stored = await PreferenceService.getShelfFavorites();
+    if (stored.length !== expected.size || stored.some((id: string): boolean => !expected.has(id))) {
+      await this.loadFavorites();
+    }
+  }
+
   private async deleteSelectedBooks(): Promise<void> {
     if (this.removingBook || !this.showBatchDelete || !this.context) return;
     const books = this.filteredBooks(this.favoriteBooks).filter((book: Book): boolean =>
@@ -1568,6 +1671,8 @@ export struct FavoritePage {
       await this.dismissDeleteSheet();
       // 在删除本地封面/文件之前完成截图，避免消散内容变成缺失封面。
       await this.animateShelfDelete(books.map((book: Book): string => book.id));
+      this.updatePendingShelfRemoval(books.map((book: Book): string => book.id));
+      await new Promise<void>((resolve): void => { setTimeout(resolve, 0); });
       // 文件操作串行，避免多个删除同时覆盖本地书籍索引；一项失败不阻断其他项。
       for (const book of books) {
         try {
@@ -1581,6 +1686,7 @@ export struct FavoritePage {
         }
       }
       await PreferenceService.removeFavorites(removedFavoriteIds);
+      await this.refreshShelfAfterRemoval(removedBooks);
       this.selectedBookIds = failedIds;
       this.isManaging = failedIds.size > 0;
       this.showBatchDelete = false;
@@ -1590,14 +1696,16 @@ export struct FavoritePage {
       });
     } catch (_error) {
       this.showBatchDelete = false;
+      this.updatePendingShelfRemoval([]);
+      try { await this.loadFavorites(); } catch (_refreshError) {}
       this.getUIContext().getPromptAction().showToast({ message: deleteFiles ?
         $r('app.string.shelf_batch_files_failed') : $r('app.string.shelf_batch_failed') });
     } finally {
-      try { await this.loadFavorites(); }
-      catch (_error) { /* 保留当前选择，允许重试刷新。 */ }
       this.cancelShelfDissolve();
+      this.updatePendingShelfRemoval([]);
       this.removingBook = false;
       if (!this.visible) this.exitManagement();
+      this.scheduleAutoUpdate();
     }
   }
 
@@ -1695,7 +1803,7 @@ export struct FavoritePage {
       }
       await PreferenceService.removeFavorites(this.favoriteIdsByBookId.get(bookId) ?? [bookId]);
       // 移出书架保留书籍身份，未收藏记录仍需续读。
-      await this.loadFavorites();
+      await this.refreshShelfAfterRemoval([bookId]);
     } catch (_e) {
       try {
         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.shelf_remove_failed') });
@@ -1714,7 +1822,7 @@ export struct FavoritePage {
               ListItemGroup({ header: this.buildShelfContentInset() }) {
                 ListItem() {
                   Column({ space: AppSpace.Md }) {
-                    if (this.favoriteBooks.length === 0) {
+                    if (this.favoriteBooks.length === this.pendingShelfRemovalIds.size) {
                       Text($r('app.string.shelf_empty_hint')).fontSize(AppFont.Body)
                         .fontColor($r('sys.color.font_secondary'))
                         .textAlign(TextAlign.Center)
@@ -1728,7 +1836,7 @@ export struct FavoritePage {
                 }
               }
             }.width('100%').height('100%').scrollBar(BarState.Off)
-            .contentEndOffset(WindowUtils.getFloatingTabBottomVp() + (this.isManaging ? 72 : 0))
+            .contentEndOffset(this.shelfContentEndOffset())
              .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
             .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
           } else if (this.viewMode === 0) {
@@ -1739,6 +1847,7 @@ export struct FavoritePage {
                   ListItem() {
                     RecordDissolveEffect({ snapshotId: `${this.shelfCoverId(book, false)}-dissolve`,
                       itemHeight: undefined, particleBudget: this.dissolveParticleBudget,
+                      lightweight: this.lightweightShelfDelete,
                       active: this.visible && this.dissolvingBookIds.has(book.id),
                       content: (): void => this.buildBookTile(book),
                       onFinished: (): void => this.completeShelfDissolve(book.id) })
@@ -1760,7 +1869,7 @@ export struct FavoritePage {
               left: AppSpace.Md,
               right: AppSpace.Md
             })
-            .contentEndOffset(WindowUtils.getFloatingTabBottomVp() + (this.isManaging ? 72 : 0))
+            .contentEndOffset(this.shelfContentEndOffset())
              .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
             .scrollBar(BarState.Off)
             // 内容不足一屏时也提供原生回弹。
@@ -1773,6 +1882,7 @@ export struct FavoritePage {
                   ListItem() {
                     RecordDissolveEffect({ snapshotId: `${this.shelfCoverId(book, true)}-dissolve`,
                       itemHeight: undefined, particleBudget: this.dissolveParticleBudget,
+                      lightweight: this.lightweightShelfDelete,
                       active: this.visible && this.dissolvingBookIds.has(book.id),
                       content: (): void => this.buildListItem(book),
                       onFinished: (): void => this.completeShelfDissolve(book.id) })
@@ -1793,7 +1903,7 @@ export struct FavoritePage {
               left: AppSpace.Md,
               right: AppSpace.Md
             })
-            .contentEndOffset(WindowUtils.getFloatingTabBottomVp() + (this.isManaging ? 72 : 0))
+            .contentEndOffset(this.shelfContentEndOffset())
              .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
             .scrollBar(BarState.Off)
             .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
@@ -1900,6 +2010,7 @@ export struct FavoritePage {
     .width('100%')
     .height('100%')
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+    .id(SHELF_LAYOUT_ID)
     .bindSheet($$this.showBatchDelete, this.buildBatchDeleteSheet(), {
       height: SheetSize.FIT_CONTENT,
       detents: [SheetSize.FIT_CONTENT, '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
@@ -2054,7 +2165,7 @@ export struct FavoritePage {
       onGroup: (): void => { this.showBatchGroup = true; }
     })
       .width(`calc(100% - ${AppSpace.Md * 2}vp)`)
-      .margin({ bottom: WindowUtils.getFloatingTabBottomVp() })
+      .margin({ bottom: this.batchActionsBottomInset() })
   }
 
   @Builder

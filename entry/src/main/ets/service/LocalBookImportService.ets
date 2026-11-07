@@ -1,8 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { fileIo, statfs } from '@kit.CoreFileKit';
-import { zlib } from '@kit.BasicServicesKit';
 import { util, taskpool } from '@kit.ArkTS';
-import { bookParser } from '@hms.core.readerservice.bookParser';
+import { EpubParserService, EpubCatalogItem } from './text/EpubParserService';
 import { Book, Chapter } from '../model/Book';
 import { KkBiqugeHtmlParser } from './text/KkBiqugeHtmlParser';
 import { EpubCoverService } from './text/EpubCoverService';
@@ -18,15 +17,12 @@ import { LocalBookHtmlText } from './text/LocalBookHtmlText';
 import { cleanLocalBookHtmlBatch } from './text/LocalBookHtmlWorker';
 import { EpubContentProfile, EpubImportMode } from './text/EpubContentProfile';
 import { EpubBackgroundImages } from './text/EpubBackgroundImages';
+import { EpubChapterAssembler } from './text/EpubChapterAssembler';
+import { EpubPageStyle, EpubStyleRun } from './text/EpubPageStyle';
+import { EpubOriginalPart } from './text/EpubOriginalDocument';
+import { EpubOriginalStore } from './text/EpubOriginalStore';
 
 class EpubReadStats {
-  file: number = 0;
-  filePathAvailable: boolean = true;
-  raw: number = 0;
-  rawAttempts: number = 0;
-  rawMisses: number = 0;
-  rawProbeAt: number = 0;
-  layout: number = 0;
   openMs: number = 0;
   readMs: number = 0;
   convertMs: number = 0;
@@ -41,13 +37,16 @@ class PreparedEpub {
   uri: string = '';
   path: string = '';
   directory: string = '';
-  handler: bookParser.BookParserHandler;
+  handler: EpubParserService;
 
-  constructor(handler: bookParser.BookParserHandler) { this.handler = handler; }
+  constructor(handler: EpubParserService) { this.handler = handler; }
 }
 
 class EpubTextBatch {
+  originals: EpubOriginalPart[] = [];
+  styles: EpubPageStyle[] = [];
   titles: string[] = [];
+  fallbacks: string[] = [];
   html: string[] = [];
   chars: number = 0;
 }
@@ -71,24 +70,24 @@ export class LocalBookImportService {
 
   static async releasePreview(preview: LocalBookPreview): Promise<void> {
     if (LocalBookImportService.preparedEpub?.directory === preview.directory) {
+      await LocalBookImportService.preparedEpub.handler.close();
       LocalBookImportService.preparedEpub = null;
     }
     if (preview.directory) await fileIo.rmdir(preview.directory).catch((): void => {});
   }
 
-  private static async flushEpubText(book: Book, directory: string, batch: EpubTextBatch,
-    writes: LocalImportTaskQueue): Promise<void> {
+  private static async flushEpubText(batch: EpubTextBatch, chapters: EpubChapterAssembler): Promise<void> {
     if (batch.html.length === 0) return;
     let content: string[];
     try { content = JSON.parse(String(await taskpool.execute(cleanLocalBookHtmlBatch, batch.html))); }
     catch (_worker) { content = batch.html.map((html: string): string => LocalBookHtmlText.clean(html)); }
     for (let index = 0; index < content.length; index++) {
-      await LocalBookImportService.appendText(book, directory, batch.titles[index], content[index], writes, true);
+      await chapters.add(batch.titles[index], content[index], batch.fallbacks[index], batch.styles[index], batch.originals[index]);
     }
-    batch.html = []; batch.titles = []; batch.chars = 0;
+    batch.html = []; batch.titles = []; batch.fallbacks = []; batch.styles = []; batch.originals = []; batch.chars = 0;
   }
 
-  private static async epubBody(context: common.Context, handler: bookParser.BookParserHandler,
+  private static async epubBody(context: common.Context, handler: EpubParserService,
     index: number, html: string, directory: string, stats: EpubReadStats): Promise<string> {
     html = EpubContentProfile.body(html);
     const tags = /<(?:img|image)\b[^>]*>/gi;
@@ -103,7 +102,8 @@ export class LocalBookImportService {
       let token = '';
       if (attr !== null && !/^(?:[a-z]+:|\/\/)/i.test(attr[1])) {
         try {
-          const bytes = handler.getResourceContent(index, KkBiqugeHtmlParser.cleanContent(attr[1]).split('#')[0]);
+          const resource = KkBiqugeHtmlParser.cleanContent(attr[1]).split('#')[0];
+          const bytes = await handler.getResourceContent(index, resource);
           if (stats.imageBytes + bytes.byteLength > LocalBookImportService.MAX_EPUB_EXPANDED_BYTES) {
             throw new Error('import_epub_images_limit');
           }
@@ -157,13 +157,21 @@ export class LocalBookImportService {
   static readonly TEXT_EXTS: string[] = FileOpenRouting.TEXT_EXTS;
   static readonly AUDIO_EXTS: string[] = ['.mp3', '.m4a', '.flac', '.wav', '.ogg', '.aac'];
 
-  private static async openEpub(context: common.Context, path: string): Promise<bookParser.BookParserHandler> {
-    if (!canIUse('SystemCapability.Reader.ReaderService.BookParser')) {
-      throw new Error(context.resourceManager.getStringSync($r('app.string.epub_parser_unavailable').id));
+  private static async openEpub(context: common.Context, path: string): Promise<EpubParserService> {
+    let parser: EpubParserService | null = null;
+    try {
+      parser = await EpubParserService.open(path);
+      await LocalBookImportService.requireSpace(context, parser.expandedSize * 2);
+      return parser;
+    } catch (error) {
+      await parser?.close();
+      const message = error instanceof Error ? error.message : String(error);
+      if (message === 'EPUB_SIZE_LIMIT' || message === 'EPUB_EXPANDED_LIMIT') {
+        throw new Error(context.resourceManager.getStringByNameSync(message === 'EPUB_SIZE_LIMIT' ?
+          'import_epub_size_limit' : 'import_epub_expanded_limit'));
+      }
+      throw new Error(message);
     }
-    // BookParser 同样依赖 ReaderKit HSP，不能在首页导入链中静态加载。
-    const parserModule = await import('./text/EpubParserService');
-    return parserModule.EpubParserService.open(path);
   }
 
   /** 选文件后预解析，不写入书架；临时封面在正式导入时复制到书籍目录。 */
@@ -205,9 +213,11 @@ export class LocalBookImportService {
       return result;
     }
     if (file.ext !== '.epub') return result;
+    await LocalBookImportService.preparedEpub?.handler.close();
     LocalBookImportService.preparedEpub = null;
     result.directory = `${context.cacheDir}/book_preview_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
     await fileIo.mkdir(result.directory, true);
+    let previewParser: EpubParserService | null = null;
     try {
       const size = await LocalBookImportService.fileSize(file.uri);
       if (size <= 0) throw new Error('Invalid EPUB size');
@@ -215,116 +225,23 @@ export class LocalBookImportService {
         throw new Error(context.resourceManager.getStringSync($r('app.string.import_epub_size_limit').id));
       }
       await LocalBookImportService.requireSpace(context, size * 3);
-      const archive = `${result.directory}/source.zip`;
       const epub = `${result.directory}/source.epub`;
-      await LocalBookImportService.copyFile(file.uri, archive);
-      const expanded = await zlib.getOriginalSize(archive);
-      if (expanded > LocalBookImportService.MAX_EPUB_EXPANDED_BYTES) {
-        throw new Error(context.resourceManager.getStringSync($r('app.string.import_epub_expanded_limit').id));
-      }
-      await LocalBookImportService.requireSpace(context, expanded * 2);
-      await fileIo.moveFile(archive, epub);
+      await LocalBookImportService.copyFile(file.uri, epub);
       const handler = await LocalBookImportService.openEpub(context, epub);
+      previewParser = handler;
       const info = handler.getBookInfo();
       result.title = info.bookTitle || file.name;
-      result.author = info.bookCreator || await LocalBookImportService.epubCreator(handler);
+      result.author = info.bookCreator;
       result.cover = await EpubCoverService.extract(handler, result.directory);
       const prepared = new PreparedEpub(handler);
       prepared.uri = file.uri; prepared.path = epub; prepared.directory = result.directory;
       LocalBookImportService.preparedEpub = prepared;
       return result;
     } catch (error) {
+      await previewParser?.close();
       await fileIo.rmdir(result.directory).catch((): void => {});
       throw new Error(error instanceof Error ? error.message : 'EPUB preview failed');
     }
-  }
-
-  private static async epubMetadataText(handler: bookParser.BookParserHandler, path: string): Promise<string> {
-    if (handler.getSpineList().length === 0) return '';
-    await handler.getSpineItemContent(0);
-    const parts = path.split('/');
-    const candidates: string[] = [path];
-    for (let index = 1; index < parts.length; index++) candidates.push(parts.slice(index).join('/'));
-    for (let depth = 1; depth <= 8; depth++) candidates.push('../'.repeat(depth) + path);
-    for (const candidate of candidates) {
-      try {
-        const bytes = handler.getResourceContent(0, candidate);
-        if (bytes !== undefined && bytes.byteLength > 0 && bytes.byteLength <= 2 * 1024 * 1024) {
-          return util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(bytes));
-        }
-      } catch (_e) { /* 尝试相对包根目录读取。 */ }
-    }
-    return '';
-  }
-
-  private static async epubCreator(handler: bookParser.BookParserHandler): Promise<string> {
-    try {
-      const container = await LocalBookImportService.epubMetadataText(handler, 'META-INF/container.xml');
-      const root = /full-path\s*=\s*["']([^"']+)["']/i.exec(container);
-      if (root === null) return '';
-      const metadata = await LocalBookImportService.epubMetadataText(handler, root[1]);
-      const creator = /<(?:[\w-]+:)?creator\b[^>]*>([\s\S]*?)<\/(?:[\w-]+:)?creator\s*>/i.exec(metadata);
-      return creator === null ? '' : KkBiqugeHtmlParser.cleanContent(creator[1]).trim();
-    } catch (_e) { return ''; }
-  }
-
-  /** 直接读取解析器已解包的正文，避免逐章跨 ReaderKit 查询资源；异常时保留兼容回退。 */
-  private static async epubSpineText(handler: bookParser.BookParserHandler, index: number,
-    href: string, stats: EpubReadStats = new EpubReadStats()): Promise<string> {
-    if (stats.filePathAvailable !== false) try {
-      const path = handler.getAbsoluteResourcePath(index);
-      const file = await fileIo.open(path, fileIo.OpenMode.READ_ONLY);
-      try {
-        const size = (await fileIo.stat(file.fd)).size;
-        if (size > 0 && size <= 32 * 1024 * 1024) {
-          const buffer = new ArrayBuffer(size);
-          let offset = await fileIo.read(file.fd, buffer, { offset: 0, length: size });
-          if (offset <= 0) throw new Error('Incomplete EPUB chapter');
-          while (offset < size) {
-            const chunk = new ArrayBuffer(size - offset);
-            const count = await fileIo.read(file.fd, chunk, { offset: offset, length: chunk.byteLength });
-            if (count <= 0) throw new Error('Incomplete EPUB chapter');
-            new Uint8Array(buffer).set(new Uint8Array(chunk, 0, count), offset);
-            offset += count;
-          }
-          const text = util.TextDecoder.create('utf-8', { fatal: true }).decodeToString(new Uint8Array(buffer));
-          if (/<(?:html|body)\b/i.test(text)) { stats.file++; return text; }
-        }
-      } finally { await fileIo.close(file); }
-    } catch (_file) { stats.filePathAvailable = false; }
-    // 有些 EPUB 的正文不在资源接口可读取的包中；连续失败后优先用正文接口。
-    // 每 128 节重新探测，兼容同书不同目录；正文接口失败时仍尝试本节全部资源路径。
-    if (stats.rawMisses >= 3 && index < stats.rawProbeAt) {
-      try {
-        const text = await handler.getSpineItemContent(index);
-        if (text.trim().length > 0) { stats.layout++; return text; }
-      } catch (_layout) { /* 只调整读取顺序，不跳过当前章节。 */ }
-    }
-    const name = href.substring(href.lastIndexOf('/') + 1).split('#')[0];
-    const candidates: string[] = name === href ? [name] : [name, href];
-    for (const path of [name, href]) {
-      try {
-        const decoded = decodeURIComponent(path);
-        if (decoded !== path && !candidates.includes(decoded)) candidates.push(decoded);
-      } catch (_decode) { /* 保留原始合法候选。 */ }
-    }
-    for (const candidate of candidates) {
-      try {
-        stats.rawAttempts++;
-        const bytes = handler.getResourceContent(index, candidate);
-        if (bytes.byteLength === 0 || bytes.byteLength > 32 * 1024 * 1024) continue;
-        const text = util.TextDecoder.create('utf-8', { fatal: true }).decodeToString(new Uint8Array(bytes));
-        if (!/<(?:html|body)\b/i.test(text)) continue;
-        stats.raw++;
-        stats.rawMisses = 0;
-        stats.rawProbeAt = 0;
-        return text;
-      } catch (_resource) { /* 仅尝试同一 spine 资源，不跳过失败章节。 */ }
-    }
-    stats.rawMisses++;
-    if (stats.rawMisses >= 3) stats.rawProbeAt = index + 128;
-    stats.layout++;
-    return handler.getSpineItemContent(index);
   }
 
   static async requireSpace(context: common.Context, bytes: number): Promise<void> {
@@ -661,6 +578,7 @@ export class LocalBookImportService {
     let stage = 'prepare';
     let parseStarted = started;
     let prepareMs = 0;
+    let activeEpub: EpubParserService | null = null;
     try {
       if (cover.length > 0) {
         const localCover = `${directory}/cover${cover.toLowerCase().endsWith('.png') ? '.png' : '.jpg'}`;
@@ -689,81 +607,112 @@ export class LocalBookImportService {
         }
         const openStarted = Date.now();
         const prepared = LocalBookImportService.preparedEpub;
-        let handler: bookParser.BookParserHandler;
+        let handler: EpubParserService;
         if (prepared !== null && prepared.uri === file.uri && await fileIo.access(prepared.path)) {
           handler = prepared.handler;
+          await LocalBookImportService.copyFile(prepared.path, `${directory}/source.epub`);
           LocalBookImportService.preparedEpub = null;
           epubStats.reusedPreview = true;
         } else {
-          const archive = `${directory}/source.zip`;
           const epub = `${directory}/source.epub`;
-          await LocalBookImportService.copyFile(file.uri, archive);
-          const expanded = await zlib.getOriginalSize(archive);
-          if (expanded > LocalBookImportService.MAX_EPUB_EXPANDED_BYTES) {
-            throw new Error(context.resourceManager.getStringSync($r('app.string.import_epub_expanded_limit').id));
-          }
-          await LocalBookImportService.requireSpace(context, expanded * 2);
-          await fileIo.moveFile(archive, epub);
+          await LocalBookImportService.copyFile(file.uri, epub);
           handler = await LocalBookImportService.openEpub(context, epub);
         }
+        activeEpub = handler;
         epubStats.openMs = Date.now() - openStarted;
         const info = handler.getBookInfo();
         if (book.cover.length === 0) book.cover = await EpubCoverService.extract(handler, directory);
         if (!title && info.bookTitle) book.title = info.bookTitle;
-        if (!author) book.author = info.bookCreator || await LocalBookImportService.epubCreator(handler) || book.author;
+        if (!author) book.author = info.bookCreator || book.author;
         const spine = handler.getSpineList();
         const catalog = handler.getCatalogList();
         const catalogIndex = LocalBookCatalog.epubIndex(spine, catalog);
+        const hasCatalog = Array.from(catalogIndex.values()).some((items: EpubCatalogItem[]): boolean =>
+          items.some((item: EpubCatalogItem): boolean => item.catalogName.trim().length > 0));
         DiagnosticLogService.info('import.epub_index', `spines=${spine.length}; catalog=${catalog.length}; ` +
           `buckets=${catalogIndex.size}; emptyIds=${spine.filter((item): boolean => !item.idRef).length}`);
         const batch = new EpubTextBatch();
+        const original = new EpubOriginalStore(directory, writes);
+        const chapters = new EpubChapterAssembler(async (title: string, content: string, styles: EpubStyleRun[],
+          originals: EpubOriginalPart[]): Promise<void> => {
+          const index = book.chapters.length;
+          await LocalBookImportService.appendText(book, directory, title, content, writes, true);
+          if (epubMode !== 'comic') await original.saveChapter(index, originals);
+          if (styles.some((run: EpubStyleRun): boolean => run.style.visible())) {
+            const json = JSON.stringify(styles);
+            await writes.add((): Promise<void> => LocalBookImportService.writeText(`${directory}/${index}.style.json`, json));
+          }
+        });
+        const savedBackgrounds: Map<string, string> = new Map();
         const backgrounds = new EpubBackgroundImages();
         if (spine.length > LocalBookImportService.MAX_CHAPTERS) throw new Error('EPUB 超过 50000 节');
         for (let index = 0; index < spine.length; index++) {
           report(`${book.title} ${index + 1}/${spine.length}`);
           const readStarted = Date.now();
-          const rawHtml = await LocalBookImportService.epubSpineText(handler, index, spine[index].href, epubStats);
-          const html = await backgrounds.expand(rawHtml, spine[index].href, async (path: string): Promise<string> => {
-            let bytes: ArrayBuffer;
-            try { bytes = handler.getResourceContent(index, path); }
-            catch (_context) {
-              // 原文直读未建立资源上下文时，仅为含样式的章节按需初始化。
-              await handler.getSpineItemContent(index);
-              bytes = handler.getResourceContent(index, path);
-            }
+          const rawHtml = await handler.getSpineItemContent(index);
+          if (epubMode !== 'comic') {
+            await original.capture(index, spine[index].href, rawHtml, (path: string): Promise<ArrayBuffer> =>
+              handler.getResourceContent(index, path));
+          }
+          const readStyle = async (path: string): Promise<string> => {
+            const bytes = await handler.getResourceContent(index, path);
             if (bytes.byteLength > 512 * 1024) return '';
             return util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(bytes));
-          });
+          };
+          const pageStyle = epubMode === 'comic' ? new EpubPageStyle() :
+            await backgrounds.inspect(rawHtml, spine[index].href, readStyle);
+          const html = epubMode === 'comic' ? await backgrounds.expand(rawHtml, spine[index].href, readStyle) : rawHtml;
+          if (pageStyle.image) {
+            const resource = pageStyle.image;
+            let saved = savedBackgrounds.get(resource);
+            if (saved === undefined) {
+              const relative = EpubBackgroundImages.relative(spine[index].href, resource)
+                .replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+              const marker = await LocalBookImportService.epubBody(context, handler, index,
+                `<img src="${relative}"/>`, directory, epubStats);
+              const match = LocalTextImage.pattern().exec(marker);
+              saved = match ? match[1].substring(directory.length + 1) : '';
+              savedBackgrounds.set(resource, saved);
+            }
+            pageStyle.image = saved;
+          }
           epubStats.readMs += Date.now() - readStarted;
           const convertStarted = Date.now();
           const previousWait = writes.waitMs;
+          const fallback = `${book.title} ${index + 1}`;
           for (const part of LocalBookCatalog.epub(html, spine[index],
-            catalogIndex.get(LocalBookCatalog.spineKey(spine[index])) ?? [], `${book.title} ${index + 1}`)) {
+            catalogIndex.get(LocalBookCatalog.spineKey(spine[index])) ?? [], fallback, hasCatalog)) {
             const section = html.substring(part.start, part.end);
+            const originalPart = new EpubOriginalPart(index, spine[index].href, part.start, part.end);
             if (epubMode === 'auto') epubStats.profile.observe(section);
             if (/<(?:img|image)\b/i.test(section) || section.length > 512 * 1024) {
-              await LocalBookImportService.flushEpubText(book, directory, batch, writes);
-              await LocalBookImportService.appendText(book, directory, part.title,
-                await LocalBookImportService.epubBody(context, handler, index, section, directory, epubStats), writes, true);
+              await LocalBookImportService.flushEpubText(batch, chapters);
+              await chapters.add(part.title,
+                await LocalBookImportService.epubBody(context, handler, index, section, directory, epubStats), fallback, pageStyle, originalPart);
             } else {
               if (batch.chars + section.length > 512 * 1024) {
-                await LocalBookImportService.flushEpubText(book, directory, batch, writes);
+                await LocalBookImportService.flushEpubText(batch, chapters);
               }
-              batch.html.push(section); batch.titles.push(part.title); batch.chars += section.length;
+              batch.html.push(section); batch.titles.push(part.title); batch.fallbacks.push(fallback); batch.styles.push(pageStyle);
+              batch.originals.push(originalPart);
+              batch.chars += section.length;
               if (batch.html.length >= 16 || batch.chars >= 512 * 1024) {
-                await LocalBookImportService.flushEpubText(book, directory, batch, writes);
+                await LocalBookImportService.flushEpubText(batch, chapters);
               }
             }
           }
           epubStats.convertMs += Date.now() - convertStarted - (writes.waitMs - previousWait);
           if ((index + 1) % 500 === 0) DiagnosticLogService.info('import.epub_progress',
             `completed=${index + 1}; readMs=${epubStats.readMs}; convertMs=${epubStats.convertMs}; ` +
-            `writeWaitMs=${writes.waitMs}; file=${epubStats.file}; raw=${epubStats.raw}; ` +
-            `rawAttempts=${epubStats.rawAttempts}; layout=${epubStats.layout}`);
+            `writeWaitMs=${writes.waitMs}`);
         }
         const flushStarted = Date.now();
         const previousWait = writes.waitMs;
-        await LocalBookImportService.flushEpubText(book, directory, batch, writes);
+        await LocalBookImportService.flushEpubText(batch, chapters);
+        await chapters.finish();
+        if (epubMode !== 'comic' && !(epubMode === 'auto' && epubStats.profile.isComic())) {
+          await original.finish(id, book.chapters.length);
+        }
         epubStats.convertMs += Date.now() - flushStarted - (writes.waitMs - previousWait);
       } else {
         await LocalBookImportService.importText(book, directory, file.uri, file.ext !== '.txt', report, writes);
@@ -786,19 +735,18 @@ export class LocalBookImportService {
       DiagnosticLogService.info('import.timing', `format=${file.ext}; chapters=${book.chapterCount}; ` +
         `prepareMs=${prepareMs}; parseReadMs=${Date.now() - parseStarted - writes.waitMs}; ` +
         `writeWaitMs=${writes.waitMs}; writeBusyMs=${writes.busyMs}; totalMs=${Date.now() - started}; ` +
-        `epubFile=${epubStats.file}; epubRaw=${epubStats.raw}; epubLayout=${epubStats.layout}; ` +
-        `epubRawAttempts=${epubStats.rawAttempts}; ` +
         `epubOpenMs=${epubStats.openMs}; epubReadMs=${epubStats.readMs}; epubConvertMs=${epubStats.convertMs}; ` +
         `epubReusedPreview=${epubStats.reusedPreview}`);
       return book;
     } catch (error) {
       await writes.settle();
+      await activeEpub?.close();
       DiagnosticLogService.failure(`import.${stage}`, error, `format=${file.ext}`);
       try { await fileIo.rmdir(directory); } catch (_cleanup) { /* 保留原始错误 */ }
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(message === 'EPUB_CHAPTER_TOO_LARGE' ?
         context.resourceManager.getStringSync($r('app.string.import_epub_chapter_limit').id) : message);
-    }
+    } finally { await activeEpub?.close(); }
   }
 
   private static async finishComic(context: common.Context, book: Book): Promise<void> {

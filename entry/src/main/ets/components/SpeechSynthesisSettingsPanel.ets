@@ -1,5 +1,8 @@
+import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { SpeechSynthesisSettings } from '../model/SpeechSynthesisSettings';
 import { AppColor, AppTheme } from '../theme/Theme';
+import { SettingsHintButton } from './SettingsHintButton';
+import { ReaderSettingsSectionHeader } from './ReaderSettingCard';
 
 /** 独立 V2 参数保持滑条和数值同步，避免 Builder 按值参数冻结显示。 */
 @ComponentV2
@@ -12,15 +15,16 @@ struct SynthesisNumberSetting {
   @Event changed: (value: number) => void = (): void => {};
 
   build() {
-    Column({ space: 4 }) {
-      Row() {
-        Text(this.label).fontSize(14).fontColor($r('sys.color.font_primary')).layoutWeight(1)
-        Text(`${this.value}`).fontSize(14).fontColor(AppColor.Brand)
-      }.width('100%')
+    Row({ space: 8 }) {
+      Text(this.label).fontSize(14).fontColor($r('sys.color.font_primary')).width('45%')
       Slider({ value: this.value, min: this.min, max: this.max, step: this.step })
+        .attributeModifier(new SliderGestureModifier(this.min, this.max))
+        .layoutWeight(1).height(40)
         .selectedColor(AppColor.Brand).blockColor(AppColor.Brand)
         .onChange((next: number): void => this.changed(Math.round(next)))
-    }.width('100%').padding(16).borderRadius(16).backgroundColor(AppTheme.Surface)
+      Text(`${this.value}`).fontSize(14).fontColor(AppColor.Brand).width(32).textAlign(TextAlign.End)
+    }.width('100%').padding({ left: 16, right: 16, top: 8, bottom: 8 })
+      .borderRadius(16).backgroundColor(AppTheme.Surface)
       .border({ width: 0.5, color: AppTheme.Divider })
   }
 }
@@ -73,27 +77,43 @@ export struct SpeechSynthesisSettingsPanel {
 
   build() {
     Column({ space: 12 }) {
-      Text($r('app.string.tts_synthesis_hint')).fontSize(12).fontColor($r('sys.color.font_secondary')).width('100%')
       Column({ space: 8 }) {
-        Button($r('app.string.tts_continuous_preset')).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
-          .onClick((): void => { this.paragraphs = 3; this.maxChars = 500; this.concurrency = 3; this.quickStart = true; this.save(); })
-        Text($r('app.string.tts_continuous_hint')).fontSize(12).fontColor(AppTheme.TextSecondary)
+        Row({ space: 2 }) {
+          Text($r('app.string.tts_continuous_title')).fontSize(16).fontWeight(FontWeight.Medium)
+            .fontColor(AppTheme.TextPrimary).flexShrink(1)
+          SettingsHintButton({ title: $r('app.string.tts_continuous_title'), message: $r('app.string.tts_continuous_hint') })
+            .id('tts-continuous-help')
+          Blank()
+          Button($r('app.string.tts_continuous_preset')).fontSize(14).fontColor(AppColor.Brand)
+            .backgroundColor(Color.Transparent).id('tts-continuous-preset')
+            .onClick((): void => {
+              this.paragraphs = 3; this.maxChars = 500; this.concurrency = 3; this.quickStart = true; this.save();
+            })
+        }.width('100%')
+        Row({ space: 8 }) {
+          Text($r('app.string.tts_quick_start')).fontSize(14).fontColor(AppTheme.TextPrimary).layoutWeight(1)
+          Toggle({ type: ToggleType.Switch, isOn: this.quickStart }).selectedColor(AppColor.Brand)
+            .onChange((value: boolean): void => { this.quickStart = value; }).id('tts-quick-start')
+        }.width('100%')
       }.width('100%').padding(16).borderRadius(16).backgroundColor(AppTheme.Surface)
-      Row() {
-        Text($r('app.string.tts_quick_start')).fontColor(AppTheme.TextPrimary).layoutWeight(1)
-        Toggle({ type: ToggleType.Switch, isOn: this.quickStart }).selectedColor(AppColor.Brand)
-          .onChange((value: boolean): void => { this.quickStart = value; })
-      }.width('100%').padding(16).borderRadius(16).backgroundColor(AppTheme.Surface)
+      Row({ space: 2 }) {
+        Text($r('app.string.tts_synthesis_length_group')).fontSize(12).fontWeight(FontWeight.Medium)
+          .fontColor(AppTheme.TextSecondary)
+        SettingsHintButton({ title: $r('app.string.tts_synthesis_title'), message: $r('app.string.tts_synthesis_hint') })
+          .id('tts-synthesis-help')
+      }.width('100%').padding({ left: 6 })
       SynthesisNumberSetting({ label: $r('app.string.tts_synthesis_paragraphs'), value: this.paragraphs,
         min: 1, max: 10, step: 1, changed: (value: number): void => { this.paragraphs = value; } })
       SynthesisNumberSetting({ label: $r('app.string.tts_synthesis_max_chars'), value: this.maxChars,
         min: 100, max: 4000, step: 100, changed: (value: number): void => { this.maxChars = value; } })
+      ReaderSettingsSectionHeader({ title: $r('app.string.tts_synthesis_network_group') })
+      SynthesisNumberSetting({ label: $r('app.string.tts_synthesis_concurrency'), value: this.concurrency,
+        min: 1, max: 4, step: 1, changed: (value: number): void => { this.concurrency = value; } })
       SynthesisNumberSetting({ label: $r('app.string.tts_synthesis_timeout'), value: this.timeoutSeconds,
         min: 5, max: 120, step: 5, changed: (value: number): void => { this.timeoutSeconds = value; } })
       SynthesisNumberSetting({ label: $r('app.string.tts_synthesis_retries'), value: this.retries,
         min: 0, max: 3, step: 1, changed: (value: number): void => { this.retries = value; } })
-      SynthesisNumberSetting({ label: $r('app.string.tts_synthesis_concurrency'), value: this.concurrency,
-        min: 1, max: 4, step: 1, changed: (value: number): void => { this.concurrency = value; } })
+      ReaderSettingsSectionHeader({ title: $r('app.string.tts_synthesis_text_group') })
       Row() {
         Text($r('app.string.tts_synthesis_filter')).fontColor($r('sys.color.font_primary')).layoutWeight(1)
         Toggle({ type: ToggleType.Switch, isOn: this.filterSymbols }).selectedColor(AppColor.Brand)

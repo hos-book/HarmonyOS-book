@@ -709,13 +709,25 @@ export class NativeSourceService {
     return BookTypeSupport.typeFromTab(type) || BookTypeSupport.typeFromSource(source) || BookTypeSupport.TEXT;
   }
 
-  /** 视频没有专门的类型位，记在书籍变量的 tab 里；其余类型由类型位推出。 */
-  private static typeName(bits: number, source: BookSource, variable: string = ''): string {
-    if (variable && BookUrlResolver.getVariableJson(variable, 'tab') === 'video') return 'video';
+  /**
+   * 视频没有专门的类型位，记在书籍变量的 tab 里；其余类型由类型位推出。没有 tab 时沿用书源顶层的 type：
+   * 顶层写 video、fields 不写 type 的书源以前会落成文本书，在阅读器里把播放地址当正文显示。
+   * overrideText 用于详情没给类型时，把搜索阶段这样落下的 tab=text 也按书源类型纠正。
+   */
+  private static typeName(bits: number, source: BookSource, variable: string = '',
+    overrideText: boolean = false): string {
+    const tab = variable ? String(BookUrlResolver.getVariableJson(variable, 'tab') || '') : '';
+    if (tab === 'video') return 'video';
     const value = Number(bits) || BookTypeSupport.typeFromSource(source);
     if ((value & BookTypeSupport.AUDIO) !== 0) return 'audio';
     if ((value & BookTypeSupport.IMAGE) !== 0) return 'comic';
-    return 'text';
+    const inherit = !tab || (overrideText && tab === 'text');
+    const declared = NativeSourceSpec.unpack(source.jsLib || '');
+    return inherit && declared && String(declared.type || '').toLowerCase() === 'video' ? 'video' : 'text';
+  }
+
+  private static tabVariable(type: string): string {
+    return BookUrlResolver.setVariableJson('', 'tab', type);
   }
 
   private static toSearchBook(source: BookSource, record: NativeBookRecord): SearchBook {
@@ -735,8 +747,8 @@ export class NativeSourceService {
     book.originName = source.bookSourceName;
     book.type = NativeSourceService.typeBits(record.type, source);
     // 媒体类型同时写进书籍变量，加入书架后各处的类型判定都读得到。
-    book.variable = BookUrlResolver.setVariableJson('', 'tab',
-      record.type === 'video' ? 'video' : NativeSourceService.typeName(book.type, source));
+    book.variable = BookUrlResolver.setVariableJson('', 'tab', NativeSourceService.typeName(book.type, source,
+      record.type ? NativeSourceService.tabVariable(record.type) : ''));
     book.bookSourceComment = source.bookSourceComment;
     book.customOrder = source.customOrder;
     book.weight = source.weight;
@@ -761,11 +773,16 @@ export class NativeSourceService {
     };
   }
 
+  /** onPartial：搜索脚本每调用一次 ui.emitSearch 就先交出那批书，不等脚本返回；最终结果仍完整返回。 */
   static async search(source: BookSource, http: HttpClient, keyword: string, cancelled: () => boolean,
     maxResponseBytes: number = 0, debugContext: BookSourceDebugContext | null = null,
-    page: number = 1): Promise<SearchBook[]> {
-    const records = await NativeSourceService.runner(source, http, cancelled, maxResponseBytes, debugContext)
-      .search(keyword, page);
+    page: number = 1, onPartial: ((books: SearchBook[]) => void) | null = null): Promise<SearchBook[]> {
+    const runner = NativeSourceService.runner(source, http, cancelled, maxResponseBytes, debugContext);
+    if (onPartial) {
+      runner.setPartialSearchListener((batch: NativeBookRecord[]): void => onPartial(batch.map(
+        (record: NativeBookRecord): SearchBook => NativeSourceService.toSearchBook(source, record))));
+    }
+    const records = await runner.search(keyword, page);
     return records.map((record: NativeBookRecord): SearchBook => NativeSourceService.toSearchBook(source, record));
   }
 
@@ -801,9 +818,9 @@ export class NativeSourceService {
     book.tocUrl = record.tocUrl || book.tocUrl || book.bookUrl;
     if (record.type) book.type = NativeSourceService.typeBits(record.type, source);
     else if (!Number(book.type)) book.type = NativeSourceService.typeBits('', source);
-    // 详情给出了类型就以它为准；没给时保留搜索或发现阶段已经定下的类型。
-    let variable = BookUrlResolver.setVariableJson(book.variable, 'tab', record.type === 'video' ? 'video' :
-      NativeSourceService.typeName(book.type, source, record.type ? '' : book.variable));
+    // 详情给出了类型就以它为准；没给时保留搜索或发现阶段定下的有声、漫画、视频，文本则按书源顶层的 type。
+    let variable = BookUrlResolver.setVariableJson(book.variable, 'tab', NativeSourceService.typeName(book.type,
+      source, record.type ? NativeSourceService.tabVariable(record.type) : book.variable, !record.type));
     for (const key of Object.keys(record.keep)) {
       variable = BookUrlResolver.setVariableJson(variable, key, record.keep[key]);
     }

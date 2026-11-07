@@ -19,6 +19,7 @@ function compile(source, globals) {
 }
 const values = new Map();
 let writes = 0, flushes = 0, events = 0, failWrite = false;
+let beforeFlush = async () => {};
 const store = {
   getSync: (key, fallback) => values.get(key) ?? fallback,
   putSync: (key, value) => {
@@ -32,7 +33,7 @@ const store = {
     values.set(key, value);
   },
   delete: async key => { values.delete(key); },
-  flush: async () => { flushes++; }
+  flush: async () => { flushes++; await beforeFlush(); }
 };
 const presentation = compile(read('model/BookPresentation.ets'), { require: () => ({}) });
 const { BookPresentation, BookPresentationEdit } = presentation;
@@ -46,7 +47,9 @@ let failFile = '';
 const page = read('pages/FavoritePage.ets');
 const methods = page.slice(page.indexOf('  private markShelfBookVisible('), page.indexOf('  private bookMenuOptions('));
 const filter = page.slice(page.indexOf('  private filteredBooks('), page.indexOf('  private handleBookTap('));
-const { Shelf } = compile(`export class Shelf { ${filter}\n${methods}\n }`, {
+const single = page.slice(page.indexOf('  private async removeActionBook('), page.indexOf('  private markShelfBookVisible('));
+const remove = page.slice(page.indexOf('  private async doRemove('), page.indexOf('\n  build() {', page.indexOf('  private async doRemove(')));
+const { Shelf } = compile(`export class Shelf { ${filter}\n${single}\n${methods}\n${remove}\n }`, {
   PreferenceService,
   BookPresentation,
   StatsService: { removeBookStats: async ids => { fileCalls.push('stats:' + ids.join(',')); } },
@@ -80,14 +83,17 @@ function makeShelf() {
     removingBook: false, isRefreshing: false, resolvingTocId: '', showBookActions: false,
     selectedBookIds: new Set(), favoritesLoadSerial: 0, favoriteIdsByBookId: new Map(),
     visibleShelfBookIds: new Set(), pendingDissolveIds: new Set(), dissolvingBookIds: new Set(),
-    cancelAutoUpdate: () => {},
+    pendingShelfRemovalIds: new Set(), displayedBooks: [],
+    cancelAutoUpdate: () => {}, scheduleAutoUpdate: () => {},
+    pinnedBookIds: new Set(), isMissingCachedBook: () => false, reloads: 0,
     favoriteBooks: [{ id: 'audio', contentType: 'audio' }, { id: 'import_text', contentType: 'text' },
       { id: 'other', contentType: 'text' }],
-    bookDataSource: { setBooks() {} },
-    loadFavorites: async () => {},
+    bookDataSource: { setBooks(books) { shelf.displayedBooks = books; } },
+    loadFavorites: async () => { shelf.reloads++; },
     dismissDeleteSheet: async () => { shelf.showBatchDelete = false; },
     getUIContext: () => ({ getPromptAction: () => ({ showToast() {} }) })
   });
+  shelf.bookDataSource.setBooks(shelf.favoriteBooks);
   return shelf;
 }
 function favorites(ids) { values.set('favorite_book_ids', JSON.stringify(ids)); }
@@ -104,7 +110,7 @@ async function run() {
   await PreferenceService.removeFavorites(['absent']);
   assert.equal(writes, 1);
 
-  const shelf = makeShelf();
+  let shelf = makeShelf();
   // The real animation gate must wait for all visible cards and ignore offscreen selections.
   const animated = makeShelf();
   animated.visibleShelfBookIds = new Set(['audio', 'import_text']);
@@ -112,6 +118,7 @@ async function run() {
   const animation = animated.animateShelfDelete(['audio', 'import_text', 'other'])
     .then(() => { animationDone = true; });
   assert.deepEqual([...animated.dissolvingBookIds], ['audio', 'import_text']);
+  assert.equal(animated.lightweightShelfDelete, true, 'bulk removal uses lightweight feedback');
   animated.completeShelfDissolve('audio');
   await Promise.resolve();
   assert.equal(animationDone, false);
@@ -122,6 +129,12 @@ async function run() {
   const leaving = animated.animateShelfDelete(['audio']);
   animated.cancelShelfDissolve();
   await leaving;
+
+  const offscreen = animated.animateShelfDelete(['audio']);
+  animated.markShelfBookVisible('audio', 0);
+  assert.equal(animated.pendingDissolveIds.size, 0, 'offscreen cards cannot hold the animation gate');
+  await offscreen;
+  animated.cancelShelfDissolve();
 
   // File cleanup/persistence waits for the snapshot animation, preventing missing-cover frames.
   favorites(['audio', 'import_text', 'other']);
@@ -162,6 +175,9 @@ async function run() {
   assert.deepEqual(await PreferenceService.getFavorites(), ['audio', 'other']);
   assert.equal(fileCalls.length, 0, 'shelf-only removal never touches local files');
   assert.equal(shelf.isManaging, false);
+  assert.deepEqual(shelf.favoriteBooks.map(book => book.id), ['audio', 'other']);
+  assert.equal(shelf.reloads, 0, 'successful removal does not reload the book catalog');
+  shelf = makeShelf();
 
   values.set('play_history', JSON.stringify([{ bookId: 'legacy-id' }, { bookId: 'audio' }, { bookId: 'import_text' }, { bookId: 'other' }]));
   values.set('last_played', JSON.stringify({ bookId: 'audio' }));
@@ -206,6 +222,71 @@ async function run() {
   shelf.toggleSelectAllBooks();
   assert.deepEqual([...shelf.selectedBookIds], ['other'], 'busy selection cannot change');
   assert.equal(shelf.handleManageBack(), true);
+  // Select-all immediately publishes an empty shelf, without parsing remaining catalogs.
+  const all = makeShelf();
+  favorites(['audio', 'import_text', 'other']);
+  all.enterManagement(); all.toggleSelectAllBooks(); all.confirmBatchDelete();
+  await all.deleteSelectedBooks();
+  assert.deepEqual(all.favoriteBooks, []);
+  assert.equal(all.reloads, 0);
+  assert.equal(all.isManaging, false);
+  // A concurrent addition still triggers reconciliation instead of disappearing from the UI.
+  const concurrent = makeShelf();
+  favorites(['audio', 'import_text', 'other', 'newly-added']);
+  concurrent.enterManagement('audio'); concurrent.confirmBatchDelete();
+  await concurrent.deleteSelectedBooks();
+  assert.equal(concurrent.reloads, 1);
+  assert.deepEqual(await PreferenceService.getFavorites(), ['import_text', 'other', 'newly-added']);
+
+  // A slow file cleanup must not leave invisible cards occupying shelf slots.
+  const slowFiles = makeShelf();
+  favorites(['audio', 'import_text', 'other']);
+  slowFiles.enterManagement('audio'); slowFiles.toggleBookSelection('import_text');
+  slowFiles.confirmBatchDelete(); slowFiles.deleteLocalFiles = true;
+  let releaseFiles, reportFilesStarted;
+  const filesGate = new Promise(resolve => { releaseFiles = resolve; });
+  const filesStarted = new Promise(resolve => { reportFilesStarted = resolve; });
+  slowFiles.deleteBookFilesAndRecords = async id => {
+    reportFilesStarted(); await filesGate;
+    if (id === 'import_text') throw new Error('file busy');
+  };
+  const fileDeletion = slowFiles.deleteSelectedBooks();
+  await filesStarted;
+  assert.deepEqual(slowFiles.displayedBooks.map(book => book.id), ['other'],
+    'the shelf closes gaps while file cleanup is still pending');
+  assert.deepEqual(await PreferenceService.getFavorites(), ['audio', 'import_text', 'other'],
+    'preview does not commit favorites before file deletion succeeds');
+  releaseFiles(); await fileDeletion;
+  assert.deepEqual(slowFiles.displayedBooks.map(book => book.id), ['import_text', 'other']);
+  assert.deepEqual([...slowFiles.selectedBookIds], ['import_text']);
+  assert.equal(slowFiles.pendingShelfRemovalIds.size, 0);
+  assert.equal(slowFiles.reloads, 0, 'partial file failure restores from the loaded shelf');
+
+  // Single-book removal also publishes the remaining list before a slow storage flush.
+  const slowSave = makeShelf();
+  favorites(['audio', 'import_text', 'other']);
+  let releaseSave, reportSaveStarted;
+  const saveGate = new Promise(resolve => { releaseSave = resolve; });
+  const saveStarted = new Promise(resolve => { reportSaveStarted = resolve; });
+  beforeFlush = async () => { reportSaveStarted(); await saveGate; };
+  const saving = slowSave.removeActionBook(slowSave.favoriteBooks[0], false);
+  await saveStarted;
+  assert.deepEqual(slowSave.displayedBooks.map(book => book.id), ['import_text', 'other']);
+  assert.equal(slowSave.favoriteBooks.length, 3, 'original entries stay available until commit');
+  releaseSave(); await saving; beforeFlush = async () => {};
+  assert.equal(slowSave.pendingShelfRemovalIds.size, 0);
+  assert.equal(slowSave.reloads, 0);
+
+  const failedSingle = makeShelf();
+  favorites(['audio', 'import_text', 'other']);
+  failWrite = true;
+  await failedSingle.removeActionBook(failedSingle.favoriteBooks[0], false);
+  failWrite = false;
+  assert.deepEqual(failedSingle.displayedBooks.map(book => book.id), ['audio', 'import_text', 'other'],
+    'failed persistence restores the original shelf order');
+  assert.equal(failedSingle.removingBook, false);
+  assert.equal(failedSingle.pendingShelfRemovalIds.size, 0);
+  console.log('PASS: shelf reflow before slow cleanup/flush, partial failure restore and offscreen animation completion');
   // Moving a book updates group membership without changing metadata, favorites or files.
   const edit = new BookPresentationEdit();
   edit.bookId = 'audio'; edit.title = 'My title'; edit.cover = 'file://cover.jpg';

@@ -87,6 +87,11 @@ export class TextReadingSettingsService {
       typeof imageMode === 'string' ? imageMode : 'cover');
     const alignment = store.getSync('text_alignment', 'justify');
     result.textAlignment = TextReadingSettings.normalizeTextAlignment(typeof alignment === 'string' ? alignment : 'justify');
+    result.chapterHeadingVisible = store.getSync('chapter_heading_visible', true) !== false;
+    const headingSize = store.getSync('chapter_heading_size', 26);
+    result.chapterHeadingSize = TextReadingSettings.normalizeChapterHeadingSize(typeof headingSize === 'number' ? headingSize : 26);
+    const headingStyle = store.getSync('chapter_heading_style', 'center');
+    result.chapterHeadingStyle = TextReadingSettings.normalizeChapterHeadingStyle(typeof headingStyle === 'string' ? headingStyle : 'center');
     const tapLeftPercent = store.getSync('tapLeftPercent', 33);
     result.tapLeftPercent = ReaderTapPolicy.percent(typeof tapLeftPercent === 'number' ? tapLeftPercent : 33);
     const tapRightPercent = store.getSync('tapRightPercent', 33);
@@ -214,6 +219,9 @@ export class TextReadingSettingsService {
     store.putSync('showBookName', settings.showBookName);
     store.putSync('tap_regions', ReaderTapPolicy.normalize(settings.tapRegions));
     store.putSync('text_alignment', TextReadingSettings.normalizeTextAlignment(settings.textAlignment));
+    store.putSync('chapter_heading_visible', settings.chapterHeadingVisible);
+    store.putSync('chapter_heading_size', TextReadingSettings.normalizeChapterHeadingSize(settings.chapterHeadingSize));
+    store.putSync('chapter_heading_style', TextReadingSettings.normalizeChapterHeadingStyle(settings.chapterHeadingStyle));
     store.putSync(KEY_FONT_SIZE, TextReadingSettings.normalizeFontSize(settings.fontSize));
     store.putSync(KEY_LINE_HEIGHT, TextReadingSettings.normalizeLineHeight(settings.lineHeight));
     store.putSync('letter_spacing', TextReadingSettings.normalizeLetterSpacing(settings.letterSpacing));

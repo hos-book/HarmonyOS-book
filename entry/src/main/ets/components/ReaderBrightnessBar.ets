@@ -1,3 +1,4 @@
+import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { AppColor, AppMaterial } from '../theme/Theme';
 
 @ComponentV2
@@ -14,6 +15,7 @@ export struct ReaderBrightnessBar {
         .fontSize(10).height(16).fontColor(this.foreground).maxLines(1)
       Slider({ value: this.value < 0 ? 50 : this.value * 100,
         min: 0, max: 100, step: 1, direction: Axis.Vertical, reverse: true })
+        .attributeModifier(new SliderGestureModifier(0, 100))
         .layoutWeight(1).width(32).blockSize({ width: 18, height: 18 }).trackThickness(4)
         .blockColor(AppColor.Brand).selectedColor(AppColor.Brand)
         .accessibilityText($r('app.string.reader_brightness'))

@@ -70,7 +70,7 @@ export class BookSourceRuntimeRouter {
     'androidId', 'deviceID', 'randomUUID', 'getCookie', 'lang', 'log', 'logType',
     'getWebViewUA', 'timeFormat', 'timeFormatUTC', 'strToBytes', 'bytesToStr', 'evalJS',
     'createSymmetricCrypto', 'reLoginView', 'refreshExplore', 'refreshBookToc', 'refreshContent',
-    'searchBook', 'upConfig', 'upLoginData', 'webView'
+    'searchBook', 'upConfig', 'upLoginData', 'webView', 'emitSearch'
   ];
 
   private static readonly EMULATED_JAVA_METHODS: string[] = [

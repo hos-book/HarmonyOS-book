@@ -1,4 +1,4 @@
-import { bookParser } from '@hms.core.readerservice.bookParser';
+import { EpubSpineItem, EpubCatalogItem } from './EpubParserService';
 import { LocalBookHtmlText } from './LocalBookHtmlText';
 
 export class LocalCatalogSection {
@@ -53,8 +53,9 @@ export class LocalBookCatalog {
     marks.push(section);
   }
 
-  private static sections(html: string, fallback: string, marks: LocalCatalogSection[]): LocalCatalogSection[] {
-    if (marks.length === 0) {
+  private static sections(html: string, fallback: string, marks: LocalCatalogSection[],
+    useHeadings: boolean = true): LocalCatalogSection[] {
+    if (marks.length === 0 && useHeadings) {
       const headings = /<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1\s*>|<mbp:pagebreak\b[^>]*\/?\s*>/gi;
       let match = headings.exec(html);
       while (match !== null) {
@@ -73,10 +74,10 @@ export class LocalBookCatalog {
     return marks;
   }
 
-  static spineKey(spine: bookParser.SpineItem): string { return LocalBookCatalog.path(spine.href); }
+  static spineKey(spine: EpubSpineItem): string { return LocalBookCatalog.path(spine.href); }
 
-  static epubIndex(spines: bookParser.SpineItem[], catalog: bookParser.CatalogItem[]): Map<string, bookParser.CatalogItem[]> {
-    const result = new Map<string, bookParser.CatalogItem[]>();
+  static epubIndex(spines: EpubSpineItem[], catalog: EpubCatalogItem[]): Map<string, EpubCatalogItem[]> {
+    const result = new Map<string, EpubCatalogItem[]>();
     const ids = new Map<string, string>();
     const duplicateIds = new Set<string>();
     for (const spine of spines) {
@@ -96,8 +97,8 @@ export class LocalBookCatalog {
     return result;
   }
 
-  static epub(html: string, spine: bookParser.SpineItem, catalog: bookParser.CatalogItem[],
-    fallback: string): LocalCatalogSection[] {
+  static epub(html: string, spine: EpubSpineItem, catalog: EpubCatalogItem[],
+    fallback: string, hasCatalog: boolean = false): LocalCatalogSection[] {
     const anchors = catalog.some((item): boolean => (item.href ?? '').includes('#')) ?
       LocalBookCatalog.anchors(html) : new Map<string, number>();
     const marks: LocalCatalogSection[] = [];
@@ -110,11 +111,17 @@ export class LocalBookCatalog {
       if (hash >= 0 && hash < href.length - 1) {
         const offset = anchors.get(LocalBookCatalog.decode(href.substring(hash + 1)));
         if (offset !== undefined) LocalBookCatalog.mark(marks, item.catalogName, offset);
+        else if (marks.length === 0) LocalBookCatalog.mark(marks, item.catalogName, 0);
       } else {
         LocalBookCatalog.mark(marks, item.catalogName, 0);
       }
     }
-    return LocalBookCatalog.sections(html, fallback, marks);
+    // 空包装和章首插图归入首个目录项，不单独生成“书名 + 序号”。
+    if (marks.length > 0 && !LocalBookHtmlText.clean(html.substring(0, marks[0].start))) {
+      marks[0].start = 0;
+    }
+    // 有原目录时，未命中的文件/前缀是续段，交由导入器并入前章。
+    return LocalBookCatalog.sections(html, hasCatalog ? '' : fallback, marks, !hasCatalog);
   }
 
   static html(html: string, fallback: string, fileName: string = '', encoding: string = ''): LocalCatalogSection[] {

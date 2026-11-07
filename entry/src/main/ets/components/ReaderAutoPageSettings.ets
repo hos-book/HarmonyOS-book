@@ -1,7 +1,9 @@
+import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { ReaderAutoPageService } from '../service/text/ReaderAutoPageService';
 import { ReaderAutoScrollService } from '../service/text/ReaderAutoScrollService';
-import { AppColor, AppFont, AppSpace } from '../theme/Theme';
+import { AppColor, AppFont } from '../theme/Theme';
 import { ReaderSettingCard } from './ReaderSettingCard';
+import { SettingsHintButton } from './SettingsHintButton';
 
 @ComponentV2
 export struct ReaderAutoPageSettings {
@@ -12,6 +14,7 @@ export struct ReaderAutoPageSettings {
   @Param running: boolean = false;
   @Param paused: boolean = false;
   @Param available: boolean = true;
+  @Param compact: boolean = false;
   @Event onInterval: (seconds: number) => void = (): void => {};
   @Event onSpeed: (speed: number) => void = (): void => {};
   @Event onToggle: () => void = (): void => {};
@@ -35,21 +38,19 @@ export struct ReaderAutoPageSettings {
   }
 
   build() {
-    ReaderSettingCard({ title: this.scrolling ? $r('app.string.reader_auto_scroll_title') : $r('app.string.reader_auto_page_title'),
-      description: this.scrolling ? $r('app.string.reader_auto_scroll_hint') : $r('app.string.reader_auto_page_hint') }) {
-      Column({ space: AppSpace.Sm }) {
-        Row({ space: AppSpace.Sm }) {
-          Text(this.speedLabel())
-            .fontSize(AppFont.Body).fontColor($r('sys.color.font_primary')).layoutWeight(1)
-          Button(this.toggleLabel())
-            .fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
-            .enabled(this.available || this.running).id('reader-auto-page-start')
-            .onClick((): void => this.onToggle())
-        }.width('100%')
+    ReaderSettingCard({ compact: this.compact, showTitle: false }) {
+      Row({ space: 4 }) {
+        Text(this.scrolling ? $r('app.string.reader_auto_scroll_title') : $r('app.string.reader_auto_page_title'))
+          .fontSize(AppFont.Body).fontColor($r('sys.color.font_primary')).maxLines(1)
+        SettingsHintButton({
+          title: this.scrolling ? $r('app.string.reader_auto_scroll_title') : $r('app.string.reader_auto_page_title'),
+          message: this.scrolling ? $r('app.string.reader_auto_scroll_hint') : $r('app.string.reader_auto_page_hint') })
         Slider({ value: this.draft, min: this.scrolling ? 6 : 3, max: this.scrolling && !this.comic ? 100 : 120,
           step: this.scrolling ? 2 : 1 })
+          .attributeModifier(new SliderGestureModifier(this.scrolling ? 6 : 3, this.scrolling && !this.comic ? 100 : 120))
+          .layoutWeight(1).height(40)
           .selectedColor(AppColor.Brand).blockColor(AppColor.Brand)
-          .accessibilityText($r('app.string.reader_auto_page_title')).id('reader-auto-page-interval')
+          .accessibilityText(this.speedLabel()).id('reader-auto-page-interval')
           .onChange((value: number, mode: SliderChangeMode): void => {
             this.draft = this.scrolling ? ReaderAutoScrollService.normalizeSpeed(value, this.comic) :
               ReaderAutoPageService.normalizeSeconds(value);
@@ -58,7 +59,13 @@ export struct ReaderAutoPageSettings {
               else this.onInterval(this.draft);
             }
           })
-      }.width('100%')
+        Text(this.scrolling ? `${this.draft}` : $r('app.string.reader_auto_page_seconds_short', this.draft))
+          .fontSize(AppFont.Caption).fontColor($r('sys.color.font_primary')).width(38).textAlign(TextAlign.End)
+        Button(this.toggleLabel()).height(36).padding({ left: 10, right: 10 }).fontSize(AppFont.Body)
+          .fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
+          .enabled(this.available || this.running).id('reader-auto-page-start')
+          .onClick((): void => this.onToggle())
+      }.width('100%').alignItems(VerticalAlign.Center)
     }
   }
 }

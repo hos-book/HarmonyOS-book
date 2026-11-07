@@ -44,6 +44,7 @@
     {"name":"theme_paper_status_scrim","value":"#E6181E1B"},
     {"name":"theme_paper_floating_mask","value":"#88181E1B"},
     { "name": "shelf_toolbar_background", "value": "#801A1A1A" },
+    { "name": "import_add_button_tint", "value": "#08000000" },
     { "name": "shelf_filter_background", "value": "#66252221" },
     { "name": "shelf_filter_border", "value": "#40FFFFFF" },
     { "name": "shelf_filter_selected_background", "value": "#20FFFFFF" },

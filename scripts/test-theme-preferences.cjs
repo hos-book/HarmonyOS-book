@@ -10,7 +10,8 @@ const etsRoot = path.join(__dirname, '../entry/src/main/ets');
 const themeKey = 'app_theme_preferences';
 const realModules = new Set([
   'model/AppAppearance', 'model/AppThemeBundle', 'model/AppThemeVisual', 'theme/ThemeBundles',
-  'theme/bundles/DefaultTheme', 'theme/bundles/PaperTheme', 'theme/bundles/MistTheme', 'theme/bundles/InkTheme', 'service/PreferenceService'
+  'theme/bundles/DefaultTheme', 'theme/bundles/PaperTheme', 'theme/bundles/MistTheme', 'theme/bundles/InkTheme',
+  'service/PreferenceService', 'service/sync/LibrarySyncModel'
 ]);
 const compiled = new Map();
 
@@ -104,6 +105,9 @@ function expectedSelection(id, accent, material) {
   const disk = createDisk([['accent_color', '#123abc'], ['material_style', 5]]);
   const systemDisk = createDisk();
   let systemApp = await launch(systemDisk);
+  assert.equal(systemApp.appearance.material, 6, 'fresh preferences default to follow-system');
+  assert.equal(new systemApp.Selection().materialStyle, 6, 'new appearance selections default to follow-system');
+  assert.equal(systemApp.bundles.resolve('default').material, 6, 'default theme uses follow-system');
   await systemApp.service.setMaterialStyle(6);
   systemApp = await launch(systemDisk);
   assert.equal(systemApp.appearance.material, 6, 'follow-system survives restart');
