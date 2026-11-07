@@ -29,7 +29,10 @@
 - APP：`artifacts/releases/1.0.7-1007001/Jianting-1.0.7-1007001-release.app`，293740018 字节。
 - SHA-256：`3dc82ac58043a819a197d9ab1c396dea56c5a2653b1d3c9c00d0543a9d79e6fc`。
 - 本次在线读取并应用 [Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md) 和 [AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)。构建 MCP 的 OHPM 批处理递归失败后，使用已核验 Release IDE 的 Node/Hvigor CLI；AGC 使用任务临时目录中的技能 CLI。
-- AGC：邀测草稿已创建（`2078726588236624768`），创建时设置 onshelfSelfDetect=0；上传和提交结果将在完成后记录。
+- AGC 邀测：软件包 `2078727782396875584` 已解析成功（successStatus=0），邀测版本 `2078726588236624768` 已提交（ret.code=0）；最终回读版本为 1.0.7 / 1007001，releaseState=4、reviewState=1，两渠道新版本特性均与本页 16 条合并日志一致。
+- 邀测已回读确认全部两个组：简听外部体验 62 人、内测组 2 人，bind=1、needNotify=1；创建时 onshelfSelfDetect=0。开始时间 2026-11-08 02:18:54，截止 2026-12-08 02:18:54（北京时间），审核通过后在测试时间内生效，实际通知送达以平台为准。
+- AGC 正式版：已撤回 1.0.5 原审核并更新为 1.0.7 / 1007001；版本 ID `2078006265144939136`，正式包 ID `2078733405213750144`。2026-11-08 02:37（北京时间）通过控制台提交，页面显示“预审中”，接口回读 releaseState=12。已确认全网发布、审核通过立即上架。
+- 正式渠道 CLI 软件包绑定返回 invalid business tag 后，改用 AGC 控制台上传同一归档包并完成发布。软件包自检显示“未检测”，未启动上架自检；送审后的平台自动预审为审核流程，当前尚未确认审核通过或正式可安装。
 
 # 1.0.6 更新日志（2026-11-07）
 
