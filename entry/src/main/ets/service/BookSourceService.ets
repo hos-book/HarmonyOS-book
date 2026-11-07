@@ -5,9 +5,10 @@ import { AudioSource, Book, Chapter } from '../model/Book';
 import { BookInfo, BookSource, SearchResult, TocItem } from '../model/BookSource';
 import { LocalRuleSource, LocalRuleSourceHealth, LocalRuleSourceStatus } from '../model/LocalRuleSource';
 import { TextChapterContent, TextSourceError } from '../model/TextReading';
+import { ReaderCommentContent } from './text/ReaderCommentContent';
 import { ChapterTitleFormatter } from '../utils/ChapterTitleFormatter';
 import { DownloadPolicy } from './DownloadPolicy';
-import { LocalRuleContentResult } from './rulesource/LocalRuleRuntimeTypes';
+import { LocalRuleContentResult, LocalRuleReaderActionResult } from './rulesource/LocalRuleRuntimeTypes';
 import { LocalRuleDispatcher } from './rulesource/LocalRuleDispatcher';
 import { LightSourceRequest } from './rulesource/light/LightSourceRequestPolicy';
 import { LocalRuleSourceRepository } from './rulesource/LocalRuleSourceRepository';
@@ -684,6 +685,18 @@ export class BookSourceService {
     return value;
   }
 
+  static async getParagraphComment(book: Book, chapterIndex: number, address: string,
+    request?: LightSourceRequest): Promise<LocalRuleReaderActionResult> {
+    const chapter = book.chapters[chapterIndex];
+    const source = await LocalRuleSourceRepository.getByUrl(book.sourceUrl);
+    if (!chapter || !source || !source.canExecute()) throw new Error('段评书源不可用');
+    const variables = BookSourceService.mergeVariables(BookSourceService.copyVariables(book.variables), chapter.variables);
+    // 与正文请求保持相同变量，避免新增宿主字段改变轻页内联评论的上下文指纹。
+    variables['__bookContentType'] = 'text';
+    return LocalRuleDispatcher.readerAction(source, address, variables, request,
+      chapter.originSourceValue ?? chapter.source.value);
+  }
+
   static async getTextChapterContent(book: Book, chapterUrl: string,
     title: string, chapterVariables?: Record<string, string>): Promise<TextChapterContent> {
     if (book.id.startsWith('import_') && book.contentType === 'text' && book.sourceUrl.length === 0) {
@@ -702,7 +715,11 @@ export class BookSourceService {
     if (result.content.trim().length === 0) {
       throw new TextSourceError('EMPTY_CONTENT', '章节正文为空');
     }
-    return TextChapterContent.of(result.title || title, result.content, chapterUrl);
+    const comments = ReaderCommentContent.parse(result.content, result.richContent);
+    const value = TextChapterContent.of(result.title || title, comments.content, chapterUrl);
+    value.comments = comments.comments;
+    value.commentsLoaded = true;
+    return value;
   }
 
   /** Lossless rule output for media and paragraph actions; existing reader/player contracts remain intact. */

@@ -1,0 +1,36 @@
+{
+  "string": [
+    {
+      "name": "reader_comment_title",
+      "value": "段评"
+    },
+    {
+      "name": "reader_comment_loading",
+      "value": "段评加载中…"
+    },
+    {
+      "name": "reader_comment_failed",
+      "value": "段评加载失败，请重试"
+    },
+    {
+      "name": "reader_comment_empty",
+      "value": "暂无段评内容"
+    },
+    {
+      "name": "reader_comment_avatar",
+      "value": "评"
+    },
+    {
+      "name": "reader_comment_guest",
+      "value": "书友"
+    },
+    {
+      "name": "reader_comment_reply_to",
+      "value": "回复 %s"
+    },
+    {
+      "name": "reader_comment_likes",
+      "value": "%s 赞"
+    }
+  ]
+}

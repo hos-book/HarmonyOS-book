@@ -547,6 +547,27 @@ async function run() {
   const commentContent = JSON.parse(await engine.content(JSON.stringify(commentSource), 'https://engine.test/comments', '{}'));
   assert.equal(commentContent.content, 'paragraph');
   assert.equal(commentContent.interactions[0].label, '段评 2');
+  const inlineSource = parser.parse(JSON.stringify({sourceFormat:'native',version:1,name:'Inline comments',url:'https://inline.test',
+    search:{url:'/search',list:'$.books',fields:{name:'$.name',bookUrl:'$.url'}},
+    content:{url:'{{chapter.url}}',text:'$.text',comments:{counts:'=data.counts',page:{
+      html:'<p>source comments</p>',data:{comments:'=data.comments'}
+    }}}})).sources[0];
+  const inlineVariables = {__bookContentType:'text',chapterName:'Chapter one',chapterIndex:'3',
+    __lightBook:JSON.stringify({bookUrl:'https://inline.test/book',tocUrl:'https://inline.test/toc',name:'Inline book'})};
+  const inlineChapterUrl = 'https://inline.test/chapter';
+  fixtures.set(inlineChapterUrl,JSON.stringify({text:'Paragraph one\nParagraph two',counts:{0:2,1:0},
+    comments:[{id:'one',content:'A real source comment',user:{nickname:'Reader'}}]}));
+  const inlineContent = JSON.parse(await engine.content(JSON.stringify(inlineSource),inlineChapterUrl,JSON.stringify(inlineVariables)));
+  const inlineAction = inlineContent.interactions.find(item=>item.label==='段评 2');
+  assert.ok(inlineAction,'native counts create a paragraph marker');
+  const inlineResult = JSON.parse(await engine.readerAction(JSON.stringify(inlineSource),inlineAction.url,
+    JSON.stringify(inlineVariables),undefined,inlineChapterUrl));
+  assert.equal(inlineResult.offline,true);
+  assert.equal(JSON.parse(inlineResult.commentData).items[0].author,'Reader');
+  assert.ok(inlineResult.html.includes('sandbox="allow-scripts"'));
+  await assert.rejects(engine.readerAction(JSON.stringify(inlineSource),inlineAction.url,
+    JSON.stringify({...inlineVariables,bookName:'new host variable'}),undefined,inlineChapterUrl),/评论入口已失效/);
+  console.log('PASS: native paragraph action retains exact content context and returns conversation records');
   const {LightCookieStore} = load(prefix + 'LightSourceRuntime');
   const cookieWrites = [];
   LightSourceRuntime.host.saveCookies = async (url, origin, cookies) => cookieWrites.push({url,origin,cookies});

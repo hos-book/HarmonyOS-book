@@ -35,10 +35,12 @@ const { SpeechTextHighlighter } = load('service/text/SpeechTextHighlighter.ets')
 const { CustomTtsConfig } = load('model/CustomTtsConfig.ets');
 const { CustomTtsTemplate: LocalRuleTemplate } = load('service/text/CustomTtsTemplate.ets');
 const { CustomTtsConfigParser } = load('service/text/CustomTtsConfigParser.ets', {
-  '@kit.NetworkKit': { http: {} },
+  '@kit.NetworkKit': { http: { RequestMethod: { POST: 'POST', GET: 'GET' }, HttpDataType: { ARRAY_BUFFER: 1 } } },
   '../../model/CustomTtsConfig': { CustomTtsConfig },
   './CustomTtsTemplate': { CustomTtsTemplate: LocalRuleTemplate },
-  '../rulesource/LocalRuleQuickJsRuntime': {}
+  '../rulesource/LocalRuleQuickJsRuntime': { LocalRuleQuickJsRequest: class {}, LocalRuleQuickJsRuntime: {
+    async execute(request) { return { success: true, value: String(vm.runInNewContext(request.script, {}, { timeout: 100 })) }; }
+  } }
 });
 const settle = async () => { for (let i = 0; i < 45; i++) await Promise.resolve(); };
 const book = (id = 'book', texts = ['第一句。第二句！', '第三句。']) => ({ id, contentType: 'text', title: id,
@@ -300,17 +302,89 @@ async function check(name, action) {
     assert.equal(JSON.stringify(SpeechTextSegmenter.batches(text, settings, false)), JSON.stringify(system));
     assert.equal(synthesisModel.SpeechSynthesisSettings.parse(JSON.stringify(settings)).quickStart, true);
   });
-  await check('渐进合成后续也保持短段，长句和表情不丢字、不重复', async () => {
+  await check('快速起读仅拆出首句，后续遵循配置字数，长句和表情不丢字、不重复', async () => {
     const settings = new synthesisModel.SpeechSynthesisSettings();
     settings.paragraphs = 3; settings.maxChars = 500; settings.quickStart = true;
     const text = '开头。' + '后续正文😀'.repeat(100) + '。';
     const batches = SpeechTextSegmenter.batches(text, settings, true);
-    assert.ok(batches.length > 5);
-    assert.ok(batches.every(s => s.text.length <= 64));
+    assert.equal(batches[0].text, '开头。');
+    assert.equal(batches.length, 3);
+    assert.ok(batches.slice(1).some(s => s.text.length > 400));
+    assert.ok(batches.every(s => s.text.length <= 500));
     assert.equal(batches.map(s => s.text).join(''), text);
     assert.ok(batches.every(s => !/[\uD800-\uDBFF]$/.test(s.text)));
     settings.quickStart = false;
     assert.ok(SpeechTextSegmenter.batches(text, settings, true).some(s => s.text.length > 64));
+  });
+  await check('1500 字三段配置实际控制 HTTP 输入，关闭快速起读后首批也合并', async () => {
+    const paragraph = '本段内容'.repeat(87) + '结束。';
+    const text = '开头。' + [paragraph, paragraph, paragraph, paragraph].join('\n');
+    for (const quickStart of [true, false]) {
+      const h = harness(); await h.init();
+      await h.service.importCustomTts(CustomTtsConfigParser.parse(JSON.stringify({ name: 'Kokoro',
+        url: 'https://tts.example/v1/audio/speech', method: 'POST',
+        body: { model: 'kokoro', input: '{{speakText}}', response_format: 'wav' } })));
+      const settings = new synthesisModel.SpeechSynthesisSettings();
+      settings.paragraphs = 3; settings.maxChars = 1500; settings.quickStart = quickStart;
+      await h.service.setSynthesisSettings(settings);
+      await h.service.start(book('configured-batches', [text]), 0, 0); await settle();
+      const actual = [];
+      for (let i = 0; i < 5 && (h.service.state.playing || h.service.state.loading); i++) {
+        const request = h.httpSpoken.at(-1);
+        actual.push(request.text);
+        const options = await CustomTtsConfigParser.requestOptions(request.config, request.text, request.speed);
+        assert.equal(JSON.parse(options.extraData).input, request.text, 'POST input preserves the configured batch');
+        request.onStart(); request.complete(); await settle();
+      }
+      const merged = [paragraph, paragraph, paragraph].join('\n');
+      assert.deepEqual(actual, quickStart ? ['开头。', merged, paragraph] : ['开头。' + merged, paragraph]);
+      assert.ok(h.httpPrepared.some(request => request.text.length > 1000));
+      assert.ok(h.httpPrepared.every(request => request.text.length <= 1500));
+      assert.equal(h.service.state.charOffset, text.length);
+      h.service.stop();
+      const restored = harness(h.memory); await restored.init();
+      assert.equal(restored.service.state.synthesis.maxChars, 1500);
+      assert.equal(restored.service.state.synthesis.paragraphs, 3);
+      assert.equal(restored.service.state.synthesis.quickStart, quickStart);
+    }
+  });
+  await check('超长中俄英文输入优先按词边界分块，短于上限的外文句子保持完整', async () => {
+    const settings = new synthesisModel.SpeechSynthesisSettings();
+    settings.maxChars = 1500; settings.paragraphs = 3; settings.quickStart = true;
+    // 腾讯文档第 37 条附件中的原句：此前将 который 和 изданных 拆成两次请求。
+    const reportedSentence = 'Эта книга — перевод немецкого учебника по материаловедению, который был написан на основе серии методических разработок, изданных в университете Аахена для студентов, специализирующихся в области наук о материалах.';
+    for (const quickStart of [true, false]) {
+      settings.quickStart = quickStart;
+      const reported = SpeechTextSegmenter.batches(reportedSentence, settings, true);
+      assert.equal(reported.length, 1);
+      assert.equal(reported[0].text, reportedSentence);
+    }
+    settings.quickStart = true;
+    const sentence = 'В одном из изданных произведений автор подробно описывает историю путешествия. ';
+    const text = '开头。' + sentence.repeat(50) + '\n' + 'English words remain complete without arbitrary character cuts '.repeat(50) + '.';
+    const batches = SpeechTextSegmenter.batches(text, settings, true);
+    assert.ok(batches.slice(1).some(s => s.text.length > 1200));
+    assert.ok(batches.every(s => s.text.length <= 1500));
+    assert.equal(batches.map(s => s.text).join(' ').replace(/\s+/g, ' ').trim(), text.replace(/\s+/g, ' ').trim().replace('开头。', '开头。 '));
+    for (const batch of batches) {
+      const left = text.charAt(batch.end - 1), right = text.charAt(batch.end);
+      assert.ok(!(/[\p{L}\p{M}]/u.test(left) && /[\p{L}\p{M}]/u.test(right)), `word split at ${batch.end}`);
+    }
+    settings.maxChars = 100;
+    for (const quickStart of [true, false]) {
+      settings.quickStart = quickStart;
+      const word = 'изданных';
+      const long = 'слово '.repeat(16) + word + ' произведений '.repeat(30);
+      const parts = SpeechTextSegmenter.batches(long, settings, true);
+      assert.ok(parts.every(s => s.text.length <= 100));
+      assert.ok(parts.some(s => s.text.includes(word)));
+      assert.equal(parts.map(s => s.text).join(' ').replace(/\s+/g, ' '), long.trim().replace(/\s+/g, ' '));
+      assert.equal(SpeechTextSegmenter.batches(sentence.trim(), settings, true)[0].text, sentence.trim());
+    }
+    const astral = '字'.repeat(99) + '😀' + '字'.repeat(100);
+    const parts = SpeechTextSegmenter.batches(astral, settings, true);
+    assert.ok(parts.every(s => s.text.length <= 100 && !/[\uD800-\uDBFF]$/.test(s.text)));
+    assert.equal(parts.map(s => s.text).join(''), astral);
   });
   await check('首次请求先获得合成机会，600ms 后才补满有界预取，暂停取消迟到补充', async () => {
     const h = harness(); await h.init();

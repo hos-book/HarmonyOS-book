@@ -1,3 +1,7 @@
+import { ReaderCommentChapter, ReaderParagraphComment } from '../model/ReaderComment';
+import { ReaderCommentLayout } from '../service/text/ReaderCommentLayout';
+import { ReaderCommentContent } from '../service/text/ReaderCommentContent';
+import { ReaderCommentSheet } from '../components/ReaderCommentSheet';
 import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { ReaderBrightnessService } from '../service/text/ReaderBrightnessService';
 import { LibrarySyncActivity } from '../service/sync/LibrarySyncModel';
@@ -92,6 +96,7 @@ import { SearchCache } from '../utils/SearchCache';
 import { ReaderFullTextSearchPanel } from '../components/ReaderFullTextSearchPanel';
 import { ReaderSearchMatch } from '../service/text/ReaderFullTextSearch';
 import { WindowUtils } from '../utils/WindowUtils';
+import { JianjianChatRoute } from '../model/JianjianAi';
 
 const READER_LOG_DOMAIN: number = 0x0000;
 const READER_LOG_TAG: string = 'ReaderPage';
@@ -136,6 +141,11 @@ export struct ReaderPage {
   @Local book: Book | null = null;
   @Local showSourceSwitch: boolean = false;
   @Local showReaderMenu: boolean = false;
+  @Local showCommentSheet: boolean = false;
+  @Local selectedComment: ReaderParagraphComment = new ReaderParagraphComment();
+  @Local commentChapterIndex: number = -1;
+  private chapterComments: Map<number, ReaderParagraphComment[]> = new Map();
+  private displayComments: Map<number, ReaderParagraphComment[]> = new Map();
   @Local showBookmarkSheet: boolean = false;
   @Local showReplaceSheet: boolean = false;
   @Local bookmarks: ReaderBookmark[] = [];
@@ -299,7 +309,7 @@ export struct ReaderPage {
   @Local chapterDescending: boolean = false;
   private chapterListScroller: Scroller = new Scroller();
   /** 在线文本章节内存缓存：按书源、书籍及章节地址隔离 */
-  private static onlineTextContentCache: Map<string, string> = new Map();
+  private static onlineTextContentCache: Map<string, ReaderCommentChapter> = new Map();
   /** 在线文本章节内容缓存上限 */
   private static readonly MAX_TEXT_CONTENT_CACHE_SIZE: number = 50;
 
@@ -310,7 +320,7 @@ export struct ReaderPage {
 
   private onlineTextContent: string = '';
   private diskCacheOwner: string = ReaderCacheService.owner();
-  private onlineTextContentRequests: Map<number, Promise<string>> = new Map();
+  private onlineTextContentRequests: Map<number, Promise<ReaderCommentChapter>> = new Map();
   private onlineTextLoadSerial: number = 0;
   private textPreloader: TextChapterPreloader = new TextChapterPreloader();
   @Local readerViewportWidthVp: number = 0;
@@ -334,6 +344,7 @@ export struct ReaderPage {
     };
 
   private backgroundHandler = (): void => {
+    this.showCommentSheet = false;
     this.stopAutoPage();
     this.readingForeground = false;
     this.volumeKeys.dispose();
@@ -755,12 +766,16 @@ export struct ReaderPage {
       matched ? this.currentRawCharOffset() : 0, 0, chapter.title);
     const chapterUrl = chapter.originSourceValue ?? chapter.source.value;
     const value = await BookSourceService.getTextChapterContent(book, chapterUrl, chapter.title, chapter.variables);
-    const content = OnlineTextPaginator.normalizeContent(value.content);
+    const content = value.commentsLoaded ? value.content : OnlineTextPaginator.normalizeContent(value.content);
     if (!content.trim()) throw new Error(context.resourceManager.getStringSync($r('app.string.source_switch_empty_content').id));
     if (this.leaving || !this.showSourceSwitch) return;
     const key = OnlineTextContentCache.key(book.sourceUrl, book.bookUrl || book.id, chapterUrl);
-    ReaderPage.onlineTextContentCache.set(key, content);
-    await OnlineTextContentCache.write(context, key, content);
+    const cached = new ReaderCommentChapter();
+    cached.content = content;
+    cached.comments = value.comments;
+    cached.commentsLoaded = value.commentsLoaded;
+    ReaderPage.onlineTextContentCache.set(key, cached);
+    await OnlineTextContentCache.write(context, key, content, value.comments, value.commentsLoaded);
     position.charOffset = Math.min(position.charOffset, content.length);
     await DataService.upsertCachedBook(book);
     await TextReadingProgressService.save(context, position);
@@ -846,6 +861,14 @@ export struct ReaderPage {
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.bookmark')) })
         .onClick((): void => { this.showReaderMenu = false; this.openBookmarks(); })
       if (this.isOnlineTextBook()) {
+        MenuItem({ content: $r('app.string.jianjian_book_recap'),
+          symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.book')) })
+          .enabled(!this.loading && !this.onlineTextLoading && !this.readerError)
+          .onClick((): void => { this.openJianjianBookChat(true); })
+        MenuItem({ content: $r('app.string.jianjian_book_ask'),
+          symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.book')) })
+          .enabled(!this.loading && !this.onlineTextLoading && !this.readerError)
+          .onClick((): void => { this.openJianjianBookChat(false); })
         MenuItem({ content: $r('app.string.reader_replace_rules'),
           symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.arrow_left_arrow_right')) })
           .enabled(!this.onlineTextLoading)
@@ -858,6 +881,20 @@ export struct ReaderPage {
           .onClick((): void => { this.showReaderMenu = false; this.switchToComic(); })
       }
     }
+  }
+
+  private openJianjianBookChat(recap: boolean): void {
+    const book = this.book;
+    if (!book || this.loading || this.onlineTextLoading || !this.isOnlineTextBook()) return;
+    this.showReaderMenu = false;
+    this.stopAutoPage();
+    this.saveProgress();
+    ReadingSessionService.end('reading');
+    const route = new JianjianChatRoute();
+    route.bookId = book.id; route.sourceUrl = book.sourceUrl; route.bookUrl = book.bookUrl;
+    route.chapterIndex = this.currentResourceIndex; route.charOffset = this.currentRawCharOffset();
+    route.recap = recap;
+    this.navStack.pushPathByName('jianjianChat', route);
   }
 
   private async switchToComic(): Promise<void> {
@@ -995,10 +1032,12 @@ export struct ReaderPage {
     await LocalTextImageSizing.prepare(document.content);
     if (generation !== this.textRulesGeneration) return this.getOnlineTextChapterContent(book, resourceIndex);
     this.textDocuments.set(resourceIndex, document);
+    this.displayComments.set(resourceIndex, ReaderCommentContent.display(this.chapterComments.get(resourceIndex) ?? [], document));
     if (this.textDocuments.size > 8) {
       for (const key of this.textDocuments.keys()) {
         if (key !== this.currentResourceIndex && key !== resourceIndex) {
-          this.textDocuments.delete(key); this.epubStyles.delete(key); break;
+          this.textDocuments.delete(key); this.epubStyles.delete(key);
+          this.chapterComments.delete(key); this.displayComments.delete(key); break;
         }
       }
     }
@@ -1026,11 +1065,11 @@ export struct ReaderPage {
       ReaderPage.onlineTextContentCache.set(cacheKey, cached);
       hilog.info(READER_LOG_DOMAIN, READER_LOG_TAG, 'reuse cached text content: %{public}s chapter %{public}d',
         book.title, resourceIndex);
-      return cached;
+      this.chapterComments.set(resourceIndex, cached.comments);
+      return cached.content;
     }
     const pending = this.onlineTextContentRequests.get(resourceIndex);
-    if (pending !== undefined) return pending;
-    const request = this.readOrFetchOnlineTextContent(book, chapter, chapterUrl, cacheKey, forceReload);
+    const request = pending ?? this.readOrFetchOnlineTextContent(book, chapter, chapterUrl, cacheKey, forceReload);
     this.onlineTextContentRequests.set(resourceIndex, request);
     try {
       const content = await request;
@@ -1045,23 +1084,31 @@ export struct ReaderPage {
       ReaderPage.onlineTextContentCache.set(cacheKey, content);
       hilog.info(READER_LOG_DOMAIN, READER_LOG_TAG, 'cached text content: %{public}s chapter %{public}d',
         book.title, resourceIndex);
-      return content;
+      this.chapterComments.set(resourceIndex, content.comments);
+      return content.content;
     } finally {
       this.onlineTextContentRequests.delete(resourceIndex);
     }
   }
 
   private async readOrFetchOnlineTextContent(book: Book, chapter: Chapter,
-    chapterUrl: string, cacheKey: string, forceReload: boolean = false): Promise<string> {
+    chapterUrl: string, cacheKey: string, forceReload: boolean = false): Promise<ReaderCommentChapter> {
     const context = this.context;
-    if (!forceReload && context !== null) {
-      const saved = await OnlineTextContentCache.read(context, cacheKey);
-      if (saved !== undefined) return saved;
+    const saved = !forceReload && context !== null ? await OnlineTextContentCache.readChapter(context, cacheKey) : undefined;
+    if (saved && (saved.commentsLoaded || !book.sourceUrl)) return saved;
+    try {
+      const value = await BookSourceService.getTextChapterContent(book, chapterUrl, chapter.title, chapter.variables);
+      const result = new ReaderCommentChapter();
+      result.content = value.commentsLoaded ? value.content : OnlineTextPaginator.normalizeContent(value.content);
+      result.comments = value.comments;
+      result.commentsLoaded = value.commentsLoaded;
+      if (context !== null) await OnlineTextContentCache.write(context, cacheKey, result.content, result.comments, result.commentsLoaded);
+      return result;
+    } catch (error) {
+      // 旧缓存首次补齐段评失败时仍可离线阅读正文。
+      if (saved) return saved;
+      throw new Error(String(error));
     }
-    const value = await BookSourceService.getTextChapterContent(book, chapterUrl, chapter.title, chapter.variables);
-    const content = OnlineTextPaginator.normalizeContent(value.content);
-    if (context !== null) await OnlineTextContentCache.write(context, cacheKey, content);
-    return content;
   }
 
   private useReaderColumns(): boolean {
@@ -1088,9 +1135,11 @@ export struct ReaderPage {
       Math.max(1, this.readerTextHeightVp - READER_TEXT_LAYOUT_GUARD) :
       Math.max(80, viewportHeightVp - reservedHeightVp);
     const columns = this.useReaderColumns();
-    const pages = OnlineTextPaginator.paginate(content, (columns ? (contentWidthVp - READER_COLUMN_GAP) / 2 : contentWidthVp) * density,
+    const commentOffsets = (this.displayComments.get(chapterIndex) ?? []).map((item: ReaderParagraphComment): number => item.offset);
+    const pages = OnlineTextPaginator.paginate(content, Math.max(1, columns ? (contentWidthVp - READER_COLUMN_GAP) / 2 : contentWidthVp) * density,
       contentHeightVp * density, fontSizePx, this.lineHeight, this.fontFamily, this.fontWeight, this.textAlignment, this.paragraphSpacing, this.letterSpacing * density,
-      this.chapterHeadingVisible ? this.chapterTitle(chapterIndex) : '', this.getUIContext().fp2px(this.chapterHeadingSize), this.chapterHeadingStyle);
+      this.chapterHeadingVisible ? this.chapterTitle(chapterIndex) : '', this.getUIContext().fp2px(this.chapterHeadingSize), this.chapterHeadingStyle,
+      commentOffsets, (ReaderCommentLayout.ICON_SIZE + 2) * density);
     return columns ? OnlineTextPage.spreads(content, pages) : pages;
   }
 
@@ -2274,7 +2323,7 @@ export struct ReaderPage {
 
   @Monitor('readerVisible', 'loading', 'readerError', 'readerBarVisible', 'onlineTextLoading',
     'onlineTextTurnPreview', 'selectingText', 'showChapterSheet', 'showSettingsSheet', 'showSpeechSheet',
-    'showSourceSwitch', 'showBookmarkSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont',
+    'showSourceSwitch', 'showBookmarkSheet', 'showCommentSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont',
     'pickingBackgroundImage', 'speechState.active')
   private syncAutoPage(): void {
     if (!this.readerVisible || this.speechState.active || this.readerError.length > 0) this.stopAutoPage();
@@ -2302,11 +2351,11 @@ export struct ReaderPage {
   private canTurnWithKeyboard(): boolean {
     return this.readerVisible && this.readingForeground && !this.leaving && !this.loading &&
       this.readerError.length === 0 && !this.showChapterSheet && !this.showSettingsSheet &&
-      !this.showSpeechSheet && !this.showSourceSwitch && !this.showBookmarkSheet && !this.showReplaceSheet && !this.showReaderMenu && !this.pickingFont && !this.pickingBackgroundImage;
+      !this.showSpeechSheet && !this.showSourceSwitch && !this.showBookmarkSheet && !this.showCommentSheet && !this.showReplaceSheet && !this.showReaderMenu && !this.pickingFont && !this.pickingBackgroundImage;
   }
 
   @Monitor('volumeKeyPageTurn', 'smartKeyPageTurn', 'readerVisible', 'readerBarVisible', 'loading', 'readerError', 'showChapterSheet',
-    'showSettingsSheet', 'showSpeechSheet', 'showSourceSwitch', 'showBookmarkSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont', 'pickingBackgroundImage')
+    'showSettingsSheet', 'showSpeechSheet', 'showSourceSwitch', 'showBookmarkSheet', 'showCommentSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont', 'pickingBackgroundImage')
   syncVolumeKeys(): void {
     this.volumeKeys.setEnabled(this.canUseVolumeKeys(), (forward: boolean): void => this.handleVolumePageTurn(forward));
     this.smartKeys.setEnabled(this.smartKeyPageTurn && this.canTurnWithKeyboard(), (forward: boolean): void => {
@@ -2632,7 +2681,7 @@ export struct ReaderPage {
 
   private toggleReaderBar(): void {
     if (this.showChapterSheet || this.showSettingsSheet || this.showSpeechSheet || this.showSourceSwitch ||
-      this.showBookmarkSheet || this.showReplaceSheet || this.showReaderMenu) return;
+      this.showBookmarkSheet || this.showCommentSheet || this.showReplaceSheet || this.showReaderMenu) return;
     if (this.readerBarVisible) {
       this.hideReaderBar();
     } else {
@@ -2868,8 +2917,36 @@ export struct ReaderPage {
     })
   }
 
+  private openParagraphComment(chapter: number, comment: ReaderParagraphComment): void {
+    if (this.leaving || !this.book || this.onlineTextTurnPreview !== null || this.showCommentSheet) return;
+    this.stopAutoPage();
+    this.selectedComment = comment;
+    this.commentChapterIndex = chapter;
+    this.showReaderMenu = false;
+    this.readerBarVisible = false;
+    this.showCommentSheet = true;
+  }
+
+  @Monitor('currentResourceIndex', 'readerVisible')
+  closeStaleComment(): void { this.showCommentSheet = false; }
+
+  @Builder
+  private buildCommentSheet(): void {
+    if (this.showCommentSheet) {
+      ReaderCommentSheet({ book: this.book, chapterIndex: this.commentChapterIndex,
+        comment: this.selectedComment, dark: this.palette.isDark,
+        onClose: (): void => { this.showCommentSheet = false; } })
+    }
+  }
+
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
+      Column().width(0).height(0)
+        .bindSheet($$this.showCommentSheet, this.buildCommentSheet(), {
+          height: '72%', detents: ['72%', SheetSize.LARGE], dragBar: true, showClose: false,
+          preferType: SheetType.BOTTOM, backgroundColor: this.palette.isDark ? '#1D1B20' : '#F7F3F5',
+          onDisappear: (): void => { this.showCommentSheet = false; }
+        })
       Column().width(0).height(0)
         .bindSheet($$this.showBookmarkSheet, this.buildBookmarkSheet(), {
           height: '82%', detents: ['82%', '45%', SheetSize.LARGE], dragBar: true, preferType: SheetType.BOTTOM, showClose: true,
@@ -3140,11 +3217,13 @@ export struct ReaderPage {
   private buildReaderColumn(column: number): void {
     Column() {
       ReaderSpeechText({
+        comments: this.displayComments.get(this.onlineTextChapterIndex()) ?? [],
+        onComment: (comment: ReaderParagraphComment): void => this.openParagraphComment(this.onlineTextChapterIndex(), comment),
         epubStyle: this.epubStyle(this.onlineTextChapterIndex(), this.currentOnlineTextColumn(column).startOffset),
         onReadFrom: (offset: number): void => { this.readFromParagraph(this.onlineTextChapterIndex(), offset); },
         selectionEnabled: this.onlineTextTurnPreview === null && !this.readerBarVisible && !this.showChapterSheet &&
           !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet &&
-          !this.showReplaceSheet && !this.showReaderMenu,
+          !this.showCommentSheet && !this.showReplaceSheet && !this.showReaderMenu,
         onSelectionChange: (active: boolean): void => { this.selectingText = active; },
         page: this.currentOnlineTextColumn(column), text: this.currentOnlineTextColumn(column).text,
         source: (this.onlineTextTurnPreview?.content ?? this.onlineTextContent).substring(this.currentOnlineTextColumn(column).startOffset, this.currentOnlineTextColumn(column).endOffset),
@@ -3240,9 +3319,11 @@ export struct ReaderPage {
         Column() {
           if (this.pageTurnMode === PageTurnMode.Vertical) {
             ReaderContinuousComponent({
+              getComments: (index: number): ReaderParagraphComment[] => this.displayComments.get(index) ?? [],
+              onComment: (index: number, comment: ReaderParagraphComment): void => this.openParagraphComment(index, comment),
               getEpubStyle: (index: number, offset: number): EpubPageStyle => this.epubStyle(index, offset),
               onReadFrom: (chapter: number, offset: number): void => { this.readFromParagraph(chapter, offset); },
-              selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet && !this.showReplaceSheet && !this.showReaderMenu,
+              selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet && !this.showCommentSheet && !this.showReplaceSheet && !this.showReaderMenu,
               onSelectionChange: (active: boolean): void => { this.selectingText = active; },
               tapRegions: this.tapRegions,
           tapLeftPercent: this.tapLeftPercent,
@@ -3539,13 +3620,14 @@ export struct ReaderPage {
       onTurn: (): void => { this.beginContinuousSpeechTurn(); this.playPageTurnHaptic(); this.autoPage.restart(); },
       onFailure: (): void => { this.originalReaderFailed(); }
     }).width('100%').height('100%')
+    // None 只跳过容器自身，撑满正文的 Blank 仍会截住 Web 的滚动和点击。
     Column() {
       Column() { this.buildReaderHeader() }
         .width('100%').padding({ left: this.readerLeftPadding(), right: this.readerRightPadding() })
       Blank().layoutWeight(1)
       Column() { this.buildReaderFooter() }
         .width('100%').padding({ left: this.readerLeftPadding(), right: this.readerRightPadding() })
-    }.width('100%').height('100%').hitTestBehavior(HitTestMode.None)
+    }.width('100%').height('100%').hitTestBehavior(HitTestMode.BLOCK_DESCENDANTS)
       .padding({ top: this.readerTopInsetVp(), bottom: this.bottomSafeVp, left: this.leftSafeVp, right: this.rightSafeVp })
     }.width('100%').height('100%').backgroundColor(this.epubOriginalPaper)
   }

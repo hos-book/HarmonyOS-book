@@ -1,3 +1,4 @@
+import { ReaderCommentChapter, ReaderParagraphComment } from '../../model/ReaderComment';
 import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { buffer } from '@kit.ArkTS';
@@ -8,6 +9,8 @@ import { BookIdentity } from '../../utils/BookIdentity';
 import { ReaderCacheService, ReaderCacheKind, ReaderCacheCleanup } from '../ReaderCacheService';
 
 class CachedTextChapter {
+  comments: ReaderParagraphComment[] = [];
+  commentsLoaded: boolean = false;
   version: number = 1;
   key: string = '';
   content: string = '';
@@ -73,6 +76,10 @@ export class OnlineTextContentCache {
   }
 
   static async read(context: common.Context, key: string): Promise<string | undefined> {
+    return (await OnlineTextContentCache.readChapter(context, key))?.content;
+  }
+
+  static async readChapter(context: common.Context, key: string): Promise<ReaderCommentChapter | undefined> {
     await OnlineTextContentCache.migrateStorage(context);
     const path = OnlineTextContentCache.path(context, key);
     ReaderCacheService.hold(path);
@@ -84,7 +91,15 @@ export class OnlineTextContentCache {
       if (record !== null && record.version === 1 && record.key === key &&
         typeof record.content === 'string' && record.content.trim().length > 0) {
         await ReaderCacheService.record([path]);
-        return record.content;
+        const chapter = new ReaderCommentChapter();
+        chapter.content = record.content;
+        chapter.commentsLoaded = record.commentsLoaded === true;
+        chapter.comments = Array.isArray(record.comments) ? record.comments.slice(0, 320).filter(
+          (item: ReaderParagraphComment): boolean => item !== null && Number.isInteger(item.offset) &&
+            item.offset > 0 && item.offset <= record.content.length && typeof item.url === 'string' &&
+            item.url.length > 0 && item.url.length <= 8192 && typeof item.label === 'string' &&
+            typeof item.title === 'string') : [];
+        return chapter;
       }
     } catch (_e) { /* 缺失、损坏或读取失败均回退在线获取 */ }
     finally { ReaderCacheService.unhold(path); }
@@ -136,11 +151,14 @@ export class OnlineTextContentCache {
     return Array.from(found.values());
   }
 
-  static write(context: common.Context, key: string, content: string): Promise<void> {
+  static write(context: common.Context, key: string, content: string,
+    comments: ReaderParagraphComment[] = [], commentsLoaded: boolean = false): Promise<void> {
     if (content.trim().length === 0) return Promise.resolve();
     const record = new CachedTextChapter();
     record.key = key;
     record.content = content;
+    record.comments = comments;
+    record.commentsLoaded = commentsLoaded;
     const bytes = buffer.from(JSON.stringify(record), 'utf-8').buffer;
     if (bytes.byteLength > OnlineTextContentCache.MAX_FILE_BYTES) return Promise.resolve();
     const task = OnlineTextContentCache.writeChain.then(async (): Promise<void> => {

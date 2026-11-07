@@ -40,7 +40,7 @@ export struct ReaderStatusIndicator {
           .width(26).height(14)
           .fontSize(10).fontWeight(FontWeight.Bold)
           .minFontScale(1).maxFontScale(1)
-          .fontColor(Color.Black).textAlign(TextAlign.Center).maxLines(1)
+          .fontColor(this.color).textAlign(TextAlign.Center).maxLines(1)
           .backgroundColor(Color.Transparent)
           .border({ width: 1, color: this.color }).borderRadius(3.5)
         Column().width(2).height(5).borderRadius(1).backgroundColor(this.color).opacity(0.6)

@@ -4,13 +4,20 @@ import {
   LocalRuleSourceHealth,
   LocalRuleSourceStatus
 } from '../../model/LocalRuleSource';
-import { LocalRuleContentResult, LocalRuleExecutionLimits } from './LocalRuleRuntimeTypes';
+import { LocalRuleContentResult, LocalRuleExecutionLimits, LocalRuleReaderActionResult } from './LocalRuleRuntimeTypes';
 import { LocalRuleExploreResult } from '../../model/LocalRulePanel';
 import { LightSourceBridge } from './light/LightSourceBridge';
 import { LightSourceRequest } from './light/LightSourceRequestPolicy';
 import { PodcastSourceAdapter } from './podcast/PodcastSourceAdapter';
 
 export class LocalRuleDispatcher {
+  static async readerAction(source: LocalRuleSource, address: string, variables: Record<string, string>,
+    request?: LightSourceRequest, chapterUrl: string = ''): Promise<LocalRuleReaderActionResult> {
+    LocalRuleDispatcher.requireSource(source);
+    if (request?.isCancelled()) throw new Error('段评已取消');
+    return LightSourceBridge.readerAction(source, address, variables, request, chapterUrl);
+  }
+
   static async cacheComicImages(source: LocalRuleSource, urls: string[], request?: LightSourceRequest): Promise<string[]> {
     LocalRuleDispatcher.requireSource(source);
     return LightSourceBridge.cacheComicImages(source, urls, request);

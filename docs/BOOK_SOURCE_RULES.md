@@ -23,7 +23,7 @@
 
 规则组合、CSS、XPath、JSONPath、正则、URL选项、分页、登录脚本、原生源设置、图片、音频、视频和段评动作由上游核心处理，不再使用简听旧提取器、URL分析器或按站点的内容协议适配器。脚本经 `LightSourceSandbox → LocalRuleQuickJsRuntime.execute()` 在独立 taskpool 有界 QuickJS 中执行；原生 JS 的宿主调用通过 JSON 邮箱暂停、响应后继续，兼容源仍沿用阶段回放，网页渲染与嗅探使用轻页宿主协议。
 
-内容结果提供正文 `content`、原始富文本 `richContent`、图片 `imageUrls`、音频地址/请求头、视频地址及段评 `interactions`；`BookSourceService.getSourceChapterContent()` 保留完整结果，既有阅读器与播放器继续消费各自字段。没有新增漫画、视频或段评页面。
+内容结果提供正文 `content`、原始富文本 `richContent`、图片 `imageUrls`、音频地址/请求头、视频地址及段评 `interactions`；`BookSourceService.getSourceChapterContent()` 保留完整结果，既有阅读器与播放器继续消费各自字段。在线文字阅读器消费段评标记并在段末显示气泡，点击后通过 `BookSourceService.getParagraphComment → LocalRuleDispatcher.readerAction → LightSourceBridge.readerAction` 打开页内弹框。段评来自用户导入书源；没有独立评论服务器或新增数据库。评论统一归一成头像、昵称、文本及回复关系，由原生对话列表展示。网页型段评仅在持有全局租约的无痕 Web 中读取评论 DOM，提取完成即释放；原生 `legado-native-page:` 优先消费书源 page.data，无法直接归一时使用轻页离线 sandbox 文档采集可见评论，不提供平台桥。点击动作保持与正文请求相同的书籍变量和章节上下文，避免宿主附加字段改变轻页的入口指纹。
 
 `__audioTocDefinition` 仅供 App 在书籍级别判断目录是否过期，不向规则变量或逐章结果传播，避免每章复制整份书源定义。旧目录读取按章解析并清理该冗余字段，同书并发读取复用任务；目录仍以兼容的 JSON 数组分块写入临时文件后原子替换，不截断章节或清除用户阅读进度。
 

@@ -44,6 +44,8 @@ import { RuleSourceEditPage } from './RuleSourceEditPage';
 import { RuleSourceDebugPage } from './RuleSourceDebugPage';
 import { RuleSourcePanelPage } from './RuleSourcePanelPage';
 import { TextReaderRouteParams } from '../model/TextReading';
+import { ShelfReaderOpenSurface } from '../components/ShelfReaderOpenSurface';
+import { ShelfReaderOpenState, ShelfReaderRouteParams } from '../utils/ShelfReaderTransition';
 import { RuleSourceLoginRouteParams } from '../model/RuleSourceLogin';
 import { LocalRuleBrowserLoginCoordinator } from '../service/rulesource/LocalRuleBrowserLoginCoordinator';
 import { emitter } from '@kit.BasicServicesKit';
@@ -54,6 +56,11 @@ import { AppRadius, AppTheme, AppMotion, AppCurve } from '../theme/Theme';
 import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
 import { WindowUtils } from '../utils/WindowUtils';
 import { JianjianCompanionComponent } from '../components/JianjianCompanionComponent';
+import { JianjianAiSettingsPage } from './JianjianAiSettingsPage';
+import { JianjianChatPage } from './JianjianChatPage';
+import { JianjianCompanionService } from '../service/JianjianCompanionService';
+import { JianjianCareService } from '../service/JianjianCareService';
+import { JianjianChatRoute } from '../model/JianjianAi';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { EVT_JIANJIAN_COMPANION_CHANGED } from '../service/PreferenceService';
 import { PlatformCompat } from '../utils/PlatformCompat';
@@ -84,9 +91,13 @@ struct Index {
   private readonly companionChangedListener: () => void = (): void => {
     this.getUIContext().runScopedTask((): void => {
       this.companionEnabled = GeneralSettings.current.jianjianCompanionEnabled;
+      if (this.companionEnabled) this.companionTemporarilyHidden = false;
     });
   };
   @Local companionActive: boolean = true;
+  @Local companionRoute: string = '';
+  @Local companionQuiet: boolean = false;
+  @Local companionTemporarilyHidden: boolean = false;
   @Local navStack: NavPathStack = new NavPathStack();
   @Local navigationWidth: number = 0;
   @Local parallelNavigation: boolean = false;
@@ -111,6 +122,9 @@ struct Index {
   @Local detailFavorite: boolean = false;
   @Local detailTitleOpacity: number = 1;
   private widgetSubscribed: boolean = false;
+  @Local companionCarePulse: number = 0;
+  private careTimer: number = -1;
+  private careForegroundSince: number = 0;
   private homeBackHandler: (() => boolean) | undefined = undefined;
   private statsBackHandler: (() => boolean) | undefined = undefined;
   private historyBackHandler: (() => boolean) | undefined = undefined;
@@ -158,6 +172,7 @@ struct Index {
   }
 
   aboutToDisappear(): void {
+    this.stopNightCare();
     emitter.off(EVT_JIANJIAN_COMPANION_CHANGED, this.companionChangedListener);
     LocalRuleBrowserLoginCoordinator.unbindNavigation(this.browserLoginOpener);
     if (this.widgetSubscribed) {
@@ -170,14 +185,47 @@ struct Index {
 
   onPageShow(): void {
     this.companionActive = true;
+    this.startNightCare();
   }
 
   onPageHide(): void {
     this.companionActive = false;
+    this.stopNightCare();
     PlayerDragTransition.getInstance().cancel();
   }
 
+  private startNightCare(): void {
+    this.stopNightCare();
+    this.careForegroundSince = Date.now();
+    this.careTimer = setInterval((): void => { this.checkNightCare(); }, 30000);
+  }
+
+  private stopNightCare(): void {
+    if (this.careTimer !== -1) clearInterval(this.careTimer);
+    this.careTimer = -1;
+    this.careForegroundSince = 0;
+  }
+
+  private nightCareEligible(): boolean {
+    return this.companionActive && this.companionEnabled && !this.companionTemporarilyHidden &&
+      GeneralSettings.current.jianjianNightCareEnabled && this.careForegroundSince > 0 &&
+      Date.now() - this.careForegroundSince >= 30000 && !this.showStartupSplash &&
+      !['ruleSourceLogin', 'jianjianAiSettings'].includes(this.companionRoute);
+  }
+
+  private async checkNightCare(): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    if (!context || !this.nightCareEligible()) return;
+    if (!await JianjianCareService.claim(context, new Date(), (): boolean => this.nightCareEligible())) return;
+    if (this.companionQuiet) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.jianjian_night_toast'), duration: 5000 });
+    } else this.companionCarePulse++;
+  }
+
   private updateNavigationLayout(): void {
+    const paths: string[] = this.navStack.getAllPathName();
+    this.companionRoute = paths.length > 0 ? paths[paths.length - 1] : '';
+    this.companionQuiet = JianjianCompanionService.quietRoute(this.companionRoute);
     this.parallelNavigation = AdaptiveLayout.navigationUsesColumns(
       this.navigationWidth, this.navStack.getAllPathName());
     if (this.parallelNavigation || this.navStack.size() === 0) this.homeCoveredByDetail = false;
@@ -283,6 +331,11 @@ struct Index {
 
   private oneShotNavigationTransition(from: NavContentInfo, to: NavContentInfo,
     operation: NavigationOperation): NavigationAnimatedTransition | undefined {
+    if (operation === NavigationOperation.PUSH && to.name === 'reader' &&
+      to.param instanceof ShelfReaderRouteParams && to.param.opening.active) {
+      OneShotTransitionCoordinator.getInstance().discardPending();
+      return to.param.opening.navigationTransition(this.getUIContext());
+    }
     if (operation === NavigationOperation.POP && from.name === 'player' &&
       (this.navStack.size() === 0 || PlayerDragTransition.getInstance().canReturnTo(to.name ?? ''))) {
       const drag = PlayerDragTransition.getInstance();
@@ -567,7 +620,7 @@ struct Index {
         ReaderPageWrapper({ navStack: this.navStack, param: param as Object })
       }
       .hideTitleBar(true)
-      .backgroundColor('#F5F2EA')
+      .backgroundColor(param instanceof ShelfReaderRouteParams && param.opening.active ? Color.Transparent : '#F5F2EA')
       .onShown((): void => this.syncReaderWindowMode())
       .onHidden((): void => this.syncReaderWindowMode())
       .systemTransition(NavigationSystemTransitionType.SLIDE_RIGHT)
@@ -582,6 +635,17 @@ struct Index {
     } else if (name === 'settings') {
       ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
         SettingsPage({ navStack: this.navStack })
+      }
+    } else if (name === 'jianjianAiSettings') {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
+        JianjianAiSettingsPage({ navStack: this.navStack,
+          active: this.companionActive && this.companionRoute === 'jianjianAiSettings' })
+      }
+    } else if (name === 'jianjianChat') {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
+        JianjianChatPage({ navStack: this.navStack,
+          route: param instanceof JianjianChatRoute ? param : new JianjianChatRoute(),
+          active: this.companionActive && this.companionRoute === 'jianjianChat' })
       }
     } else if (name === 'readingSettings') {
       ProfileMenuDestination() {
@@ -795,7 +859,17 @@ struct Index {
       WebBookFetchRuntimeHost()
     }
     if (this.companionEnabled) {
-      JianjianCompanionComponent({ active: this.companionActive })
+      JianjianCompanionComponent({ active: this.companionActive && !this.companionQuiet && !this.companionTemporarilyHidden,
+        carePulse: this.companionCarePulse,
+        onOpen: (): void => { this.navStack.pushPathByName('jianjianChat', ''); },
+        onNavigate: (route: string): void => { this.navStack.pushPathByName(route, ''); },
+        onHide: (): void => {
+          this.companionTemporarilyHidden = true;
+          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.jianjian_hidden_hint') });
+        } })
+        .visibility(this.companionQuiet || this.companionTemporarilyHidden ? Visibility.Hidden : Visibility.Visible)
+        // 通用属性生成的全屏包装节点也必须透传，组件内部 Stack 的设置不会覆盖它。
+        .hitTestBehavior(HitTestMode.Transparent)
     }
     if (this.showStartupSplash) {
       StartupSplash({ onFinished: (): void => { this.showStartupSplash = false; } })
@@ -1200,6 +1274,11 @@ struct BlockMorePageWrapper {
 struct ReaderPageWrapper {
   @Param navStack: NavPathStack = new NavPathStack();
   @Param param: Object = new TextReaderRouteParams();
+  private inactiveOpening: ShelfReaderOpenState = new ShelfReaderOpenState();
+
+  private openingState(): ShelfReaderOpenState {
+    return this.param instanceof ShelfReaderRouteParams ? this.param.opening : this.inactiveOpening;
+  }
 
   private resolveBookId(): string {
     if (this.param instanceof TextReaderRouteParams) return this.param.bookId;
@@ -1223,11 +1302,13 @@ struct ReaderPageWrapper {
   }
 
   build() {
-    ReaderPage({
-      navStack: this.navStack,
-      bookId: this.resolveBookId(),
-      targetResourceIndex: this.resolveResourceIndex(),
-      targetDomPos: this.resolveDomPos()
-    })
+    ShelfReaderOpenSurface({ motion: this.openingState() }) {
+      ReaderPage({
+        navStack: this.navStack,
+        bookId: this.resolveBookId(),
+        targetResourceIndex: this.resolveResourceIndex(),
+        targetDomPos: this.resolveDomPos()
+      })
+    }
   }
 }

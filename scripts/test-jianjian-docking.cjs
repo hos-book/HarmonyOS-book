@@ -8,7 +8,7 @@ const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-l
 const file=path.join(__dirname,'../entry/src/main/ets/components/JianjianCompanionComponent.ets');
 const source=fs.readFileSync(file,'utf8').split('\n  build() {')[0]
   .replace(/^import .*;\r?\n/gm,'').replace('@ComponentV2','').replace('export struct ','export class ')
-  .replace(/@(?:Param|Local)\s+/g,'').replace(/\s*@Monitor\([^\n]*\)\r?\n/g,'\n')+'\n}';
+  .replace(/@(?:Param|Local|Event)\s+/g,'').replace(/\s*@Monitor\([^\n]*\)\r?\n/g,'\n')+'\n}';
 const timers=new Map(); let nextId=0,now=1000;
 const output={};
 vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2021}}).outputText,{
@@ -17,7 +17,7 @@ vm.runInNewContext(ts.transpileModule(source,{compilerOptions:{module:ts.ModuleK
   setTimeout:callback=>{timers.set(++nextId,callback);return nextId;},clearTimeout:id=>timers.delete(id)
 });
 const c=new output.JianjianCompanionComponent();
-c.getUIContext=()=>({animateTo:(_options,update)=>update()});
+c.getUIContext=()=>({animateTo:(_options,update)=>update(),getHostContext:()=>undefined});
 c.inViewport=true;
 c.resize({width:400,height:800});
 function dragTo(x) {

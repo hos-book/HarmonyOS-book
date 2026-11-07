@@ -289,8 +289,12 @@ export struct MembershipSubscriptionPage {
         Column({ space: 12 }) {
           this.accountHeader()
           this.benefitCard()
-          Text($r('app.string.membership_period_title')).fontSize(15).fontWeight(FontWeight.Medium)
-            .fontColor('#665C4D').width('100%').margin({ top: 4 })
+          Row({ space: AppSpace.Sm }) {
+            Text($r('app.string.membership_period_title')).fontSize(15).fontWeight(FontWeight.Medium)
+              .fontColor('#665C4D').flexShrink(0)
+            Text($r('app.string.membership_half_price_deadline')).fontSize(12).fontColor('#806039')
+              .layoutWeight(1).id('membership-half-price-deadline')
+          }.width('100%').margin({ top: 4 }).alignItems(VerticalAlign.Center)
           Scroll() {
             Flex({ direction: FlexDirection.Row, justifyContent: FlexAlign.SpaceBetween,
               alignItems: ItemAlign.Stretch }) {

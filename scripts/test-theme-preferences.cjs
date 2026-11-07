@@ -11,7 +11,7 @@ const themeKey = 'app_theme_preferences';
 const realModules = new Set([
   'model/AppAppearance', 'model/AppThemeBundle', 'model/AppThemeVisual', 'theme/ThemeBundles',
   'theme/bundles/DefaultTheme', 'theme/bundles/PaperTheme', 'theme/bundles/MistTheme', 'theme/bundles/InkTheme',
-  'service/PreferenceService', 'service/sync/LibrarySyncModel'
+  'theme/bundles/JianjianTheme', 'service/PreferenceService', 'service/sync/LibrarySyncModel'
 ]);
 const compiled = new Map();
 
@@ -215,7 +215,7 @@ function expectedSelection(id, accent, material) {
 
   // Every registered bundle participates in persistence and backup without special-case IDs.
   const registry = restored.bundles.list();
-  assert.equal(registry.length, 4);
+  assert.equal(registry.length, 5);
   assert.equal(new Set(registry.map(bundle => bundle.id)).size, registry.length);
   for (const bundle of registry) {
     await restored.service.applyThemeBundle(bundle.id);

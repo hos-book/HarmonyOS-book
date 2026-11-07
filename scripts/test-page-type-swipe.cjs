@@ -32,7 +32,7 @@ Object.assign(shelf, { visible: true, loading: false, isManaging: false, removin
 shelf.filteredBooks = books => shelf.shelfFilter === 0 ? books : books.filter(book =>
   book.contentType === ['audio', 'text', 'comic'][shelf.shelfFilter - 1]);
 let displayed = [];
-shelf.bookDataSource = { setBooks: books => { displayed = books; } };
+shelf.updateShelfData = books => { displayed = books; };
 shelf.handleShelfTypeSwipe(right);
 assert.equal(shelf.shelfFilter, 0, 'first shelf type does not wrap');
 for (const [index, id] of [[1, 'audio'], [2, 'text'], [3, 'comic']]) {

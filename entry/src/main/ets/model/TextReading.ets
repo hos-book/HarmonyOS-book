@@ -1,6 +1,10 @@
 import { ReaderPattern, ReaderImageMode, ReaderThemeId, ReaderCustomTheme, findThemePreset, normalizeHex, resolvePalette } from './ReaderTheme';
 
+import { ReaderParagraphComment } from './ReaderComment';
+
 export class TextChapterContent {
+  comments: ReaderParagraphComment[] = [];
+  commentsLoaded: boolean = false;
   title: string = '';
   content: string = '';
   sourceUrl: string = '';

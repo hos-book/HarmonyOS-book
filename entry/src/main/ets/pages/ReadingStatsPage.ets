@@ -803,15 +803,11 @@ export struct ReadingStatsPage {
     return $r('app.string.search_type_all');
   }
 
-  private contentFilterOptions(): CustomPopupOptions {
-    const options: CustomPopupOptions = {
-      builder: this.buildContentFilterMenu,
+  private contentFilterOptions(): MenuOptions {
+    const options: MenuOptions = {
       placement: Placement.BottomRight,
-      popupColor: AppMaterial.SheetBackground,
-      radius: AppRadius.Xl,
-      enableArrow: false,
-      focusable: true,
-      onStateChange: (event): void => { this.contentFilterVisible = event.isVisible; }
+      backgroundColor: AppMaterial.SheetBackground,
+      onDisappear: (): void => { this.contentFilterVisible = false; }
     };
     if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
     else options.backgroundBlurStyle = AppMaterial.SheetBlur;
@@ -820,13 +816,11 @@ export struct ReadingStatsPage {
 
   @LocalBuilder
   buildContentFilterMenu() {
-    Column({ space: 2 }) {
+    Menu() {
       ForEach([0, 1, 2, 3], (index: number) => {
-        Text(this.contentFilterLabel(index)).fontSize(16)
-          .fontColor(index === this.contentFilter ? AppColor.Brand : AppTheme.TextPrimary)
-          .width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
-          .borderRadius(AppRadius.Xl - AppSpace.Xs)
-          .backgroundColor(index === this.contentFilter ? AppColor.BrandSoft : Color.Transparent)
+        MenuItem({ content: this.contentFilterLabel(index) }).contentFont({ size: AppFont.Body })
+          .contentFontColor($r('sys.color.font_primary')).selected(index === this.contentFilter)
+          .backgroundColor(index === this.contentFilter ? $r('sys.color.comp_background_tertiary') : Color.Transparent)
           .onClick((): void => {
             this.contentFilterVisible = false;
             this.contentFilter = index;
@@ -834,7 +828,7 @@ export struct ReadingStatsPage {
             this.applyContentFilter();
           })
       }, (index: number): string => index.toString())
-    }.width(200).padding(AppSpace.Xs)
+    }.width(180)
   }
 
   @LocalBuilder
@@ -851,7 +845,7 @@ export struct ReadingStatsPage {
         label: $r('app.string.record_content_filter'),
         iconColor: this.contentFilter > 0 ? AppColor.Brand : AppTheme.IconPrimary,
         onPress: (): void => { this.contentFilterVisible = !this.contentFilterVisible; } })
-        .bindPopup(this.contentFilterVisible, this.contentFilterOptions())
+        .bindMenu(this.contentFilterVisible, this.buildContentFilterMenu, this.contentFilterOptions())
       ImmersiveCircleButton({ icon: $r('sys.symbol.clock'),
         label: this.onlyUnfavorited ? $r('app.string.record_favorited_back') : $r('app.string.record_unfavorited_title'),
         onPress: (): void => {

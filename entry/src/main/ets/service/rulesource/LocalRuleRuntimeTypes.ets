@@ -68,6 +68,8 @@ export class LocalRuleInteraction {
 }
 
 export class LocalRuleReaderActionResult {
+  commentData: string = '';
+  offline: boolean = false;
   url: string = '';
   html: string = '';
   value: string = '';

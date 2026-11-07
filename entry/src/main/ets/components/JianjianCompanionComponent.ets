@@ -1,11 +1,16 @@
-import { AppTheme } from '../theme/Theme';
+import { AppTheme, AppColor } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
 import { JianjianAvatarComponent } from './JianjianAvatarComponent';
+import { JianjianCompanionService } from '../service/JianjianCompanionService';
 
 /** 根导航上的单实例人物；空白区域透传，路由切换时保留位置。 */
 @ComponentV2
 export struct JianjianCompanionComponent {
   @Param active: boolean = true;
+  @Param carePulse: number = 0;
+  @Event onOpen: () => void = (): void => {};
+  @Event onHide: () => void = (): void => {};
+  @Event onNavigate: (route: string) => void = (_route: string): void => {};
   @Local dragging: boolean = false;
   @Local viewportWidth: number = 0;
   @Local viewportHeight: number = 0;
@@ -22,18 +27,11 @@ export struct JianjianCompanionComponent {
   @Local delighted: boolean = false;
   @Local phraseIndex: number = -1;
   @Local bubbleHeight: number = 76;
+  @Local feedback: ResourceStr = $r('app.string.jianjian_reply_company');
+  @Local suggestImport: boolean = false;
+  @Local suggestSources: boolean = false;
   private resetTimer: number = -1;
-  private readonly phrases: Resource[] = [
-    $r('app.string.jianjian_reply_hello'),
-    $r('app.string.jianjian_reply_shy'),
-    $r('app.string.jianjian_reply_surprised'),
-    $r('app.string.jianjian_reply_rest'),
-    $r('app.string.jianjian_reply_crying'),
-    $r('app.string.jianjian_reply_angry'),
-    $r('app.string.jianjian_reply_wink'),
-    $r('app.string.jianjian_reply_reading'),
-    $r('app.string.jianjian_reply_heart')
-  ];
+  private reactionGeneration: number = 0;
   private readonly expressions: Resource[] = [
     $r('app.media.jianjian_red_happy'),
     $r('app.media.jianjian_red_shy'),
@@ -58,7 +56,22 @@ export struct JianjianCompanionComponent {
     }
   }
 
+  @Monitor('carePulse')
+  private showNightCare(): void {
+    if (!this.active || this.dragging || this.carePulse <= 0) return;
+    this.clearReaction();
+    this.phraseIndex = 3;
+    this.feedback = $r('app.string.jianjian_night_message');
+    this.suggestImport = false; this.suggestSources = false;
+    this.delighted = true;
+    this.positionAtDock(true);
+    this.resetTimer = setTimeout((): void => {
+      this.resetTimer = -1; this.delighted = false; this.positionAtDock(true);
+    }, 8000);
+  }
+
   private clearReaction(): void {
+    this.reactionGeneration++;
     if (this.resetTimer !== -1) {
       clearTimeout(this.resetTimer);
       this.resetTimer = -1;
@@ -157,7 +170,7 @@ export struct JianjianCompanionComponent {
   }
 
   private bubbleWidth(): number {
-    return Math.min(216, Math.max(128, this.viewportWidth - 16));
+    return Math.min(264, Math.max(128, this.viewportWidth - 16));
   }
 
   private bubbleY(): number {
@@ -177,15 +190,32 @@ export struct JianjianCompanionComponent {
   private interact(): void {
     if (!this.active || this.dragging || Date.now() < this.suppressClickUntil) return;
     this.clearReaction();
-    this.phraseIndex = (this.phraseIndex + 1) % this.phrases.length;
+    this.phraseIndex = 7;
+    this.feedback = $r('app.string.jianjian_reply_company');
     this.delighted = true;
     this.positionAtDock(true);
+    this.refreshFeedback(this.reactionGeneration);
     this.resetTimer = setTimeout((): void => {
       this.resetTimer = -1;
       this.delighted = false;
       this.positionAtDock(true);
-    }, 4000);
+    }, 8000);
   }
+
+  private async refreshFeedback(generation: number): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
+    const info = await JianjianCompanionService.feedback(context);
+    if (generation !== this.reactionGeneration || !this.active || !this.delighted) return;
+    this.feedback = info.greeting;
+    this.phraseIndex = info.expression;
+    this.suggestImport = info.suggestImport;
+    this.suggestSources = info.suggestSources;
+  }
+
+  private openCompanion(): void { this.stopReaction(); this.onOpen(); }
+  private hideCompanion(): void { this.stopReaction(); this.onHide(); }
+  private navigate(route: string): void { this.stopReaction(); this.onNavigate(route); }
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
@@ -197,13 +227,34 @@ export struct JianjianCompanionComponent {
             .backgroundColor(AppTheme.Surface)
             .rotate({ angle: 45 })
             .position({ x: this.bubbleTailX(), y: this.bubbleAbove() ? this.bubbleHeight - 10 : -6 })
-          Row({ space: 10 }) {
-            Image(this.expressions[this.phraseIndex])
-              .width(40).height(40).objectFit(ImageFit.Contain).draggable(false)
-              .accessibilityLevel('no')
-            Text(this.phrases[this.phraseIndex])
-              .fontSize(14).fontColor(AppTheme.TextPrimary)
-              .maxLines(5).layoutWeight(1)
+          Column({ space: 4 }) {
+            Row({ space: 10 }) {
+              Image(this.expressions[this.phraseIndex])
+                .width(40).height(40).objectFit(ImageFit.Contain).draggable(false)
+                .accessibilityLevel('no')
+              Text(this.feedback)
+                .fontSize(14).fontColor(AppTheme.TextPrimary)
+                .maxLines(5).layoutWeight(1)
+            }.width('100%')
+            if (this.suggestImport || this.suggestSources) {
+              Flex({ wrap: FlexWrap.Wrap }) {
+                if (this.suggestImport) {
+                  Button($r('app.string.jianjian_import_book'), { buttonStyle: ButtonStyleMode.TEXTUAL }).fontSize(12).fontColor(AppColor.Brand)
+                    .onClick((): void => this.navigate('import'))
+                }
+                if (this.suggestSources) {
+                  Button($r('app.string.jianjian_add_source'), { buttonStyle: ButtonStyleMode.TEXTUAL }).fontSize(12).fontColor(AppColor.Brand)
+                    .onClick((): void => this.navigate('ruleSources'))
+                }
+              }.width('100%')
+            }
+            Row() {
+              Button($r('app.string.jianjian_open_chat'), { buttonStyle: ButtonStyleMode.TEXTUAL }).fontSize(12).fontColor(AppColor.Brand)
+                .onClick((): void => this.openCompanion()).id('jianjian-open-chat')
+              Blank()
+              Button($r('app.string.jianjian_hide_session'), { buttonStyle: ButtonStyleMode.TEXTUAL }).fontSize(12).fontColor(AppTheme.TextSecondary)
+                .onClick((): void => this.hideCompanion())
+            }.width('100%')
           }
           .padding({ left: 14, right: 16, top: 14, bottom: 14 })
           .width(this.bubbleWidth()).constraintSize({ minHeight: 76 }).borderRadius(24)
@@ -217,7 +268,7 @@ export struct JianjianCompanionComponent {
         }
         .width(this.bubbleWidth())
         .position({ x: this.bubbleX(), y: this.bubbleY() })
-        .hitTestBehavior(HitTestMode.None)
+        .hitTestBehavior(HitTestMode.Default)
       }
       Button({ type: ButtonType.Normal }) {
         Stack() {

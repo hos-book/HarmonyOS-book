@@ -53,6 +53,7 @@ function load(relative, modules) {
   return module.exports;
 }
 const identity = load('utils/BookIdentity.ets', {});
+const commentModel = load('model/ReaderComment.ets', {});
 const migration = load('service/StorageMigrationService.ets', { '@kit.CoreFileKit': { fileIo } });
 function newProcess() {
   const budget = load('service/ReaderCacheService.ts', {
@@ -60,6 +61,7 @@ function newProcess() {
     '@kit.CoreFileKit': { fileIo }, '@kit.BasicServicesKit': { emitter: { emit() {} } }
   });
   return load('service/text/OnlineTextContentCache.ets', {
+    '../../model/ReaderComment': commentModel,
     '../ReaderCacheService': budget,
     '@kit.BasicServicesKit': { emitter: { emit: event => cacheEvents.push(event) } },
     '@kit.CoreFileKit': { fileIo },
@@ -105,6 +107,16 @@ function newProcess() {
   assert.equal((await cache.recoverBookIdentities(context, [bookId])).length, 1);
   console.log('PASS legacy book identity recovery, deduplication and corrupt cache isolation');
   console.log('PASS cold process restores complete UTF-8 text');
+  const comment = new commentModel.ReaderParagraphComment();
+  comment.offset = 3; comment.label = '段评 2'; comment.title = '段评'; comment.url = 'https://comments.example/1';
+  await cache.write(context, key, text, [comment], true);
+  cache = newProcess();
+  const cachedComments = await cache.readChapter(context, key);
+  assert.equal(cachedComments.comments.length, 1);
+  assert.equal(cachedComments.comments[0].url, comment.url);
+  assert.equal(cachedComments.commentsLoaded, true);
+  assert.equal(await cache.read(context, key), text, 'TTS and export only consume plain text');
+  console.log('PASS comment metadata survives restart without entering plain text');
   assert.equal(await cache.read(context, cache.key('source-b', 'book-a', 'chapter-a')), undefined);
   assert.equal(await cache.read(context, cache.key('source-a', 'book-b', 'chapter-a')), undefined);
   assert.equal(await cache.read(context, cache.key('source-a', 'book-a', 'chapter-b')), undefined);
@@ -151,23 +163,24 @@ function newProcess() {
     compilerOptions: { target: ts.ScriptTarget.ES2020 }
   }).outputText;
   const sandbox = {
+    ReaderCommentChapter: commentModel.ReaderCommentChapter,
     OnlineTextContentCache: newProcess(),
     BookSourceService: { getTextChapterContent: async () => {
       requests++;
       if (offline) throw new Error('offline');
-      return { content: text };
+      return { content: text, comments: [], commentsLoaded: true };
     } },
     OnlineTextPaginator: { normalizeContent: content => content }
   };
   vm.runInNewContext(hostCode, sandbox);
   let host = new sandbox.ReaderHost();
   host.context = context;
-  assert.equal(await host.readOrFetchOnlineTextContent({}, { title: '第一章' }, 'chapter-a', key), text);
+  assert.equal(await host.readOrFetchOnlineTextContent({}, { title: '第一章' }, 'chapter-a', key).then(value => value.content), text);
   offline = true;
   sandbox.OnlineTextContentCache = newProcess();
   host = new sandbox.ReaderHost();
   host.context = context;
-  assert.equal(await host.readOrFetchOnlineTextContent({}, { title: '第一章' }, 'chapter-a', key), text);
+  assert.equal(await host.readOrFetchOnlineTextContent({}, { title: '第一章' }, 'chapter-a', key).then(value => value.content), text);
   assert.equal(requests, 1);
   console.log('PASS reader reopens cached chapter offline without a second network request');
   offline = false;

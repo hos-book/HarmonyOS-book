@@ -31,6 +31,7 @@ export class OnlineTextPage {
   firstLine: number = 0;
   // Each native line keeps its geometry; only paragraph boundaries add a vertical translation.
   lineShifts: number[] = [];
+  commentLineExtra: number[] = [];
   trailingSpacing: number = 0;
   lineMetrics: graphicsText.LineMetrics[] = [];
   paintState: OnlineTextPaintState = new OnlineTextPaintState();
@@ -251,6 +252,7 @@ export class OnlineTextPageNavigator {
 }
 
 class OnlineTextLayout {
+  commentLineExtra: number[] = [];
   source: string = '';
   key: string = '';
   serial: number = 0;
@@ -297,7 +299,8 @@ export class OnlineTextPaginator {
   static paginate(content: string, widthPx: number, heightPx: number,
     fontSizePx: number, lineHeight: number, fontFamily: string = '', fontWeight: number = 400,
     alignment: string = 'justify', paragraphSpacing: number = 0, letterSpacingPx: number = 0,
-    headingTitle: string = '', headingSizePx: number = fontSizePx, headingStyle: string = 'center'): OnlineTextPage[] {
+    headingTitle: string = '', headingSizePx: number = fontSizePx, headingStyle: string = 'center',
+    commentOffsets: number[] = [], commentSizePx: number = 0): OnlineTextPage[] {
     const heading = headingTitle.trim();
     const images = LocalTextImage.pattern();
     let match = images.exec(content);
@@ -306,7 +309,7 @@ export class OnlineTextPaginator {
       let start = 0;
       while (match !== null) {
         OnlineTextPaginator.appendImageText(pages, content, start, match.index, widthPx, 1,
-          fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx);
+          fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx);
         const page = OnlineTextPage.of(content, match.index, images.lastIndex);
         page.imageUrl = LocalTextImage.resolve(match[1]);
         if (!page.imageUrl) {
@@ -329,10 +332,10 @@ export class OnlineTextPaginator {
         match = images.exec(content);
       }
       OnlineTextPaginator.appendImageText(pages, content, start, content.length, widthPx, 1,
-        fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx);
+        fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx);
       return OnlineTextPaginator.composeHeading(content, pages, widthPx, heightPx, heading, headingSizePx, fontFamily, headingStyle);
     }
-    const layout = OnlineTextPaginator.measure(content, widthPx, fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx);
+    const layout = OnlineTextPaginator.measure(content, widthPx, fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx);
     const displayed = layout.displayed;
     const metrics = layout.metrics;
     const pages = OnlineTextPaginator.paginateMeasuredLines(displayed.text, layout.lines, heading ? 1 : heightPx);
@@ -357,9 +360,10 @@ export class OnlineTextPaginator {
         let shift = 0;
         while (lineIndex < metrics.length && metrics[lineIndex].startIndex < page.endOffset) {
           page.lineShifts.push(shift);
+          page.commentLineExtra.push(layout.commentLineExtra[lineIndex] ?? 0);
           last = metrics[lineIndex];
           page.trailingSpacing = layout.lines[lineIndex].spacingAfterPx;
-          shift += page.trailingSpacing;
+          shift += page.trailingSpacing + (layout.commentLineExtra[lineIndex] ?? 0);
           lineIndex++;
         }
         page.layoutHeight = last.baseline + last.descent - page.layoutTop + shift - page.trailingSpacing;
@@ -420,11 +424,14 @@ export class OnlineTextPaginator {
 
   private static appendImageText(pages: OnlineTextPage[], content: string, start: number, end: number,
     width: number, height: number, fontSize: number, lineHeight: number, family: string, weight: number,
-    alignment: string, spacing: number, letterSpacingPx: number): void {
+    alignment: string, spacing: number, letterSpacingPx: number, commentOffsets: number[], commentSizePx: number): void {
     const section = content.substring(start, end);
     if (!section.trim()) return;
     const sourceStart = start + section.length - section.trimStart().length;
-    const textPages = OnlineTextPaginator.paginate(section.trim(), width, height, fontSize, lineHeight, family, weight, alignment, spacing, letterSpacingPx);
+    const offsets = commentOffsets.filter((offset: number): boolean => offset > sourceStart && offset <= end)
+      .map((offset: number): number => offset - sourceStart);
+    const textPages = OnlineTextPaginator.paginate(section.trim(), width, height, fontSize, lineHeight, family, weight, alignment, spacing, letterSpacingPx,
+      '', fontSize, 'center', offsets, commentSizePx);
     for (const page of textPages) { page.startOffset += sourceStart; page.endOffset += sourceStart; pages.push(page); }
     if (textPages.length > 0) textPages[textPages.length - 1].endOffset = end;
   }
@@ -447,6 +454,7 @@ export class OnlineTextPaginator {
         const shift = previous.layoutHeight + part.flowSpacing - (part.layoutTop - previous.layoutTop);
         for (const value of part.lineShifts) previous.lineShifts.push(value + shift);
         previous.lineMetrics.push(...part.lineMetrics);
+        previous.commentLineExtra.push(...part.commentLineExtra);
         for (const range of part.dialogueRanges) {
           previous.dialogueRanges.push(new ReaderDialogueRange(previous.text.length + range.start, previous.text.length + range.end));
         }
@@ -467,9 +475,10 @@ export class OnlineTextPaginator {
   }
 
   private static measure(content: string, widthPx: number, fontSizePx: number, lineHeight: number,
-    fontFamily: string, fontWeight: number, alignment: string, paragraphSpacing: number, letterSpacingPx: number): OnlineTextLayout {
+    fontFamily: string, fontWeight: number, alignment: string, paragraphSpacing: number, letterSpacingPx: number,
+    commentOffsets: number[], commentSizePx: number): OnlineTextLayout {
     const spacing = Number.isFinite(paragraphSpacing) ? Math.max(0, Math.min(2, paragraphSpacing)) : 0;
-    const key = `${widthPx}:${fontSizePx}:${lineHeight}:${fontWeight}:${alignment}:${fontFamily}:${spacing}:${letterSpacingPx}`;
+    const key = `${widthPx}:${fontSizePx}:${lineHeight}:${fontWeight}:${alignment}:${fontFamily}:${spacing}:${letterSpacingPx}:${commentSizePx}:${commentOffsets.join(',')}`;
     const cachedIndex = OnlineTextPaginator.layouts.findIndex((item: OnlineTextLayout): boolean =>
       item.key === key && item.source === content);
     if (cachedIndex >= 0) {
@@ -530,9 +539,31 @@ export class OnlineTextPaginator {
       }
     }
     const lines: OnlineTextMeasuredLine[] = [];
+    const comments = new Set<number>(commentOffsets);
     for (let i = 0; i < metrics.length; i++) {
       const line = OnlineTextMeasuredLine.of(metrics[i].startIndex, metrics[i].height);
       const next = metrics[i + 1];
+      let extra = 0;
+      if (comments.size > 0 && commentSizePx > 0) {
+        const displayedEnd = next?.startIndex ?? layout.displayed.text.length;
+        const body = layout.displayed.text.substring(metrics[i].startIndex, displayedEnd).trimEnd();
+        const end = metrics[i].startIndex + body.length;
+        if (body.length > 0 && comments.has(layout.displayed.sourceOffsetForDisplay(end))) {
+          let start = end - 1;
+          const low = layout.displayed.text.charCodeAt(start);
+          const high = layout.displayed.text.charCodeAt(start - 1);
+          if (low >= 0xDC00 && low <= 0xDFFF && high >= 0xD800 && high <= 0xDBFF) start--;
+          const boxes = paragraph.getRectsForRange({
+            start: layout.nativeIndents ? layout.displayed.nativeOffsetForDisplay(start) : start,
+            end: layout.nativeIndents ? layout.displayed.nativeOffsetForDisplay(end) : end
+          }, graphicsText.RectWidthStyle.TIGHT, graphicsText.RectHeightStyle.TIGHT);
+          const last = boxes[boxes.length - 1];
+          // 仅段尾放不下图标时增加一行图标高度，正文始终使用完整对称宽度。
+          if (last && last.rect.right + commentSizePx > safeWidth) extra = commentSizePx;
+        }
+      }
+      layout.commentLineExtra.push(extra);
+      line.heightPx += extra;
       if (next !== undefined && layout.displayed.text.charAt(next.startIndex - 1) === '\n') {
         line.spacingAfterPx = safeFontSize * spacing;
       }

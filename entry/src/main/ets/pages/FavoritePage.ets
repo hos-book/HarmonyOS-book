@@ -21,16 +21,15 @@ import {
 } from '@kit.UIDesignKit';
 import {
   AppColor,
+  AppTheme,
   AppRadius,
   AppSpace,
   AppFont,
   AppMotion,
   AppCurve,
   AppMaterial,
-  HomeTheme,
-  AppTheme
+  HomeTheme
 } from '../theme/Theme';
-import { CoverDecoration } from '../components/CoverDecoration';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
 import { ThemeBackgroundScene } from '../model/AppThemeVisual';
 import { Book, Chapter } from '../model/Book';
@@ -50,6 +49,10 @@ import { OneShotLayoutCallback, OneShotTransitionIds } from '../utils/OneShotTra
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
 import { WindowUtils } from '../utils/WindowUtils';
 import { BookDataSource } from '../utils/BookDataSource';
+import { ShelfSpineItem, ShelfSpineRow, ShelfSpineLayout, ShelfSpineHint } from '../utils/ShelfSpineLayout';
+import { ShelfBookSpine } from '../components/ShelfBookSpine';
+import { ShelfReaderRouteParams } from '../utils/ShelfReaderTransition';
+import { ReaderHapticService } from '../service/text/ReaderHapticService';
 import { ShelfBatchActions } from '../components/ShelfBatchActions';
 import { CoverImage } from '../components/CoverImage';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
@@ -171,7 +174,11 @@ export struct FavoritePage {
     onApplicationBackground: (): void => { this.foreground = false; this.cancelAutoUpdate(); }
   };
   @Local missingFavoriteCount: number = 0;
-  @Local viewMode: number = 0; // 0=网格，1=列表
+  @Local viewMode: number = 0; // 0=网格，1=列表，2=立式书架
+  @Local pulledSpineBookId: string = '';
+  @Local pulledSpineHint: ShelfSpineHint = new ShelfSpineHint();
+  private spineContentWidth: number = 328;
+  private spineDataSource: HomeRecommendationDataSource<ShelfSpineRow> = new HomeRecommendationDataSource<ShelfSpineRow>();
   private viewModeRevision: number = 0;
   private viewModeSaveTask: Promise<void> = Promise.resolve();
   @Local shelfFilter: number = 0; // 0=全部, 1=有声书, 2=电子书, 3=漫画
@@ -315,7 +322,7 @@ export struct FavoritePage {
   private syncFavoriteBook(updatedBook: Book): void {
     const books = this.favoriteBooks.map((book: Book): Book => book.id === updatedBook.id ? updatedBook : book);
     this.favoriteBooks = books;
-    this.bookDataSource.setBooks(this.filteredBooks(books));
+    this.updateShelfData(this.filteredBooks(books));
   }
 
   aboutToAppear(): void {
@@ -336,13 +343,13 @@ export struct FavoritePage {
     PreferenceService.getShelfGroup().then((group: string): void => {
       if (!this.alive || groupRevision !== this.groupSelectionRevision) return;
       this.shelfGroup = group === BookPresentation.UNGROUPED || this.shelfGroups.includes(group) ? group : '';
-      this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
+      this.updateShelfData(this.filteredBooks(this.favoriteBooks));
     }).catch((): void => {});
     const revision = this.statusFilterRevision;
     PreferenceService.getShelfStatusFilter().then((value: number): void => {
       if (!this.alive || revision !== this.statusFilterRevision) return;
       this.shelfStatusFilter = value;
-      this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
+      this.updateShelfData(this.filteredBooks(this.favoriteBooks));
     }).catch((): void => {});
     emitter.on(EVT_HISTORY_UPDATED, this.historyUpdatedHandler);
     emitter.on(EVT_FAVORITES_CHANGED, this.favoritesChangedHandler);
@@ -373,6 +380,7 @@ export struct FavoritePage {
   @Monitor('visible')
   onVisibleChange(): void {
     if (!this.visible) {
+      this.pulledSpineBookId = '';
       this.cancelShelfDissolve();
       this.pressedShelfBookId = '';
       this.statusFilterMenuVisible = false;
@@ -474,7 +482,7 @@ export struct FavoritePage {
     const enabled: boolean = GeneralSettings.current.showShelfSource;
     if (this.showShelfSource === enabled) return;
     this.showShelfSource = enabled;
-    this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
+    this.updateShelfData(this.filteredBooks(this.favoriteBooks));
   }
 
   /** 收到播放进度更新事件:只重算历史相关 map,不重拉书清单,避免列表抖动 */
@@ -595,7 +603,7 @@ export struct FavoritePage {
     this.favoriteBooks = books;
     await this.refreshTextProgress();
     if (serial !== this.favoritesLoadSerial) return;
-    this.bookDataSource.setBooks(this.filteredBooks(books));
+    this.updateShelfData(this.filteredBooks(books));
     const visibleIds = new Set(this.filteredBooks(books).map((book: Book): string => book.id));
     this.selectedBookIds = new Set(Array.from(this.selectedBookIds).filter((id: string): boolean => visibleIds.has(id)));
     this.historyMap = map;
@@ -980,8 +988,9 @@ export struct FavoritePage {
 
   private toggleViewMode(): void {
     this.viewModeRevision++;
+    this.pulledSpineBookId = '';
     this.getUIContext().animateTo({ duration: 220, curve: Curve.FastOutSlowIn }, () => {
-      this.viewMode = this.viewMode === 0 ? 1 : 0;
+      this.viewMode = (this.viewMode + 1) % 3;
     });
     const mode: number = this.viewMode;
     this.viewModeSaveTask = this.viewModeSaveTask.then((): Promise<void> =>
@@ -1074,7 +1083,7 @@ export struct FavoritePage {
     this.groupSelectionRevision++;
     this.shelfGroup = group;
     this.selectedBookIds = new Set();
-    this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
+    this.updateShelfData(this.filteredBooks(this.favoriteBooks));
     this.listScroller.scrollToIndex(0);
     this.groupSaveTask = this.groupSaveTask.then((): Promise<void> =>
       PreferenceService.setShelfGroup(group)).catch((): void => {
@@ -1082,15 +1091,11 @@ export struct FavoritePage {
       });
   }
 
-  private groupMenuOptions(): CustomPopupOptions {
-    const options: CustomPopupOptions = {
-      builder: this.buildGroupMenu,
+  private groupMenuOptions(): MenuOptions {
+    const options: MenuOptions = {
       placement: Placement.BottomRight,
-      popupColor: AppMaterial.SheetBackground,
-      radius: AppRadius.Xl,
-      enableArrow: false,
-      focusable: true,
-      onStateChange: (event): void => { this.groupMenuVisible = event.isVisible; }
+      backgroundColor: AppMaterial.SheetBackground,
+      onDisappear: (): void => { this.groupMenuVisible = false; }
     };
     if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
     else options.backgroundBlurStyle = AppMaterial.SheetBlur;
@@ -1145,23 +1150,23 @@ export struct FavoritePage {
 
   @LocalBuilder
   buildGroupMenu() {
-    Scroll() {
-      Column({ space: 2 }) {
+    Menu() {
+      MenuItemGroup() {
         ForEach(['', BookPresentation.UNGROUPED, ...this.shelfGroups], (group: string) => {
-          Text(group === BookPresentation.UNGROUPED ? $r('app.string.shelf_group_none') : group || $r('app.string.shelf_group_all'))
-            .fontSize(16)
-            .fontColor(group === this.shelfGroup ? AppColor.Brand : $r('sys.color.font_primary'))
-            .width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-            .borderRadius(AppRadius.Xl - AppSpace.Xs)
-            .backgroundColor(group === this.shelfGroup ? AppColor.BrandSoft : Color.Transparent)
+          MenuItem({ content: group === BookPresentation.UNGROUPED ? $r('app.string.shelf_group_none') :
+            group || $r('app.string.shelf_group_all') })
+            .contentFont({ size: AppFont.Body }).contentFontColor($r('sys.color.font_primary'))
+            .selected(group === this.shelfGroup)
+            .backgroundColor(group === this.shelfGroup ? $r('sys.color.comp_background_tertiary') : Color.Transparent)
             .onClick((): void => this.selectShelfGroup(group))
         }, (group: string): string => group)
-        Button($r('app.string.shelf_group_manage')).width('100%')
-          .fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
+      }
+      MenuItemGroup() {
+        MenuItem({ content: $r('app.string.shelf_group_manage') })
+          .contentFont({ size: AppFont.Body }).contentFontColor($r('sys.color.font_primary'))
           .onClick((): void => this.openGroupManager())
-      }.width('100%').padding(AppSpace.Xs)
-    }.width(200).constraintSize({ maxHeight: 320 }).scrollBar(BarState.Auto)
+      }
+    }.width(200).constraintSize({ maxHeight: 320 })
   }
 
   private selectStatusFilter(value: number): void {
@@ -1171,7 +1176,7 @@ export struct FavoritePage {
     this.statusFilterRevision++;
     this.shelfStatusFilter = value;
     this.selectedBookIds = new Set();
-    this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
+    this.updateShelfData(this.filteredBooks(this.favoriteBooks));
     this.listScroller.scrollToIndex(0);
     this.statusSaveTask = this.statusSaveTask.then((): Promise<void> =>
       PreferenceService.setShelfStatusFilter(value)).catch((): void => {
@@ -1179,17 +1184,11 @@ export struct FavoritePage {
     });
   }
 
-  private statusFilterMenuOptions(): CustomPopupOptions {
-    const options: CustomPopupOptions = {
-      builder: this.buildStatusFilterMenu,
+  private statusFilterMenuOptions(): MenuOptions {
+    const options: MenuOptions = {
       placement: Placement.BottomRight,
-      popupColor: AppMaterial.SheetBackground,
-      radius: AppRadius.Xl,
-      enableArrow: false,
-      focusable: true,
-      onStateChange: (event): void => {
-        this.statusFilterMenuVisible = event.isVisible;
-      }
+      backgroundColor: AppMaterial.SheetBackground,
+      onDisappear: (): void => { this.statusFilterMenuVisible = false; }
     };
     if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
     else options.backgroundBlurStyle = AppMaterial.SheetBlur;
@@ -1198,17 +1197,15 @@ export struct FavoritePage {
 
   @LocalBuilder
   buildStatusFilterMenu() {
-    Column({ space: 2 }) {
+    Menu() {
       ForEach([0, 1, 2], (index: number) => {
-        Text(this.statusFilterLabel(index))
-          .fontSize(16)
-          .fontColor(index === this.shelfStatusFilter ? AppColor.Brand : $r('sys.color.font_primary'))
-          .width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
-          .borderRadius(AppRadius.Xl - AppSpace.Xs)
-          .backgroundColor(index === this.shelfStatusFilter ? AppColor.BrandSoft : Color.Transparent)
+        MenuItem({ content: this.statusFilterLabel(index) })
+          .contentFont({ size: AppFont.Body }).contentFontColor($r('sys.color.font_primary'))
+          .selected(index === this.shelfStatusFilter)
+          .backgroundColor(index === this.shelfStatusFilter ? $r('sys.color.comp_background_tertiary') : Color.Transparent)
           .onClick((): void => this.selectStatusFilter(index))
       }, (index: number): string => index.toString())
-    }.width(200).padding(AppSpace.Xs)
+    }.width(180)
   }
 
   private handleShelfTypeSwipe(event: GestureEvent): void {
@@ -1223,11 +1220,36 @@ export struct FavoritePage {
     if (index < 0 || index > 3 || this.shelfFilter === index) return;
     this.shelfFilter = index;
     this.selectedBookIds = new Set();
-    this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
+    this.updateShelfData(this.filteredBooks(this.favoriteBooks));
   }
 
   private shelfCoverId(book: Book, list: boolean): string {
+    if (this.viewMode === 2) return 'shelf-spine-' + OneShotTransitionIds.sourceCover(book.id);
     return (list ? 'shelf-list-' : 'shelf-grid-') + OneShotTransitionIds.sourceCover(book.id);
+  }
+
+  private updateShelfData(books: Book[]): void {
+    this.pulledSpineBookId = '';
+    this.bookDataSource.setBooks(books);
+    this.spineDataSource.setItems(ShelfSpineLayout.rows(books, this.spineContentWidth));
+  }
+
+  private updateSpinePull(row: ShelfSpineRow, event: GestureEvent): void {
+    if (!this.visible || this.isManaging || this.removingBook || this.showBookActions || this.resolvingTocId) return;
+    // fingerList 在 API 20 可用；遍历有效触点，不假定第一根手指的 ID 为 0。
+    for (const finger of event.fingerList) {
+      if (finger !== undefined) {
+        const bookId: string = finger.localY >= 0 && finger.localY <= 216
+          ? ShelfSpineLayout.bookAt(row, finger.localX) : '';
+        if (bookId !== this.pulledSpineBookId) {
+          this.pulledSpineHint = ShelfSpineLayout.hint(row, bookId, this.spineContentWidth);
+          this.pulledSpineBookId = bookId;
+          if (bookId) ReaderHapticService.play('weak');
+        }
+        return;
+      }
+    }
+    this.pulledSpineBookId = '';
   }
 
   private handleShelfTouch(bookId: string, event: TouchEvent): void {
@@ -1286,7 +1308,9 @@ export struct FavoritePage {
     }
     SearchCache.put(book);
     if (book.contentType === 'text' || book.contentType === 'comic') {
-      const params = TextReaderRouteParams.of(book.id);
+      const params: TextReaderRouteParams = book.contentType === 'text' ?
+        ShelfReaderRouteParams.fromShelf(book.id, book.cover, book.title, coverNodeId, this.getUIContext()) :
+        TextReaderRouteParams.of(book.id);
       this.navStack.pushPathByName(book.contentType === 'comic' ? 'comicReader' : 'reader', params, onPop);
       return;
     }
@@ -1628,7 +1652,7 @@ export struct FavoritePage {
     if (bookIds.length === 0 && this.pendingShelfRemovalIds.size === 0) return;
     // 仅影响展示，持久化成功前保留原书单及别名，失败时可原位恢复。
     this.pendingShelfRemovalIds = new Set(bookIds);
-    this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
+    this.updateShelfData(this.filteredBooks(this.favoriteBooks));
   }
 
   private async refreshShelfAfterRemoval(bookIds: string[]): Promise<void> {
@@ -1639,7 +1663,7 @@ export struct FavoritePage {
     for (const id of removed) this.favoriteIdsByBookId.delete(id);
     this.missingFavoriteCount = this.favoriteBooks.filter((book: Book): boolean => this.isMissingCachedBook(book)).length;
     this.pendingShelfRemovalIds = new Set();
-    this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
+    this.updateShelfData(this.filteredBooks(this.favoriteBooks));
     // 删除期间云同步/其他页面可能增删收藏，仅在集合确实变化时补充加载。
     const expected = new Set<string>();
     for (const book of this.favoriteBooks) {
@@ -1727,7 +1751,7 @@ export struct FavoritePage {
       preview: MenuPreviewMode.NONE,
       backgroundColor: AppMaterial.SheetBackground,
       backgroundBlurStyle: AppMaterial.SheetBlur,
-      onAppear: (): void => { this.pressedShelfBookId = ''; this.showBookActions = true; },
+      onAppear: (): void => { this.pressedShelfBookId = ''; this.pulledSpineBookId = ''; this.showBookActions = true; },
       onDisappear: (): void => {
         this.showBookActions = false;
         const detailBookId = this.pendingDetailBookId;
@@ -1873,6 +1897,28 @@ export struct FavoritePage {
              .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
             .scrollBar(BarState.Off)
             // 内容不足一屏时也提供原生回弹。
+            .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+            .backgroundColor(Color.Transparent)
+          } else if (this.viewMode === 2) {
+            List({ scroller: this.listScroller }) {
+              ListItemGroup({ header: this.buildShelfContentInset(), space: AppSpace.Md }) {
+                LazyForEach(this.spineDataSource, (row: ShelfSpineRow) => {
+                  ListItem() {
+                    this.buildSpineRow(row)
+                  }.clip(false)
+                    .zIndex(row.items.some((item: ShelfSpineItem): boolean => item.book.id === this.pulledSpineBookId) ? 1 : 0)
+                }, (row: ShelfSpineRow): string => row.key)
+              }
+            }
+            .cachedCount(2).enableScrollInteraction(!this.removingBook)
+            .width('100%').height('100%')
+            .padding({ left: AppSpace.Md, right: AppSpace.Md })
+            .contentEndOffset(this.shelfContentEndOffset())
+            .onDidScroll((offset: number, state: ScrollState): void => {
+              this.pulledSpineBookId = '';
+              this.onContentScroll(offset, state);
+            })
+            .scrollBar(BarState.Off)
             .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
             .backgroundColor(Color.Transparent)
           } else {
@@ -2031,6 +2077,11 @@ export struct FavoritePage {
     .onSizeChange((_oldSize: SizeOptions, size: SizeOptions): void => {
       if (typeof size.width === 'number' && size.width > 0) {
         this.bookColumns = AdaptiveLayout.bookColumns(size.width);
+        const width = Math.max(40, size.width - AppSpace.Md * 2);
+        if (Math.abs(width - this.spineContentWidth) > 0.5) {
+          this.spineContentWidth = width;
+          this.updateShelfData(this.filteredBooks(this.favoriteBooks));
+        }
       }
     })
   }
@@ -2079,7 +2130,7 @@ export struct FavoritePage {
             ListItem() {
               Row({ space: 14 }) {
                 CoverImage({ url: item.cover, imgWidth: 52, imgHeight: 70, useFixedHeight: true,
-                  radius: 8 })
+                  radius: 8, themedDecoration: false, themeBundleId: 'default' })
                 Column({ space: 7 }) {
                   Text(item.title).fontSize(16).fontWeight(FontWeight.Medium)
                     .fontColor($r('sys.color.font_primary')).maxLines(2)
@@ -2285,7 +2336,7 @@ export struct FavoritePage {
         useMaterial: false,
         onPress: (): void => this.showStatusFilter() })
         .enabled(!this.removingBook && !this.showBatchDelete)
-        .bindPopup(this.statusFilterMenuVisible, this.statusFilterMenuOptions())
+        .bindMenu(this.statusFilterMenuVisible, this.buildStatusFilterMenu, this.statusFilterMenuOptions())
       if (!this.isManaging) {
         ImmersiveCircleButton({ icon: $r('sys.symbol.folder'), label: $r('app.string.shelf_group_filter'),
           useMaterial: false,
@@ -2297,7 +2348,7 @@ export struct FavoritePage {
           .id('shelf-group-button')
           .priorityGesture(LongPressGesture({ repeat: false }).onAction((): void => this.openGroupManager()))
           .enabled(!this.removingBook && !this.showBatchDelete)
-          .bindPopup(this.groupMenuVisible, this.groupMenuOptions())
+          .bindMenu(this.groupMenuVisible, this.buildGroupMenu, this.groupMenuOptions())
       }
       ImmersiveCircleButton({ icon: $r('sys.symbol.arrow_clockwise'), label: $r('app.string.shelf_updates_title'),
         useMaterial: false,
@@ -2305,10 +2356,12 @@ export struct FavoritePage {
         .enabled(!this.isManaging && !this.removingBook)
       ImmersiveCircleButton({
         useMaterial: false,
-        icon: this.viewMode === 0 ? $r('sys.symbol.list_bullet') : $r('sys.symbol.square_grid_2x2'),
-        label: this.viewMode === 0 ? $r('app.string.shelf_view_list') : $r('app.string.shelf_view_grid'),
+        icon: this.viewMode === 0 ? $r('sys.symbol.list_bullet') :
+          (this.viewMode === 1 ? $r('sys.symbol.bookshelf') : $r('sys.symbol.square_grid_2x2')),
+        label: this.viewMode === 0 ? $r('app.string.shelf_view_list') :
+          (this.viewMode === 1 ? $r('app.string.shelf_view_spine') : $r('app.string.shelf_view_grid')),
         onPress: (): void => this.toggleViewMode()
-      }).enabled(!this.removingBook && !this.showBatchDelete)
+      }).id('shelf-view-toggle').enabled(!this.removingBook && !this.showBatchDelete)
     }
     .width('100%').height(MINI_TITLE_BAR_HEIGHT)
     .padding({ left: AppSpace.Md, right: AppSpace.Md })
@@ -2336,7 +2389,7 @@ export struct FavoritePage {
           .onChange((value: string): void => {
             this.shelfKeyword = value;
             this.selectedBookIds = new Set();
-            this.bookDataSource.setBooks(this.filteredBooks(this.favoriteBooks));
+            this.updateShelfData(this.filteredBooks(this.favoriteBooks));
             this.listScroller.scrollTo({ xOffset: 0, yOffset: 0 });
           })
       }
@@ -2401,30 +2454,96 @@ export struct FavoritePage {
     .alignItems(HorizontalAlign.Center)
   }
 
-  // 透明明暗层沿用原封面的颜色，书脊随封面宽度缩放，不增加图片解码。
-  @Builder
-  buildBookSpine() {
-    if (AppTheme.CoverDecorationEnabled) {
-      CoverDecoration({ radius: 4 })
-    } else {
-      Row()
-        .width('14%')
-        .height('100%')
-        .linearGradient({
-          direction: GradientDirection.Right,
-          colors: [
-            ['#66000000', 0],
-            ['#16000000', 0.18],
-            ['#38FFFFFF', 0.36],
-            ['#10FFFFFF', 0.5],
-            ['#30000000', 0.6],
-            ['#08000000', 0.78],
-            ['#00000000', 1]
-          ]
-        })
-        .hitTestBehavior(HitTestMode.None)
-        .accessibilityLevel('no')
+  @LocalBuilder
+  buildSpineTitleHint(row: ShelfSpineRow) {
+    // 直接依赖页面 @Local 状态；临时普通对象作为 Builder 参数不会可靠刷新。
+    if (this.pulledSpineBookId && row.items.some((item: ShelfSpineItem): boolean => item.book.id === this.pulledSpineBookId)) {
+      Text(this.pulledSpineHint.title).fontSize(13).minFontScale(1).maxFontScale(1).lineHeight(18)
+        .fontColor(Color.White).fontWeight(FontWeight.Medium).textAlign(TextAlign.Center).maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+        .width(this.pulledSpineHint.width).height(this.pulledSpineHint.height)
+        .padding({ left: 10, right: 10, top: 4, bottom: 4 })
+        // 仅文字与下方画布反色混合，不绘制底框，也不创建离屏合成层。
+        .blendMode(BlendMode.DIFFERENCE, BlendApplyType.FAST)
+        .position({ x: this.pulledSpineHint.left, y: this.pulledSpineHint.top }).zIndex(3)
+        .hitTestBehavior(HitTestMode.None).accessibilityLevel('no-hide-descendants')
+        .id('shelf-spine-hover-title')
     }
+  }
+
+  @LocalBuilder
+  buildSpineRow(row: ShelfSpineRow) {
+    Column() {
+      Stack({ alignContent: Alignment.TopStart }) {
+      Row({ space: 0 }) {
+        ForEach(row.items, (item: ShelfSpineItem) => {
+          Stack() {
+            RecordDissolveEffect({ snapshotId: `${this.shelfCoverId(item.book, false)}-dissolve`,
+              itemHeight: undefined, particleBudget: this.dissolveParticleBudget,
+              lightweight: this.lightweightShelfDelete,
+              active: this.visible && this.dissolvingBookIds.has(item.book.id),
+              content: (): void => this.buildUprightBook(item),
+              onFinished: (): void => this.completeShelfDissolve(item.book.id) })
+          }
+          .width(item.width).height(216).clip(false)
+          .zIndex(this.pulledSpineBookId === item.book.id ? 2 : 0)
+          .onVisibleAreaChange([0], (_visible: boolean, ratio: number): void =>
+            this.markShelfBookVisible(item.book.id, ratio))
+        }, (item: ShelfSpineItem): string => item.book.id)
+      }
+      .width('100%').height(216).alignItems(VerticalAlign.Bottom).clip(false)
+      .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 5 })
+        .onActionStart((event: GestureEvent): void => this.updateSpinePull(row, event))
+        .onActionUpdate((event: GestureEvent): void => this.updateSpinePull(row, event))
+        .onActionEnd((): void => { this.pulledSpineBookId = ''; })
+        .onActionCancel((): void => { this.pulledSpineBookId = ''; }))
+      this.buildSpineTitleHint(row)
+      }.width('100%').height(216).clip(false)
+      // 素色薄层板复用主题资源，深浅模式自动适配；静态色层不增加背景模糊开销。
+      Column() {
+        Row().width('100%').height(2)
+          .linearGradient({ direction: GradientDirection.Bottom,
+            colors: [[AppColor.Divider, 0], [AppTheme.Surface, 1]] })
+        Stack({ alignContent: Alignment.Top }) {
+          Row().width('100%').height('100%')
+            .backgroundColor(AppTheme.Surface)
+          Row().width('100%').height('100%')
+            .linearGradient({ direction: GradientDirection.Bottom,
+              colors: [[AppColor.BrandSoft, 0], [Color.Transparent, 0.7], [AppColor.Divider, 1]] })
+          Row().width('100%').height(0.5).backgroundColor(AppColor.GlassStroke)
+        }.width('100%').height(8)
+      }.width('100%').borderRadius({ bottomLeft: 3, bottomRight: 3 }).clip(true)
+        .shadow({ radius: 3, color: AppColor.Shadow, offsetY: 2 })
+        .hitTestBehavior(HitTestMode.None).accessibilityLevel('no-hide-descendants')
+    }.width('100%').padding({ bottom: 12 }).clip(false)
+  }
+
+  @LocalBuilder
+  buildUprightBook(item: ShelfSpineItem) {
+    Stack() {
+      Stack() {
+        ShelfBookSpine({ cover: item.book.cover,
+          spineWidth: item.width, spineHeight: item.height, spineColor: item.color,
+          pulled: this.pulledSpineBookId === item.book.id, managing: this.isManaging,
+          selected: this.selectedBookIds.has(item.book.id), pinned: this.pinnedBookIds.has(item.book.id),
+          coverId: this.shelfCoverId(item.book, false),
+          coverHidden: this.playerTransition.active &&
+            this.playerTransition.sourceNodeId === this.shelfCoverId(item.book, false) })
+          .hitTestBehavior(HitTestMode.None)
+      }
+      .width(item.width).height(216).clip(false).draggable(false)
+      .bindContextMenu(this.bookActions(item.book), ResponseType.LongPress, this.bookMenuOptions())
+      .onClick((): void => {
+        if (!this.showBookActions && !this.resolvingTocId) {
+          this.pulledSpineBookId = '';
+          this.handleBookTap(item.book, this.shelfCoverId(item.book, false));
+        }
+      })
+      .accessibilityGroup(true).accessibilityText(item.book.title + '，' + item.book.author)
+      .accessibilityDescription($r('app.string.shelf_spine_accessibility'))
+    }
+    .width(item.width).height(216).clip(false)
+    .bindContextMenu(this.bookActions(item.book), ResponseType.RightClick, this.bookMenuOptions())
   }
 
   @Builder
@@ -2453,7 +2572,7 @@ export struct FavoritePage {
           .clip(true)
         } else if (book.cover && book.cover.startsWith('http')) {
           CoverImage({ url: book.cover, imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO,
-            radius: 0, themedDecoration: false })
+            radius: 0, themedDecoration: false, themeBundleId: 'default' })
             .hitTestBehavior(HitTestMode.Transparent)
         } else if (book.cover && (book.cover.startsWith('/data/') || book.cover.startsWith('file://'))) {
           Image('file://' + book.cover.replace(/^file:\/\//, ''))
@@ -2477,9 +2596,8 @@ export struct FavoritePage {
             .hitTestBehavior(HitTestMode.Transparent)
         } else {
           CoverImage({ title: book.title, author: book.author, localPlaceholder: book.id.startsWith('import_'),
-            imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO, radius: 0, themedDecoration: false })
+            imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO, radius: 0, themedDecoration: false, themeBundleId: 'default' })
         }
-        this.buildBookSpine()
         this.buildBookPressFeedback(book)
         this.buildTypeBadge(false, book.contentType ?? 'audio')
         this.buildSourceBadge(book)
@@ -2601,7 +2719,7 @@ export struct FavoritePage {
           Stack({ alignContent: Alignment.TopStart }) {
             if (book.cover && book.cover.startsWith('http')) {
               CoverImage({ url: book.cover, imgWidth: 80, imgHeight: 112, useFixedHeight: true,
-                radius: 0, themedDecoration: false })
+                radius: 0, themedDecoration: false, themeBundleId: 'default' })
                 .hitTestBehavior(HitTestMode.Transparent)
             } else if (book.cover && (book.cover.startsWith('/data/') || book.cover.startsWith('file://'))) {
               Image('file://' + book.cover.replace(/^file:\/\//, ''))
@@ -2619,9 +2737,8 @@ export struct FavoritePage {
                 .draggable(false).hitTestBehavior(HitTestMode.Transparent)
             } else {
               CoverImage({ title: book.title, author: book.author, localPlaceholder: book.id.startsWith('import_'),
-                imgWidth: 80, imgHeight: 112, useFixedHeight: true, radius: 0, themedDecoration: false })
+                imgWidth: 80, imgHeight: 112, useFixedHeight: true, radius: 0, themedDecoration: false, themeBundleId: 'default' })
             }
-            this.buildBookSpine()
         this.buildBookPressFeedback(book)
             this.buildTypeBadge(true, book.contentType ?? 'audio')
             this.buildSourceBadge(book)

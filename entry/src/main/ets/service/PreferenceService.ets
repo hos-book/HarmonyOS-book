@@ -304,6 +304,20 @@ export class PreferenceService {
     }
   }
 
+  static async setJianjianNightCareEnabled(enabled: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const previous = GeneralSettings.current.jianjianNightCareEnabled;
+    GeneralSettings.current.jianjianNightCareEnabled = enabled;
+    try {
+      await store.put('jianjian_night_care', enabled);
+      await store.flush();
+    } catch (error) {
+      GeneralSettings.current.jianjianNightCareEnabled = previous;
+      await store.put('jianjian_night_care', previous);
+      throw new Error('Failed to save night care preference');
+    }
+  }
+
   static async getComicVolumeKeyPageTurn(): Promise<boolean> {
     const store = await PreferenceService.ensureStore();
     return store.getSync('comic_volume_key_page_turn', false) === true;
@@ -564,6 +578,7 @@ export class PreferenceService {
         GeneralSettings.current.miniPlayerHideMinutes = PreferenceService.normalizeMiniPlayerHideMinutes(
           typeof miniPlayerHideMinutes === 'number' ? miniPlayerHideMinutes : 0);
         GeneralSettings.current.jianjianCompanionEnabled = s.getSync(KEY_JIANJIAN_COMPANION_ENABLED, false) === true;
+        GeneralSettings.current.jianjianNightCareEnabled = s.getSync('jianjian_night_care', true) !== false;
         emitter.emit(EVT_JIANJIAN_COMPANION_CHANGED);
         AppAppearance.current.verticalBottomTabs = s.getSync('vertical_bottom_tabs', false) === true;
         const material = await s.get(KEY_MATERIAL_STYLE, AppAppearance.systemMaterial);
@@ -1209,7 +1224,7 @@ export class PreferenceService {
   static async getShelfViewMode(): Promise<number> {
     const store = await PreferenceService.ensureStore();
     const value = await store.get('shelf_view_mode', 0);
-    return value === 1 ? 1 : 0;
+    return value === 1 || value === 2 ? value : 0;
   }
 
   static async getRecordEditLocked(): Promise<boolean> {
@@ -1231,7 +1246,7 @@ export class PreferenceService {
 
   static async setShelfViewMode(mode: number): Promise<void> {
     const store = await PreferenceService.ensureStore();
-    await store.put('shelf_view_mode', mode === 1 ? 1 : 0);
+    await store.put('shelf_view_mode', mode === 1 || mode === 2 ? mode : 0);
     await store.flush();
   }
 

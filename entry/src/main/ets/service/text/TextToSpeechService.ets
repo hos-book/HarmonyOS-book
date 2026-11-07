@@ -859,8 +859,8 @@ export class TextToSpeechService {
     }
     hilog.info(0x0000, 'SpeechFlow', 'text cache miss chapter=%{public}d', index);
     const value = await BookSourceService.getTextChapterContent(book, url, chapter.title, chapter.variables);
-    const content = OnlineTextPaginator.normalizeContent(value.content);
-    if (context !== null) await OnlineTextContentCache.write(context, key, content);
+    const content = value.commentsLoaded ? value.content : OnlineTextPaginator.normalizeContent(value.content);
+    if (context !== null) await OnlineTextContentCache.write(context, key, content, value.comments, value.commentsLoaded);
     return content;
   }
 

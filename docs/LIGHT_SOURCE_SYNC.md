@@ -2,6 +2,12 @@
 
 简听通过 `LocalRuleDispatcher → light/LightSourceBridge → LightSourceCore` 调用轻页的书源核心。页面仍由简听维护。轻页兼容源和轻页 `sourceFormat: native` 源走此链路；原简听规则核心、`jianting.source` 引擎及按域名分流的专用内容适配器已删除；历史定义保留为数据，停用格式不执行。
 
+## 阅读页段评接入（2026-11-07）
+
+宿主阅读器现已消费固定核心的 ReaderActionMarker：正文元数据通过 ReaderCommentContent 转换成规范化字符坐标，与正文分开缓存，渲染替换规则后再映射到显示坐标。点击通过现有导入书源 dispatcher 调用 LightSourceCore.readerAction，支持 URL、书源脚本和 NativeCommentPage。展示层统一为原生对话气泡；原生 page.data 优先归一为评论记录，HTML 型数据通过上游离线 sandbox 文档或持有独占租约的无痕 Web 采集可见字段；关闭、换章、后台和离页取消展示，Cookie 保存后清理会话。本轮不修改 upstream 生成文件或提升其固定版本。下方历史记录中的“不接入段评”仅描述当时范围。
+
+参考已读取的在线 [ArkTS 语法](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkUI 指引](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md) 和轻页固定版本 [NativeCommentPageView](https://raw.githubusercontent.com/wip3l/qingye-reader/48ec5bf45a0fa5993e455b2fe889c789d16fba1f/entry/src/main/ets/components/NativeCommentPageView.ets)。界面采用项目 ArkUI V2，而非照搬上游 V1 页面。
+
 ## 固定版本与维护边界
 
 ### EPUB 原版精排核心（2026-11-07）

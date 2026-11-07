@@ -1,0 +1,12 @@
+{
+  "string": [
+    {
+      "name": "shelf_view_spine",
+      "value": "切换为立式书架"
+    },
+    {
+      "name": "shelf_spine_accessibility",
+      "value": "点击打开，长按管理，横向滑动浏览书脊"
+    }
+  ]
+}

@@ -89,6 +89,7 @@ function makeShelf() {
     favoriteBooks: [{ id: 'audio', contentType: 'audio' }, { id: 'import_text', contentType: 'text' },
       { id: 'other', contentType: 'text' }],
     bookDataSource: { setBooks(books) { shelf.displayedBooks = books; } },
+    updateShelfData(books) { this.bookDataSource.setBooks(books); },
     loadFavorites: async () => { shelf.reloads++; },
     dismissDeleteSheet: async () => { shelf.showBatchDelete = false; },
     getUIContext: () => ({ getPromptAction: () => ({ showToast() {} }) })

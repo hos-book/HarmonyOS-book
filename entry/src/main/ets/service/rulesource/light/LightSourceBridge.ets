@@ -42,8 +42,8 @@ export class LightSourceBridge {
     return JSON.parse(await LightSourceCore.voices(LightSourceBridge.prepare(source)));
   }
   static async readerAction(source: LocalRuleSource, address: string,
-    variables: Record<string,string> = {}): Promise<LocalRuleReaderActionResult> {
-    return JSON.parse(await LightSourceCore.readerAction(LightSourceBridge.prepare(source),address,JSON.stringify(variables)));
+    variables: Record<string,string> = {}, request?: LightSourceRequest, chapterUrl: string = ''): Promise<LocalRuleReaderActionResult> {
+    return JSON.parse(await LightSourceCore.readerAction(LightSourceBridge.prepare(source),address,JSON.stringify(variables),request,chapterUrl));
   }
   static async fetch(source: LocalRuleSource, address: string): Promise<LocalRuleFetchResult> {
     return JSON.parse(await LightSourceCore.fetch(LightSourceBridge.prepare(source),address));

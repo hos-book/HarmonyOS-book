@@ -1,5 +1,6 @@
 import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
+import { SettingsHintButton } from '../components/SettingsHintButton';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { AppAppearance } from '../model/AppAppearance';
 import { MembershipState } from '../model/MembershipState';
@@ -542,6 +543,7 @@ export struct SettingsPage {
               AdaptiveLayout.sectionSpacing(this.viewportWidth, this.viewportHeight) - AppSpace.Xxs) }) {
             GridCol() { this.buildAppearanceGroup() }.enabled(this.isLoaded)
             GridCol() { this.buildInteractionGroup() }.enabled(this.isLoaded)
+            GridCol() { this.buildJianjianCompanionGroup() }
             GridCol() { this.buildLaunchGroup() }.enabled(this.isLoaded)
             GridCol() { this.buildPlaybackGroup() }.enabled(this.isLoaded)
             GridCol() { this.buildCacheGroup() }.enabled(this.isLoaded)
@@ -632,6 +634,15 @@ export struct SettingsPage {
     } finally {
       this.savingGeneral = false;
     }
+  }
+
+  private async setJianjianNightCareEnabled(enabled: boolean): Promise<void> {
+    if (!this.isLoaded || this.savingGeneral) return;
+    this.savingGeneral = true;
+    try { await PreferenceService.setJianjianNightCareEnabled(enabled); }
+    catch (_error) {
+      if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
+    } finally { this.savingGeneral = false; }
   }
 
   private async setShowShelfSource(enabled: boolean): Promise<void> {
@@ -788,7 +799,20 @@ export struct SettingsPage {
           (enabled: boolean): void => { this.setAdaptiveHandedness(enabled); },
           UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral)
         )
-        this.buildDivider()
+      }
+      .width('100%')
+      .backgroundColor(AppTheme.Surface)
+      .borderRadius(AppRadius.Lg)
+    }
+    .width('100%')
+    .alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  buildJianjianCompanionGroup() {
+    Column() {
+      this.buildGroupTitle($r('app.string.jianjian_companion_title'))
+      Column() {
         this.buildSwitchItem(
           $r('app.string.settings_jianjian_companion'),
           $r('app.string.settings_jianjian_companion_desc'),
@@ -798,13 +822,29 @@ export struct SettingsPage {
           false,
           true
         )
-      }
-      .width('100%')
-      .backgroundColor(AppTheme.Surface)
-      .borderRadius(AppRadius.Lg)
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
+        this.buildDivider()
+        Row({ space: AppSpace.Sm }) {
+          Text($r('app.string.jianjian_ai_settings')).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).layoutWeight(1)
+          SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([AppTheme.TextTertiary])
+        }.width('100%').constraintSize({ minHeight: 56 }).padding({ left: ROW_INDENT, right: ROW_INDENT })
+          .onClick((): void => { this.navStack.pushPathByName('jianjianAiSettings', ''); }).id('settings-jianjian-ai')
+        this.buildDivider()
+        Row({ space: AppSpace.Sm }) {
+          Text($r('app.string.jianjian_open_chat')).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).layoutWeight(1)
+          SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([AppTheme.TextTertiary])
+        }.width('100%').constraintSize({ minHeight: 56 }).padding({ left: ROW_INDENT, right: ROW_INDENT })
+          .onClick((): void => { this.navStack.pushPathByName('jianjianChat', ''); }).id('settings-jianjian-chat')
+        this.buildDivider()
+        this.buildSwitchItem(
+          $r('app.string.jianjian_night_care'),
+          $r('app.string.jianjian_night_care_desc'),
+          UIUtils.makeBinding<boolean>(() => this.generalSettings.jianjianNightCareEnabled),
+          (enabled: boolean): void => { this.setJianjianNightCareEnabled(enabled); },
+          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral),
+          false, true
+        )
+      }.width('100%').backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg)
+    }.width('100%').alignItems(HorizontalAlign.Start)
   }
 
   @Builder
@@ -848,14 +888,18 @@ export struct SettingsPage {
       Column() {
         Column({ space: AppSpace.Xs }) {
           Row({ space: AppSpace.Sm }) {
-            Text($r('app.string.settings_default_playback_speed')).fontSize(AppFont.BodyL)
-              .fontColor(AppTheme.TextPrimary).layoutWeight(1)
+            Row({ space: 2 }) {
+              Text($r('app.string.settings_default_playback_speed')).fontSize(AppFont.BodyL)
+                .fontColor(AppTheme.TextPrimary).flexShrink(1)
+              SettingsHintButton({
+                title: $r('app.string.settings_default_playback_speed'),
+                message: $r('app.string.settings_default_playback_speed_desc')
+              })
+            }.layoutWeight(1).alignItems(VerticalAlign.Center)
             Text(this.defaultPlaybackSpeedDraft.toFixed(2) + 'x')
               .fontSize(AppFont.BodyL).fontColor(AppColor.Brand)
               .id('settings-default-speed-value')
           }.width('100%')
-          Text($r('app.string.settings_default_playback_speed_desc'))
-            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).width('100%')
           Row({ space: AppSpace.Xs }) {
             this.buildDefaultSpeedButton(false)
             Slider({ value: this.defaultPlaybackSpeedDraft, min: 0.5, max: 3, step: 0.05 })
@@ -879,17 +923,21 @@ export struct SettingsPage {
 
         Column({ space: AppSpace.Xs }) {
           Row({ space: AppSpace.Sm }) {
-            Text($r('app.string.settings_audio_focus_title'))
-              .fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).layoutWeight(1)
+            Row({ space: 2 }) {
+              Text($r('app.string.settings_audio_focus_title'))
+                .fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).flexShrink(1)
+              SettingsHintButton({
+                title: $r('app.string.settings_audio_focus_title'),
+                message: this.focusMode === 1 ? $r('app.string.settings_audio_focus_mix_desc') :
+                  $r('app.string.settings_audio_focus_resume_desc')
+              })
+            }.layoutWeight(1).alignItems(VerticalAlign.Center)
             ImmersiveOptionTabs({
               labels: [$r('app.string.settings_audio_focus_resume'), $r('app.string.settings_audio_focus_mix')],
               selected: this.focusMode,
               onSelect: (index: number): void => { this.setFocusMode(index); }
             }).enabled(this.isLoaded && !this.isSavingFocusMode)
           }.width('100%')
-          Text(this.focusMode === 1 ? $r('app.string.settings_audio_focus_mix_desc') :
-            $r('app.string.settings_audio_focus_resume_desc'))
-            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).width('100%')
         }.width('100%')
           .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
 
@@ -897,8 +945,14 @@ export struct SettingsPage {
 
         Column({ space: AppSpace.Xs }) {
           Row({ space: AppSpace.Sm }) {
-            Text($r('app.string.settings_mini_player_hide')).fontSize(AppFont.BodyL)
-              .fontColor(AppTheme.TextPrimary).layoutWeight(1)
+            Row({ space: 2 }) {
+              Text($r('app.string.settings_mini_player_hide')).fontSize(AppFont.BodyL)
+                .fontColor(AppTheme.TextPrimary).flexShrink(1)
+              SettingsHintButton({
+                title: $r('app.string.settings_mini_player_hide'),
+                message: $r('app.string.settings_mini_player_hide_desc')
+              })
+            }.layoutWeight(1).alignItems(VerticalAlign.Center)
             ImmersiveOptionTabs({
               labels: [$r('app.string.settings_mini_player_hide_never'),
                 $r('app.string.settings_mini_player_hide_1'), $r('app.string.settings_mini_player_hide_5'),
@@ -907,8 +961,6 @@ export struct SettingsPage {
               onSelect: (index: number): void => { this.setMiniPlayerHideMinutes(index); }
             }).enabled(this.isLoaded && !this.savingGeneral)
           }.width('100%')
-          Text($r('app.string.settings_mini_player_hide_desc'))
-            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).width('100%')
         }.width('100%')
           .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
       }
@@ -997,21 +1049,19 @@ export struct SettingsPage {
         )
         this.buildDivider()
         Column({ space: AppSpace.Xs }) {
-          Row({ space: AppSpace.Sm }) {
+          Row({ space: 2 }) {
             Text($r('app.string.settings_search_concurrency'))
               .fontSize(AppFont.BodyL)
               .fontColor(AppTheme.TextPrimary)
               .flexShrink(1)
             if (MembershipState.featureEnabled) {
               VipFeatureBadge()
+              SettingsHintButton({
+                title: $r('app.string.settings_search_concurrency'),
+                message: $r('app.string.settings_search_concurrency_membership_hint')
+              })
             }
           }.width('100%')
-          if (MembershipState.featureEnabled) {
-            Text($r('app.string.settings_search_concurrency_membership_hint'))
-              .fontSize(AppFont.Caption)
-              .fontColor(AppTheme.TextSecondary)
-              .width('100%')
-          }
           if (this.searchConcurrencyLoadFailed) {
             Row({ space: AppSpace.Sm }) {
               Text($r('app.string.settings_search_load_failed')).fontSize(AppFont.Caption)
@@ -1064,12 +1114,12 @@ export struct SettingsPage {
     enabled: Binding<boolean>
   ) {
     Row({ space: AppSpace.Sm }) {
-      Column({ space: 2 }) {
-      Text(title).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).width('100%')
-      if (subtitle.value.length > 0) {
-        Text(subtitle.value).fontSize(AppFont.Caption).fontColor(AppTheme.TextTertiary).width('100%')
-      }
-      }.alignItems(HorizontalAlign.Start).layoutWeight(1)
+      Row({ space: 2 }) {
+        Text(title).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).flexShrink(1)
+        if (subtitle.value.length > 0) {
+          SettingsHintButton({ title: title, message: subtitle.value })
+        }
+      }.layoutWeight(1).alignItems(VerticalAlign.Center)
       ImmersiveOptionTabs({
         labels: options.map((option: SelectOption): ResourceStr => option.value),
         selected: selected.value,
@@ -1093,27 +1143,23 @@ export struct SettingsPage {
     trialFeature: boolean = false
   ) {
     Row() {
-      Column({ space: 2 }) {
-        Row({ space: AppSpace.Sm }) {
-          Text(title)
-            .fontSize(AppFont.BodyL)
-            .fontColor(AppTheme.TextPrimary)
-            .flexShrink(1)
-          if (vipFeature && MembershipState.featureEnabled) {
-            VipFeatureBadge()
-          }
-          if (trialFeature) {
-            Text($r('app.string.settings_limited_trial'))
-              .fontSize(AppFont.Caption).fontColor(AppColor.Brand).flexShrink(0)
-          }
-        }.width('100%')
+      Row({ space: 2 }) {
+        Text(title)
+          .fontSize(AppFont.BodyL)
+          .fontColor(AppTheme.TextPrimary)
+          .flexShrink(1)
+        if (vipFeature && MembershipState.featureEnabled) {
+          VipFeatureBadge()
+        }
+        if (trialFeature) {
+          Text($r('app.string.settings_limited_trial'))
+            .fontSize(AppFont.Caption).fontColor(AppColor.Brand).flexShrink(0)
+        }
         if (typeof subtitle !== 'string' || subtitle.length > 0) {
-          Text(subtitle)
-            .fontSize(AppFont.Caption)
-            .fontColor(AppTheme.TextTertiary)
+          SettingsHintButton({ title: title, message: subtitle })
         }
       }
-      .alignItems(HorizontalAlign.Start)
+      .alignItems(VerticalAlign.Center)
       .layoutWeight(1)
 
       Toggle({ type: ToggleType.Switch, isOn: isOn.value })

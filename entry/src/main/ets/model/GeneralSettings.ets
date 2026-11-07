@@ -10,4 +10,5 @@ export class GeneralSettings {
   /** 0 为永久显示，其余为暂停后自动隐藏的分钟数。 */
   @Trace miniPlayerHideMinutes: number = 0;
   @Trace jianjianCompanionEnabled: boolean = false;
+  @Trace jianjianNightCareEnabled: boolean = true;
 }

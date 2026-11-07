@@ -39,6 +39,8 @@ function load(name) {
   const localRequire = request => {
     if (request === '@kit.ArkUI') return kit;
     if (request.endsWith('/PlatformCompat')) return { PlatformCompat: platform };
+    // Palette tests run with verified theme access; entitlement behavior is covered separately.
+    if (request.endsWith('/MembershipState')) return { MembershipState: { current: { canDisplaySavedTheme: true } } };
     return load(path.posix.normalize(path.posix.join(path.posix.dirname(name), request)));
   };
   vm.runInContext(`(function(exports, require) {\n${output}\n})`, context,
@@ -95,10 +97,12 @@ assert.equal(mist.visual.background.kind, ThemeBackgroundKind.Solid);
 assert.equal(id(CoverTheme.placeholder(mist.id)), 'app.media.theme_mist_cover');
 assert.equal(id(ThemeIcons.resolve(ThemeIconRole.Home, mist.id)), 'app.media.theme_mist_home');
 const ink = AppTheme.resolve('ink-wash');
+const jianjian = AppTheme.resolve('baibian-jianjian');
 for (const bundle of ThemeBundles.list()) {
   assert.equal(bundle.visual.background.profileCardImage?.id,
-    bundle.id === 'ink-wash' ? 'app.media.theme_ink_profile_card' : undefined,
-    `${bundle.id}: profile banner belongs only to ink theme`);
+    bundle.id === ink.id ? 'app.media.theme_ink_profile_card' :
+      bundle.id === jianjian.id ? 'app.media.theme_jianjian_profile_card' : undefined,
+    `${bundle.id}: profile banner follows the selected theme`);
 }
 assert.equal(ink.id, 'ink-wash');
 assert.equal(ink.visual.background.kind, ThemeBackgroundKind.Image);
@@ -117,26 +121,52 @@ assert.equal(id(CoverTheme.localPlaceholder(ink.id)), 'app.media.theme_ink_local
 assert.equal(CoverTheme.decoration(ink.id), ThemeCoverDecoration.Spine);
 for (const role of Object.values(ThemeIconRole).filter(value => typeof value === 'number' && value !== ThemeIconRole.None)) {
   assert.ok(ThemeIcons.resolve(role, ink.id), `ink icon role ${role}`);
+  assert.ok(ThemeIcons.resolve(role, jianjian.id), `jianjian icon role ${role}`);
 }
+assert.equal(jianjian.id, 'baibian-jianjian');
+assert.equal(jianjian.visual.background.kind, ThemeBackgroundKind.Image);
+for (const [scene, name] of [[ThemeBackgroundScene.Home, 'background'],
+  [ThemeBackgroundScene.Shelf, 'shelf_background'], [ThemeBackgroundScene.Record, 'record_background']]) {
+  assert.equal(id(jianjian.visual.background.resolveImage(scene)), `app.media.theme_jianjian_${name}`);
+}
+for (const [role, name] of [[ThemeIconRole.Home, 'home'], [ThemeIconRole.Shelf, 'shelf'],
+  [ThemeIconRole.Record, 'record'], [ThemeIconRole.Profile, 'profile']]) {
+  assert.equal(id(ThemeIcons.resolve(role, jianjian.id)), `app.media.theme_jianjian_${name}`);
+  const png = fs.readFileSync(path.join(resources, 'base/media', `theme_jianjian_${name}.png`));
+  assert.equal(png.toString('hex', 0, 8), '89504e470d0a1a0a', 'full-color tab art must ship as PNG');
+  assert.equal(png.readUInt32BE(16), 160);
+  assert.equal(png.readUInt32BE(20), 160);
+  assert.equal(png[25], 6, 'tab art keeps its transparent background');
+}
+assert.equal(CoverTheme.decoration(jianjian.id), ThemeCoverDecoration.Spine);
+assert.equal(jianjian.visual.background.showCoverBackdrop, false);
 assert.deepEqual([state.themeBundleId, state.accent, state.material], beforePreview);
 assert.equal(ThemeBundles.resolve('removed-theme').id, 'default');
 assert.equal(ThemeIcons.resolve(ThemeIconRole.None, mist.id), undefined);
 const listed = ThemeBundles.list();
 listed.pop();
-assert.equal(ThemeBundles.list().length, 4, 'a consumer cannot remove a registry entry');
+assert.equal(ThemeBundles.list().length, 5, 'a consumer cannot remove a registry entry');
 
 for (const bundle of ThemeBundles.list()) {
   select(bundle);
   const originalMaterial = AppMaterial.FloatingControl;
   assert.equal(AppMaterial.FloatingControl, originalMaterial, 'reuse material while appearance is unchanged');
-  assert.equal(originalMaterial.options.lightEffect.color.id, bundle.visual.colors.brand.id);
+  if (bundle.material === AppAppearance.systemMaterial) {
+    assert.equal(originalMaterial.options.lightEffect, undefined, 'follow-system leaves the light effect to the system');
+  } else {
+    assert.equal(originalMaterial.options.lightEffect.color.id, bundle.visual.colors.brand.id);
+  }
   state.accent = '#2255AA';
   assert.equal(AppColor.Brand, '#2255AA');
   assert.equal(AppColor.BrandSoft, '#222255AA');
   assert.equal(HomeTheme.Accent, '#2255AA');
   const customizedMaterial = AppMaterial.FloatingControl;
   assert.notEqual(customizedMaterial, originalMaterial);
-  assert.equal(customizedMaterial.options.lightEffect.color, '#2255AA');
+  if (bundle.material === AppAppearance.systemMaterial) {
+    assert.equal(customizedMaterial.options.lightEffect, undefined);
+  } else {
+    assert.equal(customizedMaterial.options.lightEffect.color, '#2255AA');
+  }
   state.material = 2;
   assert.equal(AppMaterial.FloatingControl.options.style, 2);
   assert.equal(AppMaterial.ReaderSheetThick.options.style, 4, 'reader sheets keep fixed thickness');
@@ -187,17 +217,19 @@ function contrast(a, b) {
   return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
 }
 for (const bundle of ThemeBundles.list()) verifyResource(bundle);
-for (const asset of ['background', 'cover', 'local_cover']) {
+for (const name of ['theme_ink_background', 'theme_ink_cover', 'theme_ink_local_cover',
+  'theme_jianjian_background', 'theme_jianjian_shelf_background', 'theme_jianjian_record_background',
+  'theme_jianjian_cover', 'theme_jianjian_local_cover', 'theme_jianjian_profile_card']) {
   for (const mode of ['base', 'dark']) {
-    const file = path.join(resources, mode, 'media', `theme_ink_${asset}.webp`);
+    const file = path.join(resources, mode, 'media', `${name}.webp`);
     const data = fs.readFileSync(file);
     assert.equal(data.toString('ascii', 0, 4), 'RIFF');
     assert.equal(data.toString('ascii', 8, 12), 'WEBP');
-    assert.ok(data.length > 1000 && data.length < 450 * 1024, `ink ${mode}/${asset}: packaged image size`);
+    assert.ok(data.length > 1000 && data.length < 450 * 1024, `${mode}/${name}: packaged image size`);
   }
 }
 for (const mode of ['base', 'dark']) {
-  for (const prefix of ['theme_mist_', 'theme_ink_']) {
+  for (const prefix of ['theme_mist_', 'theme_ink_', 'theme_jianjian_']) {
     const c = key => tables[mode].get(prefix + key);
     for (const [foreground, background] of [['text_primary', 'background'], ['text_secondary', 'background'],
       ['text_tertiary', 'background'], ['text_secondary', 'surface'], ['text_tertiary', 'surface'],
@@ -206,4 +238,4 @@ for (const mode of ['base', 'dark']) {
     }
   }
 }
-console.log('PASS: theme resolution, legacy semantic roles, preview isolation, icon fallback, material invalidation, resources, ink assets and palette contrast');
+console.log('PASS: theme resolution, legacy semantic roles, preview isolation, icon fallback, material invalidation, resources, theme assets and palette contrast');

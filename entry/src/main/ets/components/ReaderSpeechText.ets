@@ -1,3 +1,5 @@
+import { ReaderParagraphComment } from '../model/ReaderComment';
+import { ReaderCommentLayout, ReaderCommentAnchor } from '../service/text/ReaderCommentLayout';
 import { TextToSpeechState } from '../model/TextToSpeechState';
 import { SpeechHighlightRange, SpeechTextHighlighter } from '../service/text/SpeechTextHighlighter';
 import { ReaderPalette } from '../model/ReaderTheme';
@@ -10,6 +12,8 @@ import { EpubPageStyle } from '../service/text/EpubPageStyle';
 @ComponentV2
 export struct ReaderSpeechText {
   @Param epubStyle: EpubPageStyle = new EpubPageStyle();
+  @Param comments: ReaderParagraphComment[] = [];
+  @Event onComment: (comment: ReaderParagraphComment) => void = () => {};
   @Param page: OnlineTextPage = new OnlineTextPage();
   @Param text: string = '';
   @Param source: string = '';
@@ -45,6 +49,7 @@ export struct ReaderSpeechText {
       if (this.page.parts.length > 0) {
         ForEach(this.page.parts, (part: OnlineTextPage) => {
           ReaderTextFragment({
+            comments: this.comments, onComment: this.onComment,
             letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight && !part.isHeading, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
             page: part, text: part.text,
             source: this.source.substring(part.startOffset - this.sourceStart, part.endOffset - this.sourceStart),
@@ -57,6 +62,7 @@ export struct ReaderSpeechText {
         }, (part: OnlineTextPage): string => `${part.layoutKey}:${part.startOffset}:${part.endOffset}:${part.imageUrl}:${part.imageWidth}:${part.layoutHeight}:${part.flowSpacing}`)
       } else {
         ReaderTextFragment({
+          comments: this.comments, onComment: this.onComment,
           letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight && !this.page.isHeading, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
           page: this.page, text: this.text, source: this.source, sourceStart: this.sourceStart,
           state: this.state, highlightEnabled: this.highlightEnabled && !this.page.isHeading, selectionEnabled: this.selectionEnabled && !this.page.isHeading,
@@ -72,6 +78,8 @@ export struct ReaderSpeechText {
 /** 当前自然段整体高亮；仅范围或分页内容改变时重新计算，不按字刷新。 */
 @ComponentV2
 struct ReaderTextFragment {
+  @Param comments: ReaderParagraphComment[] = [];
+  @Event onComment: (comment: ReaderParagraphComment) => void = () => {};
   @Param page: OnlineTextPage = new OnlineTextPage();
   private paragraphNode: ReaderParagraphNodeController = new ReaderParagraphNodeController();
   private selectionTouch: ReaderTouchTracker = new ReaderTouchTracker();
@@ -113,6 +121,11 @@ struct ReaderTextFragment {
     this.selectionStart = -1;
     this.selectionEnd = -1;
     this.onSelectionChange(false);
+  }
+
+  @Computed
+  get commentAnchors(): ReaderCommentAnchor[] {
+    return ReaderCommentLayout.anchors(this.page, this.source, this.sourceStart, this.comments, this.getUIContext().vp2px(1));
   }
 
   private updateSelection(start: number, end: number): void {
@@ -190,7 +203,7 @@ struct ReaderTextFragment {
         .accessibilityText(this.text)
         .hitTestBehavior(HitTestMode.None)
       if (this.selectionEnabled) {
-        Text(this.text).width('100%').height(this.getUIContext().px2vp(this.page.layoutHeight))
+        Text(this.text).width(this.getUIContext().px2vp(this.page.layoutWidth)).height(this.getUIContext().px2vp(this.page.layoutHeight))
           .fontSize(this.fontSize).letterSpacing(this.letterSpacing).fontFamily(this.fontFamily || undefined)
           .fontWeight(this.fontWeight, { enableVariableFontWeight: true }).lineHeight(this.fontSize * this.lineHeight)
           .textAlign(TextAlign.JUSTIFY).wordBreak(WordBreak.BREAK_WORD)
@@ -214,6 +227,20 @@ struct ReaderTextFragment {
               this.selectionTouch.canTap()) this.updateSelection(-1, -1);
           })
       }
+      ForEach(this.commentAnchors, (anchor: ReaderCommentAnchor) => {
+        Button({ type: ButtonType.Normal }) {
+          Image($r('app.media.reader_comment')).width(16).height(16).fillColor(this.palette.secondary)
+        }
+        .width(this.getUIContext().px2vp(anchor.size)).height(this.getUIContext().px2vp(anchor.size))
+        .padding(2).backgroundColor(Color.Transparent).borderRadius(6)
+        .position({ x: this.getUIContext().px2vp(anchor.x), y: this.getUIContext().px2vp(anchor.y) })
+        .accessibilityText(anchor.comment.label || this.getUIContext().getHostContext()?.resourceManager
+          .getStringSync($r('app.string.reader_comment_title').id) || '')
+        .enabled(!this.selecting)
+        .onTouch((event: TouchEvent): void => { event.stopPropagation(); })
+        .onClick((): void => { if (!this.selecting) this.onComment(anchor.comment); })
+        .id('reader-comment-' + anchor.comment.offset)
+      }, (anchor: ReaderCommentAnchor): string => anchor.comment.offset + ':' + anchor.comment.url)
       }.width('100%').height(this.getUIContext().px2vp(this.page.layoutHeight))
         .parallelGesture(LongPressGesture({ repeat: false, duration: 500 })
           .onAction((event: GestureEvent): void => this.beginSelection(event)))

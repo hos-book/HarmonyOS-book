@@ -26,6 +26,18 @@ export class SpeechTextSegmenter {
     return !new RegExp('[\\p{L}\\p{N}]', 'u').test(text);
   }
 
+  /** 长句超出用户上限时回退到词间空白或分句标点；无边界的超长内容才按字符兜底。 */
+  private static wordBoundary(content: string, start: number, end: number): number {
+    const whitespace = new RegExp('\\s');
+    for (let offset = end; offset > start; offset--) {
+      // 空白留给后一段，合并短句时仍能保留词间间隔。
+      if (whitespace.test(content.charAt(offset)) || '，,、：:'.includes(content.charAt(offset - 1))) {
+        if (content.substring(start, offset).trim().length > 0) return offset;
+      }
+    }
+    return end;
+  }
+
   static split(content: string, mergeShort: boolean = false, pageEnds: number[] = [],
     filter: boolean = true, maxLength: number = 180, hardLimit: number = Number.MAX_SAFE_INTEGER): SpeechSegment[] {
     content = LocalTextImage.speechContent(content);
@@ -41,9 +53,14 @@ export class SpeechTextSegmenter {
         (ch === '.' && (i + 1 === content.length || new RegExp('\\s').test(content.charAt(i + 1))));
       // 限制单句长度，且不把 UTF-16 代理对拆开。
       const code = content.charCodeAt(i);
-      const limit = i - start >= maxLength - 1 && !(code >= 0xD800 && code <= 0xDBFF);
+      const highSurrogate = code >= 0xD800 && code <= 0xDBFF;
+      const limit = i - start >= maxLength - 1 && (!highSurrogate || i - start + 1 >= hardLimit);
       if (boundary || limit || i === content.length - 1) {
         let end = i + 1;
+        if (limit && !boundary && end < content.length) {
+          if (highSurrogate) end--;
+          end = SpeechTextSegmenter.wordBoundary(content, start, end);
+        }
         // 连续问号和收尾标点随上一句合成，避免拆出没有语音数据的请求。
         while (end < content.length && end - start < hardLimit && !boundaries.has(end) &&
           '。！？!?；;”’」』）'.includes(content.charAt(end))) end++;
@@ -97,11 +114,10 @@ export class SpeechTextSegmenter {
   /** 同一次合成可覆盖多个自然段，位置仍对应原文；系统 PCM 单次限制 300 字。 */
   static batches(content: string, settings: SpeechSynthesisSettings, custom: boolean, pageEnds: number[] = []): SpeechSegment[] {
     const limit = Math.min(settings.maxChars, custom ? 4000 : 300);
-    // 渐进朗读的后续请求也保持短段，避免首句后等待数百字完整合成。
-    // maxChars 仍是用户上限；替换规则扩张后的单句继续按原上限校验。
-    const batchLimit = custom && settings.quickStart ? Math.min(limit, 64) : limit;
+    // 加速起读只单独提交第一句；后续批次始终使用用户配置，不能被隐藏短段上限覆盖。
+    // 预留两个 UTF-16 单元给代理对与尾部标点，最终批次仍按完整字数上限检查。
     const segments = SpeechTextSegmenter.split(content, false, pageEnds, settings.filterSymbols,
-      Math.min(batchLimit - 2, 180), batchLimit);
+      limit - 2, limit);
     const result: SpeechSegment[] = [];
     const startOffset = pageEnds.length > 0 ? Math.max(...pageEnds) : 0;
     let firstSpoken = false;
@@ -118,7 +134,7 @@ export class SpeechTextSegmenter {
       const first = custom && settings.quickStart && !firstSpoken && segment.end > startOffset;
       if (segment.end > startOffset) firstSpoken = true;
       if (!first && !protectFirst && previous !== null && paragraphs + (newParagraph ? 1 : 0) <= settings.paragraphs &&
-        previous.text.length + separator.length + segment.text.length <= batchLimit &&
+        previous.text.length + separator.length + segment.text.length <= limit &&
         !pageEnds.some((offset: number): boolean => offset > previous.start && offset < segment.end)) {
         previous.end = segment.end;
         previous.text += separator + segment.text;

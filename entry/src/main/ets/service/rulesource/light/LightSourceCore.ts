@@ -13,6 +13,8 @@ import { NativeSourceImport } from './upstream/core/nativesource/NativeSourceImp
 import { WebBookService } from './upstream/core/book/WebBookService';
 import { SearchCoordinator } from './upstream/core/book/SearchCoordinator';
 import { ExploreCoordinator } from './upstream/core/book/ExploreCoordinator';
+import { NativeCommentPage } from './upstream/core/nativesource/NativeCommentPage';
+import { LightReaderCommentDocument } from './LightReaderCommentDocument';
 import { ReaderActionMarker } from './upstream/core/book/ReaderActionMarker';
 import { ReaderImageMarker } from './upstream/core/book/ReaderImageMarker';
 import { BookTypeSupport } from './upstream/core/book/BookTypeSupport';
@@ -77,10 +79,33 @@ export class LightSourceCore {
     const source = this.source(local);
     return LightSourceRuntime.run(source,local,async () => JSON.stringify(NativeSourceService.voices(source)));
   }
-  static async readerAction(localJson: string, address: string, context: string): Promise<string> {
+  static async readerAction(localJson: string, address: string, context: string, policy?: LightSourceRequest,
+    chapterUrl: string = ''): Promise<string> {
     const local = JSON.parse(localJson) as LocalRuleSource;
     const source = this.source(local);
+    LightSourceRequestPolicy.bind(source, policy);
     return LightSourceRuntime.run(source,local,async () => {
+      if (policy?.isCancelled()) throw new Error('段评已取消');
+      const variables = JSON.parse(context) as Record<string,string>;
+      const url = chapterUrl || variables.chapterUrl || variables.bookUrl || '';
+      const book = this.book(source, url, variables);
+      const chapter = new BookChapter();
+      chapter.url = url;
+      chapter.bookUrl = book.bookUrl;
+      chapter.title = variables.chapterName || variables.title || '';
+      chapter.index = Number(variables.chapterIndex || 0);
+      chapter.variable = context;
+      if (NativeSourceService.isNative(source) && NativeCommentPage.isAction(address)) {
+        const page = await NativeSourceService.getCommentPage(source, new HttpClient(), book, chapter,
+          address, () => !!policy?.isCancelled());
+        if (policy?.isCancelled()) throw new Error('段评已取消');
+        if (page.error || !page.html) {
+          if (page.fallbackUrl) return JSON.stringify({url:page.fallbackUrl,html:''});
+          throw new Error(page.error || '暂无段评内容');
+        }
+        return JSON.stringify({html:LightReaderCommentDocument.nativeDocument(page),url:'',offline:true,
+          commentData:LightReaderCommentDocument.parse(page.dataJson)});
+      }
       if (NativeSourceService.isNative(source) && NativeSourceService.isReaderAction(address)) {
         return JSON.stringify({message:await NativeSourceService.runReaderAction(source,new HttpClient(),address)});
       }
@@ -89,19 +114,18 @@ export class LightSourceCore {
       if (panel) return JSON.stringify({html:panel.html,url:panel.baseUrl});
       const code = ReaderActionMarker.sourceScript(expanded);
       if (!code) return JSON.stringify({url:expanded,html:''});
-      const variables = JSON.parse(context) as Record<string,string>;
       const request = new StageWebRuntimeRequest();
+      request.readerActionMode = true;
       request.applyStageBudget(SourceRuntimeStage.READER_ACTION);
       request.source = source;
-      request.book = this.book(source,variables.bookUrl || '',variables);
-      request.chapter = new BookChapter();
-      request.chapter.url = variables.chapterUrl || '';
-      request.chapter.title = variables.chapterName || '';
-      request.chapter.variable = context;
+      request.book = book;
+      request.chapter = chapter;
       request.variables = variables;
       request.baseUrl = request.chapter.url || source.bookSourceUrl;
       request.code = code;
       const result = await BookSourceStageWebRuntime.get().execute(request);
+      if (policy?.isCancelled()) throw new Error('段评已取消');
+      if (result.errorMessage) throw new Error(result.errorMessage);
       return JSON.stringify({url:result.requestedUrl,html:result.requestedHtml,value:result.value,message:result.toastMessage});
     });
   }

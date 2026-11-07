@@ -148,6 +148,27 @@
     {
       "name": "shelf_status_background",
       "value": "#4A3820"
-    }
+    },
+    {"name":"theme_jianjian_background","value":"#211A23"},
+    {"name":"theme_jianjian_surface","value":"#302330"},
+    {"name":"theme_jianjian_profile_menu_surface","value":"#342632"},
+    {"name":"theme_jianjian_text_primary","value":"#FBEAF2"},
+    {"name":"theme_jianjian_text_secondary","value":"#D7BDC9"},
+    {"name":"theme_jianjian_text_tertiary","value":"#C0A6B6"},
+    {"name":"theme_jianjian_divider","value":"#33F3ADC9"},
+    {"name":"theme_jianjian_brand","value":"#F3ADC9"},
+    {"name":"theme_jianjian_brand_hover","value":"#EB9BBB"},
+    {"name":"theme_jianjian_brand_pressed","value":"#DF87AD"},
+    {"name":"theme_jianjian_brand_disabled","value":"#66F3ADC9"},
+    {"name":"theme_jianjian_brand_soft","value":"#22F3ADC9"},
+    {"name":"theme_jianjian_on_brand","value":"#3E2031"},
+    {"name":"theme_jianjian_control","value":"#F2302330"},
+    {"name":"theme_jianjian_shadow","value":"#44000000"},
+    {"name":"theme_jianjian_status_scrim","value":"#F2211A23"},
+    {"name":"theme_jianjian_floating_mask","value":"#CC211A23"},
+    {"name":"theme_jianjian_cover_text","value":"#FBEAF2"},
+    {"name":"theme_jianjian_cover_label","value":"#E6302330"},
+    {"name":"theme_jianjian_local_cover_text","value":"#FBEAF2"},
+    {"name":"theme_jianjian_local_cover_author","value":"#D7BDC9"}
   ]
 }

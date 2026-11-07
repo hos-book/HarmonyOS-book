@@ -1,6 +1,7 @@
 import { RankingCategorySetting, RankingPreferences } from '../service/ranking/RankingPreferences';
 import { RankingPlatform } from '../model/Ranking';
 import { AppColor, AppFont, AppRadius, AppSpace, AppTheme } from '../theme/Theme';
+import { SettingsHintButton } from './SettingsHintButton';
 
 @ComponentV2
 export struct RankingSettingsComponent {
@@ -39,6 +40,7 @@ export struct RankingSettingsComponent {
 
   build() {
     Column({ space: AppSpace.Xs }) {
+      Row() {
       Button({ type: ButtonType.Normal }) {
         Row({ space: AppSpace.Sm }) {
           Text($r('app.string.ranking_settings_title')).fontSize(AppFont.BodyL)
@@ -46,16 +48,19 @@ export struct RankingSettingsComponent {
           SymbolGlyph(this.expanded ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
             .fontSize(16).fontColor([AppTheme.TextTertiary])
         }.width('100%').padding(AppSpace.Md)
-      }.width('100%').constraintSize({ minHeight: 56 })
-      .backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg)
+      }.layoutWeight(1).constraintSize({ minHeight: 56 })
+      .backgroundColor(Color.Transparent).borderRadius(AppRadius.Lg)
       .accessibilityText($r('app.string.ranking_settings_title'))
       .accessibilityDescription(this.expanded ? $r('app.string.ranking_settings_collapse') :
         $r('app.string.ranking_settings_expand'))
       .onClick((): void => { this.expanded = !this.expanded; })
+      SettingsHintButton({
+        title: $r('app.string.ranking_settings_title'),
+        message: $r('app.string.ranking_settings_desc')
+      }).margin({ right: AppSpace.Sm })
+      }.width('100%').backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg)
       if (this.expanded) {
       Column() {
-        Text($r('app.string.ranking_settings_desc')).fontSize(AppFont.Caption)
-          .fontColor(AppTheme.TextSecondary).padding(AppSpace.Md).width('100%')
         if (this.failed) {
           Button($r('app.string.ranking_settings_retry')).onClick((): void => { this.load(); })
         }
