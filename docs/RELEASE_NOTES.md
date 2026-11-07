@@ -20,11 +20,14 @@ EPUB 原版精排与新增资源提取需重新导入旧书后生效；实际原
 - 使用 release 产品、Release 编译模式和本机发布签名，保留现有正式渠道配置。
 - 邀测配置：即刻开始，全部现有测试组，发送测试通知，关闭上架自检。
 - 构建：Release SDK 26.0.0.105，buildMode=release、debug=false，最低 API 20、目标 API 26，发布签名 jiantingMarketRelease。
-- 验证：改动 ArkTS 文件已执行静态检查；完整 Release APP 构建、7 组定向回归、混淆后 EPUB 依赖与 Web 接口回归及发布包元数据核验通过。仍有既有兼容性/废弃接口和上游 TypeScript 提示；本次未新增设备回归，既有设备验证范围见 docs/APP_UI.md。
+- 验证：80 个改动 ArkTS 文件已执行静态检查；完整 Release APP 构建、7 组定向回归、混淆后 EPUB 依赖与 Web 接口回归及发布包元数据核验通过。仍有既有兼容性/废弃接口和上游 TypeScript 提示；本次未新增设备回归，既有设备验证范围见 docs/APP_UI.md。
 - APP：`artifacts/releases/1.0.6-1006001/Jianting-1.0.6-1006001-release.app`，293315000 字节。
 - SHA-256：`93d45d211ff7aff26b635361d80f0a241351a30205269918c9a56dba50cd7bd2`。
 - 工作区：清理一次性导入探针、截图、旧任务验证目录和空临时目录；保留正式资源、发布归档与仍在使用的回归脚本。
-- AGC 状态：待上传和提交。
+- AGC：软件包 `2078551494541505408` 已上传并完成解析（successStatus=0），邀请测试版本 `2078550693840483200` 已提交成功（ret.code=0）。
+- 测试配置已回读核验：简听外部体验 62 人、内测组 2 人全部选中；发送测试通知开启；创建请求设置 `onshelfSelfDetect=0`（关闭上架自检）。
+- 测试时间：北京时间 2026-11-07 20:30:13 至 2026-12-07 20:30:13，开始时间设为本次操作此刻；实际可安装时间取决于 AGC 邀测审核结果，通知送达以平台结果为准。
+- 状态回读：审核申请已成功下发（reviewState=1）；releaseState 暂为 7，等待 AGC 后续审核状态更新。当前尚未确认审核通过或可安装。
 - 本次在线依据：[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)。本轮已在线刷新目录并读取指引；构建 MCP 因 OHPM 批处理递归失败后使用本机 Release IDE CLI，AGC 使用技能内临时 CLI，任务结束后删除。
 
 ## 邀测说明
