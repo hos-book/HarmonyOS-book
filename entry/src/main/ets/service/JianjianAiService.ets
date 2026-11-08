@@ -2,7 +2,8 @@ import { common } from '@kit.AbilityKit';
 import { relationalStore } from '@kit.ArkData';
 import { util, url } from '@kit.ArkTS';
 import { rcp } from '@kit.RemoteCommunicationKit';
-import { JianjianAiConfig, JianjianAiMessage, JianjianAiError, JianjianAiErrorCode } from '../model/JianjianAi';
+import { JianjianAiConfig, JianjianAiMessage, JianjianAiError, JianjianAiErrorCode,
+  JianjianAiPrompts, JIANJIAN_PROMPT_MAX_LENGTH } from '../model/JianjianAi';
 
 class ModelEntry { id: string = ''; }
 class ModelsResponse { data: ModelEntry[] = []; }
@@ -24,7 +25,54 @@ export class JianjianAiService {
     const store = await relationalStore.getRdbStore(context, { name: 'jianjian_ai.db',
       securityLevel: relationalStore.SecurityLevel.S2, encrypt: true, allowRebuild: false });
     await store.executeSql('CREATE TABLE IF NOT EXISTS config (id INTEGER PRIMARY KEY, address TEXT, api_key TEXT, model TEXT)');
+    await store.executeSql('CREATE TABLE IF NOT EXISTS model_cache (id INTEGER PRIMARY KEY, address TEXT, api_key TEXT, models TEXT)');
+    await store.executeSql('CREATE TABLE IF NOT EXISTS prompts (id INTEGER PRIMARY KEY, chat_prompt TEXT, book_prompt TEXT)');
     return store;
+  }
+
+  static defaultPrompts(context: common.Context): JianjianAiPrompts {
+    const prompts = new JianjianAiPrompts();
+    prompts.chat = context.resourceManager.getStringSync($r('app.string.jianjian_ai_system_prompt').id);
+    prompts.book = context.resourceManager.getStringSync($r('app.string.jianjian_book_system_prompt').id);
+    return prompts;
+  }
+
+  private static normalizePrompts(context: common.Context, prompts: JianjianAiPrompts): JianjianAiPrompts {
+    if (prompts.chat.length > JIANJIAN_PROMPT_MAX_LENGTH || prompts.book.length > JIANJIAN_PROMPT_MAX_LENGTH) {
+      throw new JianjianAiError(JianjianAiErrorCode.PROMPT);
+    }
+    const valid = JianjianAiService.defaultPrompts(context);
+    if (prompts.chat.trim()) valid.chat = prompts.chat.trim();
+    if (prompts.book.trim()) valid.book = prompts.book.trim();
+    return valid;
+  }
+
+  static async loadPrompts(context: common.Context): Promise<JianjianAiPrompts> {
+    const store = await JianjianAiService.store(context);
+    const rows = await store.querySql('SELECT chat_prompt, book_prompt FROM prompts WHERE id = 1');
+    try {
+      if (!rows.goToFirstRow()) return JianjianAiService.defaultPrompts(context);
+      const prompts = new JianjianAiPrompts();
+      prompts.chat = rows.getString(0);
+      prompts.book = rows.getString(1);
+      return JianjianAiService.normalizePrompts(context, prompts);
+    } finally { rows.close(); }
+  }
+
+  static async savePrompts(context: common.Context, prompts: JianjianAiPrompts): Promise<JianjianAiPrompts> {
+    const valid = JianjianAiService.normalizePrompts(context, prompts);
+    const store = await JianjianAiService.store(context);
+    await store.executeSql('INSERT OR REPLACE INTO prompts (id, chat_prompt, book_prompt) VALUES (1, ?, ?)',
+      [valid.chat, valid.book]);
+    return valid;
+  }
+
+  /** 每次发送读取已保存提示词；正文片段仍由阅读页按已读边界筛选。 */
+  static async conversationPrompt(context: common.Context, bookMode: boolean, evidence: string = ''): Promise<string> {
+    const prompts = await JianjianAiService.loadPrompts(context);
+    if (!bookMode) return prompts.chat;
+    return prompts.book + '\n\n' +
+      context.resourceManager.getStringSync($r('app.string.jianjian_prompt_evidence').id) + '\n' + evidence;
   }
 
   static async loadConfig(context: common.Context): Promise<JianjianAiConfig> {
@@ -50,7 +98,38 @@ export class JianjianAiService {
 
   static async clearConfig(context: common.Context): Promise<void> {
     const store = await JianjianAiService.store(context);
+    await store.executeSql('DELETE FROM model_cache');
     await store.executeSql('DELETE FROM config');
+  }
+
+  /** 模型目录与服务地址、凭据绑定，保存在同一加密库中；刷新由用户主动触发。 */
+  static async loadCachedModels(context: common.Context, config: JianjianAiConfig): Promise<string[]> {
+    if (!config.address || !config.apiKey) return [];
+    const valid = JianjianAiService.normalize(config);
+    const store = await JianjianAiService.store(context);
+    const rows = await store.querySql('SELECT models FROM model_cache WHERE id = 1 AND address = ? AND api_key = ?',
+      [valid.address, valid.apiKey]);
+    try {
+      if (!rows.goToFirstRow()) return [];
+      const models: string[] = JSON.parse(rows.getString(0));
+      return Array.isArray(models) ? JianjianAiService.modelIds(models) : [];
+    } catch (_error) { return []; }
+    finally { rows.close(); }
+  }
+
+  static async saveCachedModels(context: common.Context, config: JianjianAiConfig, models: string[]): Promise<void> {
+    const valid = JianjianAiService.normalize(config);
+    const store = await JianjianAiService.store(context);
+    await store.executeSql('INSERT OR REPLACE INTO model_cache (id, address, api_key, models) VALUES (1, ?, ?, ?)',
+      [valid.address, valid.apiKey, JSON.stringify(JianjianAiService.modelIds(models))]);
+  }
+
+  private static modelIds(models: string[]): string[] {
+    const ids: Set<string> = new Set<string>();
+    for (const id of models) {
+      if (typeof id === 'string' && id.trim() && id.length <= 512 && !/[\r\n]/.test(id)) ids.add(id.trim());
+    }
+    return Array.from(ids).sort();
   }
 
   static normalize(config: JianjianAiConfig, requireModel: boolean = false): JianjianAiConfig {
@@ -78,13 +157,11 @@ export class JianjianAiService {
     try {
       const response: ModelsResponse = JSON.parse(body);
       if (!response || !Array.isArray(response.data)) throw new Error('Invalid models');
-      const ids: Set<string> = new Set<string>();
+      const ids: string[] = [];
       for (const entry of response.data) {
-        if (entry && typeof entry.id === 'string' && entry.id.trim() && entry.id.length <= 512 && !/[\r\n]/.test(entry.id)) {
-          ids.add(entry.id.trim());
-        }
+        if (entry) ids.push(entry.id);
       }
-      return Array.from(ids).sort();
+      return JianjianAiService.modelIds(ids);
     } catch (_error) { throw new JianjianAiError(JianjianAiErrorCode.INVALID); }
   }
 
@@ -113,7 +190,9 @@ export class JianjianAiService {
     const valid = JianjianAiService.normalize(config, true);
     const request = new ChatRequest();
     request.model = valid.model;
-    request.messages = [new JianjianAiMessage('system', prompt)];
+    request.messages = [new JianjianAiMessage('system', prompt + '\n\n' +
+      '回复使用纯文本，保留段落和引用编号；标题单独成行，要点使用普通编号或短横线。' +
+      '不要输出 Markdown 标题、加粗、斜体或代码围栏标记。')];
     // Bound conversation independently of displayed history. Book mode supplies only its bounded, user-invoked evidence.
     let characters = 0;
     const recent: JianjianAiMessage[] = [];
@@ -190,6 +269,7 @@ export class JianjianAiService {
       case JianjianAiErrorCode.INVALID: return $r('app.string.jianjian_ai_response_error');
       case JianjianAiErrorCode.TOO_LARGE: return $r('app.string.jianjian_ai_too_large');
       case JianjianAiErrorCode.CANCELLED: return $r('app.string.jianjian_ai_cancelled');
+      case JianjianAiErrorCode.PROMPT: return $r('app.string.jianjian_prompt_too_long', JIANJIAN_PROMPT_MAX_LENGTH);
       default: return $r('app.string.jianjian_ai_server_error', error instanceof JianjianAiError ? error.status : 0);
     }
   }

@@ -321,7 +321,16 @@ export class AudioService {
       onSetSpeed: (speed: number) => { this.setSpeed(speed); },
       onSetLoopMode: (mode: avSession.LoopMode) => { this.setPlayMode(this.fromAVSessionLoopMode(mode)); },
       onCollection: () => { this.toggleFavoriteFromSession(); },
-      onCastConnected: () => { this.pause('cast'); }
+      onCastConnected: () => { this.pause('cast'); },
+      onSelectChapter: (book: Book, chapter: Chapter): void => {
+        const current = this.state?.currentBook;
+        if (!current || current.id !== book.id || PlaybackCoordinator.speechActive) return;
+        const target = current.chapters.find((item: Chapter): boolean => item.id === chapter.id);
+        if (!target) return;
+        this.playChapterFromSavedProgress(current, target).catch((error: BusinessError): void => {
+          DiagnosticLogService.failure('audio.queue', error);
+        });
+      }
     };
     AVSessionService.getInstance().setCallbacks(cbs);
     AVSessionService.getInstance().init(this.context).catch((err: Error) => {

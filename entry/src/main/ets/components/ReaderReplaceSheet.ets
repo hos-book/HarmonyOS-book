@@ -1,5 +1,6 @@
 import { ReaderReplaceRule } from '../model/ReaderTools';
 import { ReaderToolsService } from '../service/text/ReaderToolsService';
+import { ReaderReplaceImport } from '../service/text/ReaderReplaceImport';
 import { ListDataSource } from '../utils/ListDataSource';
 import { AppColor } from '../theme/Theme';
 
@@ -21,6 +22,9 @@ export struct ReaderReplaceSheet {
   @Local failed: ResourceStr = '';
   @Local preview: string = '';
   @Local previewReady: boolean = false;
+  @Local importing: ReaderReplaceRule[] = [];
+  @Local importAllBooks: boolean = false;
+  @Local importMessage: string = '';
   private data: ListDataSource<ReaderReplaceRule> = new ListDataSource<ReaderReplaceRule>();
   private alive: boolean = false;
 
@@ -95,19 +99,72 @@ export struct ReaderReplaceSheet {
     finally { this.busy = false; }
   }
 
+  private importError(error: Error): void {
+    this.failed = error.message === 'reader_replace_import_scope_error' ? $r('app.string.reader_replace_import_scope_error') :
+      error.message === 'reader_tools_limit' ? $r('app.string.reader_replace_import_limit') :
+      error.message === 'reader_tools_storage_error' ? $r('app.string.reader_tools_storage_error') :
+      error.message === 'reader_replace_invalid' ? $r('app.string.reader_replace_invalid') :
+      $r('app.string.reader_replace_import_invalid');
+  }
+
+  private async pickRules(): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    if (!context || this.busy) return;
+    this.busy = true; this.failed = ''; this.importMessage = '';
+    try {
+      const rules = await ReaderReplaceImport.pick(context);
+      if (this.alive) { this.importing = rules; this.importAllBooks = false; }
+    } catch (error) { if (this.alive) this.importError(error instanceof Error ? error : new Error('import')); }
+    finally { if (this.alive) this.busy = false; }
+  }
+
+  private async saveImportedRules(): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    if (!context || this.busy || this.importing.length === 0) return;
+    this.busy = true; this.failed = '';
+    try {
+      const count = await ReaderToolsService.importRules(context, this.importing, this.importAllBooks ? '' : this.bookId);
+      this.importing = [];
+      await this.load();
+      if (this.alive) this.importMessage = context.resourceManager.getStringSync($r('app.string.reader_replace_import_success').id, count);
+      if (count > 0) await this.onChanged();
+    } catch (error) { if (this.alive) this.importError(error instanceof Error ? error : new Error('import')); }
+    finally { if (this.alive) this.busy = false; }
+  }
+
   build() {
     Column({ space: 12 }) {
       Row({ space: 12 }) {
         Text(this.editing ? $r('app.string.reader_replace_edit') : $r('app.string.reader_replace_rules'))
           .fontSize(22).fontWeight(FontWeight.Bold).fontColor($r('sys.color.font_primary')).layoutWeight(1)
-        if (!this.editing) {
+        if (!this.editing && this.importing.length === 0) {
           Button($r('app.string.common_add'), { buttonStyle: ButtonStyleMode.TEXTUAL })
             .fontColor($r('sys.color.font_primary'))
             .flexShrink(0).enabled(!this.busy).onClick((): void => this.edit())
         }
       }.width('100%').padding({ right: 56 }) // 为系统弹层右上角的关闭按钮留出独立区域。
       if (this.failed !== '') { Text(this.failed).fontSize(14).fontColor($r('sys.color.ohos_id_color_warning')) }
-      if (this.editing) {
+      if (this.importing.length > 0) {
+        Text($r('app.string.reader_replace_import_preview', this.importing.length)).fontColor($r('sys.color.font_primary'))
+        Text($r('app.string.reader_replace_import_hint')).fontSize(13).fontColor($r('sys.color.font_secondary'))
+        Row() {
+          Text($r('app.string.reader_replace_all_books')).layoutWeight(1).fontColor($r('sys.color.font_primary'))
+          Toggle({ type: ToggleType.Switch, isOn: this.importAllBooks }).selectedColor(AppColor.Brand)
+            .enabled(!this.busy).onChange((value: boolean): void => { this.importAllBooks = value; })
+        }.width('100%')
+        Scroll() {
+          Text(this.importing.map((rule): string => rule.name || rule.pattern).join('\n'))
+            .fontColor($r('sys.color.font_primary')).width('100%')
+        }.layoutWeight(1).width('100%')
+        Row({ space: 12 }) {
+          Button($r('app.string.common_cancel')).layoutWeight(1).enabled(!this.busy)
+            .backgroundColor(AppColor.Brand).fontColor(AppColor.OnBrand)
+            .onClick((): void => { this.importing = []; this.failed = ''; })
+          Button($r('app.string.reader_replace_import')).layoutWeight(1).enabled(!this.busy)
+            .backgroundColor(AppColor.Brand).fontColor(AppColor.OnBrand)
+            .onClick((): void => { this.saveImportedRules(); })
+        }.width('100%')
+      } else if (this.editing) {
         Scroll() {
           Column({ space: 12 }) {
             TextInput({ text: this.name, placeholder: $r('app.string.reader_replace_name') }).maxLength(80)
@@ -147,6 +204,9 @@ export struct ReaderReplaceSheet {
             .enabled(!this.busy && !!this.pattern).onClick((): void => { this.change(this.draft()); })
         }.width('100%')
       } else {
+        Button($r('app.string.reader_replace_import')).backgroundColor(AppColor.Brand).fontColor(AppColor.OnBrand)
+          .enabled(!this.busy).onClick((): void => { this.pickRules(); })
+        if (this.importMessage) { Text(this.importMessage).fontSize(13).fontColor($r('sys.color.font_secondary')) }
         Text($r('app.string.reader_replace_scope_hint')).fontSize(13).fontColor($r('sys.color.font_secondary')).width('100%')
         if (this.rules.length === 0) {
           Text($r('app.string.reader_replace_empty')).fontColor($r('sys.color.font_secondary')).layoutWeight(1)

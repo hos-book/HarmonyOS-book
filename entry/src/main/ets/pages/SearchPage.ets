@@ -1,3 +1,6 @@
+import { ImmersiveMenu } from '../utils/ImmersiveMenu';
+import { ImmersiveMenuHeader } from '../components/ImmersiveMenuHeader';
+import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
 import { BookCoverPolicy } from '../utils/BookCoverPolicy';
 import { BookMetadataPolicy } from '../utils/BookMetadataPolicy';
 import { BookMetadataText } from '../utils/BookMetadataText';
@@ -77,14 +80,18 @@ struct SearchOptionItem {
           .textAlign(TextAlign.Start)
         SymbolGlyph($r('sys.symbol.checkmark'))
           .fontSize(18)
-          .fontColor([AppColor.Brand])
+          .fontColor([$r('sys.color.font_primary')])
           .visibility(this.selected ? Visibility.Visible : Visibility.Hidden)
       }
       .width('100%')
+      .constraintSize({ minHeight: 40 })
+      .padding({ left: AppSpace.Sm, right: AppSpace.Sm, top: AppSpace.Xs, bottom: AppSpace.Xs })
+      .borderRadius(AppRadius.Sm)
+      .backgroundColor(ImmersiveMenu.selection(this.selected))
     }
     .width('100%')
     .constraintSize({ minHeight: 48 })
-    .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Sm, bottom: AppSpace.Sm })
+    .padding(AppSpace.Xxs)
     .borderRadius(AppRadius.Sm)
     .backgroundColor(Color.Transparent)
     .accessibilityText(this.label)
@@ -133,6 +140,13 @@ export struct SearchPage {
   @Local generalSettings: GeneralSettings = GeneralSettings.current;
 
   @Local sourcePickerVisible: boolean = false;
+  @Local searchMenuX: number = 0;
+  @Local searchMenuY: number = 0;
+  @Local menuViewportWidth: number = 360;
+  @Local menuViewportHeight: number = 640;
+  @Local resultMenuX: number = 16;
+  @Local resultMenuY: number = 80;
+  private searchSourceData: HomeRecommendationDataSource<BookSource> = new HomeRecommendationDataSource();
   @Local sourceFilterEnabled: boolean = false;
   @Local selectedSourceUrls: string[] = [];
   @Local availableSearchSources: BookSource[] = [];
@@ -255,6 +269,8 @@ export struct SearchPage {
   }
 
   private handlePageHidden(): void {
+    this.sourcePickerVisible = false;
+    this.resultGroupVisible = false;
     this.searchOptionsVisible = false;
     this.pageShown = false;
     this.cancelRecommendations();
@@ -909,33 +925,52 @@ export struct SearchPage {
 
   private async openSourcePicker(): Promise<void> {
     const sources = await SourceDataService.getEnabledSources();
-    if (this.leavingPage) return;
+    if (this.leavingPage || !this.pageShown || !this.searchOptionsVisible) return;
     this.availableSearchSources = sources;
+    this.searchSourceData.setItems(sources);
     this.sourcePickerVisible = true;
   }
 
-  @Builder
+  private resultGroupMenuOptions(): MenuOptions {
+    const options = ImmersiveMenu.options((): void => { this.resultGroupVisible = false; });
+    options.anchorPosition = { x: this.resultMenuX, y: this.resultMenuY };
+    return options;
+  }
+
+  @LocalBuilder
   buildSourcePicker() {
-    Column({ space: 12 }) {
-      Button($r('app.string.search_source_all')).backgroundColor(AppColor.Brand)
-        .onClick((): void => { this.sourceFilterEnabled = false; this.sourcePickerVisible = false; this.updateSearchOptions(); })
-      List() {
-        Repeat<BookSource>(this.availableSearchSources).each((item: RepeatItem<BookSource>) => {
+    Column({ space: AppSpace.Xs }) {
+      ImmersiveMenuHeader({ title: $r('app.string.search_selected_sources'),
+        onClose: (): void => { this.searchOptionsVisible = false; } })
+      Button($r('app.string.search_source_all'), { buttonStyle: ButtonStyleMode.TEXTUAL })
+        .fontColor($r('sys.color.font_primary')).width('100%').height(40)
+        .backgroundColor(ImmersiveMenu.selection(!this.sourceFilterEnabled))
+        .onClick((): void => { this.sourceFilterEnabled = false; this.searchOptionsVisible = false; this.updateSearchOptions(); })
+      List({ space: AppSpace.Xs }) {
+        LazyForEach(this.searchSourceData, (source: BookSource) => {
           ListItem() {
-            Row({ space: 12 }) {
-              Text(item.item.bookSourceName).layoutWeight(1).fontColor($r('sys.color.font_primary')).maxLines(2)
-              Checkbox({ name: item.item.bookSourceUrl }).select(this.selectedSourceUrls.includes(item.item.bookSourceUrl))
+            Row({ space: AppSpace.Sm }) {
+              Text(source.bookSourceName).fontSize(AppFont.Body).layoutWeight(1)
+                .fontColor($r('sys.color.font_primary')).maxLines(2)
+              Checkbox({ name: source.bookSourceUrl }).select(this.selectedSourceUrls.includes(source.bookSourceUrl))
                 .selectedColor(AppColor.Brand).onChange((checked: boolean): void => {
-                  this.selectedSourceUrls = checked ? this.selectedSourceUrls.concat([item.item.bookSourceUrl]) :
-                    this.selectedSourceUrls.filter((url: string): boolean => url !== item.item.bookSourceUrl);
+                  this.selectedSourceUrls = checked ? this.selectedSourceUrls.concat([source.bookSourceUrl]) :
+                    this.selectedSourceUrls.filter((url: string): boolean => url !== source.bookSourceUrl);
                 })
-            }.width('100%').padding(12)
+            }.width('100%').constraintSize({ minHeight: 48 }).padding(AppSpace.Sm)
+              .borderRadius(AppRadius.Sm)
+              .backgroundColor(ImmersiveMenu.selection(this.selectedSourceUrls.includes(source.bookSourceUrl)))
           }
-        }).key((source: BookSource): string => source.bookSourceUrl).virtualScroll()
-      }.layoutWeight(1).width('100%').scrollBar(BarState.Auto)
-      Button($r('app.string.tts_custom_confirm')).backgroundColor(AppColor.Brand).enabled(this.selectedSourceUrls.length > 0)
-        .onClick((): void => { this.sourceFilterEnabled = true; this.sourcePickerVisible = false; this.updateSearchOptions(); })
-    }.width('100%').height('100%').padding(16)
+        }, (source: BookSource): string => source.bookSourceUrl)
+      }.layoutWeight(1).width('100%').padding({ left: AppSpace.Xxs, right: AppSpace.Xxs })
+        .scrollBar(BarState.Off)
+      Button($r('app.string.search_source_confirm')).backgroundColor(AppColor.Brand).width('100%').height(40)
+        .enabled(this.selectedSourceUrls.length > 0)
+        .onClick((): void => { this.sourceFilterEnabled = true; this.searchOptionsVisible = false; this.updateSearchOptions(); })
+    }.width(ImmersiveMenu.width(this.menuViewportWidth))
+      .height(Math.min(ImmersiveMenu.height(this.menuViewportHeight), 164 + this.availableSearchSources.length * 56))
+      .constraintSize({ maxWidth: '100%' }).onTouch(ImmersiveMenu.keepOpen)
+      .padding(AppSpace.Xs).id('search-source-menu')
   }
 
   @Builder
@@ -963,29 +998,36 @@ export struct SearchPage {
     }
   }
 
-  @Builder
+  @LocalBuilder
   buildResultGroup() {
-    List() {
-      LazyForEach(this.groupedBooks, (book: Book) => {
-        ListItem() {
-          Row({ space: 12 }) {
-            CoverImage({ url: book.cover, imgWidth: 60, aspectRatioValue: 0.75, radius: 8 })
-            Column({ space: 6 }) {
-              Text(book.title).fontColor($r('sys.color.font_primary')).fontSize(16)
-                .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-              this.buildResultGroupTags(book.category)
-              Text(book.narrator || book.author).fontColor($r('sys.color.font_secondary')).fontSize(13)
-                .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-              if (book.latestChapterTitle) {
-                Text($r('app.string.source_latest_chapter', book.latestChapterTitle))
-                  .fontSize(12).fontColor($r('sys.color.font_secondary'))
-                  .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
-              }
-            }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-          }.width('100%').padding(12).onClick((): void => { this.openBookDetail(book); })
-        }
-      }, (book: Book): string => book.id)
-    }.width('100%').height('100%').scrollBar(BarState.Auto).padding({ bottom: 24 })
+    Column({ space: AppSpace.Xs }) {
+      ImmersiveMenuHeader({ title: $r('app.string.search_group_title'),
+        onClose: (): void => { this.resultGroupVisible = false; } })
+      List() {
+        LazyForEach(this.groupedBooks, (book: Book) => {
+          ListItem() {
+            Row({ space: 12 }) {
+              CoverImage({ url: book.cover, imgWidth: 60, aspectRatioValue: 0.75, radius: 8 })
+              Column({ space: 6 }) {
+                Text(book.title).fontColor($r('sys.color.font_primary')).fontSize(16)
+                  .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+                this.buildResultGroupTags(book.category)
+                Text(book.narrator || book.author).fontColor($r('sys.color.font_secondary')).fontSize(13)
+                  .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                if (book.latestChapterTitle) {
+                  Text($r('app.string.source_latest_chapter', book.latestChapterTitle))
+                    .fontSize(12).fontColor($r('sys.color.font_secondary'))
+                    .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+                }
+              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+            }.width('100%').padding(12).onClick((): void => { this.openBookDetail(book); })
+          }
+        }, (book: Book): string => book.id)
+      }.width('100%').layoutWeight(1).scrollBar(BarState.Off)
+    }.width(ImmersiveMenu.width(this.menuViewportWidth, 480))
+      .height(ImmersiveMenu.height(this.menuViewportHeight)).padding(AppSpace.Xs)
+      .constraintSize({ maxWidth: '100%' }).onTouch(ImmersiveMenu.keepOpen)
+      .id('search-result-group-menu')
   }
 
   @Builder
@@ -1347,7 +1389,7 @@ export struct SearchPage {
     })
   }
 
-  @Builder
+  @LocalBuilder
   buildSearchTitleBar() {
     Row({ space: AppSpace.Xs }) {
       Stack({ alignContent: Alignment.Center }) {
@@ -1412,25 +1454,31 @@ export struct SearchPage {
         })
       }
 
-      Button({ type: ButtonType.Circle }) {
-        SymbolGlyph($r('sys.symbol.funnel'))
-          .fontSize(22)
-          .fontColor([this.exactSearch || this.searchByAuthor || this.searchTextOnly || this.searchAudioOnly || this.searchComicOnly
-            ? AppColor.Brand : $r('sys.color.icon_primary')])
+      Row() {
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r('sys.symbol.funnel'))
+            .fontSize(22)
+            .fontColor([this.sourceFilterEnabled || this.exactSearch || this.searchByAuthor || this.searchTextOnly || this.searchAudioOnly || this.searchComicOnly
+              ? AppColor.Brand : $r('sys.color.icon_primary')])
+        }
+          .width(SEARCH_TITLE_CONTROL_HEIGHT)
+          .height(SEARCH_TITLE_CONTROL_HEIGHT)
+          .padding(0)
+          .backgroundColor(Color.Transparent)
+          .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
+          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.94 })
+          .accessibilityText($r('app.string.search_options'))
+          .id('search-options-button')
+          .onAreaChange((_oldArea: Area, area: Area): void => {
+            this.searchMenuX = Number(area.globalPosition.x) + Number(area.width);
+            this.searchMenuY = Number(area.globalPosition.y) + Number(area.height);
+          })
+          .onClick(() => {
+            this.searchController.stopEditing();
+            this.sourcePickerVisible = false;
+            this.searchOptionsVisible = !this.searchOptionsVisible;
+          })
       }
-        .width(SEARCH_TITLE_CONTROL_HEIGHT)
-        .height(SEARCH_TITLE_CONTROL_HEIGHT)
-        .padding(0)
-        .backgroundColor(Color.Transparent)
-        .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
-        .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.94 })
-        .accessibilityText($r('app.string.search_options'))
-        .id('search-options-button')
-        .onClick(() => {
-          this.searchController.stopEditing();
-          this.searchOptionsVisible = !this.searchOptionsVisible;
-        })
-        .bindPopup(this.searchOptionsVisible, this.searchOptionsPopupOptions())
 
     }
     .width('100%')
@@ -1443,25 +1491,32 @@ export struct SearchPage {
     .visibility(this.searchCollapseOffset >= SEARCH_HEADER_HEIGHT - 0.5 ? Visibility.Hidden : Visibility.Visible)
   }
 
-  private searchOptionsPopupOptions(): CustomPopupOptions {
-    const options: CustomPopupOptions = {
-      builder: this.buildSearchOptionsMenu,
-      placement: Placement.BottomRight,
-      popupColor: AppMaterial.SheetBackground,
-      enableArrow: false,
-      focusable: true,
-      onStateChange: (event): void => { this.searchOptionsVisible = event.isVisible; }
-    };
-    if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
-    else options.backgroundBlurStyle = AppMaterial.SheetBlur;
+  private searchOptionsMenuOptions(): MenuOptions {
+    const options = ImmersiveMenu.options((): void => {
+      this.searchOptionsVisible = false;
+    });
+    options.anchorPosition = { x: this.searchMenuX, y: this.searchMenuY };
+    options.onDisappear = (): void => { this.sourcePickerVisible = false; };
     return options;
+  }
+
+  @LocalBuilder
+  buildSearchMenu() {
+    // 原生菜单需要稳定的实体根节点，不能直接把条件分支作为菜单根。
+    Column() {
+      if (this.sourcePickerVisible) {
+        this.buildSourcePicker()
+      } else {
+        this.buildSearchOptionsMenu()
+      }
+    }.onTouch(ImmersiveMenu.keepOpen)
   }
 
   @LocalBuilder
   buildSearchOptionsMenu() {
     Column() {
       SearchOptionItem({ label: $r('app.string.search_selected_sources'), selected: this.sourceFilterEnabled,
-        onToggle: (): void => { this.searchOptionsVisible = false; this.openSourcePicker(); } })
+        onToggle: (): void => { this.openSourcePicker(); } })
       SearchOptionItem({
         label: $r('app.string.search_exact'), selected: this.exactSearch,
         onToggle: (): void => {
@@ -1500,6 +1555,8 @@ export struct SearchPage {
     }
     .width(208)
     .padding(4)
+    .onTouch(ImmersiveMenu.keepOpen)
+    .id('search-options-menu')
   }
 
   @Builder
@@ -1542,17 +1599,14 @@ export struct SearchPage {
 
   build() {
     HdsNavDestination() {
-      Column().width(0).height(0).bindSheet($$this.resultGroupVisible, this.buildResultGroup(), {
-        height: '82%', detents: ['82%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, dragBar: true, showClose: true, backgroundColor: AppMaterial.SheetBackground,
-        blurStyle: AppMaterial.SheetBlur, systemMaterial: AppMaterial.Sheet,
-        title: { title: $r('app.string.search_group_title') } })
-
       Stack({ alignContent: Alignment.TopStart }) {
         Column()
           .width('100%')
           .height('100%')
           .backgroundColor(HomeTheme.BgNeutral)
           .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
+          // 菜单由页面实体节点持有，避免 HDS 标题栏缓存阻断显隐状态更新。
+          .bindMenu(this.searchOptionsVisible, this.buildSearchMenu, this.searchOptionsMenuOptions())
 
         Column() {
           this.buildSearchBody()
@@ -1599,9 +1653,17 @@ export struct SearchPage {
     )
     .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
     .backgroundColor(HomeTheme.BgNeutral)
-    .bindSheet($$this.sourcePickerVisible, this.buildSourcePicker(), { height: '82%', detents: ['82%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, dragBar: true, showClose: true,
-      backgroundColor: AppMaterial.SheetBackground, blurStyle: AppMaterial.SheetBlur,
-      systemMaterial: AppMaterial.Sheet, title: { title: $r('app.string.search_selected_sources') } })
+    .bindMenu(this.resultGroupVisible, this.buildResultGroup, this.resultGroupMenuOptions())
+    .onSizeChange((_oldSize: SizeOptions, size: SizeOptions): void => {
+      this.menuViewportWidth = Math.max(1, Number(size.width));
+      this.menuViewportHeight = Math.max(1, Number(size.height));
+    })
+    .onTouch((event: TouchEvent): void => {
+      if (event.type !== TouchType.Down || event.touches.length === 0 || this.resultGroupVisible ||
+        this.sourcePickerVisible || this.searchOptionsVisible) return;
+      this.resultMenuX = event.touches[0].x;
+      this.resultMenuY = event.touches[0].y;
+    })
     .onShown(() => this.handlePageShown())
     .onWillHide(() => this.handlePageHidden())
     .onHidden(() => this.handlePageHidden())

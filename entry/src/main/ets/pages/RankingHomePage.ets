@@ -1,3 +1,5 @@
+import { ImmersiveMenu } from '../utils/ImmersiveMenu';
+import { ImmersiveMenuHeader } from '../components/ImmersiveMenuHeader';
 import { HdsNavigation, HdsNavigationTitleMode, HideMode, TitleBarContentOptions, BottomBuilderParams, BuilderOptions } from '@kit.UIDesignKit';
 import { RankingBoard, RankingBook, RankingPlatform } from '../model/Ranking';
 import { ImmersiveTabComponent } from '../components/ImmersiveTabComponent';
@@ -259,6 +261,9 @@ export struct RankingHomePage {
   @Local refreshing: boolean = false;
   @Local refreshPullOffset: number = 0;
   @Local showSheet: boolean = false;
+  @Local menuViewportWidth: number = 360;
+  @Local matchMenuX: number = 16;
+  @Local matchMenuY: number = 80;
   @Local selectedBook: RankingBook = new RankingBook();
   @Local keyword: string = '';
   @Local searching: boolean = false;
@@ -672,11 +677,7 @@ export struct RankingHomePage {
       }.width(40).height(40).backgroundColor(Color.Transparent)
         .accessibilityText($r('app.string.ranking_order')).id('ranking-order-button')
         .onClick((): void => { this.showBoardOrder = true; })
-        .bindSheet($$this.showBoardOrder, this.boardOrderSheet(), {
-          height: '70%', detents: ['45%', '70%', '92%'],
-          preferType: SheetType.BOTTOM, showClose: false, dragBar: true,
-          backgroundColor: $r('sys.color.comp_background_primary')
-        })
+        .bindMenu(this.showBoardOrder, this.boardOrderSheet(), this.boardOrderMenuOptions())
       if (this.isSearchCollapsed) {
         Stack() {
           Stack({ alignContent: Alignment.Center }) {
@@ -733,7 +734,9 @@ export struct RankingHomePage {
 
   @Builder
   private sheetContent() {
-    Column({ space: 16 }) {
+    Column({ space: AppSpace.Xs }) {
+      ImmersiveMenuHeader({ title: $r('app.string.ranking_choose_version'),
+        onClose: (): void => { this.showSheet = false; } })
         Row({ space: 14 }) {
           CoverImage({ url: this.selectedBook.coverUrl, imgWidth: 54,
             aspectRatioValue: this.selectedBook.contentType !== 'audio' ? 0.75 : 1,
@@ -741,13 +744,13 @@ export struct RankingHomePage {
             radius: AppRadius.Sm, imageFit: ImageFit.Contain })
           Column({ space: 7 }) {
             Text(this.selectedBook.title).fontSize(18).fontWeight(FontWeight.Bold).maxLines(2)
-              .width('100%').fontColor(AppTheme.TextPrimary)
+              .width('100%').fontColor($r('sys.color.font_primary'))
               .textOverflow({ overflow: TextOverflow.Ellipsis })
             Text(this.selectedBook.author || this.selectedBook.narrator).fontSize(12).maxLines(1)
-              .width('100%').fontColor(AppTheme.TextSecondary)
+              .width('100%').fontColor($r('sys.color.font_secondary'))
               .textOverflow({ overflow: TextOverflow.Ellipsis })
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-        }.width('100%').padding({ right: 40 })
+        }.width('100%')
         Search({ value: this.keyword, placeholder: $r('app.string.ranking_search_keyword') })
           .height(44).searchButton($r('app.string.ranking_search'), { fontColor: AppTheme.TextPrimary })
           .onChange((text: string): void => { this.keyword = text; })
@@ -769,48 +772,50 @@ export struct RankingHomePage {
           Row({ space: 8 }) {
             LoadingProgress().width(18).height(18).color(AppColor.Brand)
             Text($r('app.string.ranking_matching', this.completed, Math.max(0, this.sourceTotal)))
-              .fontSize(12).fontColor(AppTheme.TextSecondary)
+              .fontSize(12).fontColor($r('sys.color.font_secondary'))
           }.width('100%')
         } else if (this.sourceTotal === 0) {
-          Text($r('app.string.ranking_no_sources')).fontSize(14).fontColor(AppTheme.TextSecondary)
+          Text($r('app.string.ranking_no_sources')).fontSize(14).fontColor($r('sys.color.font_secondary'))
             .width('100%').padding({ top: 14, bottom: 14 })
         } else if (this.matchesCount === 0) {
           Text(this.matchError || this.failed > 0 ? $r('app.string.ranking_match_failed') : $r('app.string.ranking_no_match'))
-            .fontSize(14).fontColor(AppTheme.TextSecondary).width('100%')
+            .fontSize(14).fontColor($r('sys.color.font_secondary')).width('100%')
         } else {
-          Text($r('app.string.ranking_choose_version')).fontSize(12).fontColor(AppTheme.TextSecondary).width('100%')
+          Text($r('app.string.ranking_choose_version')).fontSize(12).fontColor($r('sys.color.font_secondary')).width('100%')
         }
         List({ space: 8, scroller: this.matchScroller }) {
           LazyForEach(this.matchData, (match: RankingMatch) => {
             ListItem() {
               Column({ space: 7 }) {
                 Row() {
-                  Text(match.sourceName).fontSize(12).fontColor(AppTheme.TextSecondary).layoutWeight(1).maxLines(1)
+                  Text(match.sourceName).fontSize(12).fontColor($r('sys.color.font_secondary')).layoutWeight(1).maxLines(1)
                   Text(match.book.contentType === 'comic' ? $r('app.string.comic_type') : match.book.contentType === 'text' ? $r('app.string.search_type_text') : $r('app.string.search_type_audio'))
-                    .fontSize(10).fontColor(AppTheme.TextSecondary).margin({ right: 8 })
+                    .fontSize(10).fontColor($r('sys.color.font_secondary')).margin({ right: 8 })
                   if (match.remembered) {
-                    Text($r('app.string.ranking_last_choice')).fontSize(10).fontColor(AppTheme.TextSecondary)
+                    Text($r('app.string.ranking_last_choice')).fontSize(10).fontColor($r('sys.color.font_secondary'))
                   }
                 }.width('100%')
                 Text(match.book.title).fontSize(16).fontWeight(FontWeight.Medium).maxLines(2)
-                  .fontColor(AppTheme.TextPrimary).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .fontColor($r('sys.color.font_primary')).textOverflow({ overflow: TextOverflow.Ellipsis })
                 Text(match.book.author || match.book.intro).fontSize(12).maxLines(2)
-                  .fontColor(AppTheme.TextSecondary).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .fontColor($r('sys.color.font_secondary')).textOverflow({ overflow: TextOverflow.Ellipsis })
               }.width('100%').padding(14).alignItems(HorizontalAlign.Start).borderRadius(14)
-              .backgroundColor($r('app.color.ranking_match_surface'))
-              .border({ width: 1, color: $r('app.color.ranking_match_border') })
+              .backgroundColor(ImmersiveMenu.selection(match.remembered))
               .enabled(!this.opening)
               .onClick(() => this.chooseMatch(match))
             }
           }, (match: RankingMatch): string => `${match.book.sourceUrl}\u001f${match.book.bookUrl}`)
-        }.width('100%').layoutWeight(1).cachedCount(4)
+        }.width('100%').layoutWeight(1).cachedCount(4).scrollBar(BarState.Off)
         .onScrollStart((): void => { this.matchScrolling = true; })
         .onScrollStop((): void => this.finishMatchScroll())
         if (!this.searching && this.matchesCount === 0) {
           Button($r('app.string.ranking_manage_sources'), { buttonStyle: ButtonStyleMode.TEXTUAL })
-            .fontColor(AppTheme.TextPrimary).height(44).onClick(() => this.manageSources())
+            .fontColor($r('sys.color.font_primary')).height(44).onClick(() => this.manageSources())
         }
-    }.width('100%').height('100%').padding({ left: 24, right: 24, top: 14, bottom: 24 })
+    }.width(ImmersiveMenu.width(this.menuViewportWidth - this.leftSafe - this.rightSafe, 560))
+      .height(ImmersiveMenu.height(this.contentHeight, 620)).padding(AppSpace.Sm)
+      .constraintSize({ maxWidth: '100%' }).onTouch(ImmersiveMenu.keepOpen)
+      .id('ranking-match-menu')
     .alignItems(HorizontalAlign.Start)
   }
 
@@ -977,9 +982,37 @@ export struct RankingHomePage {
     .clip(false).backgroundColor(Color.Transparent)
   }
 
+  private boardOrderMenuOptions(): MenuOptions {
+    return ImmersiveMenu.options((): void => { this.showBoardOrder = false; });
+  }
+
+  private matchMenuOptions(): MenuOptions {
+    const options = ImmersiveMenu.options((): void => { this.showSheet = false; });
+    options.anchorPosition = { x: this.matchMenuX, y: this.matchMenuY };
+    options.onAppear = (): void => {
+      const restoreOffset: number = this.matchOffset;
+      this.getUIContext().postFrameCallback(new RankingMatchRestoreFrame((): void => {
+        if (this.alive && this.showSheet && restoreOffset > 0) {
+          this.matchScroller.scrollTo({ xOffset: 0, yOffset: restoreOffset, animation: false });
+        }
+      }));
+    };
+    options.onDisappear = (): void => {
+      this.finishMatchScroll();
+      if (!this.showSheet && !this.matchSuspended) {
+        this.matcher.cancel(); this.matchGeneration++; this.searching = false;
+      }
+    };
+    return options;
+  }
+
   @Builder
   private boardOrderSheet() {
-    RankingBoardOrderComponent({ onClose: (): void => { this.showBoardOrder = false; } })
+    Column() {
+      RankingBoardOrderComponent({ onClose: (): void => { this.showBoardOrder = false; } })
+    }.width(ImmersiveMenu.width(this.menuViewportWidth - this.leftSafe - this.rightSafe, 440))
+      .height(ImmersiveMenu.height(this.contentHeight))
+      .constraintSize({ maxWidth: '100%' }).onTouch(ImmersiveMenu.keepOpen)
   }
 
   @Builder
@@ -1129,24 +1162,13 @@ export struct RankingHomePage {
     .onSizeChange((_old: SizeOptions, size: SizeOptions): void => {
       const height: number = Number(size.height);
       if (Number.isFinite(height) && height > 0) this.contentHeight = height;
+      this.menuViewportWidth = Math.max(1, Number(size.width));
     })
-    .bindSheet($$this.showSheet, this.sheetContent(), {
-      height: '92%', detents: ['92%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, showClose: true, dragBar: true,
-      backgroundColor: AppMaterial.SheetBackground, blurStyle: AppMaterial.SheetBlur, systemMaterial: AppMaterial.Sheet,
-      onAppear: (): void => {
-        const restoreOffset: number = this.matchOffset;
-        this.getUIContext().postFrameCallback(new RankingMatchRestoreFrame((): void => {
-          if (this.alive && this.showSheet && restoreOffset > 0) {
-            this.matchScroller.scrollTo({ xOffset: 0, yOffset: restoreOffset, animation: false });
-          }
-        }));
-      },
-      onDisappear: (): void => {
-        this.finishMatchScroll();
-        if (!this.showSheet && !this.matchSuspended) {
-          this.matcher.cancel(); this.matchGeneration++; this.searching = false;
-        }
-      }
+    .onTouch((event: TouchEvent): void => {
+      if (event.type !== TouchType.Down || event.touches.length === 0 || this.showSheet || this.showBoardOrder) return;
+      this.matchMenuX = event.touches[0].x;
+      this.matchMenuY = event.touches[0].y;
     })
+    .bindMenu(this.showSheet, this.sheetContent(), this.matchMenuOptions())
   }
 }

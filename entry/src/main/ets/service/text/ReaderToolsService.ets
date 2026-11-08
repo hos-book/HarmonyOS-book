@@ -139,6 +139,36 @@ export class ReaderToolsService {
     });
   }
 
+  static async importRules(context: common.Context, rules: ReaderReplaceRule[], bookId: string): Promise<number> {
+    if (rules.length === 0 || rules.length > 200 || !rules.every((rule): boolean => ReaderToolsService.validRule(rule))) {
+      throw new Error('reader_replace_import_invalid');
+    }
+    const runtime = await import('../rulesource/LocalRuleQuickJsRuntime');
+    const request = new runtime.LocalRuleQuickJsRequest();
+    request.sourceUrl = 'reader-replace-import';
+    request.timeoutMs = 1000;
+    request.script = `for (const pattern of ${JSON.stringify(rules.filter((rule): boolean => rule.isRegex)
+      .map((rule): string => rule.pattern))}) new RegExp(pattern, 'g'); 'ok';`;
+    if (!(await runtime.LocalRuleQuickJsRuntime.execute(request)).success) throw new Error('reader_replace_invalid');
+    let imported = 0;
+    try { await ReaderToolsService.mutate(context, (data): void => {
+      for (const source of rules) {
+        if (data.rules.some((rule): boolean => rule.bookId === bookId && rule.pattern === source.pattern &&
+          rule.replacement === source.replacement && rule.isRegex === source.isRegex)) continue;
+        const copy = new ReaderReplaceRule();
+        copy.id = ReaderToolsService.newId(); copy.bookId = bookId; copy.name = source.name;
+        copy.pattern = source.pattern; copy.replacement = source.replacement;
+        copy.isRegex = source.isRegex; copy.enabled = source.enabled;
+        data.rules.push(copy);
+        imported++;
+      }
+    }); } catch (error) {
+      if (error instanceof Error && error.message === 'reader_tools_limit') throw error;
+      throw new Error('reader_tools_storage_error');
+    }
+    return imported;
+  }
+
   static restore(context: common.Context, snapshot: ReaderToolsSnapshot): Promise<void> {
     return ReaderToolsService.mutate(context, (data): void => {
       data.bookmarks = data.bookmarks.filter((mark): boolean => mark.bookId.startsWith('import_'))

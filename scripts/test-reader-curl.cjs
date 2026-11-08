@@ -11,7 +11,27 @@ vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname,
   compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
 }).outputText, { exports: exportsObject });
 const { ReaderCurlGeometry } = exportsObject;
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname,
+  '../entry/src/main/ets/utils/ReaderSpreadGeometry.ts'), 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
+}).outputText, { exports: exportsObject });
+const { ReaderSpreadGeometry } = exportsObject;
 const close = (a, b, message) => assert.ok(Math.abs(a - b) < 1e-6, message);
+for (const [width, height] of [[480, 800], [720, 900]]) {
+  for (const p of [0, 0.1, 0.49, 0.5, 0.51, 0.9, 1]) {
+    const shape = new ReaderSpreadGeometry(width, height, p, 0.9, 500);
+    close(shape.x(0), 0, 'the book spine stays fixed');
+    close(shape.y(0), 0, 'vertical steering cannot move the spine');
+    assert.equal(shape.back, p >= 0.5);
+    assert.ok(Math.abs(shape.y(1)) <= height * 0.06);
+    for (let i = 1; i <= 12; i++) {
+      const delta = shape.x(i / 12) - shape.x((i - 1) / 12);
+      assert.ok(p <= 0.5 ? delta >= -1e-6 : delta <= 1e-6, 'strips cannot cross');
+    }
+  }
+  close(new ReaderSpreadGeometry(width, height, 0, 0, 0).x(1), width, 'initial sheet is the right page');
+  close(new ReaderSpreadGeometry(width, height, 1, 0, 0).x(1), -width, 'completed sheet covers the left page');
+}
 for (const [w, h] of [[360, 780], [780, 360], [1200, 900], [1, 1]]) {
   for (const anchor of [0, 0.5, 1]) {
     for (const vertical of [-h, 0, h]) {

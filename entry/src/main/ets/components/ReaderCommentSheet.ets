@@ -24,6 +24,7 @@ export struct ReaderCommentSheet {
   @Param chapterIndex: number = -1;
   @Param comment: ReaderParagraphComment = new ReaderParagraphComment();
   @Param dark: boolean = false;
+  @Param offlineComments: ReaderCommentMessages | null = null;
   @Event onClose: () => void = () => {};
   @Local loading: boolean = true;
   @Local failed: boolean = false;
@@ -90,6 +91,13 @@ export struct ReaderCommentSheet {
   }
 
   private async prepare(): Promise<void> {
+    // EPUB notes are already extracted from the bounded local reader: no second Web lease or source request.
+    if (this.offlineComments !== null) {
+      this.items.setItems(this.offlineComments.items);
+      this.itemCount = this.offlineComments.items.length;
+      this.loading = false;
+      return;
+    }
     const ticket = ++this.serial;
     this.request.cancel();
     await this.releaseWeb();
@@ -191,7 +199,7 @@ export struct ReaderCommentSheet {
   commentRow(item: ReaderCommentMessage) {
     Row({ space: 10 }) {
       Stack() {
-        Circle().fill(this.dark ? '#363239' : '#F0E5EA').width(34).height(34)
+        Circle().fill(AppColor.BrandSoft).width(34).height(34)
         Text(item.author.substring(0, 1) || $r('app.string.reader_comment_avatar'))
           .fontSize(15).fontColor(AppColor.Brand).fontWeight(FontWeight.Medium)
         if (item.avatar) {
@@ -200,21 +208,22 @@ export struct ReaderCommentSheet {
       }.width(34).height(34)
       Column({ space: 6 }) {
         Text(item.author || $r('app.string.reader_comment_guest')).fontSize(12)
-          .fontColor(this.dark ? '#AAA6AD' : '#777179').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .fontColor($r('sys.color.font_secondary')).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         Column({ space: 6 }) {
           if (item.replyTo) {
             Text($r('app.string.reader_comment_reply_to', item.replyTo)).fontSize(12).fontColor(AppColor.Brand)
           }
-          Text(item.text).fontSize(15).lineHeight(23).fontColor(this.dark ? '#E9E5EB' : '#302C32')
+          Text(item.text).fontSize(15).lineHeight(23).fontColor($r('sys.color.font_primary'))
             .copyOption(CopyOptions.LocalDevice).width('100%')
         }.alignItems(HorizontalAlign.Start).padding({ left: 14, right: 14, top: 11, bottom: 11 })
-          .backgroundColor(this.dark ? '#29262D' : '#FFFFFF')
+          .backgroundColor($r('app.color.reader_comment_bubble_background'))
+          .border({ width: 1, color: $r('app.color.reader_comment_bubble_border') })
           .borderRadius({ topLeft: 4, topRight: 16, bottomLeft: 16, bottomRight: 16 }).width('100%')
         if (item.time || item.likes) {
           Row({ space: 10 }) {
-            if (item.time) { Text(item.time).fontSize(10).fontColor(this.dark ? '#8F8994' : '#99929D') }
+            if (item.time) { Text(item.time).fontSize(10).fontColor($r('sys.color.font_tertiary')) }
             if (item.likes && item.likes !== '0') {
-              Text($r('app.string.reader_comment_likes', item.likes)).fontSize(10).fontColor(this.dark ? '#8F8994' : '#99929D')
+              Text($r('app.string.reader_comment_likes', item.likes)).fontSize(10).fontColor($r('sys.color.font_tertiary'))
             }
           }
         }
@@ -287,7 +296,7 @@ export struct ReaderCommentSheet {
     Column() {
       Row() {
         Text($r('app.string.reader_comment_title')).fontSize(18).fontWeight(FontWeight.Medium)
-          .fontColor(this.dark ? '#E9E5EB' : '#302C32')
+          .fontColor($r('sys.color.font_primary'))
         if (this.itemCount > 0) { Text(this.itemCount.toString()).fontSize(12).fontColor(AppColor.Brand).margin({ left: 8 }) }
         Blank()
         Button($r('app.string.common_close')).fontSize(14).fontColor(AppColor.Brand)
@@ -347,9 +356,8 @@ export struct ReaderCommentSheet {
                 .onClick((): void => { this.prepare(); })
             }
           }.width('100%').height('100%').padding(24).justifyContent(FlexAlign.Center)
-            .backgroundColor(this.dark ? '#1D1B20' : '#F7F3F5')
         }
       }.layoutWeight(1).width('100%')
-    }.width('100%').height('100%').backgroundColor(this.dark ? '#1D1B20' : '#F7F3F5')
+    }.width('100%').height('100%').backgroundColor(Color.Transparent)
   }
 }

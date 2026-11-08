@@ -1,3 +1,5 @@
+import { ReaderChapterJumpHint } from '../components/ReaderChapterJumpHint';
+import { ReaderHapticService } from '../service/text/ReaderHapticService';
 import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { ReaderWidgetService } from '../service/ReaderWidgetService';
 import { GeneralSettings } from '../model/GeneralSettings';
@@ -24,7 +26,7 @@ import { HdsCompat, CompatibleTabsModifier } from '../utils/HdsCompat';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { ReadingSessionService, SessionLocation } from '../service/ReadingSessionService';
 import { Book, Chapter } from '../model/Book';
-import { TextReaderRouteParams, TextReadingPosition } from '../model/TextReading';
+import { TextReaderRouteParams, TextReadingPosition, TextReadingSettings } from '../model/TextReading';
 import { AppColor, AppMaterial, AppFont, AppRadius, AppSpace } from '../theme/Theme';
 import { SearchCache } from '../utils/SearchCache';
 import { DataService } from '../service/DataService';
@@ -52,6 +54,13 @@ import { ChapterDataSource } from '../utils/ChapterDataSource';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { WindowUtils } from '../utils/WindowUtils';
 
+class ComicChapterJumpPosition {
+  bookId: string = '';
+  chapterIndex: number = 0;
+  pageIndex: number = 0;
+  fraction: number = 0;
+}
+
 @ComponentV2
 export struct ComicReaderPage {
   @Param navStack: NavPathStack = new NavPathStack();
@@ -60,7 +69,9 @@ export struct ComicReaderPage {
   @Local chapterIndex: number = 0;
   @Local chapterPreview: number = -1;
   @Local chapterSliderDragging: boolean = false;
-  @Local chapterSliderConfirming: boolean = false;
+  @Local chapterSliderCommitting: boolean = false;
+  @Local chapterSliderUndoPosition: ComicChapterJumpPosition | null = null;
+  private chapterSliderGeneration: number = 0;
   @Local pageIndex: number = 0;
   @Local pageCount: number = 0;
   @Local busy: boolean = true;
@@ -73,6 +84,7 @@ export struct ComicReaderPage {
   @Local mode: number = 0;
   @Local pageLayout: number = 1;
   @Local displayMode: number = 0;
+  @Local trimWhiteBorder: boolean = false;
   @Local pageOverlap: number = 10;
   private pageFraction: number = 0;
   @Local scrollInitialFraction: number = 0;
@@ -93,6 +105,7 @@ export struct ComicReaderPage {
   private translationIntent: number = 0;
   @Local translationDirection: string = 'ja-zh';
   @Local translationConfigured: boolean = false;
+  @Local pageTurnHaptic: string = 'none';
   @Local volumeKeyPageTurn: boolean = false;
   @Local smartKeyPageTurn: boolean = false;
   @Local keyTurnRequest: number = 0;
@@ -218,12 +231,9 @@ export struct ComicReaderPage {
   };
 
   private toggleChrome(): void {
-    if (this.showChapters || this.showSettings || this.showSourceSwitch || this.chapterSliderConfirming) return;
+    if (this.showChapters || this.showSettings || this.showSourceSwitch || this.chapterSliderCommitting) return;
     this.chrome = !this.chrome;
-    if (!this.chrome) {
-      this.chapterPreview = -1;
-      this.chapterSliderDragging = false;
-    }
+    if (!this.chrome) this.resetChapterSlider();
     WindowUtils.setReaderStatusBarVisible(this.chrome);
   }
 
@@ -281,6 +291,7 @@ export struct ComicReaderPage {
   }
 
   aboutToDisappear(): void {
+    this.resetChapterSlider();
     this.stopAutoPage();
     this.screenOn.dispose();
     this.translationIntent++;
@@ -325,8 +336,10 @@ export struct ComicReaderPage {
       const autoScrollSpeed = await PreferenceService.getAutoScrollSpeed(true);
       const pageLayout = await PreferenceService.getComicPageLayout();
       const displayMode = await PreferenceService.getComicDisplayMode();
+      const trimWhiteBorder = await PreferenceService.getComicTrimWhiteBorder();
       const pageOverlap = await PreferenceService.getComicPageOverlap();
       const volumeKeyPageTurn = await PreferenceService.getComicVolumeKeyPageTurn();
+      const pageTurnHaptic = await PreferenceService.getComicPageTurnHaptic();
       const showBrightnessBar = await PreferenceService.getComicBrightnessBar();
       const brightness = await PreferenceService.getComicBrightness();
       const imagePreloadCount = await PreferenceService.getComicImagePreloadCount();
@@ -336,6 +349,7 @@ export struct ComicReaderPage {
       this.imagePreloadCount = imagePreloadCount;
       this.showChapterBar = showChapterBar;
       this.volumeKeyPageTurn = volumeKeyPageTurn;
+      this.pageTurnHaptic = pageTurnHaptic;
       // 智控键入口暂时隐藏，旧配置也不再启用事件订阅。
       this.smartKeyPageTurn = false;
       this.showBrightnessBar = showBrightnessBar;
@@ -351,6 +365,7 @@ export struct ComicReaderPage {
       this.autoScrollSpeed = autoScrollSpeed;
       this.pageLayout = pageLayout;
       this.displayMode = displayMode;
+      this.trimWhiteBorder = trimWhiteBorder;
       this.pageOverlap = pageOverlap;
       const initialIndex = Math.max(0, Math.min(book.chapters.length - 1,
         explicit ? this.params.resourceIndex : position?.resourceIndex ?? 0));
@@ -364,12 +379,14 @@ export struct ComicReaderPage {
     }
   }
 
-  private async loadChapter(index: number, page: number = 0, force: boolean = false, fraction: number = 0): Promise<void> {
+  private async loadChapter(index: number, page: number = 0, force: boolean = false, fraction: number = 0,
+    keepChapterHint: boolean = false): Promise<boolean> {
+    if (!keepChapterHint) this.resetChapterSlider();
     this.loadStartedAt = Date.now();
     this.loadingSeconds = 0;
     const book = this.book;
     if (!book || index < 0 || index >= book.chapters.length) {
-      this.failed = true; this.busy = false; return;
+      this.failed = true; this.busy = false; return false;
     }
     this.savePosition();
     this.preloadGeneration++;
@@ -395,11 +412,11 @@ export struct ComicReaderPage {
             if (index < 0) break;
           }
           pages = await ComicReaderService.load(book, book.chapters[index], this.getUIContext().getHostContext());
-          if (!this.alive || generation !== this.generation) return;
+          if (!this.alive || generation !== this.generation) return false;
         }
         page = 0;
       }
-      if (!this.alive || generation !== this.generation) return;
+      if (!this.alive || generation !== this.generation) return false;
       if (pages.length === 0) throw new Error('No comic images');
       this.chapterIndex = index;
       this.pages.setPages(pages);
@@ -418,6 +435,7 @@ export struct ComicReaderPage {
       this.scheduleSave();
       this.preloadChapters(book, index, generation);
       hilog.info(0x0001, 'ComicReader', 'load complete chapter=%{public}d pages=%{public}d', index, pages.length);
+      return true;
     } catch (error) {
       if (this.alive && generation === this.generation) {
         this.stopAutoPage();
@@ -426,6 +444,7 @@ export struct ComicReaderPage {
         if (retainCurrent) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_next_failed') });
       }
     }
+    return false;
   }
 
   private async preloadChapters(book: Book, index: number, generation: number): Promise<void> {
@@ -569,6 +588,19 @@ export struct ComicReaderPage {
     return $r('app.string.comic_display_default_hint');
   }
 
+  private async setTrimWhiteBorder(enabled: boolean): Promise<void> {
+    if (this.settingsSaving || enabled === this.trimWhiteBorder) return;
+    this.settingsSaving = true;
+    try {
+      await PreferenceService.setComicTrimWhiteBorder(enabled);
+      if (!this.alive) return;
+      this.trimWhiteBorder = enabled;
+      this.autoPage.restart();
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    } finally { this.settingsSaving = false; }
+  }
+
   private async changePageOverlap(overlap: number): Promise<void> {
     if (this.settingsSaving || overlap === this.pageOverlap) return;
     this.settingsSaving = true;
@@ -614,6 +646,7 @@ export struct ComicReaderPage {
     this.autoPageRunning = true;
     this.autoPagePaused = false;
     this.showSettings = false;
+    this.resetChapterSlider();
     this.chrome = false;
     WindowUtils.setReaderStatusBarVisible(false);
     this.screenOn.configure(-1);
@@ -666,7 +699,7 @@ export struct ComicReaderPage {
     return this.autoPageRunning && this.alive && this.foreground && this.readerVisible &&
       !this.busy && !this.failed && this.pageCount > 0 && !this.showSettings &&
       !this.showChapters && !this.showSourceSwitch && !this.sheetPresented && !this.zoomActive &&
-      !this.showReaderMenu && !this.showTranslationMenu && !this.chapterSliderDragging && !this.chapterSliderConfirming;
+      !this.showReaderMenu && !this.showTranslationMenu && !this.chapterSliderDragging && !this.chapterSliderCommitting;
   }
 
   private setAutoScrollSpeed(speed: number): void {
@@ -678,7 +711,7 @@ export struct ComicReaderPage {
 
   @Monitor('readerVisible', 'foreground', 'busy', 'failed', 'chrome', 'showSettings', 'showChapters',
     'showSourceSwitch', 'sheetPresented', 'zoomActive', 'showReaderMenu', 'showTranslationMenu',
-    'chapterSliderDragging', 'chapterSliderConfirming')
+    'chapterSliderDragging', 'chapterSliderCommitting')
   private syncAutoPage(): void {
     if (!this.readerVisible || !this.foreground || this.failed || this.zoomActive) this.stopAutoPage();
     this.autoScrollReady = this.canAutoPage() && this.mode === 0;
@@ -693,7 +726,7 @@ export struct ComicReaderPage {
     }
     const target = this.pageIndex + direction;
     if (target < 0 || target >= this.pageCount) {
-      if (this.canChange(direction)) this.loadChapter(this.adjacent(direction), direction < 0 ? Number.MAX_SAFE_INTEGER : 0);
+      this.turnToAdjacentChapter(direction);
       return;
     }
     if (this.mode === 1 || this.mode === 2) {
@@ -707,6 +740,28 @@ export struct ComicReaderPage {
       this.pageFraction = 0;
     });
     this.scheduleSave();
+    this.playPageTurnHaptic();
+  }
+
+  private playPageTurnHaptic(): void {
+    if (!this.alive || !this.foreground || !this.readerVisible || this.autoPageRunning ||
+      this.busy || this.failed || this.zoomActive || this.showChapters || this.showSettings || this.showSourceSwitch) return;
+    ReaderHapticService.play(this.pageTurnHaptic);
+  }
+
+  private async turnToAdjacentChapter(direction: number): Promise<void> {
+    if (!this.canChange(direction)) return;
+    const automatic = this.autoPageRunning;
+    const loaded = await this.loadChapter(this.adjacent(direction), direction < 0 ? Number.MAX_SAFE_INTEGER : 0);
+    if (loaded && !automatic) this.playPageTurnHaptic();
+  }
+
+  private onSwiperPageChanged(index: number): void {
+    if (this.busy || this.restoreTimer >= 0 || index < 0 || index >= this.pageCount || index === this.pageIndex) return;
+    this.pageIndex = index;
+    this.pageFraction = 0;
+    this.scheduleSave();
+    this.playPageTurnHaptic();
   }
 
   private canUseVolumeKeys(): boolean {
@@ -716,11 +771,11 @@ export struct ComicReaderPage {
   private canTurnWithHardwareKeys(): boolean {
     return this.alive && this.foreground && this.readerVisible &&
       !this.busy && !this.failed && this.pageCount > 0 && !this.showChapters && !this.showSettings &&
-      !this.showSourceSwitch && !this.zoomActive && !this.sheetPresented && !this.chapterSliderDragging && !this.chapterSliderConfirming;
+      !this.showSourceSwitch && !this.zoomActive && !this.sheetPresented && !this.chapterSliderDragging && !this.chapterSliderCommitting;
   }
 
   @Monitor('volumeKeyPageTurn', 'smartKeyPageTurn', 'readerVisible', 'chrome', 'busy', 'failed', 'pageCount', 'showChapters',
-    'showSettings', 'showSourceSwitch', 'zoomActive', 'sheetPresented', 'chapterSliderDragging', 'chapterSliderConfirming')
+    'showSettings', 'showSourceSwitch', 'zoomActive', 'sheetPresented', 'chapterSliderDragging', 'chapterSliderCommitting')
   private syncVolumeKeys(): void {
     this.volumeKeys.setEnabled(this.canUseVolumeKeys(), (forward: boolean): void => this.handleVolumePageTurn(forward));
     this.smartKeys.setEnabled(this.smartKeyPageTurn && this.canTurnWithHardwareKeys(), (forward: boolean): void => {
@@ -773,7 +828,7 @@ export struct ComicReaderPage {
         else if (this.touchGeneration === this.generation &&
           (direction > 0 ? this.touchPageIndex === this.pageCount - 1 : this.touchPageIndex === 0) &&
           this.canChange(direction)) {
-          this.loadChapter(this.adjacent(direction), direction < 0 ? Number.MAX_SAFE_INTEGER : 0);
+          this.turnToAdjacentChapter(direction);
         }
       }
     }
@@ -845,11 +900,12 @@ export struct ComicReaderPage {
             autoScrollReady: this.autoScrollReady, autoScrollSpeed: this.autoScrollSpeed,
             onForwardEnd: (): void => this.stopAutoPage(),
             onAutoPageDelay: (): void => this.autoPage.restart(),
+            onTurnFeedback: (): void => this.playPageTurnHaptic(),
             keyTurnRequest: this.keyTurnRequest, paged: this.usesJoinedPages(), overlap: this.pageOverlap,
             initialFraction: this.scrollInitialFraction,
             initialChapterIndex: this.chapterIndex, initialPageIndex: this.pageIndex,
             initialPages: this.scrollInitialPages, pageWidth: this.imageWidth(), displayMode: this.displayMode,
-            superResolution: this.superResolution,
+            superResolution: this.superResolution, trimWhiteBorder: this.trimWhiteBorder,
             pageHeight: this.heightVp, viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
             colorization: this.colorization, translation: this.translation, translationDirection: this.translationDirection,
             colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
@@ -873,7 +929,7 @@ export struct ComicReaderPage {
                   onColorError: (message: string): void => this.colorizationFailed(message),
                   onZoomChange: (owner: string, active: boolean): void => this.onZoomChanged(owner, active),
                   pageWidth: this.imageWidth(), pageHeight: this.heightVp, paged: true, fitScreen: this.pageLayout !== 0,
-                  displayMode: this.displayMode,
+                  displayMode: this.displayMode, trimWhiteBorder: this.trimWhiteBorder,
                   viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
                   onToggle: (event: ClickEvent): void => { this.onContentTap(event); } })
               }.width('100%').height('100%').transition(TransitionEffect.OPACITY)
@@ -893,7 +949,7 @@ export struct ComicReaderPage {
                    colorizationActive: this.foreground && this.readerVisible && !this.showSettings && !this.showChapters,
                    onColorError: (message: string): void => this.colorizationFailed(message),
                    onZoomChange: (owner: string, active: boolean): void => this.onZoomChanged(owner, active),
-                    paged: true, fitScreen: this.pageLayout !== 0, displayMode: this.displayMode,
+                    paged: true, fitScreen: this.pageLayout !== 0, displayMode: this.displayMode, trimWhiteBorder: this.trimWhiteBorder,
                     viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
                    onToggle: (event: ClickEvent): void => { this.onContentTap(event); } })
               }.width('100%').height('100%').justifyContent(FlexAlign.Center)
@@ -904,10 +960,7 @@ export struct ComicReaderPage {
            .onAnimationStart((): void => { this.turning = true; })
             .onAnimationEnd((): void => { this.turning = false; this.autoPage.restart(); })
           .direction(this.mode === 2 ? Direction.Rtl : Direction.Ltr)
-          .onChange((index: number) => {
-            if (this.busy || this.restoreTimer >= 0 || index < 0 || index >= this.pageCount) return;
-            this.pageIndex = index; this.pageFraction = 0; this.scheduleSave();
-          })
+          .onChange((index: number): void => this.onSwiperPageChanged(index))
         }
       }.width('100%').height('100%')
       .padding({ left: this.leftSafe, right: this.rightSafe })
@@ -1144,6 +1197,7 @@ export struct ComicReaderPage {
   }
 
   private tabClick(index: number): void {
+    this.resetChapterSlider();
     if (index === 0 && this.canChange(-1)) this.loadChapter(this.adjacent(-1));
     else if (index === 1) this.openChapterSheet();
     else if (index === 2) {
@@ -1175,37 +1229,64 @@ export struct ComicReaderPage {
     return this.book?.chaptersDescending ? this.book.chapters.length - 1 - ordinal : ordinal;
   }
 
+  private resetChapterSlider(): void {
+    this.chapterSliderGeneration++;
+    this.chapterPreview = -1;
+    this.chapterSliderDragging = false;
+    this.chapterSliderUndoPosition = null;
+  }
+
+  private chapterSliderPercent(): string {
+    const count = this.book?.chapters.length ?? 0;
+    const index = this.chapterAtOrdinal(this.chapterOrdinal());
+    return count > 0 ? `${((index + 1) * 100 / count).toFixed(2)}%` : '0.00%';
+  }
+
+  private chapterJumpHintVisible(): boolean {
+    return (this.chapterSliderDragging || this.chapterSliderUndoPosition !== null) &&
+      !this.showChapters && !this.showSettings && !this.showSourceSwitch;
+  }
+
   private async changeChapterSlider(value: number, mode: SliderChangeMode): Promise<void> {
     const book = this.book;
-    if (!book || book.chapters.length === 0 || !this.chrome || this.busy || this.chapterSliderConfirming) return;
+    if (!book || book.chapters.length < 2 || !Number.isFinite(value) || !this.alive || !this.readerVisible ||
+      !this.chrome || this.busy || this.chapterSliderCommitting) return;
     this.chapterPreview = Math.max(0, Math.min(Math.round(value), book.chapters.length - 1));
     this.chapterSliderDragging = mode === SliderChangeMode.Begin || mode === SliderChangeMode.Moving;
     if (mode !== SliderChangeMode.End && mode !== SliderChangeMode.Click) return;
     const target = this.chapterAtOrdinal(this.chapterPreview);
-    if (target === this.chapterIndex) {
-      this.chapterPreview = -1;
-      return;
+    if (target === this.chapterIndex) { this.chapterPreview = -1; return; }
+    const previousUndo = this.chapterSliderUndoPosition;
+    if (previousUndo === null) {
+      const position = new ComicChapterJumpPosition();
+      position.bookId = book.id;
+      position.chapterIndex = this.chapterIndex;
+      position.pageIndex = this.pageIndex;
+      position.fraction = this.pageFraction;
+      this.chapterSliderUndoPosition = position;
     }
-    const generation = this.generation;
-    this.chapterSliderConfirming = true;
+    const generation = this.chapterSliderGeneration;
+    this.chapterSliderCommitting = true;
     try {
-      const result = await this.getUIContext().getPromptAction().showDialog({
-        title: $r('app.string.reader_chapter_jump_title'),
-        message: $r('app.string.reader_chapter_jump_message', book.chapters[target].title),
-        buttons: [
-          { text: $r('app.string.common_cancel'), color: $r('sys.color.font_secondary') },
-          { text: $r('app.string.reader_chapter_jump_action'), color: AppColor.Brand }
-        ]
-      });
-      if (result.index === 1 && this.alive && this.chrome && this.book?.id === book.id &&
-        generation === this.generation) await this.loadChapter(target);
-    } catch (error) {
-      hilog.warn(0x0001, 'ComicReader', 'chapter slider: %{public}s', String(error));
+      const loaded = await this.loadChapter(target, 0, false, 0, true);
+      if (!loaded && generation === this.chapterSliderGeneration) this.chapterSliderUndoPosition = previousUndo;
     } finally {
       this.chapterPreview = -1;
       this.chapterSliderDragging = false;
-      this.chapterSliderConfirming = false;
+      this.chapterSliderCommitting = false;
     }
+  }
+
+  private async undoChapterSlider(): Promise<void> {
+    const position = this.chapterSliderUndoPosition;
+    if (position === null || position.bookId !== this.book?.id || !this.alive || !this.readerVisible ||
+      !this.chrome || this.busy || this.chapterSliderDragging || this.chapterSliderCommitting) return;
+    const generation = this.chapterSliderGeneration;
+    this.chapterSliderCommitting = true;
+    try {
+      const loaded = await this.loadChapter(position.chapterIndex, position.pageIndex, false, position.fraction, true);
+      if (loaded && generation === this.chapterSliderGeneration) this.resetChapterSlider();
+    } finally { this.chapterSliderCommitting = false; }
   }
 
   @Builder
@@ -1213,7 +1294,7 @@ export struct ComicReaderPage {
     Row() {
       SymbolGlyph(icon).fontSize(20).fontColor([$r('sys.color.font_primary')])
     }.width(44).height(44).justifyContent(FlexAlign.Center)
-      .enabled(this.canChange(direction) && !this.chapterSliderConfirming)
+      .enabled(this.canChange(direction) && !this.chapterSliderCommitting)
       .opacity(this.canChange(direction) ? 1 : 0.35)
       .onClick(() => { this.chapterPreview = -1; this.loadChapter(this.adjacent(direction)); })
   }
@@ -1244,12 +1325,12 @@ export struct ComicReaderPage {
               .attributeModifier(new SliderGestureModifier(0, Math.max(1, (this.book?.chapters.length ?? 0) - 1)))
               .layoutWeight(1).height(44).trackThickness(6).blockSize({ width: 16, height: 16 }).selectedColor(AppColor.Brand).showSteps(false)
               .accessibilityText($r('app.string.comic_chapters'))
-               .enabled((this.book?.chapters.length ?? 0) > 1 && !this.busy && !this.chapterSliderConfirming)
+               .enabled((this.book?.chapters.length ?? 0) > 1 && !this.busy && !this.chapterSliderCommitting)
               .onChange((value: number, mode: SliderChangeMode) => {
                  this.changeChapterSlider(value, mode);
                })
                .onTouch((event: TouchEvent): void => {
-                 if (event.type === TouchType.Cancel && !this.chapterSliderConfirming) {
+                 if (event.type === TouchType.Cancel && !this.chapterSliderCommitting) {
                    this.chapterPreview = -1;
                    this.chapterSliderDragging = false;
                 }
@@ -1274,6 +1355,14 @@ export struct ComicReaderPage {
       Column() {
         if (this.saveFailed) { Text($r('app.string.comic_save_failed')).fontColor('#FFD080').fontSize(12) }
         if (this.showChapterBar && this.pageCount > 0) {
+        Column({ space: 8 }) {
+          if (this.chapterJumpHintVisible()) {
+            ReaderChapterJumpHint({ availableWidth: this.bottomControlsWidth(), idPrefix: 'comic',
+              chapterTitle: this.book?.chapters[this.chapterAtOrdinal(this.chapterOrdinal())]?.title ?? '',
+              percent: this.chapterSliderPercent(),
+              undoEnabled: this.chapterSliderUndoPosition !== null && !this.chapterSliderDragging && !this.chapterSliderCommitting,
+              onUndo: (): void => { this.undoChapterSlider(); } })
+          }
         Stack({ alignContent: Alignment.Center }) {
         if (HdsCompat.materialSupported) {
           HdsTabs() {
@@ -1288,25 +1377,16 @@ export struct ComicReaderPage {
             .backgroundColor($r('sys.color.comp_background_tertiary')).backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
         }
         this.chapterBarContent()
-        if (this.chapterSliderDragging) {
-          Column({ space: 2 }) {
-            Text(this.book?.chapters[this.chapterAtOrdinal(this.chapterOrdinal())]?.title ?? '')
-              .fontSize(12).fontColor(Color.White).maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-            Text(`${this.chapterOrdinal() + 1}/${this.book?.chapters.length ?? 0}`)
-              .fontSize(12).fontColor('#CCFFFFFF')
-          }.width('80%').height(44).padding({ left: 14, right: 14 }).borderRadius(22)
-            .justifyContent(FlexAlign.Center).backgroundColor('#E63A3C40')
-            .translate({ y: -52 }).hitTestBehavior(HitTestMode.None)
-        }
         }.width(this.bottomControlsWidth()).height(44)
+        }.width(this.bottomControlsWidth())
         }
       }.width('100%').alignItems(HorizontalAlign.Center)
         .margin({ bottom: 76 + this.bottomSafe })
-    }.width('100%').height(160 + this.bottomSafe)
+    }.width('100%').height(160 + this.bottomSafe + (this.chapterJumpHintVisible() ? 64 : 0))
     .animation(null).translate({ y: this.chrome ? 0 : 24 }).opacity(this.chrome ? 1 : 0)
     .animation({ duration: 180, curve: Curve.EaseOut })
-    .hitTestBehavior(this.chrome ? HitTestMode.Transparent : HitTestMode.None)
+    // 正文在 Touch Up 处理两侧翻页，工具栏必须阻止触摸透传，否则会先翻下一页并清除撤销记录。
+    .hitTestBehavior(this.chrome ? HitTestMode.BLOCK_HIERARCHY : HitTestMode.None)
     .animation(null)
     // Keep both covered live-material bars out of the entire sheet transition, including dismissal.
     .visibility(this.chrome && !this.sheetPresented ? Visibility.Visible : Visibility.Hidden)
@@ -1314,6 +1394,7 @@ export struct ComicReaderPage {
   }
 
   private openChapterSheet(): void {
+    this.resetChapterSlider();
     if (this.showChapters) return;
     if (!this.book || this.book.chapters.length === 0) return;
     this.chapterDescending = this.book.chaptersDescending ?? false;
@@ -1581,6 +1662,21 @@ export struct ComicReaderPage {
     } finally { this.settingsSaving = false; }
   }
 
+  private async setPageTurnHaptic(value: string): Promise<void> {
+    if (this.settingsSaving) return;
+    this.settingsSaving = true;
+    const level = TextReadingSettings.normalizePageTurnHaptic(value);
+    try {
+      await PreferenceService.setComicPageTurnHaptic(level);
+      if (this.alive) {
+        this.pageTurnHaptic = level;
+        if (this.foreground && this.readerVisible) ReaderHapticService.play(level);
+      }
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    } finally { this.settingsSaving = false; }
+  }
+
   private setColorization(enabled: boolean): void {
     if (enabled && !this.membership.hasAccess) {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.membership_feature_required') });
@@ -1791,6 +1887,13 @@ export struct ComicReaderPage {
         }
       }
       ReaderSettingsSectionHeader({ title: $r('app.string.reader_settings_turn_group') })
+      ReaderSettingCard({ compact: true, title: $r('app.string.reader_turn_haptic'), inline: true }) {
+        ImmersiveOptionTabs({ labels: [$r('app.string.reader_turn_none'), $r('app.string.reader_haptic_strong'),
+          $r('app.string.reader_haptic_medium'), $r('app.string.reader_haptic_weak')],
+          selected: ['none', 'strong', 'medium', 'weak'].indexOf(this.pageTurnHaptic),
+          onSelect: (index: number): void => { this.setPageTurnHaptic(['none', 'strong', 'medium', 'weak'][index]); }
+        }).id('comic-page-turn-haptic').enabled(!this.settingsSaving)
+      }
       ReaderSettingCard({ compact: true, title: $r('app.string.reader_volume_key_turn'), inline: true,
         description: $r('app.string.reader_volume_key_hint') }) {
         Toggle({ type: ToggleType.Switch, isOn: this.volumeKeyPageTurn }).selectedColor(AppColor.Brand)
@@ -1814,6 +1917,12 @@ export struct ComicReaderPage {
           .onChange((enabled: boolean): void => { this.setBrightnessBar(enabled); })
       }
       ReaderSettingsSectionHeader({ title: $r('app.string.comic_settings_image_group') })
+      ReaderSettingCard({ compact: true, title: $r('app.string.comic_trim_white_border'), inline: true,
+        description: $r('app.string.comic_trim_white_border_hint') }) {
+        Toggle({ type: ToggleType.Switch, isOn: this.trimWhiteBorder }).selectedColor(AppColor.Brand)
+          .id('comic-trim-white-border').enabled(!this.settingsSaving)
+          .onChange((enabled: boolean): void => { this.setTrimWhiteBorder(enabled); })
+      }
       ReaderSettingCard({ compact: true, title: $r('app.string.comic_image_preload_title'), inline: true,
         description: $r('app.string.comic_image_preload_hint') }) {
         ImmersiveOptionTabs({ labels: [$r('app.string.comic_image_preload_off'),

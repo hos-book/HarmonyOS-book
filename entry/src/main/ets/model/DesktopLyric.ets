@@ -52,7 +52,9 @@ export class DesktopLyricText {
 
   static speech(content: string, offset: number): string {
     if (!content) return '';
-    const position = Math.max(0, Math.min(content.length - 1, Math.floor(offset)));
+    let position = Math.max(0, Math.min(content.length - 1, Number.isFinite(offset) ? Math.floor(offset) : 0));
+    // 合成段会去除前导空白；空行上的起点不能让字幕一直停留在空文本。
+    while (position < content.length - 1 && /\s/.test(content.charAt(position))) position++;
     let start = position;
     let end = position;
     while (start > 0 && !/[。！？；\n]/.test(content.charAt(start - 1))) start--;

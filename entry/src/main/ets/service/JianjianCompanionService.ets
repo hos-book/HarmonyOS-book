@@ -47,6 +47,7 @@ export class JianjianCompanionService {
   }
 
   static quietRoute(route: string): boolean {
-    return ['reader', 'comicReader', 'player', 'ruleSourceLogin', 'jianjianChat', 'jianjianAiSettings'].includes(route);
+    return ['reader', 'comicReader', 'player', 'ruleSourceLogin', 'jianjianChat', 'jianjianAiSettings',
+      'jianjianPromptSettings'].includes(route);
   }
 }

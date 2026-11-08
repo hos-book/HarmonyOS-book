@@ -25,6 +25,7 @@ export struct ComicContinuousComponent {
   @Param pageWidth: number = 360;
   @Param pageHeight: number = 600;
   @Param displayMode: number = 0;
+  @Param trimWhiteBorder: boolean = false;
   @Param viewportTop: number = 0;
   @Param zoomOwner: string = '';
   @Param paged: boolean = false;
@@ -42,6 +43,7 @@ export struct ComicContinuousComponent {
   private autoScroll: ReaderAutoScrollService = new ReaderAutoScrollService();
   @Event onForwardEnd: () => void = (): void => {};
   @Event onAutoPageDelay: () => void = (): void => {};
+  @Event onTurnFeedback: () => void = (): void => {};
   @Event onToggle: (event: ClickEvent) => void = () => {};
   @Event onZoomChange: (owner: string, active: boolean) => void = () => {};
   @Event onPosition: (chapterIndex: number, pageIndex: number, pages: ComicPage[], fraction: number) => void = () => {};
@@ -59,6 +61,7 @@ export struct ComicContinuousComponent {
   private disposed: boolean = false;
   private restoring: boolean = true;
   private keyTurning: boolean = false;
+  private turnFeedbackPending: boolean = false;
   private reportedChapter: number = -1;
   private reportedPage: number = -1;
   private anchorFraction: number = 0;
@@ -103,7 +106,7 @@ export struct ComicContinuousComponent {
   @Monitor('resetToken')
   onReset(): void { if (!this.disposed) this.reset(); }
 
-  @Monitor('pageWidth', 'pageHeight', 'displayMode')
+  @Monitor('pageWidth', 'pageHeight', 'displayMode', 'trimWhiteBorder')
   onWidthChanged(): void { if (!this.disposed) this.restoreVisible(); }
 
   @Monitor('keyTurnRequest')
@@ -146,6 +149,8 @@ export struct ComicContinuousComponent {
 
   private advanceViewport(forward: boolean): void {
     if (this.zoomOwner.length > 0) return;
+    if (forward ? this.scroller.isAtEnd() : this.scroller.currentOffset().yOffset <= 0) return;
+    this.turnFeedbackPending = !this.autoPageRunning;
     if (this.paged) {
       // 拼接按屏即时翻页，保留一段上下文；不对长图做破坏性裁剪或合成大位图。
       const distance = Math.max(1, this.pageHeight * (1 - Math.max(0, Math.min(30, this.overlap)) / 100));
@@ -157,6 +162,7 @@ export struct ComicContinuousComponent {
 
   private reset(): void {
     this.autoScroll.pause();
+    this.turnFeedbackPending = false;
     this.serial++;
     this.reportedChapter = -1;
     this.reportedPage = -1;
@@ -178,6 +184,7 @@ export struct ComicContinuousComponent {
 
   private restoreVisible(): void {
     this.autoScroll.pause();
+    this.turnFeedbackPending = false;
     this.restoring = true;
     const ticket = this.serial;
     const restoreTicket = ++this.restoreSerial;
@@ -187,7 +194,8 @@ export struct ComicContinuousComponent {
       this.getUIContext().postFrameCallback(new ComicScrollLayoutFrame((): void => {
         if (this.disposed || ticket !== this.serial || restoreTicket !== this.restoreSerial) return;
         const row = this.source.getData(this.firstVisible);
-        this.awaitingImage = this.anchorFraction > 0 && (row === undefined || row.page.width <= 0 || row.page.height <= 0);
+        this.awaitingImage = this.anchorFraction > 0 && (row === undefined || row.page.width <= 0 || row.page.height <= 0 ||
+          (this.trimWhiteBorder && !row.page.trimWhiteBorderReady));
         if (!this.awaitingImage && this.anchorFraction > 0) {
           try {
             const rect = this.scroller.getItemRect(this.firstVisible);
@@ -275,6 +283,10 @@ export struct ComicContinuousComponent {
       this.reportedPage = row.pageIndex;
       this.reportedFraction = fraction;
       this.onPosition(row.chapterIndex, row.pageIndex, chapter.pages, fraction);
+      if (this.turnFeedbackPending) {
+        this.turnFeedbackPending = false;
+        if (!this.autoPageRunning) this.onTurnFeedback();
+      }
     }
   }
 
@@ -334,7 +346,7 @@ export struct ComicContinuousComponent {
         LazyForEach(this.source, (row: ComicScrollRow) => {
           ListItem() {
             ComicPageImage({ page: row.page, pageWidth: this.pageWidth, superResolution: this.superResolution,
-              pageHeight: this.pageHeight, displayMode: this.displayMode,
+              pageHeight: this.pageHeight, displayMode: this.displayMode, trimWhiteBorder: this.trimWhiteBorder,
               viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
               colorization: this.colorization, colorizationActive: this.colorizationActive,
               translation: this.translation, translationDirection: this.translationDirection,
@@ -364,6 +376,12 @@ export struct ComicContinuousComponent {
         .onScrollIndex((first: number, last: number): void => this.visibleChanged(first, last))
         .onDidScroll(this.autoScrollReady ? undefined : (): void => this.reportPosition())
         .onTouch((event: TouchEvent): void => {
+          if (event.type === TouchType.Down) {
+            this.turnFeedbackPending = !this.paged && !this.restoring && !this.autoPageRunning;
+          }
+          if (event.type === TouchType.Cancel || event.touches.length > 1 || this.zoomOwner.length > 0) {
+            this.turnFeedbackPending = false;
+          }
           if (event.type === TouchType.Down) this.autoScroll.setTouching(true);
           else if (event.type === TouchType.Up || event.type === TouchType.Cancel) this.autoScroll.setTouching(false);
           if (event.type === TouchType.Move && !this.restoring && !this.paged && this.zoomOwner.length === 0) this.awaitingImage = false;

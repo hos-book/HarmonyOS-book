@@ -66,6 +66,7 @@ function fixture(api = 26, supported = true) {
     } },
     './SourceCoverService': { SourceCoverService: { isEncoded: () => false } },
     './LocalBookCoverService': { LocalBookCoverService: { resolve: async () => '' } },
+    './CoverPrefetcher': { CoverPrefetcher: { loadOriginal: async () => new ArrayBuffer(0) } },
     './PlaybackCoordinator': { PlaybackCoordinator: coordinator },
     '../model/DesktopLyric': lyric,
     '@kit.AVSessionKit': { avSession },
@@ -113,6 +114,8 @@ async function main() {
   assert(lyric.DesktopLyricText.audio(cues, 1000).length < 16000, 'bounded metadata payload');
   const content = '第一句。第二句！' + '长'.repeat(150);
   assert.equal(lyric.DesktopLyricText.speech(content, 5), '第二句！');
+  assert.equal(lyric.DesktopLyricText.speech('\n  第一行。第二行。', 0), '第一行。');
+  assert.equal(lyric.DesktopLyricText.speech('第一行。第二行。', NaN), '第一行。');
   assert.equal(lyric.DesktopLyricText.speech(content, 9), lyric.DesktopLyricText.speech(content, 15), 'no per-character sliding');
 
   for (const [api, supported] of [[20, true], [26, false]]) {
@@ -164,9 +167,13 @@ async function main() {
   await flush();
   const speechMetadata = speech.calls.filter(x => x[0] === 'metadata').at(-1)[1];
   assert.equal(speechMetadata.lyric, '[00:00.00]正在朗读第二句。');
+  assert.equal(speechMetadata.singleLyricText, '正在朗读第二句。');
   assert.equal('duration' in speechMetadata, false, 'omit unknown duration instead of sending undefined');
   await speech.service.updatePlaybackState(false, 0, 1.35, 0, false, true);
   assert.equal(speech.visible(), true, 'TTS pause retains the current lyric');
+  speech.coordinator.speechActive = false;
+  await speech.service.updateMetadata(speech.book, speech.chapter);
+  assert.equal(speech.calls.filter(x => x[0] === 'metadata').at(-1)[1].singleLyricText, '', 'audio takeover clears speech single line');
 
   const racing = fixture(); await racing.ready();
   let release;

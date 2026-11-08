@@ -18,6 +18,8 @@ export class ComicPage {
   index: number = 0;
   width: number = 0;
   height: number = 0;
+  // 仅运行期布局状态，不写入图片目录缓存。
+  trimWhiteBorderReady: boolean = false;
   sourceUrl: string = '';
   requestUrl: string = '';
   cacheKey: string = '';

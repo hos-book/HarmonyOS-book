@@ -16,10 +16,38 @@ function load(relative, mocks) {
   return exports;
 }
 const model = load('model/JianjianAi.ets', {});
-const { JianjianAiConfig, JianjianAiMessage, JianjianAiErrorCode: C } = model;
+const { JianjianReplyText: ReplyText } = load('utils/JianjianReplyText.ets', {});
+assert.equal(ReplyText.display('### 最近情节\n- **楚风**：重逢。[1][2]\n\n### 主要人物'),
+  '最近情节\n- 楚风：重逢。[1][2]\n\n主要人物');
+assert.equal(ReplyText.display('C#、#话题、编号 #123'), 'C#、#话题、编号 #123');
+assert.equal(ReplyText.display('```c\n# define VALUE 1\n```'), '# define VALUE 1');
+for (const [reply, expected] of [
+  ['**重点**，`**原样**`', '重点，原样'],
+  ['**本章总结：\n主角与故人重逢。**\n\n**关键事件**：重逢。[1][2]',
+    '本章总结：\n主角与故人重逢。\n\n关键事件：重逢。[1][2]'],
+  ['**释义：顷刻指极短的时间。\n例句：顷刻之间。', '释义：顷刻指极短的时间。\n例句：顷刻之间。'],
+  ['***顷刻***：极短的时间。**', '顷刻：极短的时间。'],
+  [String.raw`\*\*释义\*\*：极短的时间。`, '释义：极短的时间。'],
+  ['```markdown\n### **本章概括**\n**人物：\n主角**\n```', '本章概括\n人物：\n主角'],
+  ['```\n**释义**：极短的时间。\n```', '释义：极短的时间。'],
+  ['保留 2 * 3、#话题和 C#。', '保留 2 * 3、#话题和 C#。']
+]) {
+  assert.equal(ReplyText.display(reply), expected);
+  assert.equal(ReplyText.display(expected), expected, 'plain replies stay unchanged');
+}
+const { JianjianAiConfig, JianjianAiMessage, JianjianAiPrompts, JIANJIAN_PROMPT_MAX_LENGTH,
+  JianjianAiErrorCode: C } = model;
+const promptResources = JSON.parse(fs.readFileSync(path.join(root, '../resources/base/element/jianjian_ai.json'), 'utf8'));
+const promptContext = { resourceManager: { getStringSync(id) {
+  const item = promptResources.string.find(item => 'app.string.' + item.name === id);
+  assert.ok(item, id);
+  return item.value;
+} } };
 function fixture() {
   const calls = [];
   let record;
+  let cachedModels;
+  let prompts;
   const control = { status: 200, body: JSON.stringify({ data: [{ id: 'z-text' }, { id: 'embedding-model' }, { id: 'z-text' }] }),
     gate: undefined, failStore: false, oversized: false, closed: 0, responses: [] };
   const rcp = {
@@ -52,9 +80,21 @@ function fixture() {
       assert.equal(options.encrypt, true); assert.equal(options.allowRebuild, false);
       return { async executeSql(sql, values) {
         if (control.failStore) throw new Error('disk failure');
-        if (sql.startsWith('INSERT')) record = [...values];
-        if (sql.startsWith('DELETE')) record = undefined;
-      }, async querySql() { return { goToFirstRow: () => !!record, getString: i => record[i], close() {} }; } };
+        if (sql.startsWith('INSERT')) {
+          if (sql.includes('model_cache')) cachedModels = [...values];
+          else if (sql.includes('prompts')) prompts = [...values];
+          else record = [...values];
+        }
+        if (sql.startsWith('DELETE')) {
+          if (sql.includes('model_cache')) cachedModels = undefined;
+          else if (sql.includes('prompts')) prompts = undefined;
+          else record = undefined;
+        }
+      }, async querySql(sql, values) {
+        const row = sql.includes('model_cache') ? cachedModels && cachedModels[0] === values[0] &&
+          cachedModels[1] === values[1] ? [cachedModels[2]] : undefined : sql.includes('prompts') ? prompts : record;
+        return { goToFirstRow: () => !!row, getString: i => row[i], close() {} };
+      } };
     } } }
   };
   const { JianjianAiService: Service } = load('service/JianjianAiService.ets', mocks);
@@ -65,6 +105,27 @@ function fixture() {
 
 (async () => {
   const { Service, client, config, control, calls } = fixture();
+  const defaults = Service.defaultPrompts(promptContext);
+  assert.ok(defaults.chat.includes('简简') && defaults.book.includes('引用数据'));
+  assert.deepEqual(await Service.loadPrompts(promptContext), defaults, 'old installations use the built-in prompts');
+  const custom = Object.assign(new JianjianAiPrompts(), { chat: '以简洁的中文交流。\n先给结论。', book: '用编号讨论已读情节。' });
+  await Service.savePrompts(promptContext, custom);
+  assert.deepEqual(await Service.loadPrompts(promptContext), custom, 'prompts persist without AI credentials');
+  assert.equal(calls.length, 0, 'editing prompts never contacts the provider');
+  control.failStore = true;
+  await assert.rejects(Service.savePrompts(promptContext, defaults));
+  control.failStore = false;
+  assert.deepEqual(await Service.loadPrompts(promptContext), custom, 'failed saves preserve both saved prompts');
+  await assert.rejects(Service.savePrompts(promptContext, Object.assign(new JianjianAiPrompts(), custom,
+    { chat: '字'.repeat(JIANJIAN_PROMPT_MAX_LENGTH + 1) })), e => e.code === C.PROMPT);
+  assert.deepEqual(await Service.loadPrompts(promptContext), custom);
+  const restoredChat = await Service.savePrompts(promptContext, Object.assign(new JianjianAiPrompts(), custom, { chat: ' \n ' }));
+  assert.equal(restoredChat.chat, defaults.chat, 'blank chat restores the built-in text');
+  assert.equal(restoredChat.book, custom.book, 'restoring one prompt preserves the other');
+  const restoredBook = await Service.savePrompts(promptContext, Object.assign(new JianjianAiPrompts(), custom, { book: '' }));
+  assert.equal(restoredBook.chat, custom.chat);
+  assert.equal(restoredBook.book, defaults.book);
+  await Service.savePrompts(promptContext, custom);
   for (const [input, expected] of [
     ['https://provider.test', 'https://provider.test/v1'],
     ['https://provider.test/v1/', 'https://provider.test/v1'],
@@ -83,11 +144,34 @@ function fixture() {
   await Service.saveConfig({}, config);
   const loaded = await Service.loadConfig({});
   assert.equal(loaded.apiKey, config.apiKey); assert.equal(loaded.model, config.model);
+  assert.deepEqual(Array.from(await Service.loadCachedModels({}, loaded)), [], 'old configs without a cache still load');
+  const completeCatalog = Array.from({ length: 250 }, (_, i) => 'provider-model-' + i);
+  completeCatalog.push('z-text', 'embedding-model');
+  await Service.saveCachedModels({}, config, completeCatalog);
+  const reopenedConfig = await Service.loadConfig({});
+  assert.deepEqual(Array.from(await Service.loadCachedModels({}, reopenedConfig)), [...completeCatalog].sort(),
+    'reopening settings restores the full persisted catalog, without a network request');
+  assert.equal(calls.length, 0);
+  assert.deepEqual(Array.from(await Service.loadCachedModels({}, Object.assign(new JianjianAiConfig(), config,
+    { address: 'https://other-provider.test/v1' }))), [], 'never show another provider\'s models');
+  assert.deepEqual(Array.from(await Service.loadCachedModels({}, Object.assign(new JianjianAiConfig(), config,
+    { apiKey: 'another-key' }))), [], 'model catalog is scoped to the API key');
+  await Service.saveConfig({}, Object.assign(new JianjianAiConfig(), config, { model: 'embedding-model' }));
+  assert.deepEqual(Array.from(await Service.loadCachedModels({}, await Service.loadConfig({}))), [...completeCatalog].sort(),
+    'changing the selected model keeps the catalog');
+  await Service.saveConfig({}, config);
   control.failStore = true;
   await assert.rejects(Service.saveConfig({}, Object.assign(new JianjianAiConfig(), config, { model: 'changed' })));
+  await assert.rejects(Service.saveCachedModels({}, config, ['replacement']));
   control.failStore = false;
   assert.equal((await Service.loadConfig({})).model, config.model);
+  assert.deepEqual(Array.from(await Service.loadCachedModels({}, config)), [...completeCatalog].sort(),
+    'a failed refresh does not discard the saved models');
+  await Service.saveCachedModels({}, config, ['refreshed', 'z-text', 'refreshed']);
+  assert.deepEqual(Array.from(await Service.loadCachedModels({}, config)), ['refreshed', 'z-text']);
   await Service.clearConfig({}); assert.equal((await Service.loadConfig({})).apiKey, '');
+  assert.deepEqual(await Service.loadPrompts(promptContext), custom, 'clearing credentials keeps custom prompts');
+  assert.deepEqual(Array.from(await Service.loadCachedModels({}, config)), [], 'clear removes cached models and credentials');
   const models = await client.listModels(config);
   assert.deepEqual(Array.from(models), ['embedding-model', 'z-text'], 'do not filter providers or model families');
   assert.equal(calls[0].address, 'https://provider.test/v1/models');
@@ -102,10 +186,25 @@ function fixture() {
   assert.equal(request.address, 'https://provider.test/v1/chat/completions');
   const body = JSON.parse(request.body);
   assert.equal(body.model, 'z-text'); assert.equal(body.stream, false);
+  assert.equal(body.messages[0].role, 'system');
+  assert.ok(body.messages[0].content.startsWith('Only user-provided conversation.\n\n'));
+  assert.match(body.messages[0].content, /纯文本/);
+  assert.match(body.messages[0].content, /保留段落和引用编号/);
   assert.ok(body.messages.length <= 21); assert.equal(body.messages[1].role, 'user');
   assert.equal(body.messages.at(-1).content, '聊聊阅读');
   assert.deepEqual(Object.keys(body).sort(), ['messages', 'model', 'stream']);
   assert.ok(!request.body.includes('test-key'));
+  const selectedPrompt = await Service.conversationPrompt(promptContext, false, 'must-not-be-sent');
+  assert.equal(selectedPrompt, custom.chat, 'ordinary chat uses the saved prompt without book evidence');
+  await client.chat(config, [new JianjianAiMessage('user', '你好')], selectedPrompt);
+  assert.ok(JSON.parse(calls.at(-1).body).messages[0].content.startsWith(custom.chat + '\n\n'));
+  const evidence = '{"reference":"1","text":"已读片段"}';
+  const bookPrompt = await Service.conversationPrompt(promptContext, true, evidence);
+  assert.ok(bookPrompt.startsWith(custom.book + '\n\n'));
+  assert.ok(bookPrompt.endsWith('\n' + evidence));
+  await Service.savePrompts(promptContext, defaults);
+  assert.equal(await Service.conversationPrompt(promptContext, false), defaults.chat,
+    'the next request picks up restored defaults without restarting');
   assert.throws(() => Service.parseReply('{"choices":[]}'), e => e.code === C.INVALID);
   assert.throws(() => Service.parseReply('{"choices":[{"message":{"content":null}}]}'), e => e.code === C.INVALID);
   assert.equal(Service.parseReply('{"choices":[{"message":{"content":null,"refusal":"无法回答"}}]}'), '无法回答');
@@ -144,7 +243,7 @@ function fixture() {
   player.isPlaying = false; state.streak = 0; state.records = []; state.favorites = []; state.sources = [];
   info = await Companion.feedback({}); assert.equal(info.suggestImport, true); assert.equal(info.suggestSources, true);
   state.failed = true; info = await Companion.feedback({}); assert.equal(info.suggestImport, false);
-  for (const route of ['reader','comicReader','player','ruleSourceLogin','jianjianChat','jianjianAiSettings']) assert.equal(Companion.quietRoute(route), true);
+  for (const route of ['reader','comicReader','player','ruleSourceLogin','jianjianChat','jianjianAiSettings','jianjianPromptSettings']) assert.equal(Companion.quietRoute(route), true);
   for (const route of ['','settings','stats']) assert.equal(Companion.quietRoute(route), false);
   console.log('PASS: AI configuration, encrypted storage contract, model list, bounded chat, auth/errors/cancellation, local feedback and quiet routes');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -323,6 +323,17 @@ export class PreferenceService {
     return store.getSync('comic_volume_key_page_turn', false) === true;
   }
 
+  static async getComicPageTurnHaptic(): Promise<string> {
+    const store = await PreferenceService.ensureStore();
+    const value = store.getSync('comic_page_turn_haptic', 'none');
+    return value === 'strong' || value === 'medium' || value === 'weak' ? value : 'none';
+  }
+
+  static async setComicPageTurnHaptic(value: string): Promise<void> {
+    const level = value === 'strong' || value === 'medium' || value === 'weak' ? value : 'none';
+    await PreferenceService.saveComicPreference('comic_page_turn_haptic', level, 'none');
+  }
+
   static async getComicSmartKeyPageTurn(): Promise<boolean> {
     const store = await PreferenceService.ensureStore();
     return store.getSync('comic_smart_key_page_turn', false) === true;
@@ -363,6 +374,15 @@ export class PreferenceService {
   static async setComicDisplayMode(mode: number): Promise<void> {
     if (![0, 1, 2, 3].includes(mode)) throw new Error('Invalid comic display mode');
     await PreferenceService.saveComicPreference('comic_display_mode', mode, 0);
+  }
+
+  static async getComicTrimWhiteBorder(): Promise<boolean> {
+    const store = await PreferenceService.ensureStore();
+    return store.getSync('comic_trim_white_border', false) === true;
+  }
+
+  static async setComicTrimWhiteBorder(enabled: boolean): Promise<void> {
+    await PreferenceService.saveComicPreference('comic_trim_white_border', enabled, false);
   }
 
   static async setComicPageLayout(layout: number): Promise<void> {

@@ -208,6 +208,11 @@ function load(relative) {
     if (name === '@kit.PDFKit') { assert.ok(pdfAvailable); return { pdfService }; }
     if (name === '@kit.CoreFileKit') return { fileIo, statfs: { getFreeSize: async () => free } };
     if (name === '@kit.ImageKit') return { image };
+    if (name === '@kit.CryptoArchitectureKit') return { cryptoFramework: { createMd(algorithm) {
+      assert.equal(algorithm, 'SHA256');
+      const hash = require('node:crypto').createHash('sha256');
+      return { async update(blob) { hash.update(blob.data); }, async digest() { return { data: hash.digest() }; } };
+    } } };
     if (name === 'libcba_archive.so') return { extract(fd, directory, progress) {
       assert.ok(handles.has(fd), 'original granted URI is opened by the worker');
       const paths = [];
@@ -564,6 +569,43 @@ function load(relative) {
   assert.ok(OriginalDocument.build(specialHtml, new OriginalPart(2, 'Text/:*章.xhtml', 0, specialHtml.length), '', 'testNonce')
     .includes(OriginalDocument.url(specialImage)), 'SVG cover resolves special filenames');
   assert.ok(OriginalDocument.css(originalAssets.get(specialCss), specialCss).includes(OriginalDocument.url(specialFont)));
+  const longAssets = [
+    `Images/${'a'.repeat(280)}1.png`,
+    `Images/${'a'.repeat(280)}2.png`,
+    `Fonts/${'正文字体'.repeat(24)}.woff2`,
+    `${'嵌套/'.repeat(180)}paper.png`,
+    'Images/Case.png', 'Images/case.png'
+  ];
+  for (let index = 0; index < longAssets.length; index++) {
+    originalAssets.set(longAssets[index], Buffer.from(`original resource ${index}`));
+  }
+  const longCss = `Styles/${'版式'.repeat(100)}.css`;
+  originalAssets.set(longCss, '@font-face{font-family:Long;src:url("../' + longAssets[2] + '")}' +
+    'body{background:url("../' + longAssets[3] + '")}');
+  const longHtml = '<head><link rel="stylesheet" href="../' + longCss + '"/></head><body>' +
+    [longAssets[0], longAssets[1], ...longAssets.slice(4)].map(name => `<img src="../${name}"/>`).join('') + '</body>';
+  await assetStore.capture(4, 'Text/long.xhtml', longHtml, resourceReader);
+  const readsAfterLongCapture = resourceReads.length;
+  await new Originals(captureRoot.replaceAll('\\', '/')).capture(5, 'Text/reopened.xhtml', longHtml, resourceReader);
+  assert.equal(resourceReads.length - readsAfterLongCapture, 7, 'reopened stores retain resource identity');
+  for (const name of [...longAssets, longCss]) {
+    assert.deepEqual(Buffer.from(await Originals.resource(captureRoot + '/original', OriginalDocument.path(OriginalDocument.url(name)))),
+      Buffer.from(originalAssets.get(name)), 'long, Unicode, nested and case-sensitive resources remain distinct and readable');
+  }
+  const legacyName = 'Styles/旧版:*主题.css';
+  const legacyFile = captureRoot + '/original/assets/' + OriginalDocument.assetPath(legacyName);
+  await fsp.mkdir(path.dirname(legacyFile), { recursive: true });
+  await fsp.writeFile(legacyFile, 'body{color:#123456}');
+  assert.equal(Buffer.from(await Originals.resource(captureRoot + '/original', legacyName)).toString(),
+    'body{color:#123456}', 'already imported resources retain their legacy encoded-path lookup');
+  epubBodies = [`<body><p>长资源路径导入正文</p><img src="../${longAssets[0]}"/></body>`];
+  const longPathBook = await service.importBook(context, comicFile, 'import_epub_long_asset', '', '', '', () => {}, 'text');
+  const longPathRoot = Originals.root(context.filesDir, longPathBook.id);
+  assert.ok((await fsp.readFile(longPathBook.chapters[0].source.value, 'utf8')).includes('长资源路径导入正文'));
+  assert.deepEqual(Buffer.from(await Originals.resource(longPathRoot, longAssets[0])), MOBI_COVER_PNG);
+  assert.equal((await Originals.theme(context.filesDir, longPathBook.id, longPathBook.chapterCount)).enabled, true);
+  epubBodies = null;
+  console.log('PASS EPUB long resource paths: import, CSS/font/image dependencies, distinct names, reopening and legacy storage');
   console.log('PASS EPUB original presets: embedded CSS/fonts/assets, chapter mapping, per-book selection, position conversion and script isolation');
   assert.equal(liveImages, 0);
   assert.equal(handles.size, 0);
@@ -713,10 +755,12 @@ function load(relative) {
   const source = '第一章 初见\n你好世界\n第二章 重逢\n' + '文字😀'.repeat(20000);
   await fsp.writeFile(file.uri, source);
   const book = await service.importBook(context, file, 'import_123_text_0', '', '', '', () => {});
-  assert.ok(book.chapters.length >= 3);
+  assert.equal(book.chapters.length, 2, 'TXT headings retain complete chapters across decoding blocks');
   assert.equal(book.chapters[0].title, '第一章 初见');
   const texts = await Promise.all(book.chapters.map(ch => fsp.readFile(ch.source.value, 'utf8')));
-  assert.ok(texts.every(text => text.length <= 32000 && !text.includes('\uFFFD')));
+  assert.ok(texts.every(text => !text.includes('\uFFFD')));
+  assert.ok(texts[1].length > 32000);
+  assert.equal(book.chapters[1].title, '第二章 重逢');
   assert.equal(texts.join('').replaceAll('\n', ''), source.replaceAll('\n', ''));
   await data.addImportedBook(book);
   assert.equal(JSON.parse(values.get('books'))[0].chapters.length, 0);
@@ -725,6 +769,38 @@ function load(relative) {
   assert.equal(restored.chapters.length, book.chapters.length);
   assert.equal(await data.readImportedText(restored, restored.chapters[0].source.value), texts[0]);
   await assert.rejects(() => data.readImportedText(restored, context.filesDir + '/other.txt'));
+
+  const longParts = ['第一章', '第二章', '第三章', '第四章'].map((title, i) =>
+    `${title}\n${(`中俄正文 Материалы 😀 ${i}\n`).repeat(3500)}`.trim());
+  await fsp.writeFile(file.uri, '\ufeff' + longParts.join('\r\n').replace(/(?<!\r)\n/g, '\r\n'));
+  const four = await service.importBook(context, file, 'import_txt_four', '', '', '', () => {});
+  assert.deepEqual(Array.from(four.chapters, chapter => chapter.title), ['第一章', '第二章', '第三章', '第四章']);
+  assert.deepEqual(await Promise.all(four.chapters.map(chapter => fsp.readFile(chapter.source.value, 'utf8'))), longParts);
+  await fsp.writeFile(file.uri, '第一章\n正文\n第二章');
+  const finalHeading = await service.importBook(context, file, 'import_txt_final_heading', '', '', '', () => {});
+  assert.deepEqual(Array.from(finalHeading.chapters, chapter => chapter.title), ['第一章', '第二章'],
+    'EOF without newline still recognizes the final heading');
+  const plainText = '无标题😀'.repeat(30000);
+  await fsp.writeFile(file.uri, plainText);
+  const plainBook = await service.importBook(context, file, 'import_txt_plain', '', '', '', () => {});
+  const plainParts = await Promise.all(plainBook.chapters.map(chapter => fsp.readFile(chapter.source.value, 'utf8')));
+  assert.ok(plainParts.length > 1 && plainParts.every(text => text.length <= 32000));
+  assert.equal(plainParts.join(''), plainText, 'untitled long text remains bounded without splitting Unicode');
+  await fsp.writeFile(file.uri, '第一章\n' + '字'.repeat(8 * 1024 * 1024));
+  await assert.rejects(service.importBook(context, file, 'import_txt_limit', '', '', '', () => {}), /TXT 单章正文超过/);
+  assert.equal(fs.existsSync(path.join(temp, 'ebooks/import_txt_limit')), false, 'oversized TXT rolls back the book');
+  if (process.env.TXT_TEST_FILE) {
+    const actualFile = { uri: process.env.TXT_TEST_FILE, name: path.basename(process.env.TXT_TEST_FILE, '.txt'), ext: '.txt' };
+    const actual = await service.importBook(context, actualFile, 'import_txt_real', '', '', '', () => {});
+    const original = (await fsp.readFile(actualFile.uri, 'utf8')).replace(/^\ufeff/, '').replace(/\r/g, '').trim();
+    const originalParts = original.split(/\n(?=第[一二三四]章\n)/).map(text => text.trim());
+    assert.equal(actual.chapters.length, 4);
+    assert.deepEqual(Array.from(actual.chapters, chapter => chapter.title), ['第一章', '第二章', '第三章', '第四章']);
+    const contents = await Promise.all(actual.chapters.map(chapter => fsp.readFile(chapter.source.value, 'utf8')));
+    assert.deepEqual(contents, originalParts, 'real four-chapter TXT preserves every chapter body');
+    console.log('PASS real TXT: four original chapters; full chapter text matches, lengths=' + contents.map(text => text.length));
+  }
+  console.log('PASS TXT: long titled chapters, EOF heading, untitled fallback, Unicode and limit rollback');
 
   for (const [name, bytes, expected] of [
     ['utf16', Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from('中文内容', 'utf16le')]), '中文内容'],

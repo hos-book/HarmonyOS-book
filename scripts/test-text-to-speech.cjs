@@ -52,7 +52,9 @@ function harness(memory = new Map()) {
   let id = 0, failContent = false, createDeferred = null, deviceCallback = null, httpPrepareFailure = '', httpPrepareWait = null;
   const coordinator = load('service/PlaybackCoordinator.ets');
   const session = { callbacks: null, paused: false, setSpeechCallbacks(cbs) { this.callbacks = cbs; },
-    addDesktopLyricListener() {}, updateDesktopLyric() {},
+    lyrics: [], lyricListener: null,
+    addDesktopLyricListener(listener) { this.lyricListener = listener; },
+    updateDesktopLyric(bookId, chapterId, text) { this.lyrics.push({ bookId, chapterId, text }); },
     restoreAudioCallbacks() {}, endSpeechPlayback() { this.paused = true; },
     init: async () => {}, updateMetadata: async () => {}, updatePlaybackState: async () => {} };
   const focusPreference = { getAudioFocusMode: async () => memory.get('audioFocusMode') ?? 0,
@@ -190,6 +192,29 @@ async function check(name, action) {
   catch (error) { console.error(`FAIL ${name}`, error); process.exitCode = 1; }
 }
 (async () => {
+  await check('桌面字幕只跟随实际起播，合成等待/暂停保留末句，跨章及旧回调不串字', async () => {
+    const h = harness(); await h.init(); h.tts.deferSynthesis = true;
+    h.service.setReadingPageEnds('lyric', 0, [4, 9]);
+    await h.service.start(book('lyric', ['第一页。\n第二页。', '另一章。']), 0, 0);
+    assert.equal(h.session.lyrics.at(-1)?.text || '', '', 'synthesis is not playback');
+    h.spoken[0].synthesize(); await settle();
+    assert.equal(h.session.lyrics.at(-1).text, '[00:00.00]第一页。');
+    await h.complete(1, h.spoken[0]);
+    h.session.lyricListener();
+    assert.equal(h.session.lyrics.at(-1).text, '[00:00.00]第一页。', 'queued next page must not move the subtitle');
+    h.service.setForeground(false);
+    h.spoken[1].synthesize(); await settle();
+    assert.equal(h.session.lyrics.at(-1).text, '[00:00.00]第二页。', 'background actual playback still updates subtitles');
+    h.service.pause(); h.session.lyricListener();
+    assert.equal(h.session.lyrics.at(-1).text, '[00:00.00]第二页。', 'reopening while paused retains the audible line');
+    await h.service.moveChapter(1); await settle();
+    assert.equal(h.session.lyrics.at(-1).text, '', 'new chapter clears the old line until it starts');
+    h.spoken[1].synthesize(); await settle();
+    assert.equal(h.session.lyrics.at(-1).text, '', 'stale synthesis cannot restore old subtitles');
+    h.spoken.at(-1).synthesize(); await settle();
+    assert.equal(h.session.lyrics.at(-1).text, '[00:00.00]另一章。');
+    h.service.stop();
+  });
   await check('暂停朗读续听采用云端字符位置，旧暂停保存不覆盖远端，检查期间取消不出声', async () => {
     const h = harness(); await h.init();
     const value = book('cloud-resume', ['第一句。第二句。第三句。']);
@@ -964,7 +989,9 @@ async function check(name, action) {
     assert.equal(h.engines.length, 0); assert.equal(h.service.state.loading, true);
     assert.equal(h.service.state.playing, false);
     const old = h.httpSpoken.at(-1);
+    assert.equal(h.session.lyrics.at(-1)?.text || '', '', 'HTTP prepared is not audible');
     old.onStart(); assert.equal(h.service.state.playing, true);
+    assert.equal(h.session.lyrics.at(-1).text, '[00:00.00]第一句。');
     await h.service.selectCustomTts(configs[0].id); await settle();
     assert.equal(old.task.cancelled, true);
     old.onStart(); old.complete(); await settle();
@@ -973,6 +1000,7 @@ async function check(name, action) {
     assert.equal(current.config.id, configs[0].id);
     current.onStart(); current.complete(); await settle();
     assert.equal(h.httpSpoken.at(-1).text, '第二句！');
+    assert.equal(h.session.lyrics.at(-1).text, '[00:00.00]第一句。', 'HTTP next segment waits for actual start');
     h.service.pause(); const paused = h.httpSpoken.length;
     h.httpSpoken.at(-1).onStart(); await settle();
     assert.equal(h.service.state.playing, false); assert.equal(h.httpSpoken.length, paused);

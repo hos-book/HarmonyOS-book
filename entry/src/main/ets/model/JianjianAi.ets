@@ -4,6 +4,13 @@ export class JianjianAiConfig {
   model: string = '';
 }
 
+export const JIANJIAN_PROMPT_MAX_LENGTH: number = 8000;
+
+export class JianjianAiPrompts {
+  chat: string = '';
+  book: string = '';
+}
+
 export class JianjianAiMessage {
   role: string;
   content: string;
@@ -61,7 +68,7 @@ export class JianjianBookContext {
   limited: boolean = false;
 }
 
-export enum JianjianAiErrorCode { CONFIG, MODEL, AUTH, ENDPOINT, LIMIT, NETWORK, SERVER, INVALID, TOO_LARGE, CANCELLED }
+export enum JianjianAiErrorCode { CONFIG, MODEL, AUTH, ENDPOINT, LIMIT, NETWORK, SERVER, INVALID, TOO_LARGE, CANCELLED, PROMPT }
 
 export class JianjianAiError extends Error {
   code: JianjianAiErrorCode;

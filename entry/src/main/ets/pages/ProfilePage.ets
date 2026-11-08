@@ -54,7 +54,11 @@ const CONTENT_ITEMS: ProfileItem[] = [
 const SETTINGS_ITEMS: ProfileItem[] = [
   new ProfileItem($r('sys.symbol.gearshape'), '设置', 'settings', '#8E8E93'),
   new ProfileItem($r('sys.symbol.book'), $r('app.string.reading_settings_title'), 'readingSettings',
-    $r('app.color.app_brand'))
+    $r('app.color.app_brand')),
+  new ProfileItem($r('sys.symbol.car'), $r('app.string.hicar_settings_title'), 'hicar',
+    $r('app.color.app_brand')),
+  new ProfileItem($r('sys.symbol.person_fill'), $r('app.string.jianjian_settings_title'),
+    'jianjianSettings', $r('app.color.app_brand'))
 ];
 
 const SYSTEM_ITEMS: ProfileItem[] = [
@@ -112,6 +116,10 @@ export struct ProfilePage {
 
     } else if (id === 'readingSettings') {
       this.navStack.pushPathByName('readingSettings', '');
+    } else if (id === 'hicar') {
+      this.navStack.pushPathByName('hicar', '');
+    } else if (id === 'jianjianSettings') {
+      this.navStack.pushPathByName('jianjianSettings', '');
     } else if (id === 'membership') {
       this.navStack.pushPathByName('membership', '');
     } else if (id === 'ruleSources') {
@@ -404,5 +412,6 @@ export struct ProfilePage {
     })
     .constraintSize({ minHeight: 56 })
     .onClick(() => this.onItemTap(item.id))
+    .id(`profile-${item.id}`)
   }
 }

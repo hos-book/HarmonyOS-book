@@ -9,6 +9,8 @@ import { MembershipState } from '../model/MembershipState';
 import { ReaderCacheService } from '../service/ReaderCacheService';
 import { ComicColorizationService } from '../service/ComicColorizationService';
 import { ComicZoomTransform } from '../utils/ComicZoomGeometry';
+import { ComicCropRect } from '../utils/ComicWhiteBorderGeometry';
+import { ComicWhiteBorderService } from '../service/ComicWhiteBorderService';
 
 @ComponentV2
 export struct ComicPageImage {
@@ -21,6 +23,9 @@ export struct ComicPageImage {
   @Param fitScreen: boolean = false;
   // 0 保留原版布局；1 铺满可用宽度；2 完整显示；3 原图大小（只缩小，不放大）。
   @Param displayMode: number = 0;
+  @Param trimWhiteBorder: boolean = false;
+  @Local crop: ComicCropRect = new ComicCropRect();
+  private cropSerial: number = 0;
   @Param autoPageRequest: number = 0;
   @Param autoPageActive: boolean = false;
   @Event onAutoPageEnd: () => void = (): void => {};
@@ -88,6 +93,7 @@ export struct ComicPageImage {
     this.imageSerial++;
     this.enhancementSerial++;
     this.colorSerial++;
+    this.cropSerial++;
     ReaderCacheService.release(this.cacheOwner);
   }
 
@@ -116,11 +122,14 @@ export struct ComicPageImage {
   private loadImage(): void {
     this.resetZoom();
     const page = this.page;
+    page.trimWhiteBorderReady = false;
     const ticket = ++this.imageSerial;
     this.startedAt = Date.now();
     this.displayLogged = false;
     this.failed = false;
     this.loaded = false;
+    this.cropSerial++;
+    this.crop = new ComicCropRect();
     this.resolvedUrl = '';
     this.enhancedUrl = '';
     this.enhancementFailed = false;
@@ -140,14 +149,28 @@ export struct ComicPageImage {
       await ComicReaderService.prepareImage(page, path);
       if (cancelled()) return;
       if (page.width > 0 && page.height > 0) this.ratio = page.height / page.width;
-      this.resolvedUrl = path.startsWith('/') ? fileUri.getUriFromPath(path) : path;
+      const resolved = path.startsWith('/') ? fileUri.getUriFromPath(path) : path;
+      if (this.trimWhiteBorder) {
+        const crop = await ComicWhiteBorderService.inspect(resolved);
+        if (cancelled()) return;
+        // 等待解码时允许反复开关；结果属于当前图片，按最终开关值应用。
+        if (this.trimWhiteBorder) this.crop = crop;
+      }
+      this.resolvedUrl = resolved;
+      page.trimWhiteBorderReady = true;
       this.protectImage();
       this.onGeometryReady();
       this.enhance();
       this.colorize();
       const context = this.getUIContext().getHostContext();
       if (context) ComicReaderService.imageReady(page, path, context).catch((): void => {});
-    }).catch((): void => { if (!cancelled()) this.failed = true; });
+    }).catch((): void => {
+      if (!cancelled()) {
+        this.failed = true;
+        page.trimWhiteBorderReady = true;
+        this.onGeometryReady();
+      }
+    });
   }
 
   private protectImage(): void {
@@ -234,9 +257,28 @@ export struct ComicPageImage {
     }).finally((): void => { if (ticket === this.colorSerial) this.colorBusy = false; });
   }
 
-  private imageRatio(): number {
+  @Monitor('trimWhiteBorder')
+  private async onTrimChanged(): Promise<void> {
+    const ticket = ++this.cropSerial;
+    this.page.trimWhiteBorderReady = false;
+    this.resetZoom();
+    if (!this.trimWhiteBorder) this.crop = new ComicCropRect();
+    else if (this.resolvedUrl) {
+      const crop = await ComicWhiteBorderService.inspect(this.resolvedUrl);
+      if (!this.alive || ticket !== this.cropSerial) return;
+      this.crop = crop;
+    }
+    this.page.trimWhiteBorderReady = !this.trimWhiteBorder || this.resolvedUrl.length > 0;
+    this.onGeometryReady();
+  }
+
+  private originalRatio(): number {
     return this.ratio > 0 ? this.ratio : this.page.width > 0 && this.page.height > 0 ?
       this.page.height / this.page.width : 1.45;
+  }
+
+  private imageRatio(): number {
+    return this.originalRatio() * this.crop.height / this.crop.width;
   }
 
   private fitsViewport(): boolean {
@@ -254,7 +296,7 @@ export struct ComicPageImage {
   private imageWidth(): number {
     let width = this.fitsViewport() ? Math.min(this.pageWidth, this.pageHeight / this.imageRatio()) : this.pageWidth;
     if (this.displayMode === 3 && this.page.width > 0) {
-      width = Math.min(width, this.getUIContext().px2vp(this.page.width));
+      width = Math.min(width, this.getUIContext().px2vp(this.page.width * this.crop.width));
     }
     return Math.max(1, width);
   }
@@ -267,10 +309,10 @@ export struct ComicPageImage {
   private imageY(): number { return this.zoomState.scale > 1 ? this.zoomState.y : (this.contentHeight() - this.imageHeight()) / 2; }
 
   private decodeWidth(): number {
-    const ratio = this.imageHeight() / Math.max(1, this.imageWidth());
+    const ratio = this.originalRatio();
     const nativeWidth = this.page.width > 0 ? this.page.width * (this.enhancedUrl ? 4 : 1) : 1536;
     const enlarged = this.decodeScale > 1;
-    return Math.max(1, Math.floor(Math.min(this.getUIContext().vp2px(this.imageWidth()) * this.decodeScale,
+    return Math.max(1, Math.floor(Math.min(this.getUIContext().vp2px(this.imageWidth() / this.crop.width) * this.decodeScale,
       enlarged ? 4096 : 1536, (enlarged ? 8192 : 4096) / ratio,
       Math.sqrt((enlarged ? 8 : 4) * 1024 * 1024 / ratio), nativeWidth)));
   }
@@ -340,7 +382,7 @@ export struct ComicPageImage {
 
   private decodeSize(): ImageSourceSize {
     const widthPx = this.decodeWidth();
-    const heightPx = Math.max(1, Math.floor(widthPx * this.imageHeight() / Math.max(1, this.imageWidth())));
+    const heightPx = Math.max(1, Math.floor(widthPx * this.originalRatio()));
     const ui = this.getUIContext();
     // Image.sourceSize numbers are vp, while decoder budgets and native image dimensions are pixels.
     return { width: ui.px2vp(widthPx), height: ui.px2vp(heightPx) };
@@ -349,10 +391,13 @@ export struct ComicPageImage {
   @Builder
   imageContent(): void {
     Stack({ alignContent: Alignment.TopStart }) {
+      Stack({ alignContent: Alignment.TopStart }) {
         Image(this.displayUrl())
           .id(`${this.page.key}:${this.retry}`)
-          .width(this.imageWidth() * this.zoomState.scale).height(this.imageHeight() * this.zoomState.scale)
-          .position({ x: this.imageX(), y: this.imageY() })
+          .width(this.imageWidth() * this.zoomState.scale / this.crop.width)
+          .height(this.imageHeight() * this.zoomState.scale / this.crop.height)
+          .position({ x: -this.crop.x * this.imageWidth() * this.zoomState.scale / this.crop.width,
+            y: -this.crop.y * this.imageHeight() * this.zoomState.scale / this.crop.height })
           .draggable(false)
           // 容器已按原图比例计算；Fill 消除解码宽高取整造成的亚像素留边。
           .objectFit(ImageFit.Fill)
@@ -385,6 +430,8 @@ export struct ComicPageImage {
             else this.failed = true;
           })
           .accessibilityText($r('app.string.comic_page_number', this.page.index + 1))
+      }.width(this.imageWidth() * this.zoomState.scale).height(this.imageHeight() * this.zoomState.scale)
+        .position({ x: this.imageX(), y: this.imageY() }).clip(true)
       if (this.colorBusy) {
         Row({ space: 6 }) {
           LoadingProgress().width(18).height(18).color(AppColor.Brand)

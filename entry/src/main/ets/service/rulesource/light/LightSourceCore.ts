@@ -96,8 +96,7 @@ export class LightSourceCore {
       chapter.index = Number(variables.chapterIndex || 0);
       chapter.variable = context;
       if (NativeSourceService.isNative(source) && NativeCommentPage.isAction(address)) {
-        const page = await NativeSourceService.getCommentPage(source, new HttpClient(), book, chapter,
-          address, () => !!policy?.isCancelled());
+        const page = await this.nativeCommentPage(source, book, chapter, address, policy);
         if (policy?.isCancelled()) throw new Error('段评已取消');
         if (page.error || !page.html) {
           if (page.fallbackUrl) return JSON.stringify({url:page.fallbackUrl,html:''});
@@ -128,6 +127,44 @@ export class LightSourceCore {
       if (result.errorMessage) throw new Error(result.errorMessage);
       return JSON.stringify({url:result.requestedUrl,html:result.requestedHtml,value:result.value,message:result.toastMessage});
     });
+  }
+  private static async nativeCommentPage(source: BookSource, book: Book, chapter: BookChapter,
+    address: string, policy?: LightSourceRequest): Promise<NativeCommentPage> {
+    try {
+      return await NativeSourceService.getCommentPage(source, new HttpClient(), book, chapter,
+        address, () => !!policy?.isCancelled());
+    } catch (error) {
+      if (policy?.isCancelled()) throw new Error('段评已取消');
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes('评论上下文不可用')) throw error;
+    }
+    // Cached markers survive app updates, while the upstream chapter context is memory-only.
+    // Recover once through the normal content path, then require the exact original marker.
+    const deadline = Date.now() + 20000;
+    let finished = false;
+    let timer = -1;
+    const stopped = (): boolean => finished || !!policy?.isCancelled() || Date.now() >= deadline;
+    const rebuild = async (): Promise<NativeCommentPage> => {
+      const content = await NativeSourceService.getContent(source, new HttpClient(), book, chapter, stopped);
+      if (stopped()) throw new Error('段评恢复已取消或超时');
+      let marker = ReaderActionMarker.findFirst(content.text, 0);
+      let count = 0;
+      while (marker && count++ < 320) {
+        if (marker.data.url === address) {
+          return NativeSourceService.getCommentPage(source, new HttpClient(), book, chapter, address, stopped);
+        }
+        marker = ReaderActionMarker.findFirst(content.text, marker.end);
+      }
+      throw new Error('评论对应的原段落已变化，请刷新本章');
+    };
+    try {
+      return await Promise.race([rebuild(), new Promise<NativeCommentPage>((_resolve, reject): void => {
+        timer = setTimeout((): void => reject(new Error('段评恢复超过 20 秒')), 20000);
+      })]);
+    } finally {
+      finished = true;
+      if (timer >= 0) clearTimeout(timer);
+    }
   }
   static async fetch(localJson: string, address: string): Promise<string> {
     const local = JSON.parse(localJson) as LocalRuleSource;

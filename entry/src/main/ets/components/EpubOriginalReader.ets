@@ -1,14 +1,17 @@
 import { webview } from '@kit.ArkWeb';
+import { ReaderCommentMessages } from '../model/ReaderComment';
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { EpubOriginalDocument, EpubOriginalPart } from '../service/text/EpubOriginalDocument';
 import { EpubOriginalStore } from '../service/text/EpubOriginalStore';
-import { EpubOriginalPosition, EpubOriginalSpot } from '../service/text/EpubOriginalPosition';
+import { EpubOriginalPosition, EpubOriginalSpot, EpubOriginalPositionIndex } from '../service/text/EpubOriginalPosition';
 import { EpubOriginalLayoutOptions, EpubOriginalScript } from '../service/text/light/EpubOriginalScript';
 import { LocalRuleWebSession } from '../service/rulesource/LocalRuleWebSession';
 import { ReaderTapPolicy } from '../utils/ReaderTapPolicy';
 import { AppColor } from '../theme/Theme';
+import { ReaderAiAction } from '../model/ReaderAi';
+import { ReaderSelectionMenu } from '../utils/ReaderSelectionMenu';
 
 export class EpubOriginalRequest {
   root: string = '';
@@ -24,6 +27,9 @@ export class EpubOriginalController {
   seek: (offset: number) => void = (_offset: number): void => {};
   prepare: (forward: boolean) => Promise<boolean> = async (_forward: boolean): Promise<boolean> => false;
   complete: (commit: boolean) => Promise<void> = async (_commit: boolean): Promise<void> => {};
+  openLinkAt: (x: number, y: number) => Promise<boolean> = async (): Promise<boolean> => false;
+  beginPan: (x: number, y: number, dx: number, dy: number) => Promise<boolean> = async (): Promise<boolean> => false;
+  updatePan: (dx: number, dy: number, end: boolean, cancelled: boolean) => void = (): void => {};
 }
 
 class EpubOriginalCheckpoint {
@@ -35,6 +41,7 @@ class EpubOriginalCheckpoint {
 }
 
 class EpubOriginalMessage extends EpubOriginalSpot {
+  comments: ReaderCommentMessages = new ReaderCommentMessages();
   kind: string = '';
   token: number = 0;
   direction: number = 0;
@@ -44,23 +51,48 @@ class EpubOriginalMessage extends EpubOriginalSpot {
   height: number = 0;
   href: string = '';
   selected: boolean = false;
+  selectionText: string = '';
   paint: number = 0;
   background: string = '';
   foreground: string = '';
+  frame: number = 0;
 }
 
 class EpubOriginalConfig {
+  path: string = '';
   token: number = 0;
   paged: boolean = true;
   spot: EpubOriginalSpot = new EpubOriginalSpot();
   restorePage: number = -1;
   paint: number = 0;
+  continuous: boolean = false;
+  frame: number = 0;
+}
+
+class EpubOriginalFrameInfo {
+  id: number = 0;
+  url: string = '';
+}
+
+class EpubOriginalFrame extends EpubOriginalFrameInfo {
+  request: EpubOriginalRequest = new EpubOriginalRequest();
+  parts: EpubOriginalPart[] = [];
+  index: number = 0;
+  document: string = '';
+}
+
+class EpubContinuousConfig {
+  token: number = 0;
+  paint: number = 0;
+  top: number = 0;
+  bottom: number = 0;
+  initial: EpubOriginalFrameInfo = new EpubOriginalFrameInfo();
 }
 
 class EpubOriginalBridge {
   receive: (value: string) => void = (_value: string): void => {};
   report(value: string): void {
-    if (typeof value !== 'string' || value.length > 4096) return;
+    if (typeof value !== 'string' || value.length > 65536) return;
     setTimeout((): void => this.receive(value), 0);
   }
 }
@@ -85,10 +117,12 @@ export struct EpubOriginalReader {
   @Event onCenterTap: () => void = () => {};
   @Event onTurn: () => void = () => {};
   @Event onFailure: () => void = () => {};
-  @Event adjacent: (forward: boolean) => Promise<EpubOriginalRequest | null> = async () => null;
+  @Event adjacent: (forward: boolean, chapter: number, notify: boolean) => Promise<EpubOriginalRequest | null> = async () => null;
   @Event onChapter: (request: EpubOriginalRequest) => void = () => {};
   @Event onSelectionChange: (selected: boolean) => void = () => {};
+  @Event onAi: (chapter: number, action: ReaderAiAction, text: string) => void = () => {};
   @Event onAppearance: (background: string, foreground: string) => void = () => {};
+  @Event onNote: (chapter: number, comments: ReaderCommentMessages) => void = () => {};
   @Local visible: boolean = false;
   @Local loading: boolean = true;
   private controller: webview.WebviewController = new webview.WebviewController();
@@ -100,17 +134,29 @@ export struct EpubOriginalReader {
   private serial: number = 0;
   private timeout: number = -1;
   private script: string = '';
+  private continuousScript: string = '';
+  private frames: EpubOriginalFrame[] = [];
+  private frameSerial: number = 0;
+  private activeFrame: number = 0;
+  private extending: Set<number> = new Set<number>();
   private document: string = '';
   private documentUrl: string = '';
   private parts: EpubOriginalPart[] = [];
   private partIndex: number = 0;
   private active: EpubOriginalRequest = new EpubOriginalRequest();
+  private positionText: string = '';
+  private positionIndex: EpubOriginalPositionIndex = new EpubOriginalPositionIndex('');
   private activePaged: boolean = true;
   private checkpoint: EpubOriginalCheckpoint | null = null;
   private completing: boolean = false;
   private paintResolve: ((ready: boolean) => void) | null = null;
   private paintTimeout: number = -1;
   private paintSerial: number = 0;
+  private panScript: string = '';
+  private panDraining: Promise<void> | null = null;
+  private selectionText: string = '';
+  private selectionFrame: number = 0;
+  private selectionSerial: number = -1;
 
   aboutToAppear(): void {
     this.alive = true;
@@ -120,6 +166,9 @@ export struct EpubOriginalReader {
     this.commands.seek = (offset: number): void => { this.seek(offset); };
     this.commands.prepare = (forward: boolean): Promise<boolean> => this.prepare(forward);
     this.commands.complete = (commit: boolean): Promise<void> => this.complete(commit);
+    this.commands.openLinkAt = (x: number, y: number): Promise<boolean> => this.openLinkAt(x, y);
+    this.commands.beginPan = (x: number, y: number, dx: number, dy: number): Promise<boolean> => this.beginPan(x, y, dx, dy);
+    this.commands.updatePan = (dx: number, dy: number, end: boolean, cancelled: boolean): void => this.updatePan(dx, dy, end, cancelled);
     this.open().catch((error: Error): void => this.fail(error.message));
   }
 
@@ -131,7 +180,12 @@ export struct EpubOriginalReader {
     this.commands.seek = (_offset: number): void => {};
     this.commands.prepare = async (_forward: boolean): Promise<boolean> => false;
     this.commands.complete = async (_commit: boolean): Promise<void> => {};
+    this.commands.openLinkAt = async (): Promise<boolean> => false;
+    this.commands.beginPan = async (): Promise<boolean> => false;
+    this.commands.updatePan = (): void => {};
+    this.panScript = '';
     this.finishPaint(false);
+    this.frames = []; this.extending.clear();
     this.onSelectionChange(false);
     this.bridge.receive = (_value: string): void => {};
     const lease = this.lease;
@@ -144,6 +198,8 @@ export struct EpubOriginalReader {
     if (!context) throw new Error('Reader context unavailable');
     const script = await context.resourceManager.getRawFileContent('epub_original.js');
     this.script = util.TextDecoder.create('utf-8').decodeToString(script);
+    const continuous = await context.resourceManager.getRawFileContent('epub_continuous.js');
+    this.continuousScript = util.TextDecoder.create('utf-8').decodeToString(continuous);
     const lease = await LocalRuleWebSession.acquire(15000);
     if (!this.alive) { LocalRuleWebSession.release(lease); return; }
     this.lease = lease;
@@ -161,6 +217,7 @@ export struct EpubOriginalReader {
   private async load(): Promise<void> {
     this.finishPaint(false);
     this.checkpoint = null;
+    this.frames = []; this.extending.clear(); this.activeFrame = 0;
     const ticket = ++this.serial;
     this.loading = true;
     const request = this.request;
@@ -183,6 +240,7 @@ export struct EpubOriginalReader {
 
   private async loadPart(index: number, offset: number, end: boolean,
     restore: EpubOriginalSpot | null = null): Promise<void> {
+    if (!this.paged) { await this.loadContinuous(index, offset, end); return; }
     const ticket = ++this.serial;
     this.loading = true;
     const part = this.parts[index];
@@ -192,6 +250,7 @@ export struct EpubOriginalReader {
     const painted = this.waitForPaint();
     const config = new EpubOriginalConfig();
     config.token = ticket; config.paged = this.paged; config.spot = this.spot(offset, end);
+    config.path = '/assets/' + EpubOriginalDocument.assetPath(part.href);
     config.paint = this.paintSerial;
     if (restore !== null) { config.spot = restore; config.restorePage = restore.page; }
     const options = new EpubOriginalLayoutOptions();
@@ -211,6 +270,98 @@ export struct EpubOriginalReader {
       if (this.alive && ticket === this.serial && this.loading) this.fail('Page readiness timed out');
     }, 12000);
     if (!await painted && this.alive && ticket === this.serial) throw new Error('Page readiness timed out');
+  }
+
+  private async continuousFrame(request: EpubOriginalRequest, parts: EpubOriginalPart[], index: number,
+    offset: number, end: boolean, ticket: number): Promise<EpubOriginalFrame> {
+    const frame = new EpubOriginalFrame();
+    frame.id = ++this.frameSerial; frame.request = request; frame.parts = parts; frame.index = index;
+    frame.url = `${EpubOriginalDocument.ORIGIN}chapter/${ticket}/${frame.id}.html`;
+    const part = parts[index];
+    const source = await fileIo.readText(`${request.root}/${part.spine}.html`);
+    const config = new EpubOriginalConfig();
+    config.token = ticket; config.paged = false; config.continuous = true; config.frame = frame.id;
+    config.path = '/assets/' + EpubOriginalDocument.assetPath(part.href);
+    config.spot = EpubOriginalPosition.spot(request.text.substring(part.offset, part.offset + part.length),
+      Math.max(0, offset - part.offset));
+    config.spot.end = end;
+    const options = new EpubOriginalLayoutOptions();
+    options.paged = false;
+    options.margins.top = this.insetTop; options.margins.bottom = this.insetBottom;
+    options.margins.left = this.insetLeft; options.margins.right = this.insetRight;
+    options.target.kind = end ? 'end' : 'spot';
+    options.target.snippet = config.spot.snippet; options.target.fraction = config.spot.fraction;
+    const injection = EpubOriginalScript.injection(options);
+    const script = `window.hsdaEpubConfig=${JSON.stringify(config).replace(/</g, '\\u003c')};\n${this.script}\n${injection.script}`;
+    frame.document = EpubOriginalDocument.build(source, part, script, util.generateRandomUUID().replace(/-/g, ''),
+      injection.style + 'html{overflow:hidden!important;touch-action:auto;}');
+    return frame;
+  }
+
+  private async loadContinuous(index: number, offset: number, end: boolean): Promise<void> {
+    const ticket = ++this.serial;
+    this.loading = true; this.frames = []; this.extending.clear();
+    const frame = await this.continuousFrame(this.active, this.parts, index, offset, end, ticket);
+    if (!this.alive || ticket !== this.serial) return;
+    this.frames = [frame]; this.partIndex = index; this.activeFrame = frame.id;
+    const painted = this.waitForPaint();
+    const config = new EpubContinuousConfig();
+    config.token = ticket; config.paint = this.paintSerial;
+    config.top = this.insetTop; config.bottom = this.insetBottom;
+    config.initial.id = frame.id; config.initial.url = frame.url;
+    const script = `window.hsdaEpubConfig=${JSON.stringify(config)};\n${this.continuousScript}`;
+    this.document = EpubOriginalDocument.continuous(script, util.generateRandomUUID().replace(/-/g, ''));
+    this.documentUrl = `${EpubOriginalDocument.ORIGIN}chapter/${ticket}.html`;
+    this.controller.loadUrl(this.documentUrl);
+    if (!await painted && this.alive && ticket === this.serial) throw new Error('Page readiness timed out');
+  }
+
+  private async extendContinuous(id: number, forward: boolean): Promise<void> {
+    const direction = forward ? 1 : -1;
+    const frame = this.frames.find((item: EpubOriginalFrame): boolean => item.id === id);
+    if (!frame || this.paged || this.extending.has(direction)) return;
+    const ticket = this.serial;
+    this.extending.add(direction);
+    try {
+      let request = frame.request;
+      let parts = frame.parts;
+      let index = frame.index + direction;
+      if (index < 0 || index >= parts.length) {
+        const adjacent = await this.adjacent(forward, request.chapter, false);
+        if (!this.alive || ticket !== this.serial) return;
+        if (adjacent === null) {
+          await this.controller.runJavaScript(`window.hsdaEpub.finish(${direction},false)`);
+          return;
+        }
+        request = adjacent;
+        parts = await EpubOriginalStore.parts(request.root, request.chapter);
+        index = forward ? 0 : parts.length - 1;
+      }
+      const next = await this.continuousFrame(request, parts, index, parts[index].offset, false, ticket);
+      if (!this.alive || ticket !== this.serial) return;
+      if (!this.frames.includes(frame)) {
+        await this.controller.runJavaScript(`window.hsdaEpub.finish(${direction},true)`);
+        return;
+      }
+      this.frames.push(next);
+      const info = new EpubOriginalFrameInfo();
+      info.id = next.id; info.url = next.url;
+      await this.controller.runJavaScript(`window.hsdaEpub.append(${JSON.stringify(info)},${direction})`);
+    } catch (_error) {
+      if (this.alive && ticket === this.serial) {
+        await this.controller.runJavaScript(`window.hsdaEpub.finish(${direction},true)`).catch((): void => {});
+      }
+    } finally { if (ticket === this.serial) this.extending.delete(direction); }
+  }
+
+  private selectContinuousFrame(id: number): boolean {
+    const frame = this.frames.find((item: EpubOriginalFrame): boolean => item.id === id);
+    if (!frame) return false;
+    if (this.activeFrame !== id) {
+      this.activeFrame = id; this.active = frame.request; this.parts = frame.parts; this.partIndex = frame.index;
+      this.onChapter(this.active);
+    }
+    return true;
   }
 
   private waitForPaint(): Promise<boolean> {
@@ -264,7 +415,7 @@ export struct EpubOriginalReader {
       if (next >= 0 && next < this.parts.length) {
         await this.loadPart(next, this.parts[next].offset, !forward);
       } else {
-        const request = await this.adjacent(forward);
+        const request = await this.adjacent(forward, this.active.chapter, true);
         if (!request || !this.alive || this.completing || this.checkpoint !== checkpoint) return false;
         const parts = await EpubOriginalStore.parts(request.root, request.chapter);
         if (!this.alive || this.completing || this.checkpoint !== checkpoint) return false;
@@ -316,9 +467,11 @@ export struct EpubOriginalReader {
     if (!Number.isFinite(spot.fraction) || typeof spot.snippet !== 'string' || !this.parts.length) return;
     const part = this.parts[this.partIndex];
     const text = this.active.text.substring(part.offset, part.offset + part.length);
-    const offset = part.offset + EpubOriginalPosition.offset(text, spot);
-    hilog.debug(0, 'EpubOriginalReader', 'position chapter %{public}d part %{public}d page %{public}d/%{public}d',
-      this.active.chapter, this.partIndex, spot.page + 1, spot.count);
+    if (text !== this.positionText) {
+      this.positionText = text;
+      this.positionIndex = new EpubOriginalPositionIndex(text);
+    }
+    const offset = part.offset + this.positionIndex.offset(spot);
     this.onPosition(this.active.chapter, offset, Math.max(0, spot.page), Math.max(1, spot.count));
   }
 
@@ -327,12 +480,37 @@ export struct EpubOriginalReader {
     try {
       const message: EpubOriginalMessage = JSON.parse(value);
       if (message.token !== this.serial) return;
+      if (!this.paged) {
+        if (message.kind === 'failure') { this.fail('Continuous page readiness timed out'); return; }
+        if (message.kind === 'extend') { this.extendContinuous(message.frame, message.direction > 0); return; }
+        if (message.kind === 'discard') {
+          this.frames = this.frames.filter((item: EpubOriginalFrame): boolean => item.id !== message.frame);
+          return;
+        }
+        if (message.kind === 'position' && !this.selectContinuousFrame(message.frame)) return;
+      }
       if (message.kind === 'ready') {
         this.loading = false; clearTimeout(this.timeout); this.timeout = -1;
         if (message.paint === this.paintSerial) this.finishPaint(true);
       }
       else if (message.kind === 'painted' && message.paint === this.paintSerial) this.finishPaint(true);
-      else if (message.kind === 'selection') this.onSelectionChange(message.selected === true);
+      else if (message.kind === 'selection') {
+        if (message.selected === true && typeof message.selectionText === 'string' && message.selectionText.length <= 20001) {
+          if (!this.paged && !this.frames.some((item: EpubOriginalFrame): boolean => item.id === message.frame)) return;
+          this.selectionText = message.selectionText;
+          this.selectionFrame = message.frame;
+          this.selectionSerial = this.serial;
+        }
+        this.onSelectionChange(message.selected === true);
+      }
+      else if (message.kind === 'note') {
+        const frame = this.paged ? null : this.frames.find((item: EpubOriginalFrame): boolean => item.id === message.frame);
+        if (!this.paged && !frame) return;
+        if (!message.comments || !Array.isArray(message.comments.items) || message.comments.items.length > 100) return;
+        if (message.comments.items.some((item): boolean => typeof item.id !== 'string' ||
+          typeof item.author !== 'string' || typeof item.text !== 'string' || item.text.length > 4000)) return;
+        this.onNote(frame ? frame.request.chapter : this.active.chapter, message.comments);
+      }
       else if (message.kind === 'appearance' && /^#[0-9a-f]{6}$/i.test(message.background) &&
         /^#[0-9a-f]{6}$/i.test(message.foreground)) this.onAppearance(message.background, message.foreground);
       else if (message.kind === 'position') this.reportPosition(message);
@@ -359,10 +537,58 @@ export struct EpubOriginalReader {
     try {
       const result = await this.controller.runJavaScript('JSON.stringify(window.hsdaEpub.spot())');
       if (this.alive && ticket === this.serial) {
+        if (!this.paged) {
+          const parsed: EpubOriginalMessage | string = JSON.parse(result);
+          this.message(typeof parsed === 'string' ? parsed : JSON.stringify(parsed));
+          return;
+        }
         const spot = this.parseSpot(result);
         this.reportPosition(spot);
       }
     } catch (_error) { /* 最近一次位置报告仍然有效。 */ }
+  }
+
+  private async openLinkAt(x: number, y: number): Promise<boolean> {
+    if (!this.alive || this.loading || !this.paged || this.checkpoint !== null ||
+      !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const ticket = this.serial;
+    try {
+      const raw = await this.controller.runJavaScript(`window.hsdaEpub.linkAt(${x},${y})`);
+      const value: boolean | string = JSON.parse(raw);
+      return ticket !== this.serial || value === true || value === 'true';
+    } catch (_error) { return false; }
+  }
+
+  private async beginPan(x: number, y: number, dx: number, dy: number): Promise<boolean> {
+    if (!this.alive || this.loading || !this.paged || this.checkpoint !== null ||
+      ![x, y, dx, dy].every((value: number): boolean => Number.isFinite(value))) return false;
+    const ticket = this.serial;
+    try {
+      if (this.panDraining !== null) await this.panDraining;
+      if (!this.alive || ticket !== this.serial) return true;
+      const raw = await this.controller.runJavaScript(`window.hsdaEpub.beginPan(${x},${y},${dx},${dy})`);
+      const value: boolean | string = JSON.parse(raw);
+      return ticket !== this.serial || value === true || value === 'true';
+    } catch (_error) { return false; }
+  }
+
+  private updatePan(dx: number, dy: number, end: boolean, cancelled: boolean): void {
+    if (!this.alive || this.loading || !this.paged || this.checkpoint !== null ||
+      !Number.isFinite(dx) || !Number.isFinite(dy)) return;
+    // 最多一个跨桥请求在途；后续移动只保留最新位置，松手仍带上最终位移。
+    this.panScript = `window.hsdaEpub.movePan(${dx},${dy});` + (end ? `window.hsdaEpub.endPan(${cancelled});` : '');
+    if (this.panDraining === null) this.panDraining = this.drainPan();
+  }
+
+  private async drainPan(): Promise<void> {
+    const ticket = this.serial;
+    try {
+      while (this.alive && ticket === this.serial && this.panScript) {
+        const script = this.panScript; this.panScript = '';
+        await this.controller.runJavaScript(script);
+      }
+    } catch (_error) { /* 页面卸载后丢弃其余页内滚动输入。 */ }
+    finally { this.panScript = ''; this.panDraining = null; }
   }
 
   private turn(forward: boolean): void {
@@ -388,6 +614,11 @@ export struct EpubOriginalReader {
       response.setResponseEncoding('utf-8');
       response.setResponseMimeType('text/html'); response.setResponseData(this.document); return response;
     }
+    const frame = this.frames.find((item: EpubOriginalFrame): boolean => item.url === url);
+    if (frame !== undefined) {
+      response.setResponseEncoding('utf-8'); response.setResponseMimeType('text/html');
+      response.setResponseData(frame.document); return response;
+    }
     const path = EpubOriginalDocument.path(url);
     const mime = EpubOriginalDocument.mime(path);
     if (mime.startsWith('text/') || mime === 'image/svg+xml') response.setResponseEncoding('utf-8');
@@ -405,6 +636,28 @@ export struct EpubOriginalReader {
     return response;
   }
 
+  private selectionMenu(): EditMenuOptions {
+    return {
+      onCreateMenu: (_items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(false),
+      onPrepareMenu: (_items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(false),
+      onMenuItemClick: (item: TextMenuItem, _range: TextRange): boolean => {
+        if (!this.alive || this.loading || this.checkpoint !== null || this.selectionSerial !== this.serial) return true;
+        const frame = this.paged ? null : this.frames.find((value: EpubOriginalFrame): boolean => value.id === this.selectionFrame);
+        if (!this.paged && frame === undefined) return true;
+        const chapter = frame ? frame.request.chapter : this.active.chapter;
+        const text = this.selectionText;
+        this.selectionText = ''; this.selectionSerial = -1;
+        if (item.id.equals(TextMenuItemId.of(ReaderSelectionMenu.DICTIONARY))) this.onAi(chapter, ReaderAiAction.Dictionary, text);
+        else if (item.id.equals(TextMenuItemId.of(ReaderSelectionMenu.SUMMARIZE))) this.onAi(chapter, ReaderAiAction.Summarize, '');
+        this.onSelectionChange(false);
+        // 仅清除受控本地文档的选区，保留 Web 位置与阅读会话。
+        this.controller.runJavaScript('getSelection().removeAllRanges();' +
+          'for(var i=0;i<frames.length;i++){frames[i].getSelection().removeAllRanges();}').catch((): void => {});
+        return true;
+      }
+    };
+  }
+
   build() {
     Stack() {
       if (this.visible) {
@@ -414,12 +667,14 @@ export struct EpubOriginalReader {
           .javaScriptAccess(true).fileAccess(false).domStorageAccess(false).databaseAccess(false)
           .geolocationAccess(false).mixedMode(MixedMode.None).zoomAccess(false)
           .darkMode(WebDarkMode.Off).forceDarkAccess(false)
+          .editMenuOptions(this.selectionMenu())
           .overScrollMode(OverScrollMode.NEVER).horizontalScrollBarAccess(false).verticalScrollBarAccess(!this.paged)
           .javaScriptProxy({ object: this.bridge, name: 'epubHost', methodList: ['report'], controller: this.controller })
           .onInterceptRequest((event): WebResourceResponse => this.response(event?.request.getRequestUrl() ?? ''))
           .onLoadIntercept((event): boolean => {
             const url = event?.data.getRequestUrl() ?? '';
-            return url !== 'about:blank' && url !== this.documentUrl;
+            return url !== 'about:blank' && url !== this.documentUrl &&
+              !this.frames.some((item: EpubOriginalFrame): boolean => item.url === url);
           })
           .onControllerAttached((): void => {
             this.attached = true;

@@ -38,6 +38,7 @@ function load(file) {
 }
 const { ReaderToolsService: service } = load('service/text/ReaderToolsService');
 const { ReaderBookmark, ReaderReplaceRule } = load('model/ReaderTools');
+const { ReaderReplaceImport } = load('service/text/ReaderReplaceImport');
 function rule(pattern, replacement = '', regex = false, bookId = 'book') {
   const result = new ReaderReplaceRule();
   Object.assign(result, { id: randomUUID(), pattern, replacement, isRegex: regex, bookId });
@@ -82,6 +83,34 @@ function rule(pattern, replacement = '', regex = false, bookId = 'book') {
     chapterTitle: '标题', charOffset: rawEnd, preview: '结尾', createdAt: Date.now() });
   await Promise.all([service.addBookmark(ctx, mark), service.addBookmark(ctx, mark)]);
   assert.equal((await service.bookmarks(ctx, 'book')).length, 1);
+  const imported = ReaderReplaceImport.parse('\uFEFF[{"name":"删广告","pattern":"广告","replacement":"","isRegex":false},' +
+    '{"pattern":"(张)(三)","replacement":"$1小$2","isEnabled":false}]');
+  assert.equal(imported[1].isRegex, true);
+  assert.equal(imported[1].enabled, false);
+  assert.equal(await service.importRules(ctx, imported, 'import-rules'), 2);
+  const storedIds = (await service.rules(ctx)).map(r => r.id);
+  assert.equal(new Set(storedIds).size, storedIds.length, 'import assigns unique IDs');
+  assert.equal(await service.importRules(ctx, imported, 'import-rules'), 0, 'repeat import must not duplicate rules');
+  assert.equal((await service.render(ctx, 'import-rules', '广告张三')).content, '张三');
+  assert.equal((await service.render(ctx, 'unrelated', '广告张三')).content, '广告张三');
+  assert.equal(ReaderReplaceImport.parse('{"rules":[{"pattern":"a"}]}').length, 1);
+  assert.equal(ReaderReplaceImport.parse('{"pattern":"a","isRegex":false}')[0].isRegex, false);
+  for (const input of ['null', '[]', '{"rules":{}}', '[null]', '[{"pattern":5}]', '[{"pattern":"a","enabled":0}]']) {
+    assert.throws(() => ReaderReplaceImport.parse(input), /reader_replace_import_invalid/);
+  }
+  for (const scope of [{ scopeContent: false }, { scopeSource: true }, { scope: '某书' }, { excludeScope: '某书' }]) {
+    assert.throws(() => ReaderReplaceImport.parse(JSON.stringify([{ pattern: 'x', ...scope }])), /scope_error/);
+  }
+  assert.throws(() => ReaderReplaceImport.parse(JSON.stringify(Array.from({ length: 201 }, () => ({ pattern: 'x' })))), /reader_tools_limit/);
+  const beforeImportFailure = values.get('data');
+  await assert.rejects(service.importRules(ctx, [rule('valid'), rule('(', '', true)], 'book'), /reader_replace_invalid/);
+  assert.equal(values.get('data'), beforeImportFailure, 'invalid batch must not partially save');
+  failFlush = true;
+  await assert.rejects(service.importRules(ctx, [rule('save-failure')], 'book'), /reader_tools_storage_error/);
+  failFlush = false;
+  assert.equal(values.get('data'), beforeImportFailure, 'failed import restores previous data');
+  await assert.rejects(service.importRules(ctx, Array.from({ length: 200 }, (_, i) => rule('limit' + i)), 'book'), /reader_tools_limit/);
+  assert.equal(values.get('data'), beforeImportFailure, 'rule cap applies to existing plus imported entries atomically');
   const saved = values.get('data');
   failFlush = true;
   await assert.rejects(service.deleteRule(ctx, ad.id), /injected/);

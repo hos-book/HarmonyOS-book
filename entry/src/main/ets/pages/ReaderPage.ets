@@ -1,7 +1,10 @@
-import { ReaderCommentChapter, ReaderParagraphComment } from '../model/ReaderComment';
+import { ReaderChapterJumpHint } from '../components/ReaderChapterJumpHint';
+import { ReaderCommentChapter, ReaderParagraphComment, ReaderCommentMessages } from '../model/ReaderComment';
 import { ReaderCommentLayout } from '../service/text/ReaderCommentLayout';
 import { ReaderCommentContent } from '../service/text/ReaderCommentContent';
 import { ReaderCommentSheet } from '../components/ReaderCommentSheet';
+import { ReaderAiSheet } from '../components/ReaderAiSheet';
+import { ReaderAiAction, ReaderAiRequest } from '../model/ReaderAi';
 import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { ReaderBrightnessService } from '../service/text/ReaderBrightnessService';
 import { LibrarySyncActivity } from '../service/sync/LibrarySyncModel';
@@ -28,7 +31,7 @@ import { ReaderSmartKeyService } from '../service/text/ReaderSmartKeyService';
 import { ReadingSessionService, SessionLocation } from '../service/ReadingSessionService';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { KeyCode } from '@kit.InputKit';
-import { ReaderTapPolicy } from '../utils/ReaderTapPolicy';
+import { ReaderTapPolicy, ReaderTouchTracker } from '../utils/ReaderTapPolicy';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
 import { ReaderAutoPageControls } from '../components/ReaderAutoPageControls';
 import { ChapterCacheIndicator } from '../components/ChapterCacheIndicator';
@@ -142,7 +145,10 @@ export struct ReaderPage {
   @Local showSourceSwitch: boolean = false;
   @Local showReaderMenu: boolean = false;
   @Local showCommentSheet: boolean = false;
+  @Local showAiSheet: boolean = false;
+  @Local aiRequest: ReaderAiRequest = new ReaderAiRequest();
   @Local selectedComment: ReaderParagraphComment = new ReaderParagraphComment();
+  @Local originalComments: ReaderCommentMessages | null = null;
   @Local commentChapterIndex: number = -1;
   private chapterComments: Map<number, ReaderParagraphComment[]> = new Map();
   private displayComments: Map<number, ReaderParagraphComment[]> = new Map();
@@ -155,6 +161,10 @@ export struct ReaderPage {
   private textDocuments: Map<number, ReaderTextDocument> = new Map();
   private textRulesGeneration: number = 0;
   @Local selectingText: boolean = false;
+  @Local textSelectionRevision: number = 0;
+  private selectionDismissTouch: ReaderTouchTracker = new ReaderTouchTracker();
+  private selectionDismissStarted: boolean = false;
+  private selectionDismissStartedAt: number = 0;
   @Local reloadingChapter: boolean = false;
   @Local loading: boolean = true;
   @Local readerError: string = '';
@@ -249,7 +259,9 @@ export struct ReaderPage {
   private readerBarChapterTarget: number = -1;
   @Local chapterSliderPreview: number = -1;
   @Local chapterSliderDragging: boolean = false;
-  @Local chapterSliderConfirming: boolean = false;
+  @Local chapterSliderCommitting: boolean = false;
+  @Local chapterSliderUndoPosition: TextReadingPosition | null = null;
+  private chapterSliderGeneration: number = 0;
   @Local pageLabelWidthVp: number = 0;
   @Local showChapterSheet: boolean = false;
   @Local fullTextSearch: boolean = false;
@@ -344,6 +356,7 @@ export struct ReaderPage {
     };
 
   private backgroundHandler = (): void => {
+    this.showAiSheet = false;
     this.showCommentSheet = false;
     this.stopAutoPage();
     this.readingForeground = false;
@@ -356,6 +369,8 @@ export struct ReaderPage {
 
   private systemTypographyKey: string = '';
   private sessionTimer: number = -1;
+  private originalProgressTimer: number = -1;
+  private originalProgressSavedAt: number = 0;
   private readingForeground: boolean = true;
   private readingTime: ReadingTimeTracker = new ReadingTimeTracker();
   private foregroundHandler = (): void => {
@@ -883,6 +898,38 @@ export struct ReaderPage {
     }
   }
 
+  private openReaderAi(chapter: number, action: ReaderAiAction, text: string): void {
+    const book = this.book;
+    if (!book || this.leaving || !this.readerVisible || this.loading || this.onlineTextLoading || this.showAiSheet ||
+      this.onlineTextTurnPreview !== null || !Number.isInteger(chapter) || chapter < 0 || chapter >= book.chapters.length) return;
+    if (action === ReaderAiAction.Dictionary && !text.trim()) return;
+    const request = new ReaderAiRequest();
+    request.action = action; request.chapterIndex = chapter; request.chapterTitle = book.chapters[chapter].title;
+    request.text = text;
+    this.stopAutoPage();
+    this.hideReaderBar();
+    this.showReaderMenu = false;
+    this.selectingText = false;
+    this.aiRequest = request;
+    this.showAiSheet = true;
+  }
+
+  @Builder
+  private buildAiSheet(): void {
+    ReaderAiSheet({ request: this.aiRequest, active: this.showAiSheet,
+      getChapter: async (index: number): Promise<string> => {
+        if (!this.book || this.leaving || !this.showAiSheet) throw new Error('Reader unavailable');
+        return this.getOnlineTextChapterContent(this.book, index);
+      },
+      onClose: (): void => { this.showAiSheet = false; },
+      onSettings: (): void => {
+        this.showAiSheet = false;
+        this.saveProgress();
+        this.navStack.pushPathByName('jianjianAiSettings', '');
+      }
+    })
+  }
+
   private openJianjianBookChat(recap: boolean): void {
     const book = this.book;
     if (!book || this.loading || this.onlineTextLoading || !this.isOnlineTextBook()) return;
@@ -1264,7 +1311,7 @@ export struct ReaderPage {
     if (!this.readerVisible || this.leaving || this.loading || !this.book || !speech.active ||
       speech.bookId !== this.bookId || speech.loading || !this.isOnlineTextBook()) return;
     this.readingTime.checkpoint(this.book, !speech.playing && this.readingForeground);
-    if (!speech.playing || this.speechBrowsing || this.speechNavigationPending || this.speechScrollPending || this.selectingText ||
+    if (!speech.playing || this.speechBrowsing || this.speechNavigationPending || this.speechScrollPending || this.selectingText || this.showAiSheet ||
       this.onlineTextLoading || this.onlineTextTurnPreview !== null) return;
     if (speech.chapterIndex !== this.currentResourceIndex) {
       this.loadOnlineTextChapter(speech.chapterIndex,
@@ -1397,6 +1444,9 @@ export struct ReaderPage {
   }
 
   private saveProgress(): void {
+    if (this.originalProgressTimer >= 0) clearTimeout(this.originalProgressTimer);
+    this.originalProgressTimer = -1;
+    this.originalProgressSavedAt = Date.now();
     this.readingTime.checkpoint(this.book, this.readerVisible && this.readingForeground && !this.leaving &&
       !this.loading && !this.onlineTextLoading && !this.speechState.playing);
     if (!this.context || !this.currentPosition) return;
@@ -1948,19 +1998,21 @@ export struct ReaderPage {
   }
 
   /** 两种排版共用章节身份及字符位置。 */
-  private async jumpToResourceIndex(resourceIndex: number, keepReaderBar: boolean = false): Promise<void> {
-    if (this.jumpingResourceIndex >= 0) return;
+  private async jumpToResourceIndex(resourceIndex: number, keepReaderBar: boolean = false,
+    charOffset: number = 0, pageOffset: number = 0): Promise<boolean> {
+    if (this.jumpingResourceIndex >= 0) return false;
     const currentBook = this.book;
-    if (currentBook === null) return;
-    if (resourceIndex < 0 || resourceIndex >= currentBook.chapters.length) return;
+    if (currentBook === null) return false;
+    if (resourceIndex < 0 || resourceIndex >= currentBook.chapters.length) return false;
     this.showChapterSheet = false;
     if (!keepReaderBar) this.hideReaderBar();
     if (this.isOnlineTextBook()) {
       this.detachSpeechBrowsing();
-      if (await this.loadOnlineTextChapter(resourceIndex, 0, 0, false, false)) this.followReadingWithSpeech();
-      return;
+      const loaded = await this.loadOnlineTextChapter(resourceIndex, charOffset, pageOffset, false, false);
+      if (loaded) this.followReadingWithSpeech();
+      return loaded;
     }
-
+    return false;
   }
 
   /** 详情页选中章节返回阅读页时触发；未指定章节时保持原进度。 */
@@ -2147,9 +2199,20 @@ export struct ReaderPage {
 
   private updateOriginalPosition(chapter: number, offset: number, page: number, count: number): void {
     if (!this.epubOriginalEnabled || this.leaving || !this.book || chapter !== this.currentResourceIndex) return;
+    if (!this.speechScrollPending && this.currentRawCharOffset() === offset &&
+      this.epubOriginalPage === page && this.epubOriginalPageCount === count) return;
     this.epubOriginalPage = page; this.epubOriginalPageCount = count;
     this.currentPosition = TextReadingPosition.atChar(this.book.id, chapter, '', offset, 0, this.currentChapterTitle);
-    this.saveProgress();
+    if (this.pageTurnMode !== PageTurnMode.Vertical) this.saveProgress();
+    else {
+      // Keep the displayed position current, but merge progress/history/widget writes.
+      // All existing leave/background save points flush this pending position immediately.
+      if (this.originalProgressTimer >= 0) clearTimeout(this.originalProgressTimer);
+      this.originalProgressTimer = setTimeout((): void => {
+        this.originalProgressTimer = -1;
+        this.saveProgress();
+      }, Math.min(500, Math.max(0, 5000 - (Date.now() - this.originalProgressSavedAt))));
+    }
     if (this.speechScrollPending) {
       this.speechScrollPending = false;
       if (chapter !== this.speechScrollChapter || offset !== this.speechScrollOffset) this.followReadingWithSpeech();
@@ -2172,14 +2235,17 @@ export struct ReaderPage {
     if (!await this.loadOnlineTextChapter(index, 0, 0, !forward, false)) this.speechScrollPending = false;
   }
 
-  private async originalAdjacentRequest(forward: boolean): Promise<EpubOriginalRequest | null> {
+  private async originalAdjacentRequest(forward: boolean, chapter: number,
+    notify: boolean): Promise<EpubOriginalRequest | null> {
     const book = this.book;
     const context = this.context;
     if (!book || !context || this.leaving) return null;
-    const next = PreferenceService.chapterDisplayIndex(book, this.currentResourceIndex) + (forward ? 1 : -1);
+    const next = PreferenceService.chapterDisplayIndex(book, chapter) + (forward ? 1 : -1);
     if (next < 0 || next >= book.chapters.length) {
-      this.stopAutoPage();
-      this.showToast(forward ? $r('app.string.reader_last_page') : $r('app.string.reader_first_page'));
+      if (notify) {
+        this.stopAutoPage();
+        this.showToast(forward ? $r('app.string.reader_last_page') : $r('app.string.reader_first_page'));
+      }
       return null;
     }
     const request = new EpubOriginalRequest();
@@ -2323,7 +2389,7 @@ export struct ReaderPage {
 
   @Monitor('readerVisible', 'loading', 'readerError', 'readerBarVisible', 'onlineTextLoading',
     'onlineTextTurnPreview', 'selectingText', 'showChapterSheet', 'showSettingsSheet', 'showSpeechSheet',
-    'showSourceSwitch', 'showBookmarkSheet', 'showCommentSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont',
+    'showSourceSwitch', 'showBookmarkSheet', 'showCommentSheet', 'showAiSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont',
     'pickingBackgroundImage', 'speechState.active')
   private syncAutoPage(): void {
     if (!this.readerVisible || this.speechState.active || this.readerError.length > 0) this.stopAutoPage();
@@ -2351,11 +2417,11 @@ export struct ReaderPage {
   private canTurnWithKeyboard(): boolean {
     return this.readerVisible && this.readingForeground && !this.leaving && !this.loading &&
       this.readerError.length === 0 && !this.showChapterSheet && !this.showSettingsSheet &&
-      !this.showSpeechSheet && !this.showSourceSwitch && !this.showBookmarkSheet && !this.showCommentSheet && !this.showReplaceSheet && !this.showReaderMenu && !this.pickingFont && !this.pickingBackgroundImage;
+      !this.showSpeechSheet && !this.showSourceSwitch && !this.showBookmarkSheet && !this.showCommentSheet && !this.showAiSheet && !this.showReplaceSheet && !this.showReaderMenu && !this.pickingFont && !this.pickingBackgroundImage;
   }
 
   @Monitor('volumeKeyPageTurn', 'smartKeyPageTurn', 'readerVisible', 'readerBarVisible', 'loading', 'readerError', 'showChapterSheet',
-    'showSettingsSheet', 'showSpeechSheet', 'showSourceSwitch', 'showBookmarkSheet', 'showCommentSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont', 'pickingBackgroundImage')
+    'showSettingsSheet', 'showSpeechSheet', 'showSourceSwitch', 'showBookmarkSheet', 'showCommentSheet', 'showAiSheet', 'showReplaceSheet', 'showReaderMenu', 'pickingFont', 'pickingBackgroundImage')
   syncVolumeKeys(): void {
     this.volumeKeys.setEnabled(this.canUseVolumeKeys(), (forward: boolean): void => this.handleVolumePageTurn(forward));
     this.smartKeys.setEnabled(this.smartKeyPageTurn && this.canTurnWithKeyboard(), (forward: boolean): void => {
@@ -2408,7 +2474,7 @@ export struct ReaderPage {
 
   private canSwitchChapter(forward: boolean): boolean {
     const target = this.adjacentChapterIndex(forward);
-    return !this.chapterSliderConfirming && this.book !== null && !this.loading && !this.onlineTextLoading &&
+    return !this.chapterSliderCommitting && this.book !== null && !this.loading && !this.onlineTextLoading &&
       !this.reloadingChapter && this.jumpingResourceIndex < 0 && !this.leaving &&
       this.isOnlineTextBook() && target >= 0 && target < this.book.chapters.length;
   }
@@ -2423,8 +2489,29 @@ export struct ReaderPage {
     return this.book !== null ? PreferenceService.chapterDisplayIndex(this.book, index) : index;
   }
 
+  private resetChapterSlider(): void {
+    this.chapterSliderGeneration++;
+    this.chapterSliderPreview = -1;
+    this.chapterSliderDragging = false;
+    this.chapterSliderUndoPosition = null;
+  }
+
+  private switchAdjacentChapter(forward: boolean): void {
+    if (!this.canSwitchChapter(forward)) return;
+    this.resetChapterSlider();
+    this.jumpToResourceIndex(this.adjacentChapterIndex(forward), true);
+  }
+
+  private chapterSliderPercent(): string {
+    const count = this.book?.chapters.length ?? 0;
+    const index = this.chapterSliderPosition(this.chapterSliderIndex());
+    return count > 0 ? `${((index + 1) * 100 / count).toFixed(2)}%` : '0.00%';
+  }
+
   private async changeChapterSlider(value: number, mode: SliderChangeMode): Promise<void> {
-    if (this.chapterSliderConfirming || this.book === null) return;
+    if (this.book === null || this.book.chapters.length < 2 || !Number.isFinite(value) ||
+      this.leaving || !this.readerBarVisible ||
+      (!this.canSwitchChapter(false) && !this.canSwitchChapter(true))) return;
     this.chapterSliderPreview = Math.max(0, Math.min(Math.round(value), this.book.chapters.length - 1));
     this.chapterSliderDragging = mode === SliderChangeMode.Begin || mode === SliderChangeMode.Moving;
     if (mode !== SliderChangeMode.End && mode !== SliderChangeMode.Click) return;
@@ -2433,25 +2520,41 @@ export struct ReaderPage {
       this.chapterSliderPreview = -1;
       return;
     }
-    this.chapterSliderConfirming = true;
+    const previousUndo = this.chapterSliderUndoPosition;
+    if (previousUndo === null) {
+      this.chapterSliderUndoPosition = TextReadingPosition.atChar(this.book.id, this.currentResourceIndex, '',
+        this.currentRawCharOffset(), this.currentPosition?.pageOffset ?? 0, this.currentChapterTitle);
+    }
+    const generation = this.chapterSliderGeneration;
+    this.chapterSliderCommitting = true;
     try {
-      const result = await this.getUIContext().getPromptAction().showDialog({
-        title: $r('app.string.reader_chapter_jump_title'),
-        message: $r('app.string.reader_chapter_jump_message', this.chapterTitle(target)),
-        buttons: [
-          { text: $r('app.string.common_cancel'), color: this.palette.secondary },
-          { text: $r('app.string.reader_chapter_jump_action'), color: AppColor.Brand }
-        ]
-      });
-      if (result.index === 1 && !this.leaving && this.readerBarVisible) {
-        await this.jumpToResourceIndex(target, true);
+      const loaded = await this.jumpToResourceIndex(target, true);
+      if (!loaded && generation === this.chapterSliderGeneration) {
+        this.chapterSliderUndoPosition = previousUndo;
       }
     } catch (error) {
+      if (generation === this.chapterSliderGeneration) this.chapterSliderUndoPosition = previousUndo;
       hilog.warn(READER_LOG_DOMAIN, READER_LOG_TAG, 'chapter slider: %{public}s', String(error));
     } finally {
       this.chapterSliderPreview = -1;
       this.chapterSliderDragging = false;
-      this.chapterSliderConfirming = false;
+      this.chapterSliderCommitting = false;
+    }
+  }
+
+  private async undoChapterSlider(): Promise<void> {
+    const position = this.chapterSliderUndoPosition;
+    if (position === null || position.bookId !== this.book?.id || this.chapterSliderDragging ||
+      this.chapterSliderCommitting || this.onlineTextLoading || this.jumpingResourceIndex >= 0 ||
+      this.leaving || !this.readerBarVisible) return;
+    const generation = this.chapterSliderGeneration;
+    this.chapterSliderCommitting = true;
+    try {
+      const loaded = await this.jumpToResourceIndex(position.resourceIndex, true,
+        position.charOffset, position.pageOffset);
+      if (loaded && generation === this.chapterSliderGeneration) this.resetChapterSlider();
+    } finally {
+      this.chapterSliderCommitting = false;
     }
   }
 
@@ -2468,6 +2571,22 @@ export struct ReaderPage {
     };
   }
 
+  private chapterJumpHintVisible(): boolean {
+    return (this.chapterSliderDragging || this.chapterSliderUndoPosition !== null) &&
+      !this.showChapterSheet && !this.showSettingsSheet;
+  }
+
+  @Builder
+  buildChapterJumpHint(): void {
+    ReaderChapterJumpHint({
+      availableWidth: this.readerControlWidthVp(),
+      chapterTitle: this.chapterTitle(this.chapterSliderPosition(this.chapterSliderIndex())),
+      percent: this.chapterSliderPercent(),
+      undoEnabled: this.chapterSliderUndoPosition !== null && !this.chapterSliderDragging && !this.chapterSliderCommitting,
+      onUndo: (): void => { this.undoChapterSlider(); }
+    })
+  }
+
   @Builder
   buildChapterBarContent(): void {
     Row() {
@@ -2476,7 +2595,7 @@ export struct ReaderPage {
       }.width(44).height(44).justifyContent(FlexAlign.Center)
         .accessibilityText($r('app.string.reader_previous_chapter'))
         .opacity(this.canSwitchChapter(false) ? 1 : 0.35).enabled(this.canSwitchChapter(false))
-        .onClick((): void => { this.jumpToResourceIndex(this.adjacentChapterIndex(false), true); })
+        .onClick((): void => { this.switchAdjacentChapter(false); })
       Slider({ value: this.chapterSliderIndex(), min: 0,
         max: Math.max(1, (this.book?.chapters.length ?? 0) - 1), step: 1, style: SliderStyle.OutSet })
         .attributeModifier(new SliderGestureModifier(0, Math.max(1, (this.book?.chapters.length ?? 0) - 1)))
@@ -2486,7 +2605,7 @@ export struct ReaderPage {
         .accessibilityText($r('app.string.reader_chapters'))
         .onChange((value: number, mode: SliderChangeMode): void => { this.changeChapterSlider(value, mode); })
         .onTouch((event: TouchEvent): void => {
-          if (event.type === TouchType.Cancel && !this.chapterSliderConfirming) {
+          if (event.type === TouchType.Cancel && !this.chapterSliderCommitting) {
             this.chapterSliderPreview = -1;
             this.chapterSliderDragging = false;
           }
@@ -2496,7 +2615,7 @@ export struct ReaderPage {
       }.width(44).height(44).justifyContent(FlexAlign.Center)
         .accessibilityText($r('app.string.reader_next_chapter'))
         .opacity(this.canSwitchChapter(true) ? 1 : 0.35).enabled(this.canSwitchChapter(true))
-        .onClick((): void => { this.jumpToResourceIndex(this.adjacentChapterIndex(true), true); })
+        .onClick((): void => { this.switchAdjacentChapter(true); })
     }.width(Math.max(1, (this.readerViewportWidthVp - this.leftSafeVp - this.rightSafeVp) * 0.84))
       .height(44).padding({ left: 4, right: 4 })
   }
@@ -2508,33 +2627,28 @@ export struct ReaderPage {
 
   @Builder
   buildReaderChapterBar(): void {
-    Stack({ alignContent: Alignment.Center }) {
-      if (HdsCompat.materialSupported) {
-        HdsTabs() {
-          TabContent() {}.tabBar(this.chapterMaterialContent())
-        }.width(this.readerControlWidthVp()).height(44).barPosition(BarPosition.End).barMode(BarMode.Fixed)
-          .barHeight(44).barOverlap(true).scrollable(false)
-          .attributeModifier(new CompatibleTabsModifier(this.chapterBarFloatingStyle(), 44))
-          .backgroundColor(Color.Transparent).borderRadius(22, RenderStrategy.OFFSCREEN).clip(true)
-          .onContentWillChange((): boolean => false).hitTestBehavior(HitTestMode.None)
-      } else {
-        Row() {}
-          .width(this.readerControlWidthVp()).height(44).borderRadius(22).backgroundColor($r('sys.color.comp_background_primary'))
-          .padding({ left: this.leftSafeVp + 12, right: this.rightSafeVp + 12 })
+    // 提示条必须占有实际布局空间；平移到 44vp 父容器外会令撤销点击穿透正文。
+    Column({ space: 8 }) {
+      if (this.chapterJumpHintVisible()) {
+        this.buildChapterJumpHint()
       }
-      this.buildChapterBarContent()
-      if (this.chapterSliderDragging) {
-        Column({ space: 2 }) {
-          Text(this.chapterTitle(this.chapterSliderPosition(this.chapterSliderIndex())))
-            .fontSize(AppFont.Caption).fontColor(Color.White).maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          Text(`${this.chapterSliderIndex() + 1}/${this.book?.chapters.length ?? 0}`)
-            .fontSize(AppFont.Caption).fontColor('#CCFFFFFF')
-        }.width('80%').height(44).padding({ left: 14, right: 14 }).borderRadius(22)
-          .justifyContent(FlexAlign.Center).backgroundColor(this.palette.isDark ? '#E63A3C40' : '#D94B4D52')
-          .translate({ y: -52 }).hitTestBehavior(HitTestMode.None)
-      }
-    }.width('100%').height(44)
+      Stack({ alignContent: Alignment.Center }) {
+        if (HdsCompat.materialSupported) {
+          HdsTabs() {
+            TabContent() {}.tabBar(this.chapterMaterialContent())
+          }.width(this.readerControlWidthVp()).height(44).barPosition(BarPosition.End).barMode(BarMode.Fixed)
+            .barHeight(44).barOverlap(true).scrollable(false)
+            .attributeModifier(new CompatibleTabsModifier(this.chapterBarFloatingStyle(), 44))
+            .backgroundColor(Color.Transparent).borderRadius(22, RenderStrategy.OFFSCREEN).clip(true)
+            .onContentWillChange((): boolean => false).hitTestBehavior(HitTestMode.None)
+        } else {
+          Row() {}
+            .width(this.readerControlWidthVp()).height(44).borderRadius(22).backgroundColor($r('sys.color.comp_background_primary'))
+            .padding({ left: this.leftSafeVp + 12, right: this.rightSafeVp + 12 })
+        }
+        this.buildChapterBarContent()
+      }.width('100%').height(44)
+    }.width('100%').height(this.chapterJumpHintVisible() ? READER_BAR_HEIGHT + 8 + 44 : 44)
       .margin({ bottom: READER_BAR_HEIGHT + Math.max(this.bottomSafeVp, READER_MIN_SAFE_BOTTOM) + 8 })
   }
 
@@ -2673,7 +2787,7 @@ export struct ReaderPage {
     .translate({ y: this.readerBarVisible ? 0 : 24 })
     .opacity(this.readerBarVisible ? 1 : 0)
     .animation({ duration: 180, curve: curves.cubicBezierCurve(0.2, 0, 0, 1) })
-    .hitTestBehavior(this.readerBarVisible ? HitTestMode.Transparent : HitTestMode.None)
+    .hitTestBehavior(this.readerBarVisible ? HitTestMode.BLOCK_HIERARCHY : HitTestMode.None)
     .animation(null)
     .visibility(this.readerBarVisible ? Visibility.Visible : Visibility.Hidden)
     .enabled(this.readerBarVisible)
@@ -2681,7 +2795,7 @@ export struct ReaderPage {
 
   private toggleReaderBar(): void {
     if (this.showChapterSheet || this.showSettingsSheet || this.showSpeechSheet || this.showSourceSwitch ||
-      this.showBookmarkSheet || this.showCommentSheet || this.showReplaceSheet || this.showReaderMenu) return;
+      this.showBookmarkSheet || this.showCommentSheet || this.showAiSheet || this.showReplaceSheet || this.showReaderMenu) return;
     if (this.readerBarVisible) {
       this.hideReaderBar();
     } else {
@@ -2690,8 +2804,7 @@ export struct ReaderPage {
   }
 
   private hideReaderBar(): void {
-    this.chapterSliderPreview = -1;
-    this.chapterSliderDragging = false;
+    this.resetChapterSlider();
     this.readerBarChapterTarget = -1;
     this.readerBarVisible = false;
     this.syncReaderStatusBar();
@@ -2729,6 +2842,7 @@ export struct ReaderPage {
 
   private openChapterSheet(): void {
     if (this.showChapterSheet) return;
+    this.resetChapterSlider();
     this.fullTextSearch = false;
     const currentBook = this.book;
     if (currentBook === null || currentBook.chapters.length === 0) {
@@ -2759,6 +2873,7 @@ export struct ReaderPage {
   }
 
   private openSettingsSheet(fontPanel: boolean = false): void {
+    this.resetChapterSlider();
     this.fontPanel = fontPanel;
     this.showChapterSheet = false;
     this.showReaderBar();
@@ -2920,6 +3035,7 @@ export struct ReaderPage {
   private openParagraphComment(chapter: number, comment: ReaderParagraphComment): void {
     if (this.leaving || !this.book || this.onlineTextTurnPreview !== null || this.showCommentSheet) return;
     this.stopAutoPage();
+    this.originalComments = null;
     this.selectedComment = comment;
     this.commentChapterIndex = chapter;
     this.showReaderMenu = false;
@@ -2927,25 +3043,42 @@ export struct ReaderPage {
     this.showCommentSheet = true;
   }
 
+  private openOriginalComment(chapter: number, comments: ReaderCommentMessages): void {
+    if (this.leaving || !this.epubOriginalEnabled || this.showCommentSheet) return;
+    this.stopAutoPage();
+    this.originalComments = comments;
+    this.commentChapterIndex = chapter;
+    this.showReaderMenu = false;
+    this.readerBarVisible = false;
+    this.showCommentSheet = true;
+  }
+
   @Monitor('currentResourceIndex', 'readerVisible')
-  closeStaleComment(): void { this.showCommentSheet = false; }
+  closeStaleComment(): void { this.showCommentSheet = false; this.showAiSheet = false; }
 
   @Builder
   private buildCommentSheet(): void {
-    if (this.showCommentSheet) {
-      ReaderCommentSheet({ book: this.book, chapterIndex: this.commentChapterIndex,
-        comment: this.selectedComment, dark: this.palette.isDark,
-        onClose: (): void => { this.showCommentSheet = false; } })
-    }
+    // 内容随系统弹层一起退场，不能先由显隐条件清空成一个空白弹框。
+    ReaderCommentSheet({ book: this.book, chapterIndex: this.commentChapterIndex,
+      comment: this.selectedComment, dark: this.palette.isDark, offlineComments: this.originalComments,
+      onClose: (): void => { this.showCommentSheet = false; } })
   }
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
       Column().width(0).height(0)
-        .bindSheet($$this.showCommentSheet, this.buildCommentSheet(), {
+        .bindSheet(this.showAiSheet!!, this.buildAiSheet(), {
           height: '72%', detents: ['72%', SheetSize.LARGE], dragBar: true, showClose: false,
-          preferType: SheetType.BOTTOM, backgroundColor: this.palette.isDark ? '#1D1B20' : '#F7F3F5',
-          onDisappear: (): void => { this.showCommentSheet = false; }
+          preferType: SheetType.BOTTOM, backgroundColor: AppMaterial.SheetBackground,
+          blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick,
+          onDisappear: (): void => { this.showAiSheet = false; }
+        })
+      Column().width(0).height(0)
+        .bindSheet(this.showCommentSheet!!, this.buildCommentSheet(), {
+          height: '72%', detents: ['72%', SheetSize.LARGE], dragBar: true, showClose: false,
+          preferType: SheetType.BOTTOM, backgroundColor: AppMaterial.SheetBackground,
+          blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick,
+          onDisappear: (): void => { this.showCommentSheet = false; this.originalComments = null; }
         })
       Column().width(0).height(0)
         .bindSheet($$this.showBookmarkSheet, this.buildBookmarkSheet(), {
@@ -3062,7 +3195,10 @@ export struct ReaderPage {
     }
     .width('100%')
     .height('100%')
-    .onTouch((event: TouchEvent): void => { if (event.type === TouchType.Down) this.screenOn.touch(); })
+    .onTouch((event: TouchEvent): void => {
+      if (event.type === TouchType.Down) this.screenOn.touch();
+      this.handleSelectionDismissTouch(event);
+    })
     .onKeyEvent((event: KeyEvent): void => this.handleReaderKey(event))
     .focusable(true)
     .defaultFocus(true)
@@ -3213,6 +3349,22 @@ export struct ReaderPage {
       .id('reader-brightness-bar')
   }
 
+  private handleSelectionDismissTouch(event: TouchEvent): void {
+    if (this.epubOriginalEnabled) return;
+    this.selectionDismissTouch.update(event);
+    if (event.type === TouchType.Down) {
+      this.selectionDismissStarted = this.selectingText;
+      this.selectionDismissStartedAt = Date.now();
+    } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
+      if (event.type === TouchType.Up && this.selectionDismissStarted &&
+        Date.now() - this.selectionDismissStartedAt < 500 && this.selectionDismissTouch.canTap()) {
+        this.textSelectionRevision++;
+        this.selectingText = false;
+      }
+      this.selectionDismissStarted = false;
+    }
+  }
+
   @Builder
   private buildReaderColumn(column: number): void {
     Column() {
@@ -3221,10 +3373,12 @@ export struct ReaderPage {
         onComment: (comment: ReaderParagraphComment): void => this.openParagraphComment(this.onlineTextChapterIndex(), comment),
         epubStyle: this.epubStyle(this.onlineTextChapterIndex(), this.currentOnlineTextColumn(column).startOffset),
         onReadFrom: (offset: number): void => { this.readFromParagraph(this.onlineTextChapterIndex(), offset); },
+        onAi: (action: ReaderAiAction, text: string): void => this.openReaderAi(this.onlineTextChapterIndex(), action, text),
         selectionEnabled: this.onlineTextTurnPreview === null && !this.readerBarVisible && !this.showChapterSheet &&
           !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet &&
-          !this.showCommentSheet && !this.showReplaceSheet && !this.showReaderMenu,
+          !this.showCommentSheet && !this.showAiSheet && !this.showReplaceSheet && !this.showReaderMenu,
         onSelectionChange: (active: boolean): void => { this.selectingText = active; },
+        selectionRevision: this.textSelectionRevision,
         page: this.currentOnlineTextColumn(column), text: this.currentOnlineTextColumn(column).text,
         source: (this.onlineTextTurnPreview?.content ?? this.onlineTextContent).substring(this.currentOnlineTextColumn(column).startOffset, this.currentOnlineTextColumn(column).endOffset),
         sourceStart: this.currentOnlineTextColumn(column).startOffset, state: this.speechState,
@@ -3323,8 +3477,10 @@ export struct ReaderPage {
               onComment: (index: number, comment: ReaderParagraphComment): void => this.openParagraphComment(index, comment),
               getEpubStyle: (index: number, offset: number): EpubPageStyle => this.epubStyle(index, offset),
               onReadFrom: (chapter: number, offset: number): void => { this.readFromParagraph(chapter, offset); },
-              selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet && !this.showCommentSheet && !this.showReplaceSheet && !this.showReaderMenu,
+              onAi: (chapter: number, action: ReaderAiAction, text: string): void => this.openReaderAi(chapter, action, text),
+              selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet && !this.showCommentSheet && !this.showAiSheet && !this.showReplaceSheet && !this.showReaderMenu,
               onSelectionChange: (active: boolean): void => { this.selectingText = active; },
+              selectionRevision: this.textSelectionRevision,
               tapRegions: this.tapRegions,
           tapLeftPercent: this.tapLeftPercent,
           tapRightPercent: this.tapRightPercent,
@@ -3414,6 +3570,7 @@ export struct ReaderPage {
           safeBottom: this.readerTextBottomPaddingVp(),
           keyTurnRequest: this.keyTurnRequest,
           mode: this.pageTurnMode,
+          spread: this.useReaderColumns(),
           revision: this.onlineTextTurnRevision(),
           paperColor: this.palette.background,
           pageContent: (): void => this.buildOnlineTextPage(),
@@ -3610,9 +3767,12 @@ export struct ReaderPage {
       onPosition: (chapter: number, offset: number, page: number, count: number): void =>
         this.updateOriginalPosition(chapter, offset, page, count),
       onChapterEdge: (forward: boolean): void => { this.originalChapterEdge(forward); },
-      adjacent: (forward: boolean): Promise<EpubOriginalRequest | null> => this.originalAdjacentRequest(forward),
+      adjacent: (forward: boolean, chapter: number, notify: boolean): Promise<EpubOriginalRequest | null> =>
+        this.originalAdjacentRequest(forward, chapter, notify),
       onChapter: (request: EpubOriginalRequest): void => this.commitOriginalChapter(request),
       onSelectionChange: (active: boolean): void => { this.selectingText = active; },
+      onNote: (chapter: number, comments: ReaderCommentMessages): void => this.openOriginalComment(chapter, comments),
+      onAi: (chapter: number, action: ReaderAiAction, text: string): void => this.openReaderAi(chapter, action, text),
       onAppearance: (background: string, foreground: string): void => {
         this.epubOriginalPaper = background; this.epubOriginalInk = foreground;
       },
@@ -3648,6 +3808,9 @@ export struct ReaderPage {
         onPrepare: (forward: boolean): Promise<boolean> => this.prepareOriginalTurn(forward),
         onTurnFeedback: (): void => this.playPageTurnHaptic(),
         onComplete: (commit: boolean): Promise<void> => this.completeOriginalTurn(commit),
+        onContentTap: (x: number, y: number): Promise<boolean> => this.epubOriginalCommands.openLinkAt(x, y),
+        onContentPanStart: (x: number, y: number, dx: number, dy: number): Promise<boolean> => this.epubOriginalCommands.beginPan(x, y, dx, dy),
+        onContentPanUpdate: (dx: number, dy: number, end: boolean, cancelled: boolean): void => this.epubOriginalCommands.updatePan(dx, dy, end, cancelled),
         onCenterTap: (): void => this.toggleReaderBar()
       })
     }

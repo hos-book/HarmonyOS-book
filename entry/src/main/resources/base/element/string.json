@@ -777,6 +777,10 @@
       "value": "确认跳转章节"
     },
     {
+      "name": "reader_chapter_jump_undo",
+      "value": "撤销"
+    },
+    {
       "name": "reader_chapter_jump_message",
       "value": "是否跳转到「%s」？"
     },
@@ -6785,6 +6789,10 @@
       "value": "全部书源"
     },
     {
+      "name": "search_source_confirm",
+      "value": "确认选择"
+    },
+    {
       "name": "search_source_empty",
       "value": "先选至少一个书源，简简才能开始找书哦"
     },
@@ -7865,6 +7873,10 @@
       "value": "EPUB 单章正文超过 8 Mi 字符，无法完整导入，请先拆分原文件章节"
     },
     {
+      "name": "import_txt_chapter_limit",
+      "value": "TXT 单章正文超过 8 Mi 字符，无法完整导入，请先拆分原文件章节"
+    },
+    {
       "name": "library_sync_title",
       "value": "书架与进度自动同步"
     },
@@ -8375,8 +8387,11 @@
     {
       "name": "reader_font_sort_hint",
       "value": "长按拖动字体排序，松手自动保存"
-    }
-    ,{ "name": "reader_epub_original_custom_hint", "value": "调整字体、字号或边距会切换到应用排版，可随时选择此书的原版精排主题恢复。" },
+    },
+    {
+      "name": "reader_epub_original_custom_hint",
+      "value": "调整字体、字号或边距会切换到应用排版，可随时选择此书的原版精排主题恢复。"
+    },
     {
       "name": "settings_hint_action",
       "value": "查看说明"
@@ -8441,7 +8456,77 @@
       "name": "reader_auto_page_seconds_short",
       "value": "%d 秒"
     },
-    {"name":"theme_bundle_jianjian_name","value":"百变简简"},
-    {"name":"theme_bundle_jianjian_description","value":"奶油粉与莓果色，搭配简简的开心、看书、困倦和比心。浅深背景、专属书封与四枚简简 Tab 图标，让每次阅听都有可爱陪伴。"}
+    {
+      "name": "theme_bundle_jianjian_name",
+      "value": "百变简简"
+    },
+    {
+      "name": "theme_bundle_jianjian_description",
+      "value": "奶油粉与莓果色，搭配简简的开心、看书、困倦和比心。浅深背景、专属书封与四枚简简 Tab 图标，让每次阅听都有可爱陪伴。"
+    },
+    {
+      "name": "reader_replace_import",
+      "value": "导入规则文件"
+    },
+    {
+      "name": "reader_replace_import_preview",
+      "value": "已读取 %d 条替换规则"
+    },
+    {
+      "name": "reader_replace_import_hint",
+      "value": "支持 JSON 数组、单条规则或 rules 列表。默认导入到当前书籍；开启下方开关后应用于全部书籍。相同规则自动跳过，原有规则保留。"
+    },
+    {
+      "name": "reader_replace_import_success",
+      "value": "已导入 %d 条规则，重复项已跳过"
+    },
+    {
+      "name": "reader_replace_import_invalid",
+      "value": "导入失败，请选择有效的 UTF-8 JSON 替换规则文件（不超过 1 MiB、200 条）"
+    },
+    {
+      "name": "reader_replace_import_scope_error",
+      "value": "文件含仅标题或指定范围规则，暂不支持。请先导出适用于正文且不限定来源的规则。"
+    },
+    {
+      "name": "reader_replace_import_limit",
+      "value": "导入后规则总数超过 200 条，请先清理不需要的规则"
+    },
+    {
+      "name": "comic_trim_white_border",
+      "value": "去除白边"
+    },
+    {
+      "name": "comic_trim_white_border_hint",
+      "value": "自动裁去图片外围白边，放大正文显示，不修改原图"
+    },
+    {
+      "name": "reader_ai_dictionary",
+      "value": "AI 字典"
+    },
+    {
+      "name": "reader_ai_summarize",
+      "value": "总结本章"
+    },
+    {
+      "name": "reader_ai_dictionary_hint",
+      "value": "解释字词含义、常见用法与例句"
+    },
+    {
+      "name": "reader_ai_processing",
+      "value": "正在处理 %1$d / %2$d"
+    },
+    {
+      "name": "reader_ai_merging",
+      "value": "正在合并本章总结 %1$d / %2$d"
+    },
+    {
+      "name": "reader_ai_content_failed",
+      "value": "本章内容读取失败，请重试"
+    },
+    {
+      "name": "reader_ai_empty",
+      "value": "没有可处理的正文，请重新选择文字"
+    }
   ]
 }

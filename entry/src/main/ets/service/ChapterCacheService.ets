@@ -406,6 +406,24 @@ export class ChapterCacheService {
     }
   }
 
+  /** 书架后台清理：冷缓存文件也使用异步 IO，长目录分批让出事件循环。 */
+  async clearBookInBackground(bookId: string, chapters: Chapter[] = []): Promise<void> {
+    await this.storageMigration;
+    for (let index = 0; index < chapters.length; index++) {
+      if (index % 16 === 0) await new Promise<void>((resolve): void => { setTimeout(resolve, 0); });
+      const chapter = chapters[index];
+      // 先取消该章任务并移除内存缓存；不传 bookId，避开同步的冷缓存文件删除。
+      this.clearChapter(chapter.id);
+      const paths: Array<string | null> = [this.audioFilePath(bookId, chapter.originSourceValue || chapter.source.value),
+        this.legacyAudioFilePath(bookId, chapter.id)];
+      for (const path of paths) {
+        if (path === null) continue;
+        try { await fileIo.unlink(path); } catch (_error) { /* already absent */ }
+      }
+    }
+    this.clearBook(bookId);
+  }
+
   clearBook(bookId: string, chapters: Chapter[] = []): void {
     const prefix = bookId + '-c';
     for (const chapter of chapters) {

@@ -2,6 +2,9 @@ import { common } from '@kit.AbilityKit';
 import { StartupSplash } from '../components/StartupSplash';
 import { image } from '@kit.ImageKit';
 import { MainPage } from './MainPage';
+import { HiCarPage } from './HiCarPage';
+import { HiCarState } from '../model/HiCar';
+import { HiCarService } from '../service/HiCarService';
 import { PodcastPage } from './PodcastPage';
 import { WebEngineGate } from '../service/WebEngineGate';
 import { WebBookFetchRuntimeHost } from '../service/rulesource/light/WebBookFetchRuntimeHost';
@@ -57,6 +60,8 @@ import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
 import { WindowUtils } from '../utils/WindowUtils';
 import { JianjianCompanionComponent } from '../components/JianjianCompanionComponent';
 import { JianjianAiSettingsPage } from './JianjianAiSettingsPage';
+import { JianjianSettingsPage } from './JianjianSettingsPage';
+import { JianjianPromptSettingsPage } from './JianjianPromptSettingsPage';
 import { JianjianChatPage } from './JianjianChatPage';
 import { JianjianCompanionService } from '../service/JianjianCompanionService';
 import { JianjianCareService } from '../service/JianjianCareService';
@@ -86,6 +91,9 @@ interface WidgetRouteEvent {
 @Entry
 @ComponentV2
 struct Index {
+  @Local hiCarState: HiCarState = HiCarService.instance.state;
+  private hiCarBackHandler: (() => boolean) | undefined = undefined;
+  private manualCarBackHandler: (() => boolean) | undefined = undefined;
   @Local showStartupSplash: boolean = !AppStorage.get<boolean>('gelStartupSplashShown');
   @Local companionEnabled: boolean = GeneralSettings.current.jianjianCompanionEnabled;
   private readonly companionChangedListener: () => void = (): void => {
@@ -207,10 +215,11 @@ struct Index {
   }
 
   private nightCareEligible(): boolean {
-    return this.companionActive && this.companionEnabled && !this.companionTemporarilyHidden &&
+    return !this.hiCarState.carWindow && this.companionRoute !== 'hicar' &&
+      this.companionActive && this.companionEnabled && !this.companionTemporarilyHidden &&
       GeneralSettings.current.jianjianNightCareEnabled && this.careForegroundSince > 0 &&
       Date.now() - this.careForegroundSince >= 30000 && !this.showStartupSplash &&
-      !['ruleSourceLogin', 'jianjianAiSettings'].includes(this.companionRoute);
+      !['ruleSourceLogin', 'jianjianSettings', 'jianjianAiSettings', 'jianjianPromptSettings'].includes(this.companionRoute);
   }
 
   private async checkNightCare(): Promise<void> {
@@ -225,13 +234,18 @@ struct Index {
   private updateNavigationLayout(): void {
     const paths: string[] = this.navStack.getAllPathName();
     this.companionRoute = paths.length > 0 ? paths[paths.length - 1] : '';
-    this.companionQuiet = JianjianCompanionService.quietRoute(this.companionRoute);
+    this.companionQuiet = this.companionRoute === 'hicar' || JianjianCompanionService.quietRoute(this.companionRoute);
     this.parallelNavigation = AdaptiveLayout.navigationUsesColumns(
       this.navigationWidth, this.navStack.getAllPathName());
     if (this.parallelNavigation || this.navStack.size() === 0) this.homeCoveredByDetail = false;
   }
 
   onBackPress(): boolean {
+    if (this.hiCarState.carWindow) {
+      if (this.hiCarBackHandler?.()) return true;
+      HiCarService.instance.minimize();
+      return true;
+    }
     if (this.playerDragState.previewing) {
       PlayerDragTransition.getInstance().cancel();
       return true;
@@ -264,7 +278,7 @@ struct Index {
   private syncReaderWindowMode(): void {
     // onHidden 也会在退后台触发；阅读路由仍在栈顶时保留系统栏和安全区。
     const paths: string[] = this.navStack.getAllPathName();
-    WindowUtils.setReaderActive(paths.length > 0 &&
+    WindowUtils.setReaderActive(!this.hiCarState.carWindow && paths.length > 0 &&
       (paths[paths.length - 1] === 'reader' || paths[paths.length - 1] === 'comicReader'));
   }
 
@@ -636,6 +650,14 @@ struct Index {
       ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
         SettingsPage({ navStack: this.navStack })
       }
+    } else if (name === 'jianjianSettings') {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
+        JianjianSettingsPage({ navStack: this.navStack })
+      }
+    } else if (name === 'jianjianPromptSettings') {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
+        JianjianPromptSettingsPage({ navStack: this.navStack })
+      }
     } else if (name === 'jianjianAiSettings') {
       ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
         JianjianAiSettingsPage({ navStack: this.navStack,
@@ -766,6 +788,14 @@ struct Index {
       .hideTitleBar(true)
       .backgroundColor($r('sys.color.background_primary'))
       .systemTransition(NavigationSystemTransitionType.SLIDE_RIGHT)
+    } else if (name === 'hicar') {
+      NavDestination() {
+        HiCarPage({ onExit: (): void => { this.navStack.pop(); },
+          onBackHandlerChange: (handler: (() => boolean) | undefined): void => {
+            this.manualCarBackHandler = handler;
+          } })
+      }.hideTitleBar(true).backgroundColor('#10151D')
+        .onBackPressed((): boolean => this.manualCarBackHandler?.() ?? false)
     } else if (name === 'privacy') {
       ProfileMenuDestination() {
         PrivacyPage({ navStack: this.navStack })
@@ -790,6 +820,12 @@ struct Index {
 
   build() {
     Stack() {
+    if (this.hiCarState.carWindow) {
+      HiCarPage({ onExit: (): void => HiCarService.instance.minimize(),
+        onBackHandlerChange: (handler: (() => boolean) | undefined): void => {
+          this.hiCarBackHandler = handler;
+        } })
+    } else {
     Navigation(this.navStack) {
       MainPage({
         navStack: this.navStack,
@@ -854,11 +890,12 @@ struct Index {
           }));
         })
     }
+    }
     // Keep the rendering transport active when the home NavDestination is hidden.
     if (WebEngineGate.instance.needRuleBrowser) {
       WebBookFetchRuntimeHost()
     }
-    if (this.companionEnabled) {
+    if (this.companionEnabled && !this.hiCarState.carWindow) {
       JianjianCompanionComponent({ active: this.companionActive && !this.companionQuiet && !this.companionTemporarilyHidden,
         carePulse: this.companionCarePulse,
         onOpen: (): void => { this.navStack.pushPathByName('jianjianChat', ''); },
@@ -871,7 +908,7 @@ struct Index {
         // 通用属性生成的全屏包装节点也必须透传，组件内部 Stack 的设置不会覆盖它。
         .hitTestBehavior(HitTestMode.Transparent)
     }
-    if (this.showStartupSplash) {
+    if (this.showStartupSplash && !this.hiCarState.carWindow) {
       StartupSplash({ onFinished: (): void => { this.showStartupSplash = false; } })
     }
     }.width('100%').height('100%')

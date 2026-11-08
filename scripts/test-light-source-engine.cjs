@@ -549,14 +549,15 @@ async function run() {
   assert.equal(commentContent.interactions[0].label, '段评 2');
   const inlineSource = parser.parse(JSON.stringify({sourceFormat:'native',version:1,name:'Inline comments',url:'https://inline.test',
     search:{url:'/search',list:'$.books',fields:{name:'$.name',bookUrl:'$.url'}},
-    content:{url:'{{chapter.url}}',text:'$.text',comments:{counts:'=data.counts',page:{
+    content:{url:'{{chapter.url}}',text:'$.text',comments:{when:'=data.commentsReady',counts:'=data.counts',page:{
       html:'<p>source comments</p>',data:{comments:'=data.comments'}
     }}}})).sources[0];
   const inlineVariables = {__bookContentType:'text',chapterName:'Chapter one',chapterIndex:'3',
     __lightBook:JSON.stringify({bookUrl:'https://inline.test/book',tocUrl:'https://inline.test/toc',name:'Inline book'})};
   const inlineChapterUrl = 'https://inline.test/chapter';
-  fixtures.set(inlineChapterUrl,JSON.stringify({text:'Paragraph one\nParagraph two',counts:{0:2,1:0},
-    comments:[{id:'one',content:'A real source comment',user:{nickname:'Reader'}}]}));
+  const inlineBody = JSON.stringify({text:'Paragraph one\nParagraph two',commentsReady:true,counts:{0:2,1:0},
+    comments:[{id:'one',content:'A real source comment',user:{nickname:'Reader'}}]});
+  fixtures.set(inlineChapterUrl, inlineBody);
   const inlineContent = JSON.parse(await engine.content(JSON.stringify(inlineSource),inlineChapterUrl,JSON.stringify(inlineVariables)));
   const inlineAction = inlineContent.interactions.find(item=>item.label==='段评 2');
   assert.ok(inlineAction,'native counts create a paragraph marker');
@@ -565,6 +566,36 @@ async function run() {
   assert.equal(inlineResult.offline,true);
   assert.equal(JSON.parse(inlineResult.commentData).items[0].author,'Reader');
   assert.ok(inlineResult.html.includes('sandbox="allow-scripts"'));
+  const { NativeSourceRunner } = load(prefix + 'upstream/core/nativesource/NativeSourceRunner');
+  NativeSourceRunner.clearCommentContexts(inlineSource.bookSourceUrl);
+  const coldInlineResult = JSON.parse(await engine.readerAction(JSON.stringify(inlineSource), inlineAction.url,
+    JSON.stringify(inlineVariables), undefined, inlineChapterUrl));
+  assert.equal(JSON.parse(coldInlineResult.commentData).items[0].author, 'Reader',
+    'saved paragraph action rebuilds its context after a process restart');
+  NativeSourceRunner.clearCommentContexts(inlineSource.bookSourceUrl);
+  let coldRecoveryReads = 0;
+  fixtures.set(inlineChapterUrl, () => ++coldRecoveryReads === 1 ?
+    JSON.stringify({...JSON.parse(inlineBody), commentsReady:false}) : inlineBody);
+  const recoveredInline = JSON.parse(await engine.readerAction(JSON.stringify(inlineSource), inlineAction.url,
+    JSON.stringify(inlineVariables), undefined, inlineChapterUrl));
+  assert.equal(JSON.parse(recoveredInline.commentData).items[0].author, 'Reader',
+    'an unavailable cold comment context recovers through the normal chapter path');
+  assert.equal(coldRecoveryReads, 2, 'recovery refreshes only the requested chapter once');
+  NativeSourceRunner.clearCommentContexts(inlineSource.bookSourceUrl);
+  let changedParagraphReads = 0;
+  fixtures.set(inlineChapterUrl, () => ++changedParagraphReads === 1 ?
+    JSON.stringify({...JSON.parse(inlineBody), commentsReady:false}) :
+    JSON.stringify({...JSON.parse(inlineBody), text:'A different paragraph\nParagraph two'}));
+  await assert.rejects(engine.readerAction(JSON.stringify(inlineSource), inlineAction.url,
+    JSON.stringify(inlineVariables), undefined, inlineChapterUrl), /原段落已变化/,
+    'recovery never opens comments for changed paragraph text');
+  assert.equal(changedParagraphReads, 2, 'a stale paragraph does not cause an unbounded retry');
+  NativeSourceRunner.clearCommentContexts(inlineSource.bookSourceUrl);
+  fixtures.set(inlineChapterUrl, JSON.stringify({...JSON.parse(inlineBody), commentsReady:false}));
+  await assert.rejects(engine.readerAction(JSON.stringify(inlineSource), inlineAction.url,
+    JSON.stringify(inlineVariables), undefined, inlineChapterUrl), /原段落已变化/,
+    'unavailable comments stop after one recovery without replacing the cached chapter');
+  fixtures.set(inlineChapterUrl, inlineBody);
   await assert.rejects(engine.readerAction(JSON.stringify(inlineSource),inlineAction.url,
     JSON.stringify({...inlineVariables,bookName:'new host variable'}),undefined,inlineChapterUrl),/评论入口已失效/);
   console.log('PASS: native paragraph action retains exact content context and returns conversation records');

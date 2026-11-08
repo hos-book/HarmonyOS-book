@@ -103,13 +103,20 @@ export class EpubOriginalScript {
   }
   function compact() {
     if (cache) return cache;
-    var nodes = [], text = [], nodeOf = [], offOf = [];
+    var nodes = [], text = [], nodeOf = [], offOf = [], hidden = new WeakMap();
+    function excluded(el) {
+      if (!el || el === document.body) return false;
+      if (hidden.has(el)) return hidden.get(el);
+      var style = getComputedStyle(el);
+      var value = style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || excluded(el.parentElement);
+      hidden.set(el, value); return value;
+    }
     var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, { acceptNode: function (n) {
       for (var p = n.parentNode; p && p !== document.body; p = p.parentNode) {
         var t = p.nodeName.toLowerCase();
         if (t === 'rt' || t === 'rp' || t === 'script' || t === 'style') return NodeFilter.FILTER_REJECT;
       }
-      return NodeFilter.FILTER_ACCEPT;
+      return excluded(n.parentElement) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;
     } });
     var n;
     while ((n = walker.nextNode())) {
@@ -175,6 +182,9 @@ export class EpubOriginalScript {
       duration + 120);
   }
   function scrollToY(y, smooth) {
+    if (window.hsdaEpubConfig && window.hsdaEpubConfig.continuous) {
+      parent.hsdaEpub.seekFrame(window.hsdaEpubConfig.frame, y, smooth); return;
+    }
     slideTo(0, Math.max(0, y), smooth);
   }
   // 滚动模式的“页”是一屏（扣掉上下边距与一行重叠），页数进度条与普通阅读器的滚动模式一样按屏计。
@@ -221,7 +231,8 @@ export class EpubOriginalScript {
     while (lo < hi) {
       var mid = (lo + hi) >> 1, r = rectAt(c, mid);
       // 滚动模式以上边距那条线为准，和 goSpot 把目标放到的位置一致，保存再恢复不会一次次往上挪。
-      var before = paged ? r.right <= 1 : (r.top + r.bottom) / 2 < cfg.top;
+      var top = window.hsdaEpubConfig && window.hsdaEpubConfig.continuous ? window.hsdaEpub.readingTop() : cfg.top;
+      var before = paged ? r.right <= 1 : (r.top + r.bottom) / 2 < top;
       if (before) lo = mid + 1; else hi = mid;
     }
     return lo;
@@ -242,7 +253,7 @@ export class EpubOriginalScript {
     return text.length > 90 ? text.substring(0, 90) + '…' : text;
   }
   function report() {
-    if (!started) return;
+    if (!started || (window.hsdaEpubConfig && window.hsdaEpubConfig.continuous)) return;
     if (reportTimer) clearTimeout(reportTimer);
     reportTimer = setTimeout(function () {
       reportTimer = 0;
@@ -315,7 +326,7 @@ export class EpubOriginalScript {
   // 滚动模式：已经在章末继续上拉、在章首继续下拉超过这个距离，就接着读下一章、上一章。
   var PULL = 72, pull = 0, atTop = false, atBottom = false;
   document.addEventListener('touchstart', function (e) {
-    if (window.hsdaEpubConfig && window.hsdaEpubConfig.paged) return;
+    if (window.hsdaEpubConfig && (window.hsdaEpubConfig.paged || window.hsdaEpubConfig.continuous)) return;
     if (e.touches.length !== 1) { dragging = false; pull = 0; return; }
     sx = e.touches[0].clientX; sy = e.touches[0].clientY; st = Date.now();
     pull = 0;
@@ -327,6 +338,7 @@ export class EpubOriginalScript {
     base = page * width; dragging = paged; moved = false;
   }, { passive: true });
   document.addEventListener('touchmove', function (e) {
+    if (window.hsdaEpubConfig && window.hsdaEpubConfig.continuous) return;
     if (window.hsdaEpubConfig && window.hsdaEpubConfig.paged) { if (e.cancelable) e.preventDefault(); return; }
     if (!paged && e.touches.length === 1) {
       var dyPull = e.touches[0].clientY - sy;
@@ -343,7 +355,7 @@ export class EpubOriginalScript {
     window.scrollTo(base - dx, 0);
   }, { passive: true });
   document.addEventListener('touchend', function (e) {
-    if (window.hsdaEpubConfig && window.hsdaEpubConfig.paged) return;
+    if (window.hsdaEpubConfig && (window.hsdaEpubConfig.paged || window.hsdaEpubConfig.continuous)) return;
     if (!paged) {
       // 手指离开时内容仍在章末（或章首）才翻章，避免一次正常的快速滑动被当成翻章。
       var stillBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;

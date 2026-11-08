@@ -6,6 +6,8 @@
 
 宿主阅读器现已消费固定核心的 ReaderActionMarker：正文元数据通过 ReaderCommentContent 转换成规范化字符坐标，与正文分开缓存，渲染替换规则后再映射到显示坐标。点击通过现有导入书源 dispatcher 调用 LightSourceCore.readerAction，支持 URL、书源脚本和 NativeCommentPage。展示层统一为原生对话气泡；原生 page.data 优先归一为评论记录，HTML 型数据通过上游离线 sandbox 文档或持有独占租约的无痕 Web 采集可见字段；关闭、换章、后台和离页取消展示，Cookie 保存后清理会话。本轮不修改 upstream 生成文件或提升其固定版本。下方历史记录中的“不接入段评”仅描述当时范围。
 
+2026-11-08：`LightSourceCore` 为磁盘缓存段评增加一次上下文恢复。只有轻页明确报告“评论上下文不可用”时才通过当前书源的正常正文链重建对应章节，并验证原始动作地址仍存在后重试评论；恢复阶段限制 20 秒、响应用户取消，不改正文缓存或阅读位置。入口指纹失效、段落变化、网络或鉴权错误不放宽校验。`test-light-source-engine.cjs` 覆盖上下文清空后的恢复、重建首次未提供评论时的回退、正文变化拒绝和失败不循环。回归及 Release SDK 构建通过，已覆盖安装 Mate 80；用户确认原来打不开的旧章节已能显示评论。
+
 参考已读取的在线 [ArkTS 语法](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkUI 指引](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md) 和轻页固定版本 [NativeCommentPageView](https://raw.githubusercontent.com/wip3l/qingye-reader/48ec5bf45a0fa5993e455b2fe889c789d16fba1f/entry/src/main/ets/components/NativeCommentPageView.ets)。界面采用项目 ArkUI V2，而非照搬上游 V1 页面。
 
 ## 固定版本与维护边界
@@ -20,6 +22,10 @@ node scripts/sync-light-source.cjs --epub --check
 ```
 
 生成文件禁止手改；同步脚本校验原始源码与生成结果 SHA256，宿主补丁集中在 `scripts/light-epub-sync.cjs`。沿用上游 CSS 多栏、视口滚动、字体就绪和文字定位，仅适配宿主导入、翻页手势独占、页码查询与重排位置。原生覆盖/仿真动画通过 `epub_original.js` 的预览/提交/取消接口衔接；取消后恢复原页，预览不保存阅读进度。章节文档使用上游固定缩放 viewport，防止移动端把横向多栏扩成数倍布局视口而少算页数、跳页。原书背景不再随 body transform 移位，完整 Web 视口保留固定背景，页眉页脚透明叠放。宿主字符映射同步上下标数字归一化。
+
+2026-11-08 增加 `host-continuous-scroll-v2` 与 `visible-text-index-v1` 宿主补丁，固定提交不变。精排滚动由 `epub_continuous.js` 维护最多 5 个同源隔离章节视口，沿用原有无痕 Web 租约、导入片段与字符坐标。上游的章首/章末二次拉动手势在连续窗口中停用，滚动定位交给宿主，文字定位按实际阅读线处理章末被裁剪的视口；隐藏脚注不进入可见文字索引，连续模式停用上游重复的位置报告。同步仍由上述入口生成并校验，不手改生成文件。实现参考本节已列出的在线 ArkTS/ArkUI 技能及 [ArkUI 交互规则](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/18-arkts-rules/arkts-interaction-rules.md)。
+
+后续卡顿修复只改宿主：连续模式取消 `touch-action:none` 和非被动触摸/滚轮拦截，由浏览器原生滚动链处理拖动、惯性及页内溢出区域。普通正文按内容高度展开并随外层滚动，不再逐帧调用内层 `scrollTo`；`prepareFlow()` 检查实际布局，含绝对/固定/粘性定位、固定背景、视口相关媒体条件、无法读取样式或超出检查上限的章节保留一屏高视口。普通正文将 `vh` 等视口单位转换为真实阅读区域的逻辑尺寸，保留 SVG 百分比高度，屏蔽 iframe 扩高引起的伪 resize；页码和阅读线以父阅读区域为准。宿主缓存章节几何，字符定位在停滚 160ms 后或持续滚动每 1 秒回报，跨章和显式位置捕获立即报告，进度写盘再合并。单图/SVG 封面居中、多看画廊横向布局、离线脚注段评及关闭弹层均在宿主适配；原书明确的 `object-fit:cover` 保留。性能取舍参考已读取的 [高频回调精简](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/arkui-performance-analysis/references/scroll/high-freq-callback.md)。本次未再次从 GitHub 拉取核心，在线下载超时，不把宿主回归称为新的上游同步验证。
 
 导入解析、资源隔离、章节 ID 和持久化仍使用现有实现，本次替换精排核心，不迁入轻页整套阅读页面。在线参考：
 

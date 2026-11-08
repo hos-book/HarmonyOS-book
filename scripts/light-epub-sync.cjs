@@ -14,13 +14,14 @@ function once(text, anchor, value) {
 }
 function adapt(source, commit) {
   let text = once(source, "from './EpubOriginalDocument'", "from '../EpubOriginalDocument'");
-  // The app owns paged gestures, including cancellation and simulation; the upstream owns layout/scrolling.
+  // The app owns gestures and the bounded continuous window; upstream keeps typography and text positioning.
   for (const event of ['touchstart', 'touchend']) {
     const anchor = `document.addEventListener('${event}', function (e) {`;
-    text = once(text, anchor, anchor + '\n    if (window.hsdaEpubConfig && window.hsdaEpubConfig.paged) return;');
+    text = once(text, anchor, anchor + '\n    if (window.hsdaEpubConfig && (window.hsdaEpubConfig.paged || window.hsdaEpubConfig.continuous)) return;');
   }
   text = once(text, "document.addEventListener('touchmove', function (e) {",
     "document.addEventListener('touchmove', function (e) {\n" +
+     '    if (window.hsdaEpubConfig && window.hsdaEpubConfig.continuous) return;\n' +
     '    if (window.hsdaEpubConfig && window.hsdaEpubConfig.paged) { if (e.cancelable) e.preventDefault(); return; }');
   text = once(text, "document.addEventListener('click', function (e) {",
     "document.addEventListener('click', function (e) {\n" +
@@ -28,6 +29,25 @@ function adapt(source, commit) {
   text = once(text, "window.addEventListener('resize', function () {\n    if (!started) return;\n    var s = spot();",
     "window.addEventListener('resize', function () {\n    if (!started) return;\n" +
     '    var s = window.hsdaEpub ? window.hsdaEpub.reflowSpot() : spot();');
+  text = once(text, '  function scrollToY(y, smooth) {', '  function scrollToY(y, smooth) {\n' +
+    '    if (window.hsdaEpubConfig && window.hsdaEpubConfig.continuous) {\n' +
+    '      parent.hsdaEpub.seekFrame(window.hsdaEpubConfig.frame, y, smooth); return;\n    }');
+  text = once(text, 'var before = paged ? r.right <= 1 : (r.top + r.bottom) / 2 < cfg.top;',
+    'var top = window.hsdaEpubConfig && window.hsdaEpubConfig.continuous ? window.hsdaEpub.readingTop() : cfg.top;\n' +
+    '      var before = paged ? r.right <= 1 : (r.top + r.bottom) / 2 < top;');
+  // Hidden EPUB notes must not enter the monotonic visible-text index. Cache element visibility once per reflow.
+  text = once(text, '    var nodes = [], text = [], nodeOf = [], offOf = [];',
+    '    var nodes = [], text = [], nodeOf = [], offOf = [], hidden = new WeakMap();\n' +
+    '    function excluded(el) {\n' +
+    '      if (!el || el === document.body) return false;\n' +
+    '      if (hidden.has(el)) return hidden.get(el);\n' +
+    '      var style = getComputedStyle(el);\n' +
+    "      var value = style.display === 'none' || style.visibility === 'hidden' || style.visibility === 'collapse' || excluded(el.parentElement);\n" +
+    '      hidden.set(el, value); return value;\n    }');
+  text = once(text, '      return NodeFilter.FILTER_ACCEPT;',
+    '      return excluded(n.parentElement) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT;');
+  text = once(text, '  function report() {\n    if (!started) return;',
+    '  function report() {\n    if (!started || (window.hsdaEpubConfig && window.hsdaEpubConfig.continuous)) return;');
   text = once(text, '    preview: preview };', `    preview: preview, state: function () {
       var s = spot();
       s.count = paged ? count : screenCount();
@@ -52,7 +72,7 @@ async function sync(args) {
   const generated = adapt(source, revision);
   const manifest = { schemaVersion: 1, repository: 'https://github.com/wip3l/qingye-reader',
     commit: revision, upstreamPath, path: targetPath, license: 'GPL-3.0',
-    patches: ['host-native-turn-and-position-v1'], upstreamSha256: hash(source), sha256: hash(generated) };
+    patches: ['host-native-turn-and-position-v1', 'host-continuous-scroll-v2', 'visible-text-index-v1'], upstreamSha256: hash(source), sha256: hash(generated) };
   if (args.includes('--check')) {
     if (!old || JSON.stringify(old) !== JSON.stringify(manifest) || !fs.existsSync(target) ||
       fs.readFileSync(target, 'utf8').replaceAll('\r\n', '\n') !== generated) throw Error('EPUB upstream sync is stale');

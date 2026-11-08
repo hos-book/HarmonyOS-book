@@ -47,10 +47,15 @@ export struct JianjianAiSettingsPage {
     this.message = '';
     try {
       const config = await JianjianAiService.loadConfig(context);
+      let models: string[] = [];
+      try { models = await JianjianAiService.loadCachedModels(context, config); } catch (_error) { /* 缓存失败仍可编辑配置 */ }
       if (!this.alive) return;
       this.address = config.address;
       this.apiKey = config.apiKey;
       this.model = config.model;
+      this.models = models;
+      this.modelCount = models.length;
+      this.modelSource.setItems(models);
       this.ready = true;
     } catch (_error) { if (this.alive) this.message = $r('app.string.settings_load_failed'); }
   }
@@ -70,18 +75,27 @@ export struct JianjianAiSettingsPage {
     this.models = [];
     this.modelSource.setItems([]);
     this.modelCount = 0;
+    this.showModels = false;
+    this.filter = '';
     this.model = '';
     this.message = '';
   }
 
   private async fetchModels(): Promise<void> {
-    if (this.busy || this.saving) return;
+    const context = this.getUIContext().getHostContext();
+    if (!context || this.busy || this.saving) return;
     const generation = ++this.generation;
     this.busy = true;
     this.message = '';
     try {
       const config = JianjianAiService.normalize(this.config());
       const models = await this.client.listModels(config);
+      if (!this.alive || generation !== this.generation) return;
+      try { await JianjianAiService.saveCachedModels(context, config, models); }
+      catch (_error) {
+        if (this.alive && generation === this.generation) this.message = $r('app.string.settings_save_failed');
+        return;
+      }
       if (!this.alive || generation !== this.generation) return;
       this.address = config.address;
       this.models = models;
@@ -200,15 +214,22 @@ export struct JianjianAiSettingsPage {
                 .padding({ left: AppSpace.Sm, bottom: 6 })
               Column() {
                 Row({ space: AppSpace.Sm }) {
-                  Text($r('app.string.jianjian_ai_fetch_models')).fontSize(AppFont.BodyL).fontColor(AppColor.Brand).layoutWeight(1)
+                  Text(this.modelCount > 0 ? $r('app.string.jianjian_ai_refresh_models') : $r('app.string.jianjian_ai_fetch_models'))
+                    .fontSize(AppFont.BodyL).fontColor(AppColor.Brand).layoutWeight(1)
                   if (this.busy) { LoadingProgress().width(20).height(20).color(AppColor.Brand) }
                   else { SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(20).fontColor([AppColor.Brand]) }
                 }.width('100%').constraintSize({ minHeight: 56 }).padding({ left: AppSpace.Md, right: AppSpace.Md })
                   .enabled(!this.busy && !this.saving).onClick((): void => { this.fetchModels(); }).id('jianjian-ai-fetch-models')
                 Divider().strokeWidth(0.5).color(AppTheme.Divider).margin({ left: AppSpace.Md })
                 Row({ space: AppSpace.Sm }) {
-                  Text(this.model || $r('app.string.jianjian_ai_choose_model')).fontSize(AppFont.BodyL)
-                    .fontColor(this.model ? AppTheme.TextPrimary : AppTheme.TextSecondary).layoutWeight(1).maxLines(3)
+                  Column({ space: AppSpace.Xxs }) {
+                    Text(this.model || $r('app.string.jianjian_ai_choose_model')).fontSize(AppFont.BodyL)
+                      .fontColor(this.model ? AppTheme.TextPrimary : AppTheme.TextSecondary).maxLines(3)
+                    if (this.modelCount > 0) {
+                      Text($r('app.string.jianjian_ai_model_count', this.modelCount)).fontSize(AppFont.Caption)
+                        .fontColor(AppTheme.TextSecondary)
+                    }
+                  }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                   SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([AppTheme.TextTertiary])
                 }.width('100%').constraintSize({ minHeight: 56 }).padding(AppSpace.Md)
                   .enabled(!this.busy && !this.saving && this.modelCount > 0)

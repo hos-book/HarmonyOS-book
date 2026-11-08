@@ -8,6 +8,18 @@ if (!ide) throw Error('Set DEVECO_HOME to the Release IDE');
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = path.resolve(__dirname, '..');
 const script = fs.readFileSync(path.join(root, 'entry/src/main/resources/rawfile/epub_original.js'), 'utf8');
+const positionExports = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,
+  'entry/src/main/ets/service/text/EpubOriginalPosition.ets'), 'utf8'), { compilerOptions: {
+  module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021
+} }).outputText, { exports: positionExports, require: () => ({ LocalTextImage: { speechContent: text => text } }) });
+const indexedText = ' 开头。\n重复句子 重复句子\n结尾¹。';
+const indexed = new positionExports.EpubOriginalPositionIndex(indexedText);
+for (const offset of [0, 4, 10, 17, indexedText.length]) {
+  const spot = positionExports.EpubOriginalPosition.spot(indexedText, offset);
+  const restored = indexed.offset(spot);
+  assert.equal(positionExports.EpubOriginalPosition.compact(indexedText.slice(restored, restored + 32)).startsWith(spot.snippet), true);
+}
 const lightExports = {};
 vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,
   'entry/src/main/ets/service/text/light/EpubOriginalScript.ets'), 'utf8'), { compilerOptions: {
@@ -24,8 +36,8 @@ function viewport(code) {
   events = {};
   const style = { setProperty(name, value) { this[name] = value; } };
   const document = { readyState: 'complete', fonts: { ready: Promise.resolve() },
-    body: { style }, documentElement: { style, scrollWidth: 390 * 5, scrollHeight: 760 },
-    head: { appendChild() {} }, getElementById: () => null,
+    body: { style, querySelectorAll: () => [] }, documentElement: { style, scrollWidth: 390 * 5, scrollHeight: 760 },
+    head: { appendChild() {} }, getElementById: () => null, querySelectorAll: () => [],
     createElement: () => ({}), createTreeWalker: () => ({ nextNode: () => null }),
     addEventListener: (name, fn) => { events[name] = fn; }
   };
@@ -45,10 +57,13 @@ class Controller {
   async runJavaScript(code) { return JSON.stringify(vm.runInContext(code, browser)) ?? ''; }
 }
 const exportsObject = {};
+const originalStore = { parts: async () => [{ spine: 0, offset: 0, length: 100 }] };
 vm.runInNewContext(ts.transpileModule(sourceClasses, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021
 } }).outputText, { exports: exportsObject, setTimeout, clearTimeout,
   webview: { WebviewController: Controller }, EpubOriginalSpot: Spot,
+  ReaderCommentMessages: class { items = []; empty = false; },
+  EpubOriginalPositionIndex: positionExports.EpubOriginalPositionIndex,
   EpubOriginalLayoutOptions: lightExports.EpubOriginalLayoutOptions,
   EpubOriginalScript: lightExports.EpubOriginalScript,
   ReaderTapPolicy: { DEFAULT: '', resolve: () => 0 },
@@ -56,8 +71,8 @@ vm.runInNewContext(ts.transpileModule(sourceClasses, { compilerOptions: {
     spot: (text, offset) => Object.assign(new Spot(), { fraction: offset / Math.max(1, text.length) }),
     offset: (text, spot) => Math.round(text.length * spot.fraction)
   },
-  EpubOriginalStore: { parts: async () => [{ spine: 0, offset: 0, length: 100 }] },
-  EpubOriginalDocument: { ORIGIN: 'https://test.invalid/', build: (_source, _part, code) => code },
+  EpubOriginalStore: originalStore,
+  EpubOriginalDocument: { ORIGIN: 'https://test.invalid/', assetPath: value => value || '', build: (_source, _part, code) => code },
   fileIo: { readText: async () => '' }, util: { generateRandomUUID: () => 'test' },
   hilog: { debug() {}, error() {} }
 });
@@ -116,6 +131,51 @@ async function tick() { await new Promise(resolve => setImmediate(resolve)); }
   await cancelling;
   assert.equal(delivered.at(-1).page, 0);
   reader.readSpot = readSpot;
+  // Continuous prefetch is relative to the buffered boundary, not the visible chapter.
+  const continuous = new EpubOriginalReader();
+  const commands = [], adjacentCalls = [];
+  Object.assign(continuous, { alive: true, attached: true, paged: false, active: request(3), serial: 20,
+    controller: { runJavaScript: async code => { commands.push(code); return ''; } },
+    adjacent: async (forward, chapter, notify) => {
+      adjacentCalls.push({ forward, chapter, notify }); return request(chapter + (forward ? 1 : -1));
+    },
+    onChapter: value => { continuous.request = value; },
+    onPosition: (chapter, offset) => delivered.push({ chapter, offset })
+  });
+  let frameId = 100;
+  continuous.continuousFrame = async (value, parts, index) =>
+    ({ id: ++frameId, request: value, parts, index, url: `/frame/${frameId}` });
+  const boundary = { id: 5, request: request(5), parts: await originalStore.parts(), index: 0 };
+  continuous.frames = [boundary];
+  await continuous.extendContinuous(5, true);
+  assert.deepEqual(adjacentCalls, [{ forward: true, chapter: 5, notify: false }]);
+  assert.equal(continuous.active.chapter, 3, 'prefetch does not commit reading progress');
+  assert.match(commands.at(-1), /\.append\(/);
+  const next = continuous.frames.at(-1);
+  continuous.message(JSON.stringify({ kind: 'position', token: 20, frame: next.id,
+    snippet: '', fraction: 0.25, page: 1, count: 3 }));
+  assert.equal(continuous.request.chapter, 6);
+  assert.deepEqual(delivered.at(-1), { chapter: 6, offset: 25 }, 'visible frame commits chapter before position');
+  continuous.requestChanged();
+  assert.equal(continuous.serial, 20, 'committing a buffered chapter must not reload the Web document');
+  continuous.adjacent = async () => null;
+  await continuous.extendContinuous(next.id, true);
+  assert.match(commands.at(-1), /\.finish\(1,false\)/, 'book end silently completes prefetch');
+  const multiple = { id: 9, request: request(7), index: 0, parts: [
+    { spine: 0, offset: 0, length: 50 }, { spine: 1, offset: 50, length: 50 }
+  ] };
+  continuous.frames = [multiple];
+  await continuous.extendContinuous(9, true);
+  assert.equal(continuous.frames.at(-1).index, 1, 'same-chapter spine parts are appended before the next chapter');
+  assert.equal(continuous.frames.at(-1).request.chapter, 7);
+  let finishRead;
+  continuous.adjacent = () => new Promise(resolve => { finishRead = resolve; });
+  const stale = continuous.extendContinuous(continuous.frames.at(-1).id, true);
+  continuous.serial++;
+  const beforeStale = commands.length;
+  finishRead(request(8));await stale;
+  assert.equal(commands.length, beforeStale, 'late prefetch cannot append to a new reading session');
+  continuous.alive = false;
   reader.alive = false; reader.finishPaint(false);
-  console.log('EPUB native swipe, synthetic click, preview/commit, chapter edges and cancellation passed');
+  console.log('EPUB native swipe, preview/commit, cancellation and continuous prefetch/position/session boundaries passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

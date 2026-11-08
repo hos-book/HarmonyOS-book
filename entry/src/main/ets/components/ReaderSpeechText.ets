@@ -5,8 +5,12 @@ import { SpeechHighlightRange, SpeechTextHighlighter } from '../service/text/Spe
 import { ReaderPalette } from '../model/ReaderTheme';
 import { OnlineTextPage } from '../service/text/OnlineTextPaginator';
 import { ReaderParagraphNodeController } from '../service/text/ReaderParagraphNode';
-import { ReaderTouchTracker } from '../utils/ReaderTapPolicy';
 import { EpubPageStyle } from '../service/text/EpubPageStyle';
+import { ReaderAiAction } from '../model/ReaderAi';
+import { ReaderSelectionMenu } from '../utils/ReaderSelectionMenu';
+import { ReaderSelectionGeometry, ReaderSelectionBounds, ReaderSelectionHandle } from '../service/text/ReaderSelectionGeometry';
+import { AppMaterial } from '../theme/Theme';
+import { PlatformCompat } from '../utils/PlatformCompat';
 
 /** 混排页沿用同一正文绘制组件，各片段保留自己的原文坐标。 */
 @ComponentV2
@@ -21,8 +25,10 @@ export struct ReaderSpeechText {
   @Param sourceStart: number = 0;
   @Param highlightEnabled: boolean = false;
   @Param selectionEnabled: boolean = true;
+  @Param selectionRevision: number = 0;
   @Event onSelectionChange: (active: boolean) => void = () => {};
   @Event onReadFrom: (offset: number) => void = () => {};
+  @Event onAi: (action: ReaderAiAction, text: string) => void = () => {};
   @Param fontFamily: string = '';
   @Param fontWeight: number = 400;
   @Param letterSpacing: number = 0;
@@ -54,7 +60,8 @@ export struct ReaderSpeechText {
             page: part, text: part.text,
             source: this.source.substring(part.startOffset - this.sourceStart, part.endOffset - this.sourceStart),
             sourceStart: part.startOffset, state: this.state, highlightEnabled: this.highlightEnabled && !part.isHeading,
-            selectionEnabled: this.selectionEnabled && !part.isHeading, onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom,
+            selectionEnabled: this.selectionEnabled && !part.isHeading, selectionRevision: this.selectionRevision,
+            onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom, onAi: this.onAi,
             fontFamily: this.fontFamily, fontWeight: this.fontWeight, fontSize: this.fontSize,
             lineHeight: this.lineHeight, palette: this.fragmentPalette(part.isHeading)
           }).margin({ top: this.getUIContext().px2vp(part.flowSpacing) })
@@ -66,7 +73,8 @@ export struct ReaderSpeechText {
           letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight && !this.page.isHeading, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
           page: this.page, text: this.text, source: this.source, sourceStart: this.sourceStart,
           state: this.state, highlightEnabled: this.highlightEnabled && !this.page.isHeading, selectionEnabled: this.selectionEnabled && !this.page.isHeading,
-          onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom,
+          selectionRevision: this.selectionRevision,
+          onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom, onAi: this.onAi,
           fontFamily: this.fontFamily, fontWeight: this.fontWeight, fontSize: this.fontSize,
           lineHeight: this.lineHeight, palette: this.fragmentPalette(this.page.isHeading)
         }).backgroundColor(this.page.isHeading ? this.epubStyle.headingColor || Color.Transparent : Color.Transparent)
@@ -82,19 +90,23 @@ struct ReaderTextFragment {
   @Event onComment: (comment: ReaderParagraphComment) => void = () => {};
   @Param page: OnlineTextPage = new OnlineTextPage();
   private paragraphNode: ReaderParagraphNodeController = new ReaderParagraphNodeController();
-  private selectionTouch: ReaderTouchTracker = new ReaderTouchTracker();
-  private selectionTouchStartedAt: number = 0;
+  private selectionDragX: number = 0;
+  private selectionDragY: number = 0;
+  private selectionDragAnchor: number = 0;
   @Param text: string = '';
   @Param source: string = '';
   @Param state: TextToSpeechState = new TextToSpeechState();
   @Param sourceStart: number = 0;
   @Param highlightEnabled: boolean = false;
   @Param selectionEnabled: boolean = true;
+  @Param selectionRevision: number = 0;
   @Event onSelectionChange: (active: boolean) => void = () => {};
   @Event onReadFrom: (offset: number) => void = () => {};
+  @Event onAi: (action: ReaderAiAction, text: string) => void = () => {};
   @Local selecting: boolean = false;
   @Local selectionStart: number = -1;
   @Local selectionEnd: number = -1;
+  @Local selectionMenuVisible: boolean = false;
   @Param fontFamily: string = '';
   @Param fontWeight: number = 400;
   @Param letterSpacing: number = 0;
@@ -113,14 +125,14 @@ struct ReaderTextFragment {
   }
 
   aboutToAppear(): void { this.updateParagraph(); }
-  aboutToDisappear(): void { this.onSelectionChange(false); this.paragraphNode.release(); }
+  aboutToDisappear(): void {
+    if (this.selecting) this.onSelectionChange(false);
+    this.paragraphNode.release();
+  }
 
-  @Monitor('page', 'selectionEnabled')
+  @Monitor('page', 'selectionEnabled', 'selectionRevision')
   resetSelection(): void {
-    this.selecting = false;
-    this.selectionStart = -1;
-    this.selectionEnd = -1;
-    this.onSelectionChange(false);
+    this.updateSelection(-1, -1);
   }
 
   @Computed
@@ -129,52 +141,126 @@ struct ReaderTextFragment {
   }
 
   private updateSelection(start: number, end: number): void {
+    const previous = this.selecting;
     this.selectionStart = start;
     this.selectionEnd = end;
     this.selecting = this.selectionEnabled && start >= 0 && end > start;
-    this.onSelectionChange(this.selecting);
+    if (!this.selecting) this.selectionMenuVisible = false;
+    if (previous !== this.selecting) this.onSelectionChange(this.selecting);
+  }
+
+  private runSelectionAction(id: TextMenuItemId, start: number, end: number): void {
+    if (!this.selectionEnabled || start < 0 || end <= start) return;
+    if (id.equals(TextMenuItemId.of(ReaderSelectionMenu.LISTEN))) {
+      const offset = this.sourceStart + SpeechTextHighlighter.sourceOffset(this.text, this.source, start);
+      this.onReadFrom(offset);
+    } else if (id.equals(TextMenuItemId.of(ReaderSelectionMenu.DICTIONARY))) {
+      this.onAi(ReaderAiAction.Dictionary, this.text.substring(start, end));
+    } else if (id.equals(TextMenuItemId.of(ReaderSelectionMenu.SUMMARIZE))) {
+      this.onAi(ReaderAiAction.Summarize, '');
+    }
+    this.updateSelection(-1, -1);
   }
 
   private speechSelectionMenu(): EditMenuOptions {
     return {
-      onCreateMenu: (items: TextMenuItem[]): TextMenuItem[] => {
-        const listen: TextMenuItem = {
-          content: $r('app.string.reader_listen_from_paragraph'),
-          id: TextMenuItemId.of('reader-listen-from-paragraph')
-        };
-        return [listen, ...items];
-      },
+      onCreateMenu: (_items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(),
+      onPrepareMenu: (_items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(),
       onMenuItemClick: (item: TextMenuItem, range: TextRange): boolean => {
-        if (!item.id.equals(TextMenuItemId.of('reader-listen-from-paragraph'))) return false;
         const start = range.start ?? this.selectionStart;
-        if (this.selectionEnabled && start >= 0) {
-          const offset = this.sourceStart + SpeechTextHighlighter.sourceOffset(this.text, this.source, start);
-          this.onReadFrom(offset);
-          this.updateSelection(-1, -1);
-        }
+        const end = range.end ?? this.selectionEnd;
+        this.runSelectionAction(item.id, start, end);
         return true;
       }
     };
   }
 
   private beginSelection(event: GestureEvent): void {
-    const paragraph = this.page.paragraph;
     const finger = event.fingerList[0];
-    if (!this.selectionEnabled || this.selecting || paragraph === null || finger === undefined || !this.text) return;
+    if (!this.selectionEnabled || this.selecting || finger === undefined || !this.text) return;
     const context = this.getUIContext();
-    const y: number = context.vp2px(finger.localY);
-    let lineIndex: number = 0;
-    for (let index = 0; index < this.page.lineMetrics.length; index++) {
-      const metric = this.page.lineMetrics[index];
-      const top: number = metric.baseline - metric.ascent - this.page.layoutTop + (this.page.lineShifts[index] ?? 0);
-      if (y >= top) lineIndex = index;
+    const word = ReaderSelectionGeometry.wordAt(this.page, context.vp2px(finger.localX), context.vp2px(finger.localY));
+    this.updateSelection(word.start, word.end);
+    this.selectionMenuVisible = this.selecting;
+  }
+
+  @Computed
+  get selectionBounds(): ReaderSelectionBounds {
+    return ReaderSelectionGeometry.bounds(this.page, this.selectionStart, this.selectionEnd);
+  }
+
+  private selectionHandle(leading: boolean): ReaderSelectionHandle {
+    return leading ? this.selectionBounds.start : this.selectionBounds.end;
+  }
+
+  private beginSelectionDrag(leading: boolean): void {
+    const handle = this.selectionHandle(leading);
+    this.selectionDragX = handle.x;
+    this.selectionDragY = (handle.top + handle.bottom) / 2;
+    this.selectionDragAnchor = leading ? this.selectionEnd : this.selectionStart;
+    this.selectionMenuVisible = false;
+  }
+
+  private dragSelection(event: GestureEvent): void {
+    if (!this.selecting) return;
+    const context = this.getUIContext();
+    const offset = ReaderSelectionGeometry.offsetAt(this.page,
+      this.selectionDragX + context.vp2px(event.offsetX), this.selectionDragY + context.vp2px(event.offsetY));
+    if (offset < 0 || offset === this.selectionDragAnchor) return;
+    this.updateSelection(Math.min(offset, this.selectionDragAnchor), Math.max(offset, this.selectionDragAnchor));
+  }
+
+  private selectionPopupOptions(): CustomPopupOptions {
+    const options: CustomPopupOptions = {
+      builder: (): void => this.buildSelectionMenu(), placement: Placement.Top,
+      enableArrow: false, autoCancel: false, mask: false, focusable: false,
+      targetSpace: 10, radius: 24, popupColor: AppMaterial.SheetBackground,
+      onStateChange: (event): void => {
+        if (!event.isVisible && this.selectionMenuVisible) this.updateSelection(-1, -1);
+      }
+    };
+    if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
+    else options.backgroundBlurStyle = AppMaterial.SheetBlur;
+    return options;
+  }
+
+  @LocalBuilder
+  private buildSelectionAction(label: Resource, action: string) {
+    Text(label).fontSize(14).fontColor($r('sys.color.font_primary')).maxLines(1)
+      .padding({ left: 10, right: 10, top: 12, bottom: 12 })
+      .onClick((): void => this.runSelectionAction(TextMenuItemId.of(action), this.selectionStart, this.selectionEnd))
+  }
+
+  @LocalBuilder
+  private buildSelectionMenu() {
+    Row() {
+      this.buildSelectionAction($r('app.string.reader_listen_from_paragraph'), ReaderSelectionMenu.LISTEN)
+      this.buildSelectionAction($r('app.string.reader_ai_dictionary'), ReaderSelectionMenu.DICTIONARY)
+      this.buildSelectionAction($r('app.string.reader_ai_summarize'), ReaderSelectionMenu.SUMMARIZE)
+    }.padding({ left: 4, right: 4 }).onTouch((event: TouchEvent): void => event.stopPropagation())
+  }
+
+  @LocalBuilder
+  private buildSelectionHandle(leading: boolean) {
+    Stack({ alignContent: Alignment.TopStart }) {
+      Row().width(1.5)
+        .height(this.getUIContext().px2vp(this.selectionHandle(leading).bottom - this.selectionHandle(leading).top))
+        .backgroundColor(this.palette.accent).position({ x: 19.25, y: 20 })
+      Row().width(10).height(10).borderRadius(5).backgroundColor(this.palette.accent)
+        .position({ x: 15, y: leading ? 10 :
+          20 + this.getUIContext().px2vp(this.selectionHandle(leading).bottom - this.selectionHandle(leading).top) })
     }
-    const position = paragraph.getGlyphPositionAtCoordinate(context.vp2px(finger.localX),
-      y + this.page.layoutTop - (this.page.lineShifts[lineIndex] ?? 0));
-    const word = paragraph.getWordBoundary(position.position);
-    const start: number = (this.page.nativeOffsets?.displayOffsetForNative(word.start) ?? word.start) - this.page.displayStart;
-    const end: number = (this.page.nativeOffsets?.displayOffsetForNative(word.end) ?? word.end) - this.page.displayStart;
-    this.updateSelection(Math.max(0, Math.min(this.text.length, start)), Math.max(0, Math.min(this.text.length, end)));
+    .width(40).height(40 + this.getUIContext().px2vp(this.selectionHandle(leading).bottom - this.selectionHandle(leading).top))
+    .position({ x: this.getUIContext().px2vp(this.selectionHandle(leading).x) - 20,
+      y: this.getUIContext().px2vp(this.selectionHandle(leading).top) - 20 })
+    .hitTestBehavior(HitTestMode.Block)
+    .onTouch((event: TouchEvent): void => event.stopPropagation())
+    .priorityGesture(PanGesture({ direction: PanDirection.All, distance: 1 })
+      .onActionStart((event: GestureEvent): void => { this.beginSelectionDrag(leading); this.dragSelection(event); })
+      .onActionUpdate((event: GestureEvent): void => this.dragSelection(event))
+      .onActionEnd((): void => { this.selectionMenuVisible = this.selecting; })
+      .onActionCancel((): void => { this.selectionMenuVisible = this.selecting; }))
+    .id(leading ? 'reader-selection-start' : 'reader-selection-end')
   }
 
   @Computed
@@ -202,31 +288,6 @@ struct ReaderTextFragment {
         .height(this.getUIContext().px2vp(this.page.layoutHeight))
         .accessibilityText(this.text)
         .hitTestBehavior(HitTestMode.None)
-      if (this.selectionEnabled) {
-        Text(this.text).width(this.getUIContext().px2vp(this.page.layoutWidth)).height(this.getUIContext().px2vp(this.page.layoutHeight))
-          .fontSize(this.fontSize).letterSpacing(this.letterSpacing).fontFamily(this.fontFamily || undefined)
-          .fontWeight(this.fontWeight, { enableVariableFontWeight: true }).lineHeight(this.fontSize * this.lineHeight)
-          .textAlign(TextAlign.JUSTIFY).wordBreak(WordBreak.BREAK_WORD)
-          // 正文与选区高亮始终由原 Paragraph 绘制，选字不切换排版引擎。
-          .fontColor(Color.Transparent).selectedBackgroundColor(Color.Transparent)
-          .draggable(false)
-          // 普通触摸不经过原生选字层，长按命中后才交给系统处理选区与菜单。
-          .hitTestBehavior(this.selecting ? HitTestMode.Default : HitTestMode.None)
-          .copyOption(CopyOptions.LocalDevice).textSelectable(TextSelectableMode.SELECTABLE_FOCUSABLE)
-          .editMenuOptions(this.speechSelectionMenu())
-          .selection(this.selectionStart, this.selectionEnd)
-          .onTextSelectionChange((start: number, end: number): void => {
-            this.updateSelection(start, end);
-          })
-          .onBlur((): void => this.updateSelection(-1, -1))
-          .onTouch((event: TouchEvent): void => {
-            this.selectionTouch.update(event);
-            if (event.type === TouchType.Down) this.selectionTouchStartedAt = Date.now();
-            // 点击正文显式退出选区；拖动手柄及长按继续交给系统选字。
-            if (event.type === TouchType.Up && Date.now() - this.selectionTouchStartedAt < 500 &&
-              this.selectionTouch.canTap()) this.updateSelection(-1, -1);
-          })
-      }
       ForEach(this.commentAnchors, (anchor: ReaderCommentAnchor) => {
         Button({ type: ButtonType.Normal }) {
           Image($r('app.media.reader_comment')).width(16).height(16).fillColor(this.palette.secondary)
@@ -241,6 +302,15 @@ struct ReaderTextFragment {
         .onClick((): void => { if (!this.selecting) this.onComment(anchor.comment); })
         .id('reader-comment-' + anchor.comment.offset)
       }, (anchor: ReaderCommentAnchor): string => anchor.comment.offset + ':' + anchor.comment.url)
+      if (this.selecting && this.selectionBounds.valid) {
+        this.buildSelectionHandle(true)
+        this.buildSelectionHandle(false)
+        Row().width(1).height(1)
+          .position({ x: this.getUIContext().px2vp((this.selectionBounds.start.x + this.selectionBounds.end.x) / 2),
+            y: this.getUIContext().px2vp(this.selectionBounds.start.top) })
+          .hitTestBehavior(HitTestMode.None)
+          .bindPopup(this.selectionMenuVisible, this.selectionPopupOptions())
+      }
       }.width('100%').height(this.getUIContext().px2vp(this.page.layoutHeight))
         .parallelGesture(LongPressGesture({ repeat: false, duration: 500 })
           .onAction((event: GestureEvent): void => this.beginSelection(event)))

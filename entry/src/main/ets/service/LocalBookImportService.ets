@@ -326,7 +326,7 @@ export class LocalBookImportService {
   /** 有上限的单章节文件，正文读取不需要在线书源。 */
   static async appendText(book: Book, directory: string, title: string, text: string,
     writes?: LocalImportTaskQueue, preserveChapter: boolean = false): Promise<void> {
-    // EPUB 已有目录边界，不再因 32000 字限制伪造“续”章。保留单章内存上限。
+    // 已有目录或 TXT 标题边界时保留整章；正文读取仍有单章内存上限。
     if (preserveChapter && text.length > 8 * 1024 * 1024) throw new Error('EPUB_CHAPTER_TOO_LARGE');
     let offset = 0;
     while (offset < text.length) {
@@ -389,6 +389,7 @@ export class LocalBookImportService {
       let pending = '';
       let section = '';
       let title = book.title;
+      let hasChapterTitle = false;
       let htmlContent = '';
       while (offset < size) {
         const count = await fileIo.read(file.fd, buffer, { offset: offset, length: Math.min(buffer.byteLength, size - offset) });
@@ -399,20 +400,29 @@ export class LocalBookImportService {
         pending += decoded.replace(/\r/g, '');
         const lines = pending.split('\n');
         pending = lines.pop() ?? '';
+        if (offset === size && pending.length > 0) {
+          lines.push(pending);
+          pending = '';
+        }
         for (const line of lines) {
           const trimmed = line.trim();
           if (/^(?:第[零〇一二三四五六七八九十百千万两\d]+[章节卷回部篇].{0,70}|chapter\s+\d+.{0,70}|序章|序言|楔子|尾声|后记)$/i.test(trimmed)) {
-            await LocalBookImportService.appendText(book, directory, title, section, writes);
+            await LocalBookImportService.appendText(book, directory, title, section, writes, hasChapterTitle);
             title = trimmed;
+            hasChapterTitle = true;
             section = '';
           }
           section += line + '\n';
-          if (section.length >= 32000) {
+          if (hasChapterTitle && section.length > 8 * 1024 * 1024) throw new Error('TXT_CHAPTER_TOO_LARGE');
+          if (!hasChapterTitle && section.length >= 32000) {
             await LocalBookImportService.appendText(book, directory, title, section, writes);
             section = '';
           }
         }
-        if (pending.length >= 32000) {
+        if (hasChapterTitle && section.length + pending.length > 8 * 1024 * 1024) {
+          throw new Error('TXT_CHAPTER_TOO_LARGE');
+        }
+        if (!hasChapterTitle && pending.length >= 32000) {
           section += pending;
           pending = '';
           await LocalBookImportService.appendText(book, directory, title, section, writes);
@@ -426,7 +436,7 @@ export class LocalBookImportService {
             LocalBookImportService.htmlText(htmlContent.substring(part.start, part.end)), writes);
         }
       } else {
-        await LocalBookImportService.appendText(book, directory, title, section + pending, writes);
+        await LocalBookImportService.appendText(book, directory, title, section + pending, writes, hasChapterTitle);
       }
     } finally { await fileIo.close(file); }
   }
@@ -744,6 +754,9 @@ export class LocalBookImportService {
       DiagnosticLogService.failure(`import.${stage}`, error, `format=${file.ext}`);
       try { await fileIo.rmdir(directory); } catch (_cleanup) { /* 保留原始错误 */ }
       const message = error instanceof Error ? error.message : String(error);
+      if (message === 'TXT_CHAPTER_TOO_LARGE') {
+        throw new Error(context.resourceManager.getStringSync($r('app.string.import_txt_chapter_limit').id));
+      }
       throw new Error(message === 'EPUB_CHAPTER_TOO_LARGE' ?
         context.resourceManager.getStringSync($r('app.string.import_epub_chapter_limit').id) : message);
     } finally { await activeEpub?.close(); }

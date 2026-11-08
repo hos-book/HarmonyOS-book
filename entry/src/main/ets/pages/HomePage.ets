@@ -1,3 +1,4 @@
+import { ImmersiveMenu } from '../utils/ImmersiveMenu';
 import { HdsCompat } from '../utils/HdsCompat';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { curves, FrameCallback, LengthMetrics } from '@kit.ArkUI';
@@ -788,7 +789,7 @@ export struct HomePage {
 
   private handleCategorySwipe(event: GestureEvent): void {
     if (GeneralSettings.current.swipeSwitchTabs) return;
-    if (!this.visible || !this.homeResolved || this.rankingMode || this.homeSourceMenuVisible || this.homeFilterMenuVisible ||
+    if (!this.visible || !this.homeResolved || this.rankingMode || this.categorySheetVisible || this.homeSourceMenuVisible || this.homeFilterMenuVisible ||
       this.isRefreshing || this.openingCarouselBook) return;
     if (Math.abs(event.offsetX) < 48 || Math.abs(event.offsetX) <= Math.abs(event.offsetY) * 1.2) return;
     const next: number = this.selectedCategoryIndex + (event.offsetX < 0 ? 1 : -1);
@@ -798,6 +799,8 @@ export struct HomePage {
   }
 
   private showCategoryOverview(): void {
+    this.homeSourceMenuVisible = false;
+    this.homeFilterMenuVisible = false;
     this.categorySheetVisible = true;
   }
 
@@ -822,18 +825,22 @@ export struct HomePage {
     }
   }
 
-  @Builder
+  @LocalBuilder
   private buildCategorySheet(): void {
-    HomeCategorySheet({
-      categories: this.homeCategories, loading: this.loadingHome,
-      selectedUrl: this.homeCategories[this.selectedCategoryIndex]?.url ?? '',
-      selectedGroup: this.homeCategories[this.selectedCategoryIndex]?.group ?? '',
-      onClose: (): void => { this.categorySheetVisible = false; },
-      onSelect: (category: HomeSourceCategory): void => {
-        this.categorySheetVisible = false;
-        this.switchCategoryByUrl(category.url, category.group);
-      }
-    })
+    Column() {
+      HomeCategorySheet({
+        categories: this.homeCategories, loading: this.loadingHome,
+        selectedUrl: this.homeCategories[this.selectedCategoryIndex]?.url ?? '',
+        selectedGroup: this.homeCategories[this.selectedCategoryIndex]?.group ?? '',
+        onClose: (): void => { this.categorySheetVisible = false; },
+        onSelect: (category: HomeSourceCategory): void => {
+          this.categorySheetVisible = false;
+          this.switchCategoryByUrl(category.url, category.group);
+        }
+      })
+    }.width(ImmersiveMenu.width(this.homeSourceMenuViewportWidth - this.leftSafeVp - this.rightSafeVp, 560))
+      .height(ImmersiveMenu.height(this.homeSourceMenuViewportHeight))
+      .constraintSize({ maxWidth: '100%' }).onTouch(ImmersiveMenu.keepOpen)
   }
 
   /** 切换首页入口（-1=推荐，其他值为榜单或具体分类）。 */
@@ -1235,6 +1242,10 @@ export struct HomePage {
     this.headerScrollOffset = 0;
   }
 
+  private isHomeSourceSelected(source: LocalRuleSource): boolean {
+    return !this.rankingMode && source.bookSourceUrl === this.currentSource?.bookSourceUrl;
+  }
+
   private openHomeSourceSettings(sourceUrl: string): void {
     if (!sourceUrl || this.savingHomeSource) return;
     this.homeSourceMenuVisible = false;
@@ -1243,20 +1254,19 @@ export struct HomePage {
 
   @Computed
   get homeSourceMenuWidth(): number {
-    const available: number = Math.max(1,
-      this.homeSourceMenuViewportWidth - this.leftSafeVp - this.rightSafeVp - AppSpace.Md * 2);
-    return Math.min(this.homeSourceMenuColumns === 2 ? 640 : 248, available);
+    return ImmersiveMenu.width(this.homeSourceMenuViewportWidth - this.leftSafeVp - this.rightSafeVp,
+      this.homeSourceMenuColumns === 2 ? 640 : 248);
   }
 
   @Computed
   get homeSourceMenuHeight(): number {
-    return this.homeSourceMenuViewportHeight * 0.76;
+    return ImmersiveMenu.height(this.homeSourceMenuViewportHeight, 620);
   }
 
   @Computed
   get homeSourceMenuListMaxHeight(): number {
     const rows = Math.ceil(this.homeSourceMatchCount / this.homeSourceMenuColumns);
-    const contentHeight = rows * 48 + Math.max(0, rows - 1) * AppSpace.Xxs;
+    const contentHeight = rows * 48 + Math.max(0, rows - 1) * AppSpace.Xs;
     return Math.min(contentHeight, Math.max(48, this.homeSourceMenuHeight - 88 - AppSpace.Xs * 4));
   }
 
@@ -1286,33 +1296,27 @@ export struct HomePage {
 
   @Local homeSourceKindMenuVisible: boolean = false;
 
-  private homeSourceKindMenuOptions(): CustomPopupOptions {
-    const options: CustomPopupOptions = {
-      builder: this.buildHomeSourceKindMenu, placement: Placement.BottomRight,
-      popupColor: AppMaterial.SheetBackground, radius: AppRadius.Xl, enableArrow: false, focusable: true,
-      onStateChange: (event): void => { this.homeSourceKindMenuVisible = event.isVisible; }
-    };
-    if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
-    else options.backgroundBlurStyle = AppMaterial.SheetBlur;
-    return options;
-  }
-
   @LocalBuilder
   buildHomeSourceKindMenu() {
-    Column({ space: 2 }) {
+    Column({ space: AppSpace.Xs }) {
       ForEach([0, 1, 2, 3], (index: number) => {
-        Text(this.homeSourceKindLabel(index)).fontSize(16)
-          .fontColor(index === this.homeSourceKind ? AppColor.Brand : AppTheme.TextPrimary)
-          .width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
+        Row({ space: AppSpace.Xs }) {
+          Text(this.homeSourceKindLabel(index)).fontSize(AppFont.Body)
+            .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+          if (index === this.homeSourceKind) {
+            SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([AppColor.Brand])
+              .flexShrink(0)
+          }
+        }.width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
           .borderRadius(AppRadius.Xl - AppSpace.Xs)
-          .backgroundColor(index === this.homeSourceKind ? AppColor.BrandSoft : Color.Transparent)
+          .backgroundColor(ImmersiveMenu.selection(index === this.homeSourceKind))
           .onClick((): void => {
             this.homeSourceKind = index;
             this.homeSourceKindMenuVisible = false;
             this.filterHomeSources(this.homeSourceKeyword);
           })
       }, (index: number): string => index.toString())
-    }.width(200).padding(AppSpace.Xs)
+    }.width('100%').padding({ left: AppSpace.Xxs, right: AppSpace.Xxs })
   }
 
   private filterHomeSources(value: string, resetPosition: boolean = true): void {
@@ -1370,22 +1374,12 @@ export struct HomePage {
     }));
   }
 
-  private homeSourceMenuOptions(): CustomPopupOptions {
-    const options: CustomPopupOptions = {
-      builder: this.buildHomeSourceMenu,
-      width: this.homeSourceMenuWidth,
-      placement: Placement.BottomRight,
-      popupColor: AppMaterial.SheetBackground,
-      radius: AppRadius.Xl,
-      enableArrow: false,
-      focusable: true,
-      onStateChange: (event): void => {
-        this.homeSourceMenuVisible = event.isVisible;
-        if (event.isVisible) this.scrollHomeSourceMenuToSelection();
-      }
-    };
-    if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
-    else options.backgroundBlurStyle = AppMaterial.SheetBlur;
+  private homeSourceMenuOptions(): MenuOptions {
+    const options = ImmersiveMenu.options((): void => {
+      this.homeSourceMenuVisible = false;
+      this.homeSourceKindMenuVisible = false;
+    }, this.homeSourceMenuColumns === 2 ? Placement.Bottom : Placement.BottomRight);
+    options.onAppear = (): void => this.scrollHomeSourceMenuToSelection();
     return options;
   }
 
@@ -1393,23 +1387,27 @@ export struct HomePage {
   buildHomeSourceMenu() {
     Column({ space: AppSpace.Xs }) {
       Row({ space: 0 }) {
-        Text($r('app.string.ranking_home')).fontSize(16)
-          .fontColor(this.rankingMode ? AppColor.Brand : AppTheme.TextPrimary)
+        Text($r('app.string.ranking_home')).fontSize(AppFont.Body)
+          .fontColor($r('sys.color.font_primary'))
           .layoutWeight(1).height(48).padding({ left: 12, right: 12 })
           .borderRadius(AppRadius.Xl - AppSpace.Xs)
-          .backgroundColor(this.rankingMode ? AppColor.BrandSoft : Color.Transparent)
+          .backgroundColor(ImmersiveMenu.selection(this.rankingMode))
           .onClick((): void => {
             this.homeSourceMenuVisible = false;
             PreferenceService.setHomeSourceUrl(RankingService.HOME_URL).catch((): void => {
               this.showHomeSourceToast($r('app.string.rule_source_operation_failed'));
             });
           })
+        if (this.rankingMode) {
+          SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([AppColor.Brand])
+            .width(20).flexShrink(0)
+        }
         Button({ type: ButtonType.Circle }) {
           ThemeIconComponent({ role: this.homeSourceMenuColumns === 1 ? ThemeIconRole.Grid : ThemeIconRole.List,
             symbol: this.homeSourceMenuColumns === 1 ? $r('sys.symbol.square_grid_2x2') : $r('sys.symbol.list_bullet'),
             iconSize: 22, tint: AppTheme.IconPrimary })
         }
-          .width(40).height(48)
+          .width(40).height(48).flexShrink(0)
           .backgroundColor(Color.Transparent)
           .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
           .enabled(!this.savingHomeSourceMenuColumns)
@@ -1422,37 +1420,38 @@ export struct HomePage {
         Button({ type: ButtonType.Circle }) {
           ThemeIconComponent({ role: ThemeIconRole.Filter, symbol: $r('sys.symbol.funnel'), iconSize: 22,
             tint: this.homeSourceKind > 0 ? AppColor.Brand : AppTheme.IconPrimary })
-        }.width(40).height(48).backgroundColor(Color.Transparent)
+        }.width(40).height(48).flexShrink(0).backgroundColor(Color.Transparent)
           .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
           .accessibilityText($r('app.string.record_content_filter'))
           .accessibilityDescription(this.homeSourceKindLabel(this.homeSourceKind))
           .onClick((): void => { this.homeSourceKindMenuVisible = !this.homeSourceKindMenuVisible; })
-          .bindPopup(this.homeSourceKindMenuVisible, this.homeSourceKindMenuOptions())
+          .id('home-source-menu-kind')
       }.width('100%').height(48)
       Search({ value: this.homeSourceKeyword, placeholder: $r('app.string.rule_source_search_placeholder') })
         .width('100%').height(40).margin(0)
         .borderRadius(AppRadius.Xl - AppSpace.Xs)
-        .fontColor(AppTheme.TextPrimary)
+        .fontColor($r('sys.color.font_primary'))
         .placeholderColor(AppTheme.TextTertiary)
         .onChange((value: string): void => this.filterHomeSources(value))
-      if (this.loadingHomeSources) {
+      if (this.homeSourceKindMenuVisible) {
+        this.buildHomeSourceKindMenu()
+      } else if (this.loadingHomeSources) {
         Row() {
           LoadingProgress().width(24).height(24).color(AppColor.Brand)
         }.width('100%').height(64).justifyContent(FlexAlign.Center)
       } else if (this.homeSourceMatchCount === 0) {
         Text($r('app.string.rule_source_no_match'))
-          .fontSize(14).fontColor(AppTheme.TextSecondary)
+          .fontSize(14).fontColor($r('sys.color.font_secondary'))
           .width('100%').height(64).textAlign(TextAlign.Center)
       } else {
-        List({ space: AppSpace.Xxs, scroller: this.homeSourceMenuScroller,
+        List({ space: AppSpace.Xs, scroller: this.homeSourceMenuScroller,
           initialIndex: this.rankingMode || this.homeSourceKeyword.length > 0 || this.homeSourceKind !== 0 ? 0 : Math.max(0, this.homeSourceIndex) }) {
           LazyForEach(this.homeSourceMenuData, (source: LocalRuleSource) => {
             ListItem() {
               Row() {
                 Text(source.bookSourceName)
-                  .fontSize(16).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .fontColor(source.bookSourceUrl === this.homeSources[this.homeSourceIndex]?.bookSourceUrl ?
-                    AppColor.Brand : AppTheme.TextPrimary)
+                  .fontSize(AppFont.Body).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                  .fontColor($r('sys.color.font_primary'))
                   .layoutWeight(1).height(48).padding({ left: AppSpace.Sm, right: AppSpace.Xs })
                   .enabled(!this.savingHomeSource)
                   .onClick((): void => {
@@ -1460,11 +1459,15 @@ export struct HomePage {
                     this.selectHomeSource(this.homeSources.findIndex((item: LocalRuleSource): boolean =>
                       item.bookSourceUrl === source.bookSourceUrl));
                   })
+                if (this.isHomeSourceSelected(source)) {
+                  SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([AppColor.Brand])
+                    .width(20).flexShrink(0)
+                }
                 Button({ type: ButtonType.Circle }) {
                   ThemeIconComponent({ role: ThemeIconRole.ChevronRight, symbol: $r('sys.symbol.chevron_right'),
                     iconSize: 24, tint: AppColor.Brand })
                 }
-                .width(48).height(48).margin({ right: AppSpace.Xxs })
+                .width(48).height(48).flexShrink(0).margin({ right: AppSpace.Xxs })
                 .backgroundColor(Color.Transparent)
                 .enabled(!this.savingHomeSource)
                 .accessibilityText($r('app.string.home_source_open_settings'))
@@ -1473,15 +1476,17 @@ export struct HomePage {
               }
                 .width('100%').height(48)
                 .borderRadius(AppRadius.Xl - AppSpace.Xs)
-                .backgroundColor(source.bookSourceUrl === this.homeSources[this.homeSourceIndex]?.bookSourceUrl ?
-                  AppColor.BrandSoft : HomeTheme.ProgressTrack)
+                .backgroundColor(ImmersiveMenu.selection(this.isHomeSourceSelected(source)))
+                .accessibilitySelected(this.isHomeSourceSelected(source))
             }
           }, (source: LocalRuleSource): string => source.bookSourceUrl)
-        }.width('100%').constraintSize({ maxHeight: this.homeSourceMenuListMaxHeight })
-          .padding({ right: 10 })
-          .lanes(this.homeSourceMenuColumns, AppSpace.Xs).scrollBar(BarState.Auto)
+        }.width('100%').padding({ left: AppSpace.Xxs, right: AppSpace.Xxs })
+          .constraintSize({ maxHeight: this.homeSourceMenuListMaxHeight })
+          .lanes(this.homeSourceMenuColumns, AppSpace.Xs).scrollBar(BarState.Off)
       }
-    }.width(this.homeSourceMenuWidth).constraintSize({ maxHeight: this.homeSourceMenuHeight }).padding(AppSpace.Xs)
+    }.width(this.homeSourceMenuWidth)
+      .constraintSize({ maxWidth: '100%', maxHeight: this.homeSourceMenuHeight }).padding(AppSpace.Xs)
+      .onTouch(ImmersiveMenu.keepOpen)
       .id('home-source-menu')
   }
 
@@ -1530,11 +1535,12 @@ export struct HomePage {
           this.homeSourceMenuVisible = !this.homeSourceMenuVisible;
           if (this.homeSourceMenuVisible) this.loadHomeSourceMenu();
         })
-        .bindPopup(this.homeSourceMenuVisible, this.homeSourceMenuOptions())
 
     }
     .width('100%')
     .height(SEARCH_FIELD_ROW_HEIGHT)
+    // 全宽标题栏作为锚点：双列居中，单列仍靠书源入口右侧。
+    .bindMenu(this.homeSourceMenuVisible, this.buildHomeSourceMenu, this.homeSourceMenuOptions())
     .padding({ left: AppSpace.Md, right: AppSpace.Md })
     .alignItems(VerticalAlign.Center)
     .backgroundColor(Color.Transparent)
@@ -1715,11 +1721,6 @@ export struct HomePage {
     })
     .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('page-type-swipe')
       .onActionEnd((event: GestureEvent): void => this.handleCategorySwipe(event)))
-    .bindSheet($$this.categorySheetVisible, this.buildCategorySheet(), {
-      height: '90%', detents: ['90%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
-      dragBar: true, showClose: false, backgroundColor: AppMaterial.SheetBackground,
-      blurStyle: AppMaterial.ReaderSheetBlur, systemMaterial: AppMaterial.ReaderSheetThick
-    })
     .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult =>
       info.tag === 'page-type-swipe' && GeneralSettings.current.swipeSwitchTabs ?
         GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
@@ -2274,37 +2275,26 @@ export struct HomePage {
   @Computed
   get homeFilterMenuListMaxHeight(): number {
     const rows: number = Math.ceil(this.homeFilterMatchCount / this.homeSourceMenuColumns);
-    const contentHeight: number = rows * 56 + Math.max(0, rows - 1) * AppSpace.Xxs;
+    const contentHeight: number = rows * 56 + Math.max(0, rows - 1) * AppSpace.Xs;
     return Math.min(contentHeight, Math.max(56, this.homeSourceMenuHeight - 88 - AppSpace.Xs * 4));
-  }
-
-  private homeFilterGroupMenuOptions(): CustomPopupOptions {
-    const options: CustomPopupOptions = {
-      builder: this.buildHomeFilterGroupMenu,
-      width: Math.min(224, this.homeSourceMenuWidth),
-      placement: Placement.BottomRight,
-      popupColor: AppMaterial.SheetBackground,
-      radius: AppRadius.Xl,
-      enableArrow: false,
-      focusable: true,
-      onStateChange: (event): void => { this.homeFilterGroupMenuVisible = event.isVisible; }
-    };
-    if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
-    else options.backgroundBlurStyle = AppMaterial.SheetBlur;
-    return options;
   }
 
   @LocalBuilder
   private buildHomeFilterGroupMenu() {
-    List({ space: AppSpace.Xxs }) {
+    List({ space: AppSpace.Xs }) {
       LazyForEach(this.homeFilterGroupMenuData, (group: string) => {
         ListItem() {
-          Text(group || $r('app.string.home_filter_group_all')).fontSize(16)
-            .fontColor(group === this.homeFilterGroup ? AppColor.Brand : AppTheme.TextPrimary)
-            .width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          Row({ space: AppSpace.Xs }) {
+            Text(group || $r('app.string.home_filter_group_all')).fontSize(AppFont.Body)
+              .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+            if (group === this.homeFilterGroup) {
+              SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([AppColor.Brand])
+                .flexShrink(0)
+            }
+          }.width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
             .borderRadius(AppRadius.Xl - AppSpace.Xs)
-            .backgroundColor(group === this.homeFilterGroup ? AppColor.BrandSoft : Color.Transparent)
+            .backgroundColor(ImmersiveMenu.selection(group === this.homeFilterGroup))
             .accessibilitySelected(group === this.homeFilterGroup)
             .onClick((): void => {
               this.homeFilterGroup = group;
@@ -2313,44 +2303,35 @@ export struct HomePage {
             })
         }
       }, (group: string): string => group)
-    }.width('100%').padding(AppSpace.Xs)
+    }.width('100%').padding({ left: AppSpace.Xxs, right: AppSpace.Xxs })
       .constraintSize({ maxHeight: Math.min(320, this.homeSourceMenuHeight) })
-      .scrollBar(BarState.Auto).id('home-filter-group-menu')
+      .scrollBar(BarState.Off).id('home-filter-group-menu')
   }
 
-  private homeFilterMenuOptions(): CustomPopupOptions {
-    const options: CustomPopupOptions = {
-      builder: this.buildHomeFilterMenu,
-      width: this.homeSourceMenuWidth,
-      placement: Placement.BottomLeft,
-      keyboardAvoidMode: KeyboardAvoidMode.DEFAULT,
-      popupColor: AppMaterial.SheetBackground,
-      radius: AppRadius.Xl,
-      enableArrow: false,
-      focusable: true,
-      onStateChange: (event): void => {
-        this.homeFilterMenuVisible = event.isVisible;
-        if (!event.isVisible) this.homeFilterGroupMenuVisible = false;
-      }
-    };
-    if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
-    else options.backgroundBlurStyle = AppMaterial.SheetBlur;
-    return options;
+  private homeFilterMenuOptions(): MenuOptions {
+    return ImmersiveMenu.options((): void => {
+      this.homeFilterMenuVisible = false;
+      this.homeFilterGroupMenuVisible = false;
+    }, this.homeSourceMenuColumns === 2 ? Placement.Bottom : Placement.BottomLeft);
+  }
+
+  private homeCategoryMenuOptions(): MenuOptions {
+    return ImmersiveMenu.options((): void => { this.categorySheetVisible = false; }, Placement.Bottom);
   }
 
   @LocalBuilder
   private buildHomeFilterMenu() {
     Column({ space: AppSpace.Xs }) {
       Row() {
-        Text(this.homeFilterGroup || $r('app.string.home_filter_menu_title')).fontSize(16)
-          .fontColor(AppTheme.TextPrimary).layoutWeight(1).height(48)
+        Text(this.homeFilterGroup || $r('app.string.home_filter_menu_title')).fontSize(AppFont.Body)
+          .fontColor($r('sys.color.font_primary')).layoutWeight(1).height(48)
           .padding({ left: AppSpace.Sm, right: AppSpace.Xs })
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         Button({ type: ButtonType.Circle }) {
           ThemeIconComponent({ role: this.homeSourceMenuColumns === 1 ? ThemeIconRole.Grid : ThemeIconRole.List,
             symbol: this.homeSourceMenuColumns === 1 ? $r('sys.symbol.square_grid_2x2') : $r('sys.symbol.list_bullet'),
             iconSize: 22, tint: AppTheme.IconPrimary })
-        }.width(40).height(48).backgroundColor(Color.Transparent)
+        }.width(40).height(48).flexShrink(0).backgroundColor(Color.Transparent)
           .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
           .enabled(!this.savingHomeSourceMenuColumns).id('home-filter-menu-layout')
           .accessibilityText(this.homeSourceMenuColumns === 1 ?
@@ -2362,33 +2343,34 @@ export struct HomePage {
         Button({ type: ButtonType.Circle }) {
           ThemeIconComponent({ role: ThemeIconRole.Filter, symbol: $r('sys.symbol.funnel'), iconSize: 22,
             tint: this.homeFilterGroup.length > 0 ? AppColor.Brand : AppTheme.IconPrimary })
-        }.width(40).height(48).backgroundColor(Color.Transparent)
+        }.width(40).height(48).flexShrink(0).backgroundColor(Color.Transparent)
           .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
           .id('home-filter-menu-group')
           .accessibilityText($r('app.string.home_filter_group_filter'))
           .onClick((): void => { this.homeFilterGroupMenuVisible = !this.homeFilterGroupMenuVisible; })
-          .bindPopup(this.homeFilterGroupMenuVisible, this.homeFilterGroupMenuOptions())
       }.width('100%').height(48).flexShrink(0)
       Search({ value: this.homeFilterKeyword, placeholder: $r('app.string.home_categories_search') })
         .width('100%').height(40).margin(0).flexShrink(0)
         .borderRadius(AppRadius.Xl - AppSpace.Xs)
-        .fontColor(AppTheme.TextPrimary).placeholderColor(AppTheme.TextTertiary)
+        .fontColor($r('sys.color.font_primary')).placeholderColor(AppTheme.TextTertiary)
         .id('home-filter-menu-search')
         .onChange((value: string): void => this.filterHomeOptions(value))
-      if (this.homeFilterMatchCount === 0) {
+      if (this.homeFilterGroupMenuVisible) {
+        this.buildHomeFilterGroupMenu()
+      } else if (this.homeFilterMatchCount === 0) {
         Text($r('app.string.home_categories_no_match'))
-          .fontSize(14).fontColor(AppTheme.TextSecondary)
+          .fontSize(14).fontColor($r('sys.color.font_secondary'))
           .width('100%').height(64).textAlign(TextAlign.Center)
       } else {
-        List({ space: AppSpace.Xxs, scroller: this.homeFilterMenuScroller }) {
+        List({ space: AppSpace.Xs, scroller: this.homeFilterMenuScroller }) {
           LazyForEach(this.homeFilterMenuData, (item: HomeFilterOptionItem) => {
             ListItem() {
               Row({ space: AppSpace.Xs }) {
                 Column({ space: 2 }) {
-                  Text(item.label).fontSize(16)
-                    .fontColor(item.control.value === item.value ? AppColor.Brand : AppTheme.TextPrimary)
+                  Text(item.label).fontSize(AppFont.Body)
+                    .fontColor($r('sys.color.font_primary'))
                     .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                  Text(item.control.title || item.group).fontSize(12).fontColor(AppTheme.TextSecondary)
+                  Text(item.control.title || item.group).fontSize(12).fontColor($r('sys.color.font_secondary'))
                     .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
                 }.layoutWeight(1).alignItems(HorizontalAlign.Start)
                 SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([AppColor.Brand])
@@ -2396,7 +2378,7 @@ export struct HomePage {
               }.width('100%').height(56)
                 .padding({ left: AppSpace.Sm, right: AppSpace.Sm })
                 .borderRadius(AppRadius.Xl - AppSpace.Xs)
-                .backgroundColor(item.control.value === item.value ? AppColor.BrandSoft : HomeTheme.ProgressTrack)
+                .backgroundColor(ImmersiveMenu.selection(item.control.value === item.value))
                 .enabled(!this.savingHomeFilter)
                 .accessibilityGroup(true)
                 .accessibilitySelected(item.control.value === item.value)
@@ -2407,11 +2389,13 @@ export struct HomePage {
                 })
             }
           }, (item: HomeFilterOptionItem): string => item.key)
-        }.width('100%').constraintSize({ maxHeight: this.homeFilterMenuListMaxHeight })
-          .padding({ right: 10 })
-          .lanes(this.homeSourceMenuColumns, AppSpace.Xs).scrollBar(BarState.Auto)
+        }.width('100%').padding({ left: AppSpace.Xxs, right: AppSpace.Xxs })
+          .constraintSize({ maxHeight: this.homeFilterMenuListMaxHeight })
+          .lanes(this.homeSourceMenuColumns, AppSpace.Xs).scrollBar(BarState.Off)
       }
-    }.width(this.homeSourceMenuWidth).constraintSize({ maxHeight: this.homeSourceMenuHeight }).padding(AppSpace.Xs)
+    }.width(this.homeSourceMenuWidth)
+      .constraintSize({ maxWidth: '100%', maxHeight: this.homeSourceMenuHeight }).padding(AppSpace.Xs)
+      .onTouch(ImmersiveMenu.keepOpen)
       .id('home-filter-menu')
   }
 
@@ -2433,7 +2417,6 @@ export struct HomePage {
           .enabled(!this.savingHomeFilter)
           .id('home-discovery-filter-button')
           .onClick((): void => this.toggleHomeFilterMenu())
-          .bindPopup(this.homeFilterMenuVisible, this.homeFilterMenuOptions())
       }
       List({ space: AppSpace.Xs }) {
         ListItem() {
@@ -2463,18 +2446,21 @@ export struct HomePage {
       .cachedCount(1)
       .accessibilityDescription($r('app.string.home_channel_accessibility'))
     }.width('100%').height(CATEGORY_NAV_ROW_HEIGHT)
+      .bindMenu(this.homeFilterMenuVisible, this.buildHomeFilterMenu, this.homeFilterMenuOptions())
       .padding({ left: AppSpace.Md, right: AppSpace.Md })
   }
 
   @Builder
   buildCategoryTags() {
     Row({ space: AppSpace.Xs }) {
-      ImmersiveTabComponent({
-        label: $r('app.string.home_categories'),
-        fitContent: true,
-        selected: this.categorySheetVisible,
-        onTap: () => this.showCategoryOverview()
-      })
+      Row() {
+        ImmersiveTabComponent({
+          label: $r('app.string.home_categories'),
+          fitContent: true,
+          selected: this.categorySheetVisible,
+          onTap: () => this.showCategoryOverview()
+        })
+      }.id('home-category-button')
       List({ space: AppSpace.Xs, scroller: this.categoryNavScroller }) {
         ListItem() {
           ImmersiveTabComponent({
@@ -2535,6 +2521,7 @@ export struct HomePage {
     }
     .height(CATEGORY_NAV_ROW_HEIGHT)
     .width('100%')
+    .bindMenu(this.categorySheetVisible, this.buildCategorySheet, this.homeCategoryMenuOptions())
     .padding({ left: AppSpace.Md, right: AppSpace.Md, top: 3, bottom: 3 })
     .alignItems(VerticalAlign.Center)
   }

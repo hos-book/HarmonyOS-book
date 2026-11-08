@@ -39,7 +39,7 @@ function reader(index = 2, descending = false) {
   Object.assign(r, { source: new scope.ComicScrollDataSource(), chapters: [chapter], serial: 1,
     firstVisible: 0, lastVisible: 2, disposed: false, restoring: false, restoreSerial: 0, zoomOwner: '',
     nextLoading: false, previousLoading: false, nextFailed: false, previousFailed: false,
-    onAutoPageDelay() {}, autoScroll: { pause() {} }, imageReady: new Map(),
+    onAutoPageDelay() {}, onTurnFeedback() {}, autoScroll: { pause() {} }, imageReady: new Map(),
     book: { chapters: new Array(20), chaptersDescending: descending },
     scroller: { isAtEnd: () => false, currentOffset: () => ({ yOffset: 100 }),
       scrollToIndex: () => assert.fail('joining chapters must not reposition the list') },
@@ -153,8 +153,10 @@ function reader(index = 2, descending = false) {
   await keyReader.turnFromKey(true);
   assert.equal(keyReader.source.totalCount(), 12, 'volume down appends next chapter even with prefetch off');
   assert.equal(turns.length, 2, 'wait for layout before scrolling appended content');
+  keyReader.scroller.isAtEnd = () => false;
   frames.shift().callback();
   assert.deepEqual(turns, [true, false, true]);
+  keyReader.scroller.isAtEnd = () => true;
   await keyReader.turnFromKey(true);
   keyReader.serial++;
   frames.shift().callback();
@@ -186,10 +188,35 @@ function reader(index = 2, descending = false) {
   joined.imageGeometryReady(joined.source.getData(0));
   restoreFrames.shift().callback(); restoreFrames.shift().callback(); restoreFrames.shift().callback();
   assert.equal(offset, 720, 'restores after the downloaded image reports its actual size');
+  joined.trimWhiteBorder = true;
+  joined.source.getData(0).page.trimWhiteBorderReady = false;
+  joined.restoreVisible(); restoreFrames.shift().callback(); restoreFrames.shift().callback(); restoreFrames.shift().callback();
+  assert.equal(joined.awaitingImage, true, 'known original size still waits for cropped geometry');
+  assert.equal(joined.anchorFraction, 0.45, 'pending crop cannot overwrite saved progress');
+  joined.source.getData(0).page.trimWhiteBorderReady = true;
+  joined.scroller.getItemRect = () => ({ y: -offset, height: 1200 });
+  joined.imageGeometryReady(joined.source.getData(0));
+  restoreFrames.shift().callback(); restoreFrames.shift().callback(); restoreFrames.shift().callback();
+  assert.equal(offset, 540, 'late crop restores fraction against the cropped height');
   joined.scroller.getItemIndex = () => 2;
   joined.scroller.getItemRect = index => ({ y: index === 2 ? -100 : 600, height: 500 });
   joined.reportPosition();
   assert.equal(joined.firstVisible, 2, 'chapter-end clamping reports the actual first image');
   assert.equal(joined.anchorFraction, 0.2);
+  let feedback = 0;
+  joined.onTurnFeedback = () => feedback++;
+  joined.turnFeedbackPending = true;
+  joined.reportPosition();
+  assert.equal(feedback, 0, 'unchanged scroll position cannot vibrate');
+  joined.scroller.getItemRect = () => ({ y: -150, height: 500 });
+  joined.reportPosition();
+  assert.equal(feedback, 1, 'manual long-image viewport movement vibrates once');
+  joined.scroller.getItemRect = () => ({ y: -160, height: 500 });
+  joined.reportPosition();
+  assert.equal(feedback, 1, 'one gesture cannot repeatedly vibrate for every scroll frame');
+  joined.autoPageRunning = true; joined.turnFeedbackPending = true;
+  joined.scroller.getItemRect = () => ({ y: -200, height: 500 });
+  joined.reportPosition();
+  assert.equal(feedback, 1, 'automatic scrolling stays silent');
   console.log('comic continuous: append/prepend anchors, chapter progress/order, request isolation, retry, trimming and disabled prefetch passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

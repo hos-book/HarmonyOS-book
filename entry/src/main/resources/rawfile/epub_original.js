@@ -2,10 +2,149 @@
 (function () {
   'use strict';
   var cfg = window.hsdaEpubConfig, ready = false, previewing = false;
-  var anchor = cfg.spot, current = cfg.spot;
+  var anchor = cfg.spot, current = cfg.spot, restoration = cfg.spot;
+  var nestedPan = null;
+  var flowing = false, viewportWidth = innerWidth, viewportHeight = innerHeight;
+  function setViewport(height) {
+    document.documentElement.style.setProperty('--hsda-vh', height / 100 + 'px');
+    document.documentElement.style.setProperty('--hsda-vmin', Math.min(innerWidth, height) / 100 + 'px');
+    document.documentElement.style.setProperty('--hsda-vmax', Math.max(innerWidth, height) / 100 + 'px');
+  }
+  function prepareFlow() {
+    // Ordinary chapters can be a single native scroll surface. Keep a one-screen viewport
+    // for pages whose fixed/sticky content or viewport media queries need that viewport.
+    var elements = Array.from(document.querySelectorAll('*')), declarations = [], safe = true;
+    if (elements.length > 20000) return false;
+    elements.forEach(function (el) {
+      var style = getComputedStyle(el);
+      if (style.display === 'none') return;
+      if (/^(absolute|fixed|sticky)$/.test(style.position) ||
+          (style.backgroundImage !== 'none' && /fixed/.test(style.backgroundAttachment))) safe = false;
+      if (el.style) declarations.push(el.style);
+    });
+    function rules(list) {
+      Array.from(list).forEach(function (rule) {
+        if (/height|aspect-ratio|orientation|block-size/i.test(rule.conditionText || (rule.media && rule.media.mediaText) || '')) safe = false;
+        if (rule.style) {
+          // Pseudo-elements may also be fixed; conservatively keep their original viewport.
+          if (/::?before|::?after/.test(rule.selectorText || '') &&
+              (/fixed|sticky/.test(rule.style.position) || /fixed/.test(rule.style.backgroundAttachment))) safe = false;
+          declarations.push(rule.style);
+        }
+        if (rule.styleSheet) rules(rule.styleSheet.cssRules);
+        else if (rule.cssRules) rules(rule.cssRules);
+      });
+    }
+    try { Array.from(document.styleSheets).forEach(function (sheet) { rules(sheet.cssRules); }); }
+    catch (_) { return false; }
+    if (!safe) return false;
+    setViewport(parent.innerHeight);
+    // Freeze only viewport-relative lengths, not author pixel/percent geometry. A definite
+    // logical html height keeps percentage-height covers independent of the expanded iframe.
+    var units = /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|url\([^)]*\))|([-+]?(?:\d*\.)?\d+)(?:[sld]?)(vh|vmin|vmax)\b/gi;
+    declarations.forEach(function (style) {
+      Array.from(style).forEach(function (name) {
+        var value = style.getPropertyValue(name);
+        var updated = value.replace(units, function (all, literal, number, unit) {
+          return literal || 'calc(' + number + ' * var(--hsda-' + unit.toLowerCase() + '))';
+        });
+        if (updated !== value) style.setProperty(name, updated, style.getPropertyPriority(name));
+      });
+    });
+    document.documentElement.style.setProperty('height', 'calc(100 * var(--hsda-vh))', 'important');
+    flowing = true; viewportWidth = innerWidth; viewportHeight = parent.innerHeight;
+    return true;
+  }
+  // Expanding a native-flow iframe changes innerHeight but does not change the reader's
+  // logical viewport. Do not let that synthetic resize repaginate/reseek the chapter.
+  addEventListener('resize', function (event) {
+    if (!flowing) return;
+    if (viewportWidth === innerWidth && viewportHeight === parent.innerHeight) {
+      event.stopImmediatePropagation(); return;
+    }
+    viewportWidth = innerWidth; viewportHeight = parent.innerHeight; setViewport(viewportHeight);
+  });
+  function originalLayout() {
+    var layout = document.getElementById('legado-layout');
+    if (layout) layout.textContent = layout.textContent.replaceAll('img,video{object-fit:contain;}', ':where(img,video){object-fit:contain;}');
+    var body = document.body, style = getComputedStyle(body);
+    var inset = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+    document.documentElement.style.setProperty('--hsda-content-height', 'calc(100vh - ' + inset + 'px)');
+    var compat = document.createElement('style');
+    compat.textContent =
+      'body{min-height:100vh;}' +
+      'body.hsda-media-page{height:100vh!important;column-width:auto!important;column-count:auto!important;' +
+        'display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;}' +
+      '.hsda-media-root{display:flex!important;align-items:center!important;justify-content:center!important;' +
+        'width:100%!important;height:100%!important;min-height:0!important;margin:0!important;padding:0!important;}' +
+      '.hsda-media-item{display:block!important;width:100%!important;height:100%!important;min-height:0!important;}' +
+      '.hsda-gallery{display:flex!important;flex-wrap:nowrap!important;overflow-x:auto!important;overflow-y:hidden!important;' +
+        'scroll-snap-type:x mandatory;break-inside:avoid;max-width:100%;min-width:0;}' +
+      '.hsda-gallery>.duokan-image-gallery-cell{flex:0 0 100%!important;min-width:0!important;box-sizing:border-box;' +
+        'display:flex;flex-direction:column;align-items:center;justify-content:center;scroll-snap-align:start;}' +
+      '.hsda-gallery>.duokan-image-gallery-cell img{display:block;max-height:calc(var(--hsda-content-height) - 5em)!important;' +
+        'width:100%;object-fit:contain;}';
+    document.head.appendChild(compat);
+    // Duokan galleries use reader-defined semantics rather than web overflow CSS.
+    document.querySelectorAll('.duokan-image-gallery').forEach(function (gallery) {
+      var cells = gallery.querySelectorAll(':scope > .duokan-image-gallery-cell');
+      if (cells.length > 1 && !/auto|scroll/.test(getComputedStyle(gallery).overflowX)) gallery.classList.add('hsda-gallery');
+    });
+    var media = Array.from(body.querySelectorAll('img,svg')).filter(function (el) {
+      return !el.closest('svg') || el.tagName.toLowerCase() === 'svg';
+    }).filter(function (el) { return el.getClientRects().length > 0; });
+    if (media.length !== 1) return;
+    var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT), node;
+    while ((node = walker.nextNode())) {
+      if (!node.nodeValue.trim() || node.parentElement.closest('svg,script,style')) continue;
+      var range = document.createRange(); range.selectNodeContents(node);
+      if (range.getBoundingClientRect().height > 0 && getComputedStyle(node.parentElement).visibility === 'visible') return;
+    }
+    // Give percentage-height SVG covers a definite containing block; preserve their aspect-ratio policy.
+    body.classList.add('hsda-media-page'); media[0].classList.add('hsda-media-item');
+    for (var parent = media[0].parentElement; parent && parent !== body; parent = parent.parentElement) {
+      parent.classList.add('hsda-media-root');
+    }
+  }
+  function beginPan(x, y, dx, dy) {
+    endPan(true);
+    var horizontal = Math.abs(dx) > Math.abs(dy), el = document.elementFromPoint(x, y);
+    for (; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
+      var style = getComputedStyle(el), max = horizontal ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight;
+      var overflow = horizontal ? style.overflowX : style.overflowY;
+      if (max <= 1 || !/auto|scroll/.test(overflow)) continue;
+      nestedPan = { el: el, horizontal: horizontal, x: el.scrollLeft, y: el.scrollTop, dx: 0, dy: 0,
+        snap: el.style.getPropertyValue('scroll-snap-type'), priority: el.style.getPropertyPriority('scroll-snap-type') };
+      el.style.setProperty('scroll-snap-type', 'none', 'important');
+      return true;
+    }
+    return false;
+  }
+  function movePan(dx, dy) {
+    if (!nestedPan) return;
+    nestedPan.dx = dx; nestedPan.dy = dy;
+    nestedPan.el.scrollTo(nestedPan.horizontal ? nestedPan.x - dx : nestedPan.x,
+      nestedPan.horizontal ? nestedPan.y : nestedPan.y - dy);
+  }
+  function endPan(cancelled) {
+    var pan = nestedPan; nestedPan = null;
+    if (!pan) return;
+    if (cancelled) pan.el.scrollTo(pan.x, pan.y);
+    var target = pan.el.scrollLeft;
+    if (!cancelled && pan.horizontal && pan.el.classList.contains('hsda-gallery')) {
+      var width = Math.max(1, pan.el.clientWidth), start = Math.round(pan.x / width);
+      var next = Math.abs(pan.dx) > Math.min(64, width * 0.18) ? start + (pan.dx < 0 ? 1 : -1) : start;
+      target = Math.max(0, Math.min(pan.el.scrollWidth - width, next * width));
+    }
+    if (pan.snap) pan.el.style.setProperty('scroll-snap-type', pan.snap, pan.priority);
+    else pan.el.style.removeProperty('scroll-snap-type');
+    if (!cancelled && pan.horizontal) pan.el.scrollTo({ left: target, behavior: 'smooth' });
+  }
+  originalLayout();
   function send(value) {
     value.token = cfg.token;
-    if (window.epubHost) window.epubHost.report(JSON.stringify(value));
+    if (cfg.continuous) parent.hsdaEpub.receiveFrame(cfg.frame, value);
+    else if (window.epubHost) window.epubHost.report(JSON.stringify(value));
   }
   function spot() {
     var value = window.__legado.state();
@@ -36,6 +175,7 @@
     current = spot(); painted(id);
   }
   function seek(target) {
+    restoration = target;
     anchor = target.end ? null : target;
     if (target.end) window.__legado.goPage(window.__legado.state().count - 1, false);
     else window.__legado.goSpot(target.snippet, target.fraction);
@@ -51,6 +191,41 @@
     if (!channels || channels.length < 3 || (channels.length > 3 && Number(channels[3]) === 0)) return fallback;
     return '#' + channels.slice(0, 3).map(function (v) { return Math.round(Number(v)).toString(16).padStart(2, '0'); }).join('');
   }
+  function link(href, note) {
+    var url;
+    try { url = new URL(href, location.href); } catch (_) { return false; }
+    // Only resolve anchors in the current packaged document; never execute book scripts or navigate remotely.
+    if (url.origin !== location.origin || !url.hash ||
+        (url.pathname !== location.pathname && url.pathname !== cfg.path)) return false;
+    var id;
+    try { id = decodeURIComponent(url.hash.substring(1)); } catch (_) { return false; }
+    var target = document.getElementById(id) || document.getElementsByName(id)[0];
+    if (!target) return false;
+    if (note || /(?:footnote|endnote)/i.test((target.getAttribute('epub:type') || '') + ' ' +
+        (target.getAttribute('role') || ''))) {
+      var rows = target.querySelectorAll('li'), items = [], remaining = 24000;
+      function item(element, key) {
+        var author = element.querySelector('.wrb-u'), content = element.querySelector('.wrb-c');
+        var text = (content || element).textContent.replace(/\s+/g, ' ').trim().substring(0, Math.min(4000, remaining));
+        if (!text) return;
+        remaining -= text.length;
+        items.push({ id: id + ':' + key, author: author ? author.textContent.trim().substring(0, 160) : '',
+          text: text, avatar: '', time: '', likes: '', replyTo: '' });
+      }
+      if (rows.length) {
+        for (var i = 0; i < rows.length && i < 100 && remaining > 0; i++) item(rows[i], i);
+      } else item(target, 0);
+      send({ kind: 'note', comments: { items: items, empty: items.length === 0 } });
+    } else window.__legado.goAnchor(id);
+    return true;
+  }
+  function linkAt(x, y) {
+    var element = document.elementFromPoint(x, y);
+    var anchor = element && element.closest ? element.closest('a[href]') : null;
+    if (!anchor) return false;
+    return link(anchor.href, /noteref|footnote|endnote/i.test((anchor.getAttribute('epub:type') || '') + ' ' +
+      (anchor.getAttribute('role') || '') + ' ' + (anchor.className || '')));
+  }
   window.LegadoEpubHost = {
     ready: function () {
       if (cfg.restorePage >= 0) window.__legado.goPage(cfg.restorePage, false);
@@ -61,23 +236,35 @@
       painted(cfg.paint, 'ready');
     },
     position: function () {
-      if (!ready || previewing) return;
+      if (!ready || previewing || cfg.continuous) return;
       current = spot(); send(current);
     },
     tap: function (x, y) { send({ kind: 'tap', x: x * innerWidth, y: y * innerHeight, width: innerWidth, height: innerHeight }); },
-    link: function (href) { send({ kind: 'link', href: href }); },
+    link: link,
     edge: function (direction) { send({ kind: 'edge', direction: direction }); }
   };
   document.addEventListener('selectionchange', function () {
-    send({ kind: 'selection', selected: !!String(getSelection()).length });
+    var text = String(getSelection());
+    // 多保留一个字符供宿主判断超限，不能静默处理被截断的选区。
+    send({ kind: 'selection', selected: !!text.length, selectionText: text.substring(0, 20001) });
   });
   document.addEventListener('touchmove', function () {
-    if (!cfg.paged) { anchor = null; send({ kind: 'turn' }); }
+    if (!cfg.paged && !cfg.continuous) { anchor = null; send({ kind: 'turn' }); }
   }, { passive: true });
-  window.addEventListener('wheel', function () { anchor = null; send({ kind: 'turn' }); }, { passive: true });
+  window.addEventListener('wheel', function () {
+    if (!cfg.continuous) { anchor = null; send({ kind: 'turn' }); }
+  }, { passive: true });
   window.hsdaEpub = {
-    spot: spot, seek: seek, turn: turn, preview: preview, restore: restore,
+    spot: spot, seek: seek, turn: turn, preview: preview, restore: restore, linkAt: linkAt,
+    beginPan: beginPan, movePan: movePan, endPan: endPan,
+    prepareFlow: prepareFlow, setViewport: setViewport,
     commit: function () { previewing = false; current = spot(); return current; },
-    reflowSpot: function () { anchor = current; return current; }
+    reflowSpot: function () {
+      anchor = cfg.continuous && parent.hsdaEpub.restoring(cfg.frame) ? restoration : current;
+      return anchor;
+    },
+    scrolled: function (moved) { if (moved) anchor = null; current = spot(); return current; },
+    readingTop: function () { return parent.hsdaEpub.readingTop(cfg.frame); }
   };
+  if (cfg.continuous) parent.hsdaEpub.bindInput(cfg.frame);
 }());

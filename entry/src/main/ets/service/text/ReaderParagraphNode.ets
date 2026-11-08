@@ -4,6 +4,7 @@ import { DrawContext, FrameNode, LayoutConstraint, NodeController, Position } fr
 import { OnlineTextPage } from './OnlineTextPaginator';
 import { SpeechHighlightRange } from './SpeechTextHighlighter';
 import { ReaderPalette } from '../../model/ReaderTheme';
+import { ReaderSelectionGeometry } from './ReaderSelectionGeometry';
 
 /** Paint only visible native lines, retaining their original paragraph coordinates. */
 class ReaderParagraphFrameNode extends FrameNode {
@@ -78,12 +79,7 @@ class ReaderParagraphFrameNode extends FrameNode {
     const page = this.page;
     const paragraph = page.paragraph;
     if (paragraph === null || start < 0 || end <= start) return;
-    const displayStart = page.displayStart + start;
-    const displayEnd = page.displayStart + end;
-    const boxes = paragraph.getRectsForRange({
-      start: page.nativeOffsets?.nativeOffsetForDisplay(displayStart) ?? displayStart,
-      end: page.nativeOffsets?.nativeOffsetForDisplay(displayEnd) ?? displayEnd
-    }, graphicsText.RectWidthStyle.TIGHT, graphicsText.RectHeightStyle.TIGHT);
+    const boxes = ReaderSelectionGeometry.rects(page, start, end);
     const accent = this.color(customColor || this.palette.accent);
     const brush = new drawing.Brush();
     const tint = this.color(this.palette.primary);
@@ -92,26 +88,16 @@ class ReaderParagraphFrameNode extends FrameNode {
     paragraph.updateColor(mark === 'color' ? accent : this.color(this.palette.primary));
     const lines = paragraph.getTextLines();
     for (const box of boxes) {
-      for (let index = 0; index < page.lineMetrics.length; index++) {
-        const metric = page.lineMetrics[index];
-        const nativeTop = Math.max(box.rect.top, metric.baseline - metric.ascent);
-        const nativeBottom = Math.min(box.rect.bottom, metric.baseline + metric.descent);
-        if (nativeBottom <= nativeTop) continue;
-        const shift = page.lineShifts[index] ?? 0;
-        const top = Math.max(0, nativeTop - page.layoutTop + shift);
-        const bottom = Math.min(page.layoutHeight, nativeBottom - page.layoutTop + shift);
-        if (bottom <= top) continue;
         canvas.save();
-        canvas.clipRect({ left: box.rect.left, top: top, right: box.rect.right, bottom: bottom }, drawing.ClipOp.INTERSECT, true);
+        canvas.clipRect({ left: box.left, top: box.top, right: box.right, bottom: box.bottom }, drawing.ClipOp.INTERSECT, true);
         if (mark !== 'color') {
           canvas.attachBrush(brush);
-          canvas.drawRect(box.rect.left, mark === 'underline' ? Math.max(top, bottom - Math.max(1, metric.ascent / 18)) : top,
-            box.rect.right, bottom);
+          canvas.drawRect(box.left, mark === 'underline' ? Math.max(box.top, box.bottom - Math.max(1, box.ascent / 18)) : box.top,
+            box.right, box.bottom);
           canvas.detachBrush();
         }
         if (mark !== 'underline') this.paintLines(canvas, lines);
         canvas.restore();
-      }
     }
   }
 

@@ -189,8 +189,10 @@ export class TextToSpeechService {
 
   private notify(): void {
     this.syncDesktopLyric();
-    if (this.state.active) ReaderFloatingService.update(this.state.bookTitle, this.chapterContent,
-      Math.max(0, this.state.highlightOffset), true);
+    if (this.state.active && this.audibleBookId === this.book?.id &&
+      this.audibleChapterId === this.book?.chapters[this.state.chapterIndex]?.id) {
+      ReaderFloatingService.update(this.state.bookTitle, this.chapterContent, this.audibleOffset, true);
+    }
     this.syncPlayerCard();
     if (!this.foreground) return;
     this.listeners.forEach((listener: () => void): void => listener());
@@ -200,10 +202,23 @@ export class TextToSpeechService {
     if (!this.state.active || !this.book || !PlaybackCoordinator.speechActive) return;
     const chapter = this.book.chapters[this.state.chapterIndex];
     if (!chapter) return;
-    const text = DesktopLyricText.speech(this.chapterContent, this.state.playbackOffset);
+    // 排队/合成会先移动逻辑位置，只记录实际出声的位置；暂停或下一段等待时保留末句。
+    if (this.audibleRequestId && this.audibleRequestId === this.requestId) {
+      this.audibleBookId = this.book.id;
+      this.audibleChapterId = chapter.id;
+      this.audibleOffset = this.state.playbackOffset;
+      this.audibleLyric = DesktopLyricText.speech(this.chapterContent, this.audibleOffset);
+    }
+    const text = this.audibleBookId === this.book.id && this.audibleChapterId === chapter.id ? this.audibleLyric : '';
     AVSessionService.getInstance().updateDesktopLyric(this.book.id, chapter.id,
       text ? '[00:00.00]' + text : '', true);
   };
+
+  private audibleRequestId: string = '';
+  private audibleBookId: string = '';
+  private audibleChapterId: string = '';
+  private audibleOffset: number = 0;
+  private audibleLyric: string = '';
 
   private syncPlayerCard(): void {
     const book = this.book;
@@ -498,6 +513,10 @@ export class TextToSpeechService {
     if (nextSpeech !== null) this.nextChapterSpeech = null;
     this.pause();
     this.nextChapterSpeech = nextSpeech;
+    this.audibleRequestId = '';
+    this.audibleBookId = '';
+    this.audibleChapterId = '';
+    this.audibleLyric = '';
     if (this.book !== null && this.book.id !== book.id) { this.setSleep(0); this.pendingListenMs = 0; }
     this.focusPaused = false;
     AudioFocusService.getInstance().cancelRecovery('speech');
@@ -974,6 +993,7 @@ export class TextToSpeechService {
       try {
         await player.speakAudio(context, buffer, Math.max(1, this.state.speed / 2), id, (): void => {
           if (!this.valid(ticket) || id !== this.requestId) return;
+          this.audibleRequestId = id;
           if (this.spokenSince < 0) this.spokenSince = systemDateTime.getUptime(systemDateTime.TimeType.STARTUP);
           this.highlightParagraph();
           this.logCrossPagePlayback(id);
@@ -1205,6 +1225,7 @@ export class TextToSpeechService {
       try {
         await player.speak(context, config, text, this.state.speed, id, (): void => {
           if (!this.valid(ticket) || id !== this.requestId) return;
+          this.audibleRequestId = id;
           if (this.spokenSince < 0) this.spokenSince = systemDateTime.getUptime(systemDateTime.TimeType.STARTUP);
           this.state.loading = false;
           this.state.playing = true;

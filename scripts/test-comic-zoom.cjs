@@ -73,7 +73,7 @@ const layoutScope = { exports: {}, ComicZoomTransform: Transform };
 vm.runInNewContext(compile(fs.readFileSync(path.join(root, 'utils/AdaptiveLayout.ets'), 'utf8')), layoutScope);
 layoutScope.AdaptiveLayout = layoutScope.exports.AdaptiveLayout;
 vm.runInNewContext(compile(`class Reader { ${method(readerSource, 'imageWidth')} }
-  class ImageLayout { ${['imageRatio', 'fitsViewport', 'imageWidth', 'imageHeight', 'contentHeight']
+  class ImageLayout { ${['originalRatio', 'imageRatio', 'fitsViewport', 'imageWidth', 'imageHeight', 'contentHeight', 'decodeWidth', 'decodeSize']
     .map(name => method(imageSource, name)).join('\n')} }
   globalThis.Reader = Reader; globalThis.ImageLayout = ImageLayout;`), layoutScope);
 const layoutReader = new layoutScope.Reader();
@@ -84,6 +84,7 @@ assert.equal(layoutReader.imageWidth(), 1160, 'full width removes the text gutte
 const layoutImage = new layoutScope.ImageLayout();
 Object.assign(layoutImage, { pageWidth: 1160, pageHeight: 600, page: { width: 1200, height: 1800 },
   ratio: 0, displayMode: 1, paged: false, fitScreen: true,
+  crop: { x: 0, y: 0, width: 1, height: 1 }, decodeScale: 1, enhancedUrl: '',
   getUIContext: () => ({ vp2px: vp => vp * 2, px2vp: px => px / 2 }) });
 assert.equal(layoutImage.imageWidth(), 1160);
 assert.equal(layoutImage.imageHeight(), 1740, 'fill-width keeps all of a tall image without stretching or cropping');
@@ -104,6 +105,17 @@ layoutImage.paged = false; layoutImage.displayMode = 2;
 assert.equal(layoutImage.imageWidth(), 1160);
 assert.equal(layoutImage.imageHeight(), 580);
 assert.equal(layoutImage.contentHeight(), 580, 'continuous complete display does not insert blank page-sized gaps');
+layoutImage.page = { width: 1000, height: 2000 };
+layoutImage.crop = { x: 0.1, y: 0.2, width: 0.8, height: 0.6 };
+layoutImage.displayMode = 1;
+assert.ok(Math.abs(layoutImage.imageRatio() - 1.5) < 1e-9, 'cropped content keeps its aspect ratio');
+assert.equal(layoutImage.imageWidth(), 1160);
+assert.equal(layoutImage.imageHeight(), 1740);
+const decode = layoutImage.decodeSize();
+assert.equal(decode.height / decode.width, 2, 'decoder still uses original aspect ratio');
+assert.ok(decode.width * decode.height * 4 <= 4 * 1024 * 1024, 'full decoded image stays within the pixel budget');
+layoutImage.displayMode = 3;
+assert.equal(layoutImage.imageWidth(), 400, 'native-size mode applies to remaining pixels after cropping');
 
 (async () => {
   const saved = new Map();
@@ -113,7 +125,7 @@ assert.equal(layoutImage.contentHeight(), 580, 'continuous complete display does
   const preferenceSession = () => {
     vm.runInNewContext(compile(`(() => { class PreferenceService {
       static async ensureStore() { return store; }
-      ${['getComicDisplayMode', 'setComicDisplayMode'].map(name => method(preferenceSource, name)).join('\n')}
+      ${['getComicDisplayMode', 'setComicDisplayMode', 'getComicTrimWhiteBorder', 'setComicTrimWhiteBorder'].map(name => method(preferenceSource, name)).join('\n')}
       ${preferenceSource.match(/  private static async saveComicPreference\([^]*?\n  }/)[0]}
     } globalThis.PreferenceService = PreferenceService; })();`), prefScope);
     return prefScope.PreferenceService;
@@ -125,8 +137,13 @@ assert.equal(layoutImage.contentHeight(), 580, 'continuous complete display does
   }
   await assert.rejects(preferenceSession().setComicDisplayMode(99));
   await preferenceSession().setComicDisplayMode(1);
+  assert.equal(await preferenceSession().getComicTrimWhiteBorder(), false);
+  await preferenceSession().setComicTrimWhiteBorder(true);
+  assert.equal(await preferenceSession().getComicTrimWhiteBorder(), true, 'white border setting survives reopening');
   fail = true;
   await assert.rejects(preferenceSession().setComicDisplayMode(2));
   assert.equal(await preferenceSession().getComicDisplayMode(), 1, 'failed save retains the previous selection');
+  await assert.rejects(preferenceSession().setComicTrimWhiteBorder(false));
+  assert.equal(await preferenceSession().getComicTrimWhiteBorder(), true, 'white border save failure retains the previous selection');
   console.log('PASS comic display: safe-area width, four modes, density, aspect ratio, small-image zoom and preference rollback');
 })().catch(error => { console.error(error); process.exitCode = 1; });

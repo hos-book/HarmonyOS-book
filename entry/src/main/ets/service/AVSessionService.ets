@@ -32,10 +32,12 @@ export interface AVSessionCallbacks {
   onSetLoopMode: (mode: avSession.LoopMode) => void;
   onCollection: () => void;
   onCastConnected: () => void;
+  onSelectChapter?: (book: Book, chapter: Chapter) => void;
 }
 
 const REWIND_INTERVAL_MS: number = 10000;
 const FAST_FORWARD_INTERVAL_MS: number = 30000;
+const MAX_MEDIA_QUEUE_ITEMS: number = 100;
 const SUPPORTED_PLAY_SPEEDS: number[] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 2.5, 3.0];
 const SUPPORTED_LOOP_MODES: avSession.LoopMode[] = [
   avSession.LoopMode.LOOP_MODE_SEQUENCE,
@@ -86,6 +88,14 @@ export class AVSessionService {
   private currentProgressMs: number = 0;
   private currentDurationMs: number = 0;
   private castController: avSession.AVCastController | null = null;
+  private queueBook: Book | null = null;
+  private queueChapters: Map<number, Chapter> = new Map();
+  private queueKey: string = '';
+  private queueGeneration: number = 0;
+  private nextQueueItemId: number = 1;
+  private activeQueueItemId: number = -1;
+  private queueWrites: Promise<void> = Promise.resolve();
+  private onSelectChapter: ((book: Book, chapter: Chapter) => void) | undefined = undefined;
   private onPlay: (() => void) | null = null;
   private onPause: (() => void) | null = null;
   private onPlayNext: (() => void) | null = null;
@@ -125,6 +135,7 @@ export class AVSessionService {
   setSpeechCallbacks(cbs: AVSessionCallbacks): void {
     this.currentCastUrl = '';
     this.metadataSerial++;
+    this.updateChapterQueue(null, null);
     this.applyCallbacks(cbs);
   }
 
@@ -159,6 +170,7 @@ export class AVSessionService {
     this.onSetLoopMode = cbs.onSetLoopMode;
     this.onCollection = cbs.onCollection;
     this.onCastConnected = cbs.onCastConnected;
+    this.onSelectChapter = cbs.onSelectChapter;
   }
 
   init(context: common.UIAbilityContext): Promise<void> {
@@ -343,6 +355,9 @@ export class AVSessionService {
     const task = this.metadataChain.catch((): void => {}).then(async (): Promise<void> => {
       if (!session || session !== this.session || serial !== this.metadataSerial || speech !== PlaybackCoordinator.speechActive) return;
       metadata.lyric = this.lyricAssetId === `${speech}:${metadata.assetId}` ? this.lyricText : '';
+      // 朗读没有整章时间轴，同时发布 API 17 的当前单句，避免系统沿用上句。
+      // 切回音频时显式清空，音频字幕仍使用原音频 LRC 时间戳。
+      metadata.singleLyricText = speech ? metadata.lyric.replace(/^\[00:00\.00\]/, '') : '';
       await session.setAVMetadata(metadata);
     });
     this.metadataChain = task;
@@ -402,7 +417,73 @@ export class AVSessionService {
     this.session.on('toggleFavorite', () => {
       this.onCollection?.();
     });
+    this.session.on('skipToQueueItem', (itemId: number): void => {
+      if (PlaybackCoordinator.speechActive || !this.queueBook || this.queueBook.id !== this.currentBook?.id) return;
+      const chapter = this.queueChapters.get(itemId);
+      if (chapter) this.onSelectChapter?.(this.queueBook, chapter);
+    });
     this.session.on('outputDeviceChange', this.outputDeviceChangeHandler);
+  }
+
+  /** 系统队列只发布当前章节所在的有界窗口；itemId 不复用，拒绝旧书/旧队列的延迟命令。 */
+  private updateChapterQueue(book: Book | null, current: Chapter | null): void {
+    let chapters: Chapter[] = [];
+    if (book && current) {
+      const index = book.chapters?.findIndex((chapter: Chapter): boolean => chapter.id === current.id) ?? -1;
+      const start = index < 0 ? 0 : Math.floor(index / MAX_MEDIA_QUEUE_ITEMS) * MAX_MEDIA_QUEUE_ITEMS;
+      chapters = index < 0 ? [current] : book.chapters.slice(start, start + MAX_MEDIA_QUEUE_ITEMS);
+    }
+    const key = book ? JSON.stringify([book.id, book.title,
+      ...chapters.map((chapter: Chapter): string => JSON.stringify([chapter.id, chapter.title]))]) : '';
+    if (key === this.queueKey) {
+      this.activeQueueItemId = this.findQueueItemId(current?.id ?? '');
+      return;
+    }
+    this.queueKey = key;
+    const generation = ++this.queueGeneration;
+    this.queueBook = null;
+    this.queueChapters.clear();
+    this.activeQueueItemId = -1;
+    const entries = new Map<number, Chapter>();
+    const items: avSession.AVQueueItem[] = [];
+    const seen = new Set<string>();
+    for (const chapter of chapters) {
+      if (seen.has(chapter.id)) continue;
+      seen.add(chapter.id);
+      const itemId = this.nextQueueItemId++;
+      entries.set(itemId, chapter);
+      const description: avSession.AVMediaDescription = {
+        assetId: `${book?.id ?? ''}_${chapter.id}`,
+        title: chapter.title.slice(0, 512), subtitle: book?.title.slice(0, 512) ?? ''
+      };
+      const item: avSession.AVQueueItem = { itemId: itemId, description: description };
+      items.push(item);
+    }
+    const session = this.session;
+    this.queueWrites = this.queueWrites.then(async (): Promise<void> => {
+      if (!session || this.session !== session || generation !== this.queueGeneration) return;
+      await session.setAVQueueTitle(book?.title.slice(0, 512) ?? '');
+      if (generation !== this.queueGeneration || this.session !== session) return;
+      await session.setAVQueueItems(items);
+      if (generation !== this.queueGeneration || this.session !== session) return;
+      this.queueBook = book;
+      this.queueChapters = entries;
+      this.activeQueueItemId = this.findQueueItemId(this.currentChapter?.id ?? '');
+      if (this.activeQueueItemId >= 0) {
+        const state: avSession.AVPlaybackState = { activeItemId: this.activeQueueItemId };
+        await session.setAVPlaybackState(state);
+      }
+    }).catch((error: Error): void => {
+      if (generation === this.queueGeneration) this.queueKey = '';
+      this.logMediaCenterWarning('updateChapterQueue', error);
+    });
+  }
+
+  private findQueueItemId(chapterId: string): number {
+    for (const itemId of this.queueChapters.keys()) {
+      if (this.queueChapters.get(itemId)?.id === chapterId) return itemId;
+    }
+    return -1;
   }
 
   private async configureUrlCasting(): Promise<void> {
@@ -479,6 +560,7 @@ export class AVSessionService {
     }
     this.currentBook = book;
     this.currentChapter = chapter;
+    this.updateChapterQueue(speech ? null : book, speech ? null : chapter);
     this.metadataSpeech = speech;
     this.currentMediaImage = mediaImage;
     this.currentMediaImageKey = imageKey;
@@ -575,6 +657,7 @@ export class AVSessionService {
       isFavorite: isFavorite
     };
     if (durationMs > 0) playbackState.duration = durationMs;
+    if (!speech && this.activeQueueItemId >= 0) playbackState.activeItemId = this.activeQueueItemId;
     try {
       await this.session.setAVPlaybackState(playbackState);
     } catch (err) {
@@ -782,6 +865,12 @@ export class AVSessionService {
   }
 
   async destroy(): Promise<void> {
+    this.queueGeneration++;
+    this.queueBook = null;
+    this.queueChapters.clear();
+    this.queueKey = '';
+    this.activeQueueItemId = -1;
+    this.onSelectChapter = undefined;
     await this.closeDesktopLyric();
     this.metadataSerial++;
     this.coverGeneration++;

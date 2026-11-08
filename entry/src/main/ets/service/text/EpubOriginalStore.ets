@@ -1,5 +1,6 @@
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
+import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { EpubOriginalDocument, EpubOriginalPart } from './EpubOriginalDocument';
 import { LocalImportTaskQueue } from '../LocalImportTaskQueue';
 
@@ -31,6 +32,15 @@ export class EpubOriginalStore {
 
   static root(filesDir: string, bookId: string): string {
     return /^import_[A-Za-z0-9_]+$/.test(bookId) ? `${filesDir}/ebooks/${bookId}/original` : '';
+  }
+
+  /** ZIP 内路径只作为资源身份；固定长度文件名避免长名称、编码膨胀和目录层数触发系统限制。 */
+  private static async resourcePath(root: string, path: string): Promise<string> {
+    const digest = cryptoFramework.createMd('SHA256');
+    await digest.update({ data: util.TextEncoder.create('utf-8').encodeInto(path) });
+    const hash = (await digest.digest()).data;
+    const name = Array.from(hash).map((byte: number): string => byte.toString(16).padStart(2, '0')).join('');
+    return `${root}/resources/${name}`;
   }
 
   private async mkdir(path: string): Promise<void> {
@@ -73,7 +83,7 @@ export class EpubOriginalStore {
       if (bytes === undefined || bytes.byteLength === 0 || bytes.byteLength > EpubOriginalStore.MAX_RESOURCE) continue;
       this.saved.add(path);
       this.bytes += bytes.byteLength;
-      const local = `${this.directory}/assets/${EpubOriginalDocument.assetPath(path)}`;
+      const local = await EpubOriginalStore.resourcePath(this.directory, path);
       await this.mkdir(local.substring(0, local.lastIndexOf('/')));
       const mime = EpubOriginalDocument.mime(path);
       if (mime === 'text/css' || mime === 'image/svg+xml') {
@@ -129,7 +139,10 @@ export class EpubOriginalStore {
   }
 
   static async resource(root: string, path: string): Promise<ArrayBuffer> {
-    const file = await fileIo.open(`${root}/assets/${EpubOriginalDocument.assetPath(path)}`, fileIo.OpenMode.READ_ONLY);
+    let local = await EpubOriginalStore.resourcePath(root, path);
+    // 已导入书籍继续读取旧版按原路径编码的目录，无需重新导入或迁移。
+    if (!await fileIo.access(local)) local = `${root}/assets/${EpubOriginalDocument.assetPath(path)}`;
+    const file = await fileIo.open(local, fileIo.OpenMode.READ_ONLY);
     try {
       const size = (await fileIo.stat(file.fd)).size;
       if (size <= 0 || size > EpubOriginalStore.MAX_RESOURCE) throw new Error('Invalid EPUB resource size');

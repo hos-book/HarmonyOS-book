@@ -12,6 +12,7 @@ import { EVT_READER_JUMP_CHAPTER } from '../model/TextReading';
 import { AppColor, AppFont, AppRadius, AppSpace, AppTheme } from '../theme/Theme';
 import { ListDataSource } from '../utils/ListDataSource';
 import { WindowUtils } from '../utils/WindowUtils';
+import { JianjianReplyText } from '../utils/JianjianReplyText';
 
 @ComponentV2
 export struct JianjianChatPage {
@@ -148,14 +149,14 @@ export struct JianjianChatPage {
     this.items.push(userItem);
     this.reloadItems(); this.scrollBottom();
     try {
-      let prompt = context.resourceManager.getStringSync($r('app.string.jianjian_ai_system_prompt').id);
       let excerpts: JianjianExcerpt[] = [];
       if (this.route.bookId) {
         const recapQuestion = context.resourceManager.getStringSync($r('app.string.jianjian_book_recap_question').id);
         excerpts = JianjianBookContextService.select(this.bookContext, text, text === recapQuestion);
-        prompt = context.resourceManager.getStringSync($r('app.string.jianjian_book_system_prompt').id) + '\n' +
-          JianjianBookContextService.evidence(excerpts);
       }
+      const prompt = await JianjianAiService.conversationPrompt(context, !!this.route.bookId,
+        this.route.bookId ? JianjianBookContextService.evidence(excerpts) : '');
+      if (!this.alive || !this.active || generation !== this.generation) return;
       // Rewinding a book cannot re-send later answers as hidden context.
       const messages = this.items.filter((item: JianjianChatItem): boolean => !this.route.bookId ||
         (item.boundaryChapter >= 0 && (item.boundaryChapter < this.route.chapterIndex ||
@@ -271,7 +272,8 @@ export struct JianjianChatPage {
       Column({ space: AppSpace.Xxs }) {
         Text(item.role === 'user' ? $r('app.string.jianjian_chat_you') : $r('app.string.jianjian_name'))
           .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
-        Text(item.content).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary)
+        Text(item.role === 'user' ? item.content : JianjianReplyText.display(item.content))
+          .fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary)
           .copyOption(CopyOptions.LocalDevice).padding(AppSpace.Sm)
           .backgroundColor(item.role === 'user' ? AppColor.BrandSoft : AppTheme.Surface)
           .borderRadius({ topLeft: item.role === 'user' ? AppRadius.Lg : AppRadius.Xs,

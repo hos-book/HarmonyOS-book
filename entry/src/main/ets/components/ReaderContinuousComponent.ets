@@ -11,6 +11,7 @@ import { OnlineTextScrollChapter, OnlineTextScrollDataSource, OnlineTextScrollRo
 import { ReaderSpeechText } from './ReaderSpeechText';
 import { ReaderAutoScrollService } from '../service/text/ReaderAutoScrollService';
 import { EpubPageStyle } from '../service/text/EpubPageStyle';
+import { ReaderAiAction } from '../model/ReaderAi';
 
 /** 按真实排版行懒加载的连续正文。只保留当前章附近内容，补章不替换可见正文。 */
 @ComponentV2
@@ -18,9 +19,11 @@ export struct ReaderContinuousComponent {
   @Event getComments: (chapter: number) => ReaderParagraphComment[] = (): ReaderParagraphComment[] => [];
   @Event onComment: (chapter: number, comment: ReaderParagraphComment) => void = () => {};
   @Param selectionEnabled: boolean = true;
+  @Param selectionRevision: number = 0;
   @Local selectionActive: boolean = false;
   @Event onSelectionChange: (active: boolean) => void = () => {};
   @Event onReadFrom: (chapter: number, offset: number) => void = () => {};
+  @Event onAi: (chapter: number, action: ReaderAiAction, text: string) => void = () => {};
   @Param tapLeftPercent: number = 33;
   @Param tapRightPercent: number = 33;
   @Param tapTopPercent: number = 33;
@@ -406,12 +409,14 @@ export struct ReaderContinuousComponent {
                 epubStyle: this.getEpubStyle(row.chapterIndex, row.startOffset),
                 letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
                 selectionEnabled: this.selectionEnabled,
+                selectionRevision: this.selectionRevision,
                 onSelectionChange: (active: boolean): void => {
                   this.selectionActive = active;
                   if (active) this.autoScroll.pause();
                   this.onSelectionChange(active);
                 },
                 onReadFrom: (offset: number): void => this.onReadFrom(row.chapterIndex, offset),
+                onAi: (action: ReaderAiAction, text: string): void => this.onAi(row.chapterIndex, action, text),
                 page: row.page, text: row.text, source: row.source, sourceStart: row.startOffset,
                 fontFamily: this.fontFamily, fontWeight: this.fontWeight,
                 state: this.speechState, fontSize: this.fontSize, lineHeight: this.lineHeight, palette: this.palette,
@@ -425,6 +430,7 @@ export struct ReaderContinuousComponent {
       .width('100%').height('100%')
       .fadingEdge(true, { fadingEdgeLength: LengthMetrics.vp(12) })
       .scrollBar(BarState.Off)
+      .enableScrollInteraction(!this.selectionActive)
       .edgeEffect(EdgeEffect.None)
       .cachedCount(12)
       .maintainVisibleContentPosition(true)

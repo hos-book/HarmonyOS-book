@@ -77,7 +77,6 @@ export struct SettingsPage {
   @Local generalSettings: GeneralSettings = GeneralSettings.current;
   @Local appearance: AppAppearance = AppAppearance.current;
   @Local savingGeneral: boolean = false;
-  @Local jianjianCompanionEnabled: boolean = false;
   @Local currentMode: number = ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET;
   @Local selectedThemeIndex: number = 0;
   @Local defaultTab: number = 0;
@@ -175,7 +174,6 @@ export struct SettingsPage {
       const preloadCount = await PreferenceService.getPreloadChapters();
       if (!this.alive || serial !== this.preferencesLoadSerial) return;
       this.currentMode = mode;
-      this.jianjianCompanionEnabled = this.generalSettings.jianjianCompanionEnabled;
       this.selectedThemeIndex = Math.max(0, THEME_OPTIONS.findIndex((opt: ThemeOption) => opt.mode === mode));
       this.defaultTab = defaultTab;
       this.autoPlayOnLaunch = autoPlay;
@@ -543,7 +541,6 @@ export struct SettingsPage {
               AdaptiveLayout.sectionSpacing(this.viewportWidth, this.viewportHeight) - AppSpace.Xxs) }) {
             GridCol() { this.buildAppearanceGroup() }.enabled(this.isLoaded)
             GridCol() { this.buildInteractionGroup() }.enabled(this.isLoaded)
-            GridCol() { this.buildJianjianCompanionGroup() }
             GridCol() { this.buildLaunchGroup() }.enabled(this.isLoaded)
             GridCol() { this.buildPlaybackGroup() }.enabled(this.isLoaded)
             GridCol() { this.buildCacheGroup() }.enabled(this.isLoaded)
@@ -616,32 +613,6 @@ export struct SettingsPage {
     try { await PreferenceService.setVerticalBottomTabs(enabled); }
     catch (_error) {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
-    } finally { this.savingGeneral = false; }
-  }
-
-  private async setJianjianCompanionEnabled(enabled: boolean): Promise<void> {
-    if (!this.isLoaded || this.savingGeneral || enabled === this.jianjianCompanionEnabled) return;
-    const previous: boolean = this.jianjianCompanionEnabled;
-    this.savingGeneral = true;
-    this.jianjianCompanionEnabled = enabled;
-    try {
-      await PreferenceService.setJianjianCompanionEnabled(enabled);
-    } catch (_error) {
-      this.jianjianCompanionEnabled = previous;
-      if (this.alive) {
-        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
-      }
-    } finally {
-      this.savingGeneral = false;
-    }
-  }
-
-  private async setJianjianNightCareEnabled(enabled: boolean): Promise<void> {
-    if (!this.isLoaded || this.savingGeneral) return;
-    this.savingGeneral = true;
-    try { await PreferenceService.setJianjianNightCareEnabled(enabled); }
-    catch (_error) {
-      if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
     } finally { this.savingGeneral = false; }
   }
 
@@ -806,45 +777,6 @@ export struct SettingsPage {
     }
     .width('100%')
     .alignItems(HorizontalAlign.Start)
-  }
-
-  @Builder
-  buildJianjianCompanionGroup() {
-    Column() {
-      this.buildGroupTitle($r('app.string.jianjian_companion_title'))
-      Column() {
-        this.buildSwitchItem(
-          $r('app.string.settings_jianjian_companion'),
-          $r('app.string.settings_jianjian_companion_desc'),
-          UIUtils.makeBinding<boolean>(() => this.jianjianCompanionEnabled),
-          (enabled: boolean): void => { this.setJianjianCompanionEnabled(enabled); },
-          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral),
-          false,
-          true
-        )
-        this.buildDivider()
-        Row({ space: AppSpace.Sm }) {
-          Text($r('app.string.jianjian_ai_settings')).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).layoutWeight(1)
-          SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([AppTheme.TextTertiary])
-        }.width('100%').constraintSize({ minHeight: 56 }).padding({ left: ROW_INDENT, right: ROW_INDENT })
-          .onClick((): void => { this.navStack.pushPathByName('jianjianAiSettings', ''); }).id('settings-jianjian-ai')
-        this.buildDivider()
-        Row({ space: AppSpace.Sm }) {
-          Text($r('app.string.jianjian_open_chat')).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).layoutWeight(1)
-          SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([AppTheme.TextTertiary])
-        }.width('100%').constraintSize({ minHeight: 56 }).padding({ left: ROW_INDENT, right: ROW_INDENT })
-          .onClick((): void => { this.navStack.pushPathByName('jianjianChat', ''); }).id('settings-jianjian-chat')
-        this.buildDivider()
-        this.buildSwitchItem(
-          $r('app.string.jianjian_night_care'),
-          $r('app.string.jianjian_night_care_desc'),
-          UIUtils.makeBinding<boolean>(() => this.generalSettings.jianjianNightCareEnabled),
-          (enabled: boolean): void => { this.setJianjianNightCareEnabled(enabled); },
-          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral),
-          false, true
-        )
-      }.width('100%').backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg)
-    }.width('100%').alignItems(HorizontalAlign.Start)
   }
 
   @Builder

@@ -22,6 +22,9 @@
     ],
     "requestPermissions": [
       {
+        "name": "ohos.permission.ACCESS_CAR_DISTRIBUTED_ENGINE"
+      },
+      {
         "name": "ohos.permission.DETECT_GESTURE"
       },
       {

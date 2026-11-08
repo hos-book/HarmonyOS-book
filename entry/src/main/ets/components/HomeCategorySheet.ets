@@ -1,7 +1,8 @@
 import { HomeSourceCategory } from '../service/rulesource/HomeSourceService';
 import { HomeCategoryOverviewDataSource, HomeCategoryOverviewRow, HomeCategoryOverviewItem } from '../utils/HomeCategoryOverviewDataSource';
-import { ImmersiveCircleButton } from './ImmersiveCircleButton';
-import { AppColor, AppFont, AppMaterial, AppRadius, AppSpace, AppTheme, HomeTheme } from '../theme/Theme';
+import { ImmersiveMenuHeader } from './ImmersiveMenuHeader';
+import { ImmersiveMenu } from '../utils/ImmersiveMenu';
+import { AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
 
 @ComponentV2
 export struct HomeCategorySheet {
@@ -38,19 +39,13 @@ export struct HomeCategorySheet {
 
   build() {
     Column({ space: AppSpace.Sm }) {
-      Row() {
-        Column({ space: 3 }) {
-          Text($r('app.string.home_categories_all')).fontSize(AppFont.TitleL)
-            .fontWeight(FontWeight.Bold).fontColor(AppTheme.TextPrimary)
-          Text($r('app.string.home_categories_count', this.categories.length))
-            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
-        }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-        ImmersiveCircleButton({ icon: $r('sys.symbol.xmark'),
-          label: $r('app.string.home_categories_close'), onPress: (): void => this.onClose() })
-      }.width('100%')
+      ImmersiveMenuHeader({ title: $r('app.string.home_categories_all'), onClose: (): void => this.onClose() })
+      Text($r('app.string.home_categories_count', this.categories.length))
+        .fontSize(AppFont.Caption).fontColor($r('sys.color.font_secondary')).width('100%')
+        .padding({ left: AppSpace.Xs })
       Search({ value: this.query, placeholder: $r('app.string.home_categories_search') })
-        .height(40).width('100%').fontColor(AppTheme.TextPrimary)
-        .placeholderColor(AppTheme.TextSecondary).borderRadius(AppRadius.Pill)
+        .height(40).width('100%').fontColor($r('sys.color.font_primary'))
+        .placeholderColor($r('sys.color.font_secondary')).borderRadius(AppRadius.Pill)
         .onChange((value: string): void => { this.query = value; })
       List({ space: AppSpace.Lg, scroller: this.scroller }) {
         if (this.resultCount === 0) {
@@ -59,7 +54,7 @@ export struct HomeCategorySheet {
               if (this.loading) { LoadingProgress().width(28).height(28).color(AppColor.Brand) }
               else {
                 Text(this.query.trim() ? $r('app.string.home_categories_no_match') : $r('app.string.home_categories_empty'))
-                  .fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
+                  .fontSize(AppFont.Body).fontColor($r('sys.color.font_secondary'))
               }
             }.width('100%').padding({ top: 40, bottom: 40 })
           }
@@ -67,25 +62,28 @@ export struct HomeCategorySheet {
         LazyForEach(this.data, (row: HomeCategoryOverviewRow) => {
           ListItem() {
             Column({ space: AppSpace.Sm }) {
-              Text(this.groupTitle(row)).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary)
+              Text(this.groupTitle(row)).fontSize(AppFont.BodyL).fontColor($r('sys.color.font_primary'))
                 .fontWeight(FontWeight.Medium)
               Flex({ wrap: FlexWrap.Wrap }) {
                 ForEach(row.categories, (item: HomeCategoryOverviewItem) => {
                   Button({ type: ButtonType.Capsule }) {
-                    Text(item.label || $r('app.string.home_categories_all_tag'))
-                      .fontSize(14).fontColor(this.selected(item) ? HomeTheme.Accent : AppTheme.TextPrimary)
-                      .fontWeight(this.selected(item) ? FontWeight.Medium : FontWeight.Regular)
-                      .padding({ left: 14, right: 14, top: 10, bottom: 10 })
+                    Row({ space: AppSpace.Xs }) {
+                      Text(item.label || $r('app.string.home_categories_all_tag'))
+                        .fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
+                        .fontWeight(this.selected(item) ? FontWeight.Medium : FontWeight.Regular)
+                        .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).flexShrink(1)
+                      if (this.selected(item)) {
+                        SymbolGlyph($r('sys.symbol.checkmark')).fontSize(16).fontColor([AppColor.Brand])
+                          .flexShrink(0)
+                      }
+                    }.padding({ left: 12, right: 12, top: 8, bottom: 8 })
                       .constraintSize({ maxWidth: '100%', minHeight: 40 })
-                      // 独立覆色层避免被外层原生材质的透明背景重置。
-                      .backgroundColor(this.selected(item) ? HomeTheme.AccentSoft : AppColor.GlassSheetControlTint)
+                      .backgroundColor(ImmersiveMenu.selection(this.selected(item)))
                       .borderRadius(AppRadius.Pill)
                   }
                     .padding(0)
                     .constraintSize({ maxWidth: '100%', minHeight: 40 })
-                    .borderRadius(AppRadius.Pill).backgroundColor(AppColor.GlassControlFallback)
-                    .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveThin))
-                    .border({ width: 0.5, color: this.selected(item) ? HomeTheme.Accent : AppColor.GlassStroke })
+                    .borderRadius(AppRadius.Pill).backgroundColor(Color.Transparent)
                     .clip(true)
                     .margin({ right: 8, bottom: 8 }).flexShrink(0)
                     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
@@ -98,6 +96,6 @@ export struct HomeCategorySheet {
         }, (row: HomeCategoryOverviewRow): string => `${row.key}:${this.query}:${JSON.stringify(row.categories.map((item: HomeCategoryOverviewItem): string => item.key))}`)
       }.width('100%').layoutWeight(1).scrollBar(BarState.Off)
         .edgeEffect(EdgeEffect.Spring).padding({ top: AppSpace.Sm })
-    }.width('100%').height('100%').padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Sm, bottom: AppSpace.Lg })
+    }.width('100%').height('100%').padding(AppSpace.Xs)
   }
 }

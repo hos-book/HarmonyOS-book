@@ -3,6 +3,7 @@ import { PlatformCompat } from '../utils/PlatformCompat';
 import lazy { WearableRuntime } from '../service/wearable/WearableRuntime';
 import lazy { MedalService } from '../service/MedalService';
 import { AVSessionService } from '../service/AVSessionService';
+import { HiCarService } from '../service/HiCarService';
 import lazy { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { AbilityConstant, ConfigurationConstant, UIAbility, Want, Configuration } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -83,6 +84,7 @@ export default class EntryAbility extends UIAbility {
       return;
     }
     // Must run before the first Web component initializes ArkWeb. Do not eagerly initialize the engine here.
+    HiCarService.instance.initialize(this.context);
     configureArkWebSecurity();
     try {
       this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
@@ -247,6 +249,7 @@ export default class EntryAbility extends UIAbility {
   /** 卡片或通知跳转 / 已存活时的拉起,统一在 onNewWant 处理 */
   onNewWant(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     if (PlatformCompat.wearable) return;
+    HiCarService.instance.initialize(this.context);
     this.captureContinuation(want, launchParam);
     this.restoreContinuationIfNeeded().catch((err: Error) => {
       hilog.error(DOMAIN, TAG, 'Restore continuation from new want failed: %{public}s',
@@ -512,6 +515,7 @@ export default class EntryAbility extends UIAbility {
       return;
     }
     ComicAiHost.setAppForeground(false);
+    HiCarService.instance.destroy();
     AutoBackupService.instance.setForeground(this.context, false);
     TextToSpeechService.getInstance().stop();
     this.isInForeground = false;
@@ -561,6 +565,11 @@ export default class EntryAbility extends UIAbility {
     }
 
     // 恢复本地主题和展示状态后再构建页面，避免首帧默认套装闪烁；不等待网络核验。
+    try {
+      HiCarService.instance.bindWindow(await windowStage.getMainWindow());
+    } catch (error) {
+      hilog.warn(DOMAIN, TAG, 'HiCar window unavailable: %{public}s', String(error));
+    }
     await Promise.all([
       PreferenceService.init(this.context).catch((): void => {}),
       BottomTabIconService.instance.init(this.context).catch((): void => {}),
@@ -589,6 +598,7 @@ export default class EntryAbility extends UIAbility {
 
   onWindowStageDestroy(): void {
     if (PlatformCompat.wearable) return;
+    HiCarService.instance.unbindWindow();
     WindowUtils.releaseWindow();
   }
 
@@ -658,6 +668,7 @@ export default class EntryAbility extends UIAbility {
       return;
     }
     // 系统颜色可能在后台改变，阅读器独立跟随系统时也需要重新取值。
+    HiCarService.instance.initialize(this.context);
     ComicAiHost.setAppForeground(true);
     if (this.context.config.colorMode !== undefined) WindowUtils.updateColorMode(this.context.config.colorMode);
     emitter.emit(EVT_READER_TYPOGRAPHY_CHANGED);

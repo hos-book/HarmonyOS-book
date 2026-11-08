@@ -2,7 +2,7 @@ import { RankingBoard } from '../model/Ranking';
 import { RankingPreferences } from '../service/ranking/RankingPreferences';
 import { RankingService } from '../service/ranking/RankingService';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
-import { AppColor, AppTheme } from '../theme/Theme';
+import { AppColor } from '../theme/Theme';
 
 @ComponentV2
 export struct RankingBoardOrderComponent {
@@ -57,20 +57,20 @@ export struct RankingBoardOrderComponent {
   build() {
     Column() {
       Row({ space: 8 }) {
-        Text($r('app.string.ranking_board_order_title')).fontSize(20).fontWeight(FontWeight.Bold)
-          .fontColor(AppTheme.TextPrimary).layoutWeight(1)
+        Text($r('app.string.ranking_board_order_title')).fontSize(16).fontWeight(FontWeight.Medium)
+          .fontColor($r('sys.color.font_primary')).layoutWeight(1)
         Button({ type: ButtonType.Circle }) {
-          SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(20).fontColor([AppTheme.TextSecondary])
+          SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(20).fontColor([$r('sys.color.font_secondary')])
         }.width(40).height(40).backgroundColor(Color.Transparent)
           .accessibilityText($r('app.string.ranking_order_reset')).enabled(this.loaded && !this.saving)
           .onClick((): void => { this.save(this.defaults.slice(), true); })
         Button({ type: ButtonType.Circle }) {
-          SymbolGlyph($r('sys.symbol.xmark')).fontSize(18).fontColor([AppTheme.TextPrimary])
-        }.width(40).height(40).backgroundColor(AppTheme.Surface)
+          SymbolGlyph($r('sys.symbol.xmark')).fontSize(18).fontColor([$r('sys.color.font_primary')])
+        }.width(40).height(40).backgroundColor(Color.Transparent)
           .accessibilityText($r('app.string.ranking_order_close')).onClick((): void => this.onClose())
-      }.width('100%').padding({ left: 20, right: 16, top: 12, bottom: 8 })
-      Text($r('app.string.ranking_board_order_desc')).fontSize(13).fontColor(AppTheme.TextSecondary).width('100%')
-        .padding({ left: 20, right: 20, bottom: 16 })
+      }.width('100%').padding({ left: 8, right: 4, top: 4, bottom: 4 })
+      Text($r('app.string.ranking_board_order_desc')).fontSize(13).fontColor($r('sys.color.font_secondary')).width('100%')
+        .padding({ left: 8, right: 8, bottom: 8 })
       if (!this.loaded && !this.failed) {
         LoadingProgress().width(28).height(28).color(AppColor.Brand).margin(20)
       }
@@ -82,20 +82,20 @@ export struct RankingBoardOrderComponent {
           ListItem() {
             Row({ space: 16 }) {
               Column({ space: 4 }) {
-                Text(board.title).fontSize(16).fontWeight(FontWeight.Medium).fontColor(AppTheme.TextPrimary)
+                Text(board.title).fontSize(16).fontWeight(FontWeight.Medium).fontColor($r('sys.color.font_primary'))
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                Text(board.platformName).fontSize(12).fontColor(AppTheme.TextSecondary).maxLines(1)
+                Text(board.platformName).fontSize(12).fontColor($r('sys.color.font_secondary')).maxLines(1)
               }.alignItems(HorizontalAlign.Start).layoutWeight(1)
-              SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(21).fontColor([AppTheme.TextTertiary])
+              SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(21).fontColor([$r('sys.color.font_tertiary')])
                 .accessibilityText($r('app.string.ranking_board_order_desc'))
             }.width('100%').constraintSize({ minHeight: 68 }).padding({ left: 16, right: 16, top: 10, bottom: 10 })
-          }.backgroundColor($r('sys.color.comp_background_primary')).borderRadius(12)
+          }.backgroundColor(Color.Transparent).borderRadius(12)
         }, (board: RankingBoard): string => board.id)
           .onMove((from: number, to: number): void => { this.move(from, to); })
-      }.layoutWeight(1).width('100%').scrollBar(BarState.Auto).cachedCount(2).enabled(!this.saving)
+      }.layoutWeight(1).width('100%').scrollBar(BarState.Off).cachedCount(2).enabled(!this.saving)
         .divider({ strokeWidth: 0.5, color: AppColor.Divider, startMargin: 16, endMargin: 16 })
-        .padding({ left: 16, right: 16 }).clip(true)
-    }.width('100%').height('100%').padding({ bottom: 24 })
-      .backgroundColor($r('sys.color.comp_background_primary'))
+        .padding({ left: 4, right: 4 }).clip(true)
+    }.width('100%').height('100%').padding(8)
+      .backgroundColor(Color.Transparent)
   }
 }

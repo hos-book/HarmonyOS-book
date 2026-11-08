@@ -148,6 +148,43 @@ function load(name) {
     instance.setPreloadCount(3);
     return instance;
   };
+  const shelfCache = await freshCache();
+  const shelfChapters = Array.from({ length: 40 }, (_, index) => ({ id: `shelf-c${index}`,
+    source: { value: `https://source.invalid/shelf/${index}` } }));
+  const shelfPaths = shelfChapters.flatMap(chapter => [
+    shelfCache.audioFilePath('shelf', chapter.source.value), shelfCache.legacyAudioFilePath('shelf', chapter.id)
+  ]);
+  for (const filename of shelfPaths) sizes.set(filename, 1024);
+  shelfCache.audioCache.set('shelf-c0', { resolvedUrl: 'cached' });
+  shelfCache.audioCache.set('unrelated-c0', { resolvedUrl: 'keep' });
+  let shelfTransferCancelled = false;
+  shelfCache.activeDownloads.set('shelf-c0', { cancel() { shelfTransferCancelled = true; } });
+  const shelfIo = stubs['@kit.CoreFileKit'].fileIo;
+  const originalSyncUnlink = shelfIo.unlinkSync;
+  const originalAsyncUnlink = shelfIo.unlink;
+  let syncUnlinks = 0, releaseUnlink, unlinkStarted;
+  const unlinkGate = new Promise(resolve => { releaseUnlink = resolve; });
+  const unlinkStart = new Promise(resolve => { unlinkStarted = resolve; });
+  shelfIo.unlinkSync = filename => { syncUnlinks++; return originalSyncUnlink(filename); };
+  shelfIo.unlink = async filename => { unlinkStarted(); await unlinkGate; return originalAsyncUnlink(filename); };
+  try {
+    const cleanup = shelfCache.clearBookInBackground('shelf', shelfChapters);
+    await unlinkStart;
+    let interactionProcessed = false;
+    await new Promise(resolve => setTimeout(() => { interactionProcessed = true; resolve(); }, 0));
+    assert(interactionProcessed, 'UI events run while chapter file deletion is pending');
+    assert(shelfTransferCancelled, 'active chapter transfer is cancelled before deleting its files');
+    releaseUnlink(); await cleanup;
+    assert.equal(syncUnlinks, 0, 'shelf cleanup never performs synchronous cold-cache file deletion');
+    assert(shelfPaths.every(filename => !sizes.has(filename)), 'both cache naming formats are removed');
+    assert.equal(shelfCache.audioCache.has('shelf-c0'), false);
+    assert(shelfCache.audioCache.has('unrelated-c0'), 'other books keep their cached audio');
+  } finally {
+    releaseUnlink();
+    shelfIo.unlinkSync = originalSyncUnlink;
+    shelfIo.unlink = originalAsyncUnlink;
+  }
+  console.log('PASS shelf chapter cleanup uses asynchronous file IO, keeps interaction responsive and preserves other books');
   const sourceService = stubs['service/BookSourceService'].BookSourceService;
   stubs['service/SourceDataService'].SourceDataService.getSourceByUrl = async () => source;
   sourceService.prepareAudioChapter = async () => {};

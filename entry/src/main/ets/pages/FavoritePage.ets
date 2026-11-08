@@ -203,6 +203,8 @@ export struct FavoritePage {
   @Local pinningBook: boolean = false;
   private pendingPinBookId: string = '';
   @Local removingBook: boolean = false;
+  private shelfRemovalTask: Promise<void> = Promise.resolve();
+  private committingShelfRemoval: boolean = false;
   @Local dissolvingBookIds: Set<string> = new Set();
   @Local pendingShelfRemovalIds: Set<string> = new Set();
   @Local dissolveParticleBudget: number = 3000;
@@ -253,7 +255,7 @@ export struct FavoritePage {
   private historyUpdatedHandler: (e: emitter.EventData) => void = (e) => this.onHistoryUpdated(e);
   /** 加入/移出书架后重新拉书清单。 */
   private favoritesChangedHandler: () => void = () => {
-    if (!this.removingBook) this.loadFavorites();
+    if (!this.removingBook && !this.committingShelfRemoval) this.loadFavorites();
   };
   private shelfSourceVisibilityHandler: () => void = () => this.syncShelfSourceVisibility();
   private textProgressLoadSerial: number = 0;
@@ -263,7 +265,8 @@ export struct FavoritePage {
 
   @Computed
   get shelfGroupBooks(): Book[] {
-    return this.favoriteBooks.filter((book: Book): boolean => BookPresentation.matchesGroup(book.id, this.shelfGroup));
+    return this.favoriteBooks.filter((book: Book): boolean => !this.pendingShelfRemovalIds.has(book.id) &&
+      BookPresentation.matchesGroup(book.id, this.shelfGroup));
   }
 
   @Computed
@@ -471,6 +474,7 @@ export struct FavoritePage {
   private scheduleAutoUpdate(): void {
     this.cancelAutoUpdate();
     if (!this.alive || !this.visible || !this.foreground || this.loading || this.checkingUpdates ||
+      this.removingBook || this.pendingShelfRemovalIds.size > 0 ||
       !ShelfUpdateService.shouldAutoCheck()) return;
     this.autoUpdateTimer = setTimeout((): void => {
       this.autoUpdateTimer = -1;
@@ -1434,28 +1438,14 @@ export struct FavoritePage {
   }
 
   private async removeActionBook(book: Book, deleteFiles: boolean): Promise<void> {
-    if (this.removingBook) return;
+    if (this.removingBook || this.pendingShelfRemovalIds.has(book.id)) return;
     if (this.showBookActions) {
       // 先让原生菜单完成退场，避免删除宿主节点后菜单遮罩和点击锁残留。
       this.pendingRemoval = book;
       this.pendingDeleteFiles = deleteFiles;
       return;
     }
-    this.removingBook = true;
-    this.favoritesLoadSerial++;
-    this.cancelAutoUpdate();
-    try {
-      await this.animateShelfDelete([book.id]);
-      this.updatePendingShelfRemoval([book.id]);
-      // 先提交书架补位，再开始可能涉及大目录和大量文件的清理。
-      await new Promise<void>((resolve): void => { setTimeout(resolve, 0); });
-      await this.doRemove(book.id, deleteFiles);
-    } finally {
-      this.cancelShelfDissolve();
-      this.updatePendingShelfRemoval([]);
-      this.removingBook = false;
-      this.showBookActions = false;
-    }
+    await this.removeShelfBooks([book.id], deleteFiles, false);
   }
 
   private markShelfBookVisible(bookId: string, ratio: number): void {
@@ -1518,9 +1508,9 @@ export struct FavoritePage {
     });
   }
 
-  private async deleteBookFilesAndRecords(bookId: string): Promise<void> {
+  private async deleteBookFilesAndRecords(bookId: string, favoriteIds: string[]): Promise<void> {
     if (!this.context) return;
-    const ids = new Set<string>(this.favoriteIdsByBookId.get(bookId) ?? []);
+    const ids = new Set<string>(favoriteIds);
     ids.add(bookId);
     // 兼容同一有声书由首页/搜索产生的旧 id，避免未收藏页残留重复记录。
     for (const id of Array.from(ids)) {
@@ -1538,7 +1528,7 @@ export struct FavoritePage {
       for (const id of ids) {
         const storedBook = await DataService.getBookById(this.context, id);
         if (storedBook !== undefined && !id.startsWith('import_')) {
-          ChapterCacheService.getInstance().clearBook(id, storedBook.chapters);
+          await ChapterCacheService.getInstance().clearBookInBackground(id, storedBook.chapters);
           await OnlineTextContentCache.removeBook(this.context, storedBook.sourceUrl ?? '', storedBook.bookUrl || id);
         }
         await PreferenceService.removeHistory(id);
@@ -1649,21 +1639,25 @@ export struct FavoritePage {
   }
 
   private updatePendingShelfRemoval(bookIds: string[]): void {
-    if (bookIds.length === 0 && this.pendingShelfRemovalIds.size === 0) return;
     // 仅影响展示，持久化成功前保留原书单及别名，失败时可原位恢复。
-    this.pendingShelfRemovalIds = new Set(bookIds);
-    this.updateShelfData(this.filteredBooks(this.favoriteBooks));
+    this.pendingShelfRemovalIds = new Set([...Array.from(this.pendingShelfRemovalIds), ...bookIds]);
+    if (this.alive) this.updateShelfData(this.filteredBooks(this.favoriteBooks));
   }
 
-  private async refreshShelfAfterRemoval(bookIds: string[]): Promise<void> {
+  private async refreshShelfAfterRemoval(bookIds: string[], finishedIds: string[]): Promise<void> {
+    const finished = new Set<string>(finishedIds);
+    this.pendingShelfRemovalIds = new Set(Array.from(this.pendingShelfRemovalIds)
+      .filter((id: string): boolean => !finished.has(id)));
+    if (!this.alive) return;
+    this.favoritesLoadSerial++;
     const removed = new Set<string>(bookIds);
     // 复用已加载的书籍和进度；无需为删除重读整份目录、扫描章节并重新分页。
     this.favoriteBooks = this.favoriteBooks.filter((book: Book): boolean => !removed.has(book.id));
     this.pinnedBookIds = new Set(Array.from(this.pinnedBookIds).filter((id: string): boolean => !removed.has(id)));
     for (const id of removed) this.favoriteIdsByBookId.delete(id);
     this.missingFavoriteCount = this.favoriteBooks.filter((book: Book): boolean => this.isMissingCachedBook(book)).length;
-    this.pendingShelfRemovalIds = new Set();
     this.updateShelfData(this.filteredBooks(this.favoriteBooks));
+    if (this.removingBook || this.pendingShelfRemovalIds.size > 0) return;
     // 删除期间云同步/其他页面可能增删收藏，仅在集合确实变化时补充加载。
     const expected = new Set<string>();
     for (const book of this.favoriteBooks) {
@@ -1684,53 +1678,66 @@ export struct FavoritePage {
       await this.removeFromGroup(books.map((book: Book): string => book.id));
       return;
     }
-    const deleteFiles = this.deleteLocalFiles;
+    await this.removeShelfBooks(books.map((book: Book): string => book.id), this.deleteLocalFiles, true);
+  }
+
+  private async removeShelfBooks(bookIds: string[], deleteFiles: boolean, batch: boolean): Promise<void> {
+    // 固定本批身份，后台执行期间切换筛选、重载或提交下一批都不会改变删除目标。
+    const aliases: Map<string, string[]> = new Map();
+    for (const id of bookIds) aliases.set(id, (this.favoriteIdsByBookId.get(id) ?? [id]).slice());
     this.removingBook = true;
     this.favoritesLoadSerial++;
     this.cancelAutoUpdate();
-    const removedBooks: string[] = [];
-    const removedFavoriteIds: string[] = [];
-    const failedIds: Set<string> = new Set();
     try {
-      await this.dismissDeleteSheet();
-      // 在删除本地封面/文件之前完成截图，避免消散内容变成缺失封面。
-      await this.animateShelfDelete(books.map((book: Book): string => book.id));
-      this.updatePendingShelfRemoval(books.map((book: Book): string => book.id));
-      await new Promise<void>((resolve): void => { setTimeout(resolve, 0); });
-      // 文件操作串行，避免多个删除同时覆盖本地书籍索引；一项失败不阻断其他项。
-      for (const book of books) {
-        try {
-          if (deleteFiles) {
-            await this.deleteBookFilesAndRecords(book.id);
-          }
-          removedBooks.push(book.id);
-          removedFavoriteIds.push(...(this.favoriteIdsByBookId.get(book.id) ?? [book.id]));
-        } catch (_error) {
-          failedIds.add(book.id);
-        }
-      }
-      await PreferenceService.removeFavorites(removedFavoriteIds);
-      await this.refreshShelfAfterRemoval(removedBooks);
-      this.selectedBookIds = failedIds;
-      this.isManaging = failedIds.size > 0;
-      this.showBatchDelete = false;
-      this.getUIContext().getPromptAction().showToast({
-        message: failedIds.size > 0 ? $r('app.string.shelf_batch_partial', removedBooks.length, failedIds.size) :
-          $r('app.string.shelf_batch_removed', removedBooks.length)
-      });
+      if (batch) await this.dismissDeleteSheet();
+      await this.animateShelfDelete(bookIds);
     } catch (_error) {
-      this.showBatchDelete = false;
-      this.updatePendingShelfRemoval([]);
-      try { await this.loadFavorites(); } catch (_refreshError) {}
-      this.getUIContext().getPromptAction().showToast({ message: deleteFiles ?
-        $r('app.string.shelf_batch_files_failed') : $r('app.string.shelf_batch_failed') });
+      // 动画失败不取消用户已确认的删除。
     } finally {
+      this.updatePendingShelfRemoval(bookIds);
       this.cancelShelfDissolve();
-      this.updatePendingShelfRemoval([]);
+      // 交互锁只保护弹框退场和动画，文件清理及落盘不占用页面。
       this.removingBook = false;
-      if (!this.visible) this.exitManagement();
-      this.scheduleAutoUpdate();
+      this.exitManagement();
     }
+    const task = this.shelfRemovalTask.then(async (): Promise<void> => {
+      const removedBooks: string[] = [];
+      const removedFavoriteIds: string[] = [];
+      let failure: Resource | undefined = undefined;
+      try {
+        // 连续提交的批次共用队列，避免同时改写导入索引；逐本让出 UI 事件循环。
+        for (const id of bookIds) {
+          await new Promise<void>((resolve): void => { setTimeout(resolve, 0); });
+          const favoriteIds = aliases.get(id) ?? [id];
+          try {
+            if (deleteFiles) await this.deleteBookFilesAndRecords(id, favoriteIds);
+            removedBooks.push(id);
+            removedFavoriteIds.push(...favoriteIds);
+          } catch (_error) {
+            // 失败项保留收藏，其他项继续。
+          }
+        }
+        this.committingShelfRemoval = true;
+        try { await PreferenceService.removeFavorites(removedFavoriteIds); }
+        finally { this.committingShelfRemoval = false; }
+      } catch (_error) {
+        removedBooks.length = 0;
+        failure = deleteFiles ? $r('app.string.shelf_batch_files_failed') : $r('app.string.shelf_batch_failed');
+      }
+      // 只收尾本批书籍，不关闭后来打开的弹框、不重置新的选择或动画。
+      try { await this.refreshShelfAfterRemoval(removedBooks, bookIds); } catch (_refreshError) {}
+      if (!this.alive) return;
+      this.scheduleAutoUpdate();
+      if (!this.visible || this.navStack.size() > 0) return;
+      const failedCount = bookIds.length - removedBooks.length;
+      if (failure !== undefined || batch || failedCount > 0) {
+        this.getUIContext().getPromptAction().showToast({ message: failure ?? (failedCount > 0 ?
+          $r('app.string.shelf_batch_partial', removedBooks.length, failedCount) :
+          $r('app.string.shelf_batch_removed', removedBooks.length)) });
+      }
+    });
+    this.shelfRemovalTask = task.catch((): void => {});
+    await this.shelfRemovalTask;
   }
 
   private async toggleBookPinned(bookId: string): Promise<void> {
@@ -1816,22 +1823,6 @@ export struct FavoritePage {
         .contentFontColor($r('sys.color.ohos_id_color_warning'))
         .onClick((): void => { this.removeActionBook(book, true); })
       }
-    }
-  }
-
-  private async doRemove(bookId: string, deleteFiles: boolean): Promise<void> {
-    if (!this.context) return;
-    try {
-      if (deleteFiles) {
-        await this.deleteBookFilesAndRecords(bookId);
-      }
-      await PreferenceService.removeFavorites(this.favoriteIdsByBookId.get(bookId) ?? [bookId]);
-      // 移出书架保留书籍身份，未收藏记录仍需续读。
-      await this.refreshShelfAfterRemoval([bookId]);
-    } catch (_e) {
-      try {
-        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.shelf_remove_failed') });
-      } catch (_e2) { /* ignore */ }
     }
   }
 
@@ -2546,6 +2537,28 @@ export struct FavoritePage {
     .bindContextMenu(this.bookActions(item.book), ResponseType.RightClick, this.bookMenuOptions())
   }
 
+  // 基础书脊独立于主题装饰；透明明暗层沿用原封面颜色，不增加图片解码。
+  @Builder
+  buildBookSpine() {
+    Row()
+      .width('14%')
+      .height('100%')
+      .linearGradient({
+        direction: GradientDirection.Right,
+        colors: [
+          ['#66000000', 0],
+          ['#16000000', 0.18],
+          ['#38FFFFFF', 0.36],
+          ['#10FFFFFF', 0.5],
+          ['#30000000', 0.6],
+          ['#08000000', 0.78],
+          ['#00000000', 1]
+        ]
+      })
+      .hitTestBehavior(HitTestMode.None)
+      .accessibilityLevel('no')
+  }
+
   @Builder
   buildBookTile(book: Book) {
     Stack() {
@@ -2598,6 +2611,7 @@ export struct FavoritePage {
           CoverImage({ title: book.title, author: book.author, localPlaceholder: book.id.startsWith('import_'),
             imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO, radius: 0, themedDecoration: false, themeBundleId: 'default' })
         }
+        this.buildBookSpine()
         this.buildBookPressFeedback(book)
         this.buildTypeBadge(false, book.contentType ?? 'audio')
         this.buildSourceBadge(book)
@@ -2739,7 +2753,8 @@ export struct FavoritePage {
               CoverImage({ title: book.title, author: book.author, localPlaceholder: book.id.startsWith('import_'),
                 imgWidth: 80, imgHeight: 112, useFixedHeight: true, radius: 0, themedDecoration: false, themeBundleId: 'default' })
             }
-        this.buildBookPressFeedback(book)
+            this.buildBookSpine()
+            this.buildBookPressFeedback(book)
             this.buildTypeBadge(true, book.contentType ?? 'audio')
             this.buildSourceBadge(book)
           }

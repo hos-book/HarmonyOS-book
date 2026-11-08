@@ -180,4 +180,16 @@ export class EpubOriginalDocument {
       EpubOriginalDocument.safe(body?.[1] ?? '', part.href) + '>' + EpubOriginalDocument.safe(content, part.href) +
       `<script nonce="${nonce}">${script.replace(/<\/script/gi, '<\\/script')}</script></body></html>`;
   }
+
+  /** 只允许同源章节框架，原书脚本与网络权限仍由每个章节的 CSP 隔离。 */
+  static continuous(script: string, nonce: string): string {
+    const csp = `default-src 'none'; frame-src 'self'; style-src 'unsafe-inline'; ` +
+      `script-src 'nonce-${nonce}'; connect-src 'none'; base-uri 'none'; form-action 'none'`;
+    return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+      '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">' +
+      `<meta http-equiv="Content-Security-Policy" content="${EpubOriginalDocument.escape(csp)}">` +
+      '<style>html,body{margin:0;padding:0;overflow-anchor:none}section{position:relative}' +
+      'iframe{display:block;position:sticky;top:0;width:100%;border:0}</style></head><body>' +
+      `<script nonce="${nonce}">${script.replace(/<\/script/gi, '<\\/script')}</script></body></html>`;
+  }
 }

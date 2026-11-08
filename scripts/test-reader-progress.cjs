@@ -11,7 +11,9 @@ const root = path.resolve(__dirname, '../entry/src/main/ets');
 const values = new Map();
 const events = new EventEmitter();
 const mocks = {
-  '../service/PreferenceService': { PreferenceService: { chapterDisplayIndex: (_book, index) => index } },
+  '../service/PreferenceService': { PreferenceService: {
+    chapterDisplayIndex: (book, index) => book.chaptersDescending ? book.chapters.length - 1 - index : index
+  } },
   '../PreferenceService': { PreferenceService: { promoteFavorite: async () => {} } },
   '../../model/GeneralSettings': { GeneralSettings: { current: { historyEnabled: true } } },
   '@kit.InputKit': { KeyCode: { KEYCODE_VOLUME_UP: 16, KEYCODE_VOLUME_DOWN: 17,
@@ -32,6 +34,7 @@ function compile(relative, source) {
   vm.runInNewContext(ts.transpileModule(source ?? fs.readFileSync(filename, 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
   }).outputText, { exports, require: name => mocks[name] || {}, setTimeout, clearTimeout, Computed: () => {}, KeyType: { Down: 0, Up: 1 }, ScrollAlign: { START: 0 },
+    SliderChangeMode: { Begin: 0, Moving: 1, End: 2, Click: 3 },
     DataOperationType: { ADD: 'add', DELETE: 'delete', RELOAD: 'reload' } }, { filename });
   return exports;
 }
@@ -80,6 +83,7 @@ mocks['../service/DataService'] = { DataService: { readImportedText: async () =>
 mocks['../../model/TextReading'] = model;
 mocks['../service/text/OnlineTextPaginator'] = compile('service/text/OnlineTextPaginator');
 mocks['./OnlineTextPaginator'] = mocks['../service/text/OnlineTextPaginator'];
+mocks['../service/text/ReaderCommentLayout'] = compile('service/text/ReaderCommentLayout');
 const { TextReadingProgressService: progress } = compile('service/text/TextReadingProgressService');
 mocks['../service/text/TextReadingProgressService'] = { TextReadingProgressService: progress };
 mocks['../service/text/ReaderFontService'] = { ReaderFontService: { register: () => 'ReaderFont_Custom' } };
@@ -95,7 +99,7 @@ let source = fs.readFileSync(path.join(root, 'pages/ReaderPage.ets'), 'utf8');
 const readerBottomMethods = source.slice(source.indexOf('  private readerTopInsetVp()'),
   source.indexOf('  private readerFloatingStyle()'));
 const chapterNavigationMethods = source.slice(source.indexOf('  private adjacentChapterIndex('),
-  source.indexOf('  private chapterSliderIndex('));
+  source.indexOf('  private chapterBarFloatingStyle('));
 source = source.slice(0, source.search(/\s*@Builder\s+readerTabStyle\(/)) + '\n' + readerBottomMethods +
   '\n' + chapterNavigationMethods + '\n}';
 source = source.replace(/^  @Builder[\s\S]*?^  }\r?$/gm, '');
@@ -241,13 +245,14 @@ function reader() {
   const page = Object.create(ReaderPage.prototype);
   Object.assign(page, {
     autoPage: new ReaderAutoPageService(), autoPageRunning: false,
-    context: {}, textDocuments: new Map(), book: { id: 'test-book', chapters: [{ title: '第一章' }, { title: '第二章' }] },
+    context: {}, textDocuments: new Map(), displayComments: new Map(), book: { id: 'test-book', chapters: [{ title: '第一章' }, { title: '第二章' }] },
     readingTime: { checkpoint() {} },
     speechState: { active: false, bookId: '' },
     pageTurnMode: PageTurnMode.Cover, currentResourceIndex: 0, currentChapterTitle: '第一章',
     onlineTextContent: content, onlineTextPages: normal, onlineTextPageIndex: 1,
     onlineTextTurnSerial: 0, onlineTextLoadSerial: 0, onlineTextTurnPreview: null,
     onlineTextTurnConfirmed: false, onlineTextTurnLoading: false, leaving: false,
+    epubOriginalTheme: null, epubOriginalEnabled: false,
     currentPosition: TextReadingPosition.atChar('test-book', 0, '', 100, 1, '第一章'),
     isOnlineTextBook: () => true, paginateOnlineTextContent: () => expanded,
     prefetchAdjacentOnlineTextChapters() {}, getOnlineTextChapterContent: async () => content
@@ -256,6 +261,57 @@ function reader() {
 }
 const tick = () => new Promise(resolve => setImmediate(resolve));
 (async () => {
+  const slider = Object.create(ReaderPage.prototype);
+  let sliderOffset = 731, sliderCalls = [], failSlider = false, releaseSlider;
+  Object.assign(slider, {
+    book: { id: 'slider-book', chapters: [{ title: '第一章' }, { title: '第二章' }, { title: '第三章' }, { title: '第四章' }] },
+    currentResourceIndex: 0, currentChapterTitle: '第一章', currentPosition: { pageOffset: 7 },
+    jumpingResourceIndex: -1, chapterSliderPreview: -1, chapterSliderDragging: false,
+    chapterSliderCommitting: false, chapterSliderUndoPosition: null, chapterSliderGeneration: 0,
+    readerBarVisible: true, isOnlineTextBook: () => true, currentRawCharOffset: () => sliderOffset,
+    async jumpToResourceIndex(index, keepBar, offset = 0, page = 0) {
+      sliderCalls.push([index, keepBar, offset, page]);
+      if (releaseSlider) await new Promise(resolve => { releaseSlider = resolve; });
+      if (failSlider) return false;
+      this.currentResourceIndex = index; sliderOffset = offset;
+      return true;
+    }
+  });
+  await slider.changeChapterSlider(1, 0);
+  await slider.changeChapterSlider(2, 1);
+  assert.equal(sliderCalls.length, 0, 'dragging previews without loading or moving the saved reading position');
+  assert.equal(slider.chapterSliderIndex(), 2);
+  assert.equal(slider.chapterSliderPercent(), '75.00%');
+  await slider.changeChapterSlider(2, 2);
+  assert.deepEqual(sliderCalls, [[2, true, 0, 0]], 'release jumps directly with the toolbar retained');
+  assert.equal(slider.chapterSliderUndoPosition.charOffset, 731);
+  await slider.changeChapterSlider(3, 2);
+  assert.equal(slider.chapterSliderUndoPosition.resourceIndex, 0, 'consecutive jumps retain the original reading point');
+  await slider.undoChapterSlider();
+  assert.deepEqual(sliderCalls.at(-1), [0, true, 731, 7], 'undo restores chapter, original text offset and page fallback');
+  assert.equal(slider.chapterSliderUndoPosition, null);
+  slider.book.chaptersDescending = true;
+  await slider.changeChapterSlider(0, 2);
+  assert.equal(slider.currentResourceIndex, 3, 'descending slider maps the displayed index to body order');
+  assert.equal(slider.chapterSliderPercent(), '100.00%');
+  failSlider = true;
+  await slider.undoChapterSlider();
+  assert.ok(slider.chapterSliderUndoPosition, 'failed undo preserves the original position for retry');
+  slider.resetChapterSlider();
+  await slider.changeChapterSlider(1, 2);
+  assert.equal(slider.chapterSliderUndoPosition, null, 'failed jump does not create a false undo target');
+  failSlider = false;
+  releaseSlider = true;
+  const pendingSlider = slider.changeChapterSlider(2, 2);
+  const callCount = sliderCalls.length;
+  await slider.changeChapterSlider(1, 2);
+  assert.equal(sliderCalls.length, callCount, 'loading ignores duplicate slider submissions');
+  slider.resetChapterSlider(); slider.readerBarVisible = false;
+  releaseSlider(); await pendingSlider; releaseSlider = null;
+  assert.equal(slider.chapterSliderUndoPosition, null, 'late completion cannot resurrect a dismissed undo hint');
+  await slider.changeChapterSlider(1, 2);
+  assert.equal(sliderCalls.length, callCount, 'hidden toolbar cannot submit stale slider events');
+  console.log('PASS chapter slider: preview, direct jump, consecutive jumps, exact undo, descending order and stale/failure guards');
   const headingReader = reader();
   Object.assign(headingReader, {
     fontSize: 18, lineHeight: 1.9, chapterHeadingVisible: true, chapterHeadingSize: 32, chapterHeadingStyle: 'bold',
@@ -301,11 +357,11 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   fontPage.fontName = 'Custom';
   fontPage.fontFamily = 'ReaderFont_Custom';
   fontPage.saveReadingSettings = () => {};
-  fontPage.selectReaderFont({ path: '', name: '' });
+  fontPage.selectReaderFont({ path: '', name: '', enabled: true });
   assert.equal(fontPage.fontFamily, '', 'system selection removes the imported font override');
   assert.equal(fontPage.fontPath, '');
   assert.equal(fontPage.currentPosition.charOffset, 100, 'system font reflow preserves the reading position');
-  fontPage.selectReaderFont({ path: '/files/reader_fonts/custom.ttf', name: 'Custom' });
+  fontPage.selectReaderFont({ path: '/files/reader_fonts/custom.ttf', name: 'Custom', enabled: true });
   assert.equal(fontPage.fontFamily, 'ReaderFont_Custom');
   assert.equal(fontPage.currentPosition.charOffset, 100);
 
@@ -355,6 +411,23 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
   assert.equal(layoutRefreshes, 1, 'a real window resize must still refresh pagination');
 
   const page = reader();
+  const originalScroll = reader();
+  Object.assign(originalScroll, { epubOriginalEnabled: true, pageTurnMode: PageTurnMode.Vertical,
+    originalProgressTimer: -1, originalProgressSavedAt: Date.now(), speechScrollPending: false });
+  let originalWrites = 0;
+  const countOriginalWrites = () => { originalWrites++; };
+  events.on('app.text.reading.progress.changed', countOriginalWrites);
+  for (let offset = 110; offset <= 190; offset += 10) originalScroll.updateOriginalPosition(0, offset, 1, 3);
+  await tick();
+  assert.equal(originalWrites, 0, 'continuous original positions must not write preferences during scroll callbacks');
+  assert.equal(originalScroll.currentPosition.charOffset, 190, 'current reading position remains available before persistence');
+  await new Promise(resolve => setTimeout(resolve, 550));
+  assert.equal(originalWrites, 1, 'settled original scroll merges progress notifications into one write');
+  originalScroll.updateOriginalPosition(0, 220, 2, 3);
+  originalScroll.saveProgress(); await tick();
+  assert.equal(originalScroll.originalProgressTimer, -1, 'background/leave save cancels the deferred write');
+  assert.equal((await progress.get({}, 'test-book')).charOffset, 220, 'leave immediately persists the latest original position');
+  events.off('app.text.reading.progress.changed', countOriginalWrites);
   const dragging = reader();
   let reflows = 0;
   let saves = 0;
