@@ -15,7 +15,6 @@ import { BookDataSource } from '../utils/BookDataSource';
 import { ChapterDataSource } from '../utils/ChapterDataSource';
 import { AppColor } from '../theme/Theme';
 import { WebEngineGate } from '../service/WebEngineGate';
-import { WebViewAudioExtractorHost } from '../service/builtin/WebViewAudioExtractor';
 import { WebBookFetchRuntimeHost } from '../service/rulesource/light/WebBookFetchRuntimeHost';
 import { BookSourceAudioWebRuntimeHost } from '../service/rulesource/light/BookSourceAudioWebRuntimeHost';
 import { RuleSourceImportWebHost } from '../service/rulesource/light/RuleSourceImportWebHost';
@@ -467,8 +466,6 @@ struct WearablePage {
         .contentStartOffset(this.viewportHeight * 0.18)
         .contentEndOffset(this.viewportHeight * 0.18)
       // 规则和音频提取仍由既有受限宿主执行；没有需要时不启动 Web 引擎。
-      if (this.gate.needAudioExtractor) { WebViewAudioExtractorHost() }
-
       if (this.gate.needRuleBrowser) { WebBookFetchRuntimeHost()
         BookSourceAudioWebRuntimeHost()
         RuleSourceImportWebHost() }

@@ -1,3 +1,4 @@
+import { PlayerDragTransition } from '../utils/PlayerDragTransition';
 import { ImmersiveMenu } from '../utils/ImmersiveMenu';
 import { ImmersiveMenuHeader } from '../components/ImmersiveMenuHeader';
 import { HdsNavigation, HdsNavigationTitleMode, HideMode, TitleBarContentOptions, BottomBuilderParams, BuilderOptions } from '@kit.UIDesignKit';
@@ -234,12 +235,21 @@ function rankingEmptyHeader() { Row().height(56) }
 class RankingMatchRestoreFrame extends FrameCallback {
   private restore: () => void;
   constructor(restore: () => void) { super(); this.restore = restore; }
-  onIdle(_timeLeftInNano: number): void { this.restore(); }
+  onFrame(_frameTimeInNano: number): void { this.restore(); }
 }
 
 @ComponentV2
 export struct RankingHomePage {
   @Param visible: boolean = true;
+  @Param bottomTabInset: number = 0;
+  @Param miniPlayerVisible: boolean = false;
+  @Local matchMenuTop: number = 0;
+  @Local matchMenuReady: boolean = false;
+  private matchLayoutGeneration: number = 0;
+  private matchOpenPending: boolean = false;
+  @Local matchMenuBottom: number = 0;
+  private matchLayoutObserved: boolean = false;
+  private readonly matchLayoutHandler = (): void => { this.updateMatchMenuBounds(); };
   @BuilderParam headerBuilder: () => void = rankingEmptyHeader;
   @Event onBookTap: (id: string, resume: () => void) => void = () => {};
   @Event onSearchTap: () => void = () => {};
@@ -262,8 +272,6 @@ export struct RankingHomePage {
   @Local refreshPullOffset: number = 0;
   @Local showSheet: boolean = false;
   @Local menuViewportWidth: number = 360;
-  @Local matchMenuX: number = 16;
-  @Local matchMenuY: number = 80;
   @Local selectedBook: RankingBook = new RankingBook();
   @Local keyword: string = '';
   @Local searching: boolean = false;
@@ -369,6 +377,7 @@ export struct RankingHomePage {
   }
 
   aboutToDisappear(): void {
+    this.stopMatchLayoutObserver();
     RankingPreferences.unsubscribe(this.rankingSettingsListener);
     WindowUtils.removeReaderColorListener(this.statusBarColorListener);
     this.alive = false;
@@ -519,6 +528,7 @@ export struct RankingHomePage {
     this.matchType = '';
     this.matchSuspended = false;
     this.matchOffset = 0;
+    this.updateMatchMenuBounds();
     this.showSheet = true;
     this.searchMatches();
   }
@@ -732,6 +742,34 @@ export struct RankingHomePage {
     Column().width(0).height(0)
   }
 
+  private matchTypeLabel(type: string): Resource {
+    if (type.length === 0) return $r('app.string.shelf_filter_all_count', this.allMatches.length);
+    const count = this.allMatches.filter((match: RankingMatch): boolean => match.book.contentType === type).length;
+    if (type === 'audio') return $r('app.string.shelf_filter_audio_count', count);
+    if (type === 'text') return $r('app.string.shelf_filter_text_count', count);
+    return $r('app.string.shelf_filter_comic_count', count);
+  }
+
+  @LocalBuilder
+  private matchTypeTab(type: string) {
+    Column() {
+      // 在 Text 更新函数内读取响应式结果，避免 Builder 按值传入的初始数量停留在 0。
+      Text(this.matchTypeLabel(type)).fontSize(13).minFontSize(10).maxFontSize(13).maxLines(1)
+        .heightAdaptivePolicy(TextHeightAdaptivePolicy.MIN_FONT_SIZE_FIRST)
+        .fontColor(this.matchType === type ? HomeTheme.Accent : AppTheme.TextSecondary)
+        .fontWeight(this.matchType === type ? FontWeight.Medium : FontWeight.Regular)
+        .textAlign(TextAlign.Center).width('100%').height(30)
+        .padding({ left: AppSpace.Xxs, right: AppSpace.Xxs })
+      Row().width(18).height(2).borderRadius(1).backgroundColor(HomeTheme.Accent)
+        .opacity(this.matchType === type ? 1 : 0)
+    }.layoutWeight(1).height(34).justifyContent(FlexAlign.Center)
+      .borderRadius(AppRadius.Pill).backgroundColor(Color.Transparent)
+      .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveThin))
+      .accessibilityText(this.matchTypeLabel(type)).accessibilitySelected(this.matchType === type)
+      .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
+      .onClick((): void => this.selectMatchType(type))
+  }
+
   @Builder
   private sheetContent() {
     Column({ space: AppSpace.Xs }) {
@@ -755,19 +793,12 @@ export struct RankingHomePage {
           .height(44).searchButton($r('app.string.ranking_search'), { fontColor: AppTheme.TextPrimary })
           .onChange((text: string): void => { this.keyword = text; })
           .onSubmit(() => this.searchMatches())
-        Row({ space: 8 }) {
-          ImmersiveTabComponent({ label: $r('app.string.shelf_filter_all_count', this.allMatches.length),
-            fitContent: true, selected: this.matchType === '', onTap: (): void => this.selectMatchType('') })
-          ImmersiveTabComponent({ label: $r('app.string.shelf_filter_audio_count',
-            this.allMatches.filter((match: RankingMatch): boolean => match.book.contentType === 'audio').length),
-            fitContent: true, selected: this.matchType === 'audio', onTap: (): void => this.selectMatchType('audio') })
-          ImmersiveTabComponent({ label: $r('app.string.shelf_filter_text_count',
-            this.allMatches.filter((match: RankingMatch): boolean => match.book.contentType === 'text').length),
-            fitContent: true, selected: this.matchType === 'text', onTap: (): void => this.selectMatchType('text') })
-          ImmersiveTabComponent({ label: $r('app.string.shelf_filter_comic_count',
-            this.allMatches.filter((match: RankingMatch): boolean => match.book.contentType === 'comic').length),
-            fitContent: true, selected: this.matchType === 'comic', onTap: (): void => this.selectMatchType('comic') })
-        }.width('100%').height(40)
+        Row({ space: AppSpace.Xxs }) {
+          this.matchTypeTab('')
+          this.matchTypeTab('audio')
+          this.matchTypeTab('text')
+          this.matchTypeTab('comic')
+        }.width('100%').height(40).flexShrink(0)
         if (this.searching) {
           Row({ space: 8 }) {
             LoadingProgress().width(18).height(18).color(AppColor.Brand)
@@ -812,8 +843,9 @@ export struct RankingHomePage {
           Button($r('app.string.ranking_manage_sources'), { buttonStyle: ButtonStyleMode.TEXTUAL })
             .fontColor($r('sys.color.font_primary')).height(44).onClick(() => this.manageSources())
         }
-    }.width(ImmersiveMenu.width(this.menuViewportWidth - this.leftSafe - this.rightSafe, 560))
-      .height(ImmersiveMenu.height(this.contentHeight, 620)).padding(AppSpace.Sm)
+    // 原生 Menu 还会保留栅格边距与内容内边距，按可用内容宽度布局，避免右侧关闭按钮被裁切。
+    }.width(ImmersiveMenu.width(this.menuViewportWidth - this.leftSafe - this.rightSafe, 600))
+      .height(this.matchMenuHeight).padding(AppSpace.Sm)
       .constraintSize({ maxWidth: '100%' }).onTouch(ImmersiveMenu.keepOpen)
       .id('ranking-match-menu')
     .alignItems(HorizontalAlign.Start)
@@ -986,9 +1018,89 @@ export struct RankingHomePage {
     return ImmersiveMenu.options((): void => { this.showBoardOrder = false; });
   }
 
+  @Computed
+  get matchMenuHeight(): number {
+    // 自定义内容之外，系统菜单上下各有 4vp 内边距。
+    const available = Math.max(1, this.contentHeight - this.matchMenuTop - this.matchMenuBottom -
+      AppSpace.Xs - AppSpace.Xxs * 2);
+    if (PlatformCompat.supports(26)) return available;
+    // 旧系统不能覆盖原生菜单 80% 高度上限，内容也同步受限，避免出现外层滚动。
+    const legacyLimit = (this.contentHeight - this.topSafe - WindowUtils.getBottomSafeVp()) * 0.8 -
+      AppSpace.Xxs * 2;
+    return Math.max(1, Math.min(available, legacyLimit));
+  }
+
+  @Monitor('showSheet', 'visible', 'bottomTabInset', 'miniPlayerVisible')
+  private onMatchLayoutChanged(): void {
+    if (!this.alive || !this.visible || !this.showSheet) {
+      this.stopMatchLayoutObserver();
+      return;
+    }
+    if (!this.matchLayoutObserved) {
+      this.getUIContext().getUIObserver().on('willDraw', this.matchLayoutHandler);
+      this.matchLayoutObserved = true;
+    }
+    this.updateMatchMenuBounds();
+    if (this.matchMenuReady || this.matchOpenPending) return;
+    this.matchOpenPending = true;
+    const generation = ++this.matchLayoutGeneration;
+    // onFrame 在帧开头执行，跨过一帧布局后再打开，不能在第一个回调中读取旧锚点。
+    this.getUIContext().postFrameCallback(new RankingMatchRestoreFrame((): void => {
+      if (!this.alive || !this.visible || !this.showSheet || generation !== this.matchLayoutGeneration) return;
+      this.getUIContext().postFrameCallback(new RankingMatchRestoreFrame((): void => {
+        if (!this.alive || !this.visible || !this.showSheet || generation !== this.matchLayoutGeneration) return;
+        this.matchOpenPending = false;
+        this.matchMenuReady = true;
+      }));
+    }));
+  }
+
+  private stopMatchLayoutObserver(): void {
+    this.matchLayoutGeneration++;
+    this.matchOpenPending = false;
+    this.matchMenuReady = false;
+    if (!this.matchLayoutObserved) return;
+    this.getUIContext().getUIObserver().off('willDraw', this.matchLayoutHandler);
+    this.matchLayoutObserved = false;
+  }
+
+  private updateMatchMenuBounds(): void {
+    if (!this.alive) return;
+    // HDS 标题 Builder 的代理坐标不代表屏幕下缘；使用同一滚动行程与安全区计算。
+    let top = this.topSafe + (this.activeBoard !== undefined ? RANKING_SEARCH_HEIGHT :
+      this.searchViewportHeight > 0.5 ? this.searchViewportHeight : 48);
+    let bottom = this.bottomTabInset;
+    try {
+      const context = this.getUIContext();
+      const viewport = PlayerDragTransition.measure(context, 'ranking-home-layout');
+      if (viewport.isValid()) {
+        if (this.miniPlayerVisible) {
+          const mini = PlayerDragTransition.measure(context, 'mini-player-bar');
+          if (mini.isValid() && mini.topPx >= viewport.topPx &&
+            mini.leftPx < viewport.leftPx + viewport.widthPx &&
+            mini.leftPx + mini.widthPx > viewport.leftPx) {
+            bottom = Math.max(bottom, context.px2vp(viewport.topPx + viewport.heightPx - mini.topPx));
+          }
+        }
+      }
+    } catch (_error) {
+      // 底栏挂载或窗口重建期间先使用当前安全区与导航栏高度，下帧恢复实际边界。
+    }
+    top += AppSpace.Xs;
+    if (Math.abs(top - this.matchMenuTop) > 0.5) this.matchMenuTop = top;
+    if (Math.abs(bottom - this.matchMenuBottom) > 0.5) this.matchMenuBottom = bottom;
+  }
+
   private matchMenuOptions(): MenuOptions {
-    const options = ImmersiveMenu.options((): void => { this.showSheet = false; });
-    options.anchorPosition = { x: this.matchMenuX, y: this.matchMenuY };
+    const options = ImmersiveMenu.options((): void => { this.showSheet = false; }, Placement.Bottom);
+    // 原生默认最大高度为可用高度的 80%；只改内容高度会产生外层滚动和二次排位。
+    if (PlatformCompat.supports(26)) {
+      options.maxHeight = LengthMetrics.vp(this.matchMenuHeight + AppSpace.Xxs * 2);
+      options.targetSpace = LengthMetrics.vp(0);
+      options.scrollBar = BarState.Off;
+    } else {
+      options.offset = { x: 0, y: -AppSpace.Xs };
+    }
     options.onAppear = (): void => {
       const restoreOffset: number = this.matchOffset;
       this.getUIContext().postFrameCallback(new RankingMatchRestoreFrame((): void => {
@@ -1156,19 +1268,21 @@ export struct RankingHomePage {
             ? Math.max(0, this.headerRange - this.headerOffset) + 48 : RANKING_SEARCH_HEIGHT) })
           .hitTestBehavior(HitTestMode.None)
       }
+      // 用真实布局高度确定菜单下沿锚点；零高节点的 position 首次更新不会可靠触发布局。
+      Row().width('100%').height(this.matchMenuTop)
+        .id('ranking-match-anchor')
+        .hitTestBehavior(HitTestMode.None)
+        .accessibilityLevel('no')
+        .bindMenu(this.showSheet && this.matchMenuReady, this.sheetContent(), this.matchMenuOptions())
     }.width('100%').height('100%').backgroundColor(!AppTheme.ShowCoverBackdrop ? Color.Transparent : HomeTheme.BgNeutral)
     .enabled(!this.boardTransitioning)
+    .id('ranking-home-layout')
     .clip(true)
     .onSizeChange((_old: SizeOptions, size: SizeOptions): void => {
       const height: number = Number(size.height);
       if (Number.isFinite(height) && height > 0) this.contentHeight = height;
       this.menuViewportWidth = Math.max(1, Number(size.width));
+      this.updateMatchMenuBounds();
     })
-    .onTouch((event: TouchEvent): void => {
-      if (event.type !== TouchType.Down || event.touches.length === 0 || this.showSheet || this.showBoardOrder) return;
-      this.matchMenuX = event.touches[0].x;
-      this.matchMenuY = event.touches[0].y;
-    })
-    .bindMenu(this.showSheet, this.sheetContent(), this.matchMenuOptions())
   }
 }

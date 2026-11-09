@@ -23,10 +23,9 @@ def main() -> None:
     policy_path = root / 'entry/src/main/ets/utils/ReleasePolicy.ets'
     version_path = root / 'AppScope/app.json5'
     policy = policy_path.read_text(encoding='utf-8')
-    for key, enabled in [('showPodcastEntry', args.channel == 'device'),
-                         ('membershipPurchaseEnabled', args.channel == 'release')]:
-        policy = replace_once(policy, rf'{key}: boolean = (?:true|false);',
-                              f'{key}: boolean = {str(enabled).lower()};')
+    enabled = args.channel == 'release'
+    policy = replace_once(policy, r'membershipPurchaseEnabled: boolean = (?:true|false);',
+                          f'membershipPurchaseEnabled: boolean = {str(enabled).lower()};')
     version = version_path.read_text(encoding='utf-8')
     version = replace_once(version, r'"versionCode":\s*\d+', f'"versionCode": {args.version_code}')
     version = replace_once(version, r'"versionName":\s*"[^"]+"', f'"versionName": "{args.version}"')

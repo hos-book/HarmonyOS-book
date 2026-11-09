@@ -17,7 +17,8 @@
     "host-reader-cache-budget-v1",
     "host-image-protection-v1",
     "host-reader-cache-boundary-v1",
-    "host-incognito-partitioned-cookies-v1"
+    "host-incognito-partitioned-cookies-v1",
+    "host-generic-source-rules-v3"
   ],
   "files": [
     {
@@ -25,7 +26,7 @@
       "source": "application",
       "upstreamPath": "entry/src/main/ets/core/book/WebBookService.ts",
       "upstreamSha256": "2a0beefda42e7ddf61b0fdf6fc0952b556565c9b379e528e171493f294964218",
-      "sha256": "87304988978d0238a5e8aae5df9db47c84cd411330c02f6e7068fc7eca766c11"
+      "sha256": "d5c138f6cf5dc5ed188b729613c8dc5248803bcc9b9f034f2f4f7a7a995b801d"
     },
     {
       "path": "core/host/SourceEngineHost.ts",
@@ -340,7 +341,7 @@
       "source": "engine",
       "upstreamPath": "sourceengine/src/main/ets/core/rule/AnalyzeRule.ts",
       "upstreamSha256": "57e54d56c58c20879a62bec4b81b6413d4b5b0934548f48edf738f4e08aaf80d",
-      "sha256": "57e54d56c58c20879a62bec4b81b6413d4b5b0934548f48edf738f4e08aaf80d"
+      "sha256": "a9513292d2545aead459da78035cbb457564f527545106864f709123adf30693"
     },
     {
       "path": "core/rule/JavaRegexCompat.ts",
@@ -487,7 +488,7 @@
       "source": "application",
       "upstreamPath": "entry/src/main/ets/core/book/BookSourceDataUrlSupport.ts",
       "upstreamSha256": "4449254819182ae4cafa59de110f08e287a3d96e3ec8da195666dab44af8d004",
-      "sha256": "de176b0693eb05b7a62e1cb918b71286963afa91bcd05e5e6678070305335ca2"
+      "sha256": "1900f9cfd90095d833080df80461763525ac25949beddbf551d4093d5522d907"
     },
     {
       "path": "utils/CoverUrlNormalizer.ts",
@@ -606,7 +607,7 @@
       "source": "application",
       "upstreamPath": "entry/src/main/ets/core/book/SearchCoordinator.ts",
       "upstreamSha256": "aa441ec357c3bde8840f76efc2efe06f26afb41f92cdff182280fb9228b81781",
-      "sha256": "f7d913ba3c2fd45aada219d0464dc48086863878fddc02ca076a5dc6edd3c58e"
+      "sha256": "e781825834c8c0043e73176e5460d5ff4649796b44b98baa0e5db02d835c54a4"
     },
     {
       "path": "core/rule/PageCandidateUrl.ts",
@@ -634,7 +635,7 @@
       "source": "application",
       "upstreamPath": "entry/src/main/ets/core/book/ExploreCoordinator.ts",
       "upstreamSha256": "c0d371d8a106129bf70f8c44c8584d52f2389172d0b22705eb82b32a2aff8ef3",
-      "sha256": "36a6a2e0b610e24e8741093924c59a12538eebfe15f73fbb16cc489d03e19447"
+      "sha256": "f7a32bacd1b9b09e3a8a466bc70f1f158edcf22b7a3ce8fe3f834da60bc1ea73"
     },
     {
       "path": "core/book/ReaderInteractionProvider.ts",

@@ -8,7 +8,6 @@ import { LocalRuleContentResult, LocalRuleExecutionLimits, LocalRuleReaderAction
 import { LocalRuleExploreResult } from '../../model/LocalRulePanel';
 import { LightSourceBridge } from './light/LightSourceBridge';
 import { LightSourceRequest } from './light/LightSourceRequestPolicy';
-import { PodcastSourceAdapter } from './podcast/PodcastSourceAdapter';
 
 export class LocalRuleDispatcher {
   static async readerAction(source: LocalRuleSource, address: string, variables: Record<string, string>,
@@ -81,7 +80,6 @@ export class LocalRuleDispatcher {
     variables: Record<string, string> = {}, request?: LightSourceRequest): Promise<BookInfo | null> {
     if (request?.isCancelled()) return null;
     LocalRuleDispatcher.requireSource(source);
-    if (PodcastSourceAdapter.matches(source)) return PodcastSourceAdapter.detail(source);
     return LightSourceBridge.detail(source, bookUrl, variables, request);
   }
 
@@ -89,8 +87,7 @@ export class LocalRuleDispatcher {
     variables: Record<string, string> = {},
     onBatch?: (items: TocItem[]) => void): Promise<TocItem[]> {
     LocalRuleDispatcher.requireSource(source);
-    const items = PodcastSourceAdapter.matches(source) ? await PodcastSourceAdapter.toc(source)
-      : await LightSourceBridge.toc(source, tocUrl, variables);
+    const items = await LightSourceBridge.toc(source, tocUrl, variables);
     if (onBatch !== undefined) onBatch(items);
     return items;
   }
@@ -99,7 +96,6 @@ export class LocalRuleDispatcher {
     variables: Record<string, string> = {}, request?: LightSourceRequest,
     deferReaderImages: boolean = false): Promise<LocalRuleContentResult> {
     LocalRuleDispatcher.requireSource(source);
-    if (PodcastSourceAdapter.matches(source)) return PodcastSourceAdapter.content(source, chapterUrl);
     return LightSourceBridge.content(source, chapterUrl, variables, request, deferReaderImages);
   }
 
@@ -113,17 +109,6 @@ export class LocalRuleDispatcher {
     variables: Record<string, string> = {}): Promise<string> {
     const result = await LocalRuleDispatcher.resolveContent(source, chapterUrl, variables);
     return result.audioUrl;
-  }
-
-  /** 明确的本地音频直链无需先作为正文完整下载；返回 undefined 时继续原解析链。 */
-  static resolveDirectAudioRequest(source: LocalRuleSource, chapterUrl: string,
-    variables: Record<string, string> = {}): LocalRuleContentResult | undefined {
-    return undefined;
-  }
-
-  static getAudioHeaders(source: LocalRuleSource, _audioUrl: string,
-    variables: Record<string, string> = {}): Record<string, string> {
-    return {};
   }
 
   private static async searchStrict(source: LocalRuleSource, keyword: string,

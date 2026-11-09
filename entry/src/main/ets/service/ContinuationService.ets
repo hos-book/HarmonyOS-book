@@ -148,7 +148,6 @@ export class ContinuationService {
     state.isPlaying = false;
     const audioService = AudioService.getInstance();
     audioService.bind(state, context);
-    audioService.prewarmBookSource(book);
     if (snapshot.wasPlaying) {
       await audioService.playChapterAndSeek(book, chapter, progress.positionMs);
       await audioService.setSpeed(speed);

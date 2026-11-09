@@ -121,6 +121,60 @@ const replaceMethod = (text, signature, body) => {
   return text.replace(expression, body);
 };
 function adapt(name, text) {
+  if (name === 'core/rule/AnalyzeRule.ts') {
+    // Imported scripts own data payload construction; do not synthesize protocol-specific requests.
+    for (const method of ['evalEncodedDataUrlJs', 'evalRawEncodedValue', 'parseJsonSafe', 'pickValue', 'extractLiteralAssignment']) {
+      text = replaceMethod(text, 'private ' + method + '\\(', '');
+    }
+    text = text.replace('EncodedJsonMap, EncodedSourceUrl', 'EncodedSourceUrl');
+    const shortcut = /^ +const (\w+) = this\.evalEncodedDataUrlJs\([^\n]+\);\n +if \(\1\) return \1;\n/gm;
+    if ([...text.matchAll(shortcut)].length !== 3) throw new Error('Upstream data-script shortcut entries changed');
+    text = text.replace(shortcut, '').replace(/\n{3,}/g, '\n\n');
+  }
+  if (name === 'core/book/BookSourceDataUrlSupport.ts') {
+    const detectors = /^  static sourceUses\w+\(source: BookSource\): boolean \{\n    return false;\n  \}\n\n/gm;
+    if ([...text.matchAll(detectors)].length !== 2) throw new Error('Upstream retired source detectors changed');
+    text = text.replace(detectors, '');
+    for (const method of ['isEncodedSource', 'getSingleSitePlatformName', 'buildRequestUrl',
+      'normalizeExplorePlatform']) {
+      text = replaceMethod(text, 'static ' + method + '\\(', '');
+    }
+    for (const method of ['search', 'getExplorePlatforms', 'getExploreEntries', 'explore',
+      'getBookInfo', 'getChapterList', 'getContent']) {
+      text = replaceMethod(text, 'static async ' + method + '\\(', '');
+    }
+    text = text.replace('Book, BookChapter, BookSource, SearchBook', 'BookSource')
+      .replace(/^import \{ HttpClient \} from [^\n]+\n/m, '');
+    const entry = /export class ExploreDataUrlEntry \{\n  title: string = '';\n  url: string = '';\n\}\n/;
+    if (!entry.test(text)) throw new Error('Upstream retired discovery entry changed');
+    text = text.replace(entry, '').replace(/\n{3,}/g, '\n\n');
+  }
+  if (name === 'core/book/ExploreCoordinator.ts') {
+    const fallback = /^ +\} else if \(BookSourceDataUrlSupport\.sourceUses\w+\(source\)\) \{\n +platforms = await BookSourceDataUrlSupport\.getExplorePlatforms\(this\.http, source\);\n/m;
+    if (!fallback.test(text)) throw new Error('Upstream retired discovery fallback changed');
+    text = text.replace(fallback, '');
+    const request = /^    const built = BookSourceDataUrlSupport\.buildRequestUrl\(source, url, String\(page\)\);\n    if \(built\) return built;\n/m;
+    if (!request.test(text)) throw new Error('Upstream retired explore request shortcut changed');
+    text = text.replace(request, '');
+    const example = /^(    \/\/ Imported source lists commonly use unquoted keys immediately after the opening brace),\n    \/\/ for example [^\n]+\n/m;
+    if (!example.test(text)) throw new Error('Upstream source-list comment changed');
+    text = text.replace(example, '$1.\n');
+    const fieldRepairComment = /^        \/\/ Explore rules use the same Legado field grammar as search rules\. Some sources \(notably\n        \/\/ API-backed sources such as [^\n]+\n        \/\/ evaluator on the first pass; do the same scalar\/fallback repair used by search so the\n        \/\/ detail route never receives an unevaluated expression\.\n/m;
+    if (!fieldRepairComment.test(text)) throw new Error('Upstream explore field-repair comment changed');
+    text = text.replace(fieldRepairComment,
+      '        // Explore and search share the Legado field grammar. Repair unevaluated JSONPath/result\n' +
+      '        // expressions from the batch evaluator before passing a scalar URL to the detail route.\n');
+  }
+  if (name === 'core/book/SearchCoordinator.ts') {
+    const request = /^    const buildRequestUrl = BookSourceDataUrlSupport\.buildRequestUrl\(source, searchUrl, String\(this\.currentPage\),\n      keyword\);\n    if \(buildRequestUrl\) return buildRequestUrl;\n/m;
+    if (!request.test(text)) throw new Error('Upstream retired search request shortcut changed');
+    text = text.replace(request, '');
+  }
+  if (name === 'core/book/WebBookService.ts') {
+    const shortcuts = /^    if \(BookSourceDataUrlSupport\.isEncodedSource\([^\n]+\) \{\n[\s\S]*?^    \}\n/gm;
+    if ([...text.matchAll(shortcuts)].length !== 3) throw new Error('Upstream retired content shortcuts changed');
+    text = text.replace(shortcuts, '');
+  }
   text = readerCacheBoundary(name, text);
   if (name === 'core/book/ComicImagePipeline.ts') text = require('./light-image-protection.cjs')(text);
   if (name === 'core/book/ReaderCacheCoordinator.ts') {
@@ -244,7 +298,7 @@ generated.push({ name: 'LightAudioSupport.ts', original: files.get('core/book/Au
 const manifest = { schemaVersion: 2, sources, license: 'GPL-3.0',
   hashNormalization: 'LF',
   patches: ['host-visible-image-scheduling-v1', 'host-reader-cache-budget-v1', 'host-image-protection-v1',
-    'host-reader-cache-boundary-v1', 'host-incognito-partitioned-cookies-v1'],
+    'host-reader-cache-boundary-v1', 'host-incognito-partitioned-cookies-v1', 'host-generic-source-rules-v3'],
   files: generated.map(entry => ({ path: entry.name,
     ...provenance(entry.origin || locate(entry.name)),
     ...(entry.generated ? { generated: true } : {}),

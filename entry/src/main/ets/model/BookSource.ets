@@ -6,7 +6,7 @@
 export interface BookSource {
   bookSourceUrl: string;
   bookSourceName: string;
-  /** 可选来源类型：0/3=文本，1=音频，2=漫画；现有内置源不填写时按音频处理。 */
+  /** 可选来源类型：0/3=文本，1=音频，2=漫画。 */
   bookSourceType?: number;
   /** 是否参与聚合搜索；详情、目录和正文解析不受此字段限制。 */
   enabled?: boolean;

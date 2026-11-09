@@ -53,11 +53,9 @@ export class HttpClient {
   /**
    * 请求头里是否存在空值（去掉首尾空白后为空）。
    *
-   * 存在的理由：rcp 会**丢弃空值请求头**。把同一组头发到回显服务实测，
-   * rcp 送出的头里少了 `Authorization: ""` 和 `Qm-Params: ""`，而 @ohos.net.http 原样送出。
-   * 有些书源的网关要求这些头必须存在——七猫小说的接口缺任意一个都回 401，
-   * 而它的书源 header 里恰好有 `"AUTHORIZATION":""` 与 `"qm-params":""`。
-   * 这类请求必须换一条通道，见 requestLegacy。
+   * rcp 会丢弃空值请求头，而 @ohos.net.http 可以原样发送。
+   * 书源显式声明的空值请求头也属于请求契约，不能当成缺失值删除。
+   * 这类请求使用 requestLegacy 保留原始请求头。
    */
   static hasEmptyHeaderValue(headers: Record<string, string> | undefined): boolean {
     if (headers === undefined) return false;

@@ -55,7 +55,7 @@ const { LocalRuleSourceRemoteImporter: importer, RuleSourceRemoteImportFailure: 
   RuleSourceRemoteImportError: ImportError } = load('service/rulesource/LocalRuleSourceRemoteImporter.ets');
 const { LocalRuleSourceImportParser: parser } = load('service/rulesource/LocalRuleSourceImportParser.ets');
 const body = JSON.stringify({ value: [
-  { bookSourceName: '书山示例定义', bookSourceUrl: '书山聚合' },
+  { bookSourceName: '测试导入定义', bookSourceUrl: '测试来源标识' },
   { bookSourceName: '通用规则示例', bookSourceUrl: 'https://source.example',
     searchUrl: '/search?q={{key}}', loginUi: [{ name: '登录', action: 'login()' }],
     loginUrl: 'function login() {}', jsLib: 'function helper() {}',
@@ -86,7 +86,7 @@ async function main() {
     assert.ok(importer.isRemote(shared));
     const report = parser.parse(await importer.resolve(shared));
     assert.equal(report.sources.length, 2);
-    assert.equal(report.sources[0].bookSourceUrl, '书山聚合');
+    assert.equal(report.sources[0].bookSourceUrl, '测试来源标识');
     assert.equal(report.sources[1].loginUrl, 'function login() {}');
     assert.equal(report.sources[1].jsLib, 'function helper() {}');
     assert.equal(report.sources[1].hasSearchCapability(), true);

@@ -27,7 +27,6 @@ import { DownloadService } from './DownloadService';
 import { WidgetUpdater } from './WidgetUpdater';
 import { PlaybackStore } from './PlaybackStore';
 import { BookUsageInput, StatsService } from './StatsService';
-import { getWebViewAudioExtractor } from './builtin/WebViewAudioExtractor';
 import { AudioFocusService } from './AudioFocusService';
 import { ChapterProgressPolicy } from './ChapterProgressPolicy';
 import { DiagnosticLogService } from './DiagnosticLogService';
@@ -268,14 +267,6 @@ export class AudioService {
     if (timer >= 0) clearTimeout(timer);
   }
 
-  prewarmBookSource(book: Book): void {
-    if (!book.sourceUrl) return;
-    this.prepareBookSource(book.sourceUrl).catch((err: Error): void => {
-      hilog.warn(DOMAIN, TAG, 'prewarmBookSource failed: %{public}s',
-        err?.message ?? JSON.stringify(err));
-    });
-  }
-
   async openCastPicker(): Promise<boolean> {
     if (!this.context || !this.state || !this.state.currentBook || !this.state.currentChapter) return false;
     const book = this.state.currentBook;
@@ -285,10 +276,6 @@ export class AudioService {
     if (!castUrl) return false;
     AVSessionService.getInstance().updateCastMediaSource(book, chapter, castUrl);
     return AVSessionService.getInstance().openCastPicker();
-  }
-
-  private async prepareBookSource(sourceUrl: string): Promise<void> {
-    await BookSourceService.prepareAudioSource(sourceUrl);
   }
 
   bind(state: PlayerState, context: common.UIAbilityContext): void {
@@ -1075,27 +1062,6 @@ export class AudioService {
     this.state.savedDurationMs = saved;
   }
 
-  /**
-   * 同步判断目标章节是否走"快路径":
-   * - source.type === 'file' / 'rawfile': 已经是本地文件,无需嗅探
-   * - source.type === 'url' 且长期下载 / ChapterCacheService 已有文件 / 已解析 URL: 命中
-   *
-   * 命中时切书过程整体 ~300-600ms 就能 prepared,UI 不必显示 loading 圈,
-   * 给用户"瞬间切换"的观感。
-   */
-  private isFastSwitchPath(book: Book, chapter: Chapter): boolean {
-    if (chapter.source.type === 'rawfile') return true;
-    if (DownloadService.getInstance().getDownloadedFilePath(book.id, chapter)) return true;
-    const cache = ChapterCacheService.getInstance();
-    // 关闭预加载后，临时章节缓存不参与切章命中，确保每次切章都重新请求书源接口。
-    if (!cache.isPreloadEnabled()) return false;
-    if (chapter.source.type === 'file') return true;
-    const pageUrl = chapter.originSourceValue || chapter.source.value;
-    if (cache.getAudioFilePath(book.id, chapter.id, pageUrl)) return true;
-    if (cache.getAudioUrl(chapter.id)) return true;
-    return false;
-  }
-
   private async doPlayChapter(book: Book, chapter: Chapter, seekMs: number, forceReload: boolean = false): Promise<void> {
     if (!this.state || !this.context || PlaybackCoordinator.speechActive) return;
     LibrarySyncActivity.remotePlayback.delete(book.id);
@@ -1116,14 +1082,6 @@ export class AudioService {
     ChapterCacheService.getInstance().suspendPreload(forceReload ? '' : chapter.id);
     this.currentAudioHeaders = {};
     this.tracePlayback('chapter-load');
-    // 目标已有缓存或正在解析时保留嗅探，切章接手同一请求。
-    const fastPath = !forceReload && (this.isFastSwitchPath(book, chapter) ||
-      ChapterCacheService.getInstance().getPendingAudioResolve(book, chapter) !== undefined);
-    // 快路径不需要 WebView 嗅探，不调 cancelPending——避免把预加载正在跑的嗅探取消掉，
-    // 导致后续慢路径章节的 URL 解析也被波及（WebView extractor 串行，cancel 会丢队列中的任务）。
-    if (!fastPath) {
-      try { getWebViewAudioExtractor().cancelPending(); } catch (_e) { /* ignore */ }
-    }
     this.isApplying = true;
     try {
       // 0) 先停旧 player(避免新 URL 嗅探的几秒内旧音频还在响 + 旧 timeUpdate 污染 progressMs)
@@ -1353,7 +1311,7 @@ export class AudioService {
           ChapterRuleContext.create(chapter.title, chapter.index - 1, chapter.variables));
       } finally { this.tracePlaybackDuration('resolveAudioRequest', requestStartedAt, generation); }
       const audioUrl = requestInfo.url;
-      // 解析失败时书源层会原样回传章节页 URL（如 tingyou://play/...），
+      // 解析失败时书源层会原样回传章节页 URL（如 source://chapter/...），
       // 必须校验后才算成功，否则假地址会被装进 AVPlayer 并报“音频源不可用”，
       // 还会跳过 doPlayChapter 的解析重试。
       if (DownloadPolicy.isResolvedAudioUrl(pageUrl, audioUrl, requestInfo.resolved)) {

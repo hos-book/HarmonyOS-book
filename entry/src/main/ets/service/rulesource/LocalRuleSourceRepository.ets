@@ -214,6 +214,21 @@ export class LocalRuleSourceRepository {
     }
   }
 
+  /** 推荐只读取少量候选地址，完整规则在实际使用该源时逐个查询。 */
+  static async getRecommendationSourceUrls(limit: number): Promise<string[]> {
+    const count = Number.isFinite(limit) ? Math.max(1, Math.min(6, Math.floor(limit))) : 6;
+    const store = await LocalRuleSourceRepository.ensureStore();
+    const rows = await store.querySql(
+      `SELECT source_url FROM ${TABLE_NAME} WHERE enabled = 1 AND source_type IN (0, 1, 2, 3) ` +
+      `AND source_url NOT LIKE 'builtin://%' ORDER BY (validation_status = ?) DESC, RANDOM() LIMIT ?`,
+      [LocalRuleSourceStatus.READY, count]);
+    const urls: string[] = [];
+    try {
+      while (rows.goToNextRow()) urls.push(rows.getString(0));
+      return urls;
+    } finally { rows.close(); }
+  }
+
   static async getAll(): Promise<LocalRuleSource[]> {
     return LocalRuleSourceRepository.list();
   }

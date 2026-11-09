@@ -133,7 +133,6 @@ async function fixture(initialState = 'paused', realUsage = false) {
     './ChapterCacheService': { ChapterCacheService: { getInstance: () => cache } },
     './SourceDataService': { SourceDataService: { getSourceByUrl: async () => ({}) } },
     './BookSourceService': { BookSourceService: { prepareAudioChapter: async () => {} } },
-    './builtin/WebViewAudioExtractor': { getWebViewAudioExtractor: () => ({ cancelPending() { cacheCalls.push('cancel-extractor'); } }) },
     './DownloadService': { DownloadService: { getInstance: () => ({ getDownloadedFilePath: () => null }) } },
     './PlaybackCoordinator': coordinatorModule.exports,
     '@kit.MediaKit': { media: { createAVPlayer: async () => player, SeekMode: { SEEK_PREV_SYNC: 0 },
@@ -974,7 +973,6 @@ async function check(name, test) {
       complete();
       await resultTask;
       assert.notEqual(loadedHeaders, undefined);
-      assert.equal(f.cacheCalls.includes('cancel-extractor'), false, 'Keep the selected preparse sniffer alive');
       assert.equal(foregroundCalls, success ? 0 : 1);
       assert.equal(chapter.source.value, success ? 'https://cdn.test/shared.mp3' : 'https://cdn.test/fallback.mp3');
       if (success) assert.equal(loadedHeaders.Referer, 'https://source.test');

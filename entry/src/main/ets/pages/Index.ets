@@ -5,7 +5,6 @@ import { MainPage } from './MainPage';
 import { HiCarPage } from './HiCarPage';
 import { HiCarState } from '../model/HiCar';
 import { HiCarService } from '../service/HiCarService';
-import { PodcastPage } from './PodcastPage';
 import { WebEngineGate } from '../service/WebEngineGate';
 import { WebBookFetchRuntimeHost } from '../service/rulesource/light/WebBookFetchRuntimeHost';
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
@@ -40,8 +39,6 @@ import { ComicReaderPage } from './ComicReaderPage';
 import { ReaderPage } from './ReaderPage';
 import { SearchPage } from './SearchPage';
 import { RuleSourcePage } from './RuleSourcePage';
-import { RuleSourceAccountPage } from './RuleSourceAccountPage';
-import { RuleSourceChildrenPage } from './RuleSourceChildrenPage';
 import { RuleSourceLoginPage } from './RuleSourceLoginPage';
 import { RuleSourceEditPage } from './RuleSourceEditPage';
 import { RuleSourceDebugPage } from './RuleSourceDebugPage';
@@ -640,8 +637,6 @@ struct Index {
       .systemTransition(NavigationSystemTransitionType.SLIDE_RIGHT)
     } else if (name === 'search') {
       SearchPage({ navStack: this.navStack, initialKeyword: this.resolveParam(param, 'keyword') })
-    } else if (name === 'podcast') {
-      PodcastPage({ navStack: this.navStack })
     } else if (name === 'achievements') {
       AchievementPage({ navStack: this.navStack })
     } else if (name === 'account') {
@@ -708,14 +703,6 @@ struct Index {
     } else if (name === 'ruleSources') {
       // RuleSourcePage 自带 ProfileMenuDestination：页内多级视图需拦截侧滑返回
       RuleSourcePage({ navStack: this.navStack })
-    } else if (name === 'ruleSourceAccount') {
-      ProfileMenuDestination() {
-        RuleSourceAccountPage({ navStack: this.navStack, sourceUrl: String(param) })
-      }
-    } else if (name === 'ruleSourceChildren') {
-      ProfileMenuDestination({ pageBackground: $r('sys.color.background_secondary') }) {
-        RuleSourceChildrenPage({ navStack: this.navStack, sourceUrl: String(param) })
-      }
     } else if (name === 'ruleSourceLogin') {
       ProfileMenuDestination() {
         RuleSourceLoginPage({

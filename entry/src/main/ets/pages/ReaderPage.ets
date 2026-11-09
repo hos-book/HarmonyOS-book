@@ -3519,10 +3519,7 @@ export struct ReaderPage {
             Row() {
               this.buildReaderColumn(0)
               if (this.currentOnlineTextPageLayout().columns.length > 0) {
-                Stack() {
-                  Divider().vertical(true).height('calc(100% - 16vp)').strokeWidth(0.5)
-                    .color(this.palette.primary).opacity(0.16)
-                }.width(READER_COLUMN_GAP).height('100%').hitTestBehavior(HitTestMode.None)
+                Blank().width(READER_COLUMN_GAP).height('100%').hitTestBehavior(HitTestMode.None)
                 this.buildReaderColumn(1)
               }
             }.width('100%').height('100%').alignItems(VerticalAlign.Top)
@@ -3568,6 +3565,7 @@ export struct ReaderPage {
           safeLeft: this.leftSafeVp, safeRight: this.rightSafeVp,
           safeTop: this.readerTopInsetVp() + Math.max(0, this.marginTop - 12) + this.readerHeaderHeight(),
           safeBottom: this.readerTextBottomPaddingVp(),
+          footerHeight: this.readerFooterHeight(),
           keyTurnRequest: this.keyTurnRequest,
           mode: this.pageTurnMode,
           spread: this.useReaderColumns(),

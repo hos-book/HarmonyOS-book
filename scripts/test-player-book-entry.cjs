@@ -25,7 +25,7 @@ function book(id, sourceUrl = id) {
 function setup({ cached, stored = null, current = book('正在播放的书'), available = false, answer = 1 } = {}) {
   const events = [], dialogs = [], exports = {};
   const audio = { whenReady: async () => {}, setPlayMode: () => {}, bind: () => {},
-    prewarmBookSource: () => {}, toggle: async () => events.push('toggle'),
+    toggle: async () => events.push('toggle'),
     seekBy: () => events.push('seek'),
     playChapterFromSavedProgress: async b => events.push(`play:${b.id}`) };
   vm.runInNewContext(compiled, { exports, console: { error() {} },

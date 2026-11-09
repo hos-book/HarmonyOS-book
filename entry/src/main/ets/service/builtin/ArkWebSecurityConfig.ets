@@ -9,7 +9,7 @@ let configured: boolean = false;
 
 /**
  * Configures process-wide ArkWeb security before the first Web component initializes the engine.
- * Keep script/runtime features enabled because TingYou authentication depends on site JavaScript.
+ * Keep script/runtime features enabled because imported-source login pages can depend on site JavaScript.
  */
 export function configureArkWebSecurity(): void {
   if (configured || !PlatformCompat.supports(26)) return;

@@ -22,11 +22,6 @@ import { LocalRuleSourceRepository } from '../service/rulesource/LocalRuleSource
 import { LocalRuleSourceCodec } from '../service/rulesource/LocalRuleSourceCodec';
 import { LocalRuleTlsTrustStore } from '../service/rulesource/LocalRuleTlsTrustStore';
 import { LightSourceCookies as LocalRuleHttpClient } from '../service/rulesource/light/LightSourceCookies';
-import {
-  RuleSourceAccountService,
-  RuleSourceAccountState
-} from '../service/rulesource/RuleSourceAccountService';
-import { RuleSourceChildService } from '../service/rulesource/RuleSourceChildService';
 import { SourceDataService } from '../service/SourceDataService';
 import { AppTheme, AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
 import { CharsetCodec } from '../utils/CharsetCodec';
@@ -171,13 +166,6 @@ export struct RuleSourcePage {
   private async refreshLoginStatuses(): Promise<void> {
     const revision = LocalRuleSourceRepository.getLoginRevision();
     const statuses = await LocalRuleSourceRepository.listLoginStatuses();
-    for (const source of this.allSources) {
-      if (RuleSourceAccountService.supports(source.bookSourceUrl)) {
-        const state = await RuleSourceAccountService.getState(source.bookSourceUrl);
-        if (state.loggedIn) statuses.set(source.bookSourceUrl, 'valid');
-        else if (state.expired) statuses.set(source.bookSourceUrl, 'expired');
-      }
-    }
     this.loginStatuses = statuses;
     this.loginRevision = revision;
   }
@@ -1002,11 +990,6 @@ export struct RuleSourcePage {
       item.bookSourceUrl === cardSource.bookSourceUrl);
     if (source === undefined) return;
     if (this.busySourceUrl.length > 0 || this.isImporting || this.isBulkTesting || !source.canExecute()) return;
-    if (!(await this.hasMainAccount(source))) {
-      this.showToast($r('app.string.rule_source_account_required_for_test'));
-      this.openMainAccount(source);
-      return;
-    }
     this.busySourceUrl = source.bookSourceUrl;
     try {
       const health = await BookSourceService.testLocalSource(source, RULE_SOURCE_TEST_KEYWORD);
@@ -1034,27 +1017,7 @@ export struct RuleSourcePage {
       return source.loginUrl.trim().length > 0 || source.loginUi.trim().length > 0;
     }
     if (TalebookSourceIdentity.isSourceUrl(source.bookSourceUrl)) return true;
-    if (RuleSourceChildService.supports(source.bookSourceUrl)) return false;
     return source.loginUrl.trim().toLowerCase().startsWith('https://');
-  }
-
-  private async hasMainAccount(source: LocalRuleSource): Promise<boolean> {
-    if (!RuleSourceAccountService.supports(source.bookSourceUrl)) return true;
-    const state: RuleSourceAccountState = await RuleSourceAccountService.getState(source.bookSourceUrl);
-    return state.loggedIn;
-  }
-
-  private openMainAccount(source: LocalRuleSource): void {
-    if (this.busySourceUrl.length > 0 || this.isImporting || this.isBulkTesting) return;
-    if (!RuleSourceAccountService.supports(source.bookSourceUrl)) return;
-    if (RuleSourceAccountService.usesWebLogin(source.bookSourceUrl)) {
-      const loginUrl = RuleSourceAccountService.webLoginUrl(source.bookSourceUrl);
-      const route = RuleSourceLoginRouteParams.forMainAccount(
-        source.bookSourceUrl, source.bookSourceName, loginUrl);
-      if (route.isValid()) this.navStack.pushPathByName('ruleSourceLogin', route);
-      return;
-    }
-    this.navStack.pushPathByName('ruleSourceAccount', source.bookSourceUrl);
   }
 
   private openSourceLogin(source: LocalRuleSource): void {
@@ -1076,12 +1039,6 @@ export struct RuleSourcePage {
     } else {
       this.openSourceLogin(source);
     }
-  }
-
-  private openSourceChildren(source: LocalRuleSource): void {
-    if (this.busySourceUrl.length > 0 || this.isImporting || this.isBulkTesting) return;
-    if (!RuleSourceChildService.supports(source.bookSourceUrl)) return;
-    this.navStack.pushPathByName('ruleSourceChildren', source.bookSourceUrl);
   }
 
   private confirmDelete(source: LocalRuleSource): void {
@@ -2446,7 +2403,7 @@ export struct RuleSourcePage {
 
         if (!this.isEditMode) {
           if (item.source.exploreUrl.length > 0 || item.source.loginUi.length > 0 ||
-            RuleSourceAccountService.supports(item.source.bookSourceUrl) || this.canOpenSourceLogin(item.source)) {
+            this.canOpenSourceLogin(item.source)) {
             Row({ space: AppSpace.Xs }) {
               if (item.source.exploreUrl.length > 0) {
                 Button($r('app.string.rule_source_explore'), { type: ButtonType.Normal })
@@ -2455,7 +2412,7 @@ export struct RuleSourcePage {
                   .enabled(item.source.enabledExplore && !this.isBulkTesting && !this.isImporting)
                   .onClick(() => this.navStack.pushPathByName('ruleSourceExplore', item.source.bookSourceUrl))
               }
-              if (item.source.loginUi.length > 0 || RuleSourceAccountService.supports(item.source.bookSourceUrl) ||
+              if (item.source.loginUi.length > 0 ||
                 this.canOpenSourceLogin(item.source)) {
                 Button(this.sourceLoginLabel(item.source), { type: ButtonType.Normal })
                   .layoutWeight(1).height(40).borderRadius(AppRadius.Sm)
@@ -2528,28 +2485,6 @@ export struct RuleSourcePage {
               this.busySourceUrl.length === 0)
             .accessibilityText($r('app.string.rule_source_test_action'))
             .onClick(() => this.testSource(item.source))
-
-            if (RuleSourceChildService.supports(item.source.bookSourceUrl)) {
-              Button() {
-                Row({ space: AppSpace.Xxs }) {
-                  SymbolGlyph($r('sys.symbol.list_bullet'))
-                    .fontSize(16)
-                    .fontColor([AppColor.Brand])
-                  Text($r('app.string.rule_source_child_action'))
-                    .fontSize(AppFont.Caption)
-                    .fontColor(AppColor.Brand)
-                }
-                .justifyContent(FlexAlign.Center)
-              }
-              .layoutWeight(1)
-              .height(36)
-              .constraintSize({ minWidth: 0 })
-              .backgroundColor(AppTheme.SettingsBackground)
-              .borderRadius(AppRadius.Sm)
-              .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
-              .accessibilityText($r('app.string.rule_source_child_action'))
-              .onClick(() => this.openSourceChildren(item.source))
-            }
 
             Button() {
               Row({ space: AppSpace.Xxs }) {

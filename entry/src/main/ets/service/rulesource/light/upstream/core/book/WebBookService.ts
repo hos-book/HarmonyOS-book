@@ -116,9 +116,6 @@ export class WebBookService {
     // Preserve its request data and bridge the SearchBook identity that is already known.
     book.bookUrl = EncodedSourceUrl.repairBookName(book.bookUrl, book.name, 'details');
     BookSourceMetadataSupport.applyBook(source, book, [book.bookUrl]);
-    if (BookSourceDataUrlSupport.isEncodedSource(book.bookUrl)) {
-      return await BookSourceDataUrlSupport.getBookInfo(this.http, source, book);
-    }
     console.log('[WS] getBookInfo');
     const au = new AnalyzeUrl(source, this.http).setCancelCheck((): boolean => this.isPreparationCancelled());
     const resp = EncodedSourceUrl.canHandle(book.bookUrl) ?
@@ -357,10 +354,6 @@ export class WebBookService {
     }
     BookSourceMetadataSupport.applyBook(source, book, [book.bookUrl, book.tocUrl]);
     const chapterLimit = maxChapters > 0 ? Math.max(1, Math.round(maxChapters)) : 0;
-    if (BookSourceDataUrlSupport.isEncodedSource(book.tocUrl) || BookSourceDataUrlSupport.isEncodedSource(book.bookUrl)) {
-      const encodedChapters = await BookSourceDataUrlSupport.getChapterList(this.http, source, book);
-      return chapterLimit > 0 ? encodedChapters.slice(0, chapterLimit) : encodedChapters;
-    }
     console.log('[WS] getChapterList');
     const tocUrl = this.resolveTocUrl(source, book);
     const au = new AnalyzeUrl(source, this.http).setCancelCheck((): boolean => this.isPreparationCancelled());
@@ -767,24 +760,6 @@ export class WebBookService {
     // Validation and reader diagnostics must describe the current content request, not a
     // stale error left by a previous catalog/script stage.
     SourceEngineHost.setError(source, '');
-    if (BookSourceDataUrlSupport.isEncodedSource(chapter.url)) {
-      const shortcutContent = await BookSourceDataUrlSupport.getContent(this.http, source, book, chapter);
-      if (this.contentRequestCanceled(shouldCancel)) return '';
-      const shortcutAudio = source.bookSourceType === 1 || (Number(book.type) & 32) !== 0;
-      if (!shortcutContent || shortcutAudio) return shortcutContent.trim();
-      const interactiveContent = await BookSourceInteractionPostProcessor.process(source, book, chapter,
-        shortcutContent);
-      if (this.contentRequestCanceled(shouldCancel)) return '';
-      const shortcutContext = new RuleContext();
-      shortcutContext.loadFromJson(book.variable);
-      this.seedBookVariables(shortcutContext, book.bookUrl);
-      this.seedSourceVariables(shortcutContext, source);
-      this.seedChapterVariables(shortcutContext, chapter);
-      return await this.normalizeReaderContent(source,
-        this.applyContentReplaceRule(interactiveContent, source.contentRule.replaceRegex, shortcutContext, chapter,
-          debugContext),
-        chapter.url || book.bookUrl || source.bookSourceUrl, [], (): boolean => false, imageRequest);
-    }
     const isAudioContent = source.bookSourceType === 1 || (Number(book.type) & 32) !== 0;
     if (isAudioContent) {
       const audioRule = (source.contentRule.content || '').trim();

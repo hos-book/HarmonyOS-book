@@ -4,7 +4,6 @@ export class RuleSourceLoginRouteParams {
   sourceUrl: string = '';
   displayName: string = '';
   loginUrl: string = '';
-  isMainAccount: boolean = false;
   requestId: string = '';
   initialHtml: string = '';
   injectJs: string = '';
@@ -14,13 +13,6 @@ export class RuleSourceLoginRouteParams {
     params.sourceUrl = sourceUrl.trim();
     params.displayName = displayName.trim();
     params.loginUrl = loginUrl.trim();
-    return params;
-  }
-
-  static forMainAccount(sourceUrl: string, displayName: string,
-    loginUrl: string): RuleSourceLoginRouteParams {
-    const params = RuleSourceLoginRouteParams.of(sourceUrl, displayName, loginUrl);
-    params.isMainAccount = true;
     return params;
   }
 

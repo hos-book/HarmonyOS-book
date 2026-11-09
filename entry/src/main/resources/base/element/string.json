@@ -81,254 +81,6 @@
       "value": "请先在播放页的 AI 字幕中下载识别模型"
     },
     {
-      "name": "podcast_curated",
-      "value": "★ 精选"
-    },
-    {
-      "name": "podcast_growth",
-      "value": "自我成长"
-    },
-    {
-      "name": "podcast_business",
-      "value": "商业财经"
-    },
-    {
-      "name": "podcast_culture",
-      "value": "人文历史"
-    },
-    {
-      "name": "podcast_tech",
-      "value": "科技新知"
-    },
-    {
-      "name": "podcast_life",
-      "value": "生活方式"
-    },
-    {
-      "name": "podcast_hero_eyebrow",
-      "value": "精选播客 · 此刻开听"
-    },
-    {
-      "name": "podcast_for_you",
-      "value": "猜你喜欢"
-    },
-    {
-      "name": "podcast_shuffle",
-      "value": "换一组"
-    },
-    {
-      "name": "podcast_top_list",
-      "value": "TOP LIST"
-    },
-    {
-      "name": "podcast_latest_chart",
-      "value": "新鲜单集"
-    },
-    {
-      "name": "podcast_treasures",
-      "value": "宝藏播客"
-    },
-    {
-      "name": "podcast_more",
-      "value": "为你推荐更多"
-    },
-    {
-      "name": "podcast_feed_too_large",
-      "value": "节目订阅文件超过 500 MB"
-    },
-    {
-      "name": "podcast_timeout",
-      "value": "连接节目服务器超时，请稍后重试"
-    },
-    {
-      "name": "podcast_title",
-      "value": "播客"
-    },
-    {
-      "name": "podcast_subscribe_play",
-      "value": "订阅并播放"
-    },
-    {
-      "name": "podcast_platform_xyz",
-      "value": "小宇宙"
-    },
-    {
-      "name": "podcast_platform_xm",
-      "value": "喜马拉雅"
-    },
-    {
-      "name": "podcast_platform_qt",
-      "value": "蜻蜓"
-    },
-    {
-      "name": "podcast_platform_lz",
-      "value": "荔枝"
-    },
-    {
-      "name": "podcast_tagline",
-      "value": "在声音里，遇见更大的世界"
-    },
-    {
-      "name": "podcast_discover",
-      "value": "发现"
-    },
-    {
-      "name": "podcast_subscriptions",
-      "value": "我的订阅"
-    },
-    {
-      "name": "podcast_updates",
-      "value": "最新单集"
-    },
-    {
-      "name": "podcast_featured",
-      "value": "值得一听"
-    },
-    {
-      "name": "podcast_popular",
-      "value": "热门播客"
-    },
-    {
-      "name": "podcast_add",
-      "value": "添加播客"
-    },
-    {
-      "name": "podcast_add_hint",
-      "value": "粘贴节目的 RSS 订阅地址，预览后即可订阅。支持最大 500 MB 的 RSS 文件。"
-    },
-    {
-      "name": "podcast_url_placeholder",
-      "value": "https://…/feed.xml"
-    },
-    {
-      "name": "podcast_preview",
-      "value": "预览节目"
-    },
-    {
-      "name": "podcast_subscribe",
-      "value": "订阅节目"
-    },
-    {
-      "name": "podcast_subscribed",
-      "value": "已订阅"
-    },
-    {
-      "name": "podcast_unsubscribe",
-      "value": "取消订阅"
-    },
-    {
-      "name": "podcast_refresh",
-      "value": "刷新播客"
-    },
-    {
-      "name": "podcast_loading",
-      "value": "正在寻找好声音…"
-    },
-    {
-      "name": "podcast_search",
-      "value": "搜索播客"
-    },
-    {
-      "name": "podcast_empty_title",
-      "value": "把喜欢的声音，留在这里"
-    },
-    {
-      "name": "podcast_empty_hint",
-      "value": "从发现页挑选节目，或添加 RSS 地址。订阅后，新单集会出现在这里。"
-    },
-    {
-      "name": "podcast_no_results",
-      "value": "没有找到匹配的节目"
-    },
-    {
-      "name": "podcast_episode_count",
-      "value": "%d 个单集"
-    },
-    {
-      "name": "podcast_subscription_count",
-      "value": "%d 个订阅"
-    },
-    {
-      "name": "podcast_minutes",
-      "value": "%d 分钟"
-    },
-    {
-      "name": "podcast_play",
-      "value": "播放单集"
-    },
-    {
-      "name": "podcast_playing",
-      "value": "正在播放"
-    },
-    {
-      "name": "podcast_back",
-      "value": "返回播客"
-    },
-    {
-      "name": "podcast_all",
-      "value": "全部"
-    },
-    {
-      "name": "podcast_directory_credit",
-      "value": "节目目录来自 getpodcast.xyz"
-    },
-    {
-      "name": "podcast_directory_failed",
-      "value": "暂时没能获取节目目录，可以下拉重试或添加 RSS 订阅。"
-    },
-    {
-      "name": "podcast_invalid_url",
-      "value": "请输入有效的 HTTP 或 HTTPS 订阅地址"
-    },
-    {
-      "name": "podcast_invalid_feed",
-      "value": "这个地址没有返回可用的 RSS 或 Atom 节目，请检查订阅地址"
-    },
-    {
-      "name": "podcast_no_audio",
-      "value": "节目中暂时没有可播放的公开音频"
-    },
-    {
-      "name": "podcast_load_failed",
-      "value": "节目暂时加载失败，请稍后重试"
-    },
-    {
-      "name": "podcast_storage_failed",
-      "value": "播客订阅保存失败，请重试"
-    },
-    {
-      "name": "podcast_subscription_failed",
-      "value": "节目已解析，但订阅未能完成，请重试"
-    },
-    {
-      "name": "podcast_programme_count",
-      "value": "%d 个节目"
-    },
-    {
-      "name": "podcast_source_conflict",
-      "value": "这个地址已用于其他书源，请换一个 RSS 地址"
-    },
-    {
-      "name": "podcast_source_missing",
-      "value": "节目的内容源已被删除，请重新订阅"
-    },
-    {
-      "name": "podcast_partial_refresh",
-      "value": "部分节目未能更新，已保留原有单集"
-    },
-    {
-      "name": "podcast_rss_unavailable",
-      "value": "这个节目暂未提供可用的 RSS 地址"
-    },
-    {
-      "name": "podcast_preview_required",
-      "value": "请先订阅节目，再播放单集"
-    },
-    {
-      "name": "podcast_try_again",
-      "value": "重新加载"
-    },
-    {
       "name": "reader_auto_page_title",
       "value": "自动翻页"
     },
@@ -2813,10 +2565,6 @@
       "value": "从已导入书源中查找"
     },
     {
-      "name": "home_tingyou_source_label",
-      "value": "精品推荐"
-    },
-    {
       "name": "home_source_required",
       "value": "先导入并启用可用书源，简简才能帮你找书哦"
     },
@@ -3893,148 +3641,8 @@
       "value": "测试"
     },
     {
-      "name": "rule_source_account_action",
-      "value": "账号"
-    },
-    {
-      "name": "rule_source_account_title",
-      "value": "主书源账号"
-    },
-    {
-      "name": "rule_source_account_email",
-      "value": "邮箱"
-    },
-    {
-      "name": "rule_source_account_email_invalid",
-      "value": "请输入正确的邮箱地址"
-    },
-    {
-      "name": "rule_source_account_password",
-      "value": "密码"
-    },
-    {
-      "name": "rule_source_account_logged_in",
-      "value": "已登录"
-    },
-    {
-      "name": "rule_source_account_logged_out",
-      "value": "未登录"
-    },
-    {
-      "name": "rule_source_account_logging_in",
-      "value": "登录中"
-    },
-    {
-      "name": "rule_source_account_login",
-      "value": "登录"
-    },
-    {
-      "name": "rule_source_account_login_success",
-      "value": "书源登录成功啦"
-    },
-    {
-      "name": "rule_source_account_logout",
-      "value": "退出登录"
-    },
-    {
-      "name": "rule_source_account_logout_success",
-      "value": "已退出登录"
-    },
-    {
-      "name": "rule_source_account_register",
-      "value": "注册账号"
-    },
-    {
-      "name": "rule_source_account_register_failed",
-      "value": "无法打开注册页"
-    },
-    {
-      "name": "rule_source_account_required",
-      "value": "请输入邮箱和密码"
-    },
-    {
-      "name": "rule_source_account_required_for_test",
-      "value": "请先登录主书源后再测试"
-    },
-    {
-      "name": "rule_source_account_web_required",
-      "value": "请先在网页中完成登录"
-    },
-    {
-      "name": "rule_source_account_clear_message",
-      "value": "将清除当前主书源的账号登录状态。"
-    },
-    {
       "name": "rule_source_login_action",
       "value": "登录"
-    },
-    {
-      "name": "rule_source_child_action",
-      "value": "子书源"
-    },
-    {
-      "name": "rule_source_child_title",
-      "value": "聚合子书源"
-    },
-    {
-      "name": "rule_source_child_refresh",
-      "value": "刷新子书源"
-    },
-    {
-      "name": "rule_source_child_search_placeholder",
-      "value": "搜索子书源"
-    },
-    {
-      "name": "rule_source_child_filter_all",
-      "value": "全部"
-    },
-    {
-      "name": "rule_source_child_count_unit",
-      "value": "个子源"
-    },
-    {
-      "name": "rule_source_child_catalog_refreshing",
-      "value": "正在刷新在线状态"
-    },
-    {
-      "name": "rule_source_child_catalog_updated",
-      "value": "在线状态已更新"
-    },
-    {
-      "name": "rule_source_child_catalog_fallback",
-      "value": "已显示内置目录，在线状态未刷新"
-    },
-    {
-      "name": "rule_source_child_status_known",
-      "value": "目录内"
-    },
-    {
-      "name": "rule_source_child_status_active",
-      "value": "本次有结果"
-    },
-    {
-      "name": "rule_source_child_status_disabled",
-      "value": "当前停用"
-    },
-    {
-      "name": "rule_source_child_result_unit",
-      "value": "条结果"
-    },
-    {
-      "name": "rule_source_child_web_login",
-      "value": "登录"
-    },
-    {
-      "name": "rule_source_child_login_failed",
-      "value": "无法打开网页登录页"
-    },
-    {
-      "name": "rule_source_child_refresh_failed",
-      "value": "子源在线状态刷新失败"
-    },
-    {
-      "name": "rule_source_child_empty",
-      "value": "还没找到匹配的子书源"
     },
     {
       "name": "rule_source_test_keyword",
@@ -4171,10 +3779,6 @@
     {
       "name": "rule_source_login_https_only",
       "value": "已阻止非 HTTPS 页面"
-    },
-    {
-      "name": "rule_source_login_domain_blocked",
-      "value": "已阻止跳转到非书源登录站点"
     },
     {
       "name": "settings_content_source_group",
@@ -4835,10 +4439,6 @@
     {
       "name": "source_login_none",
       "value": "未登录"
-    },
-    {
-      "name": "rule_source_login_no_session",
-      "value": "未获取到登录会话，请完成网页登录后再保存"
     },
     {
       "name": "reader_pure_black",
@@ -5558,7 +5158,7 @@
     },
     {
       "name": "ranking_choose_version",
-      "value": "请选择作者、主播及版本相符的结果"
+      "value": "请选择喜欢的结果"
     },
     {
       "name": "ranking_last_choice",

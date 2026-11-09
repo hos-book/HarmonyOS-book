@@ -1419,9 +1419,6 @@ export class SearchCoordinator {
     if (stageUrl) return stageUrl;
     const scriptedFormUrl = await this.tryBuildScriptedFormSearchUrl(source, keyword, maxResponseBytes);
     if (scriptedFormUrl) return scriptedFormUrl;
-    const buildRequestUrl = BookSourceDataUrlSupport.buildRequestUrl(source, searchUrl, String(this.currentPage),
-      keyword);
-    if (buildRequestUrl) return buildRequestUrl;
     // Complete or complex JavaScript URLs are never retried in the synchronous compatibility
     // interpreter. A failed ArkWeb execution should fail this source, not freeze the UI thread.
     if (requiresStageRuntime) return '';

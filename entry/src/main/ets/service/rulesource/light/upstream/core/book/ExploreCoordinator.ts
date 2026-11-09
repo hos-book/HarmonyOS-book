@@ -141,8 +141,6 @@ export class ExploreCoordinator {
       if (!this.usesNativeExploreFilters(source) && loginSelector.labels.length > 0) {
         this.platformSelectors[source.bookSourceUrl] = loginSelector;
         platforms = loginSelector.labels;
-      } else if (BookSourceDataUrlSupport.sourceUsesGyExplore(source)) {
-        platforms = await BookSourceDataUrlSupport.getExplorePlatforms(this.http, source);
       }
       options.push({
         sourceName: source.bookSourceName,
@@ -368,10 +366,8 @@ export class ExploreCoordinator {
             ['updateTime', 'updatedAt', 'lastUpdateTime', 'lastUpdated']));
         }
         book.bookUrl = BookUrlResolver.resolveScalar(fieldValues['bookUrl'] || '', baseUrl);
-        // Explore rules use the same Legado field grammar as search rules. Some sources (notably
-        // API-backed sources such as 企点小说) return a JSONPath/result expression from the batch
-        // evaluator on the first pass; do the same scalar/fallback repair used by search so the
-        // detail route never receives an unevaluated expression.
+        // Explore and search share the Legado field grammar. Repair unevaluated JSONPath/result
+        // expressions from the batch evaluator before passing a scalar URL to the detail route.
         book.bookUrl = this.repairExploreBookUrl(exploreRule.bookUrl || '', ir, item, book.bookUrl, baseUrl);
         book.variable = itemIndex < fieldBatch.contextValues.length ? fieldBatch.contextValues[itemIndex] :
           ir.getContext().toPersistentJson();
@@ -940,8 +936,7 @@ export class ExploreCoordinator {
   }
 
   private looseProperty(raw: string, key: string): string {
-    // Imported source lists commonly use unquoted keys immediately after the opening brace,
-    // for example `{n:"sou1",v:"番茄小说",m:"番茄小说"}`.
+    // Imported source lists commonly use unquoted keys immediately after the opening brace.
     const match = raw.match(new RegExp(`(?:^|[,{\\s])${key}\\s*:\\s*(["'])([\\s\\S]*?)\\1`));
     return match ? (match[2] || '').trim() : '';
   }
@@ -1148,8 +1143,6 @@ export class ExploreCoordinator {
       }
     }
     if (requiresStageRuntime) return '';
-    const built = BookSourceDataUrlSupport.buildRequestUrl(source, url, String(page));
-    if (built) return built;
     // Ordinary Legado explore entries are very often relative URLs. Keep them on the lightweight
     // runner, which evaluates page expressions and resolves the result against the selected source
     // host before the caller performs its absolute-URL validity check.

@@ -84,7 +84,7 @@ export class DownloadPolicy {
 
   /**
    * 判定书源解析结果是否是可用的音频地址。
-   * 解析失败时上游会原样回传章节页 URL（如 tingyou://play/...），
+   * 解析失败时上游会原样回传章节页 URL（如 source://chapter/...），
    * 这类值不能当作解析成功，否则会被装进播放器/下载器产生误导性报错。
    */
   static isResolvedAudioUrl(pageUrl: string, audioUrl: string, resolved: boolean = false): boolean {

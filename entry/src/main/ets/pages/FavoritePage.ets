@@ -13,6 +13,7 @@ import { BookMetadataText } from '../utils/BookMetadataText';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { HdsCompat } from '../utils/HdsCompat';
+import { ImmersiveMenu } from '../utils/ImmersiveMenu';
 import { CapsuleSegmentButtonV2, ColorMetrics, LengthMetrics, SegmentButtonV2Items } from '@kit.ArkUI';
 import { common, ApplicationStateChangeCallback } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
@@ -235,6 +236,7 @@ export struct FavoritePage {
   @Local shelfGroup: string = '';
   @Local shelfGroups: string[] = [];
   @Local groupMenuVisible: boolean = false;
+  private groupMenuData: HomeRecommendationDataSource<string> = new HomeRecommendationDataSource<string>();
   @Local groupManagerVisible: boolean = false;
   @Local savingGroups: boolean = false;
   private groupSelectionRevision: number = 0;
@@ -345,6 +347,8 @@ export struct FavoritePage {
     const groupRevision: number = this.groupSelectionRevision;
     PreferenceService.getShelfGroup().then((group: string): void => {
       if (!this.alive || groupRevision !== this.groupSelectionRevision) return;
+      // 偏好通常早于首屏书单返回；先同步已加载的分组，不能用初始空数组校验保存值。
+      this.shelfGroups = BookPresentation.groups.slice();
       this.shelfGroup = group === BookPresentation.UNGROUPED || this.shelfGroups.includes(group) ? group : '';
       this.updateShelfData(this.filteredBooks(this.favoriteBooks));
     }).catch((): void => {});
@@ -509,9 +513,10 @@ export struct FavoritePage {
     if (this.initialLoadTimer !== -1) clearTimeout(this.initialLoadTimer);
     this.initialLoadTimer = -1;
     const serial = ++this.favoritesLoadSerial;
+    const ids = await PreferenceService.getShelfFavorites();
+    if (!this.alive || serial !== this.favoritesLoadSerial) return;
     this.shelfGroups = BookPresentation.groups.slice();
     if (this.shelfGroup && this.shelfGroup !== BookPresentation.UNGROUPED && !this.shelfGroups.includes(this.shelfGroup)) this.selectShelfGroup('');
-    const ids = await PreferenceService.getShelfFavorites();
     const pinnedIds = new Set(await PreferenceService.getPinnedFavorites());
     const allBooks = await DataService.getBooks(this.context);
     const byId = new Map<string, Book>();
@@ -1154,23 +1159,30 @@ export struct FavoritePage {
 
   @LocalBuilder
   buildGroupMenu() {
-    Menu() {
-      MenuItemGroup() {
-        ForEach(['', BookPresentation.UNGROUPED, ...this.shelfGroups], (group: string) => {
-          MenuItem({ content: group === BookPresentation.UNGROUPED ? $r('app.string.shelf_group_none') :
-            group || $r('app.string.shelf_group_all') })
-            .contentFont({ size: AppFont.Body }).contentFontColor($r('sys.color.font_primary'))
-            .selected(group === this.shelfGroup)
-            .backgroundColor(group === this.shelfGroup ? $r('sys.color.comp_background_tertiary') : Color.Transparent)
-            .onClick((): void => this.selectShelfGroup(group))
+    Column() {
+      List() {
+        LazyForEach(this.groupMenuData, (group: string) => {
+          ListItem() {
+            Text(group === BookPresentation.UNGROUPED ? $r('app.string.shelf_group_none') :
+              group || $r('app.string.shelf_group_all'))
+              .fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
+              .width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
+              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+              .borderRadius(AppRadius.Sm)
+              .backgroundColor(ImmersiveMenu.selection(group === this.shelfGroup))
+              .accessibilitySelected(group === this.shelfGroup)
+              .onClick((): void => this.selectShelfGroup(group))
+          }
         }, (group: string): string => group)
-      }
-      MenuItemGroup() {
-        MenuItem({ content: $r('app.string.shelf_group_manage') })
-          .contentFont({ size: AppFont.Body }).contentFontColor($r('sys.color.font_primary'))
-          .onClick((): void => this.openGroupManager())
-      }
-    }.width(200).constraintSize({ maxHeight: 320 })
+      }.width('100%').layoutWeight(1).scrollBar(BarState.Off).clip(true)
+        .id('shelf-group-list')
+      Divider().color(AppColor.Divider)
+      Text($r('app.string.shelf_group_manage'))
+        .fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
+        .width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
+        .onClick((): void => this.openGroupManager())
+    }.width(200).height(Math.min(320, (this.shelfGroups.length + 3) * 48 + 1))
+      .onTouch(ImmersiveMenu.keepOpen)
   }
 
   private selectStatusFilter(value: number): void {
@@ -2334,6 +2346,7 @@ export struct FavoritePage {
           iconColor: this.shelfGroup ? AppColor.Brand : $r('sys.color.icon_primary'),
           onPress: (): void => {
             this.statusFilterMenuVisible = false;
+            this.groupMenuData.setItems(['', BookPresentation.UNGROUPED, ...this.shelfGroups]);
             this.groupMenuVisible = !this.groupMenuVisible;
           } })
           .id('shelf-group-button')

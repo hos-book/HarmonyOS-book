@@ -20,8 +20,6 @@ import { BookUsageStats, StatsService } from './StatsService';
 import { DataService } from './DataService';
 import { LocalRuleSourceRepository } from './rulesource/LocalRuleSourceRepository';
 import { LocalRuleSourceImportService } from './rulesource/LocalRuleSourceImportService';
-import { GuangYuSourceIdentity } from './rulesource/guangyu/GuangYuSourceIdentity';
-import { ShuShanSourceIdentity } from './rulesource/shushan/ShuShanSourceIdentity';
 import { SourceDataService } from './SourceDataService';
 import { DiagnosticLogService } from './DiagnosticLogService';
 import { ReadingBackupService, ReadingBackupSnapshot } from './text/ReadingBackupService';
@@ -495,9 +493,7 @@ export class AppBackupService {
     source.concurrentRate = backup.concurrentRate || '';
     source.lastUpdateTime = Number.isFinite(backup.lastUpdateTime) ? backup.lastUpdateTime : 0;
     const savedStatus = AppBackupService.validStatus(backup.validationStatus);
-    const usesNativeAdapter = GuangYuSourceIdentity.isSourceUrl(sourceUrl) ||
-      ShuShanSourceIdentity.isSourceUrl(sourceUrl);
-    if (savedStatus === LocalRuleSourceStatus.UNSUPPORTED && !usesNativeAdapter) {
+    if (savedStatus === LocalRuleSourceStatus.UNSUPPORTED) {
       source.validationStatus = LocalRuleSourceStatus.UNSUPPORTED;
       source.validationMessage = backup.validationMessage || '书源包含当前版本不支持的能力';
       source.enabled = false;

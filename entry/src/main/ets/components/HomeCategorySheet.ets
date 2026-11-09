@@ -1,7 +1,6 @@
 import { HomeSourceCategory } from '../service/rulesource/HomeSourceService';
 import { HomeCategoryOverviewDataSource, HomeCategoryOverviewRow, HomeCategoryOverviewItem } from '../utils/HomeCategoryOverviewDataSource';
 import { ImmersiveMenuHeader } from './ImmersiveMenuHeader';
-import { ImmersiveMenu } from '../utils/ImmersiveMenu';
 import { AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
 
 @ComponentV2
@@ -78,14 +77,13 @@ export struct HomeCategorySheet {
                       }
                     }.padding({ left: 12, right: 12, top: 8, bottom: 8 })
                       .constraintSize({ maxWidth: '100%', minHeight: 40 })
-                      .backgroundColor(ImmersiveMenu.selection(this.selected(item)))
                       .borderRadius(AppRadius.Pill)
                   }
                     .padding(0)
                     .constraintSize({ maxWidth: '100%', minHeight: 40 })
-                    .borderRadius(AppRadius.Pill).backgroundColor(Color.Transparent)
+                    .borderRadius(AppRadius.Pill).backgroundColor($r('sys.color.comp_background_tertiary'))
                     .clip(true)
-                    .margin({ right: 8, bottom: 8 }).flexShrink(0)
+                    .margin({ right: AppSpace.Sm, bottom: AppSpace.Sm }).flexShrink(0)
                     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
                     .accessibilitySelected(this.selected(item))
                     .onClick((): void => this.onSelect(item.category))

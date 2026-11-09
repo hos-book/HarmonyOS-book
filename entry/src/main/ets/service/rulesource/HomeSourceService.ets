@@ -107,6 +107,27 @@ export class HomeSourceService {
     return task.promise;
   }
 
+  /** 搜索页只复用已完成的首页预览，不为五本推荐触发整套发现及后续翻页。 */
+  static getCachedRecommendations(limit: number): SearchResult[] {
+    HomeSourceService.syncRevision();
+    const books: SearchResult[] = [];
+    const seen = new Set<string>();
+    const snapshots = Array.from(HomeSourceService.cache.values()).reverse();
+    for (const content of snapshots) {
+      if (Date.now() - content.loadedAt >= HomeSourceService.CACHE_TTL_MS) continue;
+      for (const block of content.blocks) {
+        for (const book of block.books) {
+          if (books.length >= limit) return books;
+          const key = JSON.stringify([book.sourceUrl, book.bookUrl]);
+          if (!book.sourceUrl || !book.bookUrl || !book.name.trim() || seen.has(key)) continue;
+          seen.add(key);
+          books.push(book);
+        }
+      }
+    }
+    return books;
+  }
+
   private static async fetchHome(source: LocalRuleSource, task: HomeSourceLoad,
     channel: string, revision: string): Promise<HomeSourceContent> {
     const panel = await LocalRulePanelService.load(source, false);

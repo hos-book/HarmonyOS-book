@@ -43,13 +43,13 @@ export default function downloadPolicyTest() {
     });
 
     it('rejects unresolved page urls echoed back by the source', 0, () => {
-      expect(DownloadPolicy.isResolvedAudioUrl('tingyou://play/123/1', 'tingyou://play/123/1'))
+      expect(DownloadPolicy.isResolvedAudioUrl('source://chapter/123/1', 'source://chapter/123/1'))
         .assertEqual(false);
       expect(DownloadPolicy.isResolvedAudioUrl('jianhu://audio-chapter/9', 'jianhu://audio-chapter/9'))
         .assertEqual(false);
-      expect(DownloadPolicy.isResolvedAudioUrl('tingyou://play/123/1', ''))
+      expect(DownloadPolicy.isResolvedAudioUrl('source://chapter/123/1', ''))
         .assertEqual(false);
-      expect(DownloadPolicy.isResolvedAudioUrl('tingyou://play/123/1', 'https://cdn.test/a.m4a?sign=x'))
+      expect(DownloadPolicy.isResolvedAudioUrl('source://chapter/123/1', 'https://cdn.test/a.m4a?sign=x'))
         .assertEqual(true);
       expect(DownloadPolicy.isResolvedAudioUrl('https://audio.test/page/1', 'https://audio.test/page/1'))
         .assertEqual(false);

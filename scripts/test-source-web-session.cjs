@@ -64,7 +64,7 @@ vm.runInNewContext(code, context, { filename });
 function page() {
   const value = new exportsObject.RuleSourceLoginPage();
   value.route = { sourceUrl: 'test-source', loginUrl: 'https://example.com/login',
-    initialHtml: '', requestId: '', isMainAccount: false, isValid: () => true };
+    initialHtml: '', requestId: '', isValid: () => true };
   value.showToast = () => events.push('toast');
   return value;
 }

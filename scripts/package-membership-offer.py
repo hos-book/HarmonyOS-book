@@ -3,18 +3,18 @@ from pathlib import Path
 import json, subprocess, tempfile, zipfile
 
 root = Path(__file__).resolve().parents[1]
-server = root / 'server'
+function_root = root / 'cloud/membership-offer'
 with tempfile.TemporaryDirectory(prefix='membership-offer-') as temporary:
     output = Path(temporary)
-    subprocess.run(['node', str(server / 'node_modules/typescript/bin/tsc'),
+    subprocess.run(['node', str(function_root / 'node_modules/typescript/bin/tsc'),
                     '--target', 'ES2022', '--module', 'NodeNext', '--moduleResolution', 'NodeNext',
                     '--strict', '--skipLibCheck', '--outDir', str(output),
-                    'src/membership-offer.ts', 'src/membership-offer-function.ts'], cwd=server, check=True)
+                    'src/membership-offer.ts', 'src/membership-offer-function.ts'], cwd=function_root, check=True)
     # FunctionGraph Node runtime supports a CommonJS handler; dynamically load the ESM implementation.
     (output / 'index.js').write_text(
         "exports.handler = async (event) => (await import('./membership-offer-function.mjs')).handlerEntry(event);\n",
         encoding='utf-8')
-    artifact = server / 'dist/membership-offer-function.zip'
+    artifact = function_root / 'dist/membership-offer-function.zip'
     artifact.parent.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(artifact, 'w', zipfile.ZIP_DEFLATED) as archive:
         archive.write(output / 'index.js', 'index.js')
@@ -23,10 +23,10 @@ with tempfile.TemporaryDirectory(prefix='membership-offer-') as temporary:
                          (output / 'membership-offer-function.js').read_text(encoding='utf-8')
                          .replace("'./membership-offer.js'", "'./membership-offer.mjs'"))
     print(artifact)
-    agc_artifact = server / 'dist/membership-offer-agc.zip'
+    agc_artifact = function_root / 'dist/membership-offer-agc.zip'
     with zipfile.ZipFile(artifact) as source, zipfile.ZipFile(agc_artifact, 'w', zipfile.ZIP_DEFLATED) as archive:
         for name in source.namelist():
             if name != 'index.js':
                 archive.writestr(name, source.read(name))
-        archive.write(server / 'src/membership-offer-agc.cjs', 'index.js')
+        archive.write(function_root / 'src/membership-offer-agc.cjs', 'index.js')
     print(agc_artifact)

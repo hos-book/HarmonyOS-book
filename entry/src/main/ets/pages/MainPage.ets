@@ -28,7 +28,6 @@ import { PreferenceService } from '../service/PreferenceService';
 import { PlaybackStore } from '../service/PlaybackStore';
 import { WindowUtils } from '../utils/WindowUtils';
 import { EVT_SWITCH_TAB } from './ImportPage';
-import { WebViewAudioExtractorHost } from '../service/builtin/WebViewAudioExtractor';
 import { WebEngineGate } from '../service/WebEngineGate';
 import { AppColor, HomeTheme, AppTheme, AppMaterial, AppMotion, AppCurve } from '../theme/Theme';
 import { ThemeIcons, ThemeIconRole } from '../theme/ThemeIcons';
@@ -756,6 +755,8 @@ export struct MainPage {
         TabContent() {
           HomePage({
             visible: this.currentTab === 0,
+            bottomTabInset: this.bottomTabInset(),
+            miniPlayerVisible: this.miniPlayerVisible(),
             onSourceSettings: (sourceUrl: string): void => {
               this.navStack.pushPathByName('ruleSourceExplore', sourceUrl);
             },
@@ -773,7 +774,6 @@ export struct MainPage {
             },
             onBookTap: (id: string) => this.navigateToBook(id, '', 0, false),
             onSearchTap: () => this.navStack.pushPathByName('search', null),
-            onPodcastTap: (): void => { this.navStack.pushPathByName('podcast', null); },
             onBlockMore: (block: HomeBlockSection) => this.openBlockMore(block),
             onCategoryTap: (sourceUrl: string, sourceName: string, title: string, url: string) =>
               this.openCategory(sourceUrl, sourceName, title, url),
@@ -909,11 +909,6 @@ export struct MainPage {
         .borderRadius(24)
         .clip(true)
         .margin({ bottom: 64 + this.bottomSafeVp })
-      }
-
-      // 欢部分音频地址需要 ArkWeb 兜底提取，按需创建隐藏宿主。
-      if (this.gate.needAudioExtractor) {
-        WebViewAudioExtractorHost()
       }
 
       if (this.gate.needRuleBrowser) {

@@ -54,10 +54,10 @@ function load(relative) {
 const { CustomTtsConfigParser: Parser } = load('service/text/CustomTtsConfigParser.ets');
 const parse = entry => Parser.parse(JSON.stringify(entry));
 (async () => {
-  const baidu = parse({ name: '百度测试', url: '@http://tts.example/text2audio?tex={{java.encodeURI(speakText)}}&spd={{~~((speakSpeed - 10) / 2 + 5)}}&per=3', header: '' })[0];
-  assert.equal(baidu.method, 'POST');
-  assert.equal(baidu.url, 'http://tts.example/text2audio');
-  const grouped = parse({ ...baidu, name: '009 [Omni·定速] 晓晓', tier: 'HD' })[0];
+  const formVoice = parse({ name: '表单音色测试', url: '@http://tts.example/text2audio?tex={{java.encodeURI(speakText)}}&spd={{~~((speakSpeed - 10) / 2 + 5)}}&per=3', header: '' })[0];
+  assert.equal(formVoice.method, 'POST');
+  assert.equal(formVoice.url, 'http://tts.example/text2audio');
+  const grouped = parse({ ...formVoice, name: '009 [Omni·定速] 晓晓', tier: 'HD' })[0];
   assert.equal(grouped.group, 'Omni');
   assert.equal(grouped.tier, 'hd');
   const explicit = parse({ ...grouped, group: '我的音色' })[0];
@@ -67,18 +67,18 @@ const parse = entry => Parser.parse(JSON.stringify(entry));
   assert.equal(parse(explicit)[0].tier, 'hd');
   const sentence = '她说："你好"。\\下一行\n&测试=$1 {{text}}';
   for (const speed of [0.5, 1, 1.5, 2]) {
-    const options = await Parser.requestOptions(baidu, sentence, speed);
+    const options = await Parser.requestOptions(formVoice, sentence, speed);
     const params = new URLSearchParams(options.extraData);
     assert.equal(params.get('tex'), sentence);
     assert.equal(Number(params.get('spd')), Math.trunc(Math.round(speed * 10) / 2));
     assert.match(options.header['Content-Type'], /form-urlencoded/);
   }
-  assert.equal(Parser.usesSpeed(baidu), true);
-  const qd = parse({ name: '起点测试', url: 'http://voice.example/ifly,' + JSON.stringify({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: { text: '{{speakText}}', voice: 4001, speed: 50, volume: 50 } }) })[0];
-  const payload = JSON.parse((await Parser.requestOptions(qd, sentence, 1.5)).extraData);
+  assert.equal(Parser.usesSpeed(formVoice), true);
+  const jsonVoice = parse({ name: 'JSON 音色测试', url: 'http://voice.example/speech,' + JSON.stringify({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: { text: '{{speakText}}', voice: 4001, speed: 50, volume: 50 } }) })[0];
+  const payload = JSON.parse((await Parser.requestOptions(jsonVoice, sentence, 1.5)).extraData);
   assert.equal(payload.text, sentence);
   assert.equal(payload.voice, 4001);
-  assert.equal(Parser.usesSpeed(qd), false); // player applies the requested rate once
+  assert.equal(Parser.usesSpeed(jsonVoice), false); // player applies the requested rate once
   const kokoro = parse({ name: 'Kokoro-GPU·晓晓', url: 'http://192.168.50.17:8880/v1/audio/speech',
     method: 'POST', header: 'Content-Type: application/json',
     body: '{"model":"kokoro","input":"{{speakText}}","voice":"zf_xiaoxiao","response_format":"wav"}',
@@ -109,9 +109,9 @@ const parse = entry => Parser.parse(JSON.stringify(entry));
   assert.equal(Parser.parse(JSON.stringify([kokoro]))[0].id, kokoro.id);
   assert.equal(Parser.parse(JSON.stringify([nested]))[0].id, nested.id);
   assert.throws(() => parse({ name: 'bad', url: get.url, header: 'Content-Type application/json' }));
-  assert.equal(Parser.parse(JSON.stringify([baidu]))[0].id, baidu.id);
-  assert.equal(Parser.parse(JSON.stringify([qd]))[0].id, qd.id);
-  assert.equal(parse({ name: '起点测试', url: 'http://voice.example/ifly,' + JSON.stringify({ method: 'POST', body: { text: '{{speakText}}', voice: 4001, speed: 50, volume: 50 }, headers: { 'Content-Type': 'application/json' } }) })[0].id, qd.id);
+  assert.equal(Parser.parse(JSON.stringify([formVoice]))[0].id, formVoice.id);
+  assert.equal(Parser.parse(JSON.stringify([jsonVoice]))[0].id, jsonVoice.id);
+  assert.equal(parse({ name: 'JSON 音色测试', url: 'http://voice.example/speech,' + JSON.stringify({ method: 'POST', body: { text: '{{speakText}}', voice: 4001, speed: 50, volume: 50 }, headers: { 'Content-Type': 'application/json' } }) })[0].id, jsonVoice.id);
   assert.throws(() => parse({ name: 'bad', url: 'file:///tmp/{{text}}' }));
   assert.throws(() => parse({ name: 'bad', url: 'https://voice.example/{{text}}', loginCheckJs: 'doLogin()' }));
   assert.throws(() => parse({ name: 'bad', url: 'https://voice.example/{{text' }));
@@ -152,9 +152,7 @@ const parse = entry => Parser.parse(JSON.stringify(entry));
       const options = await Parser.requestOptions(config, '你好，这是语音测试。', 1);
       assert.equal(options.method, 'POST');
       assert.ok(options.extraData.length > 0);
-      if (config.name.startsWith('度')) {
-        assert.equal(new URLSearchParams(options.extraData).get('spd'), '5');
-      } else if (/json/i.test(options.header['Content-Type'] || '')) {
+      if (/json/i.test(options.header['Content-Type'] || '')) {
         const payload = JSON.parse(options.extraData);
         assert.equal(payload.input ?? payload.text, '你好，这是语音测试。');
       } else {
@@ -166,9 +164,7 @@ const parse = entry => Parser.parse(JSON.stringify(entry));
   }
   console.log(`PASS 模板兼容、JSON 转义、语速、持久化重读和脚本隔离；样本去重后 ${imported.size} 个音色`);
   if (process.argv.includes('--probe')) {
-    const configs = [...imported.values()];
-    const probes = [configs.find(config => config.name === '度博文'), ...configs.filter(config => config.name.startsWith('起点'))].filter(Boolean);
-    for (const config of probes) {
+    for (const config of imported.values()) {
       try {
         const text = '你好，这是语音测试。';
         const url = await Parser.expand(config.url, text, 1, false);

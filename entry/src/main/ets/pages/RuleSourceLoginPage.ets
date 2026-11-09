@@ -9,7 +9,6 @@ import { LocalRuleExecutionLimits } from '../service/rulesource/LocalRuleRuntime
 import { LocalRuleWebSession } from '../service/rulesource/LocalRuleWebSession';
 import { LocalRulePanelService } from '../service/rulesource/LocalRulePanelService';
 import { LightSourceBridge } from '../service/rulesource/light/LightSourceBridge';
-import { RuleSourceAccountService } from '../service/rulesource/RuleSourceAccountService';
 import { AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
 
@@ -143,21 +142,7 @@ export struct RuleSourceLoginPage {
   }
 
   private loginUrls(): string[] {
-    const urls: string[] = [this.route.loginUrl];
-    if (!this.route.isMainAccount) return urls;
-    const accountUrls = RuleSourceAccountService.webLoginUrls(this.route.sourceUrl);
-    for (const accountUrl of accountUrls) {
-      const origin = LocalRuleHttpClient.requestOrigin(accountUrl);
-      let exists = false;
-      for (const url of urls) {
-        if (LocalRuleHttpClient.requestOrigin(url) === origin) {
-          exists = true;
-          break;
-        }
-      }
-      if (!exists && origin.length > 0) urls.push(accountUrl);
-    }
-    return urls;
+    return [this.route.loginUrl];
   }
 
   private injectCookies(url: string, cookieHeader: string): void {
@@ -217,22 +202,6 @@ export struct RuleSourceLoginPage {
 
   private async persistOnDisappear(snapshots: RuleSourceWebCookieSnapshot[]): Promise<void> {
     await this.persistSnapshots(snapshots);
-    if (this.route.isMainAccount) {
-      try {
-        await RuleSourceAccountService.saveWebLogin(
-          this.route.sourceUrl, this.cookieHeaders(snapshots));
-      } catch (_error) {
-        // 页面已经退出，仅保留 Cookie，用户下次进入时仍可完成主账号会话保存。
-      }
-    }
-  }
-
-  private cookieHeaders(snapshots: RuleSourceWebCookieSnapshot[]): string[] {
-    const headers: string[] = [];
-    for (const snapshot of snapshots) {
-      if (snapshot.cookieHeader.length > 0) headers.push(snapshot.cookieHeader);
-    }
-    return headers;
   }
 
   private releaseWebCookies(): void {
@@ -258,24 +227,13 @@ export struct RuleSourceLoginPage {
     try {
       const awaitingScript = this.route.requestId.length > 0;
       await this.persistSnapshotsStrict(snapshots);
-      if (!awaitingScript && this.route.isMainAccount && this.cookieHeaders(snapshots).length === 0) {
-        this.showToast($r('app.string.rule_source_login_no_session'));
-        return;
-      }
       let awaitedHtml = '';
       if (awaitingScript) {
         if (this.requestCancelled || !LocalRuleBrowserLoginCoordinator.isPending(this.route.requestId)) return;
         awaitedHtml = await this.readBoundedPageHtml();
         if (this.requestCancelled || !LocalRuleBrowserLoginCoordinator.isPending(this.route.requestId)) return;
       }
-      if (this.route.isMainAccount) {
-        const saved = await RuleSourceAccountService.saveWebLogin(
-          this.route.sourceUrl, this.cookieHeaders(snapshots));
-        if (!saved) {
-          this.showToast($r('app.string.rule_source_account_web_required'));
-          return;
-        }
-      } else if (!awaitingScript) {
+      if (!awaitingScript) {
         const source = await LocalRuleSourceRepository.get(this.route.sourceUrl);
         if (source !== undefined) {
           const content = await this.readBoundedPageHtml();
@@ -286,9 +244,7 @@ export struct RuleSourceLoginPage {
       }
       this.leaving = true;
       this.stopAndRelease();
-      this.showToast(this.route.isMainAccount
-        ? $r('app.string.rule_source_account_login_success')
-        : $r('app.string.rule_source_login_saved'));
+      this.showToast($r('app.string.rule_source_login_saved'));
       this.navStack.pop();
       if (awaitingScript) LocalRuleBrowserLoginCoordinator.resolve(this.route.requestId, awaitedHtml);
     } catch (error) {
@@ -365,10 +321,6 @@ export struct RuleSourceLoginPage {
     const snapshots = this.snapshotCookies();
     try {
       await this.persistSnapshots(snapshots);
-      if (this.route.isMainAccount) {
-        await RuleSourceAccountService.saveWebLogin(
-          this.route.sourceUrl, this.cookieHeaders(snapshots));
-      }
     } catch (_error) {
       // 返回操作不能被会话保存失败阻塞。
     }
@@ -393,9 +345,7 @@ export struct RuleSourceLoginPage {
     if (this.saving) return;
     this.getUIContext().showAlertDialog({
       title: $r('app.string.rule_source_login_clear_title'),
-      message: this.route.isMainAccount
-        ? $r('app.string.rule_source_account_clear_message')
-        : $r('app.string.rule_source_login_clear_message'),
+      message: $r('app.string.rule_source_login_clear_message'),
       primaryButton: {
         value: $r('app.string.rule_source_login_clear_action'),
         fontColor: RULE_LOGIN_DANGER,
@@ -414,13 +364,10 @@ export struct RuleSourceLoginPage {
     if (this.saving) return;
     this.saving = true;
     try {
-      if (this.route.isMainAccount) {
-        await RuleSourceAccountService.logout(this.route.sourceUrl);
-      }
       const loginUrls = this.loginUrls();
       const source = await LocalRuleSourceRepository.get(this.route.sourceUrl);
-      if (source !== undefined && !this.route.isMainAccount) await LightSourceBridge.clearLogin(source);
-      if (!this.route.isMainAccount) await LocalRuleSourceRepository.setLoginStatus(this.route.sourceUrl, 'signedOut');
+      if (source !== undefined) await LightSourceBridge.clearLogin(source);
+      await LocalRuleSourceRepository.setLoginStatus(this.route.sourceUrl, 'signedOut');
       for (const loginUrl of loginUrls) {
         await LocalRuleHttpClient.clearCookies(this.route.sourceUrl, loginUrl);
       }
@@ -453,14 +400,7 @@ export struct RuleSourceLoginPage {
       this.showToast($r('app.string.rule_source_login_https_only'));
       return false;
     }
-    if (!this.route.isMainAccount) return true;
-    const origin = LocalRuleHttpClient.requestOrigin(url);
-    const loginUrls = this.loginUrls();
-    for (const loginUrl of loginUrls) {
-      if (LocalRuleHttpClient.requestOrigin(loginUrl) === origin) return true;
-    }
-    this.showToast($r('app.string.rule_source_login_domain_blocked'));
-    return false;
+    return true;
   }
 
   private interceptInitialDocument(request: WebResourceRequest): WebResourceResponse | null {

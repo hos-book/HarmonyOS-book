@@ -323,7 +323,6 @@ export default class EntryAbility extends UIAbility {
     try {
       // 已经有书就不覆盖(用户已在 App 内播放过)
       if (state.currentBook && state.currentChapter) {
-        audioService.prewarmBookSource(state.currentBook);
         return;
       }
 
@@ -358,7 +357,6 @@ export default class EntryAbility extends UIAbility {
         state.currentBook = book;
         state.currentChapter = chapter;
         AVSessionService.getInstance().updateMetadata(book, chapter);
-        audioService.prewarmBookSource(book);
         state.progressMs = last.progressMs;
         state.durationMs = last.durationMs ?? 0;
         state.speed = this.normalizeSpeed(progress?.speed ?? last.speed);

@@ -1,7 +1,7 @@
 import { JsRuntime } from './JsRuntime';
 import { RuleContext } from './RuleContext';
 import { VerificationSupport } from '../http/VerificationSupport';
-import { EncodedJsonMap, EncodedSourceUrl } from '../book/EncodedSourceUrl';
+import { EncodedSourceUrl } from '../book/EncodedSourceUrl';
 import { JsonPathEvaluator } from './JsonPathEvaluator';
 import { JavaRegexCompat } from './JavaRegexCompat';
 import { ScriptEngine, ScriptEngineContext } from './ScriptEngine';
@@ -655,8 +655,6 @@ export class AnalyzeRule {
     if (javaStringValue !== null) return javaStringValue;
     const javaStringListValue = this.evalJavaGetStringListExpression(expr);
     if (javaStringListValue !== null) return javaStringListValue;
-    const encodedDataUrl = this.evalEncodedDataUrlJs(expr, sourceJson);
-    if (encodedDataUrl) return encodedDataUrl;
     if (expr.includes('startBrowserAwait') || expr.includes('getVerificationCode')) {
       const verifyUrl = VerificationSupport.pickStartBrowserUrl(expr) || this.baseUrl;
       VerificationSupport.requestVerification(verifyUrl, '网页验证');
@@ -791,78 +789,6 @@ export class AnalyzeRule {
     return mapped.join(this.stripQuotes(mapMatch[3]));
   }
 
-  private evalEncodedDataUrlJs(expr: string, sourceJson: string): string {
-    const typeMatch = expr.match(/type\s*:\s*["']([^"']+)["']|["']type["']\s*:\s*["']([^"']+)["']/);
-    if (!typeMatch || !expr.includes('data:;base64')) return '';
-    const type = typeMatch[1] || typeMatch[2] || '';
-    if (type === 'mybxs' || type === 'mybxc') {
-      const raw = this.evalRawEncodedValue(expr, sourceJson);
-      const host = this.ctx.get('host') || this.ctx.get('backend') || this.js.getVar('host') || this.js.getVar('backend');
-      return raw ? EncodedSourceUrl.encodeRaw(raw, type, host) : '';
-    }
-    const data = EncodedSourceUrl.asMap(this.parseContentObject());
-    const resultData = this.parseJsonSafe(sourceJson);
-    const output: EncodedJsonMap = {};
-
-    if (type === 'gysearch') {
-      output['key'] = this.ctx.get('key') || this.js.getVar('key');
-      output['tab'] = this.extractLiteralAssignment(expr, 'tab') || '小说';
-      output['sourcesKey'] = this.extractLiteralAssignment(expr, 'sourcesKey') || '全部';
-      output['page'] = this.ctx.get('page') || this.js.getVar('page') || '1';
-      output['disabled_sources'] = this.extractLiteralAssignment(expr, 'disabled_sources') || '0';
-      return EncodedSourceUrl.encode(output, type);
-    }
-
-    const record = Object.keys(data).length > 0 ? data : resultData;
-    const bookId = this.pickValue(record, ['book_id', 'bookId']);
-    const source = this.pickValue(record, ['source', 'sources']);
-    const tab = this.pickValue(record, ['tab']) || '小说';
-    const tocUrl = this.pickValue(record, ['toc_url', 'tocUrl', 'url']);
-    if (bookId) output['book_id'] = bookId;
-    if (!output['book_id'] && this.ctx.get('book_id')) output['book_id'] = this.ctx.get('book_id');
-    if (source) {
-      output['source'] = source;
-      output['sources'] = source;
-    }
-    output['tab'] = tab;
-    if (tocUrl) {
-      output['url'] = tocUrl;
-      output['toc_url'] = tocUrl;
-    }
-
-    if (type === 'gycontent' || type === 'qingtian3') {
-      const itemId = this.pickValue(record, ['item_id', 'itemId']);
-      const title = this.pickValue(record, ['title']);
-      if (itemId) output['item_id'] = itemId;
-      if (title) output['title'] = title;
-      const ctxBookId = this.ctx.get('book_id');
-      if (!output['book_id'] && ctxBookId) output['book_id'] = ctxBookId;
-    } else if (type === 'gycatalog' || type === 'qingtian2') {
-      output['book_name'] = this.pickValue(record, ['book_name']);
-      output['author'] = this.pickValue(record, ['author']);
-      output['abstract'] = this.pickValue(record, ['abstract']);
-      output['thumb_url'] = this.pickValue(record, ['thumb_url']);
-    }
-    return EncodedSourceUrl.encode(output, type);
-  }
-
-  private evalRawEncodedValue(expr: string, sourceJson: string): string {
-    const vars: Record<string, string> = { result: sourceJson };
-    const matchAssignRe = /\b(?:var|let|const)?\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*result\.match\((\/[\s\S]*?\/[gimsuy]*)\)\s*\[\s*(\d+)\s*\]\s*;?/g;
-    let matchAssign: RegExpExecArray | null;
-    while ((matchAssign = matchAssignRe.exec(expr)) !== null) {
-      const re = this.parseJsRegex(matchAssign[2]);
-      const idx = parseInt(matchAssign[3]);
-      if (re) {
-        const matched = sourceJson.match(re);
-        vars[matchAssign[1]] = matched && matched[idx] !== undefined ? matched[idx] : '';
-      }
-    }
-    const directMatch = expr.match(/java\.base64Encode\(\s*([A-Za-z_][A-Za-z0-9_]*|result)\s*\)/);
-    if (directMatch) return vars[directMatch[1]] || '';
-    return sourceJson;
-  }
-
   private jsonPathToStrings(rule: string): string[] {
     if (!rule) return [];
     const jsonV = this.evalJsonPath(rule);
@@ -894,28 +820,6 @@ export class AnalyzeRule {
 
   private normalizeJsonPath(path: string): string {
     return (path || '').replace(/\[(\*|\d+)\]([A-Za-z_$][A-Za-z0-9_$-]*)/g, '[$1].$2');
-  }
-
-  private parseJsonSafe(text: string): EncodedJsonMap {
-    try {
-      return EncodedSourceUrl.asMap(JSON.parse(text || '{}') as Object);
-    } catch (_) {
-      return {};
-    }
-  }
-
-  private pickValue(data: EncodedJsonMap, keys: string[]): string {
-    for (const key of keys) {
-      const value = data[key];
-      if (value !== undefined && value !== null) return String(value);
-    }
-    return '';
-  }
-
-  private extractLiteralAssignment(expr: string, name: string): string {
-    const re = new RegExp(`\\b${name}\\s*=\\s*["']([^"']+)["']`);
-    const m = expr.match(re);
-    return m ? m[1] : '';
   }
 
   private evalBaseUrlReplace(expr: string): string {
@@ -1179,8 +1083,6 @@ export class AnalyzeRule {
   private applyJsBlocks(rule: string): string {
     if (!rule || !rule.includes('<js>')) return rule;
     return rule.replace(/<js>([\s\S]*?)<\/js>/gi, (_: string, code: string) => {
-      const encodedUrl = this.evalEncodedDataUrlJs(code, this.content);
-      if (encodedUrl) return encodedUrl;
       const result = this.evalJsBlockSideEffects(code);
       if (result) this.ctx.put('result', result);
       if (result && /\bresult\s*=/.test(code) && /^(?:https?:|\/|data:)/.test(result)) return result;
@@ -2270,8 +2172,6 @@ export class AnalyzeRule {
     if (knownValue !== null) return knownValue;
     const simpleValue = this.evalSimpleJsExpression(jsCode, { result: value, baseUrl: this.baseUrl });
     if (simpleValue !== null) return simpleValue;
-    const encodedDataUrl = this.evalEncodedDataUrlJs(jsCode, value);
-    if (encodedDataUrl) return encodedDataUrl;
     const replaceChainValue = this.evalResultReplaceChain(jsCode, value);
     if (replaceChainValue !== null) return replaceChainValue;
     const legacyValue = this.evalCommonLegacyJs(jsCode, value);

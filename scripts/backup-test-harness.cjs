@@ -260,8 +260,6 @@ function harness() {
           getAll: async () => control.sources,
           upsertImportedBatch: async sources => { control.restoredSources = sources; return sources.length; }
         } };
-        if (name === './rulesource/guangyu/GuangYuSourceIdentity') return { GuangYuSourceIdentity: { isSourceUrl: () => false } };
-        if (name === './rulesource/shushan/ShuShanSourceIdentity') return { ShuShanSourceIdentity: { isSourceUrl: () => false } };
         if (name === '../model/LocalRuleSource') return load('model/LocalRuleSource');
         if (name === './BookSource' || name === '../model/Book') return {};
         if (name === './TextToSpeechService') return { TextToSpeechService: {

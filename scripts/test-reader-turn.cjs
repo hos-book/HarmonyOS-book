@@ -11,8 +11,56 @@ const code = (source.slice(0, source.search(/  @Builder\r?\n/)) + '}')
   .replace('export struct ReaderPageTurnComponent', 'export class ReaderPageTurnComponent extends ComponentBase')
   .replace(/@(Param|Event|Local|BuilderParam) /g, '').replace(/  @Monitor\([^\n]*\)\r?\n/g, '');
 let frames = [], animations = [], draws = 0, releases = 0, captures = 0;
+class TurnCanvas {
+  matrix = [1, 0, 0, 1, 0, 0];
+  stack = [];
+  images = [];
+  paints = [];
+  globalAlpha = 1;
+  save() { this.stack.push({ matrix: this.matrix.slice(), alpha: this.globalAlpha, fill: this.fillStyle }); }
+  restore() {
+    const state = this.stack.pop();
+    this.matrix = state.matrix; this.globalAlpha = state.alpha; this.fillStyle = state.fill;
+  }
+  transform(a, b, c, d, e, f) {
+    assert.ok([a, b, c, d, e, f].every(Number.isFinite));
+    const [aa, bb, cc, dd, ee, ff] = this.matrix;
+    this.matrix = [aa*a+cc*b, bb*a+dd*b, aa*c+cc*d, bb*c+dd*d, aa*e+cc*f+ee, bb*e+dd*f+ff];
+  }
+  translate(x, y) { this.transform(1, 0, 0, 1, x, y); }
+  scale(x, y) { this.transform(x, 0, 0, y, 0, 0); }
+  clearRect() { this.images = []; this.paints = []; }
+  fillRect(...args) {
+    this.paints.push({ args, matrix: this.matrix.slice(), alpha: this.globalAlpha,
+      gradient: typeof this.fillStyle === 'object', imagesBefore: this.images.length });
+  }
+  beginPath() {} moveTo() {} lineTo() {} closePath() {} rect() {} clip() {}
+  fill() {
+    this.paints.push({ polygon: true, alpha: this.globalAlpha, fill: this.fillStyle,
+      imagesBefore: this.images.length });
+  }
+  stroke() { throw new Error('page polygons must not leave black edge strokes at the binding'); }
+  createLinearGradient(...values) {
+    assert.ok(values.every(Number.isFinite));
+    return { addColorStop(offset) { assert.ok(offset >= 0 && offset <= 1); } };
+  }
+  drawImage(bitmap, ...args) {
+    draws++;
+    assert.ok(args.every(Number.isFinite), 'all source and destination coordinates must be finite');
+    this.images.push({ bitmap, args, matrix: this.matrix.slice() });
+  }
+}
+const geometry = {};
+for (const file of ['ReaderCurlGeometry', 'ReaderSpreadGeometry']) {
+  vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname,
+    `../entry/src/main/ets/utils/${file}.ts`), 'utf8'), { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021
+  } }).outputText, { exports: geometry, require: () => geometry });
+}
 const ui = {
-  getComponentSnapshot: () => ({ get: async () => {
+  getComponentSnapshot: () => ({ get: async (_id, options) => {
+    assert.equal(options?.waitUntilRenderFinished, true,
+      'page textures must wait for native paragraph drawing instead of caching the previous frame');
     captures++;
     return { release: async () => { releases++; } };
   } }),
@@ -27,14 +75,18 @@ const ui = {
 };
 const mode = { Cover: 'cover', Simulation: 'simulation', None: 'none', Vertical: 'vertical' };
 const exportsObject = {};
-vm.runInNewContext(ts.transpileModule(code, { compilerOptions: {
+const compiled = ts.transpileModule(code, { reportDiagnostics: true, compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021
-} }).outputText, {
+} });
+assert.deepEqual(compiled.diagnostics.filter(d => d.category === ts.DiagnosticCategory.Error), [],
+  'component must parse before running the state-machine checks');
+vm.runInNewContext(compiled.outputText, {
   exports: exportsObject, setTimeout, clearTimeout,
   ComponentBase: class { getUIContext() { return ui; } getUniqueId() { return 1; } },
   FrameCallback: class {}, RenderingContextSettings: class {},
-  CanvasRenderingContext2D: class { clearRect() {} drawImage() { draws++; } },
-  ImageBitmap: class { close() {} }, PageTurnMode: mode,
+  CanvasRenderingContext2D: TurnCanvas,
+  ImageBitmap: class { width = 800; height = 600; close() {} }, PageTurnMode: mode,
+  ReaderCurlPoint: geometry.ReaderCurlPoint, ReaderCurlGeometry: geometry.ReaderCurlGeometry, ReaderSpreadGeometry: geometry.ReaderSpreadGeometry,
   ReaderTapPolicy: { DEFAULT: '', resolve: (_regions, x) => x < 260 ? 0 : x > 540 ? 2 : 1 },
   ReaderTouchTracker: class { canTap() { return true; } cancel() {} },
   hilog: { warn() {} }, emitter: { on() {}, off() {} }, Curve: { EaseOut: 'easeOut' }
@@ -201,6 +253,107 @@ async function checkContinuousInput() {
   assert.equal(animations.length, 0);
   assert.equal(captures, releases, 'continuous input never leaks a page snapshot');
 }
+async function checkSpread() {
+  for (const forward of [true, false]) {
+    for (const commit of [true, false]) {
+      const spread = make(); spread.mode = mode.Simulation; spread.spread = true;
+      const beforeCaptures = captures, beforeReleases = releases;
+      const starting = spread.beginTurn(forward, false, 300);
+      await flush(); await frame(); await frame(); await starting;
+      assert.equal(spread.phase, 'dragging');
+      assert.equal(captures - beforeCaptures, 2, 'a spread captures front and back once');
+      for (const progress of [0, 0.2, 0.5, 0.8, 1]) {
+        spread.drawFrame(progress);
+        const images = spread.canvas.images;
+        assert.ok(images.length <= 4, 'corner folding draws each paper face once without texture strips');
+        for (const { bitmap, args } of images) {
+          if (args.length === 8) {
+            assert.ok(args[0] >= -1e-6 && args[0] + args[2] <= bitmap.width + 1e-6,
+              'cropped texture never reads beyond the captured spread');
+          }
+        }
+        if (progress === 0.5) {
+          assert.ok(images.some(i => i.bitmap === spread.snapshotImage));
+          assert.ok(images.some(i => i.bitmap === spread.targetImage), 'front and back coexist at mid-turn');
+        }
+        if (progress === 0 || progress === 1) {
+          assert.equal(images.length, 1, 'resting endpoints use one complete spread without fold remnants');
+          const leaf = images.at(-1);
+          assert.equal(leaf.bitmap, progress === 0 ? spread.snapshotImage : spread.targetImage);
+          const [a, b, c, d, e, f] = leaf.matrix;
+          assert.ok(Math.abs(a - 1) < 1e-6 && Math.abs(d - 1) < 1e-6,
+            'settled text has normal size and reading direction for both turns');
+          assert.ok(Math.abs(b) + Math.abs(c) + Math.abs(f) < 1e-6);
+          assert.ok(Math.abs(a * leaf.args[4] + e) < 1e-6 && leaf.args[6] === 800,
+            'settled spread covers the entire viewport without a middle seam');
+        }
+      }
+      spread.progress = 0.35; spread.verticalDrag = 45; spread.drawFrame(0.35);
+      spread.verticalDrag = 90; // unrendered last touch event
+      spread.released = true; spread.commitOnRelease = commit; spread.settle(commit);
+      const animation = animations.shift();
+      assert.equal(animation.options.begin, 0.35);
+      assert.equal(spread.verticalDrag, 45, 'release preserves the last rendered corner without a shape jump');
+      assert.equal(animation.options.easing, 'ease-out', 'held paper continues moving on release');
+      animation.onFinish(); await flush();
+      assert.deepEqual(spread.completed, [commit]);
+      assert.notEqual(spread.snapshot, null, 'paper remains until the committed/restored page has laid out');
+      await frame(); await frame();
+      assert.equal(spread.phase, 'idle');
+      assert.equal(spread.snapshot, null);
+      assert.equal(spread.targetSnapshot, null);
+      assert.ok(spread.canvas.paints.some(paint => paint.gradient), 'settled or cancelled spread retains its book spine');
+      assert.equal(releases - beforeReleases, 2, 'both spread captures are released exactly once');
+    }
+  }
+  console.log('PASS spread front/back drawing, normal text direction, bounded crops, release continuity, cancellation handoff and snapshot cleanup');
+}
+function checkBookSpine() {
+  const spread = make();
+  Object.assign(spread, { spread: true, safeTop: 40, safeBottom: 28, footerHeight: 24 });
+  spread.drawRestingSpine();
+  assert.equal(spread.canvas.images.length, 0, 'resting spine never captures or repaints the text');
+  assert.ok(spread.canvas.paints.length > 0);
+  for (const paint of spread.canvas.paints) {
+    const [x, y, width, height] = paint.args;
+    assert.ok(x + paint.matrix[4] >= 376 && x + width + paint.matrix[4] <= 424,
+      'book spine stays within the existing column gap');
+    assert.ok(y >= 36 && y + height <= 552, 'spine avoids the header and reading-status footer');
+    assert.ok(paint.alpha > 0 && paint.alpha <= 1);
+  }
+  assert.equal(spread.canvas.globalAlpha, 1, 'fading the ends cannot dim subsequent paper drawing');
+  spread.spread = false; spread.onTurnModeChanged();
+  assert.equal(spread.canvas.paints.length, 0, 'single-page layout clears the old spine');
+
+  Object.assign(spread, { spread: true, snapshot: {}, snapshotImage: { width: 800, height: 600 },
+    targetImage: { width: 800, height: 600 }, mode: mode.Simulation });
+  for (const forward of [true, false]) {
+    spread.forward = forward; spread.drawFrame(0.4);
+    const stationary = spread.canvas.paints.filter(p => p.gradient && p.args[2] <= 36 && p.args[3] > 100);
+    assert.ok(stationary.length > 0);
+    assert.ok(stationary.every(p => p.imagesBefore < spread.canvas.images.length),
+      'the lifted paper is painted above the stationary binding in both directions');
+    assert.ok(stationary.every(p => Math.abs(p.matrix[0] - 1) < 1e-6),
+      'the book lighting keeps its direction when turning backwards');
+  }
+  console.log('PASS book spine: bounded gutter, safe areas, both turn directions, layer order and single-page cleanup');
+}
+function checkOpaquePaperBack() {
+  const page = make();
+  Object.assign(page, { spread: true, mode: mode.Simulation, snapshot: {},
+    snapshotImage: { width: 800, height: 600 }, targetImage: { width: 800, height: 600 } });
+  for (const forward of [true, false]) {
+    page.forward = forward;
+    for (const progress of [0.1, 0.5, 0.9]) {
+      page.drawFrame(progress);
+      const back = page.canvas.paints.find(p => p.polygon);
+      assert.ok(back && back.alpha === 1 && back.fill === page.paperColor,
+        'the folded silhouette must have an opaque underlay independent of screenshot transparency');
+      assert.ok(back.imagesBefore < page.canvas.images.length, 'back text is drawn after its opaque paper');
+    }
+  }
+  console.log('PASS opaque folded silhouette beneath both forward and backward page textures');
+}
 async function main() {
   for (const forward of [true, false]) {
     const tap = make();
@@ -264,6 +417,9 @@ async function main() {
   assert.equal(releases, 3, 'all snapshots released exactly once');
   await checkContinuousInput();
   await checkContentPan();
+  await checkSpread();
+  checkBookSpine();
+  checkOpaquePaperBack();
   console.log('PASS cover tap frames in both directions, compositing, queued-frame race, quick swipe, delayed capture, cancellation, progress commit and snapshot release');
   console.log('PASS continuous taps and swipes, accelerated tails, bounded queue, reverse direction, async EPUB handoff, held/released/cancelled gestures and lifecycle cleanup');
 }

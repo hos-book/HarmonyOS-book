@@ -5,7 +5,7 @@ import subprocess, tempfile, zipfile
 root = Path(__file__).resolve().parents[1]
 with tempfile.TemporaryDirectory(prefix='membership-offer-test-') as temporary:
     target = Path(temporary)
-    with zipfile.ZipFile(root / 'server/dist/membership-offer-agc.zip') as archive:
+    with zipfile.ZipFile(root / 'cloud/membership-offer/dist/membership-offer-agc.zip') as archive:
         assert set(archive.namelist()) == {'index.js', 'membership-offer.mjs', 'membership-offer-function.mjs'}
         archive.extractall(target)
     (target / 'test.cjs').write_text(r'''

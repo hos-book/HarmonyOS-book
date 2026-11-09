@@ -52,7 +52,7 @@ ArkTS is **not** TypeScript. These rules trip up agents most often:
 - **No structural typing** — use explicit `class extends` / `implements`
 - **No dynamic property access** (`obj[dynamicKey]`) — use typed accessors
 - **Object literals must have explicit type context** — assign to typed variable or pass as typed parameter
-- **Use `class` not `interface` for data carriers** — ArkTS requires instantiable types; see `IBuiltInSource.ets` for the pattern
+- **Use `class` not `interface` for data carriers** — ArkTS requires instantiable types; see `LocalRuleSource.ets` for the pattern
 - Before the first `.ets` edit, use the online routing above to read the applicable ArkTS grammar and ArkUI guidance.
 
 ## ArkUI V2 Only
@@ -85,9 +85,9 @@ The App obtains online content from user-imported sources stored in encrypted `r
 
 The old local rule engine, `jianting.source` engine and domain-specific content adapters have been removed. Unsupported historical definitions remain inert data. Preserve app pages, playback, reader and encrypted storage.
 
-`SourceDataService` lists imported sources only and excludes `builtin://` addresses. Database failures return empty source lists or unresolved lookups. Search runs enabled sources with required search rules in batches of six and deduplicates by `sourceUrl + bookUrl`; one source failure must not stop other sources. Home recommendations and categories use the enabled imported text/audio source selected in RuleSourcePage and persisted in PreferenceService. HomeSourceService reads source-defined discovery categories and previews, including TingYou through the general rule chain. Enabled text and audio sources with discovery rules are eligible; missing home content shows an empty state.
+`SourceDataService` lists imported sources only and excludes `builtin://` addresses. Database failures return empty source lists or unresolved lookups. Search runs enabled sources with required search rules in batches of six and deduplicates by `sourceUrl + bookUrl`; one source failure must not stop other sources. Home recommendations and categories use the enabled imported text/audio source selected in RuleSourcePage and persisted in PreferenceService. HomeSourceService reads source-defined discovery categories and previews. Enabled text and audio sources with discovery rules are eligible; missing home content shows an empty state.
 
-`BookSourceService` dispatches to imported-source adapters and rules. The old TingYou built-in implementation and registration entrypoint have been removed. Search does not run a separate `KkBiqugeTextSource` task. Some `service/builtin/` utilities remain referenced; file presence alone does not make a source active.
+`BookSourceService` dispatches to imported-source adapters and rules. Some `service/builtin/` utilities remain referenced; file presence alone does not make a source active.
 
 Import capability messages and test status are diagnostic, not a blanket enablement gate. Batch tests offer search and discovery/reading modes with up to six concurrent tasks, retain failures, and preserve enabled state. Discovery/reading requires sampled content from public chapters. Cancellation preserves unfinished results. Single-source tests also validate content when results exist. Disabling search preserves installed definitions for existing favorites; deleting a source removes its sessions and cookies. Locked sources reject definition changes, reimport, group changes, enablement changes and deletion, while testing and ordering remain available.
 
@@ -100,15 +100,15 @@ Online novels use `OnlineTextPaginator` and local reading preferences. EPUB orig
 External file-open requests route JSON to source import and TXT/EPUB/MOBI/CBA/PDF/HTML/HTM/ZIP to the local import screen with the original granted URI preselected. Filename extensions take precedence; MIME/UTD supplies the format for extensionless provider URIs. Cold and warm launches use the same pending/event route and consume it once.
 
 
-The optional `server/` project is not registered or configurable as an App content source. Do not reintroduce an App API-base setting without an explicit product decision.
+Do not introduce an App API-base setting without an explicit product decision.
 
 ## Project Structure
 
-Single HarmonyOS module (`entry/`) + optional Node server (`server/`):
+Single HarmonyOS module (`entry/`) + membership offer cloud function (`cloud/membership-offer/`):
 
 - `entry/src/main/ets/pages/` — routed screens
 - `entry/src/main/ets/service/` — business services (singular `service/`, not `services/`)
-- `entry/src/main/ets/service/builtin/` — protocol/Web utilities and registry implementations; not the active source-list entry
+- `entry/src/main/ets/service/builtin/` — shared Web utilities; not a source registry
 - `entry/src/main/ets/service/rulesource/` — imported-source persistence, testing, accounts, native adapters, HTTP, extraction and QuickJS dispatch
 - `entry/src/main/ets/service/text/` — online text pagination, reading progress/settings and parser utilities
 - `entry/libs/quickjs.har` — locally built arm64-v8a/x86_64 bounded QuickJS dependency
@@ -116,10 +116,10 @@ Single HarmonyOS module (`entry/`) + optional Node server (`server/`):
 - `entry/src/main/ets/components/` — reusable widgets
 - `entry/src/main/ets/theme/` — theme tokens (`AppColor`, `AppMaterial`)
 - `entry/src/main/ets/widget/` — desktop form widget
-- `server/` — 简听 cloud API + Vue admin + Docker deploy
+- `cloud/membership-offer/` — isolated membership promotion signing function
 - `third_party/quickjs/` / `scripts/build-quickjs.ps1` — QuickJS source, licenses and reproducible HAR build
 
-Generated dirs (never edit, never commit): `build/`, `.hvigor/`, `oh_modules/`, `server/node_modules/`, `server/dist/`, `third_party/quickjs/.hvigor/`, `third_party/quickjs/oh_modules/`, `third_party/quickjs/quickjs/.cxx/`, `third_party/quickjs/quickjs/build/`, `third_party/quickjs/quickjs/oh_modules/`
+Generated dirs (never edit, never commit): `build/`, `.hvigor/`, `oh_modules/`, `cloud/membership-offer/node_modules/`, `cloud/membership-offer/dist/`, `third_party/quickjs/.hvigor/`, `third_party/quickjs/oh_modules/`, `third_party/quickjs/quickjs/.cxx/`, `third_party/quickjs/quickjs/build/`, `third_party/quickjs/quickjs/oh_modules/`
 
 ## Workspace Hygiene
 
@@ -133,7 +133,7 @@ Generated dirs (never edit, never commit): `build/`, `.hvigor/`, `oh_modules/`, 
 - **App unit tests**: `entry/src/test/*.test.ets` (Hypium framework) — source persistence and management, bulk testing, search history/cache, pagination/themes, playback progress and download policies
 - **Node service regression scripts**: `node scripts/test-*.cjs` (reader progress/preferences/statusbar, reader-playback-sync, audio-commands, local-book-import, stats-persistence, source-web-session, text-content-cache, text-to-speech). Each requires `DEVECO_HOME` pointing to the installed Release IDE (they transpile real `entry/src/main/ets` services with the IDE's bundled TypeScript) and runs against temporary files with simulated platform APIs. `scripts/local-rule-http-fixture.cjs` is a shared fixture helper, not a test.
 - **App device tests**: `entry/src/ohosTest/ets/test/*.test.ets`
-- **Server tests**: `cd server && npm test` (Vitest) — 7 test files covering catalog, providers, auth, DB, sync; `npm run typecheck` for `tsc --noEmit`. Node >= 22, ESM. Vue admin lives in `server/admin` (`npm run admin:install`, `npm run admin:build`, `npm run build:all`)
+- **Membership function tests**: `cd cloud/membership-offer && npm test` (Vitest); `npm run typecheck` for `tsc --noEmit`. Node >= 22, ESM. Package verification uses `scripts/test-membership-offer-package.py`.
 - **CI**: no build/test CI exists; the only workflow (`.github/workflows/app-gallery-pages.yml`) publishes `docs/app-gallery/**` to GitHub Pages on push to main. Never rely on CI to catch errors
 - After changing playback/source adapters/download: smoke-test search → detail → chapter → play on device, then verify resume, download and export
 - After changing local rule import/runtime/dispatch: verify no-source empty states, then import → single/bulk test → search → detail → read/play; disabled sources must leave existing favorites resolvable and one failed rule must not stop other sources
@@ -144,16 +144,15 @@ Generated dirs (never edit, never commit): `build/`, `.hvigor/`, `oh_modules/`, 
 
 - **`build-profile.json5` contains signing secrets** (key passwords, cert paths) and is git-tracked — never commit changes to this file; signing is machine-specific and configured via DevEco Studio. `build-profile.template.json5` is the shareable template; `signing/` is gitignored
 - `code-linter.json5` enforces crypto security rules (no unsafe AES/RSA/DSA/DH/3DES) on all `.ets` files
-- The App has no configurable cloud API base; `server/` remains an optional independent project and must not become an implicit runtime dependency
+- The App has no configurable content API base; the membership cloud function serves promotion signatures only.
 - QuickJS business code may call only `LocalRuleQuickJsRuntime.execute()`; that facade invokes native `evaluateBounded`. Keep the upstream license files and `THIRD_PARTY_NOTICES.md` when updating `entry/libs/quickjs.har`
-- Server's Reader/Legado engine must stay internal to Docker; never expose `/reader3` to the public internet
 
 ## Reference Documents
 
 - **`CLAUDE.md`** — product/architecture source of truth (content model, services, page flow, SDK baseline)
 - **`docs/APP_UI.md`** — current UI interaction baseline and regression checklist
 - **`docs/BOOK_SOURCE_RULES.md`** — 书源规则编写指南 for imported rule sources; keep aligned with the actual import parser and rule runtime
-- **`server/README.md`** — server deployment and operations guide
+- **`cloud/membership-offer/README.md`** — membership function packaging and deployment guide
 - Keep these documents aligned with active code paths. Remove superseded one-off plans and fix notes; Git retains their history.
 
 ## Language

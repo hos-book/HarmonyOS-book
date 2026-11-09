@@ -15,7 +15,6 @@ import { BookSourceService } from '../service/BookSourceService';
 import { BookMetadataText as LocalRuleMetadataText } from '../utils/BookMetadataText';
 import { DataService } from '../service/DataService';
 import { PreferenceService, PlayHistoryItem } from '../service/PreferenceService';
-import { AudioService } from '../service/AudioService';
 import { DownloadService, DownloadUpdatePayload, EVT_DOWNLOAD_UPDATED } from '../service/DownloadService';
 import { DownloadStore, DownloadBookRecord } from '../service/DownloadStore';
 import { DownloadPolicy } from '../service/DownloadPolicy';
@@ -478,7 +477,6 @@ export struct BookDetailPage {
       // 先快速渲染基础信息
       // 本地目录恢复会修改缓存对象；V2 需要新引用才能刷新依赖 chapters 的分支。
       this.book = this.copyBookForRender(b);
-      AudioService.getInstance().prewarmBookSource(b);
       DownloadService.getInstance().hydrateBookDurations(b.id).catch((_e: Error): void => {});
       this.isFavorite = await PreferenceService.isFavorite(b.id);
       this.resolveSourceName(b.sourceUrl);

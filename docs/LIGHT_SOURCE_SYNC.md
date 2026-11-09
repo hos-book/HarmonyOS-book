@@ -2,6 +2,18 @@
 
 简听通过 `LocalRuleDispatcher → light/LightSourceBridge → LightSourceCore` 调用轻页的书源核心。页面仍由简听维护。轻页兼容源和轻页 `sourceFormat: native` 源走此链路；原简听规则核心、`jianting.source` 引擎及按域名分流的专用内容适配器已删除；历史定义保留为数据，停用格式不执行。
 
+## 通用规则边界（2026-11-09）
+
+同步脚本增加 `host-generic-source-rules-v3` 补丁，删除按特定格式构造 data URL 的快捷路径及退役发现分支，并将发现字段修复中的具名书源举例改为通用说明。导入规则继续通过通用脚本解析生成请求；补丁同时校验预期方法、调用数量和待替换注释，遇到上游结构变化直接报错。更新仍使用当前固定提交，不手改生成文件。
+
+验证：96 个文件同步及 `--check` 通过；19 个改动的 ArkTS 文件检查无错误；书源核心回归（含通用 data URL 脚本保留自定义字段）、本地书籍导入、备份、网页登录会话及远程导入回归通过。Release SDK 26.0.0.105 增量 Debug HAP 构建通过，包内最低 API 20 / 目标 API 26 / Release 渠道，已在连接的手机覆盖安装并启动。自动 UI 验证工具缺少运行配置，本轮未完成完整业务链路实机验证。
+
+固定应用归档下载超时后，只获取同步需要的源码文件，逐个验证 Git blob，并通过完整 tree 元数据重建并核对固定提交的 Git tree；所有临时输入在验证后清理。构建工具遇到 OHPM 批处理递归错误，改用已确认 Release IDE 的 Node/Hvigor 直接入口和进程级 SDK 配置。
+
+复查补充：删除退役数据 URL 服务的空方法及搜索、发现、详情、目录、正文快捷调用；通用 data URL、封面归一化和导入规则执行仍保留。旧内置源注册、分发与无任务调用方的音频 Web 提取宿主已连同挂载、取消入口和失效测试移除，具体来源示例与具名维护记录也已清理。全网榜单及用户配置的 NAS 功能仍为当前产品功能。
+
+本次验证：96 文件同步一致性、6 个改动 ETS 文件检查、书源核心回归、67 项播放控制回归及 TTS 导入回归通过；Release IDE 26.0.0.105 增量 Debug HAP 构建通过，包内确认 Release / API 20–26，代码及资源未检出本次清理的标识。启动工具未找到原连接手机，本次未执行安装和完整业务链路实机验证。10 份历史发布归档的混淆映射和 IDE 自动维护的删除文件清单仍含旧标识；它们不属于当前源代码或新构建包，按项目归档保留规则未删除。
+
 ## 阅读页段评接入（2026-11-07）
 
 宿主阅读器现已消费固定核心的 ReaderActionMarker：正文元数据通过 ReaderCommentContent 转换成规范化字符坐标，与正文分开缓存，渲染替换规则后再映射到显示坐标。点击通过现有导入书源 dispatcher 调用 LightSourceCore.readerAction，支持 URL、书源脚本和 NativeCommentPage。展示层统一为原生对话气泡；原生 page.data 优先归一为评论记录，HTML 型数据通过上游离线 sandbox 文档或持有独占租约的无痕 Web 采集可见字段；关闭、换章、后台和离页取消展示，Cookie 保存后清理会话。本轮不修改 upstream 生成文件或提升其固定版本。下方历史记录中的“不接入段评”仅描述当时范围。
@@ -63,7 +75,7 @@ Release SDK 26.0.0.105 构建 AI release HAR 与主应用 debug HAP 成功，产
 
 通过 `prepare-light-source.py` 校验上游 Git tree 后调用 `sync-light-source.cjs` 生成 96 个文件。本轮吸收网页等待、失败快照和脚本诊断优化、HTTP 总期限耗尽后停止重试、原生 `chars()` 按 Unicode 码点拆分，以及无 JS 定义的未声明函数导入检查。含 JS 的静态函数检查仍受现有宿主 `NativeJsLibrary.check` 适配限制，不宣称与上游同步 QuickJS 检查完全等价；执行仍通过宿主有界隔离环境。
 
-主机验证：`test-light-source-engine.cjs`（含 native JS host 回归）、`test-comic-web-wait.cjs`、`test-source-file-import.cjs` 通过。历史 `test-native-rule-boundaries.cjs` 依赖已删除的 `test-native-rule-pipeline.cjs`，无法运行，不计为通过。
+主机验证：`test-light-source-engine.cjs`（含 native JS host 回归）、`test-comic-web-wait.cjs`、`test-source-file-import.cjs` 通过。
 
 同步脚本同步调整 `NativeJsLibrary.check` 的第 4 个可选参数，兼容新版导入调用；保持既有隔离执行策略。
 
@@ -107,7 +119,7 @@ Release SDK 增量 debug HAP 构建通过，产物元数据确认 `apiReleaseTyp
 
 Git 传输不可用时可执行 `python scripts/prepare-light-source.py`，默认读取清单中的固定提交。脚本经 GitHub CLI 下载到项目外临时目录，校验完整 Git tree（含可执行位和子模块引用）与上游提交完全一致，再运行原同步脚本；结束删除临时目录。`--check` 只验证，升级可显式传 `--engine-revision` / `--application-revision` 的完整 SHA。
 
-有声书详情失败不再阻断独立目录规则：继续使用搜索/缓存书籍上下文，目录失败仍正常报错。用户提供的“番茄听书（原生）”目录表达式、分卷、19 位章节 ID 已在真实目录响应上验证；《北派盗墓笔记》截图仅含书籍信息，没有请求地址/错误，不能据此宣称该版本已在设备播放成功。定向回归覆盖详情失败但目录成功、两者均失败、原生规则、图片按需调度和缓存宿主边界。
+有声书详情失败不再阻断独立目录规则：继续使用搜索/缓存书籍上下文，目录失败仍正常报错。用户导入的原生音频源目录表达式、分卷、19 位章节 ID 已在真实目录响应上验证；《北派盗墓笔记》截图仅含书籍信息，没有请求地址/错误，不能据此宣称该版本已在设备播放成功。定向回归覆盖详情失败但目录成功、两者均失败、原生规则、图片按需调度和缓存宿主边界。
 
 本轮编译修复参考 [ArkTS 编译检查技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)，使用本机 Release SDK 构建；没有已连接设备。
 
@@ -241,13 +253,13 @@ node scripts/test-rule-source-export.cjs
 
 兼容边界：JS 全局变量不跨阶段、任务或批次保留，持久状态应通过 `vars` / `cache`；这与上游持久 JS 会话不完全等价。书籍列表每最多 16 项的 JS 字段合并为一次求值，详情的 JS 字段合并为一次求值，同批次可复用函数库状态，字段函数应保持纯计算。阶段计算累计预算 2 秒、总时长 60 秒；表达式（含整批字段）计算 2 秒、总时长 10 秒，回放计算也计入预算，人工浏览器等待扣除。最多 256 次宿主调用；交换日志、单请求和输出字符串分别按 16×1024²、4×1024²、8×1024² 字符限制，源 JS 上限 512 Ki 字符；底层 QuickJS 的输入、堆、栈和 pending-job 限制继续生效。导入检查定义结构，JS 语法和函数执行错误在运行测试时报告。
 
-发现面板不预先运行变量 `optionsScript`；点击动态选项时才加载对应脚本，保存时只验证实际修改的变量。静态标题和仅使用内置函数的表达式不启动 QuickJS，由 AST 检查函数及 lib 依赖后选择路径，不先执行再回退。此修复处理番茄源数百个菜单/字段重复启动任务，以及服务器选项探测阻塞发现页的问题。
+发现面板不预先运行变量 `optionsScript`；点击动态选项时才加载对应脚本，保存时只验证实际修改的变量。静态标题和仅使用内置函数的表达式不启动 QuickJS，由 AST 检查函数及 lib 依赖后选择路径，不先执行再回退。此修复处理原生源数百个菜单/字段重复启动任务，以及服务器选项探测阻塞发现页的问题。
 
 验证：同步 `--check`、简听引擎回归、书源导入导出、漫画网页等待均通过；上游原生源 243 项、JS 库 34 项、脚本阶段 58 项通过。新增主机回归覆盖异步阶段、表达式/模板/crypto、动作只执行一次、隔离、取消/超时、搜索→详情→目录→正文、动态选项和浏览器受控桥；763 个静态/普通动态菜单不启动 QuickJS，30 本书的 JS/JSONPath 字段仅运行 2 个任务并保持跨批次序号与字段正确，详情 JS 字段运行 1 个任务。主机测试以 VM 模拟 QuickJS，不替代真机。
 
 Release SDK 26.0.0.105 增量 debug HAP 构建并安装 Mate 80 成功（本轮构建 52.288 秒），产物元数据为 Release、最低 API 20、目标 API 26。MCP 静态检查因 LSP 未初始化不可用，MCP 构建因本机 ohpm 批处理递归失败，实际构建使用 Release IDE CLI。
 
-真机用户操作与日志核验（2026-10-20 17:45—17:46，进程 56893）：第一个「番茄小说（原生脚本）」的 363 个静态菜单解析 2 毫秒，分类 30 本书端到端加载 742 毫秒；分类规则实际只产生 3 次 QuickJS 任务（失败检测 1 次、字段批次 2 次），修复前同类书单触发数百次任务。「乡村神医」详情含 3603 章目录加载成功，耗时 5449 毫秒；进入阅读后 3 次正文加载为 955、782、1397 毫秒，其中 HTTP 为 897、716、1309 毫秒。第四个「小六番茄（原生脚本）」184 个含远程分类的菜单加载 3046 毫秒，30 本书加载 2043 毫秒，详情含 1395 章目录加载 5035 毫秒；用户确认书单正常显示。菜单计时不含 ArkUI 绘制，分类计时包含网络和规则解析；目录数字是详情整体耗时，不能全部归因于服务器。第一源此前搜索接口返回的服务端 Java/Xposed 异常是独立问题，不宣称被此次 App 修复解决。未完成真实账号登录、音频播放、下载导出或手表验证。
+真机用户操作与日志核验（2026-10-20 17:45—17:46，进程 56893）：第一个用户导入源的 363 个静态菜单解析 2 毫秒，分类 30 本书端到端加载 742 毫秒；分类规则实际只产生 3 次 QuickJS 任务（失败检测 1 次、字段批次 2 次），修复前同类书单触发数百次任务。「乡村神医」详情含 3603 章目录加载成功，耗时 5449 毫秒；进入阅读后 3 次正文加载为 955、782、1397 毫秒，其中 HTTP 为 897、716、1309 毫秒。另一个含远程分类的用户导入源184 个含远程分类的菜单加载 3046 毫秒，30 本书加载 2043 毫秒，详情含 1395 章目录加载 5035 毫秒；用户确认书单正常显示。菜单计时不含 ArkUI 绘制，分类计时包含网络和规则解析；目录数字是详情整体耗时，不能全部归因于服务器。第一源此前搜索接口返回的服务端 Java/Xposed 异常是独立问题，不宣称被此次 App 修复解决。未完成真实账号登录、音频播放、下载导出或手表验证。
 
 在线依据沿用本任务已读取的 [ArkTS 语法规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkTS 检索指引](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/SKILL.md)、[ArkUI 检索指引](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md) 和 [HiLog 指引](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hilog/SKILL.md)。
 
@@ -314,7 +326,7 @@ TextDecoder 使用系统编码器的数据桥，支持系统编码（含 GBK）�
 ## 本次验证（2026-10-14）
 
 - `test-light-source-engine.cjs`：通用 HTML/JSON、搜索/详情/目录/正文、媒体/段评标记、阶段脚本回放、登录状态及 Cookie 删除/替换通过。Node VM 代替设备 QuickJS。
-- 用户提供的番茄原生源：六个模式选项、单变量修改、保存后重载、分页发现、详情、目录、正文及本章说标记通过离线响应回归；公开分类接口实测解析出 179 个分类入口。
+- 用户提供的原生源：六个模式选项、单变量修改、保存后重载、分页发现、详情、目录、正文及本章说标记通过离线响应回归；公开分类接口实测解析出 179 个分类入口。
 - `test-rule-source-export.cjs`：原始字段与扩展字段保留、五次往返稳定、编辑及敏感会话字段排除通过。
 - `test-source-health.cjs` 与 `test-text-to-speech.cjs` 通过，后者包括 28 项既有朗读回归。
 - 模式修正版 Release SDK 增量 debug HAP 构建并覆盖安装完成，用户确认模式切换已生效。`@Trace` 控件通过普通数据快照序列化，避免 `__ob_value` 导致选项值丢失；导出同样显式读取观察属性。
@@ -342,25 +354,17 @@ TextDecoder 使用系统编码器的数据桥，支持系统编码（含 GBK）�
 - https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md
 - https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/sdk/hmos-one-sdk-skill/SKILL.md
 
-本轮落地验证：引擎/真实番茄定义回归、订阅取数回归、多文件导入回归全部通过；ETS 静态检查后使用 Release IDE CLI 完整增量构建成功。HAP 元数据 apiReleaseType=Release、min API=20、target API=26，已覆盖安装到设备 62T0225B13006276 并冷启动成功，现有数据保留。此处仅记录构建、安装和启动证据，不代表真实账号专项登录或手表验证。
+本轮落地验证：引擎/实际导入定义回归、订阅取数回归、多文件导入回归全部通过；ETS 静态检查后使用 Release IDE CLI 完整增量构建成功。HAP 元数据 apiReleaseType=Release、min API=20、target API=26，已覆盖安装到设备 62T0225B13006276 并冷启动成功，现有数据保留。此处仅记录构建、安装和启动证据，不代表真实账号专项登录或手表验证。
 
-本轮手机 smoke：现有番茄源的听书首页加载成功，点击《我丈夫的情人》后详情保持同名，作者/简介及 297 集目录信息正常展示。未使用真实账号执行验证码登录。
+本轮手机 smoke：现有导入源的听书首页加载成功，点击《我丈夫的情人》后详情保持同名，作者/简介及 297 集目录信息正常展示。未使用真实账号执行验证码登录。
 
-## 听书分类返回正文（2026-10-14）
-
-使用用户提供的番茄原生源，公开接口复现：全部分类样本返回 audio；都市、穿越、现代言情的发现记录按听书模式解析为 audio，详情却返回原著 book_type=3，规则映射为 text，且 content.url 的普通分支保留 tab=novel，导致无音频地址。同一章节改为 tab=audio 时服务返回 content_type=audio 和有效音频/代理地址。此差异由当前 JSON 的两处规则触发，未证明轻页实机能播放相同样本。
-
-修正版仅调整 detail.fields.type（听书模式明确采用 audio，包括旧缓存上下文）和 content.url（audio 使用 tab=audio，video 和 text 维持原分支），原文件不覆盖、不提交用户源定义。两边导入相同修正版即可使用相同声明；不在应用核心注入站点地址或 URL 改写。公开接口回归覆盖全部/都市/穿越/现代言情的发现→详情→目录→正文，四类均返回 audioUrl；新增 --live-audio-categories 可对指定源执行该验证。实际播放器和完整音频文件下载需另行验证。
-
-修正版已通过 hdc 写入简听自己的 filesDir，再由原有 viewData 文件导入入口重新导入同 URL 书源，未改 App 解析核心。手机随后位于另一个源的阅读页，停止继续点按；本轮尚未获得修正版在 AVPlayer 实际播放的证据。
-
-## 有听网音频与旧目录迁移（2026-10-14）
+## 音频与旧目录迁移（2026-10-14）
 
 《无敌剑域》的设备日志暴露两处接入差距：音频规则核心返回结果后，简听遗漏了轻页 AudioBook 页的 JSON/HTML 地址提取与书源媒体请求头；旧引擎生成的 `__genericTocFallback` 网页目录又被当作当前定义缓存复用，将 HTML 交给 JSON 音频规则。
 
 同步脚本现在从同一固定上游提交的 `AudioBook.ets` 提取七个通用解析/请求头方法到 `upstream/LightAudioSupport.ts`，不迁入页面。`LightSourceCore` 使用原方法还原 JSON/Unicode 地址、保留源声明 Referer/User-Agent 和显式媒体请求头，同时保留跨站凭据隔离。目录签名加入轻页引擎版本，旧定义目录和带 fallback 标记的章节在播放前按当前源规则刷新；保留章节 ID，原进度及下载身份不重建。不添加域名专用适配、不修改用户定义。
 
-主机定向验证：引擎回归覆盖 BOM/Unicode、嵌套媒体值、显式请求头与跨站凭据隔离；目录迁移回归覆盖旧网页地址更新、ID 保留及新目录复用。使用手机保存的 www.ting15.com 源定义和《无敌剑域》2117 号书公开接口，解析 3977 个有效章节，前两集音频 Range 请求均为 HTTP 206 / audio/x-m4a，携带声明 Referer。这些请求结果不替代手机实际播放验证。
+主机定向验证：引擎回归覆盖 BOM/Unicode、嵌套媒体值、显式请求头与跨站凭据隔离；目录迁移回归覆盖旧网页地址更新、ID 保留及新目录复用。使用手机保存的导入源定义和公开书籍接口，解析 3977 个有效章节，前两集音频 Range 请求均为 HTTP 206 / audio/x-m4a，携带声明 Referer。这些请求结果不替代手机实际播放验证。
 
 设备验证：修正版 debug HAP 覆盖安装并冷启动后，设备 62T0225B13006276 日志在 14:38:57 确认刷新 3977 章，14:39:01 确认《无敌剑域》第1集进入 playing，时长 951740ms；用户暂停时进度为 1561ms。此次旧目录迁移耗时约 15 秒，新签名目录后续直接复用。未将其他书的播放证据计入本书，也未声称本轮完成音频导出或手表验证。
 

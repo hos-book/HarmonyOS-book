@@ -15,6 +15,7 @@ import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent
 import { WindowUtils } from '../utils/WindowUtils';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { PlatformCompat } from '../utils/PlatformCompat';
+import { PlayerDragTransition } from '../utils/PlayerDragTransition';
 import { Book, Chapter } from '../model/Book';
 import { SearchResult, HomeBlockSection } from '../model/BookSource';
 import { SearchCache } from '../utils/SearchCache';
@@ -44,7 +45,6 @@ import { EVT_HOME_SOURCE_CHANGED, EVT_FAVORITES_CHANGED, PreferenceService } fro
 import { HomeSourceCategory, HomeSourceContent, HomeSourceService } from '../service/rulesource/HomeSourceService';
 import { RankingHomePage } from './RankingHomePage';
 import { RankingService } from '../service/ranking/RankingService';
-import { ReleasePolicy } from '../utils/ReleasePolicy';
 
 class HomeFilterOptionItem {
   control: LocalRuleControl;
@@ -297,6 +297,8 @@ struct HomeLoadingSkeleton {
 @ComponentV2
 export struct HomePage {
   @Param visible: boolean = true;
+  @Param bottomTabInset: number = 0;
+  @Param miniPlayerVisible: boolean = false;
   @Local rankingMode: boolean = false;
   @Local homeResolved: boolean = false;
   private rankingBackHandler: (() => boolean) | undefined = undefined;
@@ -321,6 +323,7 @@ export struct HomePage {
   @Local savingHomeSourceMenuColumns: boolean = false;
   @Local homeSourceMenuViewportWidth: number = WindowUtils.getWindowWidthVp();
   @Local homeSourceMenuViewportHeight: number = WindowUtils.getWindowHeightVp();
+  @Local homeMenuBottomInset: number = 0;
   private homeSourcesRevision: number = -1;
   private homeSourceMenuSerial: number = 0;
   private homeSourceMenuData: HomeRecommendationDataSource<LocalRuleSource> = new HomeRecommendationDataSource();
@@ -373,7 +376,6 @@ export struct HomePage {
   @Event onScrollerReady: (scroller: Scroller) => void = () => {};
   @Event onContentScroll: (offset: number, state: ScrollState) => void = () => {};
   @Event onSearchTap: () => void = () => {};
-  @Event onPodcastTap: () => void = () => {};
   @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
   /** 分类入口点击:跳到分类书单页(复用 blockMore 路由) */
   @Event onCategoryTap: (sourceUrl: string, sourceName: string, title: string, url: string) => void = () => {};
@@ -801,7 +803,44 @@ export struct HomePage {
   private showCategoryOverview(): void {
     this.homeSourceMenuVisible = false;
     this.homeFilterMenuVisible = false;
+    this.updateHomeMenuBottomInset();
     this.categorySheetVisible = true;
+  }
+
+  private updateHomeMenuBottomInset(): void {
+    let bottom: number = this.bottomTabInset + (this.miniPlayerVisible ? 56 : 0);
+    if (this.miniPlayerVisible) {
+      try {
+        const context = this.getUIContext();
+        const viewport = PlayerDragTransition.measure(context, 'home-page-layout');
+        const mini = PlayerDragTransition.measure(context, 'mini-player-bar');
+        if (viewport.isValid() && mini.isValid() && mini.topPx >= viewport.topPx &&
+          mini.leftPx < viewport.leftPx + viewport.widthPx &&
+          mini.leftPx + mini.widthPx > viewport.leftPx) {
+          bottom = Math.max(this.bottomTabInset, context.px2vp(viewport.topPx + viewport.heightPx - mini.topPx));
+        }
+      } catch (_error) {
+        // 首帧未挂载播放栏时，先按底部导航栏和播放栏高度预留空间。
+      }
+    }
+    this.homeMenuBottomInset = bottom;
+  }
+
+  @Monitor('bottomTabInset', 'miniPlayerVisible')
+  private onHomeMenuBottomChanged(): void {
+    this.updateHomeMenuBottomInset();
+  }
+
+  @Computed
+  get homeCategoryMenuTopInset(): number {
+    return this.topSafeVp + SEARCH_FIELD_ROW_HEIGHT + this.homeChannelHeight + AppSpace.Xs;
+  }
+
+  @Computed
+  get homeCategoryMenuHeight(): number {
+    const available: number = this.homeSourceMenuViewportHeight - this.homeCategoryMenuTopInset -
+      Math.max(this.bottomTabInset, this.homeMenuBottomInset) - AppSpace.Xs * 3;
+    return Math.max(1, Math.min(ImmersiveMenu.height(this.homeSourceMenuViewportHeight), available));
   }
 
   private async selectHomeFilter(control: LocalRuleControl, value: string): Promise<void> {
@@ -839,7 +878,7 @@ export struct HomePage {
         }
       })
     }.width(ImmersiveMenu.width(this.homeSourceMenuViewportWidth - this.leftSafeVp - this.rightSafeVp, 560))
-      .height(ImmersiveMenu.height(this.homeSourceMenuViewportHeight))
+      .height(this.homeCategoryMenuHeight)
       .constraintSize({ maxWidth: '100%' }).onTouch(ImmersiveMenu.keepOpen)
   }
 
@@ -1259,6 +1298,12 @@ export struct HomePage {
   }
 
   @Computed
+  get homeSourcePopupWidth(): number {
+    const sideMargin: number = AppSpace.Md + Math.max(this.leftSafeVp, this.rightSafeVp);
+    return Math.max(1, Math.min(720, this.homeSourceMenuViewportWidth - sideMargin * 2));
+  }
+
+  @Computed
   get homeSourceMenuHeight(): number {
     return ImmersiveMenu.height(this.homeSourceMenuViewportHeight, 620);
   }
@@ -1266,7 +1311,7 @@ export struct HomePage {
   @Computed
   get homeSourceMenuListMaxHeight(): number {
     const rows = Math.ceil(this.homeSourceMatchCount / this.homeSourceMenuColumns);
-    const contentHeight = rows * 48 + Math.max(0, rows - 1) * AppSpace.Xs;
+    const contentHeight = rows * 48 + Math.max(0, rows - 1) * AppSpace.Sm;
     return Math.min(contentHeight, Math.max(48, this.homeSourceMenuHeight - 88 - AppSpace.Xs * 4));
   }
 
@@ -1309,7 +1354,8 @@ export struct HomePage {
           }
         }.width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
           .borderRadius(AppRadius.Xl - AppSpace.Xs)
-          .backgroundColor(ImmersiveMenu.selection(index === this.homeSourceKind))
+          .backgroundColor($r('sys.color.comp_background_tertiary'))
+          .accessibilitySelected(index === this.homeSourceKind)
           .onClick((): void => {
             this.homeSourceKind = index;
             this.homeSourceKindMenuVisible = false;
@@ -1374,41 +1420,62 @@ export struct HomePage {
     }));
   }
 
-  private homeSourceMenuOptions(): MenuOptions {
-    const options = ImmersiveMenu.options((): void => {
-      this.homeSourceMenuVisible = false;
-      this.homeSourceKindMenuVisible = false;
-    }, this.homeSourceMenuColumns === 2 ? Placement.Bottom : Placement.BottomRight);
-    options.onAppear = (): void => this.scrollHomeSourceMenuToSelection();
+  private homeSourceMenuOptions(): CustomPopupOptions {
+    const options: CustomPopupOptions = {
+      builder: (): void => { this.buildHomeSourceMenu(); },
+      placement: Placement.Bottom,
+      width: this.homeSourcePopupWidth,
+      radius: AppRadius.Xl,
+      enableArrow: false,
+      targetSpace: AppSpace.Xs,
+      autoCancel: true,
+      focusable: true,
+      showInSubWindow: false,
+      popupColor: AppMaterial.SheetBackground,
+      onStateChange: (event): void => {
+        this.homeSourceMenuVisible = event.isVisible;
+        if (event.isVisible) this.scrollHomeSourceMenuToSelection();
+        else this.homeSourceKindMenuVisible = false;
+      }
+    };
+    if (PlatformCompat.immersiveMaterial) {
+      options.backgroundBlurStyle = BlurStyle.NONE;
+      options.systemMaterial = AppMaterial.Sheet;
+    } else {
+      options.backgroundBlurStyle = AppMaterial.SheetBlur;
+    }
     return options;
   }
 
   @LocalBuilder
   buildHomeSourceMenu() {
     Column({ space: AppSpace.Xs }) {
-      Row({ space: 0 }) {
-        Text($r('app.string.ranking_home')).fontSize(AppFont.Body)
-          .fontColor($r('sys.color.font_primary'))
-          .layoutWeight(1).height(48).padding({ left: 12, right: 12 })
+      Row({ space: AppSpace.Xs }) {
+        Row({ space: AppSpace.Xs }) {
+          Text($r('app.string.ranking_home')).fontSize(AppFont.Body)
+            .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          if (this.rankingMode) {
+            SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([AppColor.Brand])
+              .width(20).flexShrink(0)
+          }
+        }.layoutWeight(1).height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
           .borderRadius(AppRadius.Xl - AppSpace.Xs)
-          .backgroundColor(ImmersiveMenu.selection(this.rankingMode))
+          .backgroundColor($r('sys.color.comp_background_tertiary'))
+          .accessibilitySelected(this.rankingMode)
           .onClick((): void => {
             this.homeSourceMenuVisible = false;
             PreferenceService.setHomeSourceUrl(RankingService.HOME_URL).catch((): void => {
               this.showHomeSourceToast($r('app.string.rule_source_operation_failed'));
             });
           })
-        if (this.rankingMode) {
-          SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([AppColor.Brand])
-            .width(20).flexShrink(0)
-        }
         Button({ type: ButtonType.Circle }) {
           ThemeIconComponent({ role: this.homeSourceMenuColumns === 1 ? ThemeIconRole.Grid : ThemeIconRole.List,
             symbol: this.homeSourceMenuColumns === 1 ? $r('sys.symbol.square_grid_2x2') : $r('sys.symbol.list_bullet'),
             iconSize: 22, tint: AppTheme.IconPrimary })
         }
-          .width(40).height(48).flexShrink(0)
-          .backgroundColor(Color.Transparent)
+          .width(40).height(40).flexShrink(0)
+          .backgroundColor($r('sys.color.comp_background_tertiary'))
           .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
           .enabled(!this.savingHomeSourceMenuColumns)
           .id('home-source-menu-layout')
@@ -1420,7 +1487,7 @@ export struct HomePage {
         Button({ type: ButtonType.Circle }) {
           ThemeIconComponent({ role: ThemeIconRole.Filter, symbol: $r('sys.symbol.funnel'), iconSize: 22,
             tint: this.homeSourceKind > 0 ? AppColor.Brand : AppTheme.IconPrimary })
-        }.width(40).height(48).flexShrink(0).backgroundColor(Color.Transparent)
+        }.width(40).height(40).flexShrink(0).backgroundColor($r('sys.color.comp_background_tertiary'))
           .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
           .accessibilityText($r('app.string.record_content_filter'))
           .accessibilityDescription(this.homeSourceKindLabel(this.homeSourceKind))
@@ -1444,30 +1511,31 @@ export struct HomePage {
           .fontSize(14).fontColor($r('sys.color.font_secondary'))
           .width('100%').height(64).textAlign(TextAlign.Center)
       } else {
-        List({ space: AppSpace.Xs, scroller: this.homeSourceMenuScroller,
+        List({ space: AppSpace.Sm, scroller: this.homeSourceMenuScroller,
           initialIndex: this.rankingMode || this.homeSourceKeyword.length > 0 || this.homeSourceKind !== 0 ? 0 : Math.max(0, this.homeSourceIndex) }) {
           LazyForEach(this.homeSourceMenuData, (source: LocalRuleSource) => {
             ListItem() {
               Row() {
-                Text(source.bookSourceName)
-                  .fontSize(AppFont.Body).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-                  .fontColor($r('sys.color.font_primary'))
-                  .layoutWeight(1).height(48).padding({ left: AppSpace.Sm, right: AppSpace.Xs })
+                Row({ space: AppSpace.Xxs }) {
+                  Text(source.bookSourceName)
+                    .fontSize(AppFont.Body).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+                    .fontColor($r('sys.color.font_primary')).layoutWeight(1)
+                  if (this.isHomeSourceSelected(source)) {
+                    SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([AppColor.Brand])
+                      .width(20).flexShrink(0)
+                  }
+                }.layoutWeight(1).height(48).padding({ left: AppSpace.Sm, right: AppSpace.Xxs })
                   .enabled(!this.savingHomeSource)
                   .onClick((): void => {
                     this.homeSourceMenuVisible = false;
                     this.selectHomeSource(this.homeSources.findIndex((item: LocalRuleSource): boolean =>
                       item.bookSourceUrl === source.bookSourceUrl));
                   })
-                if (this.isHomeSourceSelected(source)) {
-                  SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([AppColor.Brand])
-                    .width(20).flexShrink(0)
-                }
                 Button({ type: ButtonType.Circle }) {
                   ThemeIconComponent({ role: ThemeIconRole.ChevronRight, symbol: $r('sys.symbol.chevron_right'),
                     iconSize: 24, tint: AppColor.Brand })
                 }
-                .width(48).height(48).flexShrink(0).margin({ right: AppSpace.Xxs })
+                .width(40).height(48).flexShrink(0).margin({ right: AppSpace.Xxs })
                 .backgroundColor(Color.Transparent)
                 .enabled(!this.savingHomeSource)
                 .accessibilityText($r('app.string.home_source_open_settings'))
@@ -1476,15 +1544,15 @@ export struct HomePage {
               }
                 .width('100%').height(48)
                 .borderRadius(AppRadius.Xl - AppSpace.Xs)
-                .backgroundColor(ImmersiveMenu.selection(this.isHomeSourceSelected(source)))
+                .backgroundColor($r('sys.color.comp_background_tertiary'))
                 .accessibilitySelected(this.isHomeSourceSelected(source))
             }
           }, (source: LocalRuleSource): string => source.bookSourceUrl)
         }.width('100%').padding({ left: AppSpace.Xxs, right: AppSpace.Xxs })
           .constraintSize({ maxHeight: this.homeSourceMenuListMaxHeight })
-          .lanes(this.homeSourceMenuColumns, AppSpace.Xs).scrollBar(BarState.Off)
+          .lanes(this.homeSourceMenuColumns, AppSpace.Sm).scrollBar(BarState.Off)
       }
-    }.width(this.homeSourceMenuWidth)
+    }.width('100%')
       .constraintSize({ maxWidth: '100%', maxHeight: this.homeSourceMenuHeight }).padding(AppSpace.Xs)
       .onTouch(ImmersiveMenu.keepOpen)
       .id('home-source-menu')
@@ -1512,12 +1580,6 @@ export struct HomePage {
       .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
       .onClick(() => this.onSearchTap())
 
-      if (ReleasePolicy.showPodcastEntry) {
-        ImmersiveCircleButton({ icon: $r('sys.symbol.mic'), label: $r('app.string.podcast_title'),
-          diameter: SEARCH_FIELD_HEIGHT, iconSize: 20, iconColor: AppColor.Brand,
-          onPress: (): void => this.onPodcastTap() }).id('home-podcast-button')
-      }
-
       Text(this.rankingMode ? $r('app.string.ranking_home') : this.homeSourceName || $r('app.string.home_source_setting'))
         .fontSize(13).fontWeight(FontWeight.Medium)
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -1539,8 +1601,8 @@ export struct HomePage {
     }
     .width('100%')
     .height(SEARCH_FIELD_ROW_HEIGHT)
-    // 全宽标题栏作为锚点：双列居中，单列仍靠书源入口右侧。
-    .bindMenu(this.homeSourceMenuVisible, this.buildHomeSourceMenu, this.homeSourceMenuOptions())
+    // 全宽标题栏作为锚点：单列、双列均与底部导航栏对齐。
+    .bindPopup(this.homeSourceMenuVisible, this.homeSourceMenuOptions())
     .padding({ left: AppSpace.Md, right: AppSpace.Md })
     .alignItems(VerticalAlign.Center)
     .backgroundColor(Color.Transparent)
@@ -1594,7 +1656,8 @@ export struct HomePage {
       if (!this.homeResolved) {
         LoadingProgress().width(28).height(28).color(AppColor.Brand)
       } else if (this.rankingMode) {
-        RankingHomePage({ visible: this.visible, headerBuilder: (): void => this.buildSearchTitleBar(), onBookTap: this.onRankingBookTap,
+        RankingHomePage({ visible: this.visible, bottomTabInset: this.bottomTabInset,
+          miniPlayerVisible: this.miniPlayerVisible, headerBuilder: (): void => this.buildSearchTitleBar(), onBookTap: this.onRankingBookTap,
           onSearchTap: this.onSearchTap, onManageSources: this.onManageSources,
           onScrollerReady: this.onScrollerReady, onContentScroll: this.onContentScroll,
           onBackHandlerChange: (handler: (() => boolean) | undefined): void => { this.rankingBackHandler = handler; }
@@ -1602,7 +1665,7 @@ export struct HomePage {
       } else {
         this.buildSourceHome()
       }
-    }.width('100%').height('100%')
+    }.width('100%').height('100%').id('home-page-layout')
       .onSizeChange((_oldSize: SizeOptions, newSize: SizeOptions): void => {
         const width: number = Number(newSize.width);
         const height: number = Number(newSize.height);
@@ -1611,6 +1674,7 @@ export struct HomePage {
           const windowHeight: number = WindowUtils.getWindowHeightVp();
           this.homeSourceMenuViewportHeight = windowHeight > 0 ? windowHeight : height;
         }
+        this.updateHomeMenuBottomInset();
       })
       .onVisibleAreaChange([0, 1], (visible: boolean): void => {
         if (visible && this.lastSourceRevision !== SourceDataService.getInvalidationCounter()) this.reloadSource();
@@ -2316,7 +2380,11 @@ export struct HomePage {
   }
 
   private homeCategoryMenuOptions(): MenuOptions {
-    return ImmersiveMenu.options((): void => { this.categorySheetVisible = false; }, Placement.Bottom);
+    const options = ImmersiveMenu.options((): void => { this.categorySheetVisible = false; }, Placement.Bottom);
+    options.layoutRegionMargin = { top: this.homeCategoryMenuTopInset,
+      bottom: Math.max(this.bottomTabInset, this.homeMenuBottomInset) + AppSpace.Xs,
+      left: AppSpace.Md + this.leftSafeVp, right: AppSpace.Md + this.rightSafeVp };
+    return options;
   }
 
   @LocalBuilder

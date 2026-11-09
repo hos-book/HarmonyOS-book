@@ -1,4 +1,4 @@
-import { Book, BookChapter, BookSource, SearchBook } from '../../model/data/Book';
+import { BookSource } from '../../model/data/Book';
 import { HttpClient } from '../http/HttpClient';
 import { BookUrlResolver } from './BookUrlResolver';
 import { CoverUrlNormalizer } from '../../utils/CoverUrlNormalizer';
@@ -7,43 +7,8 @@ import { CoverUrlNormalizer } from '../../utils/CoverUrlNormalizer';
  * Compatibility helpers for ordinary imported-source data. This module deliberately contains no
  * publisher, aggregator, mirror, credential, signing key or private API knowledge.
  */
-export class ExploreDataUrlEntry {
-  title: string = '';
-  url: string = '';
-}
 
 export class BookSourceDataUrlSupport {
-  static isEncodedSource(url: string): boolean {
-    // data URLs are decoded by AnalyzeUrl and then evaluated by the source's own rules.
-    return false;
-  }
-
-  static sourceUsesGySearch(source: BookSource): boolean {
-    return false;
-  }
-
-  static sourceUsesGyExplore(source: BookSource): boolean {
-    return false;
-  }
-
-  static async getExplorePlatforms(http: HttpClient, source: BookSource,
-    tab: string = ''): Promise<string[]> {
-    return [];
-  }
-
-  static getSingleSitePlatformName(source: BookSource): string {
-    const group = (source.bookSourceGroup || '').split(',')
-      .map((item: string): string => item.trim())
-      .filter((item: string): boolean => !!item)[0];
-    if (group) return group;
-    return (source.bookSourceName || source.bookSourceUrl || '默认站点').trim();
-  }
-
-  static buildRequestUrl(source: BookSource, rawUrl: string, page: string = '1',
-    keyword: string = ''): string {
-    // Function calls and templates are executed by the generic source runtime.
-    return '';
-  }
 
   static sourceBackendHost(source: BookSource): string {
     const configured = this.configuredOrigin(source.variable || '');
@@ -53,39 +18,6 @@ export class BookSourceDataUrlSupport {
     const declared = `${source.jsLib || ''}\n${source.searchUrl || ''}\n${source.exploreUrl || ''}`
       .match(/https?:\/\/[^'"`\s,)\]]+/i);
     return declared && declared[0] ? this.origin(declared[0]) : '';
-  }
-
-  static async search(http: HttpClient, source: BookSource, keyword: string,
-    page: number = 1, maxResponseBytes?: number): Promise<SearchBook[]> {
-    return [];
-  }
-
-  static async getExploreEntries(http: HttpClient, platform: string = '', tab: string = '',
-    sourceType: string = '', bookSource?: BookSource): Promise<ExploreDataUrlEntry[]> {
-    return [];
-  }
-
-  static normalizeExplorePlatform(platform: string): string {
-    return (platform || '').trim();
-  }
-
-  static async explore(http: HttpClient, source: BookSource, url: string,
-    page: number): Promise<SearchBook[]> {
-    return [];
-  }
-
-  static async getBookInfo(http: HttpClient, source: BookSource, book: Book): Promise<Book> {
-    return book;
-  }
-
-  static async getChapterList(http: HttpClient, source: BookSource,
-    book: Book): Promise<BookChapter[]> {
-    return [];
-  }
-
-  static async getContent(http: HttpClient, source: BookSource, book: Book,
-    chapter: BookChapter): Promise<string> {
-    return '';
   }
 
   static normalizeCoverUrl(source: BookSource, url: string, baseUrl: string = ''): string {

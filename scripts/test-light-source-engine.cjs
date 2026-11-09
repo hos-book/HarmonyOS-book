@@ -219,6 +219,14 @@ async function run() {
   assert.equal(new AnalyzeRule('<div id="x"><b>Hi</b></div>').getString('#x@html'), '<div id="x"><b>Hi</b></div>');
   assert.equal(new AnalyzeRule('{"items":[{"n":"a"},{"n":"b"}]}').getString('$.items[*].n'), 'a\nb');
   assert.equal(new LightSourceImport().parseBookSource({ ...source, ruleContent: { ...source.ruleContent, images: '$.images' } }).contentRule.images, '$.images');
+  const encodedFixture = { title: '自定义内容', custom: 'preserved' };
+  const encodedJson = JSON.stringify(encodedFixture);
+  const encodedAddress = new AnalyzeRule(encodedJson).getString('@js:"data:;base64," + java.base64Encode(result)');
+  const { EncodedSourceUrl } = load(prefix + 'upstream/core/book/EncodedSourceUrl');
+  const encodedPayload = EncodedSourceUrl.decode(encodedAddress);
+  assert.ok(encodedPayload, 'generic source scripts can construct data URLs');
+  assert.equal(encodedPayload.text, encodedJson, 'data URL scripts preserve the complete source-defined payload');
+  assert.equal(encodedPayload.data.custom, 'preserved', 'custom payload fields survive rule execution');
   fixtures.set('https://engine.test/search', '{"books":[{"name":"Book","url":"/book","kind":"玄幻|评分：9.2"}]}');
   fixtures.set('https://engine.test/book', '{"name":"Book","author":"Author","toc":"/toc","kind":"玄幻|评分：9.6"}');
   fixtures.set('https://engine.test/toc', '{"chapters":[{"name":"One","url":"/chapter"}]}');

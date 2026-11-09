@@ -631,7 +631,6 @@ export struct PlayerPage {
         if (currentIndex >= 0) this.playerState.currentChapter = b.chapters[currentIndex];
       }
     }
-    AudioService.getInstance().prewarmBookSource(b);
     // 绑定全局状态/上下文
     AudioService.getInstance().bind(this.playerState, this.context!);
 

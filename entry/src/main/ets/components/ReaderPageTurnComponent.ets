@@ -4,7 +4,7 @@ import { AnimatorResult, FrameCallback } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { PageTurnMode } from '../model/TextReading';
-import { ReaderCurlGeometry } from '../utils/ReaderCurlGeometry';
+import { ReaderCurlGeometry, ReaderCurlPoint } from '../utils/ReaderCurlGeometry';
 import { ReaderSpreadGeometry } from '../utils/ReaderSpreadGeometry';
 
 class ReaderTurnFrame extends FrameCallback {
@@ -65,6 +65,7 @@ export struct ReaderPageTurnComponent {
   @Param safeRight: number = 0;
   @Param safeTop: number = 0;
   @Param safeBottom: number = 0;
+  @Param footerHeight: number = 0;
   private tapTracker: ReaderTouchTracker = new ReaderTouchTracker();
   @Param keyTurnRequest: number = 0;
   @Param mode: string = PageTurnMode.Cover;
@@ -95,6 +96,7 @@ export struct ReaderPageTurnComponent {
   private forward: boolean = true;
   private progress: number = 0;
   private renderedProgress: number = 0;
+  private renderedVertical: number = 0;
   private anchor: number = 0.5;
   private verticalDrag: number = 0;
   private releaseVertical: number = 0;
@@ -126,6 +128,11 @@ export struct ReaderPageTurnComponent {
   @Monitor('mode', 'spread')
   onTurnModeChanged(): void {
     this.cancelTurn(this.phase === 'settling' && this.commitOnRelease);
+  }
+
+  @Monitor('paperColor', 'safeTop', 'safeBottom', 'footerHeight')
+  onPaperAppearanceChanged(): void {
+    if (this.phase === 'idle') this.drawRestingSpine();
   }
 
   @Monitor('revision')
@@ -181,7 +188,7 @@ export struct ReaderPageTurnComponent {
     this.animator = null;
     if (running !== null) running.cancel();
     if (wasActive) { this.finishTurn(commit, this.serial); return; }
-    if (this.canvasReady) this.canvas.clearRect(0, 0, this.pageWidth, this.pageHeight);
+    this.drawRestingSpine();
     this.releaseSnapshot();
   }
 
@@ -196,7 +203,9 @@ export struct ReaderPageTurnComponent {
     }
     finally {
       if (ticket === this.serial) {
-        if (this.canvasReady) this.canvas.clearRect(0, 0, this.pageWidth, this.pageHeight);
+        // 仿真取消时底层仍是预览页，等还原/提交完成布局后再撤去纸面，避免闪出另一页。
+        if (this.mode === PageTurnMode.Simulation && this.canvasReady) await this.pageFrame(100);
+        this.drawRestingSpine();
         this.releaseSnapshot();
         // 先提交父页面的位置及截图移除，避免截到旧页或被迟到的 revision 撤销。
         if (this.mode === PageTurnMode.Cover && this.canvasReady) await this.pageFrame(100);
@@ -258,7 +267,8 @@ export struct ReaderPageTurnComponent {
         await this.finishTurn(prepared, ticket);
         return;
       }
-      const bitmap = await this.getUIContext().getComponentSnapshot().get(this.snapshotId);
+      const bitmap = await this.getUIContext().getComponentSnapshot().get(this.snapshotId,
+        { waitUntilRenderFinished: true });
       if (ticket !== this.serial) {
         bitmap.release().catch((): void => {});
         return;
@@ -267,6 +277,7 @@ export struct ReaderPageTurnComponent {
       if (this.mode === PageTurnMode.Cover) {
         this.coverOffset = 0;
         this.coverSnapshot = bitmap;
+        this.canvas.clearRect(0, 0, this.pageWidth, this.pageHeight);
       } else this.snapshotImage = new ImageBitmap(bitmap);
       // 先用原页覆盖，再异步准备底层目标页，避免等待正文时提前跳页。
       this.drawFrame(0);
@@ -282,7 +293,9 @@ export struct ReaderPageTurnComponent {
       await this.pageFrame();
       if (ticket !== this.serial) return;
       if (this.spread && this.mode === PageTurnMode.Simulation) {
-        const target = await this.getUIContext().getComponentSnapshot().get(this.snapshotId);
+        // 布局 onIdle 不代表原生正文节点已提交绘制；必须等待渲染完成才缓存纸背。
+        const target = await this.getUIContext().getComponentSnapshot().get(this.snapshotId,
+          { waitUntilRenderFinished: true });
         if (ticket !== this.serial) { target.release().catch((): void => {}); return; }
         this.targetSnapshot = target;
         this.targetImage = new ImageBitmap(target);
@@ -355,7 +368,7 @@ export struct ReaderPageTurnComponent {
     const finger = event.fingerList[0];
     if (finger === undefined) return;
     if (!this.requestTurn((this.mode === PageTurnMode.Vertical ? event.offsetY : event.offsetX) < 0,
-      false, finger.localY)) return;
+      false, finger.localY - event.offsetY)) return;
     this.handlePanUpdate(event);
   }
 
@@ -436,7 +449,7 @@ export struct ReaderPageTurnComponent {
     const speed = this.mode === PageTurnMode.Vertical ? event.velocityY : event.velocityX;
     const velocity = this.forward ? -speed : speed;
     this.released = true;
-    const threshold = this.mode === PageTurnMode.Simulation ? 0.14 : 0.28;
+    const threshold = this.mode === PageTurnMode.Simulation && !this.spread ? 0.14 : 0.28;
     this.commitOnRelease = velocity > 650 || (velocity > -650 && this.progress >= threshold);
     if (this.phase === 'dragging') this.settle(this.commitOnRelease);
   }
@@ -488,6 +501,8 @@ export struct ReaderPageTurnComponent {
     const end = commit ? 1 : 0;
     const simulation = this.mode === PageTurnMode.Simulation;
     if (simulation || this.mode === PageTurnMode.Cover) this.progress = this.renderedProgress;
+    const heldSpread = simulation && this.spread && this.progress > 0.001;
+    if (simulation) this.verticalDrag = this.renderedVertical;
     this.releaseVertical = this.verticalDrag;
     this.settleStart = this.progress;
     this.phase = 'settling';
@@ -495,12 +510,13 @@ export struct ReaderPageTurnComponent {
     // 点击与松手都由显式进度驱动，避免新挂载的 V2 截图层只收到属性过渡终点。
     // 覆盖模式仍只平移同一张 Image，不逐帧清空、重画 Canvas。
     const animation = this.getUIContext().createAnimator({
-      duration: simulation ? (commit ? Math.max(300, Math.round(520 * Math.sqrt(1 - this.progress))) :
+      duration: heldSpread ? Math.max(160, Math.round((commit ? 420 : 300) * Math.sqrt(Math.abs(end - this.progress)))) :
+        simulation ? (commit ? Math.max(300, Math.round((this.spread ? 600 : 520) * Math.sqrt(1 - this.progress))) :
         Math.max(180, Math.round(320 * Math.sqrt(this.progress)))) :
         this.mode === PageTurnMode.Cover ?
           (accelerated ? 80 : Math.max(90, Math.round(280 * Math.abs(end - this.progress)))) :
           Math.max(140, Math.round(380 * Math.abs(end - this.progress))),
-      easing: simulation && commit ? 'ease-in-out' : 'ease-out',
+      easing: simulation && commit && !heldSpread ? 'ease-in-out' : 'ease-out',
       delay: 0, fill: 'forwards', direction: 'normal',
       iterations: 1, begin: this.progress, end: end
     });
@@ -556,6 +572,7 @@ export struct ReaderPageTurnComponent {
     const h = this.pageHeight;
     const p = this.mode === PageTurnMode.None ? 0 : Math.max(0, Math.min(1, value));
     this.renderedProgress = p;
+    this.renderedVertical = this.verticalDrag;
     if (this.mode === PageTurnMode.Cover) {
       this.coverOffset = (this.forward ? -1 : 1) * w * p;
       return;
@@ -583,11 +600,13 @@ export struct ReaderPageTurnComponent {
     if (this.mode !== PageTurnMode.Simulation) {
       ctx.translate(-w * p, 0);
       this.drawPaper();
+      this.drawBookSpine(w / 2, 1, !this.forward);
       ctx.restore();
       return;
     }
     if (p <= 0.0001) {
       this.drawPaper();
+      this.drawBookSpine(w / 2, 1, !this.forward);
     } else if (p < 0.9999) {
       this.drawCurl(new ReaderCurlGeometry(w, h, p, this.anchor, this.verticalDrag));
     }
@@ -607,29 +626,155 @@ export struct ReaderPageTurnComponent {
     ctx.restore();
   }
 
+  private spreadPath(points: ReaderCurlPoint[]): void {
+    const ctx = this.canvas;
+    ctx.beginPath();
+    if (points.length < 3) return;
+    ctx.moveTo(points[0].x, points[0].y);
+    for (let i = 1; i < points.length; i++) ctx.lineTo(points[i].x, points[i].y);
+    ctx.closePath();
+  }
+
+  /** 纸背使用目标内页；两次反射后，落页文字保持正常阅读方向。 */
+  private drawSpreadLeaf(back: boolean): void {
+    const bitmap = back ? this.targetImage : this.snapshotImage;
+    if (bitmap === null) return;
+    const ctx = this.canvas;
+    const half = this.pageWidth / 2;
+    const mirrored = back === this.forward;
+    ctx.save();
+    ctx.globalAlpha = 1;
+    if (mirrored) { ctx.translate(half, 0); ctx.scale(-1, 1); }
+    ctx.fillStyle = this.paperColor;
+    ctx.fillRect(0, 0, half, this.pageHeight);
+    ctx.drawImage(bitmap, mirrored ? 0 : bitmap.width / 2, 0, bitmap.width / 2, bitmap.height,
+      0, 0, half, this.pageHeight);
+    ctx.restore();
+  }
+
   private drawSpread(progress: number): void {
     const old = this.snapshotImage;
     const next = this.targetImage;
     if (old === null || next === null) return;
+    // 端点直接使用完整静止页，不能留下反射矩阵、折线阴影或纸边描线。
+    if (progress <= 0.0001 || progress >= 0.9999) {
+      this.drawSpreadImage(progress >= 0.9999 ? next : old, 0, this.pageWidth, 0, 0, this.pageWidth);
+      this.drawBookSpine(this.pageWidth / 2, 1, !this.forward);
+      return;
+    }
     const half = this.pageWidth / 2;
-    const shape = new ReaderSpreadGeometry(half, this.pageHeight, progress, this.anchor, this.verticalDrag);
-    // 另一侧旧页固定，目标外页由底层显示，翻过书脊后纸背显示目标内页。
+    // 两张静止底页明确绘制，背景图片、页眉和安全区也与正文一起保持连续。
     this.drawSpreadImage(old, this.forward ? 0 : half, half, 0, 0, half);
-    const bitmap = shape.back ? next : old;
-    for (let i = 0; i < 12; i++) {
-      const from = i / 12;
-      const to = (i + 1) / 12;
-      const x0 = half + shape.x(from);
-      const x1 = half + shape.x(to);
-      const sourceX = shape.back === this.forward ? half * (1 - to) : half * (1 + from);
-      this.drawSpreadImage(bitmap, sourceX, half / 12, Math.min(x0, x1),
-        shape.y((from + to) / 2), Math.abs(x1 - x0) + 0.15);
+    this.drawSpreadImage(next, this.forward ? half : 0, half, half, 0, half);
+    const ctx = this.canvas;
+    ctx.save();
+    ctx.translate(half, 0);
+    const shape = new ReaderSpreadGeometry(half, this.pageHeight, progress, this.anchor, this.verticalDrag);
+    if (shape.front.length >= 3) {
+      ctx.save();
+      this.spreadPath(shape.front);
+      ctx.clip();
+      this.drawSpreadLeaf(false);
+      ctx.restore();
     }
-    const shade = Math.sin(Math.PI * progress) * 0.2;
-    if (shade > 0.001) {
-      this.canvas.fillStyle = `rgba(0,0,0,${shade})`;
-      this.canvas.fillRect(Math.min(half, half + shape.x(1)), 0, Math.abs(shape.x(1)), this.pageHeight);
+    this.drawBookSpine(0, 1, !this.forward);
+    this.drawSpreadFoldShadow(shape, false);
+    if (shape.back.length >= 3) {
+      ctx.save();
+      this.spreadPath(shape.back);
+      // 先在屏幕中的纸背轮廓上铺实色，再变换正文纹理。
+      // 遮挡层不依赖截图 alpha 或反射后的矩形覆盖，底页不能穿过纸背。
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = this.paperColor;
+      ctx.fill();
+      ctx.clip();
+      ctx.save();
+      // 反射矩阵只旋转/翻面纸张，不压缩正文，不产生条带接缝。
+      ctx.transform(1 - 2 * shape.nx * shape.nx, -2 * shape.nx * shape.ny,
+        -2 * shape.nx * shape.ny, 1 - 2 * shape.ny * shape.ny,
+        2 * shape.fold * shape.nx, 2 * shape.fold * shape.ny);
+      this.drawSpreadLeaf(true);
+      ctx.restore();
+      this.drawSpreadFoldShadow(shape, true);
+      // 纸背接近落平时才恢复其书脊阴影，交接到静止正文时亮度连续。
+      const landing = Math.max(0, Math.min(1, (progress - 0.75) / 0.25));
+      this.drawBookSpine(0, landing * landing * (3 - 2 * landing), !this.forward);
+      ctx.restore();
     }
+    ctx.restore();
+  }
+
+  private drawRestingSpine(): void {
+    if (!this.canvasReady) return;
+    this.canvas.clearRect(0, 0, this.pageWidth, this.pageHeight);
+    this.drawBookSpine(this.pageWidth / 2);
+  }
+
+  /** 参考 StPageFlip CanvasRender.drawBookShadow；书缝独立于正文截图，位于翻动纸背之下。 */
+  private drawBookSpine(center: number, opacity: number = 1, mirrored: boolean = false): void {
+    if (!this.spread || this.pageWidth <= 0 || opacity <= 0) return;
+    const top = Math.max(8, this.safeTop - 4);
+    const bottom = this.pageHeight - Math.max(8, this.safeBottom + this.footerHeight - 4);
+    const height = bottom - top;
+    if (height <= 0) return;
+    const width = Math.min(36, this.pageWidth * 0.045);
+    const fade = Math.min(20, height / 4);
+    const ctx = this.canvas;
+    ctx.save();
+    ctx.translate(center, 0);
+    if (mirrored) ctx.scale(-1, 1);
+    // 中央凹陷和纸面反光均平滑过渡，不再用描边模拟装订缝。
+    const shade = ctx.createLinearGradient(-width / 2, 0, width / 2, 0);
+    shade.addColorStop(0, 'rgba(0,0,0,0)');
+    shade.addColorStop(0.16, 'rgba(0,0,0,0.015)');
+    shade.addColorStop(0.32, 'rgba(0,0,0,0.055)');
+    shade.addColorStop(0.44, 'rgba(0,0,0,0.13)');
+    shade.addColorStop(0.5, 'rgba(0,0,0,0.24)');
+    shade.addColorStop(0.56, 'rgba(0,0,0,0.11)');
+    shade.addColorStop(0.7, 'rgba(255,255,255,0.10)');
+    shade.addColorStop(0.88, 'rgba(255,255,255,0.03)');
+    shade.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = shade;
+    ctx.globalAlpha = opacity;
+    ctx.fillRect(-width / 2, top + fade, width, height - 2 * fade);
+    // 端部在正文留白内渐隐，避开页眉、页脚与中央阅听状态；不模糊整张纸。
+    const step = fade / 8;
+    for (let i = 0; i < 8; i++) {
+      const t = (i + 0.5) / 8;
+      ctx.globalAlpha = opacity * t * t * (3 - 2 * t);
+      ctx.fillRect(-width / 2, top + i * step, width, step);
+      ctx.fillRect(-width / 2, bottom - (i + 1) * step, width, step);
+    }
+    ctx.restore();
+  }
+
+  /** 参照 StPageFlip 的内外折痕渐变，阴影范围由纸张抬起程度决定。 */
+  private drawSpreadFoldShadow(shape: ReaderSpreadGeometry, inner: boolean): void {
+    const width = shape.shadowWidth;
+    if (width < 0.01) return;
+    const ctx = this.canvas;
+    ctx.save();
+    if (!inner) {
+      ctx.beginPath();
+      ctx.rect(0, 0, shape.width, shape.height);
+      ctx.clip();
+    }
+    ctx.transform(shape.nx, shape.ny, -shape.ny, shape.nx,
+      shape.fold * shape.nx, shape.fold * shape.ny);
+    const shade = ctx.createLinearGradient(inner ? -width : 0, 0, inner ? 0 : width, 0);
+    if (inner) {
+      shade.addColorStop(0, 'rgba(0,0,0,0)');
+      shade.addColorStop(0.45, `rgba(255,255,255,${0.12 * shape.strength})`);
+      shade.addColorStop(0.78, `rgba(0,0,0,${0.06 * shape.strength})`);
+      shade.addColorStop(1, `rgba(0,0,0,${0.28 * shape.strength})`);
+    } else {
+      shade.addColorStop(0, `rgba(0,0,0,${0.24 * shape.strength})`);
+      shade.addColorStop(0.25, `rgba(0,0,0,${0.12 * shape.strength})`);
+      shade.addColorStop(1, 'rgba(0,0,0,0)');
+    }
+    ctx.fillStyle = shade;
+    ctx.fillRect(inner ? -width : 0, -shape.extent, width, shape.extent * 2);
+    ctx.restore();
   }
 
   private drawCurl(shape: ReaderCurlGeometry): void {
@@ -744,6 +889,7 @@ export struct ReaderPageTurnComponent {
         .hitTestBehavior(HitTestMode.None)
         .onReady((): void => {
           this.canvasReady = true;
+          this.drawRestingSpine();
         })
     }
     .width('100%')
@@ -756,6 +902,7 @@ export struct ReaderPageTurnComponent {
       }
       this.pageWidth = size.width;
       this.pageHeight = size.height;
+      if (this.phase === 'idle') this.drawRestingSpine();
     })
     .onTouch((event: TouchEvent): void => this.handleTouch(event))
     .gesture(PanGesture({ fingers: 1, direction: this.ignoreChildGestures ? PanDirection.All :

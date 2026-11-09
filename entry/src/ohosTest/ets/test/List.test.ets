@@ -8,7 +8,6 @@ import imageStripTransformTest from './ImageStripTransform.test';
 import localRuleQuickJsHostTest from './LocalRuleQuickJsHost.test';
 import localRuleSourceFileImportTest from './LocalRuleSourceFileImport.test';
 import abilityTest from './Ability.test';
-import shuShanContentCryptoTest from './ShuShanContentCrypto.test';
 import localRulePersistenceTest from './LocalRulePersistence.test';
 import localRuleBrowserIntegrationTest from './LocalRuleBrowserIntegration.test';
 import sourcePlaybackSmokeTest from './SourcePlaybackSmoke.test';
@@ -35,7 +34,6 @@ export default function testsuite() {
   localRuleSourceFileImportTest();
   localBookImportTest();
   abilityTest();
-  shuShanContentCryptoTest();
   localRulePersistenceTest();
   localRuleBrowserIntegrationTest();
   sourcePlaybackSmokeTest();

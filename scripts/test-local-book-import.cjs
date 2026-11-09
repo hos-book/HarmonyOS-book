@@ -300,25 +300,24 @@ function load(relative) {
   await fsp.writeFile(namedTxt, '《另一部作品》\n正文中提及的书名');
   assert.equal((await service.preview(context, txtFile)).title, '玄鉴仙族');
   console.log('PASS TXT keeps filename through preview/import and respects manual title edits');
-  const { KkBiqugeHtmlParser: legacyHtml } = load('service/text/KkBiqugeHtmlParser');
-  for (const source of [
-    '<html><head><title>不可混入正文</title><style>body{}</style></head><body><h1>标题</h1><p>中文 😀 正文</p></body></html>',
-    '<div>甲<br/>乙</div><p>丙 <b>丁</b> 戊</p>', '<p> \t甲\r\n 乙 </p><!--注释--><p>丙</p>',
-    '<p>&nbsp;&amp;&quot;&#39;&apos;&lt;&gt; &amp;lt; &amp;nbsp;</p>',
-    '<body><script>不可显示</script><style>不可显示</style><section>正文</section></body>',
-    '<p>图前</p><img src="image.jpg"/><p>图后</p>', '纯文字\r\n\n\n  多余空白\t尾部 '
+  for (const [source, expected] of [
+    ['<html><head><title>不可混入正文</title><style>body{}</style></head><body><h1>标题</h1><p>中文 😀 正文</p></body></html>', '标题\n\n中文 😀 正文'],
+    ['<div>甲<br/>乙</div><p>丙 <b>丁</b> 戊</p>', '甲\n乙\n\n丙 丁 戊'],
+    ['<p> \t甲\r\n 乙 </p><!--注释--><p>丙</p>', '甲\n乙\n\n丙'],
+    ['<p>&nbsp;&amp;&quot;&#39;&apos;&lt;&gt; &amp;lt; &amp;nbsp;</p>', '&"\'\'<> < &nbsp;'],
+    ['<body><script>不可显示</script><style>不可显示</style><section>正文</section></body>', '正文'],
+    ['<p>图前</p><img src="image.jpg"/><p>图后</p>', '图前\n\n图后'],
+    ['纯文字\r\n\n\n  多余空白\t尾部 ', '纯文字\n\n多余空白 尾部']
   ]) {
-    const withoutHead = source.replace(/<head\b[^>]*>[\s\S]*?<\/head\s*>/gi, '');
-    const body = /<body\b[^>]*>([\s\S]*?)<\/body\s*>/i.exec(withoutHead);
-    assert.equal(service.htmlText(source), legacyHtml.cleanContent(body ? body[1] : withoutHead), source);
+    assert.equal(service.htmlText(source), expected, source);
   }
   const imageDirectory = path.join(context.filesDir, 'ebooks/import_image_fixture').replaceAll('\\', '/');
   await fsp.mkdir(imageDirectory, { recursive: true });
   const imageStats = { raw: 0, layout: 0, imageBytes: 0 };
   const body = await service.epubBody(context, { getResourceContent(index, relative) {
-    assert.equal(index, 0); assert.equal(relative, 'images/figure.png');
+    assert.equal(index, 0); assert.equal(relative, 'images/figure&a.png');
     return Uint8Array.from(MOBI_COVER_PNG).buffer;
-  } }, 0, '<p>图前文字</p><img src="images/figure.png"/><p>图后文字</p><img src="https://remote/blocked.png"/>', imageDirectory, imageStats);
+  } }, 0, '<p>图前文字</p><img src="images/figure&amp;a.png"/><p>图后文字</p><img src="https://remote/blocked.png"/>', imageDirectory, imageStats);
   const { LocalTextImage: images } = load('service/text/LocalTextImage');
   images.setRoot(context.filesDir);
   const marker = images.pattern().exec(body);

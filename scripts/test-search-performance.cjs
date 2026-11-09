@@ -159,7 +159,55 @@ async function coversTest() {
   assert.equal(h.page.coverHydrationActive, 0);
   assert.equal(h.timers.size, 0, 'leaving page suppresses late UI writes');
 }
+
+function entryTest() {
+  const exports = {};
+  const timers = new Map();
+  let sequence = 0;
+  let measurements = 0;
+  let fontScale = 1;
+  let recommendations = 0;
+  const lifecycle = pageSource.slice(pageSource.indexOf('  private stopPendingSearchUpdates('),
+    pageSource.indexOf('  private async loadSearchHistory('));
+  const measurement = pageSource.slice(pageSource.indexOf('  private historyItemWidth('),
+    pageSource.indexOf('  private trimHistory('));
+  vm.runInNewContext(compile(`export class Page { ${lifecycle} ${measurement} }`), {
+    exports, SEARCH_ENTRY_SETTLE_MS: 500, AppSpace: { Xs: 8 },
+    setTimeout: callback => { timers.set(++sequence, callback); return sequence; },
+    clearTimeout: id => timers.delete(id)
+  });
+  const page = new exports.Page();
+  Object.assign(page, { leavingPage: false, entryReady: false, entryTimerId: -1, initialKeyword: '',
+    searchGen: 0, resultsRefreshTimer: -1, historyWidth: 320, historyTextWidths: new Map(),
+    historyMeasureScale: '', trimHistory() {}, cancelRecommendations() {},
+    searchController: { stopEditing() {} },
+    scheduleRecommendations() { if (this.entryReady) recommendations++; },
+    getUIContext: () => ({ fp2px: value => value * fontScale, px2vp: value => value,
+      getMeasureUtils: () => ({ measureTextSize: () => { measurements++; return { width: 80 * fontScale }; } }) }) });
+  page.handlePageShown(); page.handlePageShown();
+  assert.equal(timers.size, 1, 'duplicate shown notifications keep one entry task');
+  assert.equal(page.entryReady, false);
+  assert.equal(recommendations, 0, 'entry does not trigger recommendation work');
+  page.handlePageHidden();
+  assert.equal(timers.size, 0, 'hiding cancels pending entry work');
+  page.handlePageShown();
+  const callback = [...timers.values()][0]; timers.clear(); callback();
+  assert.equal(page.entryReady, true);
+  assert.equal(recommendations, 1);
+  assert.equal(page.historyItemWidth('关键词'), 104);
+  page.historyItemWidth('关键词');
+  page.historyWidth = 90;
+  assert.equal(page.historyItemWidth('关键词'), 82, 'resizing clamps cached text width');
+  assert.equal(measurements, 1, 'layout callbacks reuse the same text measurement');
+  fontScale = 2; page.historyItemWidth('关键词');
+  assert.equal(measurements, 2, 'font-scale changes invalidate cached measurements');
+  page.entryReady = false; page.handlePageShown();
+  const late = [...timers.values()][0];
+  page.stopPendingSearchUpdates(); late();
+  assert.equal(page.entryReady, false, 'a late entry callback cannot write to a removed page');
+}
 (async () => {
+  entryTest();
   aggregationTest();
   await coversTest();
   console.log('PASS: incremental grouping, stable type order, precise lazy notifications, throttled covers, global concurrency, failure isolation and generation cancellation');

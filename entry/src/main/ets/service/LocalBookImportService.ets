@@ -3,7 +3,6 @@ import { fileIo, statfs } from '@kit.CoreFileKit';
 import { util, taskpool } from '@kit.ArkTS';
 import { EpubParserService, EpubCatalogItem } from './text/EpubParserService';
 import { Book, Chapter } from '../model/Book';
-import { KkBiqugeHtmlParser } from './text/KkBiqugeHtmlParser';
 import { EpubCoverService } from './text/EpubCoverService';
 import { MobiBookParser, MobiBookInfo } from './text/MobiBookParser';
 import { MobiBookImages } from './text/MobiBookImages';
@@ -102,7 +101,7 @@ export class LocalBookImportService {
       let token = '';
       if (attr !== null && !/^(?:[a-z]+:|\/\/)/i.test(attr[1])) {
         try {
-          const resource = KkBiqugeHtmlParser.cleanContent(attr[1]).split('#')[0];
+          const resource = LocalBookHtmlText.decodeEntities(attr[1]).split('#')[0];
           const bytes = await handler.getResourceContent(index, resource);
           if (stats.imageBytes + bytes.byteLength > LocalBookImportService.MAX_EPUB_EXPANDED_BYTES) {
             throw new Error('import_epub_images_limit');

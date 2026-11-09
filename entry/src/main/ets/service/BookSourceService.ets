@@ -15,8 +15,6 @@ import { LocalRuleSourceRepository } from './rulesource/LocalRuleSourceRepositor
 import { LocalRulePanelService } from './rulesource/LocalRulePanelService';
 import { LocalRuleDiagnostics } from './rulesource/LocalRuleDiagnostics';
 import { SearchCache } from '../utils/SearchCache';
-import { PodcastIdentity } from '../model/Podcast';
-import { PodcastSourceAdapter } from './rulesource/podcast/PodcastSourceAdapter';
 
 class BookCatalogLoad {
   book: Book;
@@ -103,9 +101,6 @@ export class BookSourceService {
       names.set(name, matches);
     }
     const find = (saved: Chapter): TocItem | undefined => {
-      if (PodcastSourceAdapter.matches(localSource)) {
-        return items.find((item: TocItem): boolean => item.url === (saved.originSourceValue || saved.source.value));
-      }
       const name = titleKey(saved.title);
       const indexed = items[saved.index - 1];
       if (indexed !== undefined && titleKey(indexed.name) === name) return indexed;
@@ -124,7 +119,7 @@ export class BookSourceService {
       for (let index = 0; index < items.length; index++) {
         const item = items[index];
         const restored: Chapter = {
-          id: PodcastSourceAdapter.matches(localSource) ? PodcastIdentity.chapterId(book.id, item.url) : `${book.id}-c${index}`,
+          id: `${book.id}-c${index}`,
           index: index + 1, title: item.name, duration: item.duration || 0,
           source: { type: 'url', value: item.url }, originSourceValue: item.url, variables: item.variables
         };
@@ -226,7 +221,7 @@ export class BookSourceService {
       for (const item of items) {
         const index = book.chapters.length;
         const chapter: Chapter = {
-          id: PodcastSourceAdapter.matches(source) ? PodcastIdentity.chapterId(book.id, item.url) : `${book.id}-c${index}`,
+          id: `${book.id}-c${index}`,
           index: index + 1, title: item.name, duration: item.duration || 0,
           source: { type: 'url', value: item.url }, originSourceValue: item.url, variables: item.variables
         };
@@ -252,10 +247,6 @@ export class BookSourceService {
     // 仅完整目录进入现有有界持久缓存，重进详情不再重复解析几千章。
     await DataService.upsertCachedBook(book);
     return book;
-  }
-
-  static async prepareAudioSource(_bookSourceUrl: string): Promise<void> {
-    return;
   }
 
   static getAudioResolveTimeoutMs(source: BookSource, fallbackMs: number): number {
@@ -585,9 +576,7 @@ export class BookSourceService {
         localSource, chapterUrl, scopedVariables, request);
       const localUrl = result.audioUrl;
       if (!DownloadPolicy.isHttpUrl(localUrl)) throw new Error('书源未返回可播放的音频地址');
-      const localHeaders = Object.keys(result.requestHeaders).length > 0
-        ? result.requestHeaders : LocalRuleDispatcher.getAudioHeaders(localSource, localUrl);
-      return { url: localUrl, headers: localHeaders, resolved: true };
+      return { url: localUrl, headers: result.requestHeaders, resolved: true };
     }
     throw new Error('该内容来源已不可用，请重新导入后重试');
   }
