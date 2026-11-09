@@ -21,11 +21,16 @@
 - 版本名：1.0.9；版本代码：1009001；构建版本：1。
 - 正式版与邀请测试使用同一 Release 签名包，保留正式渠道会员购买入口。
 - 发布目标：正式版审核通过立即上架；邀测开始时间为此刻，通知全部现有测试组，关闭上架自检。
-- 构建校验：Release SDK 26.0.0.105，release 产品 / buildMode=release / debug=false，最低 API 20、目标 API 26；发布 Profile 为 release。APP 内版本、SDK 渠道和分层图标校验通过。保留既有兼容性、废弃接口和上游 TypeScript 提示。
+- 构建校验：Release SDK 26.0.0.105，release 产品 / buildMode=release / debug=false，最低 API 20、目标 API 26；发布 Profile 为 release。APP 内版本、SDK 渠道、分层图标及混淆动态接口契约校验通过。保留既有兼容性、废弃接口和上游 TypeScript 提示。
 - 定向回归：仿真翻页、双栏几何、搜索调度、搜索推荐、榜单布局、导入书源内核、本地导入共 7 组通过；会员函数打包检查通过。本轮未新增真机、车机或手表实测。
 - APP：`artifacts/releases/1.0.9-1009001/Jianting-1.0.9-1009001-release.app`，293719795 字节。
 - SHA-256：`d0781b6a650fa250e9866a0e4e08de954894fd58b602f6d0288e9ff07564647f`。
-- AGC 提交结果待实际操作后记录。
+- AGC 软件包 `2079928512336141760` 上传、绑定及解析成功（successStatus=0），正式版与邀测版使用同一包。
+- 正式版 `2079924278597259904`、邀测版 `2079923857011045248` 均提交成功（ret.code=0）；回读正式版 releaseState=12 / reviewState=1，邀测版 releaseState=7 / reviewState=1。当前是已提交待审核，尚未确认上架或可安装。
+- 正式版提交未指定未来定时上架时间；追加调用立即上架时间接口时，AGC 因版本已进入审核返回“version state unable to update time”，未撤销或重复提交。
+- 邀测时间：北京时间 2026-11-09 18:07:36 至 2026-12-09 18:07:36，开始时间设为本次操作此刻。全部现有测试组：简听外部体验 139 人、内测组 2 人，均 bind=1；needNotify=1，实际通知送达以平台为准。
+- 自检：邀测创建请求及正式版提交请求均设置 onshelfSelfDetect=0；平台仍需执行正常审核。
+- 发布工具修正：临时 CLI 的正式提交接口只传 appId 请求头，服务端要求 appId 查询参数；补充查询参数后提交成功。该修正仅用于本次临时工具，未改动项目公共配置。
 - 在线依据：[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)、[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)。本轮已读取实时索引和相关目录；MCP 构建因 OHPM 批处理递归失败后使用已配置的 Release IDE 官方 CLI，AGC 使用任务专属临时 CLI。
 
 # 1.0.7 更新日志（2026-11-07—2026-11-08）
