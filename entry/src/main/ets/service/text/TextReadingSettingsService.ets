@@ -1,6 +1,7 @@
 import { ReaderTapPolicy } from '../../utils/ReaderTapPolicy';
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
+import { ReaderDialogueRules } from '../../model/ReaderDialogueRules';
 import { TextReadingSettings, ReaderCornerLayout } from '../../model/TextReading';
 import { ReaderPattern, ReaderThemeId, ReaderCustomTheme, normalizeHex, resolvePalette } from '../../model/ReaderTheme';
 
@@ -71,6 +72,8 @@ export class TextReadingSettingsService {
     const letterSpacing = store.getSync('letter_spacing', 0);
     result.letterSpacing = TextReadingSettings.normalizeLetterSpacing(typeof letterSpacing === 'number' ? letterSpacing : 0);
     result.dialogueHighlight = store.getSync('dialogue_highlight', false) === true;
+    const quotePairs = store.getSync('dialogue_quote_pairs', ReaderDialogueRules.DEFAULT);
+    result.dialogueQuotePairs = ReaderDialogueRules.normalize(typeof quotePairs === 'string' ? quotePairs : undefined);
     const dialogueColor = store.getSync('dialogue_highlight_color', '');
     result.dialogueHighlightColor = TextReadingSettings.normalizeDialogueHighlightColor(
       typeof dialogueColor === 'string' ? dialogueColor : '');
@@ -226,6 +229,7 @@ export class TextReadingSettingsService {
     store.putSync(KEY_LINE_HEIGHT, TextReadingSettings.normalizeLineHeight(settings.lineHeight));
     store.putSync('letter_spacing', TextReadingSettings.normalizeLetterSpacing(settings.letterSpacing));
     store.putSync('dialogue_highlight', settings.dialogueHighlight);
+    store.putSync('dialogue_quote_pairs', ReaderDialogueRules.normalize(settings.dialogueQuotePairs));
     store.putSync('dialogue_highlight_color', TextReadingSettings.normalizeDialogueHighlightColor(settings.dialogueHighlightColor));
     store.putSync('speech_mark', TextReadingSettings.normalizeSpeechMark(settings.speechMark));
     store.putSync('speech_mark_color', TextReadingSettings.normalizeSpeechMarkColor(settings.speechMarkColor));

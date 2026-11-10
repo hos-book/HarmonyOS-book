@@ -3,23 +3,27 @@
   'use strict';
   var cfg = window.hsdaEpubConfig, ready = false, previewing = false;
   var anchor = cfg.spot, current = cfg.spot, restoration = cfg.spot;
-  var nestedPan = null;
+  var contentTouch = null;
   var flowing = false, viewportWidth = innerWidth, viewportHeight = innerHeight;
   function setViewport(height) {
     document.documentElement.style.setProperty('--hsda-vh', height / 100 + 'px');
     document.documentElement.style.setProperty('--hsda-vmin', Math.min(innerWidth, height) / 100 + 'px');
     document.documentElement.style.setProperty('--hsda-vmax', Math.max(innerWidth, height) / 100 + 'px');
   }
-  function prepareFlow() {
+  function prepareFlow(background) {
     // Ordinary chapters can be a single native scroll surface. Keep a one-screen viewport
     // for pages whose fixed/sticky content or viewport media queries need that viewport.
-    var elements = Array.from(document.querySelectorAll('*')), declarations = [], safe = true;
+    var elements = Array.from(document.querySelectorAll('*')), declarations = [], safe = true, fixedBackground = null;
     if (elements.length > 20000) return false;
     elements.forEach(function (el) {
       var style = getComputedStyle(el);
       if (style.display === 'none') return;
-      if (/^(absolute|fixed|sticky)$/.test(style.position) ||
-          (style.backgroundImage !== 'none' && /fixed/.test(style.backgroundAttachment))) safe = false;
+      if (/^(fixed|sticky)$/.test(style.position)) safe = false;
+      if (style.backgroundImage !== 'none' && /fixed/.test(style.backgroundAttachment)) {
+        if (background && (el === document.body || el === document.documentElement) && !fixedBackground &&
+            style.backgroundAttachment.split(',').every(function (value) { return value.trim() === 'fixed'; })) fixedBackground = el;
+        else safe = false;
+      }
       if (el.style) declarations.push(el.style);
     });
     function rules(list) {
@@ -38,6 +42,17 @@
     try { Array.from(document.styleSheets).forEach(function (sheet) { rules(sheet.cssRules); }); }
     catch (_) { return false; }
     if (!safe) return false;
+    if (fixedBackground) {
+      // Paint the original fixed background in the outer scrolling document. Text and its
+      // iframe now move together in the compositor, without an inner scrollTo on every frame.
+      var source = getComputedStyle(fixedBackground), root = getComputedStyle(document.documentElement);
+      ['image', 'size', 'position', 'repeat', 'attachment', 'origin', 'clip', 'color'].forEach(function (name) {
+        background.style.setProperty('background-' + name, source.getPropertyValue('background-' + name));
+      });
+      if (source.backgroundColor === 'rgba(0, 0, 0, 0)') background.style.backgroundColor = root.backgroundColor;
+      fixedBackground.style.setProperty('background', 'transparent', 'important');
+      document.documentElement.style.setProperty('background', 'transparent', 'important');
+    }
     setViewport(parent.innerHeight);
     // Freeze only viewport-relative lengths, not author pixel/percent geometry. A definite
     // logical html height keeps percentage-height covers independent of the expanded iframe.
@@ -72,6 +87,7 @@
     document.documentElement.style.setProperty('--hsda-content-height', 'calc(100vh - ' + inset + 'px)');
     var compat = document.createElement('style');
     compat.textContent =
+      'html{touch-action:auto!important;}' +
       'body{min-height:100vh;}' +
       'body.hsda-media-page{height:100vh!important;column-width:auto!important;column-count:auto!important;' +
         'display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;}' +
@@ -79,12 +95,25 @@
         'width:100%!important;height:100%!important;min-height:0!important;margin:0!important;padding:0!important;}' +
       '.hsda-media-item{display:block!important;width:100%!important;height:100%!important;min-height:0!important;}' +
       '.hsda-gallery{display:flex!important;flex-wrap:nowrap!important;overflow-x:auto!important;overflow-y:hidden!important;' +
-        'scroll-snap-type:x mandatory;break-inside:avoid;max-width:100%;min-width:0;}' +
+        'scroll-snap-type:x mandatory;overscroll-behavior-x:contain;break-inside:avoid;max-width:100%;min-width:0;}' +
       '.hsda-gallery>.duokan-image-gallery-cell{flex:0 0 100%!important;min-width:0!important;box-sizing:border-box;' +
-        'display:flex;flex-direction:column;align-items:center;justify-content:center;scroll-snap-align:start;}' +
+         'display:flex;flex-direction:column;align-items:center;justify-content:center;scroll-snap-align:start;scroll-snap-stop:always;}' +
       '.hsda-gallery>.duokan-image-gallery-cell img{display:block;max-height:calc(var(--hsda-content-height) - 5em)!important;' +
-        'width:100%;object-fit:contain;}';
+        'width:100%;object-fit:contain;}' +
+      'audio,video{max-width:100%;break-inside:avoid;}audio{min-height:54px;}';
     document.head.appendChild(compat);
+    document.querySelectorAll('audio,video').forEach(function (media) {
+      media.controls = true;
+      media.autoplay = false;
+      media.removeAttribute('autoplay');
+      media.preload = 'none';
+      media.setAttribute('playsinline', '');
+      media.setAttribute('controlslist', 'nodownload noremoteplayback');
+      media.addEventListener('play', function () {
+        if (cfg.continuous) window.parent.hsdaEpub.pauseMedia(cfg.frame);
+        document.querySelectorAll('audio,video').forEach(function (other) { if (other !== media) other.pause(); });
+      });
+    });
     // Duokan galleries use reader-defined semantics rather than web overflow CSS.
     document.querySelectorAll('.duokan-image-gallery').forEach(function (gallery) {
       var cells = gallery.querySelectorAll(':scope > .duokan-image-gallery-cell');
@@ -93,7 +122,7 @@
     var media = Array.from(body.querySelectorAll('img,svg')).filter(function (el) {
       return !el.closest('svg') || el.tagName.toLowerCase() === 'svg';
     }).filter(function (el) { return el.getClientRects().length > 0; });
-    if (media.length !== 1) return;
+    if (media.length !== 1 || body.querySelector('audio,video')) return;
     var walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT), node;
     while ((node = walker.nextNode())) {
       if (!node.nodeValue.trim() || node.parentElement.closest('svg,script,style')) continue;
@@ -106,40 +135,42 @@
       parent.classList.add('hsda-media-root');
     }
   }
-  function beginPan(x, y, dx, dy) {
-    endPan(true);
-    var horizontal = Math.abs(dx) > Math.abs(dy), el = document.elementFromPoint(x, y);
+  function ownsPan(el, dx, dy) {
+    var horizontal = Math.abs(dx) > Math.abs(dy);
+    if (el && el.closest('audio,video')) return true;
     for (; el && el !== document.body && el !== document.documentElement; el = el.parentElement) {
       var style = getComputedStyle(el), max = horizontal ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight;
       var overflow = horizontal ? style.overflowX : style.overflowY;
       if (max <= 1 || !/auto|scroll/.test(overflow)) continue;
-      nestedPan = { el: el, horizontal: horizontal, x: el.scrollLeft, y: el.scrollTop, dx: 0, dy: 0,
-        snap: el.style.getPropertyValue('scroll-snap-type'), priority: el.style.getPropertyPriority('scroll-snap-type') };
-      el.style.setProperty('scroll-snap-type', 'none', 'important');
       return true;
     }
     return false;
   }
-  function movePan(dx, dy) {
-    if (!nestedPan) return;
-    nestedPan.dx = dx; nestedPan.dy = dy;
-    nestedPan.el.scrollTo(nestedPan.horizontal ? nestedPan.x - dx : nestedPan.x,
-      nestedPan.horizontal ? nestedPan.y : nestedPan.y - dy);
-  }
-  function endPan(cancelled) {
-    var pan = nestedPan; nestedPan = null;
-    if (!pan) return;
-    if (cancelled) pan.el.scrollTo(pan.x, pan.y);
-    var target = pan.el.scrollLeft;
-    if (!cancelled && pan.horizontal && pan.el.classList.contains('hsda-gallery')) {
-      var width = Math.max(1, pan.el.clientWidth), start = Math.round(pan.x / width);
-      var next = Math.abs(pan.dx) > Math.min(64, width * 0.18) ? start + (pan.dx < 0 ? 1 : -1) : start;
-      target = Math.max(0, Math.min(pan.el.scrollWidth - width, next * width));
+  function beginPan(x, y, dx, dy) {
+    // The browser may already have scrolled before the native hit test reaches us. Keep
+    // the original target and the first movement's owner for this whole touch sequence.
+    if (contentTouch) {
+      if (contentTouch.owned === null) contentTouch.owned = ownsPan(contentTouch.target, dx, dy);
+      return contentTouch.owned;
     }
-    if (pan.snap) pan.el.style.setProperty('scroll-snap-type', pan.snap, pan.priority);
-    else pan.el.style.removeProperty('scroll-snap-type');
-    if (!cancelled && pan.horizontal) pan.el.scrollTo({ left: target, behavior: 'smooth' });
+    return ownsPan(document.elementFromPoint(x, y), dx, dy);
   }
+  document.addEventListener('touchstart', function (event) {
+    if (!cfg.paged) return;
+    if (event.touches.length !== 1) { contentTouch = { owned: true }; return; }
+    var point = event.touches[0];
+    contentTouch = { target: event.target, x: point.clientX, y: point.clientY, owned: null };
+  }, { passive: true, capture: true });
+  document.addEventListener('touchmove', function (event) {
+    if (!cfg.paged || !contentTouch || event.touches.length !== 1) return;
+    var point = event.touches[0], dx = point.clientX - contentTouch.x, dy = point.clientY - contentTouch.y;
+    if (contentTouch.owned === null && Math.max(Math.abs(dx), Math.abs(dy)) >= 8) {
+      contentTouch.owned = ownsPan(contentTouch.target, dx, dy);
+    }
+    // Native page turning owns only the non-scrollable page. Galleries, text areas,
+    // media controls and their inertia never receive scripted scrollTo corrections.
+    if (contentTouch.owned !== true && event.cancelable) event.preventDefault();
+  }, { passive: false });
   originalLayout();
   function send(value) {
     value.token = cfg.token;
@@ -221,6 +252,7 @@
   }
   function linkAt(x, y) {
     var element = document.elementFromPoint(x, y);
+    if (element && element.closest('audio,video')) return true;
     var anchor = element && element.closest ? element.closest('a[href]') : null;
     if (!anchor) return false;
     return link(anchor.href, /noteref|footnote|endnote/i.test((anchor.getAttribute('epub:type') || '') + ' ' +
@@ -256,8 +288,10 @@
   }, { passive: true });
   window.hsdaEpub = {
     spot: spot, seek: seek, turn: turn, preview: preview, restore: restore, linkAt: linkAt,
-    beginPan: beginPan, movePan: movePan, endPan: endPan,
+    beginPan: beginPan,
     prepareFlow: prepareFlow, setViewport: setViewport,
+    mediaTarget: function (element) { return !!(element && element.closest && element.closest('audio,video')); },
+    pauseMedia: function () { document.querySelectorAll('audio,video').forEach(function (media) { media.pause(); }); },
     commit: function () { previewing = false; current = spot(); return current; },
     reflowSpot: function () {
       anchor = cfg.continuous && parent.hsdaEpub.restoring(cfg.frame) ? restoration : current;

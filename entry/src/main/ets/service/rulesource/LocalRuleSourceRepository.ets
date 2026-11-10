@@ -24,6 +24,8 @@ const MAX_SESSION_TOKEN_LENGTH = 4096;
 const MAX_SESSION_DEVICE_ID_LENGTH = 256;
 const MAX_COOKIE_HEADER_LENGTH = 64 * 1024;
 const BATCH_PREDICATE_LIMIT = 400;
+const SOURCE_WRITE_BATCH_ROWS = 100;
+const SOURCE_WRITE_BATCH_BYTES = 1024 * 1024;
 const SOURCE_READ_SLICE_MS = 6;
 const SOURCE_READ_SLICE_ROWS = 16;
 
@@ -82,6 +84,11 @@ class PreparedRuleSource {
     this.source = source;
     this.sourceJson = sourceJson;
   }
+}
+
+class StoredRuleSourceState {
+  source: LocalRuleSource = new LocalRuleSource();
+  createdAt: number = 0;
 }
 
 /** 本地规则书源持久化；错误交由上层提示，不删除或重建损坏数据库。 */
@@ -231,6 +238,24 @@ export class LocalRuleSourceRepository {
 
   static async getAll(): Promise<LocalRuleSource[]> {
     return LocalRuleSourceRepository.list();
+  }
+
+  /** 导入只需识别将被替换的地址，不读取和解析全库的规则正文。 */
+  static async getUnlockedSourceUrls(sourceUrls: string[]): Promise<Set<string>> {
+    const urls = Array.from(new Set(sourceUrls.map((url: string): string => url.trim())));
+    const result: Set<string> = new Set();
+    if (urls.length === 0) return result;
+    const store = await LocalRuleSourceRepository.ensureStore();
+    for (let offset = 0; offset < urls.length; offset += BATCH_PREDICATE_LIMIT) {
+      const chunk = urls.slice(offset, offset + BATCH_PREDICATE_LIMIT);
+      const marks = chunk.map((): string => '?').join(',');
+      const rows = await store.querySql(`SELECT source_url FROM ${TABLE_NAME} ` +
+        `WHERE is_locked = 0 AND source_url IN (${marks})`, chunk);
+      try {
+        while (rows.goToNextRow()) result.add(rows.getString(0));
+      } finally { rows.close(); }
+    }
+    return result;
   }
 
   static async getEnabled(): Promise<LocalRuleSource[]> {
@@ -439,8 +464,13 @@ export class LocalRuleSourceRepository {
     if (sources.length === 0) return 0;
 
     const prepared: PreparedRuleSource[] = [];
+    let sliceStarted = Date.now();
     for (const source of sources) {
       prepared.push(LocalRuleSourceRepository.prepare(source));
+      if (Date.now() - sliceStarted >= SOURCE_READ_SLICE_MS) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        sliceStarted = Date.now();
+      }
     }
 
     const store = await LocalRuleSourceRepository.ensureStore();
@@ -448,6 +478,7 @@ export class LocalRuleSourceRepository {
     const now = Date.now();
     let writtenCount = 0;
     try {
+      const existing = await LocalRuleSourceRepository.readWriteStates(transaction, sources);
       const orderRows = await transaction.querySql(`SELECT MAX(custom_order), MIN(custom_order) FROM ${TABLE_NAME}`);
       let nextOrder = 0;
       let importOrder = -prepared.length;
@@ -459,20 +490,15 @@ export class LocalRuleSourceRepository {
       } finally {
         orderRows.close();
       }
+      let pending: relationalStore.ValuesBucket[] = [];
+      let pendingBytes = 0;
+      sliceStarted = Date.now();
       for (let index = 0; index < prepared.length; index++) {
         let item = prepared[index];
-        const args: relationalStore.ValueType[] = [item.source.bookSourceUrl.trim()];
-        const rows = await transaction.querySql(GET_SQL, args);
-        let previous: LocalRuleSource | undefined = undefined;
-        let createdAt = now;
-        try {
-          if (rows.goToFirstRow()) {
-            previous = LocalRuleSourceRepository.readSource(rows);
-            createdAt = rows.getLong(12);
-          }
-        } finally {
-          rows.close();
-        }
+        const url = item.source.bookSourceUrl.trim();
+        const stored = existing.get(url);
+        const previous = stored?.source;
+        const createdAt = stored !== undefined ? stored.createdAt : now;
         if (previous !== undefined) {
           if (previous.isLocked) {
             if (importing) continue;
@@ -489,15 +515,32 @@ export class LocalRuleSourceRepository {
           // 忽略导入文件的普通排序值，同批次保持文件顺序，已有置顶来源原位不动。
           item.source.customOrder = importOrder++;
         }
-        item = LocalRuleSourceRepository.prepare(item.source);
+        // 规则已在事务前校验；这里只合并管理字段，避免再次完整解析校验。
+        item = LocalRuleSourceRepository.prepare(item.source, false);
         const values = LocalRuleSourceRepository.toValues(item, now - index, now, createdAt);
-        const rowId = await transaction.insert(TABLE_NAME, values,
-          relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
-        if (rowId < 0) {
-          throw new Error(`书源写入失败：${item.source.bookSourceName}`);
+        const bytes = buffer.byteLength(item.sourceJson, 'utf-8');
+        if (pending.length > 0 && pendingBytes + bytes > SOURCE_WRITE_BATCH_BYTES) {
+          writtenCount += await LocalRuleSourceRepository.flushWriteBatch(transaction, pending);
+          pending = [];
+          pendingBytes = 0;
         }
-        writtenCount++;
+        pending.push(values);
+        pendingBytes += bytes;
+        const current = new StoredRuleSourceState();
+        current.source = item.source;
+        current.createdAt = createdAt;
+        existing.set(url, current);
+        if (pending.length >= SOURCE_WRITE_BATCH_ROWS || pendingBytes >= SOURCE_WRITE_BATCH_BYTES) {
+          writtenCount += await LocalRuleSourceRepository.flushWriteBatch(transaction, pending);
+          pending = [];
+          pendingBytes = 0;
+        }
+        if (Date.now() - sliceStarted >= SOURCE_READ_SLICE_MS) {
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+          sliceStarted = Date.now();
+        }
       }
+      writtenCount += await LocalRuleSourceRepository.flushWriteBatch(transaction, pending);
       await transaction.commit();
       if (writtenCount > 0) LocalRuleSourceRepository.definitionRevision++;
       return writtenCount;
@@ -510,6 +553,44 @@ export class LocalRuleSourceRepository {
       if (error instanceof Error) throw error;
       throw new Error(String(error));
     }
+  }
+
+  private static async readWriteStates(transaction: relationalStore.Transaction, sources: LocalRuleSource[]):
+    Promise<Map<string, StoredRuleSourceState>> {
+    const urls = Array.from(new Set(sources.map((source: LocalRuleSource): string => source.bookSourceUrl.trim())));
+    const result: Map<string, StoredRuleSourceState> = new Map();
+    for (let offset = 0; offset < urls.length; offset += BATCH_PREDICATE_LIMIT) {
+      const chunk = urls.slice(offset, offset + BATCH_PREDICATE_LIMIT);
+      const marks = chunk.map((): string => '?').join(',');
+      const rows = await transaction.querySql(
+        `SELECT source_url, source_name, source_group, enabled, enabled_explore, is_locked, ` +
+        `is_pinned, custom_order, created_at FROM ${TABLE_NAME} WHERE source_url IN (${marks})`, chunk);
+      try {
+        while (rows.goToNextRow()) {
+          const state = new StoredRuleSourceState();
+          state.source.bookSourceUrl = rows.getString(0);
+          state.source.bookSourceName = rows.getString(1);
+          state.source.bookSourceGroup = rows.getString(2);
+          state.source.enabled = rows.getLong(3) !== 0;
+          state.source.enabledExplore = rows.getLong(4) !== 0;
+          state.source.isLocked = rows.getLong(5) !== 0;
+          state.source.isPinned = rows.getLong(6) !== 0;
+          state.source.customOrder = rows.getLong(7);
+          state.createdAt = rows.getLong(8);
+          result.set(state.source.bookSourceUrl, state);
+        }
+      } finally { rows.close(); }
+    }
+    return result;
+  }
+
+  private static async flushWriteBatch(transaction: relationalStore.Transaction,
+    values: relationalStore.ValuesBucket[]): Promise<number> {
+    if (values.length === 0) return 0;
+    const count = await transaction.batchInsertWithConflictResolution(TABLE_NAME, values,
+      relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
+    if (count !== values.length) throw new Error('书源批量写入失败');
+    return count;
   }
 
   /** 批量测试仅更新健康状态，避免重复解析和重写整份书源 JSON。 */
@@ -1024,7 +1105,7 @@ export class LocalRuleSourceRepository {
     }
   }
 
-  private static prepare(source: LocalRuleSource): PreparedRuleSource {
+  private static prepare(source: LocalRuleSource, validate: boolean = true): PreparedRuleSource {
     const sourceUrl = LocalRuleSourceRepository.requireSourceUrl(source.bookSourceUrl);
     if (source.bookSourceName.trim().length === 0) {
       throw new Error(`书源名称为空：${sourceUrl}`);
@@ -1033,9 +1114,10 @@ export class LocalRuleSourceRepository {
     const sourceJson = LocalRuleSourceCodec.stringify(source);
     const sourceBytes = buffer.byteLength(sourceJson, 'utf-8');
     if (sourceBytes > MAX_SOURCE_JSON_BYTES) {
-      throw new Error(`书源数据超过 1 MiB：${source.bookSourceName}`);
+      throw new Error(`书源数据超过 25 MiB：${source.bookSourceName}`);
     }
 
+    if (!validate) return new PreparedRuleSource(source, sourceJson);
     const report = LocalRuleSourceImportParser.parse(sourceJson);
     let matched = false;
     for (const parsed of report.sources) {

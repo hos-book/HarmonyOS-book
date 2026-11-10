@@ -17,6 +17,7 @@ function load(relative, mocks = {}) {
   }).outputText;
   vm.runInNewContext(code, { exports, require: name => {
     if (name === './LocalTextImage') return localImages ??= load('main/ets/service/text/LocalTextImage.ets');
+    if (name === '../../model/ReaderDialogueRules') return load('main/ets/model/ReaderDialogueRules.ets');
     if (name === './ReaderDialogueHighlighter') return load('main/ets/service/text/ReaderDialogueHighlighter.ets');
     if (name === '../../utils/PlatformCompat') return { PlatformCompat: { supports: version => apiVersion >= version } };
     if (!(name in mocks)) throw new Error(`Unexpected dependency: ${name}`);
@@ -25,6 +26,16 @@ function load(relative, mocks = {}) {
   return exports;
 }
 const paginator = load('main/ets/service/text/OnlineTextPaginator.ets', { '@kit.ArkGraphics2D': {} });
+const { ReaderDialogueHighlighter } = load('main/ets/service/text/ReaderDialogueHighlighter.ets');
+const { ReaderDialogueRules } = load('main/ets/model/ReaderDialogueRules.ets');
+const sampleDialogue = '叙述“中文”「直角」『双角』"直引"‘单引’【内心】';
+const dialogueText = rules => Array.from(ReaderDialogueHighlighter.ranges(sampleDialogue, rules), range => sampleDialogue.slice(range.start, range.end));
+assert.deepEqual(dialogueText(), ['“中文”', '「直角」', '『双角』', '"直引"']);
+assert.deepEqual(dialogueText('‘’\n【】'), ['‘单引’', '【内心】']);
+assert.deepEqual(dialogueText(''), [], 'all ranges can be disabled without restoring defaults');
+assert.equal(ReaderDialogueRules.normalize('【】\n【》\n坏\n‘’'), '【】\n‘’');
+assert.equal(ReaderDialogueHighlighter.ranges('“未闭合\n下一段”').length, 0);
+const crossPage = native => native.OnlineTextPaginator.paginate('【甲乙丙丁戊己庚辛壬癸】', 100, 20, 18, 1.9, '', 400, 'justify', 0, 0, '', 18, 'center', [], 0, '【】');
 let passed = 0;
 load('test/OnlineTextPaginator.test.ets', {
   '../main/ets/service/text/OnlineTextPaginator': paginator,
@@ -250,6 +261,7 @@ page.paragraph.getRectsForRange = range => {
   ranges.push(range);
   return [{ rect: { left: 0, right: 100, top: 20, bottom: 40 } }];
 };
+graphicsText.TextDirection = { LTR: 0, RTL: 1 };
 graphicsText.RectWidthStyle = { TIGHT: 0 };
 graphicsText.RectHeightStyle = { TIGHT: 0 };
 let frameInvalidations = 0;
@@ -260,6 +272,9 @@ const nodeModule = load('main/ets/service/text/ReaderParagraphNode.ets', {
   } },
   '@ohos.arkui.node': { FrameNode: class { invalidate() { frameInvalidations++; } getRenderNode() { return { invalidate() {} }; } }, NodeController: class {} },
   './OnlineTextPaginator': native,
+  './ReaderSelectionGeometry': load('main/ets/service/text/ReaderSelectionGeometry.ets', {
+    '@kit.ArkGraphics2D': { text: graphicsText }, './SpeechTextHighlighter': highlighter
+  }),
   './SpeechTextHighlighter': highlighter,
   '../../model/ReaderTheme': paletteModule
 });
@@ -345,6 +360,15 @@ controller.update(page, nativeRange, palette, 'highlight', false, '', '#AB7826')
 paints.length = 0;
 node.onDraw({ canvas: { save() {}, restore() {}, clipRect() {}, attachBrush() {}, detachBrush() {}, drawRect() {} } });
 assert.equal(paints[1].color.red, 17, 'background highlighting retains the original text color');
+assert.equal(highlightColor.red, 0xAB, 'background highlighting uses the selected color');
+assert.equal(highlightColor.green, 0x78);
+assert.equal(highlightColor.alpha, 51, 'selected highlighting remains translucent');
+controller.update(page, nativeRange, palette, 'underline', false, '', '#3478AB');
+node.onDraw({ canvas: { save() {}, restore() {}, clipRect() {}, attachBrush() {}, detachBrush() {}, drawRect() {} } });
+assert.equal(highlightColor.red, 0x34, 'underline uses the selected color');
+assert.equal(highlightColor.blue, 0xAB);
+assert.equal(highlightColor.alpha, 255);
+assert.ok(crossPage(native).slice(1).some(p => p.dialogueRanges.length > 0), 'custom delimiters retain highlighting across page breaks');
 console.log('PASS custom speech mark colors, repaint and independent highlight mode');
 controller.update(page, nativeRange, changedPalette, 'color', false, '', '');
 paints.length = 0;

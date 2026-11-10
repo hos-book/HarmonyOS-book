@@ -305,13 +305,18 @@ export class TextToSpeechService {
     const store = this.store;
     if (store === null || configs.length === 0) return;
     const catalog = this.state.customTtsConfigs.slice();
+    const indexes: Map<string, number> = new Map();
+    for (let index = 0; index < catalog.length; index++) indexes.set(catalog[index].id, index);
     for (const config of configs) {
-      const index = catalog.findIndex((item: CustomTtsConfig): boolean => item.id === config.id);
-      if (index >= 0) {
+      const index = indexes.get(config.id);
+      if (index !== undefined) {
         config.enabled = catalog[index].enabled;
         catalog[index] = config;
       }
-      else catalog.push(config);
+      else {
+        indexes.set(config.id, catalog.length);
+        catalog.push(config);
+      }
     }
     if (catalog.length > CustomTtsConfigParser.MAX_CONFIGS) throw new Error('TTS catalog full');
     const previous = JSON.stringify(this.state.customTtsConfigs);
@@ -703,6 +708,7 @@ export class TextToSpeechService {
   }
 
   private async preparePlayback(ticket: number): Promise<void> {
+    PlaybackCoordinator.stopPreview?.();
     await AudioService.getInstance().suspendForSpeech();
     await this.httpPlaybackChain.catch((): void => {});
     if (!this.valid(ticket) || this.context === null) return;

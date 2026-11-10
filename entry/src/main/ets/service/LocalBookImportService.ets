@@ -25,16 +25,21 @@ class EpubReadStats {
   openMs: number = 0;
   readMs: number = 0;
   convertMs: number = 0;
+  cleanMs: number = 0;
+  assembleMs: number = 0;
   reusedPreview: boolean = false;
   imageBytes: number = 0;
   imageCount: number = 0;
   imageFailures: number = 0;
+  imageReused: number = 0;
+  imageMs: number = 0;
+  // 只缓存本次导入成功落盘的路径；不常驻图片内容，也不跨书籍共享。
+  imagePaths: Map<string, string> = new Map();
   profile: EpubContentProfile = new EpubContentProfile();
 }
 
 class PreparedEpub {
   uri: string = '';
-  path: string = '';
   directory: string = '';
   handler: EpubParserService;
 
@@ -75,14 +80,19 @@ export class LocalBookImportService {
     if (preview.directory) await fileIo.rmdir(preview.directory).catch((): void => {});
   }
 
-  private static async flushEpubText(batch: EpubTextBatch, chapters: EpubChapterAssembler): Promise<void> {
+  private static async flushEpubText(batch: EpubTextBatch, chapters: EpubChapterAssembler,
+    stats: EpubReadStats): Promise<void> {
     if (batch.html.length === 0) return;
+    const cleanStarted = Date.now();
     let content: string[];
     try { content = JSON.parse(String(await taskpool.execute(cleanLocalBookHtmlBatch, batch.html))); }
     catch (_worker) { content = batch.html.map((html: string): string => LocalBookHtmlText.clean(html)); }
+    stats.cleanMs += Date.now() - cleanStarted;
+    const assembleStarted = Date.now();
     for (let index = 0; index < content.length; index++) {
       await chapters.add(batch.titles[index], content[index], batch.fallbacks[index], batch.styles[index], batch.originals[index]);
     }
+    stats.assembleMs += Date.now() - assembleStarted;
     batch.html = []; batch.titles = []; batch.fallbacks = []; batch.styles = []; batch.originals = []; batch.chars = 0;
   }
 
@@ -100,42 +110,21 @@ export class LocalBookImportService {
       const attr = /\s(?:src|(?:xlink:)?href)\s*=\s*["']([^"']+)["']/i.exec(match[0]);
       let token = '';
       if (attr !== null && !/^(?:[a-z]+:|\/\/)/i.test(attr[1])) {
+        const imageStarted = Date.now();
         try {
           const resource = LocalBookHtmlText.decodeEntities(attr[1]).split('#')[0];
-          const bytes = await handler.getResourceContent(index, resource);
-          if (stats.imageBytes + bytes.byteLength > LocalBookImportService.MAX_EPUB_EXPANDED_BYTES) {
-            throw new Error('import_epub_images_limit');
-          }
-          if (bytes.byteLength > 0 && bytes.byteLength <= 20 * 1024 * 1024) {
-            const source = image.createImageSource(bytes);
-            try {
-              const info = await source.getImageInfo();
-              if (info.size.width > 0 && info.size.height > 0 && info.size.width * info.size.height <= 32 * 1024 * 1024) {
-                const path = `${directory}/image_${index}_${stats.imageCount ?? 0}.img`;
-                await LocalBookImportService.requireSpace(context, bytes.byteLength);
-                stats.imageCount = (stats.imageCount ?? 0) + 1;
-                const file = await fileIo.open(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
-                try {
-                  let offset = 0;
-                  while (offset < bytes.byteLength) {
-                    const written = await fileIo.write(file.fd, bytes.slice(offset));
-                    if (written <= 0) throw new Error('Incomplete EPUB image');
-                    offset += written;
-                  }
-                } finally { await fileIo.close(file); }
-                stats.imageBytes += bytes.byteLength;
-                token = `HSDAEPUBIMAGE${index}X${images.length}END`;
-                images.push(LocalTextImage.token(path));
-                placeholders.push(token);
-              }
-            } finally { await source.release(); }
+          const path = await LocalBookImportService.epubImage(context, handler, index, resource, directory, stats);
+          if (path) {
+            token = `HSDAEPUBIMAGE${index}X${images.length}END`;
+            images.push(LocalTextImage.token(path));
+            placeholders.push(token);
           }
         } catch (error) {
           if (error instanceof Error && error.message === 'import_epub_images_limit') {
             throw new Error(context.resourceManager.getStringByNameSync(error.message));
           }
           // 普通小说可保留正文；漫画必须在结束前报告缺页，不能保存残缺书籍。
-        }
+        } finally { stats.imageMs += Date.now() - imageStarted; }
       }
       if (!token) stats.imageFailures = (stats.imageFailures ?? 0) + 1;
       marked += token ? `\n${token}\n` : '\n';
@@ -146,6 +135,40 @@ export class LocalBookImportService {
     let text = LocalBookImportService.htmlText(marked);
     for (let position = 0; position < images.length; position++) text = text.replace(placeholders[position], images[position]);
     return text;
+  }
+
+  private static async epubImage(context: common.Context, handler: EpubParserService,
+    index: number, resource: string, directory: string, stats: EpubReadStats): Promise<string> {
+    // 按 ZIP 中解析后的完整路径去重：不同目录的同名图片不能互相覆盖。
+    const key = handler.getResourcePath(index, resource);
+    if (!key) return '';
+    const saved = stats.imagePaths.get(key);
+    if (saved !== undefined) { stats.imageReused++; return saved; }
+    const bytes = await handler.getResourceContent(index, resource);
+    if (stats.imageBytes + bytes.byteLength > LocalBookImportService.MAX_EPUB_EXPANDED_BYTES) {
+      throw new Error('import_epub_images_limit');
+    }
+    if (bytes.byteLength === 0 || bytes.byteLength > 20 * 1024 * 1024) return '';
+    const source = image.createImageSource(bytes);
+    try {
+      const info = await source.getImageInfo();
+      if (info.size.width <= 0 || info.size.height <= 0 || info.size.width * info.size.height > 32 * 1024 * 1024) return '';
+      const path = `${directory}/image_${index}_${stats.imageCount}.img`;
+      await LocalBookImportService.requireSpace(context, bytes.byteLength);
+      const file = await fileIo.open(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
+      try {
+        let offset = 0;
+        while (offset < bytes.byteLength) {
+          const written = await fileIo.write(file.fd, offset === 0 ? bytes : bytes.slice(offset));
+          if (written <= 0) throw new Error('Incomplete EPUB image');
+          offset += written;
+        }
+      } finally { await fileIo.close(file); }
+      stats.imageBytes += bytes.byteLength;
+      stats.imageCount++;
+      stats.imagePaths.set(key, path);
+      return path;
+    } finally { await source.release(); }
   }
   static readonly MAX_CHAPTERS: number = 50000;
   static readonly MAX_EPUB_BYTES: number = 3 * 1024 * 1024 * 1024;
@@ -224,16 +247,15 @@ export class LocalBookImportService {
         throw new Error(context.resourceManager.getStringSync($r('app.string.import_epub_size_limit').id));
       }
       await LocalBookImportService.requireSpace(context, size * 3);
-      const epub = `${result.directory}/source.epub`;
-      await LocalBookImportService.copyFile(file.uri, epub);
-      const handler = await LocalBookImportService.openEpub(context, epub);
+      // ZIP 支持通过已授权 URI 的 fd 随机读取，预览只读取目录、元数据和封面。
+      const handler = await LocalBookImportService.openEpub(context, file.uri);
       previewParser = handler;
       const info = handler.getBookInfo();
       result.title = info.bookTitle || file.name;
       result.author = info.bookCreator;
       result.cover = await EpubCoverService.extract(handler, result.directory);
       const prepared = new PreparedEpub(handler);
-      prepared.uri = file.uri; prepared.path = epub; prepared.directory = result.directory;
+      prepared.uri = file.uri; prepared.directory = result.directory;
       LocalBookImportService.preparedEpub = prepared;
       return result;
     } catch (error) {
@@ -344,7 +366,7 @@ export class LocalBookImportService {
         const index = book.chapters.length;
         const path = `${directory}/${index}.txt`;
         if (writes) {
-          await writes.add((): Promise<void> => LocalBookImportService.writeText(path, content));
+          await writes.writeText(path, content);
         } else {
           await LocalBookImportService.writeText(path, content);
         }
@@ -617,15 +639,12 @@ export class LocalBookImportService {
         const openStarted = Date.now();
         const prepared = LocalBookImportService.preparedEpub;
         let handler: EpubParserService;
-        if (prepared !== null && prepared.uri === file.uri && await fileIo.access(prepared.path)) {
+        if (prepared !== null && prepared.uri === file.uri) {
           handler = prepared.handler;
-          await LocalBookImportService.copyFile(prepared.path, `${directory}/source.epub`);
           LocalBookImportService.preparedEpub = null;
           epubStats.reusedPreview = true;
         } else {
-          const epub = `${directory}/source.epub`;
-          await LocalBookImportService.copyFile(file.uri, epub);
-          handler = await LocalBookImportService.openEpub(context, epub);
+          handler = await LocalBookImportService.openEpub(context, file.uri);
         }
         activeEpub = handler;
         epubStats.openMs = Date.now() - openStarted;
@@ -649,16 +668,22 @@ export class LocalBookImportService {
           if (epubMode !== 'comic') await original.saveChapter(index, originals);
           if (styles.some((run: EpubStyleRun): boolean => run.style.visible())) {
             const json = JSON.stringify(styles);
-            await writes.add((): Promise<void> => LocalBookImportService.writeText(`${directory}/${index}.style.json`, json));
+            await writes.writeText(`${directory}/${index}.style.json`, json);
           }
         });
         const savedBackgrounds: Map<string, string> = new Map();
         const backgrounds = new EpubBackgroundImages();
+        let spineBatch: string[] = [];
+        let batchStart = 0;
         if (spine.length > LocalBookImportService.MAX_CHAPTERS) throw new Error('EPUB 超过 50000 节');
         for (let index = 0; index < spine.length; index++) {
           report(`${book.title} ${index + 1}/${spine.length}`);
           const readStarted = Date.now();
-          const rawHtml = await handler.getSpineItemContent(index);
+          if (index >= batchStart + spineBatch.length) {
+            batchStart = index;
+            spineBatch = await handler.getSpineBatch(index);
+          }
+          const rawHtml = spineBatch[index - batchStart];
           if (epubMode !== 'comic') {
             await original.capture(index, spine[index].href, rawHtml, (path: string): Promise<ArrayBuffer> =>
               handler.getResourceContent(index, path));
@@ -695,18 +720,18 @@ export class LocalBookImportService {
             const originalPart = new EpubOriginalPart(index, spine[index].href, part.start, part.end);
             if (epubMode === 'auto') epubStats.profile.observe(section);
             if (/<(?:img|image)\b/i.test(section) || section.length > 512 * 1024) {
-              await LocalBookImportService.flushEpubText(batch, chapters);
+              await LocalBookImportService.flushEpubText(batch, chapters, epubStats);
               await chapters.add(part.title,
                 await LocalBookImportService.epubBody(context, handler, index, section, directory, epubStats), fallback, pageStyle, originalPart);
             } else {
               if (batch.chars + section.length > 512 * 1024) {
-                await LocalBookImportService.flushEpubText(batch, chapters);
+                await LocalBookImportService.flushEpubText(batch, chapters, epubStats);
               }
               batch.html.push(section); batch.titles.push(part.title); batch.fallbacks.push(fallback); batch.styles.push(pageStyle);
               batch.originals.push(originalPart);
               batch.chars += section.length;
-              if (batch.html.length >= 16 || batch.chars >= 512 * 1024) {
-                await LocalBookImportService.flushEpubText(batch, chapters);
+              if (batch.html.length >= 64 || batch.chars >= 512 * 1024) {
+                await LocalBookImportService.flushEpubText(batch, chapters, epubStats);
               }
             }
           }
@@ -717,7 +742,7 @@ export class LocalBookImportService {
         }
         const flushStarted = Date.now();
         const previousWait = writes.waitMs;
-        await LocalBookImportService.flushEpubText(batch, chapters);
+        await LocalBookImportService.flushEpubText(batch, chapters, epubStats);
         await chapters.finish();
         if (epubMode !== 'comic' && !(epubMode === 'auto' && epubStats.profile.isComic())) {
           await original.finish(id, book.chapters.length);
@@ -745,6 +770,8 @@ export class LocalBookImportService {
         `prepareMs=${prepareMs}; parseReadMs=${Date.now() - parseStarted - writes.waitMs}; ` +
         `writeWaitMs=${writes.waitMs}; writeBusyMs=${writes.busyMs}; totalMs=${Date.now() - started}; ` +
         `epubOpenMs=${epubStats.openMs}; epubReadMs=${epubStats.readMs}; epubConvertMs=${epubStats.convertMs}; ` +
+        `epubCleanMs=${epubStats.cleanMs}; epubAssembleMs=${epubStats.assembleMs}; ` +
+        `epubImageMs=${epubStats.imageMs}; epubImages=${epubStats.imageCount}; epubImageReused=${epubStats.imageReused}; ` +
         `epubReusedPreview=${epubStats.reusedPreview}`);
       return book;
     } catch (error) {

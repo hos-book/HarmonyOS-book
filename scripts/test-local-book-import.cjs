@@ -71,6 +71,8 @@ let writeDelay = 0;
 let failingWrite = '';
 let activeWrites = 0;
 let maxWrites = 0;
+let maxWriteBytes = 0;
+const copiedSources = [];
 const handlePaths = new Map();
 const handles = new Map();
 let free = 256 * 1024 ** 3;
@@ -86,6 +88,20 @@ const fileIo = {
     handles.delete(fd); handlePaths.delete(fd);
     await handle.close();
   },
+  openSync(filename, flags) {
+    const fd = fs.openSync(filename, flags ? 'w+' : 'r');
+    handles.set(fd, { close: async () => fs.closeSync(fd) }); handlePaths.set(fd, filename);
+    return { fd };
+  },
+  closeSync(file) {
+    const fd = typeof file === 'number' ? file : file.fd;
+    handles.delete(fd); handlePaths.delete(fd); fs.closeSync(fd);
+  },
+  writeSync(fd, bytes) {
+    if (failingWrite && handlePaths.get(fd).endsWith(failingWrite)) throw new Error('injected write failure');
+    const buffer = Buffer.from(bytes);
+    return fs.writeSync(fd, buffer, 0, maxWriteBytes ? Math.min(maxWriteBytes, buffer.length) : buffer.length);
+  },
   async stat(file) { return typeof file === 'number' ? handles.get(file).stat() : fsp.stat(file); },
   async read(fd, buffer, options = { length: buffer.byteLength, offset: 0 }) {
     return (await handles.get(fd).read(Buffer.from(buffer), 0, options.length, options.offset)).bytesRead;
@@ -99,6 +115,7 @@ const fileIo = {
     } finally { activeWrites--; }
   },
   async copyFile(source, target) {
+    copiedSources.push(typeof source === 'string' ? source : handlePaths.get(source));
     if (typeof source === 'string') return fsp.copyFile(source, target);
     await handles.get(target).writeFile(await handles.get(source).readFile());
   },
@@ -233,6 +250,14 @@ function load(relative) {
       async flush() { if (diagnosticFlushFails) throw new Error('settings write failed'); }
     }) } };
     if (name === '@kit.ArkTS') return { taskpool: { Task, execute: async (fn, ...args) => {
+      if (fn.name === 'writeLocalImportBatch') {
+        activeWrites++; maxWrites = Math.max(maxWrites, activeWrites);
+        try {
+          // Simulate asynchronous task dispatch; the actual writer still runs against real temporary files.
+          await new Promise(resolve => setTimeout(resolve, writeDelay));
+          return fn(...args);
+        } finally { activeWrites--; }
+      }
       if (fn instanceof Task) {
         receivingTask = fn;
         try { return await fn.fn(...fn.args); } finally { receivingTask = undefined; }
@@ -267,6 +292,10 @@ function load(relative) {
               })), { idRef: '1', catalogName: '同章内的二级目录，不应覆盖' }
             ],
             getSpineItemContent: async index => epubBodies?.[index] ?? `<body><p>章节 ${index + 1}</p><script>bad()</script></body>`,
+            getSpineBatch: async start => Array.from({ length: Math.min(4, (epubBodies?.length ?? epubCount) - start) },
+              (_, offset) => epubBodies?.[start + offset] ?? `<body><p>章节 ${start + offset + 1}</p><script>bad()</script></body>`),
+            getResourcePath: (index, relative) => load('service/text/EpubOriginalDocument').EpubOriginalDocument
+              .resolve(`text/${index}.html`, relative),
             getResourceContent: async (_index, resource) => {
               if (epubBodies && resource.endsWith('.png') && !epubMissingImage) return Uint8Array.from(MOBI_COVER_PNG).buffer;
               throw new Error('resource unavailable');
@@ -313,8 +342,10 @@ function load(relative) {
   }
   const imageDirectory = path.join(context.filesDir, 'ebooks/import_image_fixture').replaceAll('\\', '/');
   await fsp.mkdir(imageDirectory, { recursive: true });
-  const imageStats = { raw: 0, layout: 0, imageBytes: 0 };
-  const body = await service.epubBody(context, { getResourceContent(index, relative) {
+  const newImageStats = () => ({ imageBytes: 0, imageCount: 0, imageFailures: 0,
+    imageReused: 0, imageMs: 0, imagePaths: new Map() });
+  const imageStats = newImageStats();
+  const body = await service.epubBody(context, { getResourcePath: (_index, relative) => relative, getResourceContent(index, relative) {
     assert.equal(index, 0); assert.equal(relative, 'images/figure&a.png');
     return Uint8Array.from(MOBI_COVER_PNG).buffer;
   } }, 0, '<p>图前文字</p><img src="images/figure&amp;a.png"/><p>图后文字</p><img src="https://remote/blocked.png"/>', imageDirectory, imageStats);
@@ -330,6 +361,50 @@ function load(relative) {
   assert.ok(!images.speechContent(body).includes('image_0_0'));
   assert.equal(liveImages, 0, 'EPUB extraction releases decoder without decoding full bitmap');
   console.log('PASS EPUB body image extraction, local path confinement, remote rejection and speech offsets');
+  const repeatedDirectory = path.join(context.filesDir, 'ebooks/import_repeated_images').replaceAll('\\', '/');
+  await fsp.mkdir(repeatedDirectory, { recursive: true });
+  const repeatedStats = newImageStats();
+  const { EpubOriginalDocument: ImagePaths } = load('service/text/EpubOriginalDocument');
+  const imageReads = [];
+  const repeatedHandler = {
+    getResourcePath: (index, relative) => ImagePaths.resolve(index < 1000 ? 'book/text/chapter.html' : 'book/appendix/chapter.html', relative),
+    getResourceContent(index, relative) {
+      imageReads.push(this.getResourcePath(index, relative));
+      return Uint8Array.from(MOBI_COVER_PNG).buffer;
+    }
+  };
+  let sharedMarker = '';
+  for (let index = 0; index < 1000; index++) {
+    const content = await service.epubBody(context, repeatedHandler, index,
+      '<p>章首</p><img src="../Images/logo.png"/><p>中间</p><img src="../Images/%6cogo.png#fragment"/><p>章尾</p>',
+      repeatedDirectory, repeatedStats);
+    const refs = [...content.matchAll(images.pattern())].map(match => match[1]);
+    sharedMarker ||= refs[0];
+    assert.deepEqual(refs, [sharedMarker, sharedMarker], 'each occurrence remains in its original position');
+    assert.equal(content.replace(images.pattern(), '[图]'), '章首\n\n[图]\n\n中间\n\n[图]\n\n章尾');
+  }
+  assert.deepEqual(imageReads, ['book/Images/logo.png'], '2000 references read and validate one ZIP resource once');
+  assert.equal(repeatedStats.imageCount, 1);
+  assert.equal(repeatedStats.imageReused, 1999);
+  assert.equal(repeatedStats.imageBytes, MOBI_COVER_PNG.length);
+  assert.equal((await fsp.readdir(repeatedDirectory)).length, 1);
+  assert.deepEqual(await fsp.readFile(sharedMarker), MOBI_COVER_PNG);
+  const distinct = await service.epubBody(context, repeatedHandler, 1000,
+    '<img src="logo.png"/>', repeatedDirectory, repeatedStats);
+  assert.notEqual(images.pattern().exec(distinct)[1], sharedMarker, 'same basename in another folder is a different resource');
+  assert.deepEqual(imageReads, ['book/Images/logo.png', 'book/appendix/logo.png']);
+  let failOnce = true;
+  const retryHandler = { getResourcePath: () => 'retry.png', getResourceContent() {
+    if (failOnce) { failOnce = false; throw new Error('transient resource read failure'); }
+    return Uint8Array.from(MOBI_COVER_PNG).buffer;
+  } };
+  const retryStats = newImageStats();
+  await service.epubBody(context, retryHandler, 1001, '<img src="retry.png"/>', repeatedDirectory, retryStats);
+  const retryBody = await service.epubBody(context, retryHandler, 1001, '<img src="retry.png"/>', repeatedDirectory, retryStats);
+  assert.ok(images.pattern().test(retryBody), 'failed reads are not cached as success');
+  assert.equal(retryStats.imageFailures, 1);
+  assert.equal(liveImages, 0);
+  console.log('PASS EPUB repeated images: 2000 ordered occurrences share one decoded file; folder isolation and failed-read retry');
   const { EpubContentProfile: Profile } = load('service/text/EpubContentProfile');
   const pictureBook = new Profile();
   ['<img src="1.png"/>', '<svg><image xlink:href="2.png"/></svg>', '<img src="3.png"/>'].forEach(html => pictureBook.observe(html));
@@ -341,12 +416,14 @@ function load(relative) {
   const fakeImages = new Profile();
   fakeImages.observe('<!--<img src="1.png"/><img src="2.png"/><img src="3.png"/>--><p>正文</p>');
   assert.equal(fakeImages.isComic(), false);
-  const aboveOldLimit = { imageBytes: 2 * 1024 ** 3, imageCount: 20 };
-  const aboveBody = await service.epubBody(context, { getResourceContent: () => Uint8Array.from(MOBI_COVER_PNG).buffer },
+  const aboveOldLimit = { ...newImageStats(), imageBytes: 2 * 1024 ** 3, imageCount: 20 };
+  const imageHandler = { getResourcePath: (_index, relative) => relative,
+    getResourceContent: () => Uint8Array.from(MOBI_COVER_PNG).buffer };
+  const aboveBody = await service.epubBody(context, imageHandler,
     1, '<img src="page.png"/>', imageDirectory, aboveOldLimit);
   assert.ok(images.pattern().test(aboveBody), 'comic images beyond the old 2 GiB limit must be retained');
-  await assert.rejects(service.epubBody(context, { getResourceContent: () => Uint8Array.from(MOBI_COVER_PNG).buffer },
-    1, '<img src="page.png"/>', imageDirectory, { imageBytes: 6 * 1024 ** 3, imageCount: 21 }), /6 GiB/);
+  await assert.rejects(service.epubBody(context, imageHandler,
+    1, '<img src="page.png"/>', imageDirectory, { ...newImageStats(), imageBytes: 6 * 1024 ** 3, imageCount: 21 }), /6 GiB/);
   const { LocalImportTaskQueue: Queue } = load('service/LocalImportTaskQueue');
   const queue = new Queue();
   let unblockSlow;
@@ -859,11 +936,14 @@ function load(relative) {
   assert.equal(epub.chapters.map(ch => ch.title).join(','), '第一章,第二章');
   assert.equal(await fsp.readFile(epub.chapters[1].source.value, 'utf8'), '章节 2');
 
+  const copiesBeforePreview = copiedSources.length;
   const preview = await service.preview(context, file);
   const opensAfterPreview = parserOpens;
   const reused = await service.importBook(context, file, 'import_preview_reuse', preview.title, preview.author,
     preview.cover, () => {});
   assert.equal(parserOpens, opensAfterPreview, 'formal import reuses the most recent prepared EPUB');
+  assert.equal(copiedSources.length, copiesBeforePreview, 'preview and import must not copy the EPUB archive');
+  assert.equal(fs.existsSync(path.join(temp, 'ebooks/import_preview_reuse/source.epub')), false);
   assert.equal(reused.chapters.length, 2);
   await service.releasePreview(preview);
   assert.equal(fs.existsSync(preview.directory), false);
@@ -929,6 +1009,17 @@ function load(relative) {
   assert.equal(fs.existsSync(path.join(temp, 'ebooks/import_pipeline_fail')), false);
   failingWrite = ''; writeDelay = 0; epubCount = 2;
   console.log('PASS 2200-chapter EPUB: chapter order/content, bounded writes, final progress, failure rollback');
+
+  maxWriteBytes = 7;
+  const partialText = '第一章 短写验证\n' + '中文😀跨字节完整落盘。'.repeat(120);
+  const partialFile = path.join(temp, 'partial-write.txt');
+  await fsp.writeFile(partialFile, partialText);
+  const partialBook = await service.importBook(context, { uri: partialFile, name: '短写验证', ext: '.txt' },
+    'import_partial_write', '', '', '', () => {});
+  assert.equal(await fsp.readFile(partialBook.chapters[0].source.value, 'utf8'), partialText);
+  assert.equal(handles.size, 0, 'background batches close every file after partial writes');
+  maxWriteBytes = 0;
+  console.log('PASS batched background writes: UTF-8 short writes and final incomplete batch');
 
   const audioInputs = [];
   for (let index = 0; index < 9; index++) {
@@ -1338,7 +1429,7 @@ function load(relative) {
         const address = new URL(match[1] || match[2], 'https://epub.test/' + name);
         if (address.origin !== 'https://epub.test') continue;
         const target = decodeURIComponent(address.pathname.substring(1));
-        if (!realEpubArchive.entries[target] || !/\.(?:css|svg|jpe?g|png|gif|webp|avif|bmp|ttf|otf|woff2?)$/i.test(target) ||
+        if (!realEpubArchive.entries[target] || !/\.(?:css|svg|jpe?g|png|gif|webp|avif|bmp|ttf|otf|woff2?|mp3|mp4|m4a|wav|aac|webm|ogg|vtt)$/i.test(target) ||
           originalResources.has(target)) continue;
         originalResources.add(target);
         if (/\.(css|svg)$/i.test(target)) scan.push(target);
@@ -1346,11 +1437,26 @@ function load(relative) {
     }
     const realOriginalRoot = Originals.root(context.filesDir, realBook.id);
     for (const name of originalResources) {
+      const expected = Buffer.from(realEpubArchive.entries[name], 'base64');
       assert.deepEqual(Buffer.from(await Originals.resource(realOriginalRoot, name)),
-        Buffer.from(realEpubArchive.entries[name], 'base64'), `original EPUB resource survives import: ${name}`);
+        expected, `original EPUB resource survives import: ${name}`);
+      if (/\.(mp3|mp4|m4a|wav|aac|webm|ogg)$/i.test(name)) {
+        for (const [header, start, end] of [['bytes=0-511', 0, 512], ['bytes=1024-', 1024, expected.length],
+          ['bytes=-128', expected.length - 128, expected.length]]) {
+          const resource = await Originals.resourceChunk(realOriginalRoot, name, header);
+          assert.equal(resource.range.valid, true);
+          assert.equal(resource.range.partial, true);
+          assert.deepEqual(Buffer.from(resource.bytes), expected.subarray(start, end), `media seek ${header}: ${name}`);
+        }
+        for (const header of [`bytes=${expected.length}-`, 'bytes=5-2', 'bytes=0-1,4-5', 'bytes=-0']) {
+          const resource = await Originals.resourceChunk(realOriginalRoot, name, header);
+          assert.equal(resource.range.valid, false, `invalid range is rejected: ${header}`);
+          assert.equal(resource.bytes.byteLength, 0);
+        }
+      }
     }
     const { ReaderFullTextSearch: Search } = load('service/text/ReaderFullTextSearch');
-    const lastIndex = realTexts.length - 1;
+    const lastIndex = realTexts.findLastIndex(text => text.replace(images.pattern(), '').trim().length >= 25);
     const query = realTexts[lastIndex].replace(images.pattern(), '').trim().slice(-25);
     let result;
     await Search.search(query, realTexts.length, async index => realTexts[index], () => false, value => { result = value; });
@@ -1359,7 +1465,7 @@ function load(relative) {
     assert.ok(result.matches.some(match => match.chapterIndex === lastIndex && realTexts[lastIndex].slice(match.offset, match.offset + query.length) === query));
     console.log(`PASS actual EPUB archive: ${realBook.chapters.length} chapters; ` +
       `${extracted} inline + ${persistedBackgrounds} background occurrences/${expectedImages} original images; ` +
-      `${originalResources.size} original CSS/font/image files byte-verified; full-book search reaches last chapter`);
+      `${originalResources.size} original CSS/font/image/media files byte-verified; media ranges checked; full-book search reaches last text chapter`);
   }
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   for (const handle of handles.values()) await handle.close();

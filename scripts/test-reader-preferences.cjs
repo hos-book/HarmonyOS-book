@@ -44,6 +44,9 @@ function load(relative) {
   const { TextReadingSettingsService: service } = load('service/text/TextReadingSettingsService');
   values.set('font_size', 22); // Existing installations have no new preference keys.
   const migrated = await service.get({});
+  const { ReaderDialogueRules } = load('model/ReaderDialogueRules');
+  assert.equal(migrated.dialogueQuotePairs, ReaderDialogueRules.DEFAULT);
+  migrated.dialogueQuotePairs = '‘’\n【】';
   assert.equal(migrated.chapterHeadingVisible, true);
   assert.equal(migrated.chapterHeadingSize, 26);
   assert.equal(migrated.chapterHeadingStyle, 'center');
@@ -104,6 +107,7 @@ function load(relative) {
   assert.equal(restored.chapterHeadingVisible, false);
   assert.equal(restored.chapterHeadingSize, 34);
   assert.equal(restored.chapterHeadingStyle, 'bold');
+  assert.equal(restored.dialogueQuotePairs, '‘’\n【】', 'dialogue delimiters persist independently of the enabled flag');
   assert.equal(restored.dialogueHighlight, true);
   assert.equal(restored.dialogueHighlightColor, '#12AB34', 'dialogue color survives reopening independently of text color');
   assert.equal(restored.speechMarkColor, '#56CD78', 'speech mark color persists independently of dialogue color');
@@ -230,6 +234,7 @@ function load(relative) {
   typography.textAlignment = 'end';
   typography.showPageRules = false;
   typography.pageTurnHaptic = 'strong';
+  typography.dialogueQuotePairs = '【】\n（）';
   typography.dialogueHighlight = true;
   typography.dialogueHighlightColor = '#3478AB';
   typography.speechMarkColor = '#AB7834';
@@ -242,6 +247,7 @@ function load(relative) {
   assert.equal(snapshot.settings.chapterHeadingVisible, false);
   assert.equal(snapshot.settings.chapterHeadingSize, 42);
   assert.equal(snapshot.settings.chapterHeadingStyle, 'plain');
+  assert.equal(snapshot.settings.dialogueQuotePairs, '【】\n（）');
   assert.equal(snapshot.settings.dialogueHighlightColor, '#3478AB');
   assert.equal(snapshot.settings.speechMarkColor, '#AB7834');
   assert.equal(snapshot.settings.textAlignment, 'end');
@@ -253,6 +259,10 @@ function load(relative) {
   await service.save({}, new TextReadingSettings());
   await backup.restoreSnapshot({}, snapshot);
   const restoredHeading = await service.get({});
+  assert.equal(restoredHeading.dialogueQuotePairs, '【】\n（）', 'backup roundtrip retains custom delimiters');
+  restoredHeading.dialogueQuotePairs = '';
+  await service.save({}, restoredHeading);
+  assert.equal((await service.get({})).dialogueQuotePairs, '', 'empty selection remains empty on reopen');
   assert.equal(restoredHeading.chapterHeadingVisible, false);
   assert.equal(restoredHeading.chapterHeadingSize, 42);
   assert.equal(restoredHeading.chapterHeadingStyle, 'plain');
@@ -270,6 +280,7 @@ function load(relative) {
   delete snapshot.settings.showPageRules;
   delete snapshot.settings.pageTurnHaptic;
   delete snapshot.settings.paragraphSpacing;
+  delete snapshot.settings.dialogueQuotePairs;
   delete snapshot.settings.dialogueHighlightColor;
   delete snapshot.settings.speechMarkColor;
   delete snapshot.settings.chapterHeadingVisible;
@@ -277,6 +288,7 @@ function load(relative) {
   delete snapshot.settings.chapterHeadingStyle;
   await backup.restoreSnapshot({}, snapshot);
   const legacyHeading = await service.get({});
+  assert.equal(legacyHeading.dialogueQuotePairs, ReaderDialogueRules.DEFAULT, 'old backups retain existing quote behavior');
   assert.equal(legacyHeading.chapterHeadingVisible, true);
   assert.equal(legacyHeading.chapterHeadingSize, 26);
   assert.equal(legacyHeading.chapterHeadingStyle, 'center');

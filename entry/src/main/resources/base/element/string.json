@@ -54,7 +54,7 @@
     },
     {
       "name": "desktop_lyric_show",
-      "value": "显示桌面歌词 · VIP"
+      "value": "显示桌面字幕"
     },
     {
       "name": "desktop_lyric_hide",
@@ -1958,7 +1958,7 @@
     },
     {
       "name": "profile_community_group",
-      "value": "简听交流群2"
+      "value": "简听交流群"
     },
     {
       "name": "profile_community_open_failed",
@@ -1986,11 +1986,171 @@
     },
     {
       "name": "support_intro_title",
-      "value": "感谢每一份支持"
+      "value": "每一份支持\n都在发光"
     },
     {
       "name": "support_intro_body",
-      "value": "技术上的帮助与每一份心意，让简听阅读不断变得更好。"
+      "value": "让热爱被看见，让故事继续。\n简听阅读的每一步，都有你们的光。"
+    },
+    {
+      "name": "support_hero_kicker",
+      "value": "WITH GRATITUDE"
+    },
+    {
+      "name": "support_touch_hint",
+      "value": "轻触一个名字，开启一封感谢信"
+    },
+    {
+      "name": "support_featured_sponsor",
+      "value": "谢谢你，让热爱继续"
+    },
+    {
+      "name": "support_featured_technical",
+      "value": "开放的力量，让故事相遇"
+    },
+    {
+      "name": "support_technical_subtitle",
+      "value": "那些一起解决难题、分享灵感的同行者。"
+    },
+    {
+      "name": "support_sponsor_subtitle",
+      "value": "每一份心意，都成为继续前行的底气。"
+    },
+    {
+      "name": "support_open_thanks",
+      "value": "查看给 %s 的感谢信"
+    },
+    {
+      "name": "support_thanks_kicker",
+      "value": "A NOTE OF THANKS"
+    },
+    {
+      "name": "support_thanks_heading",
+      "value": "这一束光，献给你"
+    },
+    {
+      "name": "support_thanks_signature",
+      "value": "简听阅读 · 心怀感谢，继续前行"
+    },
+    {
+      "name": "support_thanks_close",
+      "value": "把这份温暖收好"
+    },
+    {
+      "name": "support_thanks_light_page",
+      "value": "一路走来，挺庆幸有你这么个搭档。咱俩两个软件、一个方向，既是同行也是同路人。技术上互相搭把手，遇到问题一起扛，你帮我、我帮你，不知不觉都成长了不少。说实话，能遇到一个愿意互相成就、彼此托底的伙伴不容易。谢谢你一直以来的信任和支持，接下来的路，咱们继续一起走，把东西做得更好。"
+    },
+    {
+      "name": "support_thanks_hendo",
+      "value": "HenDo，谢谢你给予简听阅读的支持与信任。这份心意，我们一直认真记在心里。愿每一次用心打磨，都能成为对这份温暖的回应；也愿好故事一直陪伴你。"
+    },
+    {
+      "name": "support_thanks_qg",
+      "value": "真的特别感谢你一直以来对群里的付出。很多事大家都看在眼里——该管的管、该帮的帮，尽职尽责不说，还总是乐于助人，群里的氛围能这么好，离不开你的用心。你做的很多事可能不显眼，但我们都记在心里。辛苦你了，谢谢你愿意花时间和精力守着这个群，有你在，大家都很安心。"
+    },
+    {
+      "name": "support_thanks_qiandu",
+      "value": "浅度，谢谢你在技术上给简听阅读搭把手。做软件的时候，常常是一个小问题就能让人卡上很久，而有人愿意帮忙，这条路就好走了许多。很高兴能和你相识，也希望咱们以后还能多交流，把各自喜欢的东西慢慢做好。"
+    },
+    {
+      "name": "support_thanks_xiangsijie",
+      "value": "相思界，想认真跟你说声谢谢。简听阅读能走到现在，离不开像你这样愿意给予技术支持的朋友。这份帮助让我觉得，折腾一件喜欢的事并不孤单。往后还有不少想法等着实现，希望咱们都能保持这份热情，也别忘了照顾好自己。"
+    },
+    {
+      "name": "support_thanks_xiaobao",
+      "value": "XIAOBAO，感谢你对简听阅读的技术支持。把一个想法做成能用的东西，背后总有许多琐碎的功夫，你的帮助也在其中。这份情我记着。希望以后做出的每一点进步，都对得起这些支持，也祝你自己的项目顺顺利利，做起来越来越有意思。"
+    },
+    {
+      "name": "support_thanks_wt",
+      "value": "WT，谢谢你愿意赞助简听阅读。对我来说，这份支持最珍贵的地方，是让我知道自己认真做的东西，有人在意、也有人认可。我会带着这份鼓励继续打磨。希望你每次打开它，都能找到一本想读的书，或者一段愿意听下去的故事。"
+    },
+    {
+      "name": "support_thanks_ziyang",
+      "value": "子阳，收到你的心意，心里真的暖了一下。一个小软件的成长，靠的是一点点积累，也靠你这样的朋友愿意支持。谢谢你给了我继续做下去的动力。愿你忙完一天以后，能在这里放松一会儿，把时间留给自己喜欢的声音和文字。"
+    },
+    {
+      "name": "support_thanks_default",
+      "value": "default，名字可以叫默认，这份支持可一点也不普通。谢谢你愿意为简听阅读出一份力，让我更有信心把那些还没做好的细节慢慢补上。这封感谢信专门留给你，希望以后每次见到新变化，你都会觉得：当初支持它，还挺值得的。"
+    },
+    {
+      "name": "support_thanks_gancuimian",
+      "value": "干脆面不用泡，你的名字很有意思，这份支持也让我忍不住想说一句：够意思！谢谢你给简听阅读添了一把劲。做应用有时候挺费脑子，但想到有人愿意支持，就又有了干劲。愿你听书有趣、读书有味，日子过得轻松又自在。"
+    },
+    {
+      "name": "support_thanks_suxiaofeng",
+      "value": "苏小锋，感谢你把信任交给简听阅读。赞助背后的那句“继续做吧”，我收到了，也很珍惜。还有不少地方需要完善，我会一项项认真去做。希望这个软件能陪你久一点，在赶路的时候、休息的时候，都给你留一个安心听故事的地方。"
+    },
+    {
+      "name": "support_thanks_zhang",
+      "value": "张，一个字的名字，一份实实在在的心意。谢谢你对简听阅读的赞助，也谢谢你愿意支持这样一个慢慢成长的作品。有些感谢不需要说得很热闹，记住了，就好好做下去。愿你在这里遇见合心意的书，留下一些属于自己的安静时光。"
+    },
+    {
+      "name": "support_thanks_lifugui",
+      "value": "李富贵，先借你的好名字，祝你生活富足、心里有余。也谢谢你把一份心意送给简听阅读，让这件喜欢的事多了一分底气。对你的感谢，我会放在后续的改进里。愿你往后的日子，有好故事解闷，有好心情相伴，忙碌和闲暇都过得舒坦。"
+    },
+    {
+      "name": "support_thanks_zuichuweilai",
+      "value": "最初未来，看到这个名字，就会想到做简听阅读时最初的念头：有个顺手的地方，读自己想读的书，听自己想听的故事。谢谢你的支持，让我更愿意守住这份初心。未来还有很多可以做的事，愿我们回头看时，都觉得这一路没有白走。"
+    },
+    {
+      "name": "support_thanks_chaoshengwanxiang",
+      "value": "潮生万象，谢谢你为简听阅读带来这份支持。书里的世界很大，一个小小的应用能成为通往它们的入口，是件挺让人开心的事。你的心意让我更想把这个入口做好。愿你在不同的故事里，看见新风景，遇到新想法，也找到自己的共鸣。"
+    },
+    {
+      "name": "support_thanks_xiangqiankan",
+      "value": "向钱看向厚看，感谢你的赞助，这份实在的支持已经认真收下了。做喜欢的东西，既需要热情，也需要有人帮忙加点油，你就是这份动力的一部分。祝你日子越过越有底气，钱包和书单都充实，想忙时有奔头，想歇时有好故事。"
+    },
+    {
+      "name": "support_thanks_haoyun",
+      "value": "HAOYUN，借你的名字，把一份好运也送还给你。谢谢你支持简听阅读继续成长，让我在反复打磨的日子里多了一点笃定。希望你打开应用时，刚好遇见想听的声音、想读的章节；也希望生活里的好消息，常常能轮到你。"
+    },
+    {
+      "name": "support_thanks_star_dot",
+      "value": "*.，虽然名字只有两个符号，你留下的心意却很清楚。谢谢你愿意为简听阅读提供支持。名单上的这一小格，是我特意给这份善意留下的位置。愿你不用被催着赶路的时候，能找个舒服的角落，慢慢读一点、听一点，享受属于自己的节奏。"
+    },
+    {
+      "name": "support_thanks_yifeichongtian",
+      "value": "一飞冲天，谢谢你给简听阅读加了一份向前的力量。软件的进步大多是一步一步来的，但每次有人支持，都会让人更想迈好下一步。愿你想做的事越做越顺，努力的时候有收获，累的时候也能在这里听个故事，歇一歇再出发。"
+    },
+    {
+      "name": "support_thanks_l_dot",
+      "value": "L.，这封短短的信，想把谢谢说得郑重一点。你的赞助让我觉得，这个作品值得继续花时间、花心思。哪怕只是一个小细节，做好了也能让使用的人舒服一点，我会记着这件事。愿简听阅读成为你书单里那些故事的好搭档，陪伴得恰到好处。"
+    },
+    {
+      "name": "support_thanks_zaijian",
+      "value": "再见，你的名字像一句告别，我更愿意把它读成“下次还会见”。谢谢你在简听阅读这里留下一份支持。希望每次更新、每次打开，我们都能以更好的样子再见。无论最近是在认真赶路，还是想歇上一会儿，都愿有个好故事等着你。"
+    },
+    {
+      "name": "support_thanks_baizi",
+      "value": "柏子，谢谢你愿意支持简听阅读这件小事。很多时候，让人坚持下去的就是这样一份朴素的认可。它让我能静下心，把眼前的功能和体验做好，不急着求快。也祝你做喜欢的事情时有耐心、有收获，闲下来能读到一本舍不得放下的好书。"
+    },
+    {
+      "name": "support_thanks_aini806",
+      "value": "爱你806，你把善意放进了名字，也把支持送到了简听阅读。谢谢这份温暖，让埋头做软件的日子多了一点人情味。希望我认真做出的改进，也能让你用起来更开心。愿你被生活温柔以待，喜欢的故事总有后续，珍惜的人常在身边。"
+    },
+    {
+      "name": "support_thanks_star_city",
+      "value": "*城，谢谢你在简听阅读留下这一份心意。城市里的日子有时很忙，能为大家留一个听书、看书的小角落，是我想继续做好的事。你的支持，让这个角落更有了温度。愿你在来往的路上有人陪伴，在停下来的时候，也有文字和声音接住疲惫。"
+    },
+    {
+      "name": "support_everyone_title",
+      "value": "还有正在阅读的你"
+    },
+    {
+      "name": "support_everyone_hint",
+      "value": "每一次使用、反馈与分享，都是温柔的支持。"
+    },
+    {
+      "name": "support_everyone_action",
+      "value": "这里也有一封给你的信"
+    },
+    {
+      "name": "support_everyone_name",
+      "value": "每一位同行的你"
+    },
+    {
+      "name": "support_thanks_everyone",
+      "value": "谢谢你选择简听阅读。无论是安静地使用，认真地反馈，还是把它分享给朋友，你都参与了它的成长。愿文字与声音带来的陪伴，成为我们送给你最好的感谢。"
     },
     {
       "name": "technical_support_title",
@@ -3474,7 +3634,7 @@
     },
     {
       "name": "rule_source_import_link_action",
-      "value": "链接或粘贴导入"
+      "value": "链接导入"
     },
     {
       "name": "rule_source_import_scan_action",
@@ -3506,7 +3666,7 @@
     },
     {
       "name": "rule_source_import_files_hint",
-      "value": "每次最多 10 个文件，单个 25 MiB、合计 250 MiB。无效、超限或锁定的内容会跳过。"
+      "value": "每次最多 50 个文件，单个 25 MiB、合计 250 MiB。无效、超限或锁定的内容会跳过。"
     },
     {
       "name": "rule_source_import_files_oversized",
@@ -3550,7 +3710,7 @@
     },
     {
       "name": "rule_source_import_placeholder",
-      "value": "粘贴书源 JSON 或 http/https 地址"
+      "value": "输入或粘贴书源链接"
     },
     {
       "name": "rule_source_import_action",
@@ -3562,7 +3722,7 @@
     },
     {
       "name": "rule_source_import_empty",
-      "value": "先粘贴书源 JSON，再导入吧"
+      "value": "请输入书源链接"
     },
     {
       "name": "rule_source_import_invalid",
@@ -4150,11 +4310,11 @@
     },
     {
       "name": "talebook_add",
-      "value": "添加 Talebook NAS"
+      "value": "NAS"
     },
     {
       "name": "talebook_title",
-      "value": "连接 Talebook"
+      "value": "连接 TaleBook NAS"
     },
     {
       "name": "talebook_hint",
@@ -4182,11 +4342,11 @@
     },
     {
       "name": "talebook_connect",
-      "value": "验证并连接"
+      "value": "连接"
     },
     {
       "name": "talebook_connecting",
-      "value": "正在连接书库…"
+      "value": "正在连接…"
     },
     {
       "name": "talebook_connected",
@@ -4606,7 +4766,7 @@
     },
     {
       "name": "reader_import_font_hint",
-      "value": "每次最多导入 5 个 TTF / OTF，单个不超过 32 MB。已导入字体全部保留，可随时切换。"
+      "value": "每次最多导入 50 个 TTF / OTF，单个不超过 32 MB。已导入字体全部保留，可随时切换。"
     },
     {
       "name": "reader_import_font_failed",
@@ -4662,7 +4822,7 @@
     },
     {
       "name": "tts_custom_hint",
-      "value": "导入后可随时切换音色。每次最多选择 5 个 JSON 文件，保留已有配置；自定义语音需联网。"
+      "value": "导入后可随时切换音色。每次最多选择 50 个 JSON 文件，保留已有配置；自定义语音需联网。"
     },
     {
       "name": "tts_custom_import_success",
@@ -7302,7 +7462,7 @@
     },
     {
       "name": "reader_dialogue_highlight_hint",
-      "value": "将中文双引号、直双引号及「」『』内的对话使用强调色显示。"
+      "value": "使用所选颜色标记已勾选符号内的文字，可在下方自定义范围。"
     },
     {
       "name": "reader_speech_mark",
@@ -8127,6 +8287,62 @@
     {
       "name": "reader_ai_empty",
       "value": "没有可处理的正文，请重新选择文字"
+    },
+    {
+      "name": "reader_speech_style_preview",
+      "value": "样式预览"
+    },
+    {
+      "name": "reader_speech_preview_sample",
+      "value": "正在朗读这段文字"
+    },
+    {
+      "name": "reader_dialogue_ranges",
+      "value": "使用强调色的范围"
+    },
+    {
+      "name": "reader_dialogue_ranges_hint",
+      "value": "勾选需要着色的符号对，也可添加自己的开始、结束符号。不勾选则不着色。"
+    },
+    {
+      "name": "reader_dialogue_custom_pair",
+      "value": "自定义符号对"
+    },
+    {
+      "name": "reader_dialogue_opening",
+      "value": "开始符号"
+    },
+    {
+      "name": "reader_dialogue_closing",
+      "value": "结束符号"
+    },
+    {
+      "name": "reader_dialogue_add_pair",
+      "value": "添加"
+    },
+    {
+      "name": "reader_dialogue_pair_invalid",
+      "value": "开始和结束各填一个非空白符号，开始符号不能重复，最多 16 对。"
+    },
+    {
+      "name": "reader_dialogue_preview_sample",
+      "value": "这是一段预览文字"
+    },
+    {
+      "name": "tts_preview",
+      "value": "试听"
+    },
+    {
+      "name": "tts_preview_stop",
+      "value": "停止"
+    },
+    {
+      "name": "tts_preview_sample",
+      "value": "你好，这是当前音色的试听。愿每一个故事，都有温暖的声音陪伴你。"
+    },
+    {
+      "name": "tts_preview_error",
+      "value": "试听失败，请检查网络或音色配置后重试。"
     }
   ]
 }

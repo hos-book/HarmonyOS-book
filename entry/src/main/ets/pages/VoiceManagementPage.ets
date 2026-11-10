@@ -1,12 +1,14 @@
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { ManagementBatchBar } from '../components/ManagementBatchBar';
 import { sendableContextManager } from '@kit.AbilityKit';
+import { emitter } from '@kit.BasicServicesKit';
 import { CustomTtsConfig } from '../model/CustomTtsConfig';
 import { SpeechVoice, TextToSpeechState } from '../model/TextToSpeechState';
 import { ReaderTtsDataSource } from '../components/ReaderTtsTabs';
 import { CustomTtsConfigParser } from '../service/text/CustomTtsConfigParser';
 import { CustomTtsImportService } from '../service/text/CustomTtsImportService';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
+import { VoicePreviewService, VoicePreviewState } from '../service/text/VoicePreviewService';
 import { AppColor, AppFont, AppTheme } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
 
@@ -29,11 +31,43 @@ export struct VoiceManagementPage {
   @Local input: string = '';
   @Local importError: ResourceStr = '';
   private service: TextToSpeechService = TextToSpeechService.getInstance();
+  private preview: VoicePreviewService = new VoicePreviewService();
+  @Local previewState: VoicePreviewState = this.preview.state;
+  private previewVoiceKey: string = '';
+  private readonly stopPreview = (): void => this.preview.stop();
   private source: ReaderTtsDataSource = new ReaderTtsDataSource();
   private readonly moveHandler: (from: number, to: number) => void =
     (from: number, to: number): void => { this.moveVoice(from, to); };
 
-  aboutToAppear(): void { this.initialize(); }
+  aboutToAppear(): void {
+    emitter.on('app.reader.background', this.stopPreview);
+    this.initialize();
+  }
+
+  aboutToDisappear(): void {
+    this.preview.stop();
+    emitter.off('app.reader.background', this.stopPreview);
+  }
+
+  @Monitor('state.customTtsId', 'state.person', 'state.language')
+  selectedVoiceChanged(): void {
+    if (this.previewVoiceKey !== this.selectedVoiceKey()) this.preview.stop();
+  }
+
+  private selectedVoiceKey(): string {
+    return this.state.customTtsId || `${this.state.language}:${this.state.person}`;
+  }
+
+  private async previewSelectedVoice(): Promise<void> {
+    if (this.previewState.active) { this.preview.stop(); return; }
+    const context = this.getUIContext().getHostContext();
+    if (!context || !this.ready || this.busy || this.state.downloadingVoice || this.managing) return;
+    this.previewVoiceKey = this.selectedVoiceKey();
+    try {
+      await this.preview.play(context, this.state, context.resourceManager.getStringSync($r('app.string.tts_preview_sample').id));
+    } catch (_error) { this.toast($r('app.string.tts_preview_error')); }
+    if (this.previewState.error) this.toast($r('app.string.tts_preview_error'));
+  }
 
   private async initialize(): Promise<void> {
     const context = this.getUIContext().getHostContext();
@@ -118,7 +152,7 @@ export struct VoiceManagementPage {
         .fontColor(this.managing ? AppColor.OnBrand : AppColor.Brand)
         .backgroundColor(this.managing ? AppColor.Brand : AppTheme.Surface)
         .enabled(this.ready && !this.busy && (this.managing || this.visibleConfigs.length > 0))
-        .onClick((): void => { this.managing = !this.managing; this.selectedIds = []; }).id('tts-batch-voices')
+        .onClick((): void => { this.preview.stop(); this.managing = !this.managing; this.selectedIds = []; }).id('tts-batch-voices')
     }
   }
 
@@ -352,12 +386,13 @@ export struct VoiceManagementPage {
               ListItem() { Row().height(64) }
             }.width('100%').height('100%').padding({ left: 16, right: 16 }).scrollBar(BarState.Off)
               .contentStartOffset(this.headerHeight + 4)
+              .contentEndOffset(WindowUtils.getBottomSafeVp())
             if (!this.managing) {
             Button({ type: ButtonType.Circle }) {
               if (this.busy) { LoadingProgress().width(28).height(28).color(AppColor.Brand) }
               else { SymbolGlyph($r('sys.symbol.plus')).fontSize(28).fontColor([AppColor.Brand]) }
             }.width(56).height(56).backgroundColor(AppTheme.Surface).shadow(ShadowStyle.OUTER_DEFAULT_SM)
-              .margin({ right: 24, bottom: 20 }).enabled(!this.busy).id('tts-add-voice')
+              .margin({ right: 24, bottom: WindowUtils.getBottomSafeVp() + 20 }).enabled(!this.busy).id('tts-add-voice')
               .accessibilityText($r('app.string.tts_voice_add'))
               .bindMenu([
                 { value: $r('app.string.tts_custom_import'), action: (): void => { this.pickFile(); } },
@@ -372,7 +407,7 @@ export struct VoiceManagementPage {
             .fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
         } else { LoadingProgress().width(32).height(32).color(AppColor.Brand) }
       }.width('100%').height('100%')
-        .padding({ top: this.ready ? 0 : this.headerHeight, bottom: WindowUtils.getBottomSafeVp() })
+        .padding({ top: this.ready ? 0 : this.headerHeight })
       FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {
         Row({ space: 6 }) {
           Button({ type: ButtonType.Circle }) {
@@ -383,6 +418,11 @@ export struct VoiceManagementPage {
             .fontWeight(FontWeight.Bold).fontColor(AppTheme.TextPrimary).layoutWeight(1)
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
           this.managementButtons()
+          Button(this.previewState.active ? $r('app.string.tts_preview_stop') : $r('app.string.tts_preview'))
+            .height(36).fontSize(AppFont.Body).padding({ left: 10, right: 10 })
+            .fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
+            .enabled(this.previewState.active || (this.ready && !this.busy && !this.managing && !this.state.downloadingVoice))
+            .onClick((): void => { this.previewSelectedVoice(); }).id('tts-preview-selected-voice')
         }.width('100%').padding({ left: 8, right: 16, top: WindowUtils.getStatusBarHeightVp() + 8, bottom: 8 })
         if (this.managing) {
           ManagementBatchBar({ selectedCount: this.selectedIds.length, totalCount: this.visibleConfigs.length,

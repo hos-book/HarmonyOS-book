@@ -121,13 +121,11 @@ function pan(offsetX, velocityX = 0) {
 }
 async function checkContentPan() {
   const gallery = make(); gallery.ignoreChildGestures = true;
-  let resolve, updates = [];
+  let resolve;
   gallery.onContentPanStart = (x, y) => { assert.equal(x, 500); assert.equal(y, 300); return new Promise(done => { resolve = done; }); };
-  gallery.onContentPanUpdate = (...args) => updates.push(args);
   const count = captures;
   gallery.handlePanStart(pan(-20)); gallery.handlePanUpdate(pan(-230)); gallery.handlePanEnd(pan(-300));
   resolve(true); await flush();
-  assert.deepEqual(updates, [[-300, 0, true, false]], 'a quick gallery swipe retains its final movement while hit testing');
   assert.equal(captures, count, 'page-internal scrolling never captures or turns a reading page');
   assert.equal(gallery.phase, 'idle');
   assert.equal(gallery.contentPan, null);
@@ -139,9 +137,19 @@ async function checkContentPan() {
   await handoff(animations.shift());
   assert.deepEqual(ordinary.completed, [true]);
 
+  const reused = make(); reused.ignoreChildGestures = true;
+  reused.onContentPanStart = () => new Promise(done => { resolve = done; });
+  const start = pan(-20), end = pan(-350, -900);
+  reused.handlePanStart(start); reused.handlePanEnd(end);
+  start.fingerList.length = 0; start.offsetX = 0;
+  end.fingerList.length = 0; end.offsetX = 0; end.velocityX = 0;
+  resolve(false); await flush(); await frame(); await frame();
+  assert.equal(reused.phase, 'settling', 'native event recycling cannot erase a released EPUB swipe');
+  await handoff(animations.shift());
+  assert.deepEqual(reused.completed, [true]);
+
   gallery.handlePanStart(pan(-20)); gallery.handlePanCancel(); resolve(true); await flush();
   assert.equal(gallery.contentPan, null, 'late hit-test results cannot resume a cancelled gesture');
-  assert.deepEqual(updates.at(-1), [0, 0, true, true]);
   console.log('PASS EPUB nested scroll handoff, rapid release, ordinary page fallback and cancellation');
 }
 async function checkContinuousInput() {

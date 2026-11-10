@@ -547,17 +547,12 @@ export struct ImportPage {
           .lanes(this.pickedFiles.length > 1 && this.contentWidth >= AdaptiveLayout.MEDIUM_WIDTH ? 2 : 1, AppSpace.Sm)
           .padding({ left: AppSpace.Md, right: AppSpace.Md })
           .contentEndOffset(88).scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
-        Button({ type: ButtonType.Circle, stateEffect: false }) {
-          Stack() {
-            ImmersiveCircleButton({ icon: $r('sys.symbol.plus'), label: $r('app.string.import_add_files'),
-              diameter: 56, iconSize: 28, iconColor: $r('sys.color.font_primary') })
-            Row().width(56).height(56).backgroundColor($r('app.color.import_add_button_tint'))
-          }.width(56).height(56).borderRadius(28).clip(true)
-            .hitTestBehavior(HitTestMode.None).accessibilityLevel('no-hide-descendants')
-        }.width(56).height(56).padding(0).backgroundColor(Color.Transparent)
-          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.94 })
-          .accessibilityText($r('app.string.import_add_files'))
-          .enabled(!this.importing && !this.parsing).onClick((): void => { this.pickFiles(); })
+        ImmersiveCircleButton({
+          icon: $r('sys.symbol.plus'), label: $r('app.string.import_add_files'),
+          diameter: 52, iconSize: 25, iconColor: AppColor.Brand,
+          onPress: (): void => { this.pickFiles(); }
+        })
+          .enabled(!this.importing && !this.parsing)
           .opacity(this.importing || this.parsing ? 0.45 : 1)
           .margin({ right: AppSpace.Lg, bottom: AppSpace.Md })
       }.width('100%').layoutWeight(1)

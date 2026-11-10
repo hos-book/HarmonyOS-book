@@ -8,14 +8,19 @@ const ts = require(path.join(process.env.DEVECO_HOME, 'sdk/default/openharmony/e
 const root = path.resolve(__dirname, '../entry/src/main/ets/service/text');
 const temp = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'hsda-epub-parser-'));
 const handles = new Map();
+let readLimit = 97;
+let activeReads = 0, peakReads = 0;
 const fileIo = {
   OpenMode: { READ_ONLY: 0 },
   async open(name) { const file = await fs.promises.open(name); handles.set(file.fd, file); return { fd: file.fd }; },
   async close(file) { const handle = handles.get(file.fd); handles.delete(file.fd); await handle.close(); },
   async stat(fd) { return handles.get(fd).stat(); },
   async read(fd, bytes, opts) {
-    // Exercise the short-read loop too.
-    return (await handles.get(fd).read(Buffer.from(bytes), 0, Math.min(opts.length, 97), opts.offset)).bytesRead;
+    activeReads++; peakReads = Math.max(peakReads, activeReads);
+    try {
+      // Exercise the short-read loop too.
+      return (await handles.get(fd).read(Buffer.from(bytes), 0, Math.min(opts.length, readLimit), opts.offset)).bytesRead;
+    } finally { activeReads--; }
   }
 };
 const modules = new Map();
@@ -70,6 +75,7 @@ function load(name) {
     assert.equal(parser.getCatalogList().map(item => item.catalogName).join(','), '第一章,第二章');
     assert.equal(parser.getCatalogList()[1].href, 'OEBPS/Text/一:*.xhtml#b');
     assert.equal(await parser.getSpineItemContent(0), chapter);
+    assert.equal((await parser.getSpineBatch(0)).join(''), chapter);
     assert.deepEqual(Buffer.from(await parser.getResourceContent(0, '../Images/cover.png')), entries.get('OEBPS/Images/cover.png'));
     await parser.close(); await parser.close();
     assert.equal(handles.size, 0);
@@ -94,6 +100,41 @@ function load(name) {
   const corrupt = zip(new Map([['body', 'checksum']]), { stored: true }); corrupt[34] ^= 1;
   fs.writeFileSync(filename, corrupt); const archive = await Archive.open(filename);
   await assert.rejects(archive.read('body'), /完整性/); await archive.close();
+
+  readLimit = 1024 * 1024;
+  const bodies = [1024, 1024, 220 * 1024, 320 * 1024, 600 * 1024, 1024, 1024, 1024]
+    .map((size, index) => `<html><body>正文${index}😀${'文'.repeat(size / 3)}</body></html>`);
+  const batchEntries = new Map([
+    ['META-INF/container.xml', '<container><rootfiles><rootfile full-path="book.opf"/></rootfiles></container>'],
+    ['book.opf', '<package><metadata><dc:title>并行读取</dc:title></metadata><manifest>' +
+      '<item id="cover" href="cover.png" properties="cover-image" media-type="image/png"/>' +
+      bodies.map((_, i) => `<item id="c${i}" href="${i}.xhtml" media-type="application/xhtml+xml"/>`).join('') +
+      '</manifest><spine>' + bodies.map((_, i) => `<itemref idref="c${i}"/>`).join('') + '</spine></package>'],
+    ...bodies.map((html, i) => [`${i}.xhtml`, html])
+  ]);
+  fs.writeFileSync(filename, zip(batchEntries));
+  const parallel = await Parser.open(filename);
+  const restored = [];
+  peakReads = 0;
+  while (restored.length < bodies.length) {
+    const batch = await parallel.getSpineBatch(restored.length);
+    assert.ok(batch.length >= 1 && batch.length <= 4);
+    assert.ok(batch.length === 1 || batch.reduce((sum, html) => sum + Buffer.byteLength(html), 0) <= 512 * 1024,
+      'prefetched chapters must respect both count and byte budgets');
+    restored.push(...batch);
+  }
+  assert.deepEqual(restored, bodies, 'out-of-order I/O preserves Unicode content and spine order');
+  assert.ok(peakReads > 1 && peakReads <= 4, `bounded parallel reads: ${peakReads}`);
+  await parallel.close();
+  const damaged = zip(batchEntries, { stored: true });
+  damaged[damaged.indexOf(Buffer.from(bodies[0]))] ^= 1;
+  fs.writeFileSync(filename, damaged);
+  const brokenBatch = await Parser.open(filename);
+  await assert.rejects(brokenBatch.getSpineBatch(0), /完整性/);
+  assert.equal(activeReads, 0, 'failed batch drains all reads before releasing the archive');
+  await brokenBatch.close();
+  assert.equal(handles.size, 0);
+  console.log('PASS bounded EPUB prefetch: concurrency, byte budget, oversized single chapter, order and failure drain');
   console.log('PASS self EPUB parser: stored/deflate + CRC, short reads, metadata, nav/NCX anchors, non-linear items, Unicode/special paths, resource bytes and failure cleanup');
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(async () => {
   for (const handle of handles.values()) await handle.close();

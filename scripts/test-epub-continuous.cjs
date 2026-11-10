@@ -76,9 +76,14 @@ const test = String.raw`
       'packaged paragraph notes open with their authors and all six comments');
     check(scrollY===noteY,'opening a note preserves the reading position');
     hsdaEpub.seek({snippet:'Chapter3paragraph0:',fraction:0});await settle();
+    for(var wait=0;wait<20&&view(2).style.position!=='static';wait++)await delay(100);
     var first=hsdaEpub.spot();
-    check(view(2).style.position!=='static'&&Math.abs(view(2).clientHeight-innerHeight)<=1,
-      'fixed-background chapters keep their original viewport');
+    check(view(2).style.position==='static'&&view(2).clientHeight>innerHeight*2,
+      'fixed-background chapters scroll in the same native surface as ordinary text');
+    check(getComputedStyle(view(2).parentElement).backgroundAttachment==='fixed'&&
+      getComputedStyle(view(2).parentElement).backgroundImage.includes('linear-gradient')&&
+      getComputedStyle(view(2).contentDocument.body).backgroundImage==='none',
+      'original fixed background is painted once by the outer document');
     check(first.fraction<0.03&&!first.snippet.includes('隐藏评论'),'hidden notes cannot make a chapter start report 100 percent');
     // Reach the old chapter scroll limit; the next document must already be available.
     scrollTo(0,third.parentElement.offsetTop+third.parentElement.offsetHeight-innerHeight);

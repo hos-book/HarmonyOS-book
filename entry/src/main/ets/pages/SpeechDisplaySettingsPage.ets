@@ -1,7 +1,8 @@
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { ReaderColorPalette } from '../components/ReaderColorPalette';
+import { ReaderSpeechStylePreview } from '../components/ReaderSpeechStylePreview';
 import { TextReadingSettings } from '../model/TextReading';
-import { ReaderPalette } from '../model/ReaderTheme';
+import { ReaderPalette, resolveEffectiveThemeId, resolvePalette } from '../model/ReaderTheme';
 import { TextReadingSettingsService } from '../service/text/TextReadingSettingsService';
 import { AppColor, AppFont, AppTheme } from '../theme/Theme';
 import { resolveReaderAccent } from '../theme/ReaderAccentColor';
@@ -21,6 +22,8 @@ export struct SpeechDisplaySettingsPage {
   @Local preview: string = new ReaderPalette().accent;
   @Local themeColor: string = new ReaderPalette().accent;
   @Local revision: number = 0;
+  @Local previewPalette: ReaderPalette = new ReaderPalette();
+  private readingSettings: TextReadingSettings = new TextReadingSettings();
   private readonly readerColorListener = (): void => this.refreshThemeColor();
 
   @Computed
@@ -28,6 +31,9 @@ export struct SpeechDisplaySettingsPage {
 
   @Monitor('themeAccent')
   refreshThemeColor(): void {
+    const settings = this.readingSettings;
+    this.previewPalette = resolvePalette(resolveEffectiveThemeId(settings.themeId, settings.followSystemTheme, WindowUtils.isDarkMode()),
+      settings.customBackground, settings.fontColor, settings.imageBackground, settings.imageFontColor);
     this.themeColor = resolveReaderAccent(this.getUIContext().getHostContext(), this.themeAccent);
     if (this.colorFollowTheme) {
       this.preview = this.themeColor;
@@ -48,6 +54,7 @@ export struct SpeechDisplaySettingsPage {
     this.failed = false;
     try {
       const settings = await TextReadingSettingsService.get(context);
+      this.readingSettings = settings;
       this.follow = settings.speechFollowPage;
       this.mark = settings.speechMark;
       this.color = settings.speechMarkColor;
@@ -71,6 +78,7 @@ export struct SpeechDisplaySettingsPage {
       const normalizedColor = TextReadingSettings.normalizeSpeechMarkColor(color);
       settings.speechMarkColor = followTheme ? '' : (normalizedColor || this.themeColor);
       await TextReadingSettingsService.save(context, settings);
+      this.readingSettings = settings;
       this.follow = settings.speechFollowPage;
       this.mark = settings.speechMark;
       this.color = settings.speechMarkColor;
@@ -116,7 +124,6 @@ export struct SpeechDisplaySettingsPage {
                 }.width('100%')
               }.width('100%').padding(18).borderRadius(18).backgroundColor(AppTheme.Surface)
                 .border({ width: 0.5, color: AppTheme.Divider })
-              if (this.mark === 'color') {
                 Column({ space: 12 }) {
                   Row({ space: 8 }) {
                     Text($r('app.string.reader_speech_color')).fontSize(AppFont.BodyL)
@@ -140,9 +147,11 @@ export struct SpeechDisplaySettingsPage {
                     } }).id('reader-speech-color')
                 }.width('100%').padding(18).borderRadius(18).backgroundColor(AppTheme.Surface)
                   .border({ width: 0.5, color: AppTheme.Divider })
-              }
+              ReaderSpeechStylePreview({ color: this.preview, foreground: this.previewPalette.primary,
+                paperColor: this.previewPalette.background })
             }.width('100%').constraintSize({ maxWidth: 760 })
-              .padding({ left: 16, right: 16, top: this.headerHeight + 16, bottom: 16 }).enabled(!this.saving)
+              .padding({ left: 16, right: 16, top: this.headerHeight + 16,
+                bottom: WindowUtils.getBottomSafeVp() + 16 }).enabled(!this.saving)
           }.width('100%').layoutWeight(1).scrollBar(BarState.Off).align(Alignment.Top)
         } else if (this.failed) {
           Text($r('app.string.reading_settings_load_error')).fontColor(AppTheme.TextSecondary).padding(20)
@@ -150,7 +159,7 @@ export struct SpeechDisplaySettingsPage {
             .onClick((): void => { this.load(); })
         } else { LoadingProgress().width(32).height(32).color(AppColor.Brand) }
       }.width('100%').height('100%')
-        .padding({ top: this.ready ? 0 : this.headerHeight, bottom: WindowUtils.getBottomSafeVp() })
+        .padding({ top: this.ready ? 0 : this.headerHeight })
       FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {
         Row({ space: 12 }) {
           Button({ type: ButtonType.Circle }) {

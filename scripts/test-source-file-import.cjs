@@ -7,6 +7,7 @@ const ts = require(path.join(process.env.DEVECO_HOME,
   'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = path.join(__dirname, '../entry/src/main/ets');
 let files = new Map(), handles = new Map(), positions = new Map(), writes = [], opened = [], yields = 0, active = 0, peak = 0;
+let readLimit = 4093, readCalls = 0;
 const io = {
   OpenMode: { READ_ONLY: 0 },
   async open(uri) {
@@ -16,11 +17,12 @@ const io = {
   },
   async stat(fd) { return { size: handles.get(fd).length }; },
   async read(fd, output, options) {
+    readCalls++;
     const data = handles.get(fd);
     // Simulate short reads to ensure files are fully reconstructed.
     // CoreFileKit offset is relative to the CURRENT file pointer, not an absolute position.
     const start = positions.get(fd) + (options?.offset || 0);
-    const length = Math.max(0, Math.min(4093, output.byteLength, data.length - start));
+    const length = Math.max(0, Math.min(readLimit, options?.length ?? output.byteLength, output.byteLength, data.length - start));
     new Uint8Array(output).set(data.subarray(start, start + length));
     positions.set(fd, start + length);
     return length;
@@ -62,6 +64,7 @@ const source = id => ({ bookSourceName: `书源 ${id}`, bookSourceUrl: `https://
 function reset(entries) {
   files = new Map(entries.map(([uri, body]) => [uri, Buffer.from(body)]));
   handles = new Map(); positions = new Map(); writes = []; opened = []; yields = 0; active = 0; peak = 0;
+  readLimit = 4093; readCalls = 0;
 }
 async function run(uris = [...files.keys()]) {
   const result = await importer.importFiles(uris, () => {});
@@ -74,8 +77,9 @@ async function run(uris = [...files.keys()]) {
   let result = await run(['a', 'a', 'bad', 'missing', 'empty', 'locked', 'b']);
   assert.equal(result.imported, 2); assert.equal(result.skippedFiles, 3);
   assert.equal(result.skippedSources, 1); assert.equal(opened.filter(x => x === 'a').length, 1);
-  reset(Array.from({ length: 12 }, (_, i) => [String(i), JSON.stringify(source(i))]));
-  result = await run(); assert.equal(result.imported, 10); assert.equal(result.skippedFiles, 2);
+  reset(Array.from({ length: 51 }, (_, i) => [String(i), JSON.stringify(source(i))]));
+  result = await run(); assert.equal(result.imported, 50); assert.equal(result.skippedFiles, 1);
+  assert.deepEqual(writes.map(item => item.bookSourceUrl), Array.from({ length: 50 }, (_, i) => `https://${i}`));
   reset([['large', ' '.repeat(importer.MAX_FILE_BYTES + 1)], ['ok', JSON.stringify(source('ok'))]]);
   result = await run(); assert.equal(result.imported, 1); assert.equal(result.skippedFiles, 1);
   reset([['batch', JSON.stringify(Array.from({ length: 20 }, (_, i) => source(i)))],
@@ -91,7 +95,15 @@ async function run(uris = [...files.keys()]) {
     ['b', JSON.stringify(Array.from({ length: 600 }, (_, i) => source(i + 600)))],
     ['c', JSON.stringify(source('last'))]]);
   result = await run(); assert.equal(result.imported, 1201);
-  assert.equal(result.skippedSources, 0); assert.equal(result.skippedFiles, 0); assert.ok(yields > 100);
+  assert.equal(result.skippedSources, 0); assert.equal(result.skippedFiles, 0); assert.ok(yields >= 36);
+  reset([['full-read', JSON.stringify(source('full-read')) + ' '.repeat(2 * 1024 * 1024)]]);
+  readLimit = Number.MAX_SAFE_INTEGER;
+  result = await run(); assert.equal(result.imported, 1); assert.equal(readCalls, 3);
+  reset(Array.from({ length: 11 }, (_, i) => [String(i), JSON.stringify(source(i))]));
+  const originalBudget = importer.MAX_TOTAL_BYTES;
+  importer.MAX_TOTAL_BYTES = files.get('0').length * 10;
+  result = await run(); assert.equal(result.imported, 10); assert.equal(result.budgetFiles, 1);
+  importer.MAX_TOTAL_BYTES = originalBudget;
   reset([['fail', JSON.stringify(source('write-failure'))], ['ok', JSON.stringify(source('ok'))]]);
   result = await run(); assert.equal(result.imported, 1); assert.equal(result.skippedFiles, 1);
   console.log('PASS multi-file import: limits, short reads, serial handles, malformed/unreadable files, locked sources, write failure isolation, yielding and model methods');

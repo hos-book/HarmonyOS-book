@@ -1,4 +1,5 @@
 import { ReaderColorPalette } from './ReaderColorPalette';
+import { ReaderSpeechStylePreview } from './ReaderSpeechStylePreview';
 import { ReaderPalette } from '../model/ReaderTheme';
 import { TextToSpeechState, SpeechVoice } from '../model/TextToSpeechState';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
@@ -21,6 +22,8 @@ export struct ReaderSpeechSheet {
   @Param speechMark: string = 'color';
   @Param speechMarkColor: string = '';
   @Param speechDefaultColor: string = new ReaderPalette().accent;
+  @Param speechPreviewForeground: string = new ReaderPalette().primary;
+  @Param speechPreviewBackground: string = new ReaderPalette().background;
   @Local speechColorPreview: string = '';
   @Local speechColorRevision: number = 0;
   @Event onSpeechMarkColorChange: (color: string) => void = () => {};
@@ -126,7 +129,6 @@ export struct ReaderSpeechSheet {
                 .onClick((): void => this.onSpeechMarkChange(mark))
             }, (mark: string): string => mark)
           }.width('100%')
-          if (this.speechMark === 'color') {
             Row({ space: 8 }) {
               Text($r('app.string.reader_speech_color')).fontSize(16)
                 .fontColor($r('sys.color.font_primary')).layoutWeight(1)
@@ -144,7 +146,8 @@ export struct ReaderSpeechSheet {
                 this.speechColorPreview = color;
                 if (commit) this.onSpeechMarkColorChange(color);
               } }).id('reader-speech-color')
-          }
+          ReaderSpeechStylePreview({ color: this.speechColorPreview || this.speechMarkColor || this.speechDefaultColor,
+            foreground: this.speechPreviewForeground, paperColor: this.speechPreviewBackground })
         }
         if (!this.readingOnly) {
         if (this.state.error) {

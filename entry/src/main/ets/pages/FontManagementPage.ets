@@ -204,14 +204,15 @@ export struct FontManagementPage {
             }, (font: ReaderImportedFont): string => `${font.path}:${font.enabled}`)
               .onMove(this.busy ? undefined : this.moveHandler)
           }.width('100%').layoutWeight(1).scrollBar(BarState.Off)
-            .padding({ left: 16, right: 16 }).contentStartOffset(this.headerHeight + 4).contentEndOffset(12)
+            .padding({ left: 16, right: 16 }).contentStartOffset(this.headerHeight + 4)
+            .contentEndOffset(WindowUtils.getBottomSafeVp() + 12)
         } else if (this.failed) {
           Text($r('app.string.reader_font_load_failed')).fontColor(AppTheme.TextSecondary).padding(20)
           Button($r('app.string.common_retry')).fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
             .onClick((): void => { this.load(); })
         } else { LoadingProgress().width(32).height(32).color(AppColor.Brand) }
       }.width('100%').constraintSize({ maxWidth: 760 }).height('100%')
-        .padding({ top: this.ready ? 0 : this.headerHeight, bottom: WindowUtils.getBottomSafeVp() })
+        .padding({ top: this.ready ? 0 : this.headerHeight })
       FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {
         Row({ space: 8 }) {
           Button({ type: ButtonType.Circle }) {

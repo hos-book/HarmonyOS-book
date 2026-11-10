@@ -1,6 +1,5 @@
 import { SourceTestTaskService } from '../service/rulesource/SourceTestTaskService';
 import { BusinessError } from '@kit.BasicServicesKit';
-import { MembershipState } from '../model/MembershipState';
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { RuleSourceImportQueue } from '../service/rulesource/RuleSourceImportQueue';
 import lazy { scanBarcode, scanCore } from '@kit.ScanKit';
@@ -23,12 +22,15 @@ import { LocalRuleSourceCodec } from '../service/rulesource/LocalRuleSourceCodec
 import { LocalRuleTlsTrustStore } from '../service/rulesource/LocalRuleTlsTrustStore';
 import { LightSourceCookies as LocalRuleHttpClient } from '../service/rulesource/light/LightSourceCookies';
 import { SourceDataService } from '../service/SourceDataService';
-import { AppTheme, AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
+import { AppTheme, AppColor, AppFont, AppMaterial, AppRadius, AppSpace } from '../theme/Theme';
 import { CharsetCodec } from '../utils/CharsetCodec';
 import { WindowUtils } from '../utils/WindowUtils';
-import { promptAction } from '@kit.ArkUI';
+import { PlatformCompat } from '../utils/PlatformCompat';
+import { CapsuleSegmentButtonV2, ColorMetrics, LengthMetrics, promptAction, SegmentButtonV2Items } from '@kit.ArkUI';
+import { HdsTabs } from '@kit.UIDesignKit';
+import { HdsCompat } from '../utils/HdsCompat';
 import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
-import { FrostedPageHeader } from '../components/FrostedPageHeader';
+import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
 import { TalebookConnectComponent } from '../components/TalebookConnectComponent';
 import { TalebookSourceIdentity } from '../service/rulesource/talebook/TalebookSourceIdentity';
 
@@ -103,11 +105,11 @@ class RuleSourceDataSource implements IDataSource {
 
 @ComponentV2
 export struct RuleSourcePage {
-  @Local headerHeight: number = WindowUtils.getStatusBarHeightVp() + 56;
   @Param navStack: NavPathStack = new NavPathStack();
   @Local externalImports: RuleSourceImportQueue = RuleSourceImportQueue.getInstance();
   private pageAttached: boolean = false;
-  @Local importJson: string = '';
+  @Local importLink: string = '';
+  @Local importLinkInvalid: boolean = false;
   @Local searchKeyword: string = '';
   @Local sourceCount: number = 0;
   @Local filteredSourceCount: number = 0;
@@ -119,9 +121,9 @@ export struct RuleSourcePage {
   @Local hasFileImportResult: boolean = false;
   @Local isBulkTesting: boolean = false;
   @Local isEditMode: boolean = false;
-  @Local showImportPanel: boolean = false;
+  @Local importDialogKind: string = '';
+  private importDialogId: number = -1;
   @Local expandedSourceUrls: Set<string> = new Set();
-  @Local showTalebook: boolean = false;
   @Local talebookSourceUrl: string = '';
   @Local selectedSourceCount: number = 0;
   @Local selectionRevision: number = 0;
@@ -138,6 +140,14 @@ export struct RuleSourcePage {
   @Local selectedGroup: string = '';
   @Local statusFilter: number = 0;
   @Local contentFilter: number = 0;
+  @Local contentFilterHeight: number = 36;
+  @Local contentFilterWidth: number = 0;
+  private contentFilterItems: SegmentButtonV2Items = new SegmentButtonV2Items([
+    { text: $r('app.string.search_type_all') },
+    { text: $r('app.string.search_type_audio') },
+    { text: $r('app.string.search_type_text') },
+    { text: $r('app.string.comic_type') }
+  ]);
   @Local sortMode: number = 0;
   @Local groupDraft: string = '';
   @Local editingGroup: string = '';
@@ -197,6 +207,7 @@ export struct RuleSourcePage {
 
   aboutToDisappear(): void {
     this.pageAttached = false;
+    this.closeImportDialog();
     this.loadRevision++;
     WindowUtils.removeSafeAreaListener(this.safeAreaListener);
     this.stopRefreshCheck();
@@ -277,29 +288,25 @@ export struct RuleSourcePage {
   private async consumeExternalImports(): Promise<void> {
     const paths = this.navStack.getAllPathName();
     if (!this.pageAttached || this.isLoading || this.loadFailed || this.isImporting || this.isBulkTesting ||
-      this.busySourceUrl.length > 0 || paths[paths.length - 1] !== 'ruleSources' ||
+      this.busySourceUrl.length > 0 || this.importDialogKind.length > 0 ||
+      paths[paths.length - 1] !== 'ruleSources' ||
       !this.externalImports.hasPending()) return;
     if (!this.externalImports.tryBegin()) return;
     this.closeManagement();
     this.isEditMode = false;
     this.resetSelection();
     this.isImporting = true;
-    this.showImportPanel = true;
-    let allSucceeded = true;
     try {
       while (this.pageAttached && this.externalImports.hasPending()) {
         const uri = this.externalImports.take();
         if (uri === undefined) break;
         try {
           const content = await this.readLocalJson(uri);
-          const imported = content !== undefined && await this.persistImportContent(content);
-          if (!imported) allSucceeded = false;
+          if (content !== undefined) await this.persistImportContent(content);
         } catch (error) {
-          allSucceeded = false;
           this.showImportError(error);
         }
       }
-      if (allSucceeded) this.showImportPanel = false;
     } finally {
       this.isImporting = false;
       this.externalImports.finish();
@@ -405,18 +412,18 @@ export struct RuleSourcePage {
     this.groupDraft = '';
   }
 
-  /** 页内多级视图逐级返回：管理视图 → 编辑模式 → 导入面板，全部收起后才退出路由。 */
+  /** 先收起输入弹窗，再逐级退出管理视图与编辑模式。 */
   private requestBack(): boolean {
+    if (this.importDialogKind.length > 0) {
+      if (!this.isImporting) this.closeImportDialog();
+      return true;
+    }
     if (this.managementView.length > 0) {
       this.closeManagement();
       return true;
     }
     if (this.isEditMode) {
       this.toggleEditMode();
-      return true;
-    }
-    if (this.showImportPanel) {
-      this.showImportPanel = false;
       return true;
     }
     return false;
@@ -608,17 +615,61 @@ export struct RuleSourcePage {
   private toggleEditMode(): void {
     this.isEditMode = !this.isEditMode;
     this.resetSelection();
-    if (this.isEditMode) this.showImportPanel = false;
   }
 
   private sourceListScroller: Scroller = new Scroller();
 
-  private toggleImportPanel(): void {
-    this.showImportPanel = !this.showImportPanel;
-    if (this.showImportPanel && this.isEditMode) {
-      this.isEditMode = false;
-      this.resetSelection();
+  private async openImportDialog(kind: string, sourceUrl: string = ''): Promise<void> {
+    if (!this.pageAttached || this.importDialogKind.length > 0 || this.isImporting ||
+      this.isBulkTesting || this.busySourceUrl.length > 0) return;
+    this.importDialogKind = kind;
+    this.importLinkInvalid = false;
+    this.talebookSourceUrl = sourceUrl;
+    const prompt = this.getUIContext().getPromptAction();
+    try {
+      const options: promptAction.CustomDialogOptions = {
+        builder: (): void => { this.buildImportDialog(); },
+        alignment: DialogAlignment.Center,
+        width: Math.min(400, WindowUtils.getWindowWidthVp() - 32),
+        cornerRadius: AppRadius.Xl,
+        autoCancel: true,
+        keyboardAvoidMode: KeyboardAvoidMode.DEFAULT,
+        onWillDismiss: (action: DismissDialogAction): void => {
+          if (!this.isImporting) action.dismiss();
+        },
+        onDidDisappear: (): void => {
+          this.importDialogId = -1;
+          this.importDialogKind = '';
+        }
+      };
+      if (PlatformCompat.immersiveMaterial) {
+        options.systemMaterial = AppMaterial.DialogUltraThick;
+      } else {
+        options.backgroundBlurStyle = BlurStyle.COMPONENT_ULTRA_THICK;
+      }
+      const dialogId = await prompt.openCustomDialog(options);
+      if (this.pageAttached && this.importDialogKind === kind) {
+        this.importDialogId = dialogId;
+      } else {
+        prompt.closeCustomDialog(dialogId);
+      }
+    } catch (_error) {
+      this.importDialogKind = '';
+      this.showToast($r('app.string.rule_source_operation_failed'));
     }
+  }
+
+  private closeImportDialog(): void {
+    if (this.importDialogId < 0) {
+      this.importDialogKind = '';
+      return;
+    }
+    try {
+      this.getUIContext().getPromptAction().closeCustomDialog(this.importDialogId);
+    } catch (_error) {
+      this.importDialogKind = '';
+    }
+    this.importDialogId = -1;
   }
 
   private resetSelection(): void {
@@ -744,7 +795,7 @@ export struct RuleSourcePage {
   }
 
   private async importSources(): Promise<void> {
-    const input = this.importJson.trim();
+    const input = this.importLink.trim();
     if (this.isImporting || this.isBulkTesting || this.busySourceUrl.length > 0 || input.length === 0) {
       if (input.length === 0) {
         this.showToast($r('app.string.rule_source_import_empty'));
@@ -752,13 +803,19 @@ export struct RuleSourcePage {
       return;
     }
 
+    if (!this.isRemoteImport(input)) {
+      this.importLinkInvalid = true;
+      return;
+    }
+
+    this.importLinkInvalid = false;
     this.isImporting = true;
     try {
       const content = await this.resolveImportContent(input);
       const imported = await this.persistImportContent(content);
       if (imported) {
-        this.importJson = '';
-        this.showImportPanel = false;
+        this.importLink = '';
+        this.closeImportDialog();
       }
     } catch (error) {
       this.showImportError(error);
@@ -772,7 +829,7 @@ export struct RuleSourcePage {
     this.isImporting = true;
     try {
       const uris = await this.pickLocalJsonUris();
-      if (uris.length === 0) { this.showImportPanel = false; return; }
+      if (uris.length === 0) return;
       this.hasFileImportResult = false;
       const result = await LocalRuleSourceFileImporter.importFiles(uris, (current: number, total: number) => {
         this.importFileCurrent = current;
@@ -790,9 +847,6 @@ export struct RuleSourcePage {
       await this.loadSources(false);
       this.showToast($r('app.string.rule_source_import_files_result',
         result.imported, result.skippedSources, result.skippedFiles));
-      if (result.imported > 0 && result.skippedFiles === 0 && result.skippedSources === 0) {
-        this.showImportPanel = false;
-      }
     } catch (_error) {
       this.showToast($r('app.string.rule_source_operation_failed'));
     } finally {
@@ -828,12 +882,10 @@ export struct RuleSourcePage {
         if (this.isRemoteImport(scannedText)) {
           // 是 URL，自动下载
           const content = await this.resolveImportContent(scannedText);
-          const imported = await this.persistImportContent(content);
-          if (imported) this.showImportPanel = false;
+          await this.persistImportContent(content);
         } else {
           // 是 JSON 内容，直接导入
-          const imported = await this.persistImportContent(scannedText);
-          if (imported) this.showImportPanel = false;
+          await this.persistImportContent(scannedText);
         }
       } else {
         // 用户取消扫描，不提示错误
@@ -1023,8 +1075,7 @@ export struct RuleSourcePage {
   private openSourceLogin(source: LocalRuleSource): void {
     if (this.busySourceUrl.length > 0 || this.isImporting || this.isBulkTesting) return;
     if (TalebookSourceIdentity.isSourceUrl(source.bookSourceUrl)) {
-      this.talebookSourceUrl = source.bookSourceUrl;
-      this.showTalebook = true;
+      this.openImportDialog('nas', source.bookSourceUrl);
       return;
     }
     if (!this.canOpenSourceLogin(source)) return;
@@ -1270,14 +1321,18 @@ export struct RuleSourcePage {
       Stack({ alignContent: Alignment.BottomEnd }) {
         this.buildBody()
         if (!this.isLoading && !this.loadFailed && !this.isEditMode &&
-          this.managementView.length === 0 && !this.showImportPanel) {
-          Button({ type: ButtonType.Circle }) {
-            SymbolGlyph($r('sys.symbol.plus')).fontSize(25).fontColor([AppColor.Brand])
+          this.managementView.length === 0) {
+          Stack() {
+            ImmersiveCircleButton({
+              icon: $r('sys.symbol.plus'), label: $r('app.string.rule_source_import_title'),
+              diameter: 52, iconSize: 25, iconColor: AppColor.Brand
+            })
+              .opacity(this.isImporting ? 0 : 1)
+            if (this.isImporting) {
+              LoadingProgress().width(25).height(25).color(AppColor.Brand)
+            }
           }
           .width(52).height(52)
-          .backgroundColor(AppTheme.Surface)
-          .border({ width: 1, color: AppColor.BrandSoft })
-          .shadow({ radius: 12, color: AppColor.Shadow, offsetY: 4 })
           .margin({ right: AppSpace.Lg, bottom: Math.max(this.safeBottom, RULE_SOURCE_MIN_BOTTOM_INSET) + 16 })
           .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
           .accessibilityText($r('app.string.rule_source_import_title'))
@@ -1285,25 +1340,19 @@ export struct RuleSourcePage {
           .bindMenu(this.buildImportMenu())
         }
       }.width('100%').height('100%')
-      .bindSheet($$this.showImportPanel, this.buildImportSheet(), {
-        height: SheetSize.LARGE,
-        detents: [SheetSize.LARGE, '45%', '70%'], preferType: SheetType.BOTTOM, dragBar: true, showClose: true,
-        backgroundColor: AppTheme.SettingsBackground,
-        onWillDismiss: (action: DismissSheetAction): void => {
-          if (!this.isImporting) action.dismiss();
-        }
-      })
     }
   }
 
   @Builder
   buildBody() {
-    Stack({ alignContent: Alignment.Top }) {
-      Column() {
+    Column() {
+      // 顶栏参与正常布局，列表仅占剩余高度，滚动卡片不会叠到筛选控件下方。
+      this.buildHeader()
       if (this.managementView.length > 0) {
         Column() {
           this.buildManagementBody()
-        }.width('100%').layoutWeight(1).padding({ top: this.headerHeight })
+        }.width('100%').layoutWeight(1)
+          .padding({ bottom: Math.max(this.safeBottom, RULE_SOURCE_MIN_BOTTOM_INSET) })
       } else if (this.isLoading) {
         Column({ space: AppSpace.Sm }) {
           LoadingProgress()
@@ -1317,16 +1366,18 @@ export struct RuleSourcePage {
         .width('100%')
         .layoutWeight(1)
         .justifyContent(FlexAlign.Center)
-        .padding({ top: this.headerHeight })
+        .padding({ bottom: Math.max(this.safeBottom, RULE_SOURCE_MIN_BOTTOM_INSET) })
       } else {
-        List({ space: AppSpace.Sm, scroller: this.sourceListScroller }) {
+        List({ space: AppSpace.Xs, scroller: this.sourceListScroller }) {
           ListItem() {
             Row() {
               Text($r('app.string.rule_source_installed'))
-                .fontSize(AppFont.Body)
-                .fontColor(AppTheme.TextTertiary)
+                .fontSize(AppFont.Caption)
+                .fontColor(AppTheme.TextSecondary)
+                .fontWeight(FontWeight.Medium)
               Blank()
-              Text(`${this.filteredSourceCount}/${this.sourceCount}`)
+              Text(this.filteredSourceCount === this.sourceCount ? this.sourceCount.toString() :
+                `${this.filteredSourceCount}/${this.sourceCount}`)
                 .fontSize(AppFont.Caption)
                 .fontColor(AppTheme.TextTertiary)
               Text($r('app.string.rule_source_count_unit'))
@@ -1335,8 +1386,14 @@ export struct RuleSourcePage {
                 .margin({ left: 2 })
             }
             .width('100%')
-            // 将动态顶栏留白纳入首项布局，避免筛选栏出现后只更新滚动偏移而遮住前几条书源。
-            .padding({ left: AppSpace.Xs, right: AppSpace.Xs, top: this.headerHeight + AppSpace.Xs })
+            .padding({ left: AppSpace.Xs, right: AppSpace.Xs, top: AppSpace.Xxs,
+              bottom: AppSpace.Xxs })
+          }
+
+          if ((this.isImporting && this.importDialogKind.length === 0) || this.hasFileImportResult) {
+            ListItem() {
+              this.buildImportFeedback()
+            }
           }
 
           if (!this.loadFailed && this.bulkTestTotal > 0) {
@@ -1364,47 +1421,37 @@ export struct RuleSourcePage {
               }
             }, (item: RuleSourceListItem) => item.sourceUrl)
           }
-          ListItem() { Row().height(88) }
         }
         .width('100%')
         .layoutWeight(1)
         .padding({
           left: AppSpace.Md,
           right: AppSpace.Md,
-          top: AppSpace.Xs,
-          bottom: AppSpace.Xs
+          top: AppSpace.Xxs,
+          bottom: 0
         })
+        // 安全区放在滚动内容末尾，列表视口延伸到底；末项可完整滚到悬浮按钮上方。
+        .contentEndOffset(Math.max(this.safeBottom, RULE_SOURCE_MIN_BOTTOM_INSET) +
+          (this.isEditMode ? AppSpace.Md : 84))
         .scrollBar(BarState.Off)
         .edgeEffect(EdgeEffect.Spring)
-      }
-      }.width('100%').height('100%')
-      FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {
-        this.buildHeader()
       }
     }
     .width('100%')
     .height('100%')
-    // 底部避让取系统安全区与 28vp 的较大值，避免重复叠加导航条留白。
-    .padding({ bottom: Math.max(this.safeBottom, RULE_SOURCE_MIN_BOTTOM_INSET) })
     .backgroundColor(AppTheme.SettingsBackground)
     .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
-    .bindSheet($$this.showTalebook, this.buildTalebookConnection(), {
-      height: SheetSize.LARGE,
-      detents: [SheetSize.LARGE, '45%', '70%'], preferType: SheetType.BOTTOM, dragBar: true, showClose: true,
-      backgroundColor: AppTheme.SettingsBackground,
-      onWillDismiss: (action: DismissSheetAction): void => {
-        if (!this.isImporting) action.dismiss();
-      }
-    })
   }
 
   @Builder
   buildImportMenu() {
     Menu() {
       MenuItem({ content: $r('app.string.rule_source_import_file_action') })
-        .onClick((): void => { this.showImportPanel = true; this.importLocalFile(); })
+        .onClick((): void => { this.importLocalFile(); })
       MenuItem({ content: $r('app.string.rule_source_import_link_action') })
-        .onClick((): void => this.toggleImportPanel())
+        .onClick((): void => { this.openImportDialog('link'); })
+      MenuItem({ content: $r('app.string.talebook_add') })
+        .onClick((): void => { this.openImportDialog('nas'); })
       if (canIUse('SystemCapability.Multimedia.Scan.ScanBarcode')) {
         MenuItem({ content: $r('app.string.rule_source_import_scan_action') })
           .onClick(() => this.scanQRCode())
@@ -1413,10 +1460,12 @@ export struct RuleSourcePage {
   }
 
   @Builder
-  buildImportSheet() {
-    Scroll() { this.buildImportSection() }
-      .width('100%').height('100%')
-      .padding({ bottom: Math.max(this.safeBottom, RULE_SOURCE_MIN_BOTTOM_INSET) })
+  buildImportDialog() {
+    if (this.importDialogKind === 'nas') {
+      this.buildTalebookConnection()
+    } else {
+      this.buildLinkImportDialog()
+    }
   }
 
   @Builder
@@ -1424,9 +1473,9 @@ export struct RuleSourcePage {
     TalebookConnectComponent({
       sourceUrl: this.talebookSourceUrl,
       onBusy: (busy: boolean): void => { this.isImporting = busy; },
+      onCancel: (): void => { this.closeImportDialog(); },
       onConnected: (): void => {
-        this.showTalebook = false;
-        this.showImportPanel = false;
+        this.closeImportDialog();
         SourceDataService.invalidateLocalSources();
         this.loadSources(false);
         this.showToast($r('app.string.talebook_connected'));
@@ -1435,17 +1484,89 @@ export struct RuleSourcePage {
   }
 
   @Builder
+  buildContentFilterBackdrop() {
+    Row().width('100%').height(this.contentFilterHeight)
+  }
+
+  @Builder
+  buildContentFilter() {
+    Stack({ alignContent: Alignment.Center }) {
+      // 与主题页一致：HDS 提供材质，原生 V2 分段按钮负责选中和交互。
+      if (PlatformCompat.floatingTabs && HdsCompat.materialSupported && this.contentFilterWidth > 0) {
+        HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
+          TabContent() {}.tabBar(this.buildContentFilterBackdrop())
+        }.barMode(BarMode.Fixed).barHeight(this.contentFilterHeight).barOverlap(true)
+          .barFloatingStyle({
+            barWidth: { smallWidth: this.contentFilterWidth, mediumWidth: this.contentFilterWidth,
+              largeWidth: this.contentFilterWidth },
+            systemMaterialEffect: HdsCompat.material,
+            barSideMargin: 0, barBottomMargin: 0,
+            gradientMask: { maskColor: Color.Transparent, maskHeight: this.contentFilterHeight },
+            adaptToHandedness: false, thermoCtrl: true, barOpacity: 1
+          })
+          .scrollable(false).onContentWillChange((): boolean => false)
+          .width(this.contentFilterWidth).height(this.contentFilterHeight)
+          .borderRadius(this.contentFilterHeight / 2, RenderStrategy.OFFSCREEN).clip(true)
+          .hitTestBehavior(HitTestMode.BLOCK_DESCENDANTS)
+          .accessibilityLevel('no-hide-descendants')
+      }
+
+      CapsuleSegmentButtonV2({
+        items: this.contentFilterItems,
+        selectedIndex: this.contentFilter,
+        $selectedIndex: (index: number): void => {
+          if (this.isEditMode || this.isImporting || this.isBulkTesting || this.busySourceUrl.length > 0) return;
+          this.contentFilter = index;
+          this.applyFilters();
+        },
+        itemFontSize: LengthMetrics.fp(AppFont.Body),
+        itemSelectedFontSize: LengthMetrics.fp(AppFont.Body),
+        itemFontWeight: FontWeight.Regular,
+        itemSelectedFontWeight: FontWeight.Medium,
+        itemFontColor: ColorMetrics.resourceColor(AppTheme.TextSecondary),
+        itemSelectedFontColor: ColorMetrics.resourceColor(AppColor.Brand),
+        itemSelectedBackgroundColor: ColorMetrics.resourceColor(AppColor.BrandSoft),
+        itemBorderRadius: LengthMetrics.vp((this.contentFilterHeight - 6) / 2),
+        itemMinHeight: LengthMetrics.vp(30),
+        itemPadding: { start: LengthMetrics.vp(8), end: LengthMetrics.vp(8),
+          top: LengthMetrics.vp(4), bottom: LengthMetrics.vp(4) },
+        itemShadow: { radius: 0, color: Color.Transparent },
+        buttonBackgroundColor: ColorMetrics.resourceColor(HdsCompat.materialSupported ? Color.Transparent :
+          AppTheme.Surface),
+        buttonBackgroundBlurStyle: HdsCompat.materialSupported ? undefined : BlurStyle.COMPONENT_ULTRA_THIN,
+        buttonBorderRadius: LengthMetrics.vp(this.contentFilterHeight / 2),
+        buttonMinHeight: LengthMetrics.vp(36),
+        buttonPadding: LengthMetrics.vp(3)
+      })
+        .width('100%')
+        .enabled(!this.isEditMode && !this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
+        .onSizeChange((_oldSize: SizeOptions, newSize: SizeOptions): void => {
+          const height: number = Number(newSize.height);
+          const width: number = Number(newSize.width);
+          if (height > 0 && Math.abs(height - this.contentFilterHeight) > 0.1) this.contentFilterHeight = height;
+          if (width > 0 && Math.abs(width - this.contentFilterWidth) > 0.1) this.contentFilterWidth = width;
+        })
+    }.width('100%').backgroundColor(AppTheme.Surface)
+      .borderRadius(this.contentFilterHeight / 2)
+      .border({ width: 0.5, color: AppTheme.Divider })
+      .id('rule-source-type-filter')
+  }
+
+  @Builder
   buildHeader() {
-    Column({ space: AppSpace.Xs }) {
+    Column({ space: AppSpace.Xxs }) {
       Row() {
-        Stack({ alignContent: Alignment.Center }) {
+        Button({ type: ButtonType.Circle }) {
           SymbolGlyph($r('sys.symbol.chevron_left'))
             .fontSize(24)
             .fontColor([AppTheme.TextPrimary])
         }
         .width(44)
         .height(44)
+        .padding(0)
+        .backgroundColor(Color.Transparent)
         .borderRadius(AppRadius.Pill)
+        .accessibilityText($r('app.string.common_back'))
         .onClick(() => {
           if (!this.requestBack()) this.navStack.pop();
         })
@@ -1460,22 +1581,22 @@ export struct RuleSourcePage {
 
         if (!this.isLoading && !this.loadFailed && !this.isEditMode && this.managementView.length === 0) {
           if (this.sourceCount > 0) {
-            Button() {
+            Button({ type: ButtonType.Circle }) {
               if (this.isBulkTesting) {
                 LoadingProgress()
                   .width(18)
                   .height(18)
                   .color(AppColor.Brand)
               } else {
-                SymbolGlyph($r('sys.symbol.bolt_fill'))
+                SymbolGlyph($r('sys.symbol.bolt'))
                   .fontSize('20vp')
-                  .fontColor([AppColor.Brand])
+                  .fontColor([AppTheme.TextSecondary])
               }
             }
             .width(36)
             .height(36)
             .padding(0)
-            .backgroundColor(Color.Transparent)
+            .backgroundColor(AppTheme.Surface)
             .borderRadius(AppRadius.Pill)
             .enabled(!this.isBulkTesting && !this.isImporting && this.busySourceUrl.length === 0)
             .accessibilityText($r('app.string.rule_source_bulk_action'))
@@ -1483,7 +1604,7 @@ export struct RuleSourcePage {
           }
 
           if (this.sourceCount === 0) {
-            Button() { SymbolGlyph($r('sys.symbol.list_bullet')).fontSize(20).fontColor([AppColor.Brand]) }
+            Button() { SymbolGlyph($r('sys.symbol.more')).fontSize(20).fontColor([AppTheme.TextSecondary]) }
               .height(36).width(36).padding(0).backgroundColor(Color.Transparent)
               .accessibilityText($r('app.string.source_manage_more')).bindMenu(this.buildToolsMenu())
           }
@@ -1494,32 +1615,37 @@ export struct RuleSourcePage {
           Text(this.isEditMode ? $r('app.string.common_done') : $r('app.string.rule_source_manage'))
             .fontSize(AppFont.Body)
             .fontColor(AppColor.Brand)
-            .padding({ left: AppSpace.Xxs, right: 0, top: AppSpace.Xs, bottom: AppSpace.Xs })
+            .fontWeight(FontWeight.Medium)
+            .padding({ left: AppSpace.Sm, right: 0, top: AppSpace.Xs, bottom: AppSpace.Xs })
             .enabled(!this.isBulkTesting && !this.isImporting && this.busySourceUrl.length === 0)
             .onClick(() => this.toggleEditMode())
         }
       }
       .width('100%')
       .padding({
-        top: this.safeTop + AppSpace.Xs,
+        top: this.safeTop + AppSpace.Xxs,
         left: AppSpace.Xs,
         right: AppSpace.Md,
         bottom: 0
       })
 
       if (!this.isLoading && !this.loadFailed && this.sourceCount > 0 && this.managementView.length === 0) {
-        Stack({ alignContent: Alignment.Start }) {
-          TextInput({
+        Row() {
+          Search({
             placeholder: $r('app.string.rule_source_search_placeholder'),
-            text: $$this.searchKeyword
+            value: this.searchKeyword
           })
             .width('100%')
             .height(40)
-            .fontSize(AppFont.Body)
+            .textFont({ size: AppFont.Body })
+            .placeholderFont({ size: AppFont.Body })
             .fontColor(AppTheme.TextPrimary).placeholderColor(AppTheme.TextTertiary)
             .backgroundColor(AppTheme.Surface)
-            .borderRadius(AppRadius.Sm)
-            .padding({ left: 38, right: AppSpace.Sm })
+            .borderRadius(AppRadius.Pill)
+            .searchIcon({ size: 18, color: AppTheme.TextTertiary })
+            .cancelButton({ style: CancelButtonStyle.INPUT, icon: { size: 16, color: AppTheme.TextSecondary } })
+            .caretStyle({ color: AppColor.Brand })
+            .id('rule-source-search')
             .enabled(!this.isEditMode && !this.isImporting && !this.isBulkTesting &&
               this.busySourceUrl.length === 0)
             .onChange((value: string) => {
@@ -1527,30 +1653,22 @@ export struct RuleSourcePage {
               this.applyFilters();
             })
 
-          SymbolGlyph($r('sys.symbol.magnifyingglass'))
-            .fontSize(18)
-            .fontColor([AppTheme.TextTertiary])
-            .margin({ left: AppSpace.Sm })
         }
         .width('100%')
         .padding({ left: AppSpace.Md, right: AppSpace.Md })
 
-        Row({ space: 8 }) {
-          ForEach([$r('app.string.search_type_all'), $r('app.string.search_type_audio'),
-            $r('app.string.search_type_text'), $r('app.string.comic_type')], (label: Resource, index: number) => {
-            Button(label).layoutWeight(1).fontSize(13)
-              .backgroundColor(this.contentFilter === index ? AppColor.Brand : AppTheme.Surface)
-              .fontColor(this.contentFilter === index ? AppColor.OnBrand : AppTheme.TextPrimary)
-              .enabled(!this.isEditMode && !this.isImporting && !this.isBulkTesting)
-              .onClick(() => { this.contentFilter = index; this.applyFilters(); })
-          }, (label: Resource): string => label.id.toString())
-        }.width('100%').padding({ left: AppSpace.Md, right: AppSpace.Md, top: 8 })
+        Row() {
+          this.buildContentFilter()
+        }.width('100%').padding({ left: AppSpace.Md, right: AppSpace.Md })
         Row({ space: AppSpace.Xs }) {
           Select(this.groupOptions(true))
             .selected(this.selectedGroupIndex()).value(this.currentGroupLabel())
-            .font({ size: AppFont.Caption }).layoutWeight(1).constraintSize({ minWidth: 0 })
+            .font({ size: AppFont.Body, weight: FontWeight.Regular }).layoutWeight(1).constraintSize({ minWidth: 0 })
+            .controlSize(ControlSize.SMALL).height(32).borderRadius(AppRadius.Pill)
+            .border({ width: 0.5, color: AppTheme.Divider })
             .selectedOptionFontColor(AppColor.Brand).selectedOptionBgColor(AppColor.BrandSoft)
-            .fontColor(AppTheme.TextPrimary).backgroundColor(AppTheme.Surface)
+            .fontColor(this.selectedGroup.length > 0 ? AppColor.Brand : AppTheme.TextSecondary)
+            .backgroundColor(this.selectedGroup.length > 0 ? AppColor.BrandSoft : AppTheme.Surface)
             .optionFontColor(AppTheme.TextPrimary).menuBackgroundColor(AppTheme.Surface)
             .enabled(!this.isEditMode && !this.isImporting && !this.isBulkTesting)
             .onSelect((index: number) => {
@@ -1568,17 +1686,21 @@ export struct RuleSourcePage {
             { value: $r('app.string.rule_source_status_failed') },
             { value: $r('app.string.rule_source_status_unchecked') }
           ])
-            .selected(this.statusFilter).value(this.statusFilterLabel()).font({ size: AppFont.Caption })
+            .selected(this.statusFilter).value(this.statusFilterLabel())
+            .font({ size: AppFont.Body, weight: FontWeight.Regular })
+            .controlSize(ControlSize.SMALL).height(32).borderRadius(AppRadius.Pill)
+            .border({ width: 0.5, color: AppTheme.Divider })
             .layoutWeight(1).constraintSize({ minWidth: 0 })
             .selectedOptionFontColor(AppColor.Brand).selectedOptionBgColor(AppColor.BrandSoft)
-            .fontColor(AppTheme.TextPrimary).backgroundColor(AppTheme.Surface)
+            .fontColor(this.statusFilter > 0 ? AppColor.Brand : AppTheme.TextSecondary)
+            .backgroundColor(this.statusFilter > 0 ? AppColor.BrandSoft : AppTheme.Surface)
             .optionFontColor(AppTheme.TextPrimary).menuBackgroundColor(AppTheme.Surface)
             .enabled(!this.isEditMode && !this.isImporting && !this.isBulkTesting)
             .onSelect((index: number) => { this.statusFilter = index; this.applyFilters(); })
-          Button() {
-            SymbolGlyph($r('sys.symbol.list_bullet')).fontSize(22).fontColor([AppColor.Brand])
+          Button({ type: ButtonType.Circle }) {
+            SymbolGlyph($r('sys.symbol.more')).fontSize(20).fontColor([AppTheme.TextSecondary])
           }
-          .width(40).height(40).padding(0).backgroundColor(Color.Transparent)
+          .width(32).height(32).padding(0).backgroundColor(AppTheme.Surface)
           .accessibilityText($r('app.string.source_manage_more'))
           .enabled(!this.isBulkTesting && !this.isImporting && this.busySourceUrl.length === 0)
           .bindMenu(this.buildToolsMenu())
@@ -1960,7 +2082,7 @@ export struct RuleSourcePage {
 
   private canImportSources(): boolean {
     return !this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0 &&
-      this.importJson.trim().length > 0;
+      this.importLink.trim().length > 0;
   }
 
   private importColorChannel(hex: string, offset: number): number {
@@ -1979,58 +2101,64 @@ export struct RuleSourcePage {
   }
 
   @Builder
-  buildImportSection() {
+  buildLinkImportDialog() {
+    Scroll() {
+      Column({ space: AppSpace.Md }) {
+        Text($r('app.string.rule_source_import_link_action'))
+          .fontSize(AppFont.TitleL).fontWeight(FontWeight.Bold).fontColor(AppTheme.TextPrimary)
+        TextInput({ text: this.importLink, placeholder: $r('app.string.rule_source_import_placeholder') })
+          .height(48).width('100%').fontSize(AppFont.Body)
+          .fontColor(AppTheme.TextPrimary).placeholderColor(AppTheme.TextSecondary)
+          .backgroundColor($r('app.color.source_import_input_background')).borderRadius(AppRadius.Sm)
+          .border({ width: 1, color: $r('app.color.source_import_input_border') })
+          .caretColor(AppColor.Brand).maxLength(32 * 1024).enabled(!this.isImporting)
+          .enterKeyType(EnterKeyType.Done).id('rule-source-link-input')
+          .onChange((value: string): void => { this.importLink = value; this.importLinkInvalid = false; })
+          .onSubmit((): void => { this.importSources(); })
+        if (this.importLinkInvalid) {
+          Text($r('app.string.source_import_address_invalid'))
+            .fontSize(AppFont.Caption).fontColor(RULE_SOURCE_DANGER).width('100%')
+        }
+        Row({ space: AppSpace.Sm }) {
+          Button($r('app.string.common_cancel'), { type: ButtonType.Normal })
+            .layoutWeight(1).height(44).fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
+            .backgroundColor(AppTheme.SettingsBackground).borderRadius(AppRadius.Sm)
+            .enabled(!this.isImporting).onClick((): void => { this.closeImportDialog(); })
+          Stack() {
+            Button()
+              .width('100%').height('100%').backgroundColor(Color.Transparent).borderRadius(AppRadius.Sm)
+              .enabled(this.canImportSources()).id('rule-source-link-submit')
+              .accessibilityText(this.isImporting ? $r('app.string.rule_source_importing') :
+                $r('app.string.rule_source_import_action'))
+              .onClick((): void => { this.importSources(); })
+            Row({ space: AppSpace.Xs }) {
+              if (this.isImporting) {
+                LoadingProgress().width(18).height(18).color(AppColor.Brand)
+              }
+              Text(this.isImporting ? $r('app.string.rule_source_importing') :
+                $r('app.string.rule_source_import_action'))
+                .fontSize(AppFont.Body).fontColor(this.importActionForeground()).fontWeight(FontWeight.Medium)
+            }.justifyContent(FlexAlign.Center).hitTestBehavior(HitTestMode.None)
+              .accessibilityLevel('no-hide-descendants')
+          }.layoutWeight(1).height(44).borderRadius(AppRadius.Sm)
+            .backgroundColor(this.canImportSources() ? AppColor.Brand : AppTheme.SettingsBackground)
+        }.width('100%')
+      }.width('100%').alignItems(HorizontalAlign.Start).padding(AppSpace.Lg)
+    }.width('100%').scrollBar(BarState.Off)
+      .constraintSize({ maxHeight: Math.max(160, WindowUtils.getWindowHeightVp() - this.safeTop - this.safeBottom - 48) })
+  }
+
+  @Builder
+  buildImportFeedback() {
     Column({ space: AppSpace.Sm }) {
-      Button($r('app.string.talebook_add'), { type: ButtonType.Normal })
-        .width('100%').height(44).fontColor(AppColor.Brand).backgroundColor(AppColor.BrandSoft)
-        .borderRadius(AppRadius.Sm)
-        .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
-        .onClick(() => { this.talebookSourceUrl = ''; this.showTalebook = true; })
-      Column({ space: 2 }) {
-        Text($r('app.string.rule_source_import_title'))
-          .fontSize(AppFont.BodyL)
-          .fontColor(AppTheme.TextPrimary)
-          .fontWeight(FontWeight.Medium)
-        Text($r('app.string.rule_source_import_hint'))
-          .fontSize(AppFont.Caption)
-          .fontColor(AppTheme.TextTertiary)
-          .maxLines(2)
-        if (MembershipState.featureEnabled) {
-          Text($r('app.string.rule_source_membership_hint'))
-            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
-        }
-      }
-      .width('100%')
-      .alignItems(HorizontalAlign.Start)
-
-      Button() {
-        Row({ space: AppSpace.Xs }) {
-          SymbolGlyph($r('sys.symbol.arrow_down_circle'))
-            .fontSize(18)
-            .fontColor([AppColor.Brand])
-          Text($r('app.string.rule_source_import_file_action'))
-            .fontSize(AppFont.Body)
-            .fontColor(AppColor.Brand)
-            .fontWeight(FontWeight.Medium)
-        }
-        .justifyContent(FlexAlign.Center)
-      }
-      .width('100%')
-      .height(44)
-      .backgroundColor(AppColor.BrandSoft)
-      .borderRadius(AppRadius.Sm)
-      .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
-      .opacity(this.isImporting || this.isBulkTesting || this.busySourceUrl.length > 0 ? 0.55 : 1)
-      .onClick(() => this.importLocalFile())
-
-      Text($r('app.string.rule_source_import_files_hint'))
-        .fontSize(AppFont.Caption)
-        .fontColor(AppTheme.TextTertiary)
-        .width('100%')
-      if (this.importFileTotal > 0) {
-        Text($r('app.string.rule_source_import_files_progress', this.importFileCurrent, this.importFileTotal))
-          .fontSize(AppFont.Caption)
-          .fontColor(AppColor.Brand)
+      if (this.isImporting && this.importDialogKind.length === 0) {
+        Row({ space: AppSpace.Sm }) {
+          LoadingProgress().width(24).height(24).color(AppColor.Brand)
+          Text(this.importFileTotal > 0 ?
+            $r('app.string.rule_source_import_files_progress', this.importFileCurrent, this.importFileTotal) :
+            $r('app.string.rule_source_importing'))
+            .fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary).layoutWeight(1)
+        }.width('100%')
       }
       if (this.hasFileImportResult && !this.isImporting) {
         Column({ space: 4 }) {
@@ -2059,87 +2187,8 @@ export struct RuleSourcePage {
           }
         }.width('100%').alignItems(HorizontalAlign.Start)
       }
-
-      Button() {
-        Row({ space: AppSpace.Xs }) {
-          SymbolGlyph($r('sys.symbol.qrcode'))
-            .fontSize(18)
-            .fontColor([AppColor.Brand])
-          Text($r('app.string.rule_source_import_scan_action'))
-            .fontSize(AppFont.Body)
-            .fontColor(AppColor.Brand)
-            .fontWeight(FontWeight.Medium)
-        }
-        .justifyContent(FlexAlign.Center)
-      }
-      .width('100%')
-      .height(44)
-      .backgroundColor(AppColor.BrandSoft)
-      .borderRadius(AppRadius.Sm)
-      .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
-      .opacity(this.isImporting || this.isBulkTesting || this.busySourceUrl.length > 0 ? 0.55 : 1)
-      .onClick(() => this.scanQRCode())
-      .visibility(canIUse('SystemCapability.Multimedia.Scan.ScanBarcode') ? Visibility.Visible : Visibility.None)
-
-      TextArea({
-        placeholder: $r('app.string.rule_source_import_placeholder'),
-        text: this.importJson
-      })
-        .width('100%')
-        .height(132)
-        .fontSize(AppFont.Body)
-        .fontColor(AppTheme.TextPrimary).placeholderColor(AppTheme.TextTertiary)
-        .backgroundColor(AppTheme.SettingsBackground)
-        .borderRadius(AppRadius.Sm)
-        .padding(AppSpace.Sm)
-        .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
-        .onChange((value: string) => {
-          this.importJson = value;
-        })
-
-      Stack() {
-        // 禁用 Button 会淡化其整个内容子树；视觉内容独立绘制，保留真实按钮的禁用语义。
-        Button()
-          .width('100%')
-          .height('100%')
-          .backgroundColor(Color.Transparent)
-          .borderRadius(AppRadius.Sm)
-          .enabled(this.canImportSources())
-          .accessibilityText(this.isImporting ? $r('app.string.rule_source_importing') :
-            $r('app.string.rule_source_import_action'))
-          .onClick(() => this.importSources())
-
-        Row({ space: AppSpace.Xs }) {
-          if (this.isImporting) {
-            LoadingProgress()
-              .width(18)
-              .height(18)
-              .color(AppColor.Brand)
-          } else {
-            SymbolGlyph($r('sys.symbol.plus_circle'))
-              .fontSize(18)
-              .fontColor([this.importActionForeground()])
-          }
-          Text(this.isImporting ? $r('app.string.rule_source_importing') :
-            $r('app.string.rule_source_import_action'))
-            .fontSize(AppFont.Body)
-            .fontColor(this.importActionForeground())
-            .fontWeight(FontWeight.Medium)
-        }
-        .justifyContent(FlexAlign.Center)
-        .hitTestBehavior(HitTestMode.None)
-        .accessibilityLevel('no-hide-descendants')
-      }
-      .width('100%')
-      .height(44)
-      .backgroundColor(this.canImportSources() ? AppColor.Brand : AppTheme.SettingsBackground)
-      .borderRadius(AppRadius.Sm)
-    }
-    .width('100%')
-    .alignItems(HorizontalAlign.Start)
-    .padding(AppSpace.Md)
-    .backgroundColor(AppTheme.Surface)
-    .borderRadius(AppRadius.Sm)
+    }.width('100%').alignItems(HorizontalAlign.Start).padding(AppSpace.Md)
+      .backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Sm)
   }
 
   @Builder
@@ -2274,8 +2323,8 @@ export struct RuleSourcePage {
 
   @Builder
   buildSourceItem(item: RuleSourceListItem) {
-    Column({ space: AppSpace.Xs }) {
-      Row({ space: AppSpace.Sm }) {
+    Column({ space: AppSpace.Sm }) {
+      Row({ space: AppSpace.Xs }) {
         if (this.isEditMode) {
           Stack({ alignContent: Alignment.Center }) {
             if (this.isSourceSelected(item.source.bookSourceUrl, this.selectionRevision)) {
@@ -2298,25 +2347,8 @@ export struct RuleSourcePage {
             .onClick(() => this.toggleSelectSource(item.source.bookSourceUrl))
         }
 
-        Column({ space: 6 }) {
+        Button({ type: ButtonType.Normal }) {
           Row({ space: AppSpace.Xs }) {
-            Button() {
-              SymbolGlyph(this.expandedSourceUrls.has(item.sourceUrl) ?
-                $r('sys.symbol.chevron_down') : $r('sys.symbol.chevron_right'))
-                .fontSize(18).fontColor([AppTheme.TextTertiary])
-            }
-            .width(32).height(40).padding(0).backgroundColor(Color.Transparent)
-            .accessibilityText(this.expandedSourceUrls.has(item.sourceUrl) ?
-              $r('app.string.source_collapse') : $r('app.string.source_expand'))
-            .onClick(() => this.toggleSourceExpanded(item.sourceUrl))
-            if (item.source.isPinned) {
-              SymbolGlyph($r('sys.symbol.pin')).fontSize(16).fontColor([AppColor.Brand])
-                .accessibilityText($r('app.string.source_manage_pin'))
-            }
-            if (item.source.isLocked) {
-              SymbolGlyph($r('sys.symbol.lock')).fontSize(16).fontColor([AppTheme.TextSecondary])
-                .accessibilityText($r('app.string.source_manage_locked'))
-            }
             Text(item.source.bookSourceName)
               .fontSize(AppFont.BodyL)
               .fontColor(AppTheme.TextPrimary)
@@ -2324,63 +2356,65 @@ export struct RuleSourcePage {
               .maxLines(1)
               .textOverflow({ overflow: TextOverflow.Ellipsis })
               .layoutWeight(1)
-              .constraintSize({ minHeight: 40 })
-              .onClick(() => this.toggleSourceExpanded(item.sourceUrl))
-            if (!this.isEditMode) {
-              Button() { SymbolGlyph($r('sys.symbol.list_bullet')).fontSize(18).fontColor([AppColor.Brand]) }
-                .width(32).height(32).padding(0).backgroundColor(Color.Transparent)
-                .accessibilityText($r('app.string.source_manage_actions'))
-                .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
-                .bindMenu(this.buildSourceMenu(item))
+            if (item.source.isPinned) {
+              SymbolGlyph($r('sys.symbol.pin')).fontSize(14).fontColor([AppColor.Brand])
+                .accessibilityText($r('app.string.source_manage_pin'))
             }
+            if (item.source.isLocked) {
+              SymbolGlyph($r('sys.symbol.lock')).fontSize(14).fontColor([AppTheme.TextSecondary])
+                .accessibilityText($r('app.string.source_manage_locked'))
+            }
+            SymbolGlyph(this.expandedSourceUrls.has(item.sourceUrl) ?
+              $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
+              .fontSize(22).fontColor([AppTheme.TextSecondary])
+              .width(40).height(40)
           }
           .width('100%')
-
-          if (this.expandedSourceUrls.has(item.sourceUrl)) {
-            Flex({ direction: FlexDirection.Row, alignItems: ItemAlign.Center, wrap: FlexWrap.Wrap }) {
-              Text(this.sourceTypeLabel(item.source))
-                .fontSize(AppFont.Caption)
-                .fontColor(AppTheme.TextSecondary)
-
-              if (this.sourceGroupLabels(item.source).length > 0) {
-                ForEach(this.sourceGroupLabels(item.source), (groupName: string) => {
-                  Text(groupName)
-                    .fontSize(AppFont.Caption)
-                    .fontColor(AppTheme.TextTertiary)
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                    .padding({ left: 6, right: 6, top: 1, bottom: 1 })
-                    .margin({ left: AppSpace.Xs })
-                    .backgroundColor(AppTheme.SettingsBackground)
-                    .borderRadius(AppRadius.Xs)
-                }, (groupName: string) => groupName)
-              }
-            }
-            .width('100%')
-
-            Text(item.source.bookSourceUrl)
-              .fontSize(AppFont.Caption)
-              .fontColor(AppColor.Brand)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-              .width('100%')
-          }
         }
-        .alignItems(HorizontalAlign.Start)
-        .layoutWeight(1)
+        .layoutWeight(1).constraintSize({ minWidth: 0, minHeight: 40 })
+        .padding(0).backgroundColor(Color.Transparent).borderRadius(AppRadius.Sm)
+        .accessibilityDescription(this.expandedSourceUrls.has(item.sourceUrl) ?
+          $r('app.string.source_collapse') : $r('app.string.source_expand'))
+        .onClick(() => this.toggleSourceExpanded(item.sourceUrl))
 
         if (!this.isEditMode) {
+          Button({ type: ButtonType.Circle }) {
+            SymbolGlyph($r('sys.symbol.more')).fontSize(18).fontColor([AppTheme.TextSecondary])
+          }.width(36).height(40).padding(0).backgroundColor(Color.Transparent)
+            .accessibilityText($r('app.string.source_manage_actions'))
+            .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
+            .bindMenu(this.buildSourceMenu(item))
+
           Toggle({ type: ToggleType.Switch, isOn: item.source.enabled && item.source.canExecute() })
             .selectedColor(AppColor.Brand)
+            .accessibilityText(item.source.bookSourceName)
             .enabled(!item.source.isLocked && item.source.canExecute() && !this.isImporting && !this.isBulkTesting &&
               this.busySourceUrl.length === 0)
             .onChange((isOn: boolean) => this.changeEnabled(item.source, isOn))
         }
       }
       .width('100%')
-      .alignItems(VerticalAlign.Top)
+      .alignItems(VerticalAlign.Center)
 
       if (this.expandedSourceUrls.has(item.sourceUrl)) {
+        Divider().strokeWidth(0.5).color(AppTheme.Divider)
+        Flex({ direction: FlexDirection.Row, alignItems: ItemAlign.Center, wrap: FlexWrap.Wrap }) {
+          Text(this.sourceTypeLabel(item.source))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+          ForEach(this.sourceGroupLabels(item.source), (groupName: string) => {
+            Text(groupName)
+              .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+              .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+              .padding({ left: AppSpace.Xs, right: AppSpace.Xs, top: 2, bottom: 2 })
+              .margin({ left: AppSpace.Xs })
+              .backgroundColor(AppTheme.SettingsBackground).borderRadius(AppRadius.Pill)
+          }, (groupName: string) => groupName)
+        }.width('100%')
+
+        Text(item.source.bookSourceUrl)
+          .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
+
         Row({ space: AppSpace.Xs }) {
           Column()
             .width(8)
@@ -2513,10 +2547,8 @@ export struct RuleSourcePage {
       }
     }
     .width('100%')
-    .padding(14)
+    .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Sm, bottom: AppSpace.Sm })
     .backgroundColor(AppTheme.Surface)
-    .borderRadius(AppRadius.Sm)
-    .border({ width: 1, color: AppTheme.Divider })
-    .shadow({ radius: 6, color: AppColor.Shadow, offsetY: 2 })
+    .borderRadius(AppRadius.Lg)
   }
 }

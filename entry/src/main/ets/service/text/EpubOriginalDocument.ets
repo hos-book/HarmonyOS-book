@@ -17,6 +17,33 @@ export class EpubOriginalInjection {
   script: string = '';
 }
 
+/** 单个字节范围用于本地媒体起播和 seek，不把整段视频重复读入内存。 */
+export class EpubOriginalRange {
+  start: number = 0;
+  end: number = 0;
+  size: number = 0;
+  partial: boolean = false;
+  valid: boolean = true;
+
+  constructor(size: number, header: string = '') {
+    this.size = size; this.end = size - 1;
+    if (!header) return;
+    this.partial = true;
+    const match = /^bytes=(\d*)-(\d*)$/i.exec(header.trim());
+    if (!match || (!match[1] && !match[2])) { this.valid = false; return; }
+    if (!match[1]) {
+      const suffix = Number(match[2]);
+      if (!Number.isSafeInteger(suffix) || suffix <= 0) { this.valid = false; return; }
+      this.start = Math.max(0, size - suffix);
+    } else {
+      this.start = Number(match[1]);
+      if (match[2]) this.end = Math.min(size - 1, Number(match[2]));
+    }
+    this.valid = Number.isSafeInteger(this.start) && Number.isSafeInteger(this.end) &&
+      this.start >= 0 && this.start < size && this.end >= this.start;
+  }
+}
+
 /** 只调整资源地址与阅读视口；字体、颜色、背景和元素样式来自原书。 */
 export class EpubOriginalDocument {
   static readonly ORIGIN: string = 'https://epub.hsda.invalid/';
@@ -80,6 +107,16 @@ export class EpubOriginalDocument {
       case 'otf': return 'font/otf';
       case 'woff': return 'font/woff';
       case 'woff2': return 'font/woff2';
+      case 'mp3': return 'audio/mpeg';
+      case 'm4a': return 'audio/mp4';
+      case 'aac': return 'audio/aac';
+      case 'wav': return 'audio/wav';
+      case 'ogg': case 'oga': return 'audio/ogg';
+      case 'flac': return 'audio/flac';
+      case 'mp4': case 'm4v': return 'video/mp4';
+      case 'webm': return 'video/webm';
+      case 'ogv': return 'video/ogg';
+      case 'vtt': return 'text/vtt';
       default: return '';
     }
   }
@@ -172,7 +209,7 @@ export class EpubOriginalDocument {
     const styles = (head.match(/<style\b[^>]*>[\s\S]*?<\/style\s*>|<link\b[^>]*>/gi) ?? [])
       .filter((tag: string): boolean => /^<style/i.test(tag) || /\bstylesheet\b/i.test(tag)).join('');
     const csp = `default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; ` +
-      `script-src 'nonce-${nonce}'; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'`;
+      `media-src 'self'; script-src 'nonce-${nonce}'; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'`;
     return '<!DOCTYPE html><html' + EpubOriginalDocument.safe(html?.[1] ?? '', part.href) + '><head>' +
       '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">' +
       `<meta http-equiv="Content-Security-Policy" content="${EpubOriginalDocument.escape(csp)}">` +
@@ -183,7 +220,7 @@ export class EpubOriginalDocument {
 
   /** 只允许同源章节框架，原书脚本与网络权限仍由每个章节的 CSP 隔离。 */
   static continuous(script: string, nonce: string): string {
-    const csp = `default-src 'none'; frame-src 'self'; style-src 'unsafe-inline'; ` +
+    const csp = `default-src 'none'; frame-src 'self'; img-src 'self' data:; style-src 'unsafe-inline'; ` +
       `script-src 'nonce-${nonce}'; connect-src 'none'; base-uri 'none'; form-action 'none'`;
     return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
       '<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">' +

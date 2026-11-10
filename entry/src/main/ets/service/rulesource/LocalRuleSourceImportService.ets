@@ -10,16 +10,9 @@ import { LocalRuleSourceRepository } from './LocalRuleSourceRepository';
 /** All user import routes reset content caches for successfully replaced, unlocked sources. */
 export class LocalRuleSourceImportService {
   static async importSources(sources: LocalRuleSource[]): Promise<number> {
-    const existing = await LocalRuleSourceRepository.getAll();
-    const unlocked = new Set<string>();
-    for (const source of existing) {
-      if (!source.isLocked) unlocked.add(source.bookSourceUrl);
-    }
-    const replaced = new Set<string>();
-    for (const source of sources) {
-      const url = source.bookSourceUrl.trim();
-      if (unlocked.has(url)) replaced.add(url);
-    }
+    if (sources.length === 0) return 0;
+    const replaced = await LocalRuleSourceRepository.getUnlockedSourceUrls(
+      sources.map((source: LocalRuleSource): string => source.bookSourceUrl));
     const count = await LocalRuleSourceRepository.upsertImportedBatch(sources);
     SourceDataService.invalidateLocalSources();
     if (replaced.size > 0) {

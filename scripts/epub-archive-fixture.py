@@ -36,7 +36,8 @@ with zipfile.ZipFile(sys.argv[1]) as archive:
                     catalog.append({'href': target + ('#' + href.split('#', 1)[1] if '#' in href else ''),
                                     'resourceFile': target, 'catalogName': ''.join(label.itertext()).strip()})
     entries = {name: base64.b64encode(archive.read(name)).decode('ascii') for name in archive.namelist()
-               if name.lower().endswith(('.xhtml', '.html', '.htm', '.css', '.jpg', '.jpeg', '.png', '.webp', '.svg', '.opf', '.xml'))}
+               if name.lower().endswith(('.xhtml', '.html', '.htm', '.css', '.jpg', '.jpeg', '.png', '.webp', '.svg', '.opf', '.xml',
+                                        '.ttf', '.otf', '.woff', '.woff2', '.mp3', '.mp4', '.m4a', '.wav', '.aac', '.webm', '.ogg', '.vtt'))}
     title = next((item.text for item in package.iter() if item.tag.endswith('}title')), '')
     author = next((item.text for item in package.iter() if item.tag.endswith('}creator')), '')
     sizes = {}

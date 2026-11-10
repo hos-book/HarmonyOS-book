@@ -1,12 +1,14 @@
 import { TalebookApiClient } from '../service/rulesource/talebook/TalebookApiClient';
 import { TalebookSourceIdentity } from '../service/rulesource/talebook/TalebookSourceIdentity';
-import { AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
+import { AppTheme, AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
+import { WindowUtils } from '../utils/WindowUtils';
 
 @ComponentV2
 export struct TalebookConnectComponent {
   @Param sourceUrl: string = '';
   @Event onConnected: () => void = (): void => {};
   @Event onBusy: (busy: boolean) => void = (_busy: boolean): void => {};
+  @Event onCancel: () => void = (): void => {};
   @Local address: string = '';
   @Local code: string = '';
   @Local busy: boolean = false;
@@ -46,31 +48,53 @@ export struct TalebookConnectComponent {
     Scroll() {
       Column({ space: AppSpace.Md }) {
         Text($r('app.string.talebook_title')).fontSize(AppFont.TitleL).fontWeight(FontWeight.Bold)
-          .fontColor($r('sys.color.font_primary'))
-        Text($r('app.string.talebook_hint')).fontSize(AppFont.Body)
-          .fontColor($r('sys.color.font_secondary'))
-        Text($r('app.string.talebook_address')).fontSize(AppFont.Body)
+          .fontColor(AppTheme.TextPrimary)
+        Text($r('app.string.talebook_address')).fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
         TextInput({ text: $$this.address, placeholder: $r('app.string.talebook_address_hint') })
           .type(InputType.Normal).height(48).width('100%').caretColor(AppColor.Brand)
+          .fontColor(AppTheme.TextPrimary).placeholderColor(AppTheme.TextSecondary)
+          .backgroundColor($r('app.color.source_import_input_background')).borderRadius(AppRadius.Sm)
+          .border({ width: 1, color: $r('app.color.source_import_input_border') })
           .enabled(!this.busy && !this.sourceUrl).maxLength(2048)
-        Text($r('app.string.talebook_code')).fontSize(AppFont.Body)
+          .id('rule-source-nas-address')
+        Text($r('app.string.talebook_code')).fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
         TextInput({ text: $$this.code, placeholder: $r('app.string.talebook_code_hint') })
           .type(InputType.Password).height(48).width('100%').caretColor(AppColor.Brand)
+          .fontColor(AppTheme.TextPrimary).placeholderColor(AppTheme.TextSecondary)
+          .backgroundColor($r('app.color.source_import_input_background')).borderRadius(AppRadius.Sm)
+          .border({ width: 1, color: $r('app.color.source_import_input_border') })
           .enabled(!this.busy).maxLength(256)
-        Text($r('app.string.talebook_network_hint')).fontSize(AppFont.Caption)
-          .fontColor($r('sys.color.font_tertiary'))
+          .enterKeyType(EnterKeyType.Done).id('rule-source-nas-code')
+          .onSubmit((): void => { this.connect(); })
         if (this.errorMessage) {
-          Text(this.errorMessage).fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
+          Text(this.errorMessage).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).width('100%')
         }
-        if (this.busy) {
-          LoadingProgress().width(28).height(28).color(AppColor.Brand)
-        }
-        Button(this.busy ? $r('app.string.talebook_connecting') : $r('app.string.talebook_connect'),
-          { type: ButtonType.Normal })
-          .width('100%').height(48).backgroundColor(AppColor.Brand).fontColor(AppColor.OnBrand)
-          .borderRadius(AppRadius.Sm).enabled(!this.busy && this.address.trim().length > 0)
-          .onClick(() => this.connect())
+        Row({ space: AppSpace.Sm }) {
+          Button($r('app.string.common_cancel'), { type: ButtonType.Normal })
+            .layoutWeight(1).height(44).fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
+            .backgroundColor(AppTheme.SettingsBackground).borderRadius(AppRadius.Sm)
+            .enabled(!this.busy).onClick((): void => { this.onCancel(); })
+          Stack() {
+            Button()
+              .width('100%').height('100%').backgroundColor(Color.Transparent).borderRadius(AppRadius.Sm)
+              .enabled(!this.busy && this.address.trim().length > 0).id('rule-source-nas-submit')
+              .accessibilityText(this.busy ? $r('app.string.talebook_connecting') : $r('app.string.talebook_connect'))
+              .onClick((): void => { this.connect(); })
+            Row({ space: AppSpace.Xs }) {
+              if (this.busy) {
+                LoadingProgress().width(18).height(18).color(AppColor.Brand)
+              }
+              Text(this.busy ? $r('app.string.talebook_connecting') : $r('app.string.talebook_connect'))
+                .fontSize(AppFont.Body).fontWeight(FontWeight.Medium)
+                .fontColor(this.busy || !this.address.trim() ? AppTheme.TextSecondary : AppColor.OnBrand)
+            }.justifyContent(FlexAlign.Center).hitTestBehavior(HitTestMode.None)
+              .accessibilityLevel('no-hide-descendants')
+          }.layoutWeight(1).height(44).borderRadius(AppRadius.Sm)
+            .backgroundColor(this.busy || !this.address.trim() ? AppTheme.SettingsBackground : AppColor.Brand)
+        }.width('100%')
       }.width('100%').alignItems(HorizontalAlign.Start).padding(AppSpace.Lg)
-    }.width('100%').height('100%')
+    }.width('100%').scrollBar(BarState.Off)
+      .constraintSize({ maxHeight: Math.max(160, WindowUtils.getWindowHeightVp() -
+        WindowUtils.getStatusBarHeightVp() - WindowUtils.getBottomSafeVp() - 48) })
   }
 }

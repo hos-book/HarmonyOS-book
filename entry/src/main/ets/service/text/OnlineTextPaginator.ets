@@ -1,6 +1,7 @@
 import { text as graphicsText } from '@kit.ArkGraphics2D';
 import { PlatformCompat } from '../../utils/PlatformCompat';
 import { ReaderDialogueHighlighter, ReaderDialogueRange } from './ReaderDialogueHighlighter';
+import { ReaderDialogueRules } from '../../model/ReaderDialogueRules';
 import { LocalTextImage } from './LocalTextImage';
 
 export class OnlineTextPaintState {
@@ -300,7 +301,8 @@ export class OnlineTextPaginator {
     fontSizePx: number, lineHeight: number, fontFamily: string = '', fontWeight: number = 400,
     alignment: string = 'justify', paragraphSpacing: number = 0, letterSpacingPx: number = 0,
     headingTitle: string = '', headingSizePx: number = fontSizePx, headingStyle: string = 'center',
-    commentOffsets: number[] = [], commentSizePx: number = 0): OnlineTextPage[] {
+    commentOffsets: number[] = [], commentSizePx: number = 0,
+    dialogueQuotePairs: string = ReaderDialogueRules.DEFAULT): OnlineTextPage[] {
     const heading = headingTitle.trim();
     const images = LocalTextImage.pattern();
     let match = images.exec(content);
@@ -309,7 +311,7 @@ export class OnlineTextPaginator {
       let start = 0;
       while (match !== null) {
         OnlineTextPaginator.appendImageText(pages, content, start, match.index, widthPx, 1,
-          fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx);
+          fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx, dialogueQuotePairs);
         const page = OnlineTextPage.of(content, match.index, images.lastIndex);
         page.imageUrl = LocalTextImage.resolve(match[1]);
         if (!page.imageUrl) {
@@ -332,14 +334,14 @@ export class OnlineTextPaginator {
         match = images.exec(content);
       }
       OnlineTextPaginator.appendImageText(pages, content, start, content.length, widthPx, 1,
-        fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx);
+        fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx, dialogueQuotePairs);
       return OnlineTextPaginator.composeHeading(content, pages, widthPx, heightPx, heading, headingSizePx, fontFamily, headingStyle);
     }
     const layout = OnlineTextPaginator.measure(content, widthPx, fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx);
     const displayed = layout.displayed;
     const metrics = layout.metrics;
     const pages = OnlineTextPaginator.paginateMeasuredLines(displayed.text, layout.lines, heading ? 1 : heightPx);
-    const dialogueRanges = ReaderDialogueHighlighter.ranges(displayed.text);
+    const dialogueRanges = ReaderDialogueHighlighter.ranges(displayed.text, dialogueQuotePairs);
     let lineIndex = 0;
     for (const page of pages) {
       page.paragraph = layout.paragraph;
@@ -424,14 +426,15 @@ export class OnlineTextPaginator {
 
   private static appendImageText(pages: OnlineTextPage[], content: string, start: number, end: number,
     width: number, height: number, fontSize: number, lineHeight: number, family: string, weight: number,
-    alignment: string, spacing: number, letterSpacingPx: number, commentOffsets: number[], commentSizePx: number): void {
+    alignment: string, spacing: number, letterSpacingPx: number, commentOffsets: number[], commentSizePx: number,
+    dialogueQuotePairs: string): void {
     const section = content.substring(start, end);
     if (!section.trim()) return;
     const sourceStart = start + section.length - section.trimStart().length;
     const offsets = commentOffsets.filter((offset: number): boolean => offset > sourceStart && offset <= end)
       .map((offset: number): number => offset - sourceStart);
     const textPages = OnlineTextPaginator.paginate(section.trim(), width, height, fontSize, lineHeight, family, weight, alignment, spacing, letterSpacingPx,
-      '', fontSize, 'center', offsets, commentSizePx);
+      '', fontSize, 'center', offsets, commentSizePx, dialogueQuotePairs);
     for (const page of textPages) { page.startOffset += sourceStart; page.endOffset += sourceStart; pages.push(page); }
     if (textPages.length > 0) textPages[textPages.length - 1].endOffset = end;
   }

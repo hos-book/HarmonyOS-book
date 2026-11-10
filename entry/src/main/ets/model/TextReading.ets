@@ -1,6 +1,7 @@
 import { ReaderPattern, ReaderImageMode, ReaderThemeId, ReaderCustomTheme, findThemePreset, normalizeHex, resolvePalette } from './ReaderTheme';
 
 import { ReaderParagraphComment } from './ReaderComment';
+import { ReaderDialogueRules } from './ReaderDialogueRules';
 
 export class TextChapterContent {
   comments: ReaderParagraphComment[] = [];
@@ -194,6 +195,7 @@ export class TextReadingSettings {
   letterSpacing: number = 0;
   dialogueHighlight: boolean = false;
   dialogueHighlightColor: string = '';
+  dialogueQuotePairs: string = ReaderDialogueRules.DEFAULT;
 
   static normalizeDialogueHighlightColor(value: string): string {
     return /^#[0-9A-Fa-f]{6}$/.test(value) ? value.toUpperCase() : '';

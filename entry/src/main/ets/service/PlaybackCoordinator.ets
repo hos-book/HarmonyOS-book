@@ -2,8 +2,10 @@
 export class PlaybackCoordinator {
   static speechActive: boolean = false;
   static stopSpeech: (() => Promise<void>) | null = null;
+  static stopPreview: (() => void) | null = null;
 
   static async useAudio(): Promise<boolean> {
+    PlaybackCoordinator.stopPreview?.();
     if (PlaybackCoordinator.speechActive) {
       await PlaybackCoordinator.stopSpeech?.();
     }

@@ -1,3 +1,27 @@
+# 1.1.0 更新日志（2026-11-10）
+
+1. 优化 EPUB 原版精排，完善书内音视频播放、画廊滑动及连续阅读，改善章节切换和阅读位置恢复。
+2. 提升本地电子书导入效率，优化长篇 EPUB 解析、重复图片处理和资源保存，减少导入等待。
+3. 完善书源、字体及音色的批量导入，支持一次选择最多 50 个文件，优化进度反馈与异常处理。
+4. 新增音色试听，支持预览系统音色和自定义音色，方便选择合适的朗读声音。
+5. 丰富朗读显示设置，支持自定义字色、高亮及下划线颜色，并提供实时效果预览。
+6. 完善对话高亮，支持选择或自定义成对符号，并保存个人设置。
+7. 优化书架更新入口、书单浏览及阅读设置页面，改善滚动、底部留白和不同窗口尺寸下的显示。
+8. 更新技术与支持页面，完善致谢内容、交互动画及深浅色适配。
+
+## 构建与分发
+
+- 版本名：1.1.0；版本代码：1010001；构建版本：1。
+- 正式版与邀请测试使用同一 Release 签名包，保留正式渠道配置。
+- 发布目标：正式版审核通过立即上架；邀测即刻开始，选择全部现有测试组并发送通知；关闭上架自检。
+- 构建校验：Release SDK 26.0.0.105，release 产品 / buildMode=release / debug=false，最低 API 20、目标 API 26，发布 Profile 类型为 release。包内版本、分层图标、混淆动态接口及编译后 EPUB 依赖校验通过。
+- 验证：EPUB 解析与媒体、本地导入、书源文件导入、音色导入、音色试听、阅读偏好和翻页共 8 组定向回归通过。本轮未新增真机、车机或手表实测；已有设备记录及验证边界见 docs/APP_UI.md。
+- 工具说明：45 个变更 ArkTS 文件的独立检查工具在 300 秒后超时；MCP 构建因 OHPM 批处理递归失败，改用项目配置的正式版 DevEco 官方 Node/Hvigor 工具并完整构建成功。保留既有 SDK 兼容性、废弃接口和上游 TypeScript 提示。
+- APP：`artifacts/releases/1.1.0-1010001/Jianting-1.1.0-1010001-release.app`，293761802 字节。
+- SHA-256：`7ac987d7118644eda7d3fe3fbaef5182fcfaeea77c7a1df3318256a9cf6f9ca5`。
+- 在线依据：[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)、[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[ArkTS 检查技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)。本轮已读取实时索引、相关目录及指引；AGC 复用项目既有服务账号会话，CLI 仅保存在任务临时目录。
+- AGC：待本次上传和提交后补充实际结果。
+
 # 1.0.9 更新日志（2026-11-09）
 
 合并 1.0.8 更新内容与本次改动，统一以 1.0.9 发布。

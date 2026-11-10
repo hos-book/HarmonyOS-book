@@ -22,6 +22,8 @@ export class ReaderFontDeleteResult {
 
 /** 用户字体仅复制到私有目录；同步注册到正文和分页共用的全局字体集合。 */
 export class ReaderFontService {
+  static readonly MAX_FILES: number = 50;
+  private static readonly IMPORT_CONCURRENCY: number = 4;
   private static loaded: Set<string> = new Set();
 
   static register(context: common.Context, path: string): string {
@@ -129,7 +131,9 @@ export class ReaderFontService {
   private static async saveCatalog(context: common.Context, fonts: ReaderImportedFont[]): Promise<void> {
     const store = await preferences.getPreferences(context, { name: 'reader_fonts' });
     const previous = store.getSync('catalog', '[]');
-    store.putSync('catalog', JSON.stringify(fonts));
+    const serialized = JSON.stringify(fonts);
+    if (previous === serialized) return;
+    store.putSync('catalog', serialized);
     try { await store.flush(); }
     catch (error) {
       store.putSync('catalog', previous);
@@ -139,24 +143,39 @@ export class ReaderFontService {
 
   static async pick(context: common.UIAbilityContext): Promise<ReaderFontImportResult> {
     const options = new picker.DocumentSelectOptions();
-    options.maxSelectNumber = 5;
+    options.maxSelectNumber = ReaderFontService.MAX_FILES;
     options.fileSuffixFilters = ['Font|.ttf,.otf'];
-    const uris = await new picker.DocumentViewPicker(context).select(options);
+    const uris = Array.from(new Set(await new picker.DocumentViewPicker(context).select(options)));
     const result = new ReaderFontImportResult();
     if (uris.length === 0) return result;
     const catalog = await ReaderFontService.list(context);
-    for (let index = 0; index < Math.min(5, uris.length); index++) {
-      try {
-        const font = await ReaderFontService.importOne(context, uris[index], index);
-        catalog.push(font);
-        try { await ReaderFontService.saveCatalog(context, catalog); }
-        catch (error) {
-          catalog.pop();
+    const dir = `${context.filesDir}/reader_fonts`;
+    if (!await fileIo.access(dir)) await fileIo.mkdir(dir, true);
+    const total = Math.min(ReaderFontService.MAX_FILES, uris.length);
+    result.failures.push(...uris.slice(total));
+    for (let offset = 0; offset < total; offset += ReaderFontService.IMPORT_CONCURRENCY) {
+      const tasks: Promise<ReaderImportedFont | undefined>[] = [];
+      const end = Math.min(total, offset + ReaderFontService.IMPORT_CONCURRENCY);
+      for (let index = offset; index < end; index++) {
+        tasks.push(ReaderFontService.importOne(context, uris[index], index)
+          .catch((): undefined => undefined));
+      }
+      const fonts = await Promise.all(tasks);
+      // Promise.all 保留选择顺序，慢文件或失败文件不会改变字体顺序。
+      for (let index = 0; index < fonts.length; index++) {
+        const font = fonts[index];
+        if (font !== undefined) result.fonts.push(font);
+        else result.failures.push(uris[offset + index]);
+      }
+    }
+    if (result.fonts.length > 0) {
+      try { await ReaderFontService.saveCatalog(context, catalog.concat(result.fonts)); }
+      catch (error) {
+        for (const font of result.fonts) {
           await fileIo.unlink(font.path).catch((): void => {});
-          throw new Error(error instanceof Error ? error.message : 'Font catalog save failed');
         }
-        result.fonts.push(font);
-      } catch (_e) { result.failures.push(uris[index]); }
+        throw new Error(error instanceof Error ? error.message : 'Font catalog save failed');
+      }
     }
     return result;
   }
@@ -174,13 +193,12 @@ export class ReaderFontService {
       const otf = magic[0] === 79 && magic[1] === 84 && magic[2] === 84 && magic[3] === 79;
       if (!ttf && !otf) throw new Error('Invalid font format');
       const dir = `${context.filesDir}/reader_fonts`;
-      if (!await fileIo.access(dir)) await fileIo.mkdir(dir, true);
       path = `${dir}/font_${Date.now()}_${index}.${otf ? 'otf' : 'ttf'}`;
       await fileIo.copyFile(source.fd, path);
       const result = new ReaderImportedFont();
       result.path = path;
       result.name = decodeURIComponent(uri.substring(uri.lastIndexOf('/') + 1));
-      result.family = ReaderFontService.register(context, path);
+      // 选中使用时再注册，批量导入不在主线程解码全部字体。
       return result;
     } catch (error) {
       if (path.length > 0) await fileIo.unlink(path).catch((): void => {});

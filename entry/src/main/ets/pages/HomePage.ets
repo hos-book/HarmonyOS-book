@@ -2472,7 +2472,8 @@ export struct HomePage {
     Row({ space: AppSpace.Xs }) {
       if (this.homeFilters.length > 0) {
         Row({ space: AppSpace.Xxs }) {
-          Text(this.homeFilters[0].value || this.homeFilters[0].title)
+          // 清空筛选后，旧 Text 节点仍可能先于条件分支移除而刷新。
+          Text(this.homeFilters[0]?.value || this.homeFilters[0]?.title || '')
             .fontSize(13).fontColor(AppColor.Brand).fontWeight(FontWeight.Medium)
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
             .constraintSize({ maxWidth: 112 })

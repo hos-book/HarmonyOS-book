@@ -8,7 +8,7 @@ if (!ide) throw new Error('Set DEVECO_HOME to the installed Release DevEco Studi
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const root = path.resolve(__dirname, '../entry/src/main/ets');
 function compile(text, globals = {}) {
-  const context = { exports: {}, Map, Set, console, ...globals };
+  const context = { exports: {}, Map, Set, console, setTimeout, ...globals };
   const code = ts.transpileModule(text.replace(/import lazy /g, 'import ').replace(/@ObservedV2\s*/g, '').replace(/@Trace\s*/g, ''), {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS }
   }).outputText;
@@ -55,6 +55,8 @@ let membershipCalls = 0;
 const { LocalRuleSourceRepository: repo } = compile(repositoryText, {
   require: name => {
     if (name === '@kit.ArkData') return { relationalStore: { ConflictResolution: { ON_CONFLICT_REPLACE: 1 } } };
+    if (name === '@kit.ArkTS') return { buffer: Buffer };
+    if (name === '../../model/LocalRuleSource') return { LocalRuleSource: class {} };
     if (name === '../MembershipService') return { MembershipService: { instance: {
       hasCurrentEntitlement: async () => {
         membershipCalls++;
@@ -74,32 +76,52 @@ async function testImportOrder() {
     ['reimport', source('reimport', { customOrder: 10, enabled: false })]
   ]);
   let failUrl = '';
+  let queryCount = 0, batchSizes = [];
   const result = (values, existing) => ({ goToFirstRow: () => values.length > 0,
     getLong: index => values[index] || 0, close() {}, existing });
-  repo.ensureStore = async () => ({ createTransaction: async () => {
+  const metadata = records => {
+    let index = -1;
+    const fields = ['bookSourceUrl', 'bookSourceName', 'bookSourceGroup', 'enabled', 'enabledExplore',
+      'isLocked', 'isPinned', 'customOrder', 'createdAt'];
+    return { goToNextRow: () => ++index < records.length,
+      getString: column => records[index][fields[column]] || '',
+      getLong: column => Number(records[index][fields[column]] || 0), close() {} };
+  };
+  repo.ensureStore = async () => ({
+    querySql: async (sql, args) => {
+      assert.ok(sql.startsWith('SELECT source_url FROM rule_sources WHERE is_locked = 0'));
+      return metadata(args.map(url => rows.get(url)).filter(row => row && !row.isLocked));
+    },
+    createTransaction: async () => {
     const pending = new Map([...rows].map(([url, row]) => [url, { ...row }]));
     return {
       querySql: async (sql, args) => {
+        queryCount++;
         if (sql.includes('MAX(custom_order)')) {
           const orders = [...pending.values()].map(row => row.customOrder);
           return result(orders.length ? [Math.max(...orders), Math.min(...orders), pending.size] : [0, 0, 0]);
         }
-        const existing = pending.get(args[0]);
-        return result(existing ? [1] : [], existing);
+        assert.ok(!sql.includes('source_json'), 'import state lookup must not decode rule JSON');
+        assert.ok(sql.includes('source_url IN ('), 'lookup must cover a batch of addresses');
+        return metadata(args.map(url => pending.get(url)).filter(Boolean));
       },
-      insert: async (_table, row) => {
-        if (row.bookSourceUrl === failUrl) throw new Error('fixture write failure');
-        pending.set(row.bookSourceUrl, { ...row });
-        return 1;
+      batchInsertWithConflictResolution: async (_table, values) => {
+        batchSizes.push(values.length);
+        for (const row of values) {
+          if (row.bookSourceUrl === failUrl) throw new Error('fixture write failure');
+          pending.set(row.bookSourceUrl, { ...row });
+        }
+        return values.length;
       },
       commit: async () => { rows = pending; },
       rollback: async () => {}
     };
   } });
   // Keep actual transaction/order/preservation logic; isolate SQL encoding and SDK storage.
-  repo.prepare = item => ({ source: item });
+  repo.prepare = item => ({ source: item, sourceJson: JSON.stringify(item) });
   repo.readSource = result => result.existing;
-  repo.toValues = item => item.source;
+  repo.toValues = (item, _sort, _now, createdAt) => ({ ...item.source, createdAt });
+  assert.deepEqual([...await repo.getUnlockedSourceUrls(['old', 'locked', 'absent', 'old'])], ['old']);
   const count = await repo.upsertImportedBatch([
     source('new-a', { customOrder: 999 }), source('reimport'), source('new-b'),
     source('pin-b'), source('locked', { bookSourceName: 'Must not replace' })
@@ -138,6 +160,23 @@ async function testImportOrder() {
   assert.equal(rows.size, 70, 'reimport updates rather than duplicates sources');
   await repo.upsertImportedBatch([source('extra'), source('extra')]);
   assert.equal(rows.size, 71);
+  const beforeLarge = new Map(rows);
+  failUrl = 'bulk-220';
+  await assert.rejects(repo.upsertImportedBatch(Array.from({ length: 250 }, (_, i) => source('bulk-' + i))),
+    /fixture write failure/);
+  assert.deepEqual(rows, beforeLarge, 'a late batch failure must roll back all prior writes');
+  failUrl = '';
+  queryCount = 0; batchSizes = [];
+  await repo.upsertImportedBatch(Array.from({ length: 1000 }, (_, i) => source('bulk-' + i)));
+  assert.equal(queryCount, 4, '1000 sources require three metadata queries and one order query');
+  assert.deepEqual(batchSizes, Array(10).fill(100));
+  const createdAt = rows.get('bulk-0').createdAt;
+  await repo.upsertImportedBatch([source('bulk-0'), source('bulk-0', { bookSourceName: 'Last wins' })]);
+  assert.equal(rows.get('bulk-0').bookSourceName, 'Last wins');
+  assert.equal(rows.get('bulk-0').createdAt, createdAt);
+  await repo.upsertImportedBatch([source('new-locked', { isLocked: true }),
+    source('new-locked', { bookSourceName: 'Must remain locked' })]);
+  assert.equal(rows.get('new-locked').bookSourceName, 'new-locked');
   assert.equal(membershipCalls, 0, 'imports and edits never depend on membership verification');
 }
 (async () => {

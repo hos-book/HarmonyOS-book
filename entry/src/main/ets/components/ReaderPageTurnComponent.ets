@@ -39,13 +39,28 @@ class ReaderTurnInput {
   }
 }
 
+class ReaderPanSample {
+  offsetX: number;
+  offsetY: number;
+  velocityX: number;
+  velocityY: number;
+  localX: number;
+  localY: number;
+  constructor(event: GestureEvent) {
+    this.offsetX = event.offsetX; this.offsetY = event.offsetY;
+    this.velocityX = event.velocityX; this.velocityY = event.velocityY;
+    this.localX = event.fingerList?.[0]?.localX ?? 0;
+    this.localY = event.fingerList?.[0]?.localY ?? 0;
+  }
+}
+
 class ReaderContentPan {
-  start: GestureEvent;
-  latest: GestureEvent;
+  start: ReaderPanSample;
+  latest: ReaderPanSample;
   pending: boolean = true;
   released: boolean = false;
   cancelled: boolean = false;
-  constructor(event: GestureEvent) { this.start = event; this.latest = event; }
+  constructor(event: ReaderPanSample) { this.start = event; this.latest = event; }
 }
 
 /** 只预览目标页；动画完成才通知阅读页提交进度，回弹不改变阅读位置。 */
@@ -55,7 +70,6 @@ export struct ReaderPageTurnComponent {
   @Param ignoreChildGestures: boolean = false;
   @Event onContentTap: (x: number, y: number) => Promise<boolean> = async (): Promise<boolean> => false;
   @Event onContentPanStart: (x: number, y: number, dx: number, dy: number) => Promise<boolean> = async (): Promise<boolean> => false;
-  @Event onContentPanUpdate: (dx: number, dy: number, end: boolean, cancelled: boolean) => void = (): void => {};
   @Param tapLeftPercent: number = 33;
   @Param tapRightPercent: number = 33;
   @Param tapTopPercent: number = 33;
@@ -353,59 +367,59 @@ export struct ReaderPageTurnComponent {
     if (this.touchBlocked || finger === undefined ||
       finger.localY - event.offsetY < this.safeTop) return;
     if (this.ignoreChildGestures && this.phase === 'idle') {
-      const input = new ReaderContentPan(event);
+      // 跨 Web 桥异步命中测试只保留值快照，不能在回调结束后继续持有原生事件。
+      const input = new ReaderContentPan(new ReaderPanSample(event));
       this.contentPan = input;
       this.startContentPan(input);
       return;
     }
-    this.beginPagePan(event);
+    this.beginPagePan(new ReaderPanSample(event));
   }
 
-  private beginPagePan(event: GestureEvent): void {
+  private beginPagePan(event: ReaderPanSample): void {
     // 精排接收双轴输入供书内滚动使用；普通翻页仍只响应所选方向。
     if (this.ignoreChildGestures && this.mode !== PageTurnMode.Vertical &&
       Math.abs(event.offsetY) > Math.abs(event.offsetX)) return;
-    const finger = event.fingerList[0];
-    if (finger === undefined) return;
     if (!this.requestTurn((this.mode === PageTurnMode.Vertical ? event.offsetY : event.offsetX) < 0,
-      false, finger.localY - event.offsetY)) return;
-    this.handlePanUpdate(event);
+      false, event.localY - event.offsetY)) return;
+    this.updatePagePan(event);
   }
 
   private async startContentPan(input: ReaderContentPan): Promise<void> {
     const start = input.start;
-    const finger = start.fingerList[0];
     let consumed = false;
     try {
-      consumed = await this.onContentPanStart(finger.localX - start.offsetX, finger.localY - start.offsetY,
+      consumed = await this.onContentPanStart(start.localX - start.offsetX, start.localY - start.offsetY,
         start.offsetX, start.offsetY);
     } catch (_error) { /* 页面已切换时仍可按普通翻页处理。 */ }
     if (this.contentPan !== input) return;
     input.pending = false;
     if (consumed) {
-      this.onContentPanUpdate(input.latest.offsetX, input.latest.offsetY, input.released, input.cancelled);
+      // 书内滚动由 Web 的原生滚动链和吸附处理，不再跨桥逐帧改写位置。
       if (input.released) this.contentPan = null;
       return;
     }
     this.contentPan = null;
     if (input.cancelled) return;
     this.beginPagePan(start);
-    this.handlePanUpdate(input.latest);
-    if (input.released) this.handlePanEnd(input.latest);
+    this.updatePagePan(input.latest);
+    if (input.released) this.endPagePan(input.latest);
   }
 
   private cancelContentPan(): void {
     if (this.contentPan === null) return;
     this.contentPan.cancelled = true;
-    this.onContentPanUpdate(0, 0, true, true);
     this.contentPan = null;
   }
 
   private handlePanUpdate(event: GestureEvent): void {
+    this.updatePagePan(new ReaderPanSample(event));
+  }
+
+  private updatePagePan(event: ReaderPanSample): void {
     const content = this.contentPan;
     if (content !== null) {
       content.latest = event;
-      if (!content.pending) this.onContentPanUpdate(event.offsetX, event.offsetY, false, false);
       return;
     }
     const pending = this.pendingTurn;
@@ -427,25 +441,28 @@ export struct ReaderPageTurnComponent {
   }
 
   private handlePanEnd(event: GestureEvent): void {
+    this.endPagePan(new ReaderPanSample(event));
+  }
+
+  private endPagePan(event: ReaderPanSample): void {
     const content = this.contentPan;
     if (content !== null) {
       content.latest = event; content.released = true;
       if (!content.pending) {
-        this.onContentPanUpdate(event.offsetX, event.offsetY, true, false);
         this.contentPan = null;
       }
       return;
     }
     const pending = this.pendingTurn;
     if (pending !== null && !pending.tap && !pending.released) {
-      this.handlePanUpdate(event);
+      this.updatePagePan(event);
       const velocity = pending.forward ? -event.velocityX : event.velocityX;
       pending.released = true;
       pending.commit = velocity > 650 || (velocity > -650 && pending.progress >= 0.28);
       return;
     }
     if (this.released || (this.phase !== 'preparing' && this.phase !== 'dragging')) return;
-    this.handlePanUpdate(event);
+    this.updatePagePan(event);
     const speed = this.mode === PageTurnMode.Vertical ? event.velocityY : event.velocityX;
     const velocity = this.forward ? -speed : speed;
     this.released = true;
@@ -905,12 +922,18 @@ export struct ReaderPageTurnComponent {
       if (this.phase === 'idle') this.drawRestingSpine();
     })
     .onTouch((event: TouchEvent): void => this.handleTouch(event))
-    .gesture(PanGesture({ fingers: 1, direction: this.ignoreChildGestures ? PanDirection.All :
+    .gesture(PanGesture({ fingers: 1, direction: this.ignoreChildGestures ? PanDirection.None :
       this.mode === PageTurnMode.Vertical ? PanDirection.Vertical : PanDirection.Horizontal, distance: 8 })
         .onActionStart((event: GestureEvent): void => this.handlePanStart(event))
         .onActionUpdate((event: GestureEvent): void => this.handlePanUpdate(event))
         .onActionEnd((event: GestureEvent): void => this.handlePanEnd(event))
-        .onActionCancel((): void => this.handlePanCancel()),
-      this.ignoreChildGestures ? GestureMask.IgnoreInternal : GestureMask.Normal)
+        .onActionCancel((): void => this.handlePanCancel()))
+    // 与 Web 同时观察位移。页内画廊、滚动区和媒体保留完整的浏览器触摸序列。
+    .parallelGesture(PanGesture({ fingers: 1,
+      direction: this.ignoreChildGestures ? PanDirection.All : PanDirection.None, distance: 8 })
+        .onActionStart((event: GestureEvent): void => this.handlePanStart(event))
+        .onActionUpdate((event: GestureEvent): void => this.handlePanUpdate(event))
+        .onActionEnd((event: GestureEvent): void => this.handlePanEnd(event))
+        .onActionCancel((): void => this.handlePanCancel()))
   }
 }

@@ -43,6 +43,7 @@ export class EpubArchive {
   }
 
   has(path: string): boolean { return this.entries.has(path); }
+  resourceSize(path: string): number { return this.entries.get(path)?.size ?? 0; }
 
   private async bytes(offset: number, length: number): Promise<ArrayBuffer> {
     if (this.file === null || !Number.isSafeInteger(offset) || !Number.isSafeInteger(length) ||
@@ -165,7 +166,7 @@ export class EpubArchive {
           throw new Error('EPUB 资源解压不完整');
         }
         // getZStream 只返回计数/状态，输出字节在调用方传入的缓冲区中。
-        output = buffer.slice(0, entry.size);
+        output = entry.size === buffer.byteLength ? buffer : buffer.slice(0, entry.size);
       } finally { await inflater.inflateEnd(stream); }
     } else throw new Error('EPUB 使用不支持的压缩方式');
     if (output.byteLength !== entry.size || ((await (await zlib.createChecksum()).crc32(0, output)) >>> 0) !== entry.crc) {

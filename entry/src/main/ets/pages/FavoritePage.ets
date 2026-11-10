@@ -157,9 +157,7 @@ export struct FavoritePage {
   @Local historyMap: Record<string, PlayHistoryItem> = {};
   @Local chapterIdxMap: Record<string, number> = {};
   @Local loading: boolean = true;
-  @Local isRefreshing: boolean = false;
   @Local resolvingTocId: string = '';
-  @Local refreshProgress: string = '';
   @Local checkingUpdates: boolean = false;
   @Local showUpdates: boolean = false;
   @Local updateReport: ShelfUpdateReport = new ShelfUpdateReport();
@@ -750,7 +748,7 @@ export struct FavoritePage {
     return this.createFavoriteAliasBook(oldId, candidates[0]);
   }
 
-  /** 每日自动检查静默执行；手动下拉与自动检查共用任务，避免重复请求。 */
+  /** 每日自动检查静默执行；按钮刷新与自动检查共用任务，避免重复请求。 */
   private async refreshOnlineBooks(silent: boolean = false): Promise<void> {
     if (!this.context || !this.alive || this.checkingUpdates) return;
     if (silent && !ShelfUpdateService.shouldAutoCheck()) return;
@@ -782,8 +780,6 @@ export struct FavoritePage {
     } finally {
       if (this.alive) {
         this.checkingUpdates = false;
-        this.isRefreshing = false;
-        this.refreshProgress = '';
       }
     }
   }
@@ -797,7 +793,6 @@ export struct FavoritePage {
     let updated = 0;
     let failed = 0;
     const updatedBooks: BookUpdateInfo[] = [];
-    let completed = 0;
     const refreshBook = async (book: Book): Promise<void> => {
       try {
         const source = await SourceDataService.getSourceByUrl(book.sourceUrl);
@@ -909,14 +904,6 @@ export struct FavoritePage {
         }
       } catch (_e) {
         failed++;
-      } finally {
-        completed++;
-        if (this.alive && this.isRefreshing) {
-          try {
-            this.refreshProgress = this.getUIContext().getHostContext()?.resourceManager.getStringSync(
-              $r('app.string.shelf_update_progress').id, completed, onlineBooks.length) ?? '';
-          } catch (_error) {}
-        }
       }
     };
     let cursor = 0;
@@ -1226,7 +1213,7 @@ export struct FavoritePage {
 
   private handleShelfTypeSwipe(event: GestureEvent): void {
     if (GeneralSettings.current.swipeSwitchTabs) return;
-    if (!this.visible || this.loading || this.isManaging || this.removingBook || this.isRefreshing) return;
+    if (!this.visible || this.loading || this.isManaging || this.removingBook) return;
     if (Math.abs(event.offsetX) < 48 || Math.abs(event.offsetX) <= Math.abs(event.offsetY) * 1.2) return;
     this.selectShelfFilter(this.shelfFilter + (event.offsetX < 0 ? 1 : -1));
   }
@@ -1555,7 +1542,7 @@ export struct FavoritePage {
   }
 
   private enterManagement(bookId: string = ''): void {
-    if (this.removingBook || this.isRefreshing || this.resolvingTocId.length > 0 ||
+    if (this.removingBook || this.resolvingTocId.length > 0 ||
       this.filteredBooks(this.favoriteBooks).length === 0) return;
     if (this.showBookActions) {
       this.pendingSelection = bookId;
@@ -1753,7 +1740,7 @@ export struct FavoritePage {
   }
 
   private async toggleBookPinned(bookId: string): Promise<void> {
-    if (this.pinningBook || this.removingBook || this.isRefreshing) return;
+    if (this.pinningBook || this.removingBook) return;
     this.pinningBook = true;
     try {
       await PreferenceService.setFavoritesPinned(this.favoriteIdsByBookId.get(bookId) ?? [bookId],
@@ -1804,24 +1791,24 @@ export struct FavoritePage {
   bookActions(book: Book) {
     Menu() {
       MenuItem({ content: this.isManaging ? $r('app.string.common_done') : $r('app.string.shelf_manage') })
-        .enabled(!this.removingBook && !this.isRefreshing)
+        .enabled(!this.removingBook)
         .onClick((): void => {
           if (this.isManaging) this.pendingManagementExit = true;
           else this.enterManagement(book.id);
         })
       MenuItem({ content: $r('app.string.shelf_view_detail') })
-        .enabled(!this.removingBook && !this.isRefreshing)
+        .enabled(!this.removingBook)
         .onClick((): void => { this.pendingDetailBookId = book.id; })
       MenuItem({ content: $r('app.string.shelf_group_settings') })
-        .enabled(!this.removingBook && !this.isRefreshing)
+        .enabled(!this.removingBook)
         .onClick((): void => { this.editingGroupOnly = true; this.editingBook = book; this.showBookEditor = true; })
       MenuItem({ content: $r('app.string.shelf_edit_title') })
-        .enabled(!this.removingBook && !this.isRefreshing)
+        .enabled(!this.removingBook)
         .onClick((): void => { this.editingGroupOnly = false; this.editingBook = book; this.showBookEditor = true; })
       if (!this.isManaging) {
       MenuItem({ content: this.pinnedBookIds.has(book.id) ?
         $r('app.string.shelf_unpin') : $r('app.string.shelf_pin') })
-        .enabled(!this.pinningBook && !this.removingBook && !this.isRefreshing)
+        .enabled(!this.pinningBook && !this.removingBook)
         .onClick((): void => { this.pendingPinBookId = book.id; })
       if (this.shelfGroup && this.shelfGroup !== BookPresentation.UNGROUPED) {
         MenuItem({ content: $r('app.string.shelf_remove_from_group') })
@@ -1843,7 +1830,7 @@ export struct FavoritePage {
       ThemeBackgroundComponent({ scene: ThemeBackgroundScene.Shelf })
 
       HdsNavigation() {
-        Refresh({ refreshing: $$this.isRefreshing, builder: this.refreshIndicator() }) {
+        Column() {
           if (!this.loading && this.filteredBooks(this.favoriteBooks).length === 0) {
             List({ scroller: this.listScroller }) {
               ListItemGroup({ header: this.buildShelfContentInset() }) {
@@ -1959,17 +1946,13 @@ export struct FavoritePage {
             .backgroundColor(Color.Transparent)
           }
         }
-        .onRefreshing(() => {
-          this.refreshOnlineBooks().finally(() => { this.isRefreshing = false; });
-        })
-        .refreshOffset(64)
-        .pullToRefresh(!this.isManaging && !this.removingBook && !this.checkingUpdates)
         .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('page-type-swipe')
           .onActionEnd((event: GestureEvent): void => this.handleShelfTypeSwipe(event)))
         .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult =>
           info.tag === 'page-type-swipe' && GeneralSettings.current.swipeSwitchTabs ?
             GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
         .width('100%')
+        .height('100%')
         .layoutWeight(1)
         .backgroundColor(Color.Transparent)
       }
@@ -2273,23 +2256,6 @@ export struct FavoritePage {
         .onClick((): void => { this.deleteSelectedBooks(); })
       }.width('100%')
     }.width('100%').padding({ left: 24, right: 24, top: 12, bottom: 24 + WindowUtils.getBottomSafeVp() })
-  }
-
-  @Builder
-  refreshIndicator() {
-    Row() {
-      if (this.isRefreshing) {
-        LoadingProgress()
-          .width(24)
-          .height(24)
-          .color(AppColor.Brand)
-      }
-    }
-    .height(56)
-    .justifyContent(FlexAlign.Center)
-      .translate({
-        y: WindowUtils.getStatusBarHeightVp() + SHELF_FILTER_TOP_OFFSET + this.shelfHeaderHeight()
-      })
   }
 
   @LocalBuilder

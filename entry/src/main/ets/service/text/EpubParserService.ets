@@ -29,6 +29,7 @@ export class EpubParserService {
   private info: EpubBookInfo = new EpubBookInfo();
   private spines: EpubSpineItem[] = [];
   private catalog: EpubCatalogItem[] = [];
+  private spineIds: Map<string, string> = new Map();
 
   constructor(archive: EpubArchive) { this.archive = archive; }
 
@@ -51,9 +52,13 @@ export class EpubParserService {
     return this.archive.read(path, maximum);
   }
 
-  async getResourceContent(index: number, relative: string): Promise<ArrayBuffer> {
+  getResourcePath(index: number, relative: string): string {
     if (!this.spines[index]) throw new Error('EPUB 正文章节不存在');
-    const path = EpubOriginalDocument.resolve(this.spines[index].href, relative);
+    return EpubOriginalDocument.resolve(this.spines[index].href, relative);
+  }
+
+  async getResourceContent(index: number, relative: string): Promise<ArrayBuffer> {
+    const path = this.getResourcePath(index, relative);
     return path ? this.archive.read(path) : new ArrayBuffer(0);
   }
 
@@ -65,6 +70,28 @@ export class EpubParserService {
       return `<html><body><img src="./${encodeURIComponent(name)}"/></body></html>`;
     }
     return this.text(spine.href, 32 * 1024 * 1024);
+  }
+
+  /** 四章/512 KiB 以内并行读取；超大单章独占一批，结果始终按原阅读顺序返回。 */
+  async getSpineBatch(start: number): Promise<string[]> {
+    if (!this.spines[start]) throw new Error('EPUB 正文章节不存在');
+    const pending: Promise<string>[] = [];
+    let bytes = 0;
+    let failure = '';
+    for (let index = start; index < this.spines.length && pending.length < 4; index++) {
+      const spine = this.spines[index];
+      const size = spine.mediaType.startsWith('image/') ? 1024 : this.archive.resourceSize(spine.href);
+      if (pending.length > 0 && bytes + size > 512 * 1024) break;
+      bytes += size;
+      pending.push(this.getSpineItemContent(index).catch((error: Error): string => {
+        if (!failure) failure = error.message || String(error);
+        return '';
+      }));
+    }
+    // 一个条目损坏时先等其他读取收尾，调用方才能安全关闭 ZIP fd。
+    const content = await Promise.all(pending);
+    if (failure) throw new Error(failure);
+    return content;
   }
 
   private async text(path: string, maximum: number = 8 * 1024 * 1024): Promise<string> {
@@ -86,7 +113,7 @@ export class EpubParserService {
     const item = new EpubCatalogItem();
     const hash = href.indexOf('#');
     item.resourceFile = path; item.href = path + (hash >= 0 ? href.substring(hash) : '');
-    item.idRef = this.spines.find((spine: EpubSpineItem): boolean => spine.href === path)?.idRef ?? '';
+    item.idRef = this.spineIds.get(path) ?? '';
     item.catalogName = title.replace(/\s+/g, ' ').trim().substring(0, 200);
     this.catalog.push(item);
   }
@@ -113,6 +140,7 @@ export class EpubParserService {
       part.mediaType = item.attr('media-type'); part.linear = ref.attr('linear').toLowerCase() !== 'no';
       if (!part.href || !this.archive.has(part.href)) throw new Error('EPUB 缺少正文文件');
       this.spines.push(part);
+      if (!this.spineIds.has(part.href)) this.spineIds.set(part.href, part.idRef);
     }
     if (!this.spines.length) throw new Error('EPUB 没有正文阅读顺序');
     const nav = items.find((item: EpubXmlNode): boolean => item.attr('properties').split(/\s+/).includes('nav'));

@@ -796,12 +796,7 @@ struct Index {
         OpenSourcePage({ navStack: this.navStack })
       }
     } else if (name === 'blockMore') {
-      NavDestination() {
-        BlockMorePageWrapper({ navStack: this.navStack, param: param as Object })
-      }
-      .hideTitleBar(true)
-      .backgroundColor($r('sys.color.background_primary'))
-      .systemTransition(NavigationSystemTransitionType.SLIDE_RIGHT)
+      BlockMorePageWrapper({ navStack: this.navStack, param: param })
     }
   }
 

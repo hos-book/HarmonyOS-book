@@ -1,7 +1,7 @@
 import { HdsCompat } from '../utils/HdsCompat';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { HdsNavigation, HdsNavigationTitleMode, TitleBarContentOptions, BuilderOptions } from '@kit.UIDesignKit';
+import { HdsNavDestination, HdsNavDestinationTitleMode, TitleBarContentOptions, BuilderOptions } from '@kit.UIDesignKit';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
 import { BrowseBookRow } from '../components/BrowseBookRow';
@@ -38,12 +38,44 @@ export struct BlockMorePage {
   @Local loadingMore: boolean = false;
   @Local hasMore: boolean = true;
   @Local errorMsg: ResourceStr = '';
+  @Local topSafe: number = WindowUtils.getStatusBarHeightVp();
+  @Local bottomSafe: number = WindowUtils.getBottomSafeVp();
 
   private dataSource: BookDataSource = new BookDataSource();
+  private waterFlowSections: WaterFlowSections = new WaterFlowSections();
   private nextUrl: string = '';
   private nextPage: number = 2;
   private scroller: Scroller = new Scroller();
   private readonly titleBuilder: CustomBuilder = (): void => this.buildBrowseTitle();
+  private readonly safeAreaListener = (topVp: number, bottomVp: number): void => {
+    this.topSafe = topVp;
+    this.bottomSafe = bottomVp;
+    this.syncWaterFlowSections();
+  };
+
+  private syncWaterFlowSections(): void {
+    if (this.books.length === 0) {
+      this.waterFlowSections.splice(0, this.waterFlowSections.length());
+      return;
+    }
+    // 分组边距随书单滚动；容器 padding 会截断顶栏采样并在底部留下固定白带。
+    const booksSection: SectionOptions = {
+      itemsCount: this.books.length,
+      crossCount: this.bookColumns,
+      margin: { top: this.topSafe + MINI_TITLE_BAR_HEIGHT + AppSpace.Sm }
+    };
+    const footerSection: SectionOptions = {
+      itemsCount: 1,
+      crossCount: 1,
+      margin: { top: AppSpace.Md, bottom: this.bottomSafe + AppSpace.Lg }
+    };
+    if (this.waterFlowSections.length() === 0) {
+      this.waterFlowSections.splice(0, 0, [booksSection, footerSection]);
+    } else {
+      this.waterFlowSections.update(0, booksSection);
+      this.waterFlowSections.update(1, footerSection);
+    }
+  }
 
   @Computed
   get titleContent(): TitleBarContentOptions {
@@ -64,7 +96,7 @@ export struct BlockMorePage {
   buildBrowseTitle() {
     Row({ space: AppSpace.Sm }) {
       ImmersiveCircleButton({
-        icon: $r('sys.symbol.chevron_left'), label: $r('app.string.common_back'), useMaterial: false,
+        icon: $r('sys.symbol.chevron_left'), label: $r('app.string.common_back'),
         onPress: (): void => { this.navStack.pop(); }
       })
       Text(this.title).fontSize(AppFont.TitleL).fontWeight(FontWeight.Bold)
@@ -73,7 +105,6 @@ export struct BlockMorePage {
       ImmersiveCircleButton({
         icon: this.listMode ? $r('sys.symbol.square_grid_2x2') : $r('sys.symbol.list_bullet'),
         label: this.listMode ? $r('app.string.shelf_view_grid') : $r('app.string.shelf_view_list'),
-        useMaterial: false,
         onPress: (): void => this.toggleLayout()
       }).id('browse-layout-button')
     }.width('100%').height(MINI_TITLE_BAR_HEIGHT)
@@ -81,10 +112,15 @@ export struct BlockMorePage {
   }
 
   aboutToAppear(): void {
+    WindowUtils.addSafeAreaListener(this.safeAreaListener);
     this.nextUrl = this.moreUrl;
     this.nextPage = 2;
     this.loading = true;
     this.loadFirstPage();
+  }
+
+  aboutToDisappear(): void {
+    WindowUtils.removeSafeAreaListener(this.safeAreaListener);
   }
 
   private async loadFirstPage(): Promise<void> {
@@ -97,6 +133,7 @@ export struct BlockMorePage {
     this.errorMsg = '';
     this.books = [];
     this.dataSource.clear();
+    this.syncWaterFlowSections();
     BookCard.resetAnimations();
     this.nextPage = 2;
     await this.fetchPage(this.moreUrl, false);
@@ -141,6 +178,7 @@ export struct BlockMorePage {
         this.books = newBooks;
         this.dataSource.setBooks(newBooks);
       }
+      this.syncWaterFlowSections();
       this.nextUrl = nextUrl;
       this.hasMore = this.nextUrl.length > 0 && newBooks.length > 0;
       const covers: string[] = [];
@@ -195,7 +233,7 @@ export struct BlockMorePage {
   }
 
   build() {
-    HdsNavigation() {
+    HdsNavDestination() {
       Column() {
         if (this.loading && this.books.length === 0) {
           this.buildLoading()
@@ -211,9 +249,9 @@ export struct BlockMorePage {
       }
       .width('100%')
       .height('100%')
-      .backgroundColor($r('sys.color.background_primary'))
+      .clip(false)
+      .backgroundColor(Color.Transparent)
     }
-    .mode(NavigationMode.Stack)
     .titleBar({
       avoidLayoutSafeArea: true,
       content: this.titleContent,
@@ -252,13 +290,15 @@ export struct BlockMorePage {
         systemMaterialEffect: HdsCompat.material
       }
     })
-    .titleMode(HdsNavigationTitleMode.MINI)
+    .titleMode(HdsNavDestinationTitleMode.MINI)
     .hideBackButton(true)
     .bindToScrollable([this.scroller])
     .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
     .width('100%')
     .height('100%')
-    .backgroundColor(Color.Transparent)
+    .backgroundColor($r('sys.color.background_primary'))
+    .renderGroup(false)
+    .systemTransition(NavigationSystemTransitionType.SLIDE_RIGHT)
   }
 
   @Builder
@@ -349,11 +389,11 @@ export struct BlockMorePage {
     }
     .width('100%').layoutWeight(1).cachedCount(6)
     .scrollBar(BarState.Off).edgeEffect(EdgeEffect.Spring)
-    .padding({
-      left: AppSpace.Md, right: AppSpace.Md,
-      top: WindowUtils.getStatusBarHeightVp() + MINI_TITLE_BAR_HEIGHT + AppSpace.Sm,
-      bottom: WindowUtils.getBottomSafeVp() + AppSpace.Lg
-    })
+    .contentStartOffset(this.topSafe + MINI_TITLE_BAR_HEIGHT + AppSpace.Sm)
+    .contentEndOffset(this.bottomSafe + AppSpace.Lg)
+    .padding({ left: AppSpace.Md, right: AppSpace.Md })
+    .clip(false)
+    .backgroundColor(Color.Transparent)
     .onReachEnd(() => this.loadNextPage())
   }
 
@@ -377,7 +417,7 @@ export struct BlockMorePage {
 
   @Builder
   buildWaterFlow() {
-    WaterFlow({ scroller: this.scroller, footer: this.buildWaterFlowFooter() }) {
+    WaterFlow({ scroller: this.scroller, sections: this.waterFlowSections }) {
       LazyForEach(this.dataSource, (book: Book, idx: number) => {
         FlowItem() {
           BookCard({
@@ -391,11 +431,17 @@ export struct BlockMorePage {
           })
         }.width('100%')
       }, (book: Book) => book.id)
+      FlowItem() {
+        this.buildWaterFlowFooter()
+      }.width('100%')
     }
-    .columnsTemplate(`repeat(${this.bookColumns}, 1fr)`)
     .onSizeChange((_oldSize: SizeOptions, size: SizeOptions): void => {
       if (typeof size.width === 'number' && size.width > 0) {
-        this.bookColumns = AdaptiveLayout.bookColumns(size.width);
+        const columns: number = AdaptiveLayout.bookColumns(size.width);
+        if (columns !== this.bookColumns) {
+          this.bookColumns = columns;
+          this.syncWaterFlowSections();
+        }
       }
     })
     .columnsGap(AppSpace.Sm)
@@ -405,11 +451,9 @@ export struct BlockMorePage {
     .layoutWeight(1)
     .scrollBar(BarState.Off)
     .edgeEffect(EdgeEffect.Spring)
-    .padding({
-      left: AppSpace.Md, right: AppSpace.Md,
-      top: WindowUtils.getStatusBarHeightVp() + MINI_TITLE_BAR_HEIGHT + AppSpace.Sm,
-      bottom: WindowUtils.getBottomSafeVp() + AppSpace.Lg
-    })
+    .padding({ left: AppSpace.Md, right: AppSpace.Md })
+    .clip(false)
+    .backgroundColor(Color.Transparent)
     .onReachEnd(() => this.loadNextPage())
   }
 }

@@ -21,10 +21,10 @@ function adapt(source, commit) {
   }
   text = once(text, "document.addEventListener('touchmove', function (e) {",
     "document.addEventListener('touchmove', function (e) {\n" +
-     '    if (window.hsdaEpubConfig && window.hsdaEpubConfig.continuous) return;\n' +
-    '    if (window.hsdaEpubConfig && window.hsdaEpubConfig.paged) { if (e.cancelable) e.preventDefault(); return; }');
+     '    if (window.hsdaEpubConfig && (window.hsdaEpubConfig.paged || window.hsdaEpubConfig.continuous)) return;');
   text = once(text, "document.addEventListener('click', function (e) {",
     "document.addEventListener('click', function (e) {\n" +
+    '    if (window.hsdaEpub && window.hsdaEpub.mediaTarget(e.target)) return;\n' +
     '    if (window.hsdaEpubConfig && window.hsdaEpubConfig.paged) { e.preventDefault(); return; }');
   text = once(text, "window.addEventListener('resize', function () {\n    if (!started) return;\n    var s = spot();",
     "window.addEventListener('resize', function () {\n    if (!started) return;\n" +
@@ -72,7 +72,7 @@ async function sync(args) {
   const generated = adapt(source, revision);
   const manifest = { schemaVersion: 1, repository: 'https://github.com/wip3l/qingye-reader',
     commit: revision, upstreamPath, path: targetPath, license: 'GPL-3.0',
-    patches: ['host-native-turn-and-position-v1', 'host-continuous-scroll-v2', 'visible-text-index-v1'], upstreamSha256: hash(source), sha256: hash(generated) };
+    patches: ['host-native-turn-and-position-v2', 'host-continuous-scroll-v2', 'visible-text-index-v1', 'host-media-controls-v1'], upstreamSha256: hash(source), sha256: hash(generated) };
   if (args.includes('--check')) {
     if (!old || JSON.stringify(old) !== JSON.stringify(manifest) || !fs.existsSync(target) ||
       fs.readFileSync(target, 'utf8').replaceAll('\r\n', '\n') !== generated) throw Error('EPUB upstream sync is stale');

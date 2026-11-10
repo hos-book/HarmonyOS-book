@@ -1,10 +1,9 @@
 import { fileIo } from '@kit.CoreFileKit';
 import { taskpool } from '@kit.ArkTS';
-import { CharsetCodec } from '../../utils/CharsetCodec';
 import { LocalRuleSource } from '../../model/LocalRuleSource';
 import { LocalRuleSourceImportParser } from './LocalRuleSourceImportParser';
 import { LocalRuleSourceImportService } from './LocalRuleSourceImportService';
-import { parseImportFile } from './LocalRuleSourceImportWorker';
+import { parseImportBuffer } from './LocalRuleSourceImportWorker';
 
 export class RuleSourceFileImportResult {
   imported: number = 0;
@@ -19,7 +18,7 @@ export class RuleSourceFileImportResult {
 
 /** 文件串行读取，后台解析，限制整批输入和同时驻留内存的数据。 */
 export class LocalRuleSourceFileImporter {
-  static readonly MAX_FILES: number = 10;
+  static readonly MAX_FILES: number = 50;
   static readonly MAX_FILE_BYTES: number = 25 * 1024 * 1024;
   static readonly MAX_TOTAL_BYTES: number = 250 * 1024 * 1024;
   static readonly MAX_SOURCES: number = Number.MAX_SAFE_INTEGER;
@@ -55,11 +54,11 @@ export class LocalRuleSourceFileImporter {
         // 无效文件也计入读取预算，防止反复消耗解析资源。
         totalBytes += stat.size;
         const buffer = new ArrayBuffer(stat.size);
+        const chunk = new ArrayBuffer(Math.min(1024 * 1024, stat.size));
         let offset = 0;
         while (offset < stat.size) {
-          const chunk = new ArrayBuffer(Math.min(64 * 1024, stat.size - offset));
           // offset 相对当前文件指针；连续读取不能再次传入累计位置，否则会跳过正文。
-          const read = await fileIo.read(file.fd, chunk, { length: chunk.byteLength });
+          const read = await fileIo.read(file.fd, chunk, { length: Math.min(chunk.byteLength, stat.size - offset) });
           if (read <= 0) throw new Error('Incomplete source file');
           new Uint8Array(buffer).set(new Uint8Array(chunk, 0, read), offset);
           offset += read;
@@ -67,7 +66,7 @@ export class LocalRuleSourceFileImporter {
         await fileIo.close(file);
         file = undefined;
         stage = 'parse';
-        const parsed = await taskpool.execute(parseImportFile, CharsetCodec.decodeBuffer(buffer));
+        const parsed = await taskpool.execute(parseImportBuffer, buffer);
         if (!Array.isArray(parsed) || parsed.length <= 1) {
           result.skippedFiles++;
           result.invalidFiles++;
@@ -75,6 +74,7 @@ export class LocalRuleSourceFileImporter {
         }
         result.skippedSources += Number(parsed[0]);
         const sources: LocalRuleSource[] = [];
+        let sliceStarted = Date.now();
         for (let item = 1; item < parsed.length; item++) {
           if (sourceCount >= LocalRuleSourceFileImporter.MAX_SOURCES) {
             result.skippedSources += parsed.length - item;
@@ -90,7 +90,10 @@ export class LocalRuleSourceFileImporter {
           } catch (_error) {
             result.skippedSources++;
           }
-          if (item % 8 === 0) await LocalRuleSourceFileImporter.yieldToUi();
+          if (item % 32 === 0 || Date.now() - sliceStarted >= 6) {
+            await LocalRuleSourceFileImporter.yieldToUi();
+            sliceStarted = Date.now();
+          }
         }
         stage = 'write';
         const imported = await LocalRuleSourceImportService.importSources(sources);
@@ -113,6 +116,6 @@ export class LocalRuleSourceFileImporter {
   }
 
   private static async yieldToUi(): Promise<void> {
-    await new Promise<void>((resolve) => setTimeout(resolve, 16));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
   }
 }

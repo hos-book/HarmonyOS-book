@@ -6,10 +6,11 @@
   "path": "entry/src/main/ets/service/text/light/EpubOriginalScript.ets",
   "license": "GPL-3.0",
   "patches": [
-    "host-native-turn-and-position-v1",
+    "host-native-turn-and-position-v2",
     "host-continuous-scroll-v2",
-    "visible-text-index-v1"
+    "visible-text-index-v1",
+    "host-media-controls-v1"
   ],
   "upstreamSha256": "b7ad1ea52d13571ff6083857bcec56cf31dc35699d9aeac14ee9054ae7e11752",
-  "sha256": "8bdfe236e308c0c8df47932e14644770c5abc84be7fc33cc2c31ebb402261c1d"
+  "sha256": "f33782a37febdabadc40a09f2eacafe0b5cb997c021b2bf4d4c59de99efbe741"
 }

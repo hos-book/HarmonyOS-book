@@ -38,7 +38,8 @@ export struct SpeechSynthesisSettingsPage {
                 onSave: (value: SpeechSynthesisSettings): Promise<void> =>
                   TextToSpeechService.getInstance().setSynthesisSettings(value) })
             }.width('100%').constraintSize({ maxWidth: 760 })
-              .padding({ left: 16, right: 16, top: this.headerHeight + 16, bottom: 16 })
+              .padding({ left: 16, right: 16, top: this.headerHeight + 16,
+                bottom: WindowUtils.getBottomSafeVp() + 16 })
           }.width('100%').layoutWeight(1).scrollBar(BarState.Off).align(Alignment.Top)
         } else if (this.failed) {
           Text($r('app.string.reading_settings_load_error')).fontColor(AppTheme.TextSecondary).padding(20)
@@ -46,7 +47,7 @@ export struct SpeechSynthesisSettingsPage {
             .onClick((): void => { this.initialize(); })
         } else { LoadingProgress().width(32).height(32).color(AppColor.Brand) }
       }.width('100%').height('100%')
-        .padding({ top: this.ready ? 0 : this.headerHeight, bottom: WindowUtils.getBottomSafeVp() })
+        .padding({ top: this.ready ? 0 : this.headerHeight })
       FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {
         Row({ space: 12 }) {
           Button({ type: ButtonType.Circle }) {

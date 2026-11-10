@@ -100,12 +100,17 @@ function fixture() {
   assert.equal((await service.loadHome(source)).blocks.length, 0);
   // Run the real page loading/switching methods: a slow old channel must never repaint a new one.
   const page = fs.readFileSync(path.join(root, 'pages/HomePage.ets'), 'utf8').replace(/\r\n/g, '\n');
+  // Replay the Text update separately: V2 may refresh it after filters are cleared,
+  // before the enclosing conditional branch removes the old node.
+  const filterLabelMatch = page.match(/Text\((this\.homeFilters\[0\][^\n]+)\)/);
+  assert.ok(filterLabelMatch, 'exercise the actual discovery filter title expression');
+  const renderFilterLabel = vm.runInNewContext(`(function () { return ${filterLabelMatch[1]}; })`);
   const loadMethod = page.slice(page.indexOf('  private async loadHomeBlocks('),
     page.indexOf('  private scrollContentToTop('));
   const channelMethods = page.slice(page.indexOf('  private updateHomeChannels('),
     page.indexOf('  private revealCategoryTab('));
   const filterMethod = page.slice(page.indexOf('  private async selectHomeFilter('),
-    page.indexOf('  @Builder\n  private buildCategorySheet('));
+    page.indexOf('  @LocalBuilder\n  private buildCategorySheet('));
   const filterItemClass = page.slice(page.indexOf('class HomeFilterOptionItem {'),
     page.indexOf('class HomeCategoryDataSource '));
   const filterMenuMethods = page.slice(page.indexOf('  private updateHomeFilters('),
@@ -148,6 +153,7 @@ function fixture() {
       options: ['热门'], optionValues: ['hot'] }
   ];
   harness.updateHomeFilters(menuFilters);
+  assert.equal(renderFilterLabel.call(harness), 'text');
   harness.toggleHomeFilterMenu();
   assert.deepEqual(Array.from(harness.homeFilterGroupMenuData.items), ['', '推荐', '频道'],
     'use source groups in order, falling back to control titles without duplicate groups');
@@ -173,6 +179,11 @@ function fixture() {
   assert.equal(harness.homeFilterMatchCount, 6, 'reopening restores all options');
   harness.homeFilterGroupMenuVisible = true;
   harness.updateHomeFilters([]);
+  assert.equal(renderFilterLabel.call(harness), '', 'a queued title refresh after source reset must be safe');
+  harness.updateHomeFilters([{ id: 'mode', title: '频道', value: '', group: '', options: [], optionValues: [] }]);
+  assert.equal(renderFilterLabel.call(harness), '频道', 'an empty selected value falls back to the control title');
+  harness.updateHomeFilters([]);
+  assert.equal(renderFilterLabel.call(harness), '', 'repeated channel resets must stay safe');
   assert.equal(harness.homeFilterMenuVisible, false);
   assert.equal(harness.homeFilterGroupMenuVisible, false);
   assert.equal(harness.homeFilterMenuData.items.length, 0, 'source reset removes stale selectable options');

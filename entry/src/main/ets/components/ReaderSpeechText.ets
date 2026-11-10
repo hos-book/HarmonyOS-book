@@ -121,7 +121,8 @@ struct ReaderTextFragment {
   @Monitor('speechMarkColor', 'speechMark', 'dialogueHighlight', 'dialogueHighlightColor', 'page', 'text', 'source', 'sourceStart', 'palette', 'highlightEnabled', 'selecting', 'selectionStart', 'selectionEnd', 'selectionEnabled',
     'state.active', 'state.highlightOffset', 'state.highlightEnd')
   updateParagraph(): void {
-    this.paragraphNode.update(this.page, this.highlightRange, this.palette, this.selecting ? 'highlight' : this.speechMark, this.dialogueHighlight, this.dialogueHighlightColor, this.speechMarkColor);
+    this.paragraphNode.update(this.page, this.highlightRange, this.palette, this.selecting ? 'highlight' : this.speechMark, this.dialogueHighlight, this.dialogueHighlightColor,
+      this.selecting ? this.palette.primary : this.speechMarkColor);
   }
 
   aboutToAppear(): void { this.updateParagraph(); }

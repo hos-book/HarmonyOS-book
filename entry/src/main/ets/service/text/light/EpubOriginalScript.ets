@@ -338,8 +338,7 @@ export class EpubOriginalScript {
     base = page * width; dragging = paged; moved = false;
   }, { passive: true });
   document.addEventListener('touchmove', function (e) {
-    if (window.hsdaEpubConfig && window.hsdaEpubConfig.continuous) return;
-    if (window.hsdaEpubConfig && window.hsdaEpubConfig.paged) { if (e.cancelable) e.preventDefault(); return; }
+    if (window.hsdaEpubConfig && (window.hsdaEpubConfig.paged || window.hsdaEpubConfig.continuous)) return;
     if (!paged && e.touches.length === 1) {
       var dyPull = e.touches[0].clientY - sy;
       if (atBottom && dyPull < -PULL) pull = 1;
@@ -373,6 +372,7 @@ export class EpubOriginalScript {
     else goPage(page, true);
   }, { passive: true });
   document.addEventListener('click', function (e) {
+    if (window.hsdaEpub && window.hsdaEpub.mediaTarget(e.target)) return;
     if (window.hsdaEpubConfig && window.hsdaEpubConfig.paged) { e.preventDefault(); return; }
     if (moved) { moved = false; e.preventDefault(); return; }
     var a = e.target && e.target.closest ? e.target.closest('a[href]') : null;

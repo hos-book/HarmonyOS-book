@@ -47,6 +47,7 @@ import { HdsCompat, CompatibleTabsModifier } from '../utils/HdsCompat';
 import { PreferenceService } from '../service/PreferenceService';
 import { TextChapterPreloader } from '../service/text/TextChapterPreloader';
 import { ReaderSpeechText } from '../components/ReaderSpeechText';
+import { ReaderDialogueRules } from '../model/ReaderDialogueRules';
 import { ReaderSpeechSheet } from '../components/ReaderSpeechSheet';
 import { ImmersiveActionButton } from '../components/ImmersiveActionButton';
 import { ReadingTimeTracker } from '../service/text/ReadingTimeTracker';
@@ -176,6 +177,7 @@ export struct ReaderPage {
   @Local previewLetterSpacing: number = -1;
   @Local dialogueHighlight: boolean = false;
   @Local dialogueHighlightColor: string = '';
+  @Local dialogueQuotePairs: string = ReaderDialogueRules.DEFAULT;
   @Local speechMark: string = 'color';
   @Local speechMarkColor: string = '';
   @Local paragraphSpacing: number = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
@@ -420,11 +422,14 @@ export struct ReaderPage {
   }
 
   private readonly speechDisplayChanged = (settings: TextReadingSettings): void => {
+    const dialogueRulesChanged = this.dialogueQuotePairs !== settings.dialogueQuotePairs;
     this.speechFollowPage = settings.speechFollowPage;
     this.speechMark = settings.speechMark;
     this.speechMarkColor = settings.speechMarkColor;
     this.dialogueHighlight = settings.dialogueHighlight;
     this.dialogueHighlightColor = settings.dialogueHighlightColor;
+    this.dialogueQuotePairs = settings.dialogueQuotePairs;
+    if (dialogueRulesChanged) this.repaginateOnlineText();
     if (this.speechFollowPage && this.speechBrowsing && this.readerVisible) this.returnToSpeech();
   };
 
@@ -1186,7 +1191,7 @@ export struct ReaderPage {
     const pages = OnlineTextPaginator.paginate(content, Math.max(1, columns ? (contentWidthVp - READER_COLUMN_GAP) / 2 : contentWidthVp) * density,
       contentHeightVp * density, fontSizePx, this.lineHeight, this.fontFamily, this.fontWeight, this.textAlignment, this.paragraphSpacing, this.letterSpacing * density,
       this.chapterHeadingVisible ? this.chapterTitle(chapterIndex) : '', this.getUIContext().fp2px(this.chapterHeadingSize), this.chapterHeadingStyle,
-      commentOffsets, (ReaderCommentLayout.ICON_SIZE + 2) * density);
+      commentOffsets, (ReaderCommentLayout.ICON_SIZE + 2) * density, this.dialogueQuotePairs);
     return columns ? OnlineTextPage.spreads(content, pages) : pages;
   }
 
@@ -1503,6 +1508,7 @@ export struct ReaderPage {
       this.letterSpacing = settings.letterSpacing;
       this.dialogueHighlight = settings.dialogueHighlight;
       this.dialogueHighlightColor = settings.dialogueHighlightColor;
+      this.dialogueQuotePairs = settings.dialogueQuotePairs;
       this.speechMark = settings.speechMark;
       this.speechMarkColor = settings.speechMarkColor;
       this.paragraphSpacing = settings.paragraphSpacing;
@@ -1585,6 +1591,7 @@ export struct ReaderPage {
     this.letterSpacing = 0;
     this.dialogueHighlight = false;
     this.dialogueHighlightColor = '';
+    this.dialogueQuotePairs = ReaderDialogueRules.DEFAULT;
     this.speechMark = 'color';
     this.speechMarkColor = '';
     this.paragraphSpacing = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
@@ -1650,6 +1657,7 @@ export struct ReaderPage {
     settings.letterSpacing = this.letterSpacing;
     settings.dialogueHighlight = this.dialogueHighlight;
     settings.dialogueHighlightColor = this.dialogueHighlightColor;
+    settings.dialogueQuotePairs = this.dialogueQuotePairs;
     settings.speechMark = this.speechMark;
     settings.speechMarkColor = this.speechMarkColor;
     settings.paragraphSpacing = this.paragraphSpacing;
@@ -3013,7 +3021,8 @@ export struct ReaderPage {
   private buildSpeechSheet(): void {
     ReaderSpeechSheet({ state: this.speechState,
       speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
-      speechDefaultColor: this.palette.accent,
+      speechDefaultColor: this.palette.accent, speechPreviewForeground: this.palette.primary,
+      speechPreviewBackground: this.palette.background,
       onSpeechMarkColorChange: (color: string): void => {
         this.speechMarkColor = TextReadingSettings.normalizeSpeechMarkColor(color);
         this.saveReadingSettings();
@@ -3808,7 +3817,6 @@ export struct ReaderPage {
         onComplete: (commit: boolean): Promise<void> => this.completeOriginalTurn(commit),
         onContentTap: (x: number, y: number): Promise<boolean> => this.epubOriginalCommands.openLinkAt(x, y),
         onContentPanStart: (x: number, y: number, dx: number, dy: number): Promise<boolean> => this.epubOriginalCommands.beginPan(x, y, dx, dy),
-        onContentPanUpdate: (dx: number, dy: number, end: boolean, cancelled: boolean): void => this.epubOriginalCommands.updatePan(dx, dy, end, cancelled),
         onCenterTap: (): void => this.toggleReaderBar()
       })
     }

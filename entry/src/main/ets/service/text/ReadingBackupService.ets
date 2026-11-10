@@ -8,6 +8,7 @@ import { findThemePreset } from '../../model/ReaderTheme';
 import { SpeechPosition } from '../../model/TextToSpeechState';
 import { TextReadingProgressService } from './TextReadingProgressService';
 import { TextReadingSettingsService } from './TextReadingSettingsService';
+import { ReaderDialogueRules } from '../../model/ReaderDialogueRules';
 import { TextToSpeechService } from './TextToSpeechService';
 
 /** 只迁移常规阅读选项；自定义图片、字体、配色及本机文件路径不进入快照。 */
@@ -22,6 +23,7 @@ export class ReadingSettingsBackup {
   letterSpacing: number = 0;
   dialogueHighlight: boolean = false;
   dialogueHighlightColor: string = '';
+  dialogueQuotePairs: string = ReaderDialogueRules.DEFAULT;
   speechMark: string = 'color';
   speechMarkColor: string = '';
   paragraphSpacing: number = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
@@ -89,6 +91,7 @@ export class ReadingBackupService {
     saved.letterSpacing = settings.letterSpacing;
     saved.dialogueHighlight = settings.dialogueHighlight;
     saved.dialogueHighlightColor = settings.dialogueHighlightColor;
+    saved.dialogueQuotePairs = ReaderDialogueRules.normalize(settings.dialogueQuotePairs);
     saved.speechMark = settings.speechMark;
     saved.speechMarkColor = settings.speechMarkColor;
     saved.paragraphSpacing = settings.paragraphSpacing;
@@ -157,6 +160,7 @@ export class ReadingBackupService {
     settings.lineHeight = saved.lineHeight;
     settings.letterSpacing = TextReadingSettings.normalizeLetterSpacing(saved.letterSpacing);
     settings.dialogueHighlight = saved.dialogueHighlight === true;
+    settings.dialogueQuotePairs = ReaderDialogueRules.normalize(saved.dialogueQuotePairs);
     settings.dialogueHighlightColor = TextReadingSettings.normalizeDialogueHighlightColor(
       typeof saved.dialogueHighlightColor === 'string' ? saved.dialogueHighlightColor : '');
     settings.speechMark = TextReadingSettings.normalizeSpeechMark(saved.speechMark);

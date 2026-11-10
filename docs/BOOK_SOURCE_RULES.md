@@ -7,7 +7,7 @@
 - 轻页兼容 JSON：`bookSourceUrl`、`bookSourceName`、`searchUrl`、`exploreUrl`、`ruleSearch`、`ruleExplore`、`ruleBookInfo`、`ruleToc`、`ruleContent`，以及轻页支持的登录、变量、脚本和媒体字段。完整原始定义保留在加密书源库，执行前由轻页原导入方法规范化。
 - 轻页原生 JSON：`sourceFormat: "native"`，使用轻页 `NativeSourceSpec` / `NativeSourceService` 的定义和解析逻辑。`vars`、静态/动态菜单、模式/频道、搜索、详情、目录、正文、媒体和交互配置按轻页语义执行。设置和登录状态单独保存在加密运行状态中。
 - 当前 `sourceengine` 原生定义支持 `login.form/submit/sendCode` 表单登录及验证码请求、`actions` 设置动作、`content.mediaHeaders` 媒体请求头，以及对象形式 `webView: { waitFor, timeout }`。登录控件使用现有面板，密码等输入不持久化，仅保存登录返回的凭据；网页入口保持 HTTPS-only。等待元素的请求仍遵循书源限流、播放优先级、取消和响应大小限制。
-- 文件使用 UTF-8 JSON，可导入单个定义、数组或当前导入器支持的列表包装对象。单文件/订阅最大 25 MiB；不按 1000 个定义截断。本地最多 10 文件，合计 250 MiB。
+- 文件使用 UTF-8 JSON，可导入单个定义、数组或当前导入器支持的列表包装对象。单文件/订阅最大 25 MiB；不按 1000 个定义截断。本地最多 50 文件，合计 250 MiB。
 
 原简听 `format: "jianting.source"` / `engine: "native-v1"` 格式及其请求/算子引擎已移除，新导入明确拒绝。数据库中的历史定义不自动改写、不删除用户收藏；需换成轻页支持的定义才能解析。
 

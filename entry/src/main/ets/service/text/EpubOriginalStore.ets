@@ -1,7 +1,7 @@
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
-import { EpubOriginalDocument, EpubOriginalPart } from './EpubOriginalDocument';
+import { EpubOriginalDocument, EpubOriginalPart, EpubOriginalRange } from './EpubOriginalDocument';
 import { LocalImportTaskQueue } from '../LocalImportTaskQueue';
 
 export class EpubOriginalTheme {
@@ -10,6 +10,12 @@ export class EpubOriginalTheme {
   themeId: string = '';
   enabled: boolean = true;
   chapters: number = 0;
+}
+
+export class EpubOriginalResource {
+  range: EpubOriginalRange;
+  bytes: ArrayBuffer = new ArrayBuffer(0);
+  constructor(size: number, header: string) { this.range = new EpubOriginalRange(size, header); }
 }
 
 /** 原版主题随书籍目录持久保存和删除，不占用全局自定义主题名额。 */
@@ -26,7 +32,8 @@ export class EpubOriginalStore {
   }
 
   private async save(path: string, data: string | ArrayBuffer): Promise<void> {
-    if (this.writes) await this.writes.add((): Promise<void> => EpubOriginalStore.write(path, data));
+    if (this.writes && typeof data === 'string') await this.writes.writeText(path, data);
+    else if (this.writes) await this.writes.add((): Promise<void> => EpubOriginalStore.write(path, data));
     else await EpubOriginalStore.write(path, data);
   }
 
@@ -139,6 +146,10 @@ export class EpubOriginalStore {
   }
 
   static async resource(root: string, path: string): Promise<ArrayBuffer> {
+    return (await EpubOriginalStore.resourceChunk(root, path)).bytes;
+  }
+
+  static async resourceChunk(root: string, path: string, rangeHeader: string = ''): Promise<EpubOriginalResource> {
     let local = await EpubOriginalStore.resourcePath(root, path);
     // 已导入书籍继续读取旧版按原路径编码的目录，无需重新导入或迁移。
     if (!await fileIo.access(local)) local = `${root}/assets/${EpubOriginalDocument.assetPath(path)}`;
@@ -146,16 +157,20 @@ export class EpubOriginalStore {
     try {
       const size = (await fileIo.stat(file.fd)).size;
       if (size <= 0 || size > EpubOriginalStore.MAX_RESOURCE) throw new Error('Invalid EPUB resource size');
-      const bytes = new ArrayBuffer(size);
+      const result = new EpubOriginalResource(size, rangeHeader);
+      if (!result.range.valid) return result;
+      const length = result.range.end - result.range.start + 1;
+      const bytes = new ArrayBuffer(length);
       let offset = 0;
-      while (offset < size) {
-        const chunk = new ArrayBuffer(size - offset);
-        const count = await fileIo.read(file.fd, chunk, { offset: offset, length: chunk.byteLength });
+      while (offset < length) {
+        const chunk = new ArrayBuffer(Math.min(1024 * 1024, length - offset));
+        const count = await fileIo.read(file.fd, chunk, { offset: result.range.start + offset, length: chunk.byteLength });
         if (count <= 0) throw new Error('Incomplete EPUB resource');
         new Uint8Array(bytes).set(new Uint8Array(chunk, 0, count), offset);
         offset += count;
       }
-      return bytes;
+      result.bytes = bytes;
+      return result;
     } finally { await fileIo.close(file); }
   }
 }

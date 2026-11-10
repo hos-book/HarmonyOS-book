@@ -60,7 +60,8 @@ const stubs = {
     invalidated.push([...urls]); return ['book'];
   } } },
   'service/rulesource/LocalRuleSourceRepository': { LocalRuleSourceRepository: {
-    getAll: async () => [source, locked], upsertImportedBatch: async values => {
+    getUnlockedSourceUrls: async urls => new Set(urls.filter(url => url === source.bookSourceUrl)),
+    upsertImportedBatch: async values => {
       if (importFailure) throw new Error('transaction failed');
       imports.push(values); return values.filter(item => item.bookSourceUrl !== locked.bookSourceUrl).length;
     }

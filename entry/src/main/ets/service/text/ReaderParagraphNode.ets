@@ -68,8 +68,7 @@ class ReaderParagraphFrameNode extends FrameNode {
     if (this.dialogueHighlight) {
       for (const range of page.dialogueRanges) this.paintRange(canvas, range.start, range.end, 'color', this.dialogueHighlightColor);
     }
-    this.paintRange(canvas, this.range.start, this.range.end, this.speechMark,
-      this.speechMark === 'color' ? this.speechMarkColor : '');
+    this.paintRange(canvas, this.range.start, this.range.end, this.speechMark, this.speechMarkColor);
     // 排版对象在可见行之间共享，绘制结束恢复正文色。
     paragraph.updateColor(foreground);
     page.paintState.lines = paragraph.getTextLines();
@@ -82,7 +81,7 @@ class ReaderParagraphFrameNode extends FrameNode {
     const boxes = ReaderSelectionGeometry.rects(page, start, end);
     const accent = this.color(customColor || this.palette.accent);
     const brush = new drawing.Brush();
-    const tint = this.color(this.palette.primary);
+    const tint = this.color(customColor || this.palette.accent);
     tint.alpha = 51;
     brush.setColor(mark === 'highlight' ? tint : accent);
     paragraph.updateColor(mark === 'color' ? accent : this.color(this.palette.primary));

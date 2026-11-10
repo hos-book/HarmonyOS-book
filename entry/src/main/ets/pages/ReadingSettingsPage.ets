@@ -89,7 +89,8 @@ export struct ReadingSettingsPage {
                 .onClick((): void => { this.navStack.pushPathByName('dialogueHighlightSettings', ''); })
                 .id('reading-dialogue-settings')
             }.width('100%').constraintSize({ maxWidth: 760 })
-              .padding({ left: 16, right: 16, top: this.headerHeight + 8, bottom: 12 })
+              .padding({ left: 16, right: 16, top: this.headerHeight + 8,
+                bottom: WindowUtils.getBottomSafeVp() + 12 })
           }.width('100%').layoutWeight(1).scrollBar(BarState.Off).align(Alignment.Top)
         } else if (this.failed) {
           Text($r('app.string.reading_settings_load_error')).fontColor(AppTheme.TextSecondary).padding(20)
@@ -99,7 +100,7 @@ export struct ReadingSettingsPage {
           LoadingProgress().width(32).height(32).color(AppColor.Brand).margin({ top: 24 })
         }
       }.width('100%').height('100%')
-        .padding({ top: this.ready ? 0 : this.headerHeight, bottom: WindowUtils.getBottomSafeVp() })
+        .padding({ top: this.ready ? 0 : this.headerHeight })
       FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {
         Row({ space: AppSpace.Sm }) {
           Button({ type: ButtonType.Circle }) {

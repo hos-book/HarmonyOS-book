@@ -1,10 +1,11 @@
 import { webview } from '@kit.ArkWeb';
+import { emitter } from '@kit.BasicServicesKit';
 import { ReaderCommentMessages } from '../model/ReaderComment';
 import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { EpubOriginalDocument, EpubOriginalPart } from '../service/text/EpubOriginalDocument';
-import { EpubOriginalStore } from '../service/text/EpubOriginalStore';
+import { EpubOriginalStore, EpubOriginalResource } from '../service/text/EpubOriginalStore';
 import { EpubOriginalPosition, EpubOriginalSpot, EpubOriginalPositionIndex } from '../service/text/EpubOriginalPosition';
 import { EpubOriginalLayoutOptions, EpubOriginalScript } from '../service/text/light/EpubOriginalScript';
 import { LocalRuleWebSession } from '../service/rulesource/LocalRuleWebSession';
@@ -29,7 +30,6 @@ export class EpubOriginalController {
   complete: (commit: boolean) => Promise<void> = async (_commit: boolean): Promise<void> => {};
   openLinkAt: (x: number, y: number) => Promise<boolean> = async (): Promise<boolean> => false;
   beginPan: (x: number, y: number, dx: number, dy: number) => Promise<boolean> = async (): Promise<boolean> => false;
-  updatePan: (dx: number, dy: number, end: boolean, cancelled: boolean) => void = (): void => {};
 }
 
 class EpubOriginalCheckpoint {
@@ -152,14 +152,16 @@ export struct EpubOriginalReader {
   private paintResolve: ((ready: boolean) => void) | null = null;
   private paintTimeout: number = -1;
   private paintSerial: number = 0;
-  private panScript: string = '';
-  private panDraining: Promise<void> | null = null;
   private selectionText: string = '';
   private selectionFrame: number = 0;
   private selectionSerial: number = -1;
+  private backgroundHandler = (): void => {
+    if (this.attached) this.controller.runJavaScript('window.hsdaEpub && window.hsdaEpub.pauseMedia()').catch((): void => {});
+  };
 
   aboutToAppear(): void {
     this.alive = true;
+    emitter.on('app.reader.background', this.backgroundHandler);
     this.bridge.receive = (value: string): void => this.message(value);
     this.commands.capture = async (): Promise<void> => this.capture();
     this.commands.turn = (forward: boolean): void => this.turn(forward);
@@ -168,11 +170,12 @@ export struct EpubOriginalReader {
     this.commands.complete = (commit: boolean): Promise<void> => this.complete(commit);
     this.commands.openLinkAt = (x: number, y: number): Promise<boolean> => this.openLinkAt(x, y);
     this.commands.beginPan = (x: number, y: number, dx: number, dy: number): Promise<boolean> => this.beginPan(x, y, dx, dy);
-    this.commands.updatePan = (dx: number, dy: number, end: boolean, cancelled: boolean): void => this.updatePan(dx, dy, end, cancelled);
     this.open().catch((error: Error): void => this.fail(error.message));
   }
 
   aboutToDisappear(): void {
+    emitter.off('app.reader.background', this.backgroundHandler);
+    this.backgroundHandler();
     this.alive = false; this.serial++;
     if (this.timeout >= 0) clearTimeout(this.timeout);
     this.commands.capture = async (): Promise<void> => {};
@@ -182,8 +185,6 @@ export struct EpubOriginalReader {
     this.commands.complete = async (_commit: boolean): Promise<void> => {};
     this.commands.openLinkAt = async (): Promise<boolean> => false;
     this.commands.beginPan = async (): Promise<boolean> => false;
-    this.commands.updatePan = (): void => {};
-    this.panScript = '';
     this.finishPaint(false);
     this.frames = []; this.extending.clear();
     this.onSelectionChange(false);
@@ -564,31 +565,10 @@ export struct EpubOriginalReader {
       ![x, y, dx, dy].every((value: number): boolean => Number.isFinite(value))) return false;
     const ticket = this.serial;
     try {
-      if (this.panDraining !== null) await this.panDraining;
-      if (!this.alive || ticket !== this.serial) return true;
       const raw = await this.controller.runJavaScript(`window.hsdaEpub.beginPan(${x},${y},${dx},${dy})`);
       const value: boolean | string = JSON.parse(raw);
       return ticket !== this.serial || value === true || value === 'true';
     } catch (_error) { return false; }
-  }
-
-  private updatePan(dx: number, dy: number, end: boolean, cancelled: boolean): void {
-    if (!this.alive || this.loading || !this.paged || this.checkpoint !== null ||
-      !Number.isFinite(dx) || !Number.isFinite(dy)) return;
-    // 最多一个跨桥请求在途；后续移动只保留最新位置，松手仍带上最终位移。
-    this.panScript = `window.hsdaEpub.movePan(${dx},${dy});` + (end ? `window.hsdaEpub.endPan(${cancelled});` : '');
-    if (this.panDraining === null) this.panDraining = this.drainPan();
-  }
-
-  private async drainPan(): Promise<void> {
-    const ticket = this.serial;
-    try {
-      while (this.alive && ticket === this.serial && this.panScript) {
-        const script = this.panScript; this.panScript = '';
-        await this.controller.runJavaScript(script);
-      }
-    } catch (_error) { /* 页面卸载后丢弃其余页内滚动输入。 */ }
-    finally { this.panScript = ''; this.panDraining = null; }
   }
 
   private turn(forward: boolean): void {
@@ -606,7 +586,7 @@ export struct EpubOriginalReader {
     } catch (_error) { this.fail(); }
   }
 
-  private response(url: string): WebResourceResponse {
+  private response(url: string, headers: Header[] = []): WebResourceResponse {
     const response = new WebResourceResponse();
     response.setResponseCode(200); response.setReasonMessage('OK');
     response.setResponseHeader([{ headerKey: 'Cache-Control', headerValue: 'no-store' }]);
@@ -627,6 +607,28 @@ export struct EpubOriginalReader {
       response.setResponseCode(403); response.setReasonMessage('Forbidden'); response.setResponseData(''); return response;
     }
     response.setResponseIsReady(false);
+    if (mime.startsWith('audio/') || mime.startsWith('video/')) {
+      const range = headers.find((header: Header): boolean => header.headerKey.toLowerCase() === 'range')?.headerValue ?? '';
+      EpubOriginalStore.resourceChunk(this.active.root, path, range).then((resource: EpubOriginalResource): void => {
+        const span = resource.range;
+        const responseHeaders: Header[] = [
+          { headerKey: 'Cache-Control', headerValue: 'no-store' },
+          { headerKey: 'Accept-Ranges', headerValue: 'bytes' },
+          { headerKey: 'Content-Length', headerValue: String(resource.bytes.byteLength) }
+        ];
+        if (!span.valid) {
+          response.setResponseCode(416); response.setReasonMessage('Range Not Satisfiable');
+          responseHeaders.push({ headerKey: 'Content-Range', headerValue: `bytes */${span.size}` });
+        } else if (span.partial) {
+          response.setResponseCode(206); response.setReasonMessage('Partial Content');
+          responseHeaders.push({ headerKey: 'Content-Range', headerValue: `bytes ${span.start}-${span.end}/${span.size}` });
+        }
+        response.setResponseHeader(responseHeaders); response.setResponseData(resource.bytes);
+      }).catch((): void => {
+        response.setResponseCode(404); response.setReasonMessage('Not Found'); response.setResponseData('');
+      }).finally((): void => response.setResponseIsReady(true));
+      return response;
+    }
     EpubOriginalStore.resource(this.active.root, path).then((bytes: ArrayBuffer): void => {
       response.setResponseData(mime === 'text/css' ? EpubOriginalDocument.css(
         util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(bytes)), path) : bytes);
@@ -667,10 +669,12 @@ export struct EpubOriginalReader {
           .javaScriptAccess(true).fileAccess(false).domStorageAccess(false).databaseAccess(false)
           .geolocationAccess(false).mixedMode(MixedMode.None).zoomAccess(false)
           .darkMode(WebDarkMode.Off).forceDarkAccess(false)
+          .mediaPlayGestureAccess(true)
           .editMenuOptions(this.selectionMenu())
           .overScrollMode(OverScrollMode.NEVER).horizontalScrollBarAccess(false).verticalScrollBarAccess(!this.paged)
           .javaScriptProxy({ object: this.bridge, name: 'epubHost', methodList: ['report'], controller: this.controller })
-          .onInterceptRequest((event): WebResourceResponse => this.response(event?.request.getRequestUrl() ?? ''))
+          .onInterceptRequest((event): WebResourceResponse => this.response(event?.request.getRequestUrl() ?? '',
+            event?.request.getRequestHeader() ?? []))
           .onLoadIntercept((event): boolean => {
             const url = event?.data.getRequestUrl() ?? '';
             return url !== 'about:blank' && url !== this.documentUrl &&

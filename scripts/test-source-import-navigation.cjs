@@ -32,8 +32,8 @@ function consumer(queue, stack) {
   const c = new Consumer();
   Object.assign(c, { externalImports: queue, navStack: stack, pageAttached: true,
     isLoading: false, loadFailed: false, isImporting: false, isBulkTesting: false,
-    busySourceUrl: '', isEditMode: false, showImportPanel: false,
-    closeManagement() {}, resetSelection() {}, showImportError() {},
+    busySourceUrl: '', isEditMode: false, importDialogKind: '', errors: [],
+    closeManagement() {}, resetSelection() {}, showImportError(error) { this.errors.push(error); },
     readLocalJson: async uri => uri, persistImportContent: async () => true });
   return c;
 }
@@ -49,7 +49,15 @@ async function main() {
   await c.consumeExternalImports();
   assert.equal(queue.hasPending(), true, 'cold-start loading must retain all files');
   c.isLoading = false;
+  for (const kind of ['link', 'nas']) {
+    c.importDialogKind = kind;
+    await c.consumeExternalImports();
+    assert.equal(queue.hasPending(), true, 'input dialogs must keep incoming files queued');
+    assert.equal(c.isImporting, false, 'waiting for input must not enter loading');
+  }
+  c.importDialogKind = '';
   c.persistImportContent = async uri => {
+    assert.equal(c.isImporting, true, 'loading must remain active until persistence completes');
     imported.push(uri);
     if (uri === 'file://a.json') {
       queue.open(stack, 'file://d.json');
@@ -62,12 +70,13 @@ async function main() {
   assert.deepEqual(imported, ['file://a.json', 'file://b.json', 'file://c.json', 'file://d.json']);
   assert.equal(queue.hasPending(), false);
   assert.equal(c.isImporting, false);
-  assert.equal(c.showImportPanel, true, 'retain failure feedback');
+  assert.equal(c.errors.length, 1, 'failed files retain error feedback without opening the removed import sheet');
+  assert.equal(c.importDialogKind, '');
   queue.open(stack, 'file://a.json');
   c.persistImportContent = async uri => { imported.push(uri); return true; };
   await c.consumeExternalImports();
   assert.equal(imported.length, 5, 'intentional reimport of the same URI is allowed');
-  assert.equal(c.showImportPanel, false, 'successful import closes its sheet');
+  assert.equal(c.importDialogKind, '', 'successful external imports stay on the source list');
   stack.names.pop();
   assert.deepEqual(stack.names, ['home'], 'one back leaves source management');
 

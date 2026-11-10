@@ -149,7 +149,7 @@
     if (value.kind === 'ready') {
       frame.ready = true;
       clearTimeout(frame.timeout);
-      frame.flow = frame.view.contentWindow.hsdaEpub.prepareFlow();
+      frame.flow = frame.view.contentWindow.hsdaEpub.prepareFlow(frame.section);
       if (frame.flow) { frame.view.style.position = 'static'; frame.view.contentWindow.scrollTo(0, 0); }
       frame.observer = new ResizeObserver(function () { measure(frame); });
       frame.observer.observe(frame.view.contentDocument.body);
@@ -236,6 +236,11 @@
   }
   window.hsdaEpub = {
     receiveFrame: receiveFrame, bindInput: bindInput, seekFrame: seekFrame,
+    pauseMedia: function (except) {
+      frames.forEach(function (frame) {
+        if (frame.ready && frame.id !== except) frame.view.contentWindow.hsdaEpub.pauseMedia();
+      });
+    },
     restoring: function (id) { return initial || !!(restorePending && restorePending.id === id); },
     readingTop: function (id) {
       var frame = find(id);

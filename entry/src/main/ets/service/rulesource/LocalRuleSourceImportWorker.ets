@@ -1,4 +1,4 @@
-import { buffer } from '@kit.ArkTS';
+import { CharsetCodec } from '../../utils/CharsetCodec';
 
 // 本模块只能依赖后台可用的基础库，不能导入含 @Trace/@ObservedV2 的模型或业务服务。
 class ImportJsonSource {
@@ -15,11 +15,11 @@ class ImportJsonEnvelope extends ImportJsonSource {
   list?: ImportJsonSource[];
 }
 
-/** 返回拒绝数量和原始定义，完整模型只在主线程创建。 */
+/** 后台解码和拆分 JSON，返回拒绝数量和原始定义；完整模型只在主线程创建。 */
 @Concurrent
-export function parseImportFile(content: string): string[] {
+export function parseImportBuffer(content: ArrayBuffer): string[] {
   const entries: string[] = ['0'];
-  const root: ImportJsonEnvelope = JSON.parse(content.trim());
+  const root: ImportJsonEnvelope = JSON.parse(CharsetCodec.decodeBuffer(content).trim());
   if (root === null || typeof root !== 'object') return entries;
   let items: ImportJsonSource[] = [];
   if (Array.isArray(root)) items = root;
