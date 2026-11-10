@@ -1,4 +1,14 @@
+import { BookSource } from '../model/BookSource';
+import { LocalRuleSource } from '../model/LocalRuleSource';
+
 export class SearchOptions {
+  static matchesSource(source: BookSource, textOnly: boolean, audioOnly: boolean, comicOnly: boolean = false): boolean {
+    // 原生源的顶层类型只是缺省值；聚合脚本和字段规则可逐本返回不同类型。
+    // 先保留搜索资格，再由 matchesContentType 按实际结果筛选。
+    if (source instanceof LocalRuleSource && source.engine === 'light-native') return true;
+    return SearchOptions.matchesSourceType(source.bookSourceType, textOnly, audioOnly, comicOnly);
+  }
+
   static matchesSourceType(type: number | undefined, textOnly: boolean, audioOnly: boolean, comicOnly: boolean = false): boolean {
     if (!textOnly && !audioOnly && !comicOnly) return true;
     return (textOnly && (type === 0 || type === 3)) || (audioOnly && type === 1) || (comicOnly && type === 2);

@@ -30,6 +30,33 @@
   function appearance() {
     if (active && active.appearance) send(active.appearance);
   }
+  function background(frame) {
+    // The iframe is clipped to the reading area, while the packaged paper remains
+    // full height. Copy CSS backgrounds, including images/gradients and fixed
+    // attachment; a solid cover would cut off the book's original artwork.
+    var doc = frame.view.contentDocument, root = getComputedStyle(doc.documentElement);
+    var body = getComputedStyle(doc.body), paper = document.createElement('div');
+    var properties = ['image', 'position', 'size', 'repeat', 'attachment', 'origin', 'clip', 'color'];
+    frame.section.style.isolation = 'isolate';
+    paper.style.cssText = 'position:absolute;inset:0;z-index:-1;pointer-events:none;box-sizing:border-box;';
+    paper.setAttribute('aria-hidden', 'true');
+    properties.forEach(function (name) {
+      if (!frame.section.style.getPropertyValue('background-' + name)) {
+        frame.section.style.setProperty('background-' + name, root.getPropertyValue('background-' + name));
+      }
+      paper.style.setProperty('background-' + name, body.getPropertyValue('background-' + name));
+    });
+    // Transparent EPUB paper is white, matching the Web viewport default.
+    if (getComputedStyle(frame.section).backgroundColor === 'rgba(0, 0, 0, 0)') frame.section.style.backgroundColor = '#fff';
+    frame.section.insertBefore(paper, frame.view);
+  }
+  function clip(frame) {
+    var top = frame.flow ? frame.top : Math.max(frame.top, Math.min(0, frame.bottom - innerHeight));
+    var height = frame.flow ? frame.height : innerHeight;
+    var value = 'inset(' + Math.max(0, cfg.top - top) + 'px 0 ' +
+      Math.max(0, top + height - innerHeight + cfg.bottom) + 'px 0)';
+    if (frame.clip !== value) { frame.clip = value; frame.view.style.clipPath = value; }
+  }
   function report(force) {
     if (!positionDirty && !force) return;
     // Character ranges and the native bridge are not part of drawing a scroll frame.
@@ -54,6 +81,7 @@
     frames.forEach(function (frame) {
       if (!frame.ready) return;
       frame.top = frame.offset - positionY; frame.bottom = frame.top + frame.height;
+      clip(frame);
       frame.readingTop = cfg.top - (frame.flow ? frame.top : Math.min(0, Math.max(frame.top, frame.bottom - innerHeight)));
       if (!frame.flow && frame.bottom > 0 && frame.top < innerHeight) {
         var y = Math.min(frame.height - innerHeight, Math.max(0, -frame.top));
@@ -151,6 +179,7 @@
       clearTimeout(frame.timeout);
       frame.flow = frame.view.contentWindow.hsdaEpub.prepareFlow(frame.section);
       if (frame.flow) { frame.view.style.position = 'static'; frame.view.contentWindow.scrollTo(0, 0); }
+      background(frame);
       frame.observer = new ResizeObserver(function () { measure(frame); });
       frame.observer.observe(frame.view.contentDocument.body);
       measure(frame);
@@ -166,7 +195,13 @@
       if (frame === active) appearance();
     } else if (value.kind === 'selection' || value.kind === 'tap' || value.kind === 'note' || value.kind === 'link') {
       if (value.kind === 'note' || value.kind === 'link') { stop(); sync(true); }
-      if (value.kind === 'tap') value.y += frame.view.getBoundingClientRect().top;
+      if (value.kind === 'tap') {
+        var bounds = frame.view.getBoundingClientRect();
+        // Native-flow chapters can be many screens tall. Tap regions belong to the
+        // visible reader viewport, not the expanded chapter's coordinate space.
+        value.x += bounds.left; value.y += bounds.top;
+        value.width = innerWidth; value.height = innerHeight;
+      }
       send(value);
     }
   }

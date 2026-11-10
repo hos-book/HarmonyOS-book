@@ -12,6 +12,8 @@ import { ReaderAutoPageService } from '../service/text/ReaderAutoPageService';
 import { ComicReaderService } from '../service/ComicReaderService';
 import { ReaderBookmark, ReaderTextDocument } from '../model/ReaderTools';
 import { ReaderToolsService } from '../service/text/ReaderToolsService';
+import { ReadingExcerptService } from '../service/text/ReadingExcerptService';
+import { ReadingExcerptRoute } from '../model/ReadingExcerptRoute';
 import { ReaderBookmarkSheet } from '../components/ReaderBookmarkSheet';
 import { ReaderReplaceSheet } from '../components/ReaderReplaceSheet';
 import { LocalTextImage } from '../service/text/LocalTextImage';
@@ -74,7 +76,7 @@ import {
   ReaderJumpChapterEvent
 } from '../model/TextReading';
 import { emitter } from '@kit.BasicServicesKit';
-import { ReaderPalette, ReaderPattern, ReaderImageMode, ReaderThemeId, ReaderCustomTheme, resolvePalette, resolveEffectiveThemeId } from '../model/ReaderTheme';
+import { ReaderPalette, ReaderPattern, ReaderImageMode, ReaderThemeId, ReaderCustomTheme, resolvePalette, resolveEffectiveThemeId, hexLuminance } from '../model/ReaderTheme';
 import { resolveReaderAccent } from '../theme/ReaderAccentColor';
 import { ReaderBackground } from '../components/ReaderBackground';
 import { ReaderContinuousComponent } from '../components/ReaderContinuousComponent';
@@ -158,6 +160,7 @@ export struct ReaderPage {
   @Local showReplaceSheet: boolean = false;
   @Local bookmarks: ReaderBookmark[] = [];
   @Local bookmarkBusy: boolean = false;
+  private excerptBusy: boolean = false;
   @Local switchingComic: boolean = false;
   @Local replaceSample: string = '';
   private textDocuments: Map<number, ReaderTextDocument> = new Map();
@@ -883,6 +886,9 @@ export struct ReaderPage {
       MenuItem({ content: $r('app.string.reader_bookmarks'),
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.bookmark')) })
         .onClick((): void => { this.showReaderMenu = false; this.openBookmarks(); })
+      MenuItem({ content: $r('app.string.reader_excerpts'),
+        symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.doc_text')) })
+        .onClick((): void => this.openExcerpts()).id('reader-excerpts')
       if (this.isOnlineTextBook()) {
         MenuItem({ content: $r('app.string.role_cast_title'),
           symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.person')) })
@@ -908,6 +914,40 @@ export struct ReaderPage {
           .onClick((): void => { this.showReaderMenu = false; this.switchToComic(); })
       }
     }
+  }
+
+  private openExcerpts(): void {
+    const book = this.book;
+    if (!book || this.leaving) return;
+    this.showReaderMenu = false;
+    this.stopAutoPage();
+    this.saveProgress();
+    this.navStack.pushPathByName('readingExcerpts', new ReadingExcerptRoute(ReadingExcerptService.bookKey(book), book.title));
+  }
+
+  private async saveExcerpt(chapterIndex: number, start: number, end: number, text: string): Promise<void> {
+    const book = this.book;
+    const context = this.context;
+    if (!book || !context || this.excerptBusy || this.leaving || !this.readerVisible || this.loading ||
+      this.onlineTextLoading || this.readerError || this.onlineTextTurnPreview !== null ||
+      !Number.isInteger(chapterIndex) || chapterIndex < 0 || chapterIndex >= book.chapters.length) return;
+    if (!text.trim()) return;
+    if (text.length > 20000) { this.showToast($r('app.string.reader_excerpt_too_long')); return; }
+    const document = this.textDocuments.get(chapterIndex);
+    const rawStart = !this.epubOriginalEnabled && document ? document.toRaw(start) : start;
+    const rawEnd = !this.epubOriginalEnabled && document ? document.toRaw(end) : end;
+    if (!Number.isInteger(rawStart) || !Number.isInteger(rawEnd) || rawStart < 0 || rawEnd <= rawStart) {
+      this.showToast($r('app.string.reader_excerpt_failed')); return;
+    }
+    this.excerptBusy = true;
+    this.stopAutoPage();
+    try {
+      const result = await ReadingExcerptService.create(context, book, book.chapters[chapterIndex], chapterIndex,
+        rawStart, rawEnd, text);
+      if (!this.leaving) this.showToast(result.created ? $r('app.string.reader_excerpt_saved') : $r('app.string.reader_excerpt_exists'));
+    } catch (_error) {
+      if (!this.leaving) this.showToast($r('app.string.reader_excerpt_failed'));
+    } finally { this.excerptBusy = false; }
   }
 
   private openReaderAi(chapter: number, action: ReaderAiAction, text: string): void {
@@ -1654,7 +1694,12 @@ export struct ReaderPage {
     palette.accent = resolveReaderAccent(this.getUIContext().getHostContext(), this.themeAccent);
     this.palette = palette;
     // 深色底配白字状态栏，浅色底配黑字
-    WindowUtils.setReaderStatusBarLight(!this.epubOriginalEnabled && this.palette.isDark).catch((_e: Error): void => {});
+    this.syncReaderStatusBarColor();
+  }
+
+  private syncReaderStatusBarColor(): void {
+    const dark = this.epubOriginalEnabled ? hexLuminance(this.epubOriginalPaper) <= 0.55 : this.palette.isDark;
+    WindowUtils.setReaderStatusBarLight(dark).catch((_e: Error): void => {});
   }
 
   private createReadingSettings(): TextReadingSettings {
@@ -3411,6 +3456,7 @@ export struct ReaderPage {
         onComment: (comment: ReaderParagraphComment): void => this.openParagraphComment(this.onlineTextChapterIndex(), comment),
         epubStyle: this.epubStyle(this.onlineTextChapterIndex(), this.currentOnlineTextColumn(column).startOffset),
         onReadFrom: (offset: number): void => { this.readFromParagraph(this.onlineTextChapterIndex(), offset); },
+        onExcerpt: (start: number, end: number, text: string): void => { this.saveExcerpt(this.onlineTextChapterIndex(), start, end, text); },
         onAi: (action: ReaderAiAction, text: string): void => this.openReaderAi(this.onlineTextChapterIndex(), action, text),
         selectionEnabled: this.onlineTextTurnPreview === null && !this.readerBarVisible && !this.showChapterSheet &&
           !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet &&
@@ -3515,6 +3561,7 @@ export struct ReaderPage {
               onComment: (index: number, comment: ReaderParagraphComment): void => this.openParagraphComment(index, comment),
               getEpubStyle: (index: number, offset: number): EpubPageStyle => this.epubStyle(index, offset),
               onReadFrom: (chapter: number, offset: number): void => { this.readFromParagraph(chapter, offset); },
+              onExcerpt: (chapter: number, start: number, end: number, text: string): void => { this.saveExcerpt(chapter, start, end, text); },
               onAi: (chapter: number, action: ReaderAiAction, text: string): void => this.openReaderAi(chapter, action, text),
               selectionEnabled: !this.readerBarVisible && !this.showChapterSheet && !this.showSourceSwitch && !this.showSettingsSheet && !this.showSpeechSheet && !this.showBookmarkSheet && !this.showCommentSheet && !this.showAiSheet && !this.showReplaceSheet && !this.showReaderMenu,
               onSelectionChange: (active: boolean): void => { this.selectingText = active; },
@@ -3795,6 +3842,7 @@ export struct ReaderPage {
     Stack() {
     EpubOriginalReader({ request: this.epubOriginalRequest, commands: this.epubOriginalCommands,
       paged: this.pageTurnMode !== PageTurnMode.Vertical,
+      paperColor: this.epubOriginalPaper,
       insetTop: this.readerTopInsetVp() + this.readerHeaderHeight() + 8,
       insetBottom: this.readerTextBottomPaddingVp() + this.readerFooterHeight(),
       insetLeft: this.leftSafeVp + 20, insetRight: this.rightSafeVp + 20,
@@ -3808,9 +3856,11 @@ export struct ReaderPage {
       onChapter: (request: EpubOriginalRequest): void => this.commitOriginalChapter(request),
       onSelectionChange: (active: boolean): void => { this.selectingText = active; },
       onNote: (chapter: number, comments: ReaderCommentMessages): void => this.openOriginalComment(chapter, comments),
+      onExcerpt: (chapter: number, start: number, end: number, text: string): void => { this.saveExcerpt(chapter, start, end, text); },
       onAi: (chapter: number, action: ReaderAiAction, text: string): void => this.openReaderAi(chapter, action, text),
       onAppearance: (background: string, foreground: string): void => {
         this.epubOriginalPaper = background; this.epubOriginalInk = foreground;
+        this.syncReaderStatusBarColor();
       },
       onCenterTap: (): void => this.toggleReaderBar(),
       onTurn: (): void => { this.beginContinuousSpeechTurn(); this.playPageTurnHaptic(); this.autoPage.restart(); },
@@ -3824,7 +3874,7 @@ export struct ReaderPage {
       Column() { this.buildReaderFooter() }
         .width('100%').padding({ left: this.readerLeftPadding(), right: this.readerRightPadding() })
     }.width('100%').height('100%').hitTestBehavior(HitTestMode.BLOCK_DESCENDANTS)
-      .padding({ top: this.readerTopInsetVp(), bottom: this.bottomSafeVp, left: this.leftSafeVp, right: this.rightSafeVp })
+      .padding({ top: this.readerTopInsetVp(), bottom: this.readerTextBottomPaddingVp() })
     }.width('100%').height('100%').backgroundColor(this.epubOriginalPaper)
   }
 

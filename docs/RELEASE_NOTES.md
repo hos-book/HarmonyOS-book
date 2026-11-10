@@ -1,3 +1,32 @@
+# 1.1.1 更新日志（2026-11-10）
+
+1. 新增读书摘录，支持在分页阅读、连续滚动及 EPUB 原版精排中选取文字，保存书名、章节和摘录时间。
+2. 新增摘录管理，可从阅读页查看本书摘录，或在阅听记录中按书籍集中浏览，支持复制、删除和文字分享。
+3. 新增摘录图片分享，自动生成包含正文、日期与出处的阅读卡片，长摘录支持分张导出。
+4. 优化聚合书源的搜索筛选，按作品实际类型展示小说、有声书和漫画，修复部分内容被提前过滤的问题。
+5. 完善阅读选区与摘录位置记录，优化 EPUB 原版精排中的选文操作及与阅读工具的衔接。
+6. 优化 EPUB 原版精排的点击区域、页边距和书内跳转，改善连续阅读与阅读位置恢复体验。
+7. 优化封面裁剪、摘录页面布局和操作入口，更新技术与支持内容，提升阅读体验。
+
+摘录保存在当前设备，暂不参与云同步或应用备份；图片与文字分享通过系统分享面板完成。
+
+## 构建与分发
+
+- 版本名：1.1.1；版本代码：1011001；构建版本：1。
+- 使用 Release SDK 和既有发布签名，保留正式渠道配置。
+- 邀测要求：即刻开始，通知全部现有测试组，关闭上架自检。
+- 构建校验：Release SDK 26.0.0.105，release 产品 / buildMode=release / debug=false，发布 Profile 类型为 release；APP 与 QuickJS HAR 均为 Release 渠道，最低 API 20、目标 API 26。包内版本、分层图标及混淆动态接口契约校验通过。
+- 验证：17 个改动 ETS 文件执行静态检查；摘录持久化、摘录分享、阅读选区、搜索筛选、EPUB 连续阅读、书内媒体及翻页/边距重排共 7 组回归通过。最终包内 EPUB 脚本与源码一致，编译缓存包含最新阅读位置恢复逻辑。本次未重复真机或手表验证，视觉与设备边界见 docs/APP_UI.md。
+- 构建工具：MCP 遇到本机 OHPM 批处理递归错误后，使用已核验的 Release IDE 官方 Node/Hvigor CLI（--no-daemon）。保留既有 SDK 兼容性、废弃接口及上游依赖提示。
+- APP：`artifacts/releases/1.1.1-1011001/Jianting-1.1.1-1011001-release.app`，298408232 字节。
+- SHA-256：`0f8f602b2ab2882216e6299540a7b813dba4c9cadb837e0522659078a0d1ef11`。
+- 在线依据：[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)、[元数据规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/app-metadata-audit-skill/SKILL.md)。已读取实时目录与相关指南；浏览器控制连接不可用，使用项目既有服务账号授权调用同一应用的 AGC 接口，未修改授权或签名配置。
+- AGC 邀测草稿：`2080731104838468736`。更新说明已保存，全部现有两个测试组（简听外部体验 156 人、内测组 2 人）已绑定，needNotify=1；创建时 onshelfSelfDetect=0。软件包上传与提交结果待回读后补充。
+
+## 邀测说明
+
+请重点体验普通分页、连续滚动及 EPUB 原版精排中的摘录保存，按书浏览、复制、删除、文字分享和长摘录图片分享，以及聚合书源的内容类型筛选。反馈请附设备型号、系统版本、复现步骤和相关截图或日志。摘录目前仅在本机保存，尚未接入云同步或应用备份。
+
 # 1.1.0 更新日志（2026-11-10，重新发布）
 
 1. 新增多角色朗读，支持使用本地模型识别正文人物，并按书籍分别设置旁白、对白与角色音色。

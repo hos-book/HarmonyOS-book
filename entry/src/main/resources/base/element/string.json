@@ -2133,6 +2133,10 @@
       "value": "*城，谢谢你在简听阅读留下这一份心意。城市里的日子有时很忙，能为大家留一个听书、看书的小角落，是我想继续做好的事。你的支持，让这个角落更有了温度。愿你在来往的路上有人陪伴，在停下来的时候，也有文字和声音接住疲惫。"
     },
     {
+      "name": "support_thanks_woyoudianjinzhang",
+      "value": "我有点紧张，谢谢你把支持留给简听阅读。借你的名字，也想送你一句轻松的话：在这里，书可以慢慢读，故事可以暂停，没人催你赶往下一章。你的这份心意，我会好好珍惜，也会继续把这个能让人放松片刻的小地方照顾好。愿你往后的紧张，多半来自好事将近的期待；而打开简听阅读的时候，刚好可以松一口气。"
+    },
+    {
       "name": "support_everyone_title",
       "value": "还有正在阅读的你"
     },
@@ -2170,7 +2174,7 @@
     },
     {
       "name": "sponsor_thanks_names",
-      "value": "WT\n子阳\ndefault\n干脆面不用泡\n苏小锋\n张\n李富贵\n最初未来\n潮生万象\n向钱看向厚看\nHAOYUN\n*.\n一飞冲天\nL.\n再见\n柏子\n爱你806\n*城"
+      "value": "WT\n子阳\ndefault\n干脆面不用泡\n苏小锋\n张\n李富贵\n最初未来\n潮生万象\n向钱看向厚看\nHAOYUN\n*.\n一飞冲天\nL.\n再见\n柏子\n爱你806\n*城\n我有点紧张"
     },
     {
       "name": "sponsor_thanks_hendo",
@@ -8583,6 +8587,138 @@
     {
       "name": "role_model_leave_hint",
       "value": "请留在本页完成导入，返回会取消；原有模型会保留。"
+    },
+    {
+      "name": "reader_excerpt_title",
+      "value": "读书摘录"
+    },
+    {
+      "name": "reader_excerpt_count",
+      "value": "%d 条摘录"
+    },
+    {
+      "name": "reader_excerpt_empty",
+      "value": "还没有读书摘录"
+    },
+    {
+      "name": "reader_excerpt_empty_hint",
+      "value": "阅读时长按选中句子或段落，点“保存摘录”"
+    },
+    {
+      "name": "reader_excerpt_book_empty",
+      "value": "这本书还没有摘录"
+    },
+    {
+      "name": "reader_excerpt_load_failed",
+      "value": "摘录加载失败，请重试"
+    },
+    {
+      "name": "reader_excerpt_load_more",
+      "value": "加载更多"
+    },
+    {
+      "name": "reader_excerpt_delete",
+      "value": "删除摘录"
+    },
+    {
+      "name": "reader_excerpt_delete_confirm",
+      "value": "删除后无法恢复这条摘录，是否继续？"
+    },
+    {
+      "name": "reader_excerpt_deleted",
+      "value": "摘录已删除"
+    },
+    {
+      "name": "reader_excerpt_delete_failed",
+      "value": "删除失败，请重试"
+    },
+    {
+      "name": "reader_excerpt_copy",
+      "value": "复制摘录"
+    },
+    {
+      "name": "reader_excerpt_copied",
+      "value": "摘录已复制"
+    },
+    {
+      "name": "reader_excerpt_copy_failed",
+      "value": "复制失败，请重试"
+    },
+    {
+      "name": "reader_excerpt_share",
+      "value": "分享卡片"
+    },
+    {
+      "name": "reader_excerpt_more",
+      "value": "更多操作"
+    },
+    {
+      "name": "reader_excerpt_subtitle",
+      "value": "留住书中打动你的句子"
+    },
+    {
+      "name": "reader_excerpt_book_accessibility",
+      "value": "%s，%d 条摘录"
+    },
+    {
+      "name": "reader_excerpt_save",
+      "value": "保存摘录"
+    },
+    {
+      "name": "reader_excerpt_saved",
+      "value": "已保存到本书摘录"
+    },
+    {
+      "name": "reader_excerpt_exists",
+      "value": "这段内容已收录"
+    },
+    {
+      "name": "reader_excerpt_failed",
+      "value": "摘录保存失败，请重试"
+    },
+    {
+      "name": "reader_excerpt_too_long",
+      "value": "每条摘录最多 20000 字，请缩小选区"
+    },
+    {
+      "name": "reader_excerpts",
+      "value": "本书摘录"
+    },
+    {
+      "name": "reader_excerpt_detail",
+      "value": "摘录卡片"
+    },
+    {
+      "name": "reader_excerpt_date",
+      "value": "摘录于 %s"
+    },
+    {
+      "name": "reader_excerpt_source",
+      "value": "《%s》"
+    },
+    {
+      "name": "reader_excerpt_brand",
+      "value": "简听阅读"
+    },
+    {
+      "name": "reader_excerpt_share_failed",
+      "value": "卡片生成或分享失败，请重试"
+    },
+    {
+      "name": "reader_excerpt_share_text",
+      "value": "分享文字"
+    },
+    {
+      "name": "reader_excerpt_card_pages",
+      "value": "长摘录会自动分成多张卡片，保留全部文字"
+    },
+    {
+      "name": "reader_excerpt_preparing",
+      "value": "正在生成卡片…"
+    },
+    {
+      "name": "reader_excerpt_card_limit",
+      "value": "这条摘录分行过多，请使用分享文字"
     }
   ]
 }

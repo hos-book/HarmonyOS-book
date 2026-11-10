@@ -3,9 +3,9 @@
     "bundleName": "com.huan.listenbook",
     "cloudFileSyncEnabled": true,
     "vendor": "ylwang",
-    "versionCode": 1010002,
-    "versionName": "1.1.0",
-    "buildVersion": "2",
+    "versionCode": 1011001,
+    "versionName": "1.1.1",
+    "buildVersion": "1",
     "icon": "$media:app_icon",
     "alternateIcons": [
       { "name": "gel", "icon": "$media:app_icon_gel" },

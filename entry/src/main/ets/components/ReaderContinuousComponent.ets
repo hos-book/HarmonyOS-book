@@ -23,6 +23,7 @@ export struct ReaderContinuousComponent {
   @Local selectionActive: boolean = false;
   @Event onSelectionChange: (active: boolean) => void = () => {};
   @Event onReadFrom: (chapter: number, offset: number) => void = () => {};
+  @Event onExcerpt: (chapter: number, start: number, end: number, text: string) => void = () => {};
   @Event onAi: (chapter: number, action: ReaderAiAction, text: string) => void = () => {};
   @Param tapLeftPercent: number = 33;
   @Param tapRightPercent: number = 33;
@@ -416,6 +417,7 @@ export struct ReaderContinuousComponent {
                   this.onSelectionChange(active);
                 },
                 onReadFrom: (offset: number): void => this.onReadFrom(row.chapterIndex, offset),
+                onExcerpt: (start: number, end: number, text: string): void => this.onExcerpt(row.chapterIndex, start, end, text),
                 onAi: (action: ReaderAiAction, text: string): void => this.onAi(row.chapterIndex, action, text),
                 page: row.page, text: row.text, source: row.source, sourceStart: row.startOffset,
                 fontFamily: this.fontFamily, fontWeight: this.fontWeight,

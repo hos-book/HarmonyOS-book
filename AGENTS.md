@@ -66,6 +66,8 @@ Pages hold `@Local` state + Service singletons. No V1 viewmodel layer exists.
 
 ## Critical Coding Rules
 
+- **页面底部连续背景（用户明确偏好）**：不要用固定底部操作栏或外层底部留白把卡片、内容区和页面背景硬切开。滚动内容应自然延伸至底部安全区，底部避让放在滚动内容内部；摘录详情的复制、分享、删除统一放在右上角标题栏，不恢复底部按钮栏。卡片品牌区使用应用图标与“简听阅读”整体居中，不使用绿色竖线。
+
 - **沉浸光感阴影（重复问题记忆）**：阅听记录的“累计阅听 / 连续阅听”统计胶囊必须保留沉浸材质且无外溢阴影。`HdsTabs.barFloatingStyle` 的内部阴影不能靠宿主 `.shadow(0)` 消除；参照 `ImmersiveSummaryTag`、`ImmersiveCircleButton`，在最外层按实际高度一半设置 `borderRadius(radius, RenderStrategy.OFFSCREEN)` 并 `clip(true)`（经 `PlatformCompat.floatingTabs` 守卫，旧 API 普通圆角裁剪）。不要再次删除此裁剪，也不要用不透明底色遮阴影；修改后须在实机查看胶囊下缘，构建通过不等于视觉验证。
 
 - **Loading indicators**: always set `.color(AppColor.Brand)` — never rely on HarmonyOS default brand blue

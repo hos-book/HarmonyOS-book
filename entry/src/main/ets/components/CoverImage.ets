@@ -49,6 +49,7 @@ export struct CoverImage {
   // 旋转封面先统一裁剪再合成，避免图片与占位的裁剪边缘叠加。
   @Param compositeEdges: boolean = false;
   @Param imageFit: ImageFit = ImageFit.Cover;
+  @Param interpolationQuality: ImageInterpolation = ImageInterpolation.Medium;
   @Param highPriority: boolean = true;
   /** 固定播放栏不依赖滚动可见性回调，挂载和回前台即可加载。 */
   @Param eagerLoad: boolean = false;
@@ -208,7 +209,7 @@ export struct CoverImage {
         .objectFit(this.imageFit)
         // 按布局尺寸和 objectFit 等比降采样；sourceSize 的数字单位是 vp，不能传像素预算。
         .autoResize(true)
-        .interpolation(ImageInterpolation.Medium)
+        .interpolation(this.interpolationQuality)
         .opacity(this.imageReady ? 1 : 0)
         .onComplete((event) => {
           // 数据加载阶段为原图尺寸；不能用 sourceSize 缩略解码后的尺寸覆盖它。
@@ -235,7 +236,7 @@ export struct CoverImage {
         .clip(!this.compositeEdges)
         .objectFit(this.imageFit)
         .autoResize(true)
-        .interpolation(ImageInterpolation.Medium)
+        .interpolation(this.interpolationQuality)
         .opacity(this.imageReady ? 1 : 0)
         .onComplete((event) => {
           if (!this.appeared || this.url !== url) return;
@@ -297,8 +298,8 @@ export struct CoverImage {
           .draggable(false)
           .width(this.displayWidth()).height(this.useFixedHeight ? this.imgHeight : undefined)
           .aspectRatio(this.useFixedHeight ? undefined : this.displayRatio()).objectFit(this.imageFit)
-          .borderRadius(this.radius).autoResize(true)
-          .interpolation(ImageInterpolation.Medium)
+          .borderRadius(this.compositeEdges ? 0 : this.radius).autoResize(true)
+          .interpolation(this.interpolationQuality)
       }
     }
     .width(this.displayWidth())

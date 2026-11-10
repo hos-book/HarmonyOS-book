@@ -31,21 +31,27 @@ const sourceClasses = component.replace(/^import .*;\r?\n/gm, '').replace('@Comp
   .replace('export struct ', 'export class ').replace(/@(Param|Event|Local) /g, '')
   .replace(/  @Monitor\([^\n]*\)\r?\n/g, '');
 class Spot { snippet = ''; fraction = 0; page = 0; count = 1; end = false; }
-let reader, browser, delivered = [], events, chapterLoads = [];
+let reader, browser, delivered = [], events, chapterLoads = [], delayReady = false, pendingReady = [];
 function viewport(code) {
   events = {};
   const style = { setProperty(name, value) { this[name] = value; } };
   const document = { readyState: 'complete', fonts: { ready: Promise.resolve() },
-    body: { style, querySelectorAll: () => [] }, documentElement: { style, scrollWidth: 390 * 5, scrollHeight: 760 },
+    body: { style, querySelectorAll: () => [] },
+    documentElement: { style, scrollWidth: 390 * 5, scrollHeight: 760, appendChild() {} },
     head: { appendChild() {} }, getElementById: () => null, querySelectorAll: () => [],
-    createElement: () => ({}), createTreeWalker: () => ({ nextNode: () => null }),
+    createElement: () => ({ style: { setProperty() {} }, setAttribute() {} }),
+    createTreeWalker: () => ({ nextNode: () => null }),
     addEventListener: (name, fn) => { events[name] = fn; }
   };
   browser = vm.createContext({ document, NodeFilter: { SHOW_TEXT: 4 }, innerWidth: 390, innerHeight: 760,
     scrollX: 0, scrollY: 0, setTimeout, clearTimeout, getSelection: () => '',
-    getComputedStyle: () => ({}), requestAnimationFrame: fn => setImmediate(fn), cancelAnimationFrame: clearImmediate,
+    getComputedStyle: () => ({ getPropertyValue: () => '' }),
+    requestAnimationFrame: fn => setImmediate(fn), cancelAnimationFrame: clearImmediate,
     addEventListener: (name, fn) => { events[name] = fn; },
-    epubHost: { report(value) { setImmediate(() => reader.message(value)); } }
+    epubHost: { report(value) {
+      if (delayReady && JSON.parse(value).kind === 'ready') pendingReady.push(value);
+      else setImmediate(() => reader.message(value));
+    } }
   });
   browser.window = browser;
   browser.scrollTo = (x, y) => { browser.scrollX = x; browser.scrollY = y; };
@@ -79,6 +85,13 @@ vm.runInNewContext(ts.transpileModule(sourceClasses, { compilerOptions: {
 const { EpubOriginalReader, EpubOriginalRequest } = exportsObject;
 function request(chapter) { return Object.assign(new EpubOriginalRequest(), { root: '/book', chapter, text: 'a'.repeat(100) }); }
 async function tick() { await new Promise(resolve => setImmediate(resolve)); }
+async function settled(condition) {
+  const deadline = Date.now() + 2000;
+  while (!condition()) {
+    assert.ok(Date.now() < deadline, 'EPUB layout did not settle');
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+}
 (async () => {
   reader = new EpubOriginalReader();
   Object.assign(reader, { alive: true, attached: true, initialPageReady: true, script, request: request(0),
@@ -131,6 +144,38 @@ async function tick() { await new Promise(resolve => setImmediate(resolve)); }
   await cancelling;
   assert.equal(delivered.at(-1).page, 0);
   reader.readSpot = readSpot;
+  // Chrome/safe-area changes must reflow at the current character, not request.offset or an old page number.
+  await reader.seek(63);
+  const currentFraction = browser.hsdaEpub.spot().fraction;
+  reader.insetTop = 56; reader.insetBottom = 48; reader.insetsChanged();
+  await settled(() => !reader.layoutUpdating && reader.layoutInsets === reader.insetKey());
+  assert.equal(browser.hsdaEpubConfig.spot.fraction, currentFraction);
+  assert.equal(browser.hsdaEpubConfig.restorePage, -1, 'new geometry restores characters, not old page indices');
+  assert.equal(browser.hsdaEpub.spot().page, 3, 'inset updates must not jump to the original request offset');
+
+  const beforePreviewReflow = chapterLoads.length;
+  assert.equal(await reader.prepare(true), true);
+  reader.insetTop = 72; reader.insetsChanged();
+  await reader.refreshLayout();
+  assert.equal(chapterLoads.length, beforePreviewReflow, 'layout changes wait for a preview to finish');
+  await reader.complete(false);
+  await settled(() => !reader.layoutUpdating && reader.layoutInsets === reader.insetKey());
+  assert.equal(browser.hsdaEpub.spot().fraction, currentFraction, 'cancelled preview retains its confirmed character');
+
+  // Insets changed after document construction are applied once the outstanding paint completes.
+  delayReady = true;
+  const repaint = reader.loadPart(reader.partIndex, 0, false, await reader.readSpot(), false);
+  await settled(() => pendingReady.length > 0);
+  reader.insetBottom = 80; reader.insetsChanged();
+  await reader.refreshLayout();
+  assert.equal(reader.loading, true);
+  delayReady = false;
+  pendingReady.splice(0).forEach(value => reader.message(value));
+  await repaint;
+  await settled(() => !reader.layoutUpdating && reader.layoutInsets === reader.insetKey());
+  assert.equal(browser.hsdaEpub.spot().fraction, currentFraction);
+  assert.match(reader.document, /"bottom":80/, 'the final page uses the latest insets');
+
   // Continuous prefetch is relative to the buffered boundary, not the visible chapter.
   const continuous = new EpubOriginalReader();
   const commands = [], adjacentCalls = [];
@@ -158,6 +203,27 @@ async function tick() { await new Promise(resolve => setImmediate(resolve)); }
   assert.deepEqual(delivered.at(-1), { chapter: 6, offset: 25 }, 'visible frame commits chapter before position');
   continuous.requestChanged();
   assert.equal(continuous.serial, 20, 'committing a buffered chapter must not reload the Web document');
+
+  const reflow = new EpubOriginalReader();
+  const restoredFrames = [];
+  Object.assign(reflow, { alive: true, attached: true, initialPageReady: true, loading: false, paged: false,
+    active: request(3), parts: await originalStore.parts(), frames: [next], activeFrame: 0,
+    insetTop: 60, insetBottom: 40, layoutInsets: 'old',
+    controller: { runJavaScript: async () => JSON.stringify({ kind: 'position', frame: next.id,
+      snippet: 'same visible line', fraction: 0.65, page: 2, count: 4 }) },
+    onChapter: value => { reflow.request = value; },
+    loadPart: async (index, offset, end, spot, restorePage) => {
+      restoredFrames.push({ chapter: reflow.active.chapter, index, spot, restorePage });
+      reflow.layoutInsets = reflow.insetKey();
+    }
+  });
+  await reflow.refreshLayout();
+  assert.equal(restoredFrames[0].chapter, 6, 'continuous reflow selects the visible frame before rebuilding');
+  assert.equal(restoredFrames[0].spot.fraction, 0.65);
+  assert.equal(restoredFrames[0].spot.snippet, 'same visible line');
+  assert.equal(restoredFrames[0].restorePage, false);
+  reflow.alive = false;
+
   continuous.adjacent = async () => null;
   await continuous.extendContinuous(next.id, true);
   assert.match(commands.at(-1), /\.finish\(1,false\)/, 'book end silently completes prefetch');
@@ -177,5 +243,5 @@ async function tick() { await new Promise(resolve => setImmediate(resolve)); }
   assert.equal(commands.length, beforeStale, 'late prefetch cannot append to a new reading session');
   continuous.alive = false;
   reader.alive = false; reader.finishPaint(false);
-  console.log('EPUB native swipe, preview/commit, cancellation and continuous prefetch/position/session boundaries passed');
+  console.log('EPUB native swipe, preview/commit, cancellation, inset reflow and continuous prefetch/position/session boundaries passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="136" viewBox="0 0 180 136">
+  <g stroke="#9B8B74" stroke-width="1" fill="none" opacity="0.22">
+    <path d="M70 136C72 76 124 34 180 34"/>
+    <path d="M88 136C91 86 134 54 180 54"/>
+    <path d="M108 136C111 104 143 75 180 75"/>
+    <path d="M128 136C130 120 151 98 180 98"/>
+  </g>
+  <g fill="#9B8B74" opacity="0.22">
+    <circle cx="148" cy="18" r="1.5"/>
+    <circle cx="159" cy="25" r="1"/>
+    <circle cx="169" cy="13" r="1.2"/>
+  </g>
+</svg>

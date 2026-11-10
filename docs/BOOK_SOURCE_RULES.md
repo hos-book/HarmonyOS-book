@@ -17,6 +17,8 @@
 
 ## 执行链
 
+搜索页的“仅搜索电子书 / 有声书 / 漫画”按单本搜索结果的内容类型筛选；原生源的顶层 `type` 只是缺省值，不据此提前排除整份聚合源。已导入原生源直接生效，无需删除重导；源的启停、搜索能力与“指定源搜索”仍独立生效。服务端聚合定义继续作为一个导入源管理，不按脚本内部站点名称拆成多个源；其自定义频道变量仍由书源设置控制，App 类型筛选不会改写这些变量。
+
 首页保留发现面板条目的 `group`，原生 `explore.menus` 的无目标标题由现有桥接层转换为分组。多个分组显示独立频道，综合预览轮询各组且最多四个分类；频道内保留全部分类。顶层 `type` 不代表每本作品类型，打开作品仍沿用列表/详情返回的类型。明确的视频分组从首页频道、分类和推荐中全部过滤，不请求内容。频道选择是按源保存的本机首页偏好，不改写源 JSON，也不自动改变 `vars.channel` 等搜索变量。
 
 `LocalRuleSourceImportParser → LocalRuleSourceRepository → BookSourceService / LocalRulePanelService → LocalRuleDispatcher / LightSourceBridge → LightSourceCore → 轻页原规则核心`

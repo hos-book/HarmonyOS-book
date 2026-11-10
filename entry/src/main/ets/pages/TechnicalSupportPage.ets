@@ -146,7 +146,8 @@ export struct TechnicalSupportPage {
     ['再见', $r('app.string.support_thanks_zaijian')],
     ['柏子', $r('app.string.support_thanks_baizi')],
     ['爱你806', $r('app.string.support_thanks_aini806')],
-    ['*城', $r('app.string.support_thanks_star_city')]
+    ['*城', $r('app.string.support_thanks_star_city')],
+    ['我有点紧张', $r('app.string.support_thanks_woyoudianjinzhang')]
   ]);
   private applicationState: ApplicationStateChangeCallback = {
     onApplicationForeground: (): void => { this.foreground = true; },

@@ -54,6 +54,12 @@ chapter('/cover-paged', cover, true);
 chapter('/image', `<div><img src="${picture}"/></div>`, false);
 chapter('/fill', `<img src="${picture}"/>`, true, false, 'img{object-fit:cover}');
 chapter('/gallery', gallery, true);
+chapter('/bounds', '<div id="above" style="position:fixed;top:0;left:0;width:100%;height:60px;background:red"></div>' +
+  '<div id="below" style="position:fixed;bottom:0;left:0;width:100%;height:50px;background:blue"></div>' +
+  '<p id="start">Beginning of the chapter and its saved position.</p>' +
+  '<p>Original typesetting stays inside the reading viewport.</p>'.repeat(45) +
+  '<p id="later">Destination paragraph after the internal link.</p>' + '<p>Following content.</p>'.repeat(15),
+  true, false, 'body{background:linear-gradient(#dceedd 50%,#ddccbb 50%) fixed}');
 chapter('/inner', gallery, false, true);
 chapter('/playback', Array.from(assets.keys()).map(name => {
   const tag = name.endsWith('.mp4') ? 'video' : 'audio';
@@ -181,6 +187,35 @@ async function browserResult(url, temp) {
     value.checks.push('real touch: native gallery forward/reverse snap and nested vertical scrolling preserve the reading page');
     return value;
   }
+  async function protectedBounds(value) {
+    await command('Page.navigate', { url: url + 'bounds' });
+    for (let n = 0; n < 40; n++) {
+      await delay(100);
+      if (await evaluate('!!(window.hsdaEpub && window.messages.some(m=>m.kind==="ready"))')) break;
+    }
+    assert.ok(await evaluate('hsdaEpub.spot().count > 2'), 'bounds fixture has several pages');
+    assert.equal(await evaluate('document.elementFromPoint(200,20)?.id'), '', 'positioned content cannot enter the header');
+    assert.equal(await evaluate('document.elementFromPoint(200,innerHeight-10)?.id'), '', 'positioned content cannot enter the footer');
+    for (const page of [0, 1]) {
+      await evaluate(`__legado.goPage(${page},false)`); await delay(100);
+      const png = await command('Page.captureScreenshot', { format: 'png' });
+      const file = path.join(temp, `bounds-${page}.png`); fs.writeFileSync(file, Buffer.from(png.data, 'base64'));
+      const colors = JSON.parse(execFileSync('python', ['-c',
+        'from PIL import Image;import json,sys;i=Image.open(sys.argv[1]).convert("RGB");print(json.dumps([i.getpixel((200,20)),i.getpixel((200,i.height-10))]))', file],
+      { windowsHide: true, encoding: 'utf8' }));
+      assert.deepEqual(colors, [[220, 238, 221], [221, 204, 187]], 'original fixed background continues through protected header/footer on page ' + page);
+    }
+    await evaluate('hsdaEpub.seek({snippet:"Beginningofthechapter",fraction:0})');
+    const before = await evaluate('hsdaEpub.spot()');
+    assert.equal(await evaluate('LegadoEpubHost.link("#later",false)'), true);
+    const after = await evaluate('hsdaEpub.spot()');
+    assert.ok(after.page > before.page && after.fraction > before.fraction, 'internal anchors update both page and saved character position');
+    const saved = after.snippet;
+    await evaluate('hsdaEpub.seek(' + JSON.stringify(after) + ')');
+    assert.equal(await evaluate('hsdaEpub.spot().snippet'), saved, 'internal anchor position survives restore');
+    value.checks.push('paged header/footer clip positioned content while preserving fixed backgrounds on later pages; internal anchor progress restores');
+    return value;
+  }
   try {
     const { targetId } = await command('Target.createTarget', { url: 'about:blank' });
     sessionId = (await command('Target.attachToTarget', { targetId, flatten: true })).sessionId;
@@ -191,7 +226,7 @@ async function browserResult(url, temp) {
       if (value.exceptionDetails) throw Error(JSON.stringify(value.exceptionDetails));
       if (value.result.value) {
         const result = JSON.parse(value.result.value);
-        return result.ok ? await nativeNested(result) : result;
+        return result.ok ? await protectedBounds(await nativeNested(result)) : result;
       }
     }
     throw Error('browser tests must finish');

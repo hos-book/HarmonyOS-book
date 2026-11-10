@@ -512,7 +512,7 @@ export struct SearchPage {
       const sources = await SourceDataService.getEnabledSources();
       if (gen !== this.searchGen) return;
       const selectedSources = sources.filter((source: BookSource): boolean =>
-        SearchOptions.matchesSourceType(source.bookSourceType, this.searchTextOnly, this.searchAudioOnly, this.searchComicOnly) &&
+        SearchOptions.matchesSource(source, this.searchTextOnly, this.searchAudioOnly, this.searchComicOnly) &&
         (!this.sourceFilterEnabled || this.selectedSourceUrls.includes(source.bookSourceUrl)));
       this.searchSourceTotal = selectedSources.length;
       const concurrency = await PreferenceService.getSearchConcurrency();

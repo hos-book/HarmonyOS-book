@@ -68,6 +68,10 @@ import { JianjianChatRoute } from '../model/JianjianAi';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { EVT_JIANJIAN_COMPANION_CHANGED } from '../service/PreferenceService';
 import { PlatformCompat } from '../utils/PlatformCompat';
+import { ReadingExcerptPage } from './ReadingExcerptPage';
+import { ReadingExcerptDetailPage } from './ReadingExcerptDetailPage';
+import { ReadingExcerptRoute } from '../model/ReadingExcerptRoute';
+import { ReadingExcerpt } from '../model/ReadingExcerpt';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { LocalImportRouteParams } from '../utils/FileOpenRouting';
 import { RuleSourceImportQueue } from '../service/rulesource/RuleSourceImportQueue';
@@ -665,6 +669,16 @@ struct Index {
         JianjianChatPage({ navStack: this.navStack,
           route: param instanceof JianjianChatRoute ? param : new JianjianChatRoute(),
           active: this.companionActive && this.companionRoute === 'jianjianChat' })
+      }
+    } else if (name === 'readingExcerpts') {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
+        ReadingExcerptPage({ navStack: this.navStack,
+          route: param instanceof ReadingExcerptRoute ? param : new ReadingExcerptRoute() })
+      }
+    } else if (name === 'readingExcerptDetail') {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
+        ReadingExcerptDetailPage({ navStack: this.navStack,
+          excerpt: param instanceof ReadingExcerpt ? param : new ReadingExcerpt() })
       }
     } else if (name === 'readingSettings') {
       ProfileMenuDestination() {

@@ -28,6 +28,7 @@ export struct ReaderSpeechText {
   @Param selectionRevision: number = 0;
   @Event onSelectionChange: (active: boolean) => void = () => {};
   @Event onReadFrom: (offset: number) => void = () => {};
+  @Event onExcerpt: (start: number, end: number, text: string) => void = () => {};
   @Event onAi: (action: ReaderAiAction, text: string) => void = () => {};
   @Param fontFamily: string = '';
   @Param fontWeight: number = 400;
@@ -61,7 +62,7 @@ export struct ReaderSpeechText {
             source: this.source.substring(part.startOffset - this.sourceStart, part.endOffset - this.sourceStart),
             sourceStart: part.startOffset, state: this.state, highlightEnabled: this.highlightEnabled && !part.isHeading,
             selectionEnabled: this.selectionEnabled && !part.isHeading, selectionRevision: this.selectionRevision,
-            onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom, onAi: this.onAi,
+            onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom, onAi: this.onAi, onExcerpt: this.onExcerpt,
             fontFamily: this.fontFamily, fontWeight: this.fontWeight, fontSize: this.fontSize,
             lineHeight: this.lineHeight, palette: this.fragmentPalette(part.isHeading)
           }).margin({ top: this.getUIContext().px2vp(part.flowSpacing) })
@@ -74,7 +75,7 @@ export struct ReaderSpeechText {
           page: this.page, text: this.text, source: this.source, sourceStart: this.sourceStart,
           state: this.state, highlightEnabled: this.highlightEnabled && !this.page.isHeading, selectionEnabled: this.selectionEnabled && !this.page.isHeading,
           selectionRevision: this.selectionRevision,
-          onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom, onAi: this.onAi,
+          onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom, onAi: this.onAi, onExcerpt: this.onExcerpt,
           fontFamily: this.fontFamily, fontWeight: this.fontWeight, fontSize: this.fontSize,
           lineHeight: this.lineHeight, palette: this.fragmentPalette(this.page.isHeading)
         }).backgroundColor(this.page.isHeading ? this.epubStyle.headingColor || Color.Transparent : Color.Transparent)
@@ -102,6 +103,7 @@ struct ReaderTextFragment {
   @Param selectionRevision: number = 0;
   @Event onSelectionChange: (active: boolean) => void = () => {};
   @Event onReadFrom: (offset: number) => void = () => {};
+  @Event onExcerpt: (start: number, end: number, text: string) => void = () => {};
   @Event onAi: (action: ReaderAiAction, text: string) => void = () => {};
   @Local selecting: boolean = false;
   @Local selectionStart: number = -1;
@@ -152,7 +154,16 @@ struct ReaderTextFragment {
 
   private runSelectionAction(id: TextMenuItemId, start: number, end: number): void {
     if (!this.selectionEnabled || start < 0 || end <= start) return;
-    if (id.equals(TextMenuItemId.of(ReaderSelectionMenu.LISTEN))) {
+    if (id.equals(TextMenuItemId.of(ReaderSelectionMenu.EXCERPT))) {
+      const from = this.sourceStart + SpeechTextHighlighter.sourceOffset(this.text, this.source, start);
+      const selected = this.text.substring(start, end);
+      let to = SpeechTextHighlighter.sourceOffset(this.text, this.source, end);
+      // sourceOffset points at the next visible character; an exclusive end must not absorb its leading whitespace.
+      if (!/\s$/.test(selected)) {
+        while (to > from - this.sourceStart && /\s/.test(this.source.charAt(to - 1))) to--;
+      }
+      this.onExcerpt(from, this.sourceStart + to, selected);
+    } else if (id.equals(TextMenuItemId.of(ReaderSelectionMenu.LISTEN))) {
       const offset = this.sourceStart + SpeechTextHighlighter.sourceOffset(this.text, this.source, start);
       this.onReadFrom(offset);
     } else if (id.equals(TextMenuItemId.of(ReaderSelectionMenu.DICTIONARY))) {
@@ -228,13 +239,14 @@ struct ReaderTextFragment {
   @LocalBuilder
   private buildSelectionAction(label: Resource, action: string) {
     Text(label).fontSize(14).fontColor($r('sys.color.font_primary')).maxLines(1)
-      .padding({ left: 10, right: 10, top: 12, bottom: 12 })
+      .padding({ left: 8, right: 8, top: 12, bottom: 12 })
       .onClick((): void => this.runSelectionAction(TextMenuItemId.of(action), this.selectionStart, this.selectionEnd))
   }
 
   @LocalBuilder
   private buildSelectionMenu() {
     Row() {
+      this.buildSelectionAction($r('app.string.reader_excerpt_save'), ReaderSelectionMenu.EXCERPT)
       this.buildSelectionAction($r('app.string.reader_listen_from_paragraph'), ReaderSelectionMenu.LISTEN)
       this.buildSelectionAction($r('app.string.reader_ai_dictionary'), ReaderSelectionMenu.DICTIONARY)
       this.buildSelectionAction($r('app.string.reader_ai_summarize'), ReaderSelectionMenu.SUMMARIZE)

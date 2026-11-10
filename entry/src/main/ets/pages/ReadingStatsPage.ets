@@ -846,6 +846,12 @@ export struct ReadingStatsPage {
         iconColor: this.contentFilter > 0 ? AppColor.Brand : AppTheme.IconPrimary,
         onPress: (): void => { this.contentFilterVisible = !this.contentFilterVisible; } })
         .bindMenu(this.contentFilterVisible, this.buildContentFilterMenu, this.contentFilterOptions())
+      ImmersiveCircleButton({ icon: $r('sys.symbol.bookmark'), label: $r('app.string.reader_excerpt_title'),
+        onPress: (): void => {
+          this.contentFilterVisible = false;
+          this.navStack.pushPathByName('readingExcerpts', '');
+        } })
+        .flexShrink(0)
       ImmersiveCircleButton({ icon: $r('sys.symbol.clock'),
         label: this.onlyUnfavorited ? $r('app.string.record_favorited_back') : $r('app.string.record_unfavorited_title'),
         onPress: (): void => {

@@ -5,6 +5,23 @@
   var anchor = cfg.spot, current = cfg.spot, restoration = cfg.spot;
   var contentTouch = null;
   var flowing = false, viewportWidth = innerWidth, viewportHeight = innerHeight;
+  function protectPagedBounds() {
+    if (!cfg.paged) return;
+    var body = document.body, style = getComputedStyle(body);
+    var top = Math.max(0, parseFloat(style.paddingTop) || 0);
+    var bottom = Math.max(0, parseFloat(style.paddingBottom) || 0);
+    // Padding paginates the text but does not clip positioned content or column ink.
+    // Paint the original background behind the clipped body, including its images.
+    var background = document.createElement('div');
+    background.setAttribute('aria-hidden', 'true');
+    background.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:-1;';
+    ['image', 'size', 'position', 'repeat', 'attachment', 'origin', 'clip', 'color'].forEach(function (name) {
+      background.style.setProperty('background-' + name, style.getPropertyValue('background-' + name));
+    });
+    document.documentElement.appendChild(background);
+    // Horizontal overflow is the upstream column strip; only clip vertically.
+    body.style.setProperty('clip-path', 'inset(' + top + 'px -1000000px ' + bottom + 'px -1000000px)', 'important');
+  }
   function setViewport(height) {
     document.documentElement.style.setProperty('--hsda-vh', height / 100 + 'px');
     document.documentElement.style.setProperty('--hsda-vmin', Math.min(innerWidth, height) / 100 + 'px');
@@ -247,7 +264,13 @@
         for (var i = 0; i < rows.length && i < 100 && remaining > 0; i++) item(rows[i], i);
       } else item(target, 0);
       send({ kind: 'note', comments: { items: items, empty: items.length === 0 } });
-    } else window.__legado.goAnchor(id);
+    } else {
+      anchor = null;
+      send({ kind: 'turn' });
+      window.__legado.goAnchor(id);
+      current = spot();
+      if (!cfg.continuous && !previewing) send(current);
+    }
     return true;
   }
   function linkAt(x, y) {
@@ -262,6 +285,7 @@
     ready: function () {
       if (cfg.restorePage >= 0) window.__legado.goPage(cfg.restorePage, false);
       ready = true; current = spot(); send(current);
+      protectPagedBounds();
       var body = getComputedStyle(document.body), html = getComputedStyle(document.documentElement);
       send({ kind: 'appearance', background: color(body.backgroundColor, color(html.backgroundColor, '#ffffff')),
         foreground: color(body.color, '#303030') });
@@ -275,10 +299,54 @@
     link: link,
     edge: function (direction) { send({ kind: 'edge', direction: direction }); }
   };
+  var excerptIndex = null;
+  window.addEventListener('resize', function () { excerptIndex = null; });
+  function excerptCompact(value) {
+    return value.replace(/[\s\u200b\ufeff]/g, '').replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉]/g,
+      function (digit) { return String('⁰¹²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉'.indexOf(digit) % 10); });
+  }
+  function excerptTextIndex() {
+    if (excerptIndex) return excerptIndex;
+    var nodes = [], text = [], length = 0, hidden = new WeakMap();
+    function excluded(element) {
+      if (!element || element === document.body) return false;
+      if (hidden.has(element)) return hidden.get(element);
+      var style = getComputedStyle(element);
+      var value = /^(rt|rp|script|style)$/i.test(element.nodeName) || style.display === 'none' ||
+        style.visibility === 'hidden' || style.visibility === 'collapse' || excluded(element.parentElement);
+      hidden.set(element, value); return value;
+    }
+    var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT), node;
+    while ((node = walker.nextNode())) {
+      if (excluded(node.parentElement)) continue;
+      var value = excerptCompact(node.nodeValue || '');
+      nodes.push({ node: node, offset: length }); text.push(value); length += value.length;
+    }
+    excerptIndex = { nodes: nodes, text: text.join('') };
+    return excerptIndex;
+  }
+  function excerptBoundary(container, offset, index) {
+    var point = document.createRange(); point.setStart(container, offset); point.collapse(true);
+    for (var i = 0; i < index.nodes.length; i++) {
+      var entry = index.nodes[i];
+      if (entry.node === container) return entry.offset + excerptCompact(container.nodeValue.substring(0, offset)).length;
+      if (point.comparePoint(entry.node, 0) >= 0) return entry.offset;
+    }
+    return index.text.length;
+  }
+  function excerptSpot(index, offset) {
+    return { snippet: index.text.substring(offset, offset + 32), fraction: index.text.length ? offset / index.text.length : 0 };
+  }
   document.addEventListener('selectionchange', function () {
-    var text = String(getSelection());
+    var selection = getSelection(), text = String(selection);
     // 多保留一个字符供宿主判断超限，不能静默处理被截断的选区。
-    send({ kind: 'selection', selected: !!text.length, selectionText: text.substring(0, 20001) });
+    var value = { kind: 'selection', selected: !!text.length, selectionText: text.substring(0, 20001) };
+    if (text && selection.rangeCount) {
+      var range = selection.getRangeAt(0), index = excerptTextIndex();
+      value.selectionStart = excerptSpot(index, excerptBoundary(range.startContainer, range.startOffset, index));
+      value.selectionEnd = excerptSpot(index, excerptBoundary(range.endContainer, range.endOffset, index));
+    }
+    send(value);
   });
   document.addEventListener('touchmove', function () {
     if (!cfg.paged && !cfg.continuous) { anchor = null; send({ kind: 'turn' }); }

@@ -28,7 +28,8 @@ for (let id = 1; id <= 12; id++) {
   const options = new Options(); options.paged = false; options.margins.top = 40; options.margins.bottom = 30;
   if (id === 3) { options.target.kind = 'spot'; options.target.snippet = 'Chapter3paragraph26:'; options.target.fraction = 0.93; }
   const injection = Script.injection(options);
-   const content = `<html><head><style>body{font:20px/32px serif;background:${id % 2 ? '#ffeecc' : '#ddeeff'};color:#223344;${id === 2 ? 'background-image:linear-gradient(#ddeeff,#ddeeff);background-attachment:fixed;' : ''}}p{margin:0 0 16px}.wrb-note{display:none}</style></head><body><div id="viewport-unit" style="height:10vh"></div>` +
+   const content = `<html><head><style>body{font:20px/32px serif;background:${id % 2 ? '#ffeecc' : '#ddeeff'};color:#223344;${id === 2 ? 'background-image:linear-gradient(90deg,#ddeeff,#99bbdd);background-attachment:fixed;' : ''}}p{margin:0 0 16px}.wrb-note{display:none}</style></head><body><div id="viewport-unit" style="height:10vh"></div>` +
+    (id === 5 ? '<div style="position:fixed;top:0;left:0">Packaged fixed heading</div>' : '') +
     Array.from({ length: 28 }, (_, n) => `<p>Chapter ${id} paragraph ${n}: 原版精排连续阅读，章节尾部仍然完整可见，相邻章节保留自己的字体和背景。${n === 0 ? '<a id="comment-link" epub:type="noteref" href="#note">6 条段评 ›</a>' : ''}</p>`).join('') +
     '<aside class="wrb-note" epub:type="footnote" id="note"><ol>' +
     Array.from({ length: 6 }, (_, n) => `<li><span class="wrb-u">读者${n}</span><span class="wrb-c">离线段评${n}。${'隐藏评论不应干扰正文的位置定位。'.repeat(70)}</span></li>`).join('') + '</ol></aside></body></html>';
@@ -69,6 +70,19 @@ const test = String.raw`
     check(Math.abs(third.contentDocument.getElementById('viewport-unit').offsetHeight-innerHeight/10)<=1,
       'viewport units retain the reader height after the iframe expands');
     check(hsdaEpub.spot().count>1,'native-flow progress uses reader screen height rather than expanded iframe height');
+    check(document.elementFromPoint(innerWidth/2,20).tagName!=='IFRAME'&&
+      document.elementFromPoint(innerWidth/2,innerHeight-15).tagName!=='IFRAME'&&
+      document.elementFromPoint(innerWidth/2,innerHeight/2).tagName==='IFRAME',
+      'scrolling chapter content is clipped outside the header and footer reading bounds');
+    check(getComputedStyle(third.parentElement.firstElementChild).backgroundColor===
+      getComputedStyle(third.contentDocument.body).backgroundColor,
+      'original chapter paper continues behind the clipped header and footer');
+    var tapX=innerWidth/2,tapY=innerHeight*.7,thirdBounds=third.getBoundingClientRect();
+    third.contentWindow.LegadoEpubHost.tap((tapX-thirdBounds.left)/third.contentWindow.innerWidth,
+      (tapY-thirdBounds.top)/third.contentWindow.innerHeight);
+    var tap=messages.filter(m=>m.kind==='tap').at(-1);
+    check(Math.abs(tap.x-tapX)<1&&Math.abs(tap.y-tapY)<1&&tap.width===innerWidth&&tap.height===innerHeight,
+      'expanded chapters report taps in the visible reader viewport for custom tap regions');
     var noteY=scrollY;
     third.contentDocument.getElementById('comment-link').click();
     var note=messages.filter(m=>m.kind==='note').at(-1);
@@ -84,6 +98,13 @@ const test = String.raw`
       getComputedStyle(view(2).parentElement).backgroundImage.includes('linear-gradient')&&
       getComputedStyle(view(2).contentDocument.body).backgroundImage==='none',
       'original fixed background is painted once by the outer document');
+    var fixed=view(2),fixedStart=fixed.parentElement.offsetTop;
+    scrollTo(0,fixedStart+innerHeight);hsdaEpub.spot();
+    check(document.elementFromPoint(innerWidth/2,20).tagName!=='IFRAME'&&
+      document.elementFromPoint(innerWidth/2,innerHeight-15).tagName!=='IFRAME'&&
+      getComputedStyle(fixed.parentElement).backgroundImage.includes('linear-gradient'),
+      'fixed background artwork remains visible while text is clipped in both bands');
+    scrollTo(0,third.parentElement.offsetTop);hsdaEpub.spot();await settle();
     check(first.fraction<0.03&&!first.snippet.includes('隐藏评论'),'hidden notes cannot make a chapter start report 100 percent');
     // Reach the old chapter scroll limit; the next document must already be available.
     scrollTo(0,third.parentElement.offsetTop+third.parentElement.offsetHeight-innerHeight);
@@ -111,6 +132,11 @@ const test = String.raw`
     check(hsdaEpub.spot().snippet===beforeResize.snippet,'window width changes preserve the reading character');
     scrollTo(0,view(4).parentElement.offsetTop-100);hsdaEpub.spot();
     check(hsdaEpub.spot().frame===3,'reverse scroll returns to previous chapter');
+    scrollTo(0,view(4).parentElement.offsetTop+view(4).parentElement.offsetHeight-innerHeight);hsdaEpub.spot();await settle();
+    var fifth=view(5);scrollTo(0,fifth.parentElement.offsetTop+100);hsdaEpub.spot();await settle();
+    check(fifth.style.position!=='static'&&document.elementFromPoint(100,20)!==fifth&&
+      document.elementFromPoint(100,document.documentElement.clientHeight-5)!==fifth,
+      'special fixed-position chapters also respect the header and footer clip');
     for(var n=0;n<110;n++){hsdaEpub.turn(true);await delay(25);}
     check(hsdaEpub.spot().frame>=10,'continuous scrolling advances through a long book');
     check(document.querySelectorAll('iframe').length<=5,'document window remains bounded');
@@ -158,7 +184,13 @@ async function nativeScroll(url, temp) {
     await command('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 1 });
     await command('Page.navigate', { url: url + '/native' });
     let ready = false;
-    for (let n = 0; n < 40 && !ready; n++) { await delay(100); ready = await evaluate('!!(window.hsdaEpub && hsdaEpub.spot() && document.querySelectorAll("iframe").length >= 2)'); }
+    for (let n = 0; n < 40 && !ready; n++) {
+      await delay(100);
+      ready = await evaluate(`!!(window.hsdaEpub && hsdaEpub.spot() && [3,4].every(id=>{
+        var view=Array.from(document.querySelectorAll('iframe')).find(v=>v.src.endsWith('/'+id+'.html'));
+        return view&&view.style.position==='static'&&view.clientHeight>innerHeight*2;
+      }))`);
+    }
     assert.ok(ready, 'native input fixture loads');
     await evaluate(`(() => {var v=Array.from(document.querySelectorAll('iframe')).find(v=>v.src.endsWith('/3.html'));
       scrollTo(0,v.parentElement.offsetTop+v.parentElement.offsetHeight-innerHeight/2);hsdaEpub.spot();})()`);

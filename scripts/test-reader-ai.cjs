@@ -20,6 +20,8 @@ function load(file, imports = {}, globals = {}, transform = code => code) {
 const models = load('model/JianjianAi.ets');
 const actions = load('model/ReaderAi.ets');
 const images = load('service/text/LocalTextImage.ets');
+const highlight = load('service/text/SpeechTextHighlighter.ets');
+const positions = load('service/text/EpubOriginalPosition.ets', { './LocalTextImage': images });
 const { ReaderAiAction: Action } = actions;
 const id = value => ({ value, equals(other) { return value === other.value; } });
 const menuGlobals = { TextMenuItemId: { of: id } };
@@ -77,8 +79,7 @@ async function main() {
     '../model/TextToSpeechState': { TextToSpeechState: class {} },
     '../model/ReaderTheme': { ReaderPalette: class {} },
     '../model/ReaderAi': actions, '../utils/ReaderSelectionMenu': menu,
-    '../service/text/SpeechTextHighlighter': { SpeechHighlightRange: class {},
-      SpeechTextHighlighter: { sourceOffset: (_text, _source, offset) => offset } }
+    '../service/text/SpeechTextHighlighter': highlight
   }, menuGlobals, code => {
     const imports = code.split('\n').filter(line => line.startsWith('import ')).join('\n');
     const fragment = code.slice(code.indexOf('struct ReaderTextFragment'), code.lastIndexOf('  build() {'))
@@ -92,7 +93,7 @@ async function main() {
   fragment.onAi = (...args) => events.push(args); fragment.onReadFrom = offset => events.push(offset);
   const options = fragment.speechSelectionMenu();
   assert.deepEqual(Array.from(options.onCreateMenu([{ id: id('copy') }, { id: id('selectAll') }]), item => item.id.value),
-    ['reader-listen-from-paragraph', 'reader-ai-dictionary', 'reader-ai-summarize']);
+    ['reader-save-excerpt', 'reader-listen-from-paragraph', 'reader-ai-dictionary', 'reader-ai-summarize']);
   options.onMenuItemClick({ id: id('reader-ai-dictionary') }, { start: 7, end: 13 });
   assert.deepEqual(events[0], [Action.Dictionary, 'chosen']);
   options.onMenuItemClick({ id: id('reader-ai-summarize') }, { start: 7, end: 13 });
@@ -100,9 +101,13 @@ async function main() {
   options.onMenuItemClick({ id: id('reader-listen-from-paragraph') }, { start: 7, end: 13 });
   assert.equal(events[2], 107);
   assert.equal(fragment.selecting, false);
+  fragment.onExcerpt = (...args) => events.push(args);
+  options.onMenuItemClick({ id: id('reader-save-excerpt') }, { start: 7, end: 13 });
+  assert.deepEqual(events.at(-1), [107, 113, 'chosen'], 'excerpts preserve fragment origin and exact chosen text');
   const { Fixture } = load('components/EpubOriginalReader.ets', {}, {
-    ...menuGlobals, ReaderSelectionMenu: menu.ReaderSelectionMenu, ReaderAiAction: Action
-  }, code => 'export class Fixture {\n' + code.slice(code.indexOf('  private selectionMenu():'), code.indexOf('  build() {')) + '\n}');
+    ...menuGlobals, ReaderSelectionMenu: menu.ReaderSelectionMenu, ReaderAiAction: Action,
+    EpubOriginalPositionIndex: positions.EpubOriginalPositionIndex
+  }, code => 'export class Fixture {\n' + code.slice(code.indexOf('  private validSelectionSpot('), code.indexOf('  build() {')) + '\n}');
   const web = new Fixture();
   Object.assign(web, { alive: true, loading: false, checkpoint: null, serial: 8, selectionSerial: 8,
     paged: false, frames: [{ id: 42, request: { chapter: 5 } }], active: { chapter: 4 },
@@ -110,12 +115,21 @@ async function main() {
     onAi: (...args) => events.push(args), onSelectionChange() {},
     controller: { runJavaScript: async () => '' } });
   const webMenu = web.selectionMenu();
-  assert.equal(webMenu.onCreateMenu([]).length, 2);
+  assert.equal(webMenu.onCreateMenu([]).length, 3);
   webMenu.onMenuItemClick({ id: id('reader-ai-dictionary') }, { start: -1, end: -1 });
   assert.deepEqual(events.at(-1), [5, Action.Dictionary, 'the selected next chapter']);
   web.selectionSerial = 8;
   webMenu.onMenuItemClick({ id: id('reader-ai-summarize') }, { start: -1, end: -1 });
   assert.deepEqual(events.at(-1), [5, Action.Summarize, '']);
+  web.selectionSerial = 8; web.selectionText = 'next chapter excerpt';
+  const raw = '开头。重复句子。  重复句子。  尾声';
+  const start = raw.lastIndexOf('重复句子'), end = start + 5;
+  web.frames[0].request.text = raw; web.frames[0].parts = [{ offset: 0, length: raw.length }]; web.frames[0].index = 0;
+  web.selectionStart = positions.EpubOriginalPosition.spot(raw, start);
+  web.selectionEnd = positions.EpubOriginalPosition.spot(raw, end);
+  web.onExcerpt = (...args) => events.push(args);
+  webMenu.onMenuItemClick({ id: id('reader-save-excerpt') }, {});
+  assert.deepEqual(events.at(-1), [5, start, end, 'next chapter excerpt'], 'EPUB selection uses its frame and disambiguates repeated sentences');
   const count = events.length;
   web.selectionSerial = 7;
   webMenu.onMenuItemClick({ id: id('reader-ai-summarize') }, {});
