@@ -1,0 +1,7 @@
+{
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "version": "v0.9.0",
+  "commit": "cd959bae99ff4bed22bef2604f45241c09bbb8c8",
+  "archiveSha256": "fbe74146a3cdc00f706773eb233bc4aedb7d8c3c7e2122440e492a99c1ec5a76",
+  "scope": "Unmodified CPU library build inputs; no model weights"
+}

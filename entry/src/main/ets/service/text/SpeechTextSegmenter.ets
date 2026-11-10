@@ -112,11 +112,14 @@ export class SpeechTextSegmenter {
   }
 
   /** 同一次合成可覆盖多个自然段，位置仍对应原文；系统 PCM 单次限制 300 字。 */
-  static batches(content: string, settings: SpeechSynthesisSettings, custom: boolean, pageEnds: number[] = []): SpeechSegment[] {
-    const limit = Math.min(settings.maxChars, custom ? 4000 : 300);
+  static batches(content: string, settings: SpeechSynthesisSettings, custom: boolean, pageEnds: number[] = [],
+    roleBoundaries: number[] = []): SpeechSegment[] {
+    // 分角时保留系统音色兜底的 300 字上限；对白边界与起读位置分开处理。
+    const limit = Math.min(settings.maxChars, custom && roleBoundaries.length === 0 ? 4000 : 300);
+    const boundaries = pageEnds.concat(roleBoundaries);
     // 加速起读只单独提交第一句；后续批次始终使用用户配置，不能被隐藏短段上限覆盖。
     // 预留两个 UTF-16 单元给代理对与尾部标点，最终批次仍按完整字数上限检查。
-    const segments = SpeechTextSegmenter.split(content, false, pageEnds, settings.filterSymbols,
+    const segments = SpeechTextSegmenter.split(content, false, boundaries, settings.filterSymbols,
       limit - 2, limit);
     const result: SpeechSegment[] = [];
     const startOffset = pageEnds.length > 0 ? Math.max(...pageEnds) : 0;
@@ -135,7 +138,7 @@ export class SpeechTextSegmenter {
       if (segment.end > startOffset) firstSpoken = true;
       if (!first && !protectFirst && previous !== null && paragraphs + (newParagraph ? 1 : 0) <= settings.paragraphs &&
         previous.text.length + separator.length + segment.text.length <= limit &&
-        !pageEnds.some((offset: number): boolean => offset > previous.start && offset < segment.end)) {
+        !boundaries.some((offset: number): boolean => offset > previous.start && offset < segment.end)) {
         previous.end = segment.end;
         previous.text += separator + segment.text;
         paragraphs += newParagraph ? 1 : 0;

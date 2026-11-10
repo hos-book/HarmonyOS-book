@@ -121,6 +121,7 @@ export struct RuleSourcePage {
   @Local hasFileImportResult: boolean = false;
   @Local isBulkTesting: boolean = false;
   @Local isEditMode: boolean = false;
+  @Local importMenuVisible: boolean = false;
   @Local importDialogKind: string = '';
   private importDialogId: number = -1;
   @Local expandedSourceUrls: Set<string> = new Set();
@@ -207,6 +208,7 @@ export struct RuleSourcePage {
 
   aboutToDisappear(): void {
     this.pageAttached = false;
+    this.importMenuVisible = false;
     this.closeImportDialog();
     this.loadRevision++;
     WindowUtils.removeSafeAreaListener(this.safeAreaListener);
@@ -1325,7 +1327,8 @@ export struct RuleSourcePage {
           Stack() {
             ImmersiveCircleButton({
               icon: $r('sys.symbol.plus'), label: $r('app.string.rule_source_import_title'),
-              diameter: 52, iconSize: 25, iconColor: AppColor.Brand
+              diameter: 52, iconSize: 25, iconColor: AppColor.Brand,
+              onPress: (): void => { this.importMenuVisible = true; }
             })
               .opacity(this.isImporting ? 0 : 1)
             if (this.isImporting) {
@@ -1337,7 +1340,10 @@ export struct RuleSourcePage {
           .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
           .accessibilityText($r('app.string.rule_source_import_title'))
           .id('rule-source-import-button')
-          .bindMenu(this.buildImportMenu())
+          // 内部按钮接收点击，通过状态打开菜单，避免与外层菜单的点击手势竞争。
+          .bindMenu(this.importMenuVisible, this.buildImportMenu(), {
+            onDisappear: (): void => { this.importMenuVisible = false; }
+          })
         }
       }.width('100%').height('100%')
     }
@@ -2138,7 +2144,7 @@ export struct RuleSourcePage {
               Text(this.isImporting ? $r('app.string.rule_source_importing') :
                 $r('app.string.rule_source_import_action'))
                 .fontSize(AppFont.Body).fontColor(this.importActionForeground()).fontWeight(FontWeight.Medium)
-            }.justifyContent(FlexAlign.Center).hitTestBehavior(HitTestMode.None)
+            }.justifyContent(FlexAlign.Center).hitTestBehavior(HitTestMode.BLOCK_DESCENDANTS)
               .accessibilityLevel('no-hide-descendants')
           }.layoutWeight(1).height(44).borderRadius(AppRadius.Sm)
             .backgroundColor(this.canImportSources() ? AppColor.Brand : AppTheme.SettingsBackground)

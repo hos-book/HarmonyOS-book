@@ -17,6 +17,8 @@ import { FontManagementPage } from './FontManagementPage';
 import { SpeechDisplaySettingsPage } from './SpeechDisplaySettingsPage';
 import { DialogueHighlightSettingsPage } from './DialogueHighlightSettingsPage';
 import { SpeechSynthesisSettingsPage } from './SpeechSynthesisSettingsPage';
+import { RoleSpeechSettingsPage } from './RoleSpeechSettingsPage';
+import { RoleModelSettingsPage } from './RoleModelSettingsPage';
 import { MembershipPage } from './MembershipPage';
 import { MembershipSubscriptionPage } from './MembershipSubscriptionPage';
 import { MembershipState } from '../model/MembershipState';
@@ -679,6 +681,14 @@ struct Index {
     } else if (name === 'speechSynthesisSettings') {
       ProfileMenuDestination() {
         SpeechSynthesisSettingsPage({ navStack: this.navStack })
+      }
+    } else if (name === 'roleSpeechSettings') {
+      ProfileMenuDestination() {
+        RoleSpeechSettingsPage({ navStack: this.navStack })
+      }
+    } else if (name === 'roleModelSettings') {
+      ProfileMenuDestination() {
+        RoleModelSettingsPage({ navStack: this.navStack })
       }
     } else if (name === 'fontManagement') {
       ProfileMenuDestination() {

@@ -85,7 +85,8 @@ def main():
         cache = json.loads(args.name_cache.read_text(encoding='utf-8'))
         properties = cache.get('PropertyCache', {})
         dynamic_exports = ['EpubParserService', 'createEpubReaderController', 'createEpubReaderBuilder',
-                           'LocalRuleQuickJsRequest', 'LocalRuleQuickJsRuntime']
+                           'LocalRuleQuickJsRequest', 'LocalRuleQuickJsRuntime',
+                           'run', 'cancel']
         renamed_exports = [name for name in dynamic_exports if properties.get(name, name) != name]
         if renamed_exports:
             for result in results:

@@ -61,6 +61,19 @@ export struct ReadingSettingsPage {
                 .backgroundColor(AppTheme.Surface).border({ width: 0.5, color: AppTheme.Divider })
                 .onClick((): void => { this.navStack.pushPathByName('speechSynthesisSettings', ''); })
                 .id('reading-synthesis-settings')
+              Row({ space: 12 }) {
+                Column({ space: 2 }) {
+                  Row({ space: 6 }) {
+                    Text($r('app.string.role_speech_title')).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary)
+                    Text($r('app.string.role_speech_experimental')).fontSize(AppFont.Caption)
+                      .fontColor(AppTheme.TextSecondary)
+                  }
+                  Text($r('app.string.role_speech_entry_hint')).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(18).fontColor([AppTheme.TextSecondary])
+              }.width('100%').padding({ left: 14, right: 14, top: 10, bottom: 10 }).constraintSize({ minHeight: 64 }).borderRadius(14)
+                .backgroundColor(AppTheme.Surface).border({ width: 0.5, color: AppTheme.Divider })
+                .id('reading-role-speech').onClick((): void => { this.navStack.pushPathByName('roleSpeechSettings', ''); })
               Text($r('app.string.reading_display_settings')).fontSize(AppFont.Caption)
                 .fontColor(AppTheme.TextSecondary).width('100%').padding({ left: 4, top: 8 })
               Row({ space: 12 }) {

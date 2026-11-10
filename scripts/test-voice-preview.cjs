@@ -12,7 +12,13 @@ const settle = async () => { for (let i = 0; i < 16; i++) await Promise.resolve(
 
 function harness() {
   const calls = [], engines = [], requests = [], timers = new Map();
-  let timerId = 0, engineGate = null, owner = '';
+  let timerId = 0, engineGate = null, releaseGate = null, owner = '';
+  const speech = { active: true, playing: true, generation: 0, resumed: 0, offset: 42,
+    pause() { calls.push('pause-speech'); this.playing = false; this.generation++; },
+    pauseForPreview() { const playing = this.active && this.playing; this.pause(); return playing ? this.generation : -1; },
+    canResumePreview(ticket) { return ticket >= 0 && ticket === this.generation && this.active && !this.playing; },
+    async resumeAfterPreview(ticket) { if (this.canResumePreview(ticket)) { this.resumed++; this.playing = true; this.generation++; } }
+  };
   const focus = {
     acquire: async (next, stop) => { owner = next; focus.stop = stop; calls.push('focus'); },
     release: async current => { if (owner === current) owner = ''; },
@@ -34,7 +40,7 @@ function harness() {
   class Output {
     constructor(interrupt, unavailable, beforePlay) { this.beforePlay = beforePlay; this.released = false; }
     async setLoudnessGain(gain) { this.gain = gain; return true; }
-    async release() { this.released = true; }
+    async release() { this.released = true; if (releaseGate) await releaseGate.promise; }
   }
   class Player {
     constructor(timeout, retries) { this.timeout = timeout; this.retries = retries; this.pending = deferred(); }
@@ -57,7 +63,7 @@ function harness() {
     '../AudioService': { AudioService: { getInstance: () => ({ suspendForSpeech: async () => calls.push('pause-audio') }) } },
     '../AudioFocusService': { AudioFocusService: { getInstance: () => focus } },
     '../PlaybackCoordinator': { PlaybackCoordinator: coordinator },
-    './TextToSpeechService': { TextToSpeechService: { getInstance: () => ({ pause: () => calls.push('pause-speech') }) } },
+    './TextToSpeechService': { TextToSpeechService: { getInstance: () => speech } },
     './HttpTtsPlayer': { HttpTtsPlayer: Player, HttpTtsAudioOutput: Output }
   };
   function load(file) {
@@ -69,6 +75,7 @@ function harness() {
     vm.runInNewContext(code, { exports, ObservedV2: value => value, Trace: () => {},
       setTimeout: callback => { timers.set(++timerId, callback); return timerId; }, clearTimeout: id => timers.delete(id),
       require: name => {
+        if (name === '../../model/RoleSpeech') return load('model/RoleSpeech.ets');
         if (name === './SpeechPcmBuffer') return load('service/text/SpeechPcmBuffer.ets');
         if (name in mocks) return mocks[name];
         throw new Error(`Unexpected dependency ${name}`);
@@ -80,7 +87,8 @@ function harness() {
   const service = new VoicePreviewService();
   const selected = { customTtsId: 'two', customTtsConfigs: [{ id: 'one', enabled: true }, { id: 'two', enabled: true }],
     person: 7, language: 'zh-CN', speed: 1.5, loudnessGain: 3, synthesis: { timeoutSeconds: 20 } };
-  return { service, selected, calls, engines, requests, timers, coordinator,
+  return { service, selected, calls, engines, requests, timers, coordinator, speech, focus,
+    delayRelease: () => releaseGate = deferred(),
     delayEngine: () => engineGate = deferred(), focused: () => owner };
 }
 
@@ -160,5 +168,66 @@ function harness() {
   await disabled.service.play({}, disabled.selected, '无效选择');
   assert.equal(disabled.service.state.error, true);
   assert.equal(disabled.engines.length, 0, 'an unavailable imported voice never silently switches to a system voice');
+  const sequence = harness();
+  const sequenceTask = sequence.service.playSequence({}, sequence.selected,
+    [{ text: '旁白', voiceId: 'one' }, { text: '人物对白', voiceId: 'two' }], true);
+  await settle();
+  assert.equal(sequence.requests[0].config.id, 'one');
+  sequence.requests[0].player.pending.resolve();
+  await settle();
+  assert.equal(sequence.requests[1].config.id, 'two');
+  assert.equal(sequence.speech.resumed, 0, 'no resume between different characters');
+  sequence.requests[1].player.pending.resolve();
+  await sequenceTask;
+  assert.equal(sequence.speech.resumed, 1);
+  assert.equal(sequence.speech.offset, 42, 'preview leaves the reading position untouched');
+
+  const closing = harness();
+  const closingTask = closing.service.playSequence({}, closing.selected, [{ text: '关闭', voiceId: 'one' }], true);
+  await settle();
+  const release = closing.delayRelease();
+  const close1 = closing.service.stopAndResume();
+  const close2 = closing.service.stopAndResume();
+  assert.equal(close1, close2, 'closing, hiding and destruction share one completion');
+  await settle();
+  assert.equal(closing.speech.resumed, 0, 'wait for audio release before resuming');
+  release.resolve();
+  await Promise.all([closingTask, close1, close2]);
+  assert.equal(closing.speech.resumed, 1);
+
+  const rapid = harness();
+  const oldPreview = rapid.service.playSequence({}, rapid.selected, [{ text: '旧', voiceId: 'one' }], true);
+  await settle();
+  const rapidGate = rapid.delayRelease();
+  const oldEnd = rapid.service.stopAndResume();
+  const newPreview = rapid.service.playSequence({}, rapid.selected, [{ text: '新', voiceId: 'two' }], true);
+  rapidGate.resolve();
+  await settle();
+  await oldEnd;
+  assert.equal(rapid.speech.resumed, 0, 'old cleanup cannot resume under a newer preview');
+  assert.equal(rapid.service.state.active, true);
+  rapid.requests[1].player.pending.resolve();
+  await Promise.all([oldPreview, newPreview]);
+  assert.equal(rapid.speech.resumed, 1, 'replacement inherits the original playing intent');
+
+  for (const reason of ['paused', 'manual-pause', 'switch-book', 'background', 'focus-interrupt']) {
+    const cancelled = harness();
+    if (reason === 'paused') cancelled.speech.playing = false;
+    const cancelledTask = cancelled.service.playSequence({}, cancelled.selected, [{ text: '取消恢复', voiceId: 'one' }], true);
+    await settle();
+    const gate = cancelled.delayRelease();
+    const end = cancelled.service.stopAndResume();
+    if (reason === 'manual-pause') cancelled.speech.pause();
+    if (reason === 'switch-book') { cancelled.speech.generation++; cancelled.speech.offset = 5; }
+    if (reason === 'background') cancelled.service.stop();
+    if (reason === 'focus-interrupt') cancelled.coordinator.stopPreview?.();
+    gate.resolve();
+    await Promise.all([cancelledTask, end]);
+    assert.equal(cancelled.speech.resumed, 0, reason + ' cancels auto resume');
+  }
+  const empty = harness();
+  await empty.service.playSequence({}, empty.selected, [{ text: '  ', voiceId: '' }], true);
+  assert.equal(empty.calls.length, 0, 'empty preview does not disturb playback');
+  console.log('PASS preview sequences, single resume, replacement, interruption and position preservation');
   console.log('PASS selected HTTP/system voice preview, cancellation, replacement, timeout, late engine cleanup and playback isolation');
 })().catch(error => { console.error(error); process.exitCode = 1; });

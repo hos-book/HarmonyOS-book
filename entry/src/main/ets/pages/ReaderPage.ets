@@ -49,6 +49,7 @@ import { TextChapterPreloader } from '../service/text/TextChapterPreloader';
 import { ReaderSpeechText } from '../components/ReaderSpeechText';
 import { ReaderDialogueRules } from '../model/ReaderDialogueRules';
 import { ReaderSpeechSheet } from '../components/ReaderSpeechSheet';
+import { RoleSpeechPanel } from '../components/RoleSpeechPanel';
 import { ImmersiveActionButton } from '../components/ImmersiveActionButton';
 import { ReadingTimeTracker } from '../service/text/ReadingTimeTracker';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
@@ -285,6 +286,8 @@ export struct ReaderPage {
   @Local pickingFont: boolean = false;
   private screenOn: ReaderScreenOnService = new ReaderScreenOnService();
   @Local showSpeechSheet: boolean = false;
+  @Local rolePanelOpen: boolean = false;
+  private pendingRoleModels: boolean = false;
   @Local speechState: TextToSpeechState = TextToSpeechService.getInstance().state;
   private openingSpeechPlayer: boolean = false;
   private speechSelectionSerial: number = 0;
@@ -881,6 +884,10 @@ export struct ReaderPage {
         symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.bookmark')) })
         .onClick((): void => { this.showReaderMenu = false; this.openBookmarks(); })
       if (this.isOnlineTextBook()) {
+        MenuItem({ content: $r('app.string.role_cast_title'),
+          symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.person')) })
+          .enabled(!this.loading && !this.onlineTextLoading && !this.readerError)
+          .onClick((): void => { this.openRoleSpeech(); }).id('reader-role-speech')
         MenuItem({ content: $r('app.string.jianjian_book_recap'),
           symbolStartIcon: new SymbolGlyphModifier($r('sys.symbol.book')) })
           .enabled(!this.loading && !this.onlineTextLoading && !this.readerError)
@@ -2992,6 +2999,16 @@ export struct ReaderPage {
     this.navStack.pushPathByName('readingSettings', '', (): void => { this.refreshReaderFonts(); });
   }
 
+  private openRoleSpeech(): void {
+    this.showReaderMenu = false;
+    this.showChapterSheet = false;
+    this.showSettingsSheet = false;
+    this.stopAutoPage();
+    this.hideReaderBar();
+    this.rolePanelOpen = true;
+    this.showSpeechSheet = true;
+  }
+
   private async openSpeechPlayer(preservePaused: boolean = false): Promise<void> {
     const book = this.book;
     if (!this.isOnlineTextBook() || this.context === null || book === null ||
@@ -3019,6 +3036,12 @@ export struct ReaderPage {
 
   @Builder
   private buildSpeechSheet(): void {
+    if (this.rolePanelOpen) {
+      RoleSpeechPanel({ bookId: this.bookId, bookTitle: this.book?.title ?? '', embedded: true,
+        active: this.showSpeechSheet && !this.leaving,
+        onClose: (): void => { this.showSpeechSheet = false; },
+        onModelSettings: (): void => { this.pendingRoleModels = true; this.showSpeechSheet = false; } })
+    } else {
     ReaderSpeechSheet({ state: this.speechState,
       speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
       speechDefaultColor: this.palette.accent, speechPreviewForeground: this.palette.primary,
@@ -3039,6 +3062,7 @@ export struct ReaderPage {
       },
       onClose: (): void => { this.showSpeechSheet = false; }
     })
+    }
   }
 
   private openParagraphComment(chapter: number, comment: ReaderParagraphComment): void {
@@ -3120,7 +3144,12 @@ export struct ReaderPage {
           systemMaterial: AppMaterial.ReaderSheetThick,
           onDisappear: (): void => {
             this.showSpeechSheet = false;
-            if (!this.leaving) this.showReaderBar();
+            if (this.pendingRoleModels && !this.leaving) {
+              this.pendingRoleModels = false;
+              this.navStack.pushPathByName('roleModelSettings', '', (): void => {
+                if (!this.leaving) this.openRoleSpeech();
+              });
+            } else if (!this.leaving) this.showReaderBar();
           }
         })
 

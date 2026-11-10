@@ -557,6 +557,81 @@ function load(relative) {
   assert.equal(submitted.name, '新名称');
   assert.equal(submitted.backgroundImage, '/saved-image.jpg');
   assert.equal(discarded.includes('/saved-image.jpg'), false, 'success preserves the persisted image after closing');
+  // Exercise the real dialogue page handlers while disk writes are deliberately held open.
+  const dialogueSource = fs.readFileSync(path.join(root, 'pages/DialogueHighlightSettingsPage.ets'), 'utf8');
+  const dialogueLogic = dialogueSource.substring(dialogueSource.indexOf('export struct DialogueHighlightSettingsPage'),
+    dialogueSource.indexOf('  @Builder')).replace('export struct', 'export class')
+    .replace(/@(Param|Local|Computed|Monitor)(\([^\n]*\))?\s*/g, '') + '\n}';
+  const dialogueExports = {};
+  const writes = [];
+  const notices = [];
+  const delayedSettings = {
+    get: context => service.get(context),
+    save: async (context, settings) => {
+      await new Promise((resolve, reject) => { writes.push({ settings, resolve, reject }); });
+      await service.save(context, settings);
+    }
+  };
+  vm.runInNewContext(ts.transpileModule(dialogueLogic, {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
+  }).outputText, {
+    exports: dialogueExports, TextReadingSettings, ReaderDialogueRules,
+    ...load('model/ReaderTheme'), TextReadingSettingsService: delayedSettings,
+    NavPathStack: class {}, WindowUtils: { getStatusBarHeightVp: () => 0, removeReaderColorListener() {} },
+    $r: name => name
+  });
+  await service.save({}, new TextReadingSettings());
+  const dialogue = new dialogueExports.DialogueHighlightSettingsPage();
+  dialogue.getUIContext = () => ({ getHostContext: () => ({}),
+    getPromptAction: () => ({ showToast: notice => notices.push(notice) }) });
+  dialogue.readingSettings = await service.get({});
+  dialogue.ready = true;
+  const tick = () => new Promise(resolve => setImmediate(resolve));
+  const firstToggle = dialogue.saveDialogue(true, '');
+  assert.equal(dialogue.dialogueHighlight, true, 'the first tap updates the switch and preview before disk flush');
+  await tick();
+  assert.equal(writes.length, 1);
+  const latestToggle = dialogue.saveDialogue(false, '');
+  assert.equal(dialogue.dialogueHighlight, false, 'a second tap is accepted while the previous write is pending');
+  for (let tap = 0; tap < 20; tap++) dialogue.saveDialogue(tap % 2 === 0, '');
+  assert.equal(dialogue.dialogueHighlight, false);
+  assert.equal(writes.length, 1, 'writes must remain serialized');
+  writes[0].resolve();
+  await tick();
+  assert.equal(dialogue.dialogueHighlight, false, 'an older completion cannot overwrite the newest selection');
+  assert.equal(writes.length, 2, 'pending rapid toggles are coalesced');
+  assert.equal(writes[1].settings.dialogueHighlight, false);
+  dialogue.aboutToDisappear();
+  writes[1].resolve();
+  await Promise.all([firstToggle, latestToggle]);
+  assert.equal((await service.get({})).dialogueHighlight, false, 'the final choice persists after leaving the page');
+  await dialogue.saveDialogue(false, '');
+  assert.equal(writes.length, 2, 'a duplicate control notification does not start another save');
+  const failedToggle = dialogue.saveDialogue(true, '');
+  await tick();
+  writes[2].reject(new Error('disk failure'));
+  await failedToggle;
+  assert.equal(dialogue.dialogueHighlight, false, 'a failed latest save rolls the UI back to confirmed settings');
+  assert.equal(dialogue.saving, false);
+  assert.equal(notices.length, 1);
+  const retryToggle = dialogue.saveDialogue(true, '');
+  await tick();
+  writes[3].resolve();
+  await retryToggle;
+  assert.equal((await service.get({})).dialogueHighlight, true, 'the switch remains usable after failure');
+  const colorSave = dialogue.saveDialogue(true, '#3478AB', false, '【】');
+  await tick();
+  const duringColorSave = dialogue.saveDialogue(false, dialogue.dialogueColor);
+  writes[4].resolve();
+  await tick();
+  assert.equal(dialogue.dialogueHighlight, false);
+  writes[5].resolve();
+  await Promise.all([colorSave, duringColorSave]);
+  const finalDialogue = await service.get({});
+  assert.equal(finalDialogue.dialogueHighlight, false);
+  assert.equal(finalDialogue.dialogueHighlightColor, '#3478AB', 'toggling during a color save retains the chosen color');
+  assert.equal(finalDialogue.dialogueQuotePairs, '【】');
+  console.log('PASS: dialogue switch immediate response, rapid toggles, serialized saves, rollback/retry and leave/reopen persistence');
   console.log('PASS: real editor draft cancellation, delayed picker cleanup, failed save retry and closing during save');
   console.log('PASS: independent theme names/images/colors/modes/overlays, rename, image removal, legacy migration and backup isolation');
   console.log('PASS: free 1/member 5 limits, invalid slots, expiry fallback, retained themes on renewal and draft isolation');

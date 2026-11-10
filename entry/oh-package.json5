@@ -6,6 +6,7 @@
   "author": "ylwang",
   "license": "GPL-3.0",
   "dependencies": {
+    "librole_inference.so": "file:./src/main/cpp/types/librole_inference",
     "sherpa_onnx": "1.13.3",
     "libsubtitle_audio.so": "file:./src/main/cpp/types/libsubtitle_audio",
     "libcba_archive.so": "file:./src/main/cpp/types/libcba_archive",

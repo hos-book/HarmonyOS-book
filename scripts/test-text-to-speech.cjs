@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const createFocusFixture = require('./audio-focus-fixture.cjs');
+const createRoleFixture = require('./role-speech-fixture.cjs');
 const ide = process.env.DEVECO_HOME || process.env.DEVECO_PATH;
 if (!ide) throw new Error('Set DEVECO_HOME');
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
@@ -47,6 +48,7 @@ const book = (id = 'book', texts = ['第一句。第二句！', '第三句。'])
   sourceUrl: 'https://source.example', bookUrl: `https://book.example/${id}`, author: 'author', cover: '',
   chapters: texts.map((text, index) => ({ id: String(index), title: `章节${index}`, source: { value: `${id}/${index}`, type: 'url' }, text })) });
 function harness(memory = new Map()) {
+  const roleFixture = createRoleFixture(load);
   let uptime = 0;
   const engines = [], spoken = [], timers = new Map(), cached = new Map(), stats = [], httpSpoken = [], httpPrepared = [], systemSpoken = [], widgets = [];
   let id = 0, failContent = false, createDeferred = null, deviceCallback = null, httpPrepareFailure = '', httpPrepareWait = null;
@@ -80,6 +82,9 @@ function harness(memory = new Map()) {
       engines.push(engine); return engine;
     } };
   const dependencies = {
+    './RoleSpeechService': roleFixture.roleExports,
+    './RoleModelService': roleFixture.modelExports,
+    './TextReadingSettingsService': { TextReadingSettingsService: { get: async () => ({ dialogueQuotePairs: '“”\n「」\n『』' }) } },
     '../../model/DesktopLyric': desktopLyricModel,
     './ReaderFloatingService': { ReaderFloatingService: { update() {} } },
     '../../utils/PlatformCompat': { PlatformCompat: { supports: () => true } },
@@ -169,9 +174,9 @@ function harness(memory = new Map()) {
     clearInterval: key => timers.delete(key)
   });
   const service = TextToSpeechService.getInstance();
-  const context = { resourceManager: { getStringSync: key => key } };
+  const context = { filesDir: '/files', resourceManager: { getStringSync: key => key } };
   return { cached, HttpTtsFailure: dependencies['./HttpTtsPlayer'].HttpTtsFailure, focusFixture, service, tts, memory, spoken, systemSpoken, engines, timers, session, httpSpoken, httpPrepared, stats, widgets,
-    syncActivity: dependencies['../sync/LibrarySyncModel'].LibrarySyncActivity,
+    roleFixture, syncActivity: dependencies['../sync/LibrarySyncModel'].LibrarySyncActivity,
     progress: dependencies['./TextReadingProgressService'].TextReadingProgressService,
     advance: ms => { uptime += ms; }, coordinator: coordinator.PlaybackCoordinator,
     init: () => service.initialize(context), reloadSettings: () => TextToSpeechService.reloadSettings(context),
@@ -1328,6 +1333,178 @@ async function check(name, action) {
     h.httpSpoken.at(-1).onStart(); assert.equal(h.service.state.playing, true);
     h.focusFixture.emit(1); h.unplug(); h.focusFixture.emit(0); await settle();
     assert.equal(h.service.state.playing, false);
+    h.service.stop();
+  });
+  await check('多角色按对白切换与预取音色，正文偏移及全局音色保持一致', async () => {
+    const h = harness(); await h.init();
+    const configs = CustomTtsConfigParser.parse(JSON.stringify(['旁白', '角色甲', '角色乙'].map((name, i) =>
+      ({ name, url: `https://tts.example/${i}?text={{text}}` }))));
+    await h.service.importCustomTts(configs); await h.service.selectCustomTts(configs[0].id);
+    await h.roleFixture.enable();
+    h.roleFixture.native.answer = prompt => JSON.parse(prompt).lines.map(line =>
+      ({ id: line.id, speaker: line.text.includes('早上') ? '张三' : '李四' }));
+    const text = '张三说：“早上好。”\n李四回答：“你好。”\n两人走远。';
+    await h.service.start(book('roles', [text]), 0, 0); await settle(); await settle();
+    for (let i = 0; i < 10 && h.service.requestId; i++) {
+      const audio = h.httpSpoken.find(item => item.id === h.service.requestId);
+      assert.ok(audio, 'every segment is playable'); audio.onStart(); audio.complete(); await settle(); await settle();
+    }
+    assert.equal(h.service.state.customTtsId, configs[0].id);
+    assert.equal(h.httpSpoken.map(item => item.text).join('').replace(/\s/g, ''), text.replace(/\s/g, ''));
+    for (const audio of [...h.httpPrepared, ...h.httpSpoken]) {
+      const expected = audio.text.includes('早上') ? configs[1] : audio.text.includes('你好') ? configs[2] : configs[0];
+      assert.equal(audio.config.id, expected.id, audio.text);
+    }
+    assert.equal(h.roleFixture.roles.state.speakers.length, 2);
+    const calls = h.roleFixture.native.calls.filter(call => call.operation === 'infer').length;
+    await h.service.start(book('roles', [text]), 0, 0); await settle(); await settle();
+    assert.equal(h.roleFixture.native.calls.filter(call => call.operation === 'infer').length, calls, 'same chapter uses validated cache');
+    await h.roleFixture.roles.setVoice('@dialogue', configs[2].id);
+    await h.roleFixture.roles.setVoice('张三', '');
+    assert.equal(h.roleFixture.roles.voiceAt(text.indexOf('“')), '', 'explicit follow-current does not inherit unknown-dialogue voice');
+    h.service.stop();
+  });
+  await check('暂停取消分角，迟到结果不生成音频或写入其他书籍', async () => {
+    const h = harness(); await h.init(); await h.roleFixture.enable();
+    let release;
+    h.roleFixture.native.answer = () => new Promise(resolve => { release = resolve; });
+    await h.service.start(book('slow-role', ['“你好。”张三说。']), 0, 0); await settle();
+    assert.equal(typeof release, 'function');
+    h.service.pause(); release([{ id: 0, speaker: '张三' }]); await settle(); await settle();
+    assert.equal(h.roleFixture.roles.state.speakers.length, 0);
+    assert.equal(h.systemSpoken.length + h.httpSpoken.length, 0);
+    assert.equal(h.service.state.loading, false);
+    h.service.stop();
+  });
+  await check('角色音色合成失败回退默认音色，保留当前对白位置', async () => {
+    const h = harness(); await h.init();
+    const configs = CustomTtsConfigParser.parse(JSON.stringify(['默认', '角色'].map((name, i) =>
+      ({ name, url: `https://tts.example/${i}?text={{text}}` }))));
+    await h.service.importCustomTts(configs); await h.service.selectCustomTts(configs[0].id);
+    await h.roleFixture.enable(); h.roleFixture.native.answer = () => [{ id: 0, speaker: '张三' }];
+    await h.service.start(book('fallback-role', ['“你好。”张三说。']), 0, 0); await settle(); await settle();
+    const failed = h.httpSpoken.at(-1); assert.equal(failed.config.id, configs[1].id);
+    failed.fail(Error('network')); await settle(); await settle();
+    const fallback = h.httpSpoken.at(-1); assert.notEqual(fallback, failed);
+    assert.equal(fallback.config.id, configs[0].id); assert.equal(fallback.text, failed.text);
+    assert.equal(h.service.state.charOffset, 0); assert.equal(h.service.state.error, '');
+    h.service.stop();
+  });
+  await check('系统旁白与 HTTP 角色混用，系统预取不合成角色对白', async () => {
+    const h = harness(); await h.init();
+    const configs = CustomTtsConfigParser.parse('{"name":"角色","url":"https://tts.example?text={{text}}"}');
+    await h.service.importCustomTts(configs); await h.service.selectCustomTts('');
+    await h.roleFixture.enable(); h.roleFixture.native.answer = () => [{ id: 0, speaker: '张三' }];
+    await h.service.start(book('mixed-role', ['张三说：“你好。”\n风吹过。']), 0, 0); await settle(); await settle();
+    assert.equal(h.spoken[0].text, '张三说：');
+    await h.complete(1, h.spoken[0]); await settle();
+    assert.equal(h.httpSpoken.at(-1).text, '“你好。”');
+    assert.equal(h.httpSpoken.at(-1).config.id, configs[0].id);
+    assert.ok(h.spoken.every(item => !item.text.includes('你好')));
+    h.httpSpoken.at(-1).onStart(); h.httpSpoken.at(-1).complete(); await settle();
+    assert.equal(h.spoken.at(-1).text, '风吹过。'); h.service.stop();
+  });
+  await check('模型结果校验拒绝重复编号及虚构角色，长句分段不跨角色', async () => {
+    const fixture = createRoleFixture(load), planner = fixture.planner.RoleSpeechPlanner;
+    assert.throws(() => planner.answers('[{"id":0,"speaker":"张三"},{"id":0,"speaker":"李四"}]', 2, '张三李四', []));
+    assert.equal(planner.answers('[{"id":0,"speaker":"不存在的人"}]', 1, '张三说话', [])[0], '?');
+    const text = '旁白😀：“' + '对话'.repeat(190) + '。”结束。';
+    const ranges = planner.dialogues(text, '“”');
+    const settings = new synthesisModel.SpeechSynthesisSettings(); settings.maxChars = 1000; settings.paragraphs = 10;
+    const parts = SpeechTextSegmenter.batches(text, settings, true, [], [0, text.length, ...ranges.flatMap(item => [item.start, item.end])]);
+    assert.ok(parts.every(part => part.text.length <= 300));
+    for (const part of parts) for (const range of ranges) {
+      assert.ok(!(part.start < range.start && part.end > range.start));
+      assert.ok(!(part.start < range.end && part.end > range.end));
+    }
+    assert.equal(parts.map(part => part.text).join(''), text);
+  });
+  await check('模型导入分块复制、替换失败回滚、验证取消清理，保留旧模型', async () => {
+    const f = createRoleFixture(load); await f.modelService.initialize({ filesDir: '/files' });
+    f.files.set('/downloads/first.gguf', Buffer.alloc(1024 * 1024 + 24, 1));
+    assert.equal(await f.modelService.importFile('/downloads/first.gguf'), true);
+    const old = f.modelService.state.model;
+    assert.equal(f.files.get(old.path).length, 1024 * 1024 + 24); assert.equal(f.handles.size, 0);
+    f.files.set('/downloads/second.gguf', Buffer.alloc(100, 2));
+    f.failFlush(true);
+    await assert.rejects(f.modelService.importFile('/downloads/second.gguf'), /role_save/);
+    f.failFlush(false);
+    assert.equal(f.modelService.state.model.path, old.path); assert.ok(f.files.has(old.path));
+    let release;
+    f.native.answer = () => new Promise(resolve => { release = resolve; });
+    const task = f.modelService.importFile('/downloads/second.gguf');
+    await settle(); await settle(); assert.equal(typeof release, 'function');
+    f.modelService.cancelImport(); release([{ id: 0, speaker: '?' }]); assert.equal(await task, false);
+    assert.equal(f.modelService.state.model.path, old.path); assert.equal(f.modelService.state.busy, false);
+    assert.ok([...f.files.keys()].filter(name => name.startsWith('/files/role_models/')).every(name => name === old.path));
+    assert.equal(f.handles.size, 0);
+  });
+  await check('多角色变速重新准备有速度参数的角色，避免复用旧速音频', async () => {
+    const h = harness(); await h.init();
+    const configs = CustomTtsConfigParser.parse(JSON.stringify([
+      { name: '固定速度旁白', url: 'https://tts.example/narrator?text={{text}}&speed=1' },
+      { name: '变速角色', url: 'https://tts.example/role?text={{text}}&speed={{speed}}' }
+    ]));
+    await h.service.importCustomTts(configs); await h.service.selectCustomTts(configs[0].id);
+    await h.roleFixture.enable(); h.roleFixture.native.answer = () => [{ id: 0, speaker: '张三' }];
+    await h.service.start(book('role-speed', ['“你好。”张三说。']), 0, 0); await settle(); await settle();
+    const first = h.httpSpoken.at(-1); first.onStart();
+    h.service.setSpeed(1.5); await settle(); await settle();
+    const next = h.httpSpoken.at(-1);
+    assert.notEqual(next.task, first.task); assert.equal(first.task.cancelled, true);
+    assert.equal(next.config.id, configs[1].id); assert.equal(next.speed, 1.5);
+    assert.equal(next.text, first.text); h.service.stop();
+  });
+  await check('确认角色音色不打断当前片段，预取回调与下一片段采用正确音色', async () => {
+    const h = harness(); await h.init();
+    const configs = CustomTtsConfigParser.parse(JSON.stringify(['旧声音', '新声音'].map((name, i) =>
+      ({ name, url: `https://tts.example/${i}?text={{text}}` }))));
+    await h.service.importCustomTts(configs); await h.service.selectCustomTts(configs[0].id);
+    await h.roleFixture.enable();
+    await h.service.start(book('confirm-role', ['第一段。\n第二段。\n第三段。']), 0, 0); await settle(); await settle();
+    const current = h.httpSpoken[0]; current.onStart(); await settle();
+    const future = h.httpPrepared.find(item => item.text.includes('第二段'));
+    const calls = h.roleFixture.native.calls.length;
+    const preview = h.roleFixture.roles.preview(0);
+    assert.ok(preview.length > 0 && preview.length <= 6);
+    assert.ok(preview.reduce((count, item) => count + item.text.length, 0) <= 300);
+    assert.ok(h.roleFixture.roles.sample('@narrator').length <= 120);
+    assert.equal(h.roleFixture.native.calls.length, calls, 'preview only reads the existing chapter');
+    await h.roleFixture.roles.setVoice('@narrator', configs[1].id);
+    h.service.roleVoiceChanged('confirm-role');
+    assert.equal(future.task.cancelled, true, 'discard the old future voice');
+    current.onStart(); await settle();
+    assert.notEqual(current.task.cancelled, true, 'late prefetch callbacks retain the current voice');
+    assert.equal(h.service.state.playing, true);
+    current.complete(); await settle(); await settle();
+    assert.equal(h.httpSpoken.at(-1).config.id, configs[1].id);
+    assert.equal(h.httpSpoken.at(-1).text, '第二段。');
+    assert.equal(h.service.state.customTtsId, configs[0].id);
+    h.service.stop();
+  });
+  await check('试听恢复凭据保留字符位置，主动暂停、换书及原本暂停均不恢复', async () => {
+    const h = harness(); await h.init();
+    await h.service.start(book('preview-book', ['第一段足够长。下一句话。']), 0, 0); await settle();
+    h.service.state.playbackOffset = 4;
+    const first = h.service.pauseForPreview();
+    assert.equal(h.service.state.charOffset, 4);
+    assert.equal(h.service.canResumePreview(first), true);
+    await h.service.resumeAfterPreview(first); await settle();
+    assert.equal(h.service.state.charOffset, 4);
+    const paused = h.service.pauseForPreview(); h.service.pause();
+    await h.service.resumeAfterPreview(paused); await settle();
+    assert.equal(h.service.state.playing || h.service.state.loading, false);
+    const idle = h.service.pauseForPreview();
+    assert.equal(idle, -1);
+    await h.service.resumeAfterPreview(idle); await settle();
+    assert.equal(h.service.state.playing || h.service.state.loading, false);
+    await h.service.resume(false); await settle();
+    const changed = h.service.pauseForPreview();
+    await h.service.start(book('other-preview-book', ['另一本书。']), 0, 0); await settle();
+    h.service.pause();
+    await h.service.resumeAfterPreview(changed); await settle();
+    assert.equal(h.service.state.bookId, 'other-preview-book');
+    assert.equal(h.service.state.playing || h.service.state.loading, false);
     h.service.stop();
   });
   console.log(`${passed} TTS regressions passed`);

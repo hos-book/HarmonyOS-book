@@ -8343,6 +8343,246 @@
     {
       "name": "tts_preview_error",
       "value": "试听失败，请检查网络或音色配置后重试。"
+    },
+    {
+      "name": "role_speech_title",
+      "value": "多角色朗读"
+    },
+    {
+      "name": "role_speech_experimental",
+      "value": "实验室功能"
+    },
+    {
+      "name": "role_speech_entry_hint",
+      "value": "为书中人物选择声音，试听后确认"
+    },
+    {
+      "name": "role_speech_enable",
+      "value": "启用多角色朗读"
+    },
+    {
+      "name": "role_speech_hint",
+      "value": "在手机上识别对白，按角色切换音色"
+    },
+    {
+      "name": "role_model_title",
+      "value": "本地分角模型"
+    },
+    {
+      "name": "role_model_empty",
+      "value": "尚未导入模型"
+    },
+    {
+      "name": "role_model_empty_hint",
+      "value": "模型由你单独下载，不包含在安装包中"
+    },
+    {
+      "name": "role_model_size",
+      "value": "%d MB · 已验证可加载"
+    },
+    {
+      "name": "role_model_import",
+      "value": "导入 GGUF 模型"
+    },
+    {
+      "name": "role_model_replace",
+      "value": "替换模型"
+    },
+    {
+      "name": "role_model_remove",
+      "value": "删除本地模型"
+    },
+    {
+      "name": "role_model_remove_hint",
+      "value": "删除后关闭多角色朗读，并释放模型占用的空间。本书音色绑定会保留。"
+    },
+    {
+      "name": "role_model_copying",
+      "value": "正在导入 %d%"
+    },
+    {
+      "name": "role_model_verifying",
+      "value": "正在验证模型，请稍候…"
+    },
+    {
+      "name": "role_model_imported",
+      "value": "模型导入成功，已启用多角色朗读"
+    },
+    {
+      "name": "role_model_help",
+      "value": "推荐 Qwen3.5-0.8B Q4_K_M（约 533 MB）。支持 Qwen3 / Qwen3.5 的小型 Q4_K_M 单文件 GGUF，最大 1.75 GB。模型只负责识别角色；朗读仍使用音色管理中的音色，在线音色仍需联网。"
+    },
+    {
+      "name": "role_model_download_link",
+      "value": "复制推荐模型下载地址"
+    },
+    {
+      "name": "role_model_link_copied",
+      "value": "下载地址已复制，可粘贴到浏览器下载"
+    },
+    {
+      "name": "role_model_size_error",
+      "value": "模型文件过大或参数量不兼容，请使用推荐的小型模型。"
+    },
+    {
+      "name": "role_model_space_error",
+      "value": "存储空间不足，请先释放空间后再导入。"
+    },
+    {
+      "name": "role_model_memory_error",
+      "value": "当前可用内存不足，请关闭其他应用或使用更小的模型。"
+    },
+    {
+      "name": "role_model_timeout_error",
+      "value": "模型处理超时，本章暂用默认音色，可稍后重新识别。"
+    },
+    {
+      "name": "role_model_unsupported_error",
+      "value": "暂不支持此模型，请导入 Qwen3 / Qwen3.5 小型 Q4_K_M 单文件 GGUF。"
+    },
+    {
+      "name": "role_model_invalid_error",
+      "value": "模型文件损坏或下载不完整，请重新下载。"
+    },
+    {
+      "name": "role_model_load_error",
+      "value": "模型加载或识别失败，请检查文件后重试。未识别的对白使用默认音色。"
+    },
+    {
+      "name": "role_save_error",
+      "value": "保存失败，请重试。"
+    },
+    {
+      "name": "role_book_title",
+      "value": "本书角色音色"
+    },
+    {
+      "name": "role_book_empty",
+      "value": "打开一本文字书，在阅读器菜单中选择“角色配音”，即可为本书安排声音。"
+    },
+    {
+      "name": "role_book_hint",
+      "value": "角色会随朗读逐步出现，自动从已启用的导入音色中分配，也可点击修改。绑定按书保存，首次识别需要等待；无法确认的对白使用默认对白音色。"
+    },
+    {
+      "name": "role_narrator",
+      "value": "旁白"
+    },
+    {
+      "name": "role_unknown",
+      "value": "默认对白"
+    },
+    {
+      "name": "role_follow_voice",
+      "value": "跟随当前朗读音色"
+    },
+    {
+      "name": "role_voice_unavailable",
+      "value": "音色不可用，暂随当前朗读音色"
+    },
+    {
+      "name": "role_voice_search",
+      "value": "搜索已启用的音色"
+    },
+    {
+      "name": "role_voice_empty",
+      "value": "没有匹配的音色，可先到音色管理添加并启用。"
+    },
+    {
+      "name": "role_voice_fallback",
+      "value": "部分角色音色播放失败，已暂时回退到当前朗读音色。"
+    },
+    {
+      "name": "role_analysing",
+      "value": "正在识别后续对白…"
+    },
+    {
+      "name": "role_retry_chapter",
+      "value": "重新识别本章"
+    },
+    {
+      "name": "role_cast_title",
+      "value": "角色配音"
+    },
+    {
+      "name": "role_global_scope",
+      "value": "全局开关，适用于所有文字书"
+    },
+    {
+      "name": "role_book_scope",
+      "value": "以下音色安排仅用于本书"
+    },
+    {
+      "name": "role_prepare_title",
+      "value": "让故事里的角色拥有自己的声音"
+    },
+    {
+      "name": "role_prepare_hint",
+      "value": "首次使用需准备本地模型来识别人物，声音沿用你已添加的音色。"
+    },
+    {
+      "name": "role_prepare_action",
+      "value": "准备模型"
+    },
+    {
+      "name": "role_discovered",
+      "value": "已发现 %d 位人物，继续朗读时会逐步补充"
+    },
+    {
+      "name": "role_waiting_characters",
+      "value": "开启多角色朗读后，人物会随朗读逐步出现。暂未识别的对白使用默认对白音色。"
+    },
+    {
+      "name": "role_fallback_hint",
+      "value": "本章角色识别暂不可用，后续对白使用默认音色，可重新识别。"
+    },
+    {
+      "name": "role_voice_confirm_hint",
+      "value": "先选择音色，再试听；确认后从下一朗读片段生效。取消不会修改原设置。"
+    },
+    {
+      "name": "role_voice_apply",
+      "value": "使用这个音色"
+    },
+    {
+      "name": "role_voice_saved",
+      "value": "本书角色音色已保存"
+    },
+    {
+      "name": "role_voice_no_results",
+      "value": "没有找到匹配的音色，试试其他关键词"
+    },
+    {
+      "name": "role_preview_loading",
+      "value": "准备试听 · 停止"
+    },
+    {
+      "name": "role_preview_passage",
+      "value": "试听当前片段"
+    },
+    {
+      "name": "role_preview_empty",
+      "value": "开始朗读本书后，可试听当前片段的角色配音"
+    },
+    {
+      "name": "role_model_manage",
+      "value": "模型管理"
+    },
+    {
+      "name": "role_model_ready",
+      "value": "已就绪"
+    },
+    {
+      "name": "role_model_busy",
+      "value": "准备中"
+    },
+    {
+      "name": "role_model_download_title",
+      "value": "下载与兼容说明"
+    },
+    {
+      "name": "role_model_leave_hint",
+      "value": "请留在本页完成导入，返回会取消；原有模型会保留。"
     }
   ]
 }

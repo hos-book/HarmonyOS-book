@@ -29,6 +29,8 @@ export struct DialogueHighlightSettingsPage {
   @Local colorRevision: number = 0;
   private previewSample: string = '';
   private readingSettings: TextReadingSettings = new TextReadingSettings();
+  private saveRevision: number = 0;
+  private saveTask: Promise<void> | null = null;
   private readonly readerColorListener = (): void => this.refreshThemeColor();
 
   @Computed
@@ -79,33 +81,60 @@ export struct DialogueHighlightSettingsPage {
     }
   }
 
-  private async saveDialogue(enabled: boolean, color: string, followTheme: boolean = color.length === 0,
+  private saveDialogue(enabled: boolean, color: string, followTheme: boolean = color.length === 0,
     quotePairs: string = this.quotePairs): Promise<void> {
     const context = this.getUIContext().getHostContext();
-    if (!context || !this.ready || this.saving) return;
+    if (!context || !this.ready) return Promise.resolve();
+    const normalizedPairs = ReaderDialogueRules.normalize(quotePairs);
+    const normalizedColor = followTheme ? '' :
+      (TextReadingSettings.normalizeDialogueHighlightColor(color) || this.themeDialogueColor);
+    if (enabled === this.dialogueHighlight && normalizedPairs === this.quotePairs &&
+      normalizedColor === this.dialogueColor) return this.saveTask ?? Promise.resolve();
+    // 先同步控件与预览；保存期间继续接收开关操作，只落盘最新选择。
+    this.dialogueHighlight = enabled;
+    this.quotePairs = normalizedPairs;
+    this.dialogueColor = normalizedColor;
+    this.dialogueFollowTheme = normalizedColor.length === 0;
+    this.previewColor = normalizedColor || this.themeDialogueColor;
+    this.colorRevision++;
+    this.saveRevision++;
+    if (this.saveTask === null) this.saveTask = this.persistDialogue();
+    return this.saveTask;
+  }
+
+  private async persistDialogue(): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
     this.saving = true;
-    this.dialogueFollowTheme = followTheme;
     try {
-      const settings = await TextReadingSettingsService.get(context);
-      settings.dialogueHighlight = enabled;
-      settings.dialogueQuotePairs = ReaderDialogueRules.normalize(quotePairs);
-      const normalizedColor = TextReadingSettings.normalizeDialogueHighlightColor(color);
-      settings.dialogueHighlightColor = followTheme ? '' : (normalizedColor || this.themeDialogueColor);
-      await TextReadingSettingsService.save(context, settings);
-      this.readingSettings = settings;
-      this.quotePairs = settings.dialogueQuotePairs;
-      this.dialogueHighlight = settings.dialogueHighlight;
-      this.dialogueColor = settings.dialogueHighlightColor;
-      this.dialogueFollowTheme = this.dialogueColor.length === 0;
-      this.previewColor = this.dialogueColor || this.themeDialogueColor;
-      this.colorRevision++;
-    } catch (_error) {
-      this.previewColor = this.dialogueColor || this.themeDialogueColor;
-      this.dialogueFollowTheme = this.dialogueColor.length === 0;
-      this.colorRevision++;
-      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.reading_settings_save_error') });
+      while (true) {
+        const revision = this.saveRevision;
+        const enabled = this.dialogueHighlight;
+        const quotePairs = this.quotePairs;
+        const color = this.dialogueColor;
+        try {
+          const settings = await TextReadingSettingsService.get(context);
+          settings.dialogueHighlight = enabled;
+          settings.dialogueQuotePairs = quotePairs;
+          settings.dialogueHighlightColor = color;
+          await TextReadingSettingsService.save(context, settings);
+          this.readingSettings = settings;
+        } catch (_error) {
+          if (revision === this.saveRevision) {
+            this.dialogueHighlight = this.readingSettings.dialogueHighlight;
+            this.quotePairs = this.readingSettings.dialogueQuotePairs;
+            this.dialogueColor = this.readingSettings.dialogueHighlightColor;
+            this.dialogueFollowTheme = this.dialogueColor.length === 0;
+            this.previewColor = this.dialogueColor || this.themeDialogueColor;
+            this.colorRevision++;
+            this.getUIContext().getPromptAction().showToast({ message: $r('app.string.reading_settings_save_error') });
+          }
+        }
+        if (revision === this.saveRevision) break;
+      }
     } finally {
       this.saving = false;
+      this.saveTask = null;
     }
   }
 
@@ -174,7 +203,7 @@ export struct DialogueHighlightSettingsPage {
         Text($r('app.string.reader_dialogue_highlight')).fontSize(AppFont.BodyL)
           .fontColor(AppTheme.TextPrimary).layoutWeight(1)
         Toggle({ type: ToggleType.Switch, isOn: this.dialogueHighlight }).selectedColor(AppColor.Brand)
-          .enabled(!this.saving).id('reading-dialogue-highlight')
+          .id('reading-dialogue-highlight')
           .onChange((enabled: boolean): void => { this.saveDialogue(enabled, this.dialogueColor); })
       }.width('100%')
       Text($r('app.string.reader_dialogue_highlight_hint')).fontSize(AppFont.Caption)

@@ -1,5 +1,12 @@
 # 第三方软件声明
 
+## 多角色朗读本地推理
+
+- llama.cpp / ggml：MIT，Copyright (c) 2023-2026 The ggml authors。
+- 上游：https://github.com/ggml-org/llama.cpp ，固定 v0.9.0 / commit `cd959bae99ff4bed22bef2604f45241c09bbb8c8`；源码归档 SHA256 为 `fbe74146a3cdc00f706773eb233bc4aedb7d8c3c7e2122440e492a99c1ec5a76`。
+- `third_party/role-llama/` 保留 CPU 库构建输入及许可证，由 `scripts/sync-role-llama.py` 复现；仅构建 CPU 推理，不包含服务器或模型权重。OHOS 线程亲和性兼容头、异步 NAPI 和模型检查在 `entry/src/main/cpp/role_*`，未改写上游源码。
+- 许可全文随 HAP 保存在 `rawfile/third_party/role_llama/LICENSE.txt`。GGUF 权重由用户另行下载并导入，遵循各模型发布者的许可，应用不分发权重。
+
 ## Petrel 删除消散效果
 
 - 上游：https://github.com/miramira8295/Petrel ，固定提交 `ed218f4559cf083b51b08c5bf0bb27ea6215cbb9`，作者 miramira8295 与 Petrel contributors，Apache-2.0。

@@ -35,6 +35,9 @@ import { WidgetUpdater } from '../WidgetUpdater';
 import { OnlineTextContentCache } from './OnlineTextContentCache';
 import { OnlineTextPaginator } from './OnlineTextPaginator';
 import { SpeechSegment, SpeechTextSegmenter } from './SpeechTextSegmenter';
+import { RoleSpeechService } from './RoleSpeechService';
+import { RoleModelService } from './RoleModelService';
+import { TextReadingSettingsService } from './TextReadingSettingsService';
 
 /** 有界预取下一章开头片段；身份、文本均匹配才交给当前播放队列。 */
 class NextChapterSpeech {
@@ -76,6 +79,8 @@ export class TextToSpeechService {
   private httpPrefetchTimer: number = -1;
   private unavailableVoices: Map<string, number> = new Map();
   private httpTasks: Map<number, HttpTtsPlayer> = new Map();
+  private httpTaskVoices: Map<number, string> = new Map<number, string>();
+  private roles: RoleSpeechService = RoleSpeechService.getInstance();
   private nextChapterSpeech: NextChapterSpeech | null = null;
   private httpOutput: HttpTtsAudioOutput = new HttpTtsAudioOutput(
     (event: audio.InterruptEvent): void => AudioFocusService.getInstance().handleInterrupt('speech', event),
@@ -135,6 +140,37 @@ export class TextToSpeechService {
     return this.book;
   }
 
+  /** 试听只恢复由本次试听暂停的会话；换书、手动暂停、来电等都会使凭据失效。 */
+  pauseForPreview(): number {
+    const resume = this.state.active && (this.state.playing || this.state.loading);
+    this.pause();
+    return resume ? this.generation : -1;
+  }
+
+  canResumePreview(ticket: number): boolean {
+    return ticket >= 0 && ticket === this.generation && this.state.active &&
+      !this.state.playing && !this.state.loading;
+  }
+
+  async resumeAfterPreview(ticket: number): Promise<void> {
+    if (this.canResumePreview(ticket)) await this.resume(false);
+  }
+
+  /** 角色音色在下一片段生效，当前正在发声的片段保持连续。 */
+  roleVoiceChanged(bookId: string): void {
+    if (this.state.bookId !== bookId) return;
+    this.httpTasks.forEach((task: HttpTtsPlayer, index: number): void => {
+      if (index > this.segmentIndex) {
+        task.cancel(); this.httpTasks.delete(index); this.httpTaskVoices.delete(index);
+      }
+    });
+    if (this.nextSystemIndex > this.segmentIndex) {
+      this.nextSystemId = ''; this.nextSystemIndex = -1;
+      this.nextSystemAudio = null; this.nextSystemPcm.reset();
+    }
+    this.clearNextChapterSpeech();
+  }
+
   initialize(context: common.UIAbilityContext): Promise<void> {
     this.context = context;
     AVSessionService.getInstance().addDesktopLyricListener(this.syncDesktopLyric);
@@ -178,6 +214,9 @@ export class TextToSpeechService {
       this.state.person = 13;
       this.saveSettings();
     }
+    await RoleModelService.getInstance().initialize(context).catch((): void => {
+      this.roles.state.error = $r('app.string.role_model_load_error');
+    });
   }
 
   addListener(listener: () => void): void {
@@ -452,7 +491,7 @@ export class TextToSpeechService {
     const next = Math.round(Math.max(0.5, Math.min(3, speed)) * 100) / 100;
     if (next === this.state.speed) return;
     const config = this.state.customTtsConfigs.find((item: CustomTtsConfig): boolean => item.id === this.state.customTtsId);
-    if (config && !CustomTtsConfigParser.usesSpeed(config)) {
+    if (!this.roles.enabled && config && !CustomTtsConfigParser.usesSpeed(config)) {
       try { this.httpOutput.setPlaybackSpeed(next); }
       catch (_error) { this.pause(); this.state.error = this.message($r('app.string.tts_custom_play_error')); this.notify(); return; }
       this.state.speed = next;
@@ -480,7 +519,8 @@ export class TextToSpeechService {
     const store = this.store;
     if (store === null) throw new Error('TTS settings unavailable');
     const next = SpeechSynthesisSettings.normalize(value);
-    if (this.chapterContent.length > 0) SpeechTextSegmenter.batches(this.chapterContent, next, this.state.customTtsId.length > 0);
+    if (this.chapterContent.length > 0) SpeechTextSegmenter.batches(this.chapterContent, next,
+      this.state.customTtsId.length > 0, [], this.roles.boundaries());
     const previous = this.state.synthesis;
     store.putSync('synthesis', JSON.stringify(next));
     try { await store.flush(); }
@@ -653,6 +693,7 @@ export class TextToSpeechService {
     DiagnosticLogService.info('tts.pause', `foreground=${this.foreground}; offset=${this.state.charOffset}; bg=${BackgroundTaskService.isRunning()}`);
     this.recordSpokenTime();
     this.generation++;
+    this.roles.cancel();
     this.requestId = '';
     this.pcm.reset();
     this.pcmPlaybackId = '';
@@ -847,6 +888,13 @@ export class TextToSpeechService {
       this.state.charOffset = document.toDisplay(offset);
       this.state.playbackOffset = this.state.charOffset;
       this.chapterContent = content;
+      if (this.context !== null && this.roles.enabled) {
+        const settings = await TextReadingSettingsService.get(this.context);
+        if (!this.valid(ticket)) return;
+        await this.roles.prepare(this.context, book.id, book.title,
+          book.chapters[index].originSourceValue || book.chapters[index].source.value, content, settings.dialogueQuotePairs);
+        if (!this.valid(ticket)) return;
+      }
       this.rebuildSpeechSegments();
       if (this.segments.length === 0 && content.trim().length === 0) throw new Error('Empty chapter');
       this.state.contentLength = content.length;
@@ -856,6 +904,7 @@ export class TextToSpeechService {
         nextSpeech.tasks.forEach((task: HttpTtsPlayer, part: number): void => {
           if (this.segments[part]?.text === nextSpeech.segments[part]?.text) {
             this.httpTasks.set(part, task);
+            this.httpTaskVoices.set(part, this.state.customTtsId);
             nextSpeech.tasks.delete(part);
           }
         });
@@ -901,8 +950,8 @@ export class TextToSpeechService {
     }, (): boolean => this.valid(ticket));
   }
 
-  private speakNext(ticket: number): void {
-    if (!this.valid(ticket) || (!this.state.customTtsId && this.engine === null) || this.book === null) return;
+  private async speakNext(ticket: number): Promise<void> {
+    if (!this.valid(ticket) || this.book === null) return;
     if (this.sleepDeadline > 0 && Date.now() >= this.sleepDeadline) {
       this.pause(); this.setSleep(0); return;
     }
@@ -917,6 +966,17 @@ export class TextToSpeechService {
       return;
     }
     const segment = this.segments[this.segmentIndex];
+    if (this.roles.enabled && !this.roles.readyAt(segment.start + segment.leadingWhitespace)) {
+      this.state.loading = true; this.notify();
+      await this.roles.ensureAt(segment.start + segment.leadingWhitespace, this.state.customTtsConfigs, this.state.customTtsId);
+      if (!this.valid(ticket) || segment !== this.segments[this.segmentIndex]) return;
+    }
+    const voiceId = this.segmentVoiceId(segment);
+    if (!voiceId && this.engine === null) {
+      try { await this.ensureEngine(ticket); }
+      catch (error) { if (this.valid(ticket)) this.fail(new Error(String(error))); return; }
+      if (!this.valid(ticket) || segment !== this.segments[this.segmentIndex]) return;
+    }
     this.state.charOffset = segment.start;
     this.state.playbackOffset = segment.start;
     this.state.sentence = segment.text;
@@ -935,13 +995,14 @@ export class TextToSpeechService {
       this.clearWatchdog();
       this.watchdog = setTimeout((): void => {
         if (this.valid(ticket)) this.fail(new Error('Speech callback timed out'));
-      }, this.state.customTtsId ? (this.state.synthesis.timeoutSeconds * 4 + 2) *
+      }, voiceId ? (this.state.synthesis.timeoutSeconds * 4 + 2) *
         (this.state.synthesis.retries + 1) * 1000 + 30000 : 150000);
-      if (this.state.customTtsId) this.speakHttp(segment.text, this.requestId, ticket);
+      if (voiceId) this.speakHttp(segment.text, this.requestId, ticket, voiceId);
       else if (this.nextSystemIndex === this.segmentIndex && this.nextSystemId.length > 0) {
         this.requestId = this.nextSystemId;
         this.playPreparedSystemSpeech(this.requestId, ticket);
       } else this.engine?.speak(segment.text, params);
+      this.prefetchRoles(ticket, segment.end);
     } catch (error) {
       this.fail(error instanceof Error ? error : new Error(String(error)));
     }
@@ -963,6 +1024,8 @@ export class TextToSpeechService {
     // 每个片段都提前合成下一片段，滚动阅读/后台朗读也不等待段间重新请求。
     if (!segment || this.nextSystemId.length > 0 ||
       this.segmentIndex + 1 >= this.segments.length) return;
+    const next = this.segments[this.segmentIndex + 1];
+    if (!this.roles.readyAt(next.start + next.leadingWhitespace) || this.segmentVoiceId(next)) return;
     this.nextSystemId = this.nextId();
     this.nextSystemIndex = this.segmentIndex + 1;
     const params: textToSpeech.SpeakParams = {
@@ -1006,6 +1069,7 @@ export class TextToSpeechService {
           this.state.loading = false;
           this.state.playing = true;
           this.clearWatchdog();
+          this.prefetchHttp(null, ticket, true);
           BackgroundTaskService.startSpeech(context);
           if (Date.now() - this.lastAudioLogAt >= 60000) {
             this.lastAudioLogAt = Date.now();
@@ -1041,6 +1105,7 @@ export class TextToSpeechService {
     this.nextSystemPcm.reset();
     this.httpTasks.forEach((task: HttpTtsPlayer): void => task.cancel());
     this.httpTasks.clear();
+    this.httpTaskVoices.clear();
   }
 
   private followSpeechProgress(position: number, duration: number): void {
@@ -1088,7 +1153,8 @@ export class TextToSpeechService {
     if (this.state.charOffset > 0) {
       pageEnds.push(this.state.charOffset);
     }
-    this.segments = SpeechTextSegmenter.batches(this.chapterContent, this.state.synthesis, this.state.customTtsId.length > 0, pageEnds);
+    this.segments = SpeechTextSegmenter.batches(this.chapterContent, this.state.synthesis,
+      this.state.customTtsId.length > 0, pageEnds, this.roles.boundaries());
     this.segmentIndex = SpeechTextSegmenter.indexAt(this.segments, this.state.charOffset);
   }
 
@@ -1102,7 +1168,40 @@ export class TextToSpeechService {
     // 只更新页界映射，重新排版不废弃仍可复用的完整语句音频。
   }
 
-  private prefetchHttp(config: CustomTtsConfig, ticket: number, playing: boolean = false, headStarted: boolean = false): void {
+  private segmentVoiceId(segment: SpeechSegment): string {
+    const requested = this.roles.voiceAt(segment.start + segment.leadingWhitespace);
+    if (requested && (this.unavailableVoices.get(requested) ?? 0) <= Date.now() &&
+      this.state.customTtsConfigs.some((item: CustomTtsConfig): boolean => item.id === requested && item.enabled)) return requested;
+    return this.state.customTtsId;
+  }
+
+  private prefetchRoles(ticket: number, offset: number): void {
+    if (!this.roles.enabled) return;
+    this.roles.prefetch(offset, this.state.customTtsConfigs, this.state.customTtsId).then((): void => {
+      if (!this.valid(ticket) || !this.requestId) return;
+      this.prefetchHttp(null, ticket, this.state.playing && !this.state.loading);
+      if (!this.segmentVoiceId(this.segments[this.segmentIndex])) this.prefetchSystemPage();
+    }).catch((): void => {});
+  }
+
+  /** 设置修改后按原文位置重建，旧音色的预取音频不再复用。 */
+  async refreshRoleSpeech(resumePlayback: boolean = false): Promise<void> {
+    this.pause();
+    const ticket = this.generation;
+    const book = this.book;
+    if (this.context !== null && book !== null && this.chapterContent) {
+      const settings = await TextReadingSettingsService.get(this.context);
+      const chapter = book.chapters[this.state.chapterIndex];
+      if (ticket !== this.generation || !chapter) return;
+      await this.roles.prepare(this.context, book.id, book.title, chapter.originSourceValue || chapter.source.value,
+        this.chapterContent, settings.dialogueQuotePairs);
+      if (ticket !== this.generation) return;
+      this.rebuildSpeechSegments();
+    }
+    if (resumePlayback) await this.resume(false);
+  }
+
+  private prefetchHttp(config: CustomTtsConfig | null, ticket: number, playing: boolean = false, headStarted: boolean = false): void {
     // 当前请求占一个槽位；进入播放后补齐后续预取，有界并发可按提供方限制调整。
     const first = !playing && !headStarted && !this.httpTasks.has(this.segmentIndex);
     const end = Math.min(this.segments.length, this.segmentIndex + (first ? 1 : this.state.synthesis.concurrency) + (playing ? 1 : 0));
@@ -1115,27 +1214,40 @@ export class TextToSpeechService {
     }
     const speed = this.state.speed;
     for (let index = this.segmentIndex; index < end; index++) {
-      if (this.httpTasks.has(index)) continue;
+      const segment = this.segments[index];
+      if (!this.roles.readyAt(segment.start + segment.leadingWhitespace)) continue;
+      // 配音确认只改变后续片段；预取回调不能取消当前已经消费的音频。
+      if (index === this.segmentIndex && this.httpPlayer !== null && this.httpTasks.get(index) === this.httpPlayer) continue;
+      const voiceId = this.segmentVoiceId(segment);
+      if (this.httpTasks.has(index) && this.httpTaskVoices.get(index) !== voiceId) {
+        this.httpTasks.get(index)?.cancel(); this.httpTasks.delete(index); this.httpTaskVoices.delete(index);
+      }
+      if (this.httpTasks.has(index) || !voiceId) continue;
+      const voice = this.state.customTtsConfigs.find((item: CustomTtsConfig): boolean => item.id === voiceId && item.enabled);
+      if (!voice) continue;
       const task = new HttpTtsPlayer(this.state.synthesis.timeoutSeconds, this.state.synthesis.retries);
       const text = this.segments[index].text;
       this.httpTasks.set(index, task);
+      this.httpTaskVoices.set(index, voice.id);
       if (!this.valid(ticket)) return;
-      task.prepare(config, text, speed).then((): void => {
+      task.prepare(voice, text, speed).then((): void => {
         if (!this.valid(ticket)) return;
         if (first) {
           if (this.httpPrefetchTimer !== -1) clearTimeout(this.httpPrefetchTimer);
           this.httpPrefetchTimer = -1;
           this.prefetchHttp(config, ticket, false, true);
         }
-        this.prefetchNextChapterSpeech(config);
+        if (config !== null) this.prefetchNextChapterSpeech(config);
       }).catch((): void => { /* 到该段时由播放路径处理已重试的失败。 */ });
     }
-    if (playing && this.segments.length - this.segmentIndex - 1 < this.state.synthesis.concurrency) {
+    if (config !== null && playing && this.segments.length - this.segmentIndex - 1 < this.state.synthesis.concurrency) {
       this.prefetchNextChapterSpeech(config);
     }
   }
 
   private nextChapterSpeechKey(book: Book, index: number): string {
+    // 下一章的对白尚未分角，只预取正文；防止误用全局音色合成下一章对白。
+    if (this.roles.enabled) return '';
     const chapter = book.chapters[index];
     const config = this.state.customTtsConfigs.find((item: CustomTtsConfig): boolean => item.id === this.state.customTtsId);
     if (!chapter || !config || !config.enabled) return '';
@@ -1203,8 +1315,8 @@ export class TextToSpeechService {
     }
   }
 
-  private speakHttp(text: string, id: string, ticket: number): void {
-    const config = this.state.customTtsConfigs.find((item: CustomTtsConfig): boolean => item.id === this.state.customTtsId);
+  private speakHttp(text: string, id: string, ticket: number, voiceId: string): void {
+    const config = this.state.customTtsConfigs.find((item: CustomTtsConfig): boolean => item.id === voiceId);
     const context = this.context;
     if (!config || context === null) { this.fail(new Error('TTS config unavailable')); return; }
     const unavailableUntil = this.unavailableVoices.get(config.id) ?? 0;
@@ -1251,10 +1363,18 @@ export class TextToSpeechService {
         this.requestId = '';
         this.clearWatchdog();
         this.httpTasks.delete(index);
+        this.httpTaskVoices.delete(index);
         this.segmentIndex++;
         this.speakNext(ticket);
       } catch (error) {
         if (this.valid(ticket) && id === this.requestId) {
+          if (this.roles.enabled && config.id !== this.state.customTtsId && this.audibleRequestId !== id) {
+            this.unavailableVoices.set(config.id, Date.now() + 5 * 60 * 1000);
+            this.roles.state.error = $r('app.string.role_voice_fallback');
+            this.clearHttpPrefetch(); this.requestId = ''; this.clearWatchdog();
+            this.speakNext(ticket);
+            return;
+          }
           this.pause();
           if (error instanceof HttpTtsFailure && error.kind === 'voice') {
             this.unavailableVoices.set(config.id, Date.now() + 5 * 60 * 1000);
@@ -1444,9 +1564,12 @@ export class TextToSpeechService {
     }
     // 暂时摘下尚未播放的任务，停止旧播放器后按范围及文本重新匹配。
     const savedTasks = new Map<number, HttpTtsPlayer>();
+    const savedVoices = new Map<number, string>();
     const previousSegments = this.segments;
     this.httpTasks.forEach((task: HttpTtsPlayer, part: number): void => {
-      if (task !== this.httpPlayer) { savedTasks.set(part, task); this.httpTasks.delete(part); }
+      if (task !== this.httpPlayer) {
+        savedTasks.set(part, task); savedVoices.set(part, this.httpTaskVoices.get(part) ?? ''); this.httpTasks.delete(part);
+      }
     });
     this.pause();
     if (this.book) LibrarySyncActivity.remoteText.delete(this.book.id);
@@ -1456,9 +1579,11 @@ export class TextToSpeechService {
     savedTasks.forEach((task: HttpTtsPlayer, part: number): void => {
       const old = previousSegments[part];
       const match = this.segments.findIndex((item: SpeechSegment): boolean => old !== undefined &&
-        item.start === old.start && item.end === old.end && item.text === old.text);
+        item.start === old.start && item.end === old.end && item.text === old.text &&
+        this.segmentVoiceId(item) === savedVoices.get(part));
       if (playing && match >= this.segmentIndex && match < this.segmentIndex + this.state.synthesis.concurrency + 1) {
         this.httpTasks.set(match, task);
+        this.httpTaskVoices.set(match, savedVoices.get(part) ?? '');
       } else task.cancel();
     });
     const segment = this.segments[this.segmentIndex];

@@ -1,26 +1,30 @@
-# 1.1.0 更新日志（2026-11-10）
+# 1.1.0 更新日志（2026-11-10，重新发布）
 
-1. 优化 EPUB 原版精排，完善书内音视频播放、画廊滑动及连续阅读，改善章节切换和阅读位置恢复。
-2. 提升本地电子书导入效率，优化长篇 EPUB 解析、重复图片处理和资源保存，减少导入等待。
-3. 完善书源、字体及音色的批量导入，支持一次选择最多 50 个文件，优化进度反馈与异常处理。
-4. 新增音色试听，支持预览系统音色和自定义音色，方便选择合适的朗读声音。
-5. 丰富朗读显示设置，支持自定义字色、高亮及下划线颜色，并提供实时效果预览。
-6. 完善对话高亮，支持选择或自定义成对符号，并保存个人设置。
-7. 优化书架更新入口、书单浏览及阅读设置页面，改善滚动、底部留白和不同窗口尺寸下的显示。
-8. 更新技术与支持页面，完善致谢内容、交互动画及深浅色适配。
+1. 新增多角色朗读，支持使用本地模型识别正文人物，并按书籍分别设置旁白、对白与角色音色。
+2. 完善音色试听，支持系统音色、自定义音色与角色片段预览，优化试听结束后的朗读恢复和进度衔接。
+3. 优化连续朗读与角色音色切换，完善语音预加载、暂停恢复及异常回退，提升收听稳定性。
+4. 优化 EPUB 原版精排，完善书内音视频、画廊滑动与连续阅读，改善章节切换和阅读位置恢复。
+5. 提升本地电子书导入效率，优化长篇 EPUB 解析、重复图片处理和资源保存，减少导入等待。
+6. 完善书源、字体及音色的批量导入，支持一次选择最多 50 个文件，修复部分场景下书源导入菜单响应异常。
+7. 丰富朗读显示与对话高亮设置，支持自定义标记颜色和成对符号，改善开关响应、效果预览及设置保存。
+8. 优化书架、书单、阅读设置与技术支持页面，完善滚动操作、底部留白、深浅色主题及不同窗口尺寸下的显示。
+
+多角色朗读需自行导入兼容模型；模型在本机识别角色，在线音色仍需网络连接。
 
 ## 构建与分发
 
-- 版本名：1.1.0；版本代码：1010001；构建版本：1。
+- 版本名：1.1.0；版本代码：1010002；构建版本：2。替代此前 1010001 构建。
 - 正式版与邀请测试使用同一 Release 签名包，保留正式渠道配置。
-- 发布目标：正式版审核通过立即上架；邀测即刻开始，选择全部现有测试组并发送通知；关闭上架自检。
-- 构建校验：Release SDK 26.0.0.105，release 产品 / buildMode=release / debug=false，最低 API 20、目标 API 26，发布 Profile 类型为 release。包内版本、分层图标、混淆动态接口及编译后 EPUB 依赖校验通过。
-- 验证：EPUB 解析与媒体、本地导入、书源文件导入、音色导入、音色试听、阅读偏好和翻页共 8 组定向回归通过。本轮未新增真机、车机或手表实测；已有设备记录及验证边界见 docs/APP_UI.md。
-- 工具说明：45 个变更 ArkTS 文件的独立检查工具在 300 秒后超时；MCP 构建因 OHPM 批处理递归失败，改用项目配置的正式版 DevEco 官方 Node/Hvigor 工具并完整构建成功。保留既有 SDK 兼容性、废弃接口和上游 TypeScript 提示。
-- APP：`artifacts/releases/1.1.0-1010001/Jianting-1.1.0-1010001-release.app`，293761802 字节。
-- SHA-256：`7ac987d7118644eda7d3fe3fbaef5182fcfaeea77c7a1df3318256a9cf6f9ca5`。
-- 在线依据：[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)、[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[ArkTS 检查技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)。本轮已读取实时索引、相关目录及指引；AGC 复用项目既有服务账号会话，CLI 仅保存在任务临时目录。
-- AGC：待本次上传和提交后补充实际结果。
+- 发布目标：正式版审核通过立即上架；邀测即刻开始，通知全部现有测试组；关闭上架自检。
+- 本地模型识别质量、持续后台功耗及其他设备尺寸仍以实际体验为准；设备验证边界见 docs/ROLE_SPEECH.md 和 docs/APP_UI.md。
+- 构建校验：Release SDK 26.0.0.105，release 产品 / buildMode=release / debug=false，最低 API 20、目标 API 26；发布 Profile 类型为 release。包内版本、分层图标、原生导出和混淆动态接口契约校验通过。
+- 验证：15 个改动 ETS 文件执行静态检查；78 项朗读回归、音色试听、阅读偏好及编译后 EPUB 依赖检查通过。本次未新增真机或手表测试，已有设备记录及模型验证边界见 docs/ROLE_SPEECH.md。
+- 发布修复：保留 librole_inference.so 的 run/cancel 固定导出，并纳入发布校验，避免仅在 Release 混淆后出现原生接口缺失。
+- 构建工具：MCP 遇到 OHPM 批处理递归错误后使用本机 Release DevEco 的官方 Node/Hvigor CLI；临时启动脚本修正 Windows Path 大小写冲突。保留既有 SDK 兼容性、废弃接口和上游 TypeScript 提示。
+- APP：`artifacts/releases/1.1.0-1010002/Jianting-1.1.0-1010002-release.app`，298368229 字节。
+- SHA-256：`217b0c282d45a864a5fd340445f2d15b73ec51488ffae5d704e4d3204c0a7a73`。
+- 在线依据：[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)、[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[ArkTS 检查技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)。本轮已读取实时目录与相关指引；AGC 使用项目既有服务账号授权，临时 CLI 仅保存在任务临时目录。
+- AGC：软件包上传中，待提交后补充结果。
 
 # 1.0.9 更新日志（2026-11-09）
 
