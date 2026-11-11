@@ -35,20 +35,32 @@
     // full height. Copy CSS backgrounds, including images/gradients and fixed
     // attachment; a solid cover would cut off the book's original artwork.
     var doc = frame.view.contentDocument, root = getComputedStyle(doc.documentElement);
-    var body = getComputedStyle(doc.body), paper = document.createElement('div');
+    var body = getComputedStyle(doc.body), paper = frame.paper;
     var properties = ['image', 'position', 'size', 'repeat', 'attachment', 'origin', 'clip', 'color'];
-    frame.section.style.isolation = 'isolate';
-    paper.style.cssText = 'position:absolute;inset:0;z-index:-1;pointer-events:none;box-sizing:border-box;';
-    paper.setAttribute('aria-hidden', 'true');
+    if (!paper) {
+      frame.section.style.isolation = 'isolate';
+      paper = document.createElement('div');
+      paper.style.cssText = 'position:absolute;inset:0;z-index:-1;pointer-events:none;box-sizing:border-box;';
+      paper.setAttribute('aria-hidden', 'true');
+      var bodyPaper = document.createElement('div');
+      bodyPaper.style.cssText = 'position:absolute;inset:0;pointer-events:none;box-sizing:border-box;';
+      paper.appendChild(bodyPaper);
+      frame.section.insertBefore(paper, frame.view);
+      frame.paper = paper;
+      frame.view.contentWindow.addEventListener('resize', function () {
+        if (find(frame.id) && frame.ready && (frame.paperWidth !== frame.view.contentWindow.innerWidth ||
+            (!frame.flow && frame.paperHeight !== frame.view.contentWindow.innerHeight))) background(frame);
+      });
+    }
+    frame.paperWidth = frame.view.contentWindow.innerWidth;
+    frame.paperHeight = frame.view.contentWindow.innerHeight;
     properties.forEach(function (name) {
-      if (!frame.section.style.getPropertyValue('background-' + name)) {
-        frame.section.style.setProperty('background-' + name, root.getPropertyValue('background-' + name));
-      }
-      paper.style.setProperty('background-' + name, body.getPropertyValue('background-' + name));
+      paper.style.setProperty('background-' + name, root.getPropertyValue('background-' + name));
+      paper.firstElementChild.style.setProperty('background-' + name, body.getPropertyValue('background-' + name));
     });
     // Transparent EPUB paper is white, matching the Web viewport default.
     if (getComputedStyle(frame.section).backgroundColor === 'rgba(0, 0, 0, 0)') frame.section.style.backgroundColor = '#fff';
-    frame.section.insertBefore(paper, frame.view);
+    clip(frame);
   }
   function clip(frame) {
     var top = frame.flow ? frame.top : Math.max(frame.top, Math.min(0, frame.bottom - innerHeight));
@@ -56,6 +68,14 @@
     var value = 'inset(' + Math.max(0, cfg.top - top) + 'px 0 ' +
       Math.max(0, top + height - innerHeight + cfg.bottom) + 'px 0)';
     if (frame.clip !== value) { frame.clip = value; frame.view.style.clipPath = value; }
+    if (frame.paper) {
+      // Leave the original iframe as the sole painter inside the reading area.
+      // Duplicating translucent paper under it would darken only the text region.
+      var from = Math.max(0, Math.min(frame.height, cfg.top - frame.top));
+      var to = Math.max(from, Math.min(frame.height, innerHeight - cfg.bottom - frame.top));
+      frame.paper.style.clipPath = 'polygon(0 0,100% 0,100% ' + from + 'px,0 ' + from +
+        'px,0 ' + to + 'px,100% ' + to + 'px,100% 100%,0 100%)';
+    }
   }
   function report(force) {
     if (!positionDirty && !force) return;
@@ -312,6 +332,7 @@
       if (item.flow) item.view.contentWindow.hsdaEpub.setViewport(innerHeight);
       else item.view.style.height = innerHeight + 'px';
       measure(item);
+      if (item.ready) background(item);
     });
     if (target) requestAnimationFrame(function () {
       if (frame === active && frame.ready) frame.view.contentWindow.hsdaEpub.seek(target);

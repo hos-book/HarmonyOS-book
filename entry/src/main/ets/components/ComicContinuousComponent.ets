@@ -1,3 +1,4 @@
+import { ComicReaderAppearance } from '../model/ComicReaderAppearance';
 import { FrameCallback } from '@kit.ArkUI';
 import { Book } from '../model/Book';
 import { ComicPage } from '../service/ComicReaderService';
@@ -25,6 +26,8 @@ export struct ComicContinuousComponent {
   @Param pageWidth: number = 360;
   @Param pageHeight: number = 600;
   @Param displayMode: number = 0;
+  @Param appearance: ComicReaderAppearance = new ComicReaderAppearance();
+  @Param placeholderColor: string = '#CCCCCC';
   @Param trimWhiteBorder: boolean = false;
   @Param viewportTop: number = 0;
   @Param zoomOwner: string = '';
@@ -106,7 +109,7 @@ export struct ComicContinuousComponent {
   @Monitor('resetToken')
   onReset(): void { if (!this.disposed) this.reset(); }
 
-  @Monitor('pageWidth', 'pageHeight', 'displayMode', 'trimWhiteBorder')
+  @Monitor('appearance', 'pageWidth', 'pageHeight', 'displayMode', 'trimWhiteBorder')
   onWidthChanged(): void { if (!this.disposed) this.restoreVisible(); }
 
   @Monitor('keyTurnRequest')
@@ -346,7 +349,8 @@ export struct ComicContinuousComponent {
         LazyForEach(this.source, (row: ComicScrollRow) => {
           ListItem() {
             ComicPageImage({ page: row.page, pageWidth: this.pageWidth, superResolution: this.superResolution,
-              pageHeight: this.pageHeight, displayMode: this.displayMode, trimWhiteBorder: this.trimWhiteBorder,
+              pageHeight: this.pageHeight, displayMode: this.displayMode, trimWhiteBorder: this.trimWhiteBorder, appearance: this.appearance,
+              placeholderColor: this.placeholderColor,
               viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
               colorization: this.colorization, colorizationActive: this.colorizationActive,
               translation: this.translation, translationDirection: this.translationDirection,

@@ -834,7 +834,7 @@
     },
     {
       "name": "reader_font_theme_title",
-      "value": "字体主题"
+      "value": "阅读主题"
     },
     {
       "name": "reader_custom_font_title",
@@ -3170,15 +3170,15 @@
     },
     {
       "name": "guide_reader_toolbar_desc",
-      "value": "默认轻点正文中央打开或收起工具栏，底部依次为章节、设置、字体。若修改过点击区域，请轻点自己设置的「工具栏」区域。"
+      "value": "默认轻点正文中央打开或收起工具栏，底部依次为章节、设置、阅读主题。若修改过点击区域，请轻点自己设置的「工具栏」区域。"
     },
     {
       "name": "guide_reader_settings_action",
-      "value": "调整「设置」与「字体」"
+      "value": "调整「设置」与「阅读主题」"
     },
     {
       "name": "guide_reader_settings_desc",
-      "value": "「字体」中可调整字号、行距、字重、文字颜色和阅读主题，也可导入字体。「设置」中可调整边距、翻页方式、点击区域、音量键翻页及状态栏等选项，修改后自动保存。"
+      "value": "「阅读主题」中可设置主题、字体、字号、行距、字重、颜色、正文标题与页眉页脚边距，也可导入字体。「设置」中可调整翻页方式、点击区域、音量键翻页及状态栏等选项，修改后自动保存。"
     },
     {
       "name": "guide_group_source",
@@ -4746,7 +4746,7 @@
     },
     {
       "name": "reader_font_tab",
-      "value": "字体"
+      "value": "阅读主题"
     },
     {
       "name": "reader_palette",
@@ -8719,6 +8719,24 @@
     {
       "name": "reader_excerpt_card_limit",
       "value": "这条摘录分行过多，请使用分享文字"
-    }
+    },
+    {"name": "reader_region_header", "value": "页眉"},
+    {"name": "reader_region_footer", "value": "页脚"},
+    {"name": "reader_region_heading", "value": "正文标题"},
+    {"name": "reader_region_body_color", "value": "正文颜色"},
+    {"name": "reader_region_color_hint", "value": "#RRGGBB，留空跟随阅读主题"},
+    {"name": "comic_split_title", "value": "跨页分割"},
+    {"name": "comic_split_hint", "value": "分页阅读时将横向跨页拆成两半，竖向单页保持完整；滚动与连页阅读保持原图。"},
+    {"name": "comic_split_off", "value": "关闭"},
+    {"name": "comic_split_ltr", "value": "先左后右"},
+    {"name": "comic_split_rtl", "value": "先右后左"},
+    {"name": "comic_custom_crop", "value": "自定义去白边"},
+    {"name": "comic_custom_crop_hint", "value": "分别裁去原图四边的百分比，可与自动去白边同时使用，不修改图片文件。"},
+    {"name": "comic_background_light", "value": "浅色模式背景"},
+    {"name": "comic_background_dark", "value": "深色模式背景"},
+    {"name": "comic_background_black", "value": "黑色"},
+    {"name": "comic_background_plain", "value": "纯色"},
+    {"name": "comic_background_kraft", "value": "牛皮纸"},
+    {"name": "comic_background_green", "value": "护眼绿"}
   ]
 }

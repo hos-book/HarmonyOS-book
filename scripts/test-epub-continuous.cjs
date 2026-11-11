@@ -28,7 +28,7 @@ for (let id = 1; id <= 12; id++) {
   const options = new Options(); options.paged = false; options.margins.top = 40; options.margins.bottom = 30;
   if (id === 3) { options.target.kind = 'spot'; options.target.snippet = 'Chapter3paragraph26:'; options.target.fraction = 0.93; }
   const injection = Script.injection(options);
-   const content = `<html><head><style>body{font:20px/32px serif;background:${id % 2 ? '#ffeecc' : '#ddeeff'};color:#223344;${id === 2 ? 'background-image:linear-gradient(90deg,#ddeeff,#99bbdd);background-attachment:fixed;' : ''}}p{margin:0 0 16px}.wrb-note{display:none}</style></head><body><div id="viewport-unit" style="height:10vh"></div>` +
+   const content = `<html><head><style>body{font:20px/32px serif;background:${id === 3 ? 'rgba(200,100,0,.5)' : id % 2 ? '#ffeecc' : '#ddeeff'};color:#223344;${id === 2 ? 'background-image:linear-gradient(90deg,#ddeeff,#99bbdd);background-attachment:fixed;' : ''}}p{margin:0 0 16px}.wrb-note{display:none}${id === 3 ? '@media(min-width:500px){body{background:rgba(0,100,200,.5)}}' : ''}</style></head><body><div id="viewport-unit" style="height:10vh"></div>` +
     (id === 5 ? '<div style="position:fixed;top:0;left:0">Packaged fixed heading</div>' : '') +
     Array.from({ length: 28 }, (_, n) => `<p>Chapter ${id} paragraph ${n}: 原版精排连续阅读，章节尾部仍然完整可见，相邻章节保留自己的字体和背景。${n === 0 ? '<a id="comment-link" epub:type="noteref" href="#note">6 条段评 ›</a>' : ''}</p>`).join('') +
     '<aside class="wrb-note" epub:type="footnote" id="note"><ol>' +
@@ -74,7 +74,7 @@ const test = String.raw`
       document.elementFromPoint(innerWidth/2,innerHeight-15).tagName!=='IFRAME'&&
       document.elementFromPoint(innerWidth/2,innerHeight/2).tagName==='IFRAME',
       'scrolling chapter content is clipped outside the header and footer reading bounds');
-    check(getComputedStyle(third.parentElement.firstElementChild).backgroundColor===
+    check(getComputedStyle(third.parentElement.firstElementChild.firstElementChild).backgroundColor===
       getComputedStyle(third.contentDocument.body).backgroundColor,
       'original chapter paper continues behind the clipped header and footer');
     var tapX=innerWidth/2,tapY=innerHeight*.7,thirdBounds=third.getBoundingClientRect();
@@ -177,6 +177,13 @@ async function nativeScroll(url, temp) {
     return value.result.value;
   };
   const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
+  const paperPixels = async () => {
+    const image = await command('Page.captureScreenshot', { format: 'png' });
+    return evaluate(`(async()=>{var image=new Image();image.src=${JSON.stringify('data:image/png;base64,')}+${JSON.stringify(image.data)};
+      await image.decode();var canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
+      var context=canvas.getContext('2d');context.drawImage(image,0,0);
+      return [20,300,885].map(y=>Array.from(context.getImageData(5,y,1,1).data).slice(0,3));})()`);
+  };
   try {
     const { targetId } = await command('Target.createTarget', { url: 'about:blank' });
     sessionId = (await command('Target.attachToTarget', { targetId, flatten: true })).sessionId;
@@ -192,6 +199,19 @@ async function nativeScroll(url, temp) {
       }))`);
     }
     assert.ok(ready, 'native input fixture loads');
+    await evaluate(`hsdaEpub.seek({snippet:'Chapter3paragraph5:',fraction:.18})`);await delay(150);
+    for (const color of await paperPixels()) {
+      assert.ok(color.every((value, i) => Math.abs(value - [227, 177, 127][i]) <= 1),
+        'translucent paper is composited once in the header, text area and footer: ' + color);
+    }
+    await command('Emulation.setDeviceMetricsOverride', { width: 600, height: 900, deviceScaleFactor: 1, mobile: true });
+    await delay(250);
+    for (const color of await paperPixels()) {
+      assert.ok(color.every((value, i) => Math.abs(value - [127, 177, 227][i]) <= 1),
+        'responsive background CSS stays aligned with the header and footer after resizing: ' + color);
+    }
+    await command('Emulation.setDeviceMetricsOverride', { width: 430, height: 900, deviceScaleFactor: 1, mobile: true });
+    await delay(250);
     await evaluate(`(() => {var v=Array.from(document.querySelectorAll('iframe')).find(v=>v.src.endsWith('/3.html'));
       scrollTo(0,v.parentElement.offsetTop+v.parentElement.offsetHeight-innerHeight/2);hsdaEpub.spot();})()`);
     await delay(150);

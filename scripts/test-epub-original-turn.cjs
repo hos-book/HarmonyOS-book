@@ -34,7 +34,9 @@ class Spot { snippet = ''; fraction = 0; page = 0; count = 1; end = false; }
 let reader, browser, delivered = [], events, chapterLoads = [], delayReady = false, pendingReady = [];
 function viewport(code) {
   events = {};
-  const style = { setProperty(name, value) { this[name] = value; } };
+  const style = { setProperty(name, value) { this[name] = value; },
+    getPropertyValue(name) { return this[name] || ''; }, getPropertyPriority() { return ''; },
+    removeProperty(name) { delete this[name]; } };
   const document = { readyState: 'complete', fonts: { ready: Promise.resolve() },
     body: { style, querySelectorAll: () => [] },
     documentElement: { style, scrollWidth: 390 * 5, scrollHeight: 760, appendChild() {} },
@@ -152,6 +154,27 @@ async function settled(condition) {
   assert.equal(browser.hsdaEpubConfig.spot.fraction, currentFraction);
   assert.equal(browser.hsdaEpubConfig.restorePage, -1, 'new geometry restores characters, not old page indices');
   assert.equal(browser.hsdaEpub.spot().page, 3, 'inset updates must not jump to the original request offset');
+
+  const runJavaScript = reader.controller.runJavaScript.bind(reader.controller);
+  const reflowSpot = await runJavaScript('JSON.stringify(window.hsdaEpub.spot())');
+  const commandsDuringCapture = [];
+  let finishCapture;
+  reader.controller.runJavaScript = code => {
+    commandsDuringCapture.push(code);
+    return new Promise(resolve => { finishCapture = resolve; });
+  };
+  reader.insetLeft = 24;
+  const capturingLayout = reader.refreshLayout();
+  assert.equal(reader.layoutUpdating, true);
+  assert.equal(await reader.prepare(true), false);
+  reader.turn(true);
+  await reader.seek(12);
+  assert.equal(await reader.openLinkAt(100, 200), false);
+  assert.equal(commandsDuringCapture.length, 1, 'pending reflow capture must exclude navigation commands');
+  reader.controller.runJavaScript = runJavaScript;
+  finishCapture(reflowSpot);
+  await capturingLayout;
+  assert.equal(browser.hsdaEpub.spot().fraction, currentFraction);
 
   const beforePreviewReflow = chapterLoads.length;
   assert.equal(await reader.prepare(true), true);

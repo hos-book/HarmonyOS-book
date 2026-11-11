@@ -61,7 +61,7 @@ export class ReaderToolsService {
   static validSnapshot(value: ReaderToolsSnapshot): boolean {
     return !!value && Array.isArray(value.bookmarks) && value.bookmarks.length <= 10000 &&
       value.bookmarks.every((item: ReaderBookmark): boolean => ReaderToolsService.validBookmark(item)) &&
-      Array.isArray(value.rules) && value.rules.length <= 200 &&
+      Array.isArray(value.rules) && value.rules.length <= 1000 &&
       value.rules.every((item: ReaderReplaceRule): boolean => ReaderToolsService.validRule(item));
   }
 
@@ -140,7 +140,7 @@ export class ReaderToolsService {
   }
 
   static async importRules(context: common.Context, rules: ReaderReplaceRule[], bookId: string): Promise<number> {
-    if (rules.length === 0 || rules.length > 200 || !rules.every((rule): boolean => ReaderToolsService.validRule(rule))) {
+    if (rules.length === 0 || rules.length > 1000 || !rules.every((rule): boolean => ReaderToolsService.validRule(rule))) {
       throw new Error('reader_replace_import_invalid');
     }
     const runtime = await import('../rulesource/LocalRuleQuickJsRuntime');

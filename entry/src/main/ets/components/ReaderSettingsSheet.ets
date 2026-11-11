@@ -1,3 +1,6 @@
+import { ReaderMarginSlider, ReaderEdgeTabs } from './ReaderMarginControls';
+import { ReaderRegionStyle } from '../model/ReaderRegionStyle';
+import { ReaderRegionStyleEditor } from './ReaderRegionStyleEditor';
 import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { ReaderSettingCard, ReaderSettingsSectionHeader } from './ReaderSettingCard';
 import { SettingsHintButton } from './SettingsHintButton';
@@ -88,41 +91,6 @@ struct ReaderTypographySetting {
           .width(30).textAlign(TextAlign.End)
       }.width('100%').alignItems(VerticalAlign.Center)
     }
-  }
-}
-
-/** 标题样式与边距分段控件保持一致，按钮直接参与 Row 的等宽布局。 */
-@ComponentV2
-struct ReaderHeadingStyleTabs {
-  @Param selected: string = 'center';
-  @Event onSelect: (style: string) => void = () => {};
-
-  private label(style: string): Resource {
-    return style === 'plain' ? $r('app.string.reader_heading_plain') :
-      style === 'bold' ? $r('app.string.reader_heading_bold') : $r('app.string.reader_heading_center');
-  }
-
-  build() {
-    Row({ space: 4 }) {
-      ForEach(['plain', 'bold', 'center'], (style: string) => {
-        Button({ type: ButtonType.Capsule, stateEffect: false }) {
-          Text(this.label(style)).fontSize(AppFont.Body)
-            .fontWeight(this.selected === style ? FontWeight.Medium : FontWeight.Normal)
-            .fontColor(this.selected === style ? AppColor.Brand : $r('sys.color.font_primary'))
-            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        }
-          .layoutWeight(1).height(36).padding({ left: 8, right: 8 })
-          .backgroundColor(this.selected === style ? $r('sys.color.comp_background_primary') : Color.Transparent)
-          .animation({ duration: AppMotion.Fast, curve: AppCurve.Standard })
-          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.97 })
-          .accessibilityText(this.label(style)).accessibilitySelected(this.selected === style)
-          .id(`reader-heading-${style}`)
-          .onClick((): void => {
-            if (this.selected !== style) this.onSelect(style);
-          })
-      }, (style: string): string => style)
-    }.width('100%').padding(4).borderRadius(22)
-      .backgroundColor($r('sys.color.comp_background_tertiary')).clip(true)
   }
 }
 
@@ -234,48 +202,6 @@ struct ReaderCustomThemeSwatch {
   }
 }
 
-@ComponentV2
-struct ReaderMarginSlider {
-  @Param label: Resource = $r('app.string.reader_margin_top');
-  @Param value: number = 16;
-  @Param max: number = 64;
-  @Event onChange: (value: number, commit: boolean) => void = () => {};
-
-  @Builder
-  stepper(icon: Resource, enabled: boolean, delta: number) {
-    Button({ type: ButtonType.Circle, stateEffect: false }) {
-      SymbolGlyph(icon)
-        .fontSize(16)
-        .fontColor([$r('sys.color.font_primary')])
-    }
-    .width(34)
-    .height(34)
-    .backgroundColor(Color.Transparent).hoverEffect(HoverEffect.None)
-    .enabled(enabled)
-    .opacity(enabled ? 1 : 0.4)
-    .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.92 })
-    .onClick((): void => {
-      this.onChange(Math.max(0, Math.min(this.max, this.value + delta)), true);
-    })
-  }
-
-  build() {
-    Row({ space: AppSpace.Sm }) {
-      Text(this.label).fontSize(AppFont.Caption).width(36).fontColor($r('sys.color.font_primary'))
-      this.stepper($r('sys.symbol.minus'), this.value > 0, -1)
-      Slider({ value: this.value, min: 0, max: this.max, step: 1 })
-        .attributeModifier(new SliderGestureModifier(0, this.max))
-        .layoutWeight(1).selectedColor(AppColor.Brand)
-        .accessibilityText(this.label)
-        .onChange((next: number, mode: SliderChangeMode): void => {
-          this.onChange(next, mode === SliderChangeMode.End || mode === SliderChangeMode.Click);
-        })
-      this.stepper($r('sys.symbol.plus'), this.value < this.max, 1)
-      Text(`${this.value}`).width(36).fontColor($r('sys.color.font_primary')).fontSize(AppFont.Caption)
-    }.width('100%')
-  }
-}
-
 /** 独立响应式尺寸控件：拖动立即刷新数值，松手或步进时保存。 */
 @ComponentV2
 struct ReaderTapSizeSlider {
@@ -329,44 +255,6 @@ struct ReaderTapSizeSlider {
 }
 
 @ComponentV2
-struct ReaderEdgeTabs {
-  @Param selected: number = 0;
-  @Param groupId: string = '';
-  @Event onSelect: (index: number) => void = () => {};
-
-  build() {
-    Row({ space: 4 }) {
-      ForEach([$r('app.string.reader_margin_top'), $r('app.string.reader_margin_bottom'),
-        $r('app.string.reader_margin_left'), $r('app.string.reader_margin_right')], (label: Resource, index: number) => {
-        Button({ type: ButtonType.Capsule, stateEffect: false }) {
-          Stack() {
-            if (this.selected === index) {
-              Row().width('100%').height('100%').borderRadius(18)
-                .backgroundColor($r('sys.color.comp_background_primary'))
-                .geometryTransition(`${this.groupId}-selection`)
-                .hitTestBehavior(HitTestMode.None)
-            }
-            Text(label).fontSize(AppFont.Body)
-              .fontColor(this.selected === index ? AppColor.Brand : $r('sys.color.font_primary'))
-          }.width('100%').height(36)
-        }
-          .id(`${this.groupId}-${index}`)
-          .layoutWeight(1).height(36).padding(0).backgroundColor(Color.Transparent).clip(false)
-          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.97 })
-          .accessibilityText(label)
-          .accessibilitySelected(this.selected === index)
-          .onClick((): void => {
-            if (this.selected === index) return;
-            // 两组设置各用独立的共享元素 ID，选中底板随弹簧滑动。
-            this.getUIContext().animateTo({ curve: AppCurve.Spring }, (): void => this.onSelect(index));
-          })
-      }, (label: Resource): string => `${label.id}`)
-    }.width('100%').padding(4).borderRadius(22)
-      .backgroundColor($r('sys.color.comp_background_tertiary')).clip(true)
-  }
-}
-
-@ComponentV2
 export struct ReaderSettingsSheet {
   @Param epubOriginalAvailable: boolean = false;
   @Param epubOriginalEnabled: boolean = false;
@@ -410,8 +298,14 @@ export struct ReaderSettingsSheet {
   @Event onPickFont: () => void = () => {};
   @Event onSystemFont: () => void = () => {};
   @Event onScreenOnChange: (minutes: number) => void = () => {};
-  @Param followSystemTheme: boolean = false;
+  @Param followSystemTheme: boolean = true;
   @Param linkedHorizontalMargins: boolean = false;
+  @Param bodyColor: string = '';
+  @Event onBodyColor: (color: string) => void = () => {};
+  @Param headerStyle: ReaderRegionStyle = new ReaderRegionStyle();
+  @Param footerStyle: ReaderRegionStyle = new ReaderRegionStyle();
+  @Param headingLayout: ReaderRegionStyle = new ReaderRegionStyle();
+  @Event onRegionStyle: (region: string, style: ReaderRegionStyle) => void = () => {};
   @Param marginLeft: number = 16;
   @Param marginRight: number = 16;
   @Param marginTop: number = 12;
@@ -428,10 +322,8 @@ export struct ReaderSettingsSheet {
   @Param paragraphSpacingEnabled: boolean = true;
   @Param chapterHeadingVisible: boolean = true;
   @Param chapterHeadingSize: number = 26;
-  @Param chapterHeadingStyle: string = 'center';
   @Event onChapterHeadingVisibleChange: (visible: boolean) => void = () => {};
   @Event onChapterHeadingSizeChange: (value: number, commit: boolean) => void = () => {};
-  @Event onChapterHeadingStyleChange: (style: string) => void = () => {};
   @Event onParagraphSpacingChange: (value: number, commit: boolean) => void = () => {};
   @Param themeId: string = ReaderThemeId.Parchment;
   @Param pattern: string = ReaderPattern.None;
@@ -519,7 +411,7 @@ export struct ReaderSettingsSheet {
     ReaderSettingCard({ showTitle: false, compact: true }) {
       Column({ space: 8 }) {
         Row() {
-          Text($r('app.string.reader_chapter_heading_visible'))
+          Text($r('app.string.reader_region_heading'))
             .fontSize(AppFont.Body).fontColor($r('sys.color.font_primary')).layoutWeight(1)
           Toggle({ type: ToggleType.Switch, isOn: this.chapterHeadingVisible })
             .selectedColor(AppColor.Brand)
@@ -527,9 +419,9 @@ export struct ReaderSettingsSheet {
             .id('reader-heading-visible')
         }.width('100%')
         if (this.chapterHeadingVisible) {
-          ReaderHeadingStyleTabs({ selected: this.chapterHeadingStyle,
-            onSelect: (style: string): void => this.onChapterHeadingStyleChange(style) })
           Row({ space: AppSpace.Sm }) {
+            Text($r('app.string.reader_chapter_heading_size')).fontSize(AppFont.Caption)
+              .fontColor($r('sys.color.font_primary')).width(56)
             ReaderSpacingStepButton({ decrease: true, canStep: this.chapterHeadingSize > TextReadingSettings.CHAPTER_HEADING_MIN,
               idPrefix: 'reader-heading-size',
               onStep: (): void => this.onChapterHeadingSizeChange(this.chapterHeadingSize - 1, true) })
@@ -547,8 +439,11 @@ export struct ReaderSettingsSheet {
               idPrefix: 'reader-heading-size',
               onStep: (): void => this.onChapterHeadingSizeChange(this.chapterHeadingSize + 1, true) })
             Text(`${this.chapterHeadingSize}`).fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
-              .fontWeight(FontWeight.Medium).width(28).textAlign(TextAlign.End)
+              .fontWeight(FontWeight.Medium).width(28).textAlign(TextAlign.End).id('reader-heading-size-value')
           }.width('100%')
+          ReaderRegionStyleEditor({ title: $r('app.string.reader_region_heading'),
+            groupId: 'reader-heading-edge', framed: false, showTitle: false, value: this.headingLayout,
+            onChange: (style: ReaderRegionStyle): void => this.onRegionStyle('heading', style) })
         }
       }.width('100%')
     }
@@ -1035,8 +930,20 @@ export struct ReaderSettingsSheet {
             if (this.paragraphSpacingEnabled) {
               this.buildParagraphSpacingSection()
               this.buildLetterSpacingSection()
-              this.buildChapterHeadingSection()
             }
+            ReaderSettingsSectionHeader({ title: $r('app.string.reader_settings_display_group') })
+            this.buildMarginSection()
+            ReaderSettingCard({ compact: true, title: $r('app.string.reader_region_body_color') }) {
+              TextInput({ text: this.bodyColor, placeholder: $r('app.string.reader_region_color_hint') }).maxLength(7)
+                .onChange((color: string): void => {
+                  if (color === '' || /^#[0-9a-fA-F]{6}$/.test(color)) this.onBodyColor(color);
+                })
+            }
+            this.buildChapterHeadingSection()
+            ReaderRegionStyleEditor({ title: $r('app.string.reader_region_header'), groupId: 'reader-header-edge', value: this.headerStyle,
+              onChange: (style: ReaderRegionStyle): void => this.onRegionStyle('header', style) })
+            ReaderRegionStyleEditor({ title: $r('app.string.reader_region_footer'), groupId: 'reader-footer-edge', value: this.footerStyle,
+              onChange: (style: ReaderRegionStyle): void => this.onRegionStyle('footer', style) })
           } else {
             ReaderSettingsSectionHeader({ title: $r('app.string.reader_settings_turn_group') })
             this.buildPageTurnModeSection()
@@ -1052,7 +959,6 @@ export struct ReaderSettingsSheet {
               scrolling: this.autoScrolling, speed: this.autoScrollSpeed, onSpeed: this.onAutoScrollSpeed,
               available: this.autoPageAvailable, onInterval: this.onAutoPageInterval, onToggle: this.onAutoPageToggle })
             ReaderSettingsSectionHeader({ title: $r('app.string.reader_settings_display_group') })
-            this.buildMarginSection()
             this.buildStatusBarSection()
             this.buildHeaderSection()
             this.buildReadingStatusSection()

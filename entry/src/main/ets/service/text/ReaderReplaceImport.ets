@@ -35,7 +35,7 @@ export class ReaderReplaceImport {
         entries = file.rules === undefined ? [file] : file.rules;
       }
     } catch (_error) { throw new Error('reader_replace_import_invalid'); }
-    if (Array.isArray(entries) && entries.length > 200) throw new Error('reader_tools_limit');
+    if (Array.isArray(entries) && entries.length > 1000) throw new Error('reader_tools_limit');
     if (!Array.isArray(entries) || entries.length === 0) {
       throw new Error('reader_replace_import_invalid');
     }

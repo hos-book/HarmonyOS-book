@@ -1,3 +1,4 @@
+import { ReaderRegionStyle } from './ReaderRegionStyle';
 import { ReaderPattern, ReaderImageMode, ReaderThemeId, ReaderCustomTheme, findThemePreset, normalizeHex, resolvePalette } from './ReaderTheme';
 
 import { ReaderParagraphComment } from './ReaderComment';
@@ -92,6 +93,10 @@ export class ReaderCornerLayout {
 }
 
 export class TextReadingSettings {
+  bodyColor: string = '';
+  headerStyle: ReaderRegionStyle = new ReaderRegionStyle();
+  footerStyle: ReaderRegionStyle = new ReaderRegionStyle();
+  headingLayout: ReaderRegionStyle = new ReaderRegionStyle();
   speechFollowPage: boolean = true;
   showBrightnessBar: boolean = true;
   brightness: number = -1;
@@ -103,7 +108,7 @@ export class TextReadingSettings {
   textAlignment: string = 'justify';
   chapterHeadingVisible: boolean = true;
   chapterHeadingSize: number = 26;
-  chapterHeadingStyle: string = 'center';
+  chapterHeadingStyle: string = 'plain';
   static readonly CHAPTER_HEADING_MIN: number = 18;
   static readonly CHAPTER_HEADING_MAX: number = 48;
 
@@ -111,8 +116,9 @@ export class TextReadingSettings {
     return Number.isFinite(value) ? Math.round(Math.max(18, Math.min(48, value))) : 26;
   }
 
-  static normalizeChapterHeadingStyle(value?: string): string {
-    return value === 'plain' || value === 'bold' ? value : 'center';
+  /** 旧偏好与备份保留字段兼容，统一迁移为可自定义边距的简约标题。 */
+  static normalizeChapterHeadingStyle(_value?: string): string {
+    return 'plain';
   }
 
   static normalizeTextAlignment(value?: string): string {

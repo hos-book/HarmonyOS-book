@@ -9,8 +9,7 @@ import { EpubPageStyle } from '../service/text/EpubPageStyle';
 import { ReaderAiAction } from '../model/ReaderAi';
 import { ReaderSelectionMenu } from '../utils/ReaderSelectionMenu';
 import { ReaderSelectionGeometry, ReaderSelectionBounds, ReaderSelectionHandle } from '../service/text/ReaderSelectionGeometry';
-import { AppMaterial } from '../theme/Theme';
-import { PlatformCompat } from '../utils/PlatformCompat';
+import { ReaderNativeSelectionMenu } from './ReaderNativeSelectionMenu';
 
 /** 混排页沿用同一正文绘制组件，各片段保留自己的原文坐标。 */
 @ComponentV2
@@ -41,10 +40,10 @@ export struct ReaderSpeechText {
   @Param lineHeight: number = 1.9;
   @Param palette: ReaderPalette = new ReaderPalette();
 
-  private fragmentPalette(heading: boolean): ReaderPalette {
+  private fragmentPalette(heading: boolean, custom: string = ''): ReaderPalette {
     const style = this.epubStyle;
-    const color = heading && style.headingColor ? style.headingForeground || style.foreground || '#202020' :
-      (style.image || style.color ? style.foreground : '');
+    const color = custom || (heading && style.headingColor ? style.headingForeground || style.foreground || '#202020' :
+      (style.image || style.color ? style.foreground : ''));
     if (!color) return this.palette;
     const value = ReaderPalette.of(this.palette.background, color, this.palette.secondary, this.palette.isDark);
     value.accent = this.palette.accent;
@@ -64,8 +63,9 @@ export struct ReaderSpeechText {
             selectionEnabled: this.selectionEnabled && !part.isHeading, selectionRevision: this.selectionRevision,
             onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom, onAi: this.onAi, onExcerpt: this.onExcerpt,
             fontFamily: this.fontFamily, fontWeight: this.fontWeight, fontSize: this.fontSize,
-            lineHeight: this.lineHeight, palette: this.fragmentPalette(part.isHeading)
-          }).margin({ top: this.getUIContext().px2vp(part.flowSpacing) })
+            lineHeight: this.lineHeight, palette: this.fragmentPalette(part.isHeading, part.headingColor)
+          }).padding({ left: this.getUIContext().px2vp(part.insetLeft), right: this.getUIContext().px2vp(part.insetRight) })
+            .margin({ top: this.getUIContext().px2vp(part.flowSpacing) })
             .backgroundColor(part.isHeading ? this.epubStyle.headingColor || Color.Transparent : Color.Transparent)
         }, (part: OnlineTextPage): string => `${part.layoutKey}:${part.startOffset}:${part.endOffset}:${part.imageUrl}:${part.imageWidth}:${part.layoutHeight}:${part.flowSpacing}`)
       } else {
@@ -77,8 +77,10 @@ export struct ReaderSpeechText {
           selectionRevision: this.selectionRevision,
           onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom, onAi: this.onAi, onExcerpt: this.onExcerpt,
           fontFamily: this.fontFamily, fontWeight: this.fontWeight, fontSize: this.fontSize,
-          lineHeight: this.lineHeight, palette: this.fragmentPalette(this.page.isHeading)
-        }).backgroundColor(this.page.isHeading ? this.epubStyle.headingColor || Color.Transparent : Color.Transparent)
+          lineHeight: this.lineHeight, palette: this.fragmentPalette(this.page.isHeading, this.page.headingColor)
+        }).padding({ left: this.getUIContext().px2vp(this.page.insetLeft), right: this.getUIContext().px2vp(this.page.insetRight) })
+          .margin({ top: this.getUIContext().px2vp(this.page.flowSpacing) })
+          .backgroundColor(this.page.isHeading ? this.epubStyle.headingColor || Color.Transparent : Color.Transparent)
       }
     }.width('100%').alignItems(HorizontalAlign.Center)
   }
@@ -176,9 +178,10 @@ struct ReaderTextFragment {
 
   private speechSelectionMenu(): EditMenuOptions {
     return {
-      onCreateMenu: (_items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(),
-      onPrepareMenu: (_items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(),
+      onCreateMenu: (items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(true, items),
+      onPrepareMenu: (items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(true, items),
       onMenuItemClick: (item: TextMenuItem, range: TextRange): boolean => {
+        if (!ReaderSelectionMenu.isReaderAction(item.id)) return false;
         const start = range.start ?? this.selectionStart;
         const end = range.end ?? this.selectionEnd;
         this.runSelectionAction(item.id, start, end);
@@ -220,37 +223,6 @@ struct ReaderTextFragment {
       this.selectionDragX + context.vp2px(event.offsetX), this.selectionDragY + context.vp2px(event.offsetY));
     if (offset < 0 || offset === this.selectionDragAnchor) return;
     this.updateSelection(Math.min(offset, this.selectionDragAnchor), Math.max(offset, this.selectionDragAnchor));
-  }
-
-  private selectionPopupOptions(): CustomPopupOptions {
-    const options: CustomPopupOptions = {
-      builder: (): void => this.buildSelectionMenu(), placement: Placement.Top,
-      enableArrow: false, autoCancel: false, mask: false, focusable: false,
-      targetSpace: 10, radius: 24, popupColor: AppMaterial.SheetBackground,
-      onStateChange: (event): void => {
-        if (!event.isVisible && this.selectionMenuVisible) this.updateSelection(-1, -1);
-      }
-    };
-    if (PlatformCompat.immersiveMaterial) options.systemMaterial = AppMaterial.Sheet;
-    else options.backgroundBlurStyle = AppMaterial.SheetBlur;
-    return options;
-  }
-
-  @LocalBuilder
-  private buildSelectionAction(label: Resource, action: string) {
-    Text(label).fontSize(14).fontColor($r('sys.color.font_primary')).maxLines(1)
-      .padding({ left: 8, right: 8, top: 12, bottom: 12 })
-      .onClick((): void => this.runSelectionAction(TextMenuItemId.of(action), this.selectionStart, this.selectionEnd))
-  }
-
-  @LocalBuilder
-  private buildSelectionMenu() {
-    Row() {
-      this.buildSelectionAction($r('app.string.reader_excerpt_save'), ReaderSelectionMenu.EXCERPT)
-      this.buildSelectionAction($r('app.string.reader_listen_from_paragraph'), ReaderSelectionMenu.LISTEN)
-      this.buildSelectionAction($r('app.string.reader_ai_dictionary'), ReaderSelectionMenu.DICTIONARY)
-      this.buildSelectionAction($r('app.string.reader_ai_summarize'), ReaderSelectionMenu.SUMMARIZE)
-    }.padding({ left: 4, right: 4 }).onTouch((event: TouchEvent): void => event.stopPropagation())
   }
 
   @LocalBuilder
@@ -318,11 +290,11 @@ struct ReaderTextFragment {
       if (this.selecting && this.selectionBounds.valid) {
         this.buildSelectionHandle(true)
         this.buildSelectionHandle(false)
-        Row().width(1).height(1)
-          .position({ x: this.getUIContext().px2vp((this.selectionBounds.start.x + this.selectionBounds.end.x) / 2),
-            y: this.getUIContext().px2vp(this.selectionBounds.start.top) })
-          .hitTestBehavior(HitTestMode.None)
-          .bindPopup(this.selectionMenuVisible, this.selectionPopupOptions())
+        if (this.selectionMenuVisible) {
+          ReaderNativeSelectionMenu({ text: this.text.substring(this.selectionStart, this.selectionEnd),
+            onAction: (id: TextMenuItemId): void => this.runSelectionAction(id, this.selectionStart, this.selectionEnd) })
+            .position({ x: 0, y: this.getUIContext().px2vp(this.selectionBounds.start.top) })
+        }
       }
       }.width('100%').height(this.getUIContext().px2vp(this.page.layoutHeight))
         .parallelGesture(LongPressGesture({ repeat: false, duration: 500 })

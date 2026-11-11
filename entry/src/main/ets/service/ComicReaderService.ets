@@ -13,6 +13,7 @@ import { image } from '@kit.ImageKit';
 import { LocalTextImage } from './text/LocalTextImage';
 
 export class ComicPage {
+  splitSide: number = 0;
   key: string = '';
   url: string = '';
   index: number = 0;
@@ -59,6 +60,31 @@ export class ComicPageDataSource implements IDataSource {
 
 /** 图片由轻页公共核心处理请求头、Cookie 和解密，UI 只消费处理后的图片地址。 */
 export class ComicReaderService {
+  static splitViews(pages: ComicPage[], order: number): ComicPage[] {
+    const result: ComicPage[] = [];
+    for (const original of pages) {
+      if (order === 0 || original.width <= original.height || original.height <= 0) {
+        result.push(original);
+        continue;
+      }
+      for (let index = 0; index < 2; index++) {
+        const page = new ComicPage();
+        page.splitSide = order === 2 ? 2 - index : index + 1;
+        page.key = `${original.key}:half:${page.splitSide}`;
+        page.url = original.url;
+        page.index = original.index;
+        page.width = original.width;
+        page.height = original.height;
+        page.sourceUrl = original.sourceUrl;
+        page.requestUrl = original.requestUrl;
+        page.cacheKey = original.cacheKey;
+        page.chapterId = original.chapterId;
+        result.push(page);
+      }
+    }
+    return result;
+  }
+
   private static pending: Map<string, Promise<ComicPage[]>> = new Map();
   private static requests: Map<string, LightSourceRequest> = new Map();
   private static imagePending: Map<string, Promise<boolean>> = new Map();

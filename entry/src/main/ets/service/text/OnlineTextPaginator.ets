@@ -1,3 +1,4 @@
+import { ReaderRegionStyle } from '../../model/ReaderRegionStyle';
 import { text as graphicsText } from '@kit.ArkGraphics2D';
 import { PlatformCompat } from '../../utils/PlatformCompat';
 import { ReaderDialogueHighlighter, ReaderDialogueRange } from './ReaderDialogueHighlighter';
@@ -11,6 +12,10 @@ export class OnlineTextPaintState {
 
 export class OnlineTextPage {
   isHeading: boolean = false;
+  headingTop: number = 0;
+  headingColor: string = '';
+  insetLeft: number = 0;
+  insetRight: number = 0;
   dialogueRanges: ReaderDialogueRange[] = [];
   parts: OnlineTextPage[] = [];
   flowSpacing: number = 0;
@@ -300,9 +305,9 @@ export class OnlineTextPaginator {
   static paginate(content: string, widthPx: number, heightPx: number,
     fontSizePx: number, lineHeight: number, fontFamily: string = '', fontWeight: number = 400,
     alignment: string = 'justify', paragraphSpacing: number = 0, letterSpacingPx: number = 0,
-    headingTitle: string = '', headingSizePx: number = fontSizePx, headingStyle: string = 'center',
+    headingTitle: string = '', headingSizePx: number = fontSizePx, headingStyle: string = 'plain',
     commentOffsets: number[] = [], commentSizePx: number = 0,
-    dialogueQuotePairs: string = ReaderDialogueRules.DEFAULT): OnlineTextPage[] {
+    dialogueQuotePairs: string = ReaderDialogueRules.DEFAULT, headingLayout: ReaderRegionStyle = new ReaderRegionStyle()): OnlineTextPage[] {
     const heading = headingTitle.trim();
     const images = LocalTextImage.pattern();
     let match = images.exec(content);
@@ -335,7 +340,7 @@ export class OnlineTextPaginator {
       }
       OnlineTextPaginator.appendImageText(pages, content, start, content.length, widthPx, 1,
         fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx, dialogueQuotePairs);
-      return OnlineTextPaginator.composeHeading(content, pages, widthPx, heightPx, heading, headingSizePx, fontFamily, headingStyle);
+      return OnlineTextPaginator.composeHeading(content, pages, widthPx, heightPx, heading, headingSizePx, fontFamily, headingStyle, headingLayout);
     }
     const layout = OnlineTextPaginator.measure(content, widthPx, fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx);
     const displayed = layout.displayed;
@@ -374,12 +379,12 @@ export class OnlineTextPaginator {
     }
     const restored = displayed.restoreSourceOffsets(pages);
     return heading ? OnlineTextPaginator.composeHeading(content, restored, widthPx, heightPx,
-      heading, headingSizePx, fontFamily, headingStyle) : restored;
+      heading, headingSizePx, fontFamily, headingStyle, headingLayout) : restored;
   }
 
   /** 标题只占布局空间，不进入正文、朗读或书签的字符坐标。 */
   private static composeHeading(content: string, parts: OnlineTextPage[], width: number, height: number,
-    title: string, size: number, family: string, style: string): OnlineTextPage[] {
+    title: string, size: number, family: string, style: string, layout: ReaderRegionStyle): OnlineTextPage[] {
     const headings: OnlineTextPage[] = [];
     if (title.length > 0) {
       const fontSize = Number.isFinite(size) ? Math.max(1, size) : 26;
@@ -398,7 +403,7 @@ export class OnlineTextPaginator {
       builder.addText(title);
       builder.popStyle();
       const paragraph = builder.build();
-      paragraph.layoutSync(Math.max(1, width));
+      paragraph.layoutSync(Math.max(1, width - layout.left - layout.right));
       const metrics = paragraph.getLineMetrics();
       const serial = ++OnlineTextPaginator.layoutSerial;
       const paintState = new OnlineTextPaintState();
@@ -406,6 +411,10 @@ export class OnlineTextPaginator {
         const metric = metrics[index];
         const part = new OnlineTextPage();
         part.isHeading = true;
+        part.headingColor = layout.color;
+        part.insetLeft = layout.left;
+        part.insetRight = layout.right;
+        part.headingTop = index === 0 ? layout.top : 0;
         part.text = title.substring(metric.startIndex, metrics[index + 1]?.startIndex ?? title.length);
         part.paragraph = paragraph;
         part.paintState = paintState;
@@ -416,7 +425,7 @@ export class OnlineTextPaginator {
         part.firstLine = index;
         part.lineMetrics = [metric];
         part.lineShifts = [0];
-        part.trailingSpacing = index === metrics.length - 1 ? fontSize * 0.6 : 0;
+        part.trailingSpacing = index === metrics.length - 1 ? fontSize * 0.6 + layout.bottom : 0;
         headings.push(part);
       }
     }
@@ -445,13 +454,13 @@ export class OnlineTextPaginator {
     let page = OnlineTextPage.of(content, 0, 0);
     let spacing = 0;
     for (const part of parts) {
-      if (page.parts.length > 0 && page.layoutHeight + spacing + part.layoutHeight > Math.max(1, height)) {
+      if (page.parts.length > 0 && page.layoutHeight + spacing + part.headingTop + part.layoutHeight > Math.max(1, height)) {
         page.endOffset = part.startOffset;
         pages.push(page);
         page = OnlineTextPage.of(content, part.startOffset, part.startOffset);
         spacing = 0;
       }
-      part.flowSpacing = page.parts.length > 0 ? spacing : 0;
+      part.flowSpacing = (page.parts.length > 0 ? spacing : 0) + part.headingTop;
       const previous = page.parts[page.parts.length - 1];
       if (previous !== undefined && part.paragraph !== null && previous.paragraph === part.paragraph) {
         const shift = previous.layoutHeight + part.flowSpacing - (part.layoutTop - previous.layoutTop);

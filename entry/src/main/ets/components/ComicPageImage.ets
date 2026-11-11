@@ -1,3 +1,4 @@
+import { ComicReaderAppearance } from '../model/ComicReaderAppearance';
 import { ComicPage, ComicReaderService } from '../service/ComicReaderService';
 import { ComicImageLoader } from '../service/ComicImageLoader';
 import { fileUri } from '@kit.CoreFileKit';
@@ -23,6 +24,8 @@ export struct ComicPageImage {
   @Param fitScreen: boolean = false;
   // 0 保留原版布局；1 铺满可用宽度；2 完整显示；3 原图大小（只缩小，不放大）。
   @Param displayMode: number = 0;
+  @Param appearance: ComicReaderAppearance = new ComicReaderAppearance();
+  @Param placeholderColor: string = '#CCCCCC';
   @Param trimWhiteBorder: boolean = false;
   @Local crop: ComicCropRect = new ComicCropRect();
   private cropSerial: number = 0;
@@ -154,8 +157,9 @@ export struct ComicPageImage {
         const crop = await ComicWhiteBorderService.inspect(resolved);
         if (cancelled()) return;
         // 等待解码时允许反复开关；结果属于当前图片，按最终开关值应用。
-        if (this.trimWhiteBorder) this.crop = crop;
+        if (this.trimWhiteBorder) this.crop = this.displayCrop(crop);
       }
+      if (!this.trimWhiteBorder) this.crop = this.displayCrop(new ComicCropRect());
       this.resolvedUrl = resolved;
       page.trimWhiteBorderReady = true;
       this.protectImage();
@@ -257,19 +261,33 @@ export struct ComicPageImage {
     }).finally((): void => { if (ticket === this.colorSerial) this.colorBusy = false; });
   }
 
-  @Monitor('trimWhiteBorder')
+  @Monitor('trimWhiteBorder', 'appearance')
   private async onTrimChanged(): Promise<void> {
     const ticket = ++this.cropSerial;
     this.page.trimWhiteBorderReady = false;
     this.resetZoom();
-    if (!this.trimWhiteBorder) this.crop = new ComicCropRect();
+    if (!this.trimWhiteBorder) this.crop = this.displayCrop(new ComicCropRect());
     else if (this.resolvedUrl) {
       const crop = await ComicWhiteBorderService.inspect(this.resolvedUrl);
       if (!this.alive || ticket !== this.cropSerial) return;
-      this.crop = crop;
+      this.crop = this.displayCrop(crop);
     }
     this.page.trimWhiteBorderReady = !this.trimWhiteBorder || this.resolvedUrl.length > 0;
     this.onGeometryReady();
+  }
+
+  private displayCrop(auto: ComicCropRect): ComicCropRect {
+    const value = this.appearance;
+    const left = Math.max(auto.x, value.cropLeft / 100);
+    const top = Math.max(auto.y, value.cropTop / 100);
+    const right = Math.min(auto.x + auto.width, 1 - value.cropRight / 100);
+    const bottom = Math.min(auto.y + auto.height, 1 - value.cropBottom / 100);
+    const width = Math.max(0.1, right - left);
+    if (this.page.splitSide > 0) {
+      return new ComicCropRect(left + (this.page.splitSide === 2 ? width / 2 : 0), top,
+        width / 2, Math.max(0.1, bottom - top));
+    }
+    return new ComicCropRect(left, top, width, Math.max(0.1, bottom - top));
   }
 
   private originalRatio(): number {
@@ -467,7 +485,7 @@ export struct ComicPageImage {
       }
       if (this.failed) {
         Column({ space: 12 }) {
-          Text($r('app.string.comic_image_failed', this.page.index + 1)).fontColor('#CCCCCC').fontSize(14)
+          Text($r('app.string.comic_image_failed', this.page.index + 1)).fontColor(this.placeholderColor).fontSize(14)
           Button($r('app.string.comic_retry')).backgroundColor(AppColor.Brand).fontColor(Color.White)
             .onClick(() => { this.retry++; this.loadImage(); })
         }
@@ -485,7 +503,8 @@ export struct ComicPageImage {
 
     }
     .width(this.pageWidth).height(this.paged ? this.pageHeight : this.imageHeight()).clip(true)
-    .backgroundColor('#121212')
+    // 纸张背景由阅读页统一绘制，分页、滚动和连页图片均透出同一背景与纹理。
+    .backgroundColor(Color.Transparent)
     .onVisibleAreaChange([0.01], (_visible: boolean, ratio: number) => {
       const visible = ratio > 0;
       if (this.visible === visible) return;

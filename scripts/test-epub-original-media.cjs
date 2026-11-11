@@ -60,6 +60,8 @@ chapter('/bounds', '<div id="above" style="position:fixed;top:0;left:0;width:100
   '<p>Original typesetting stays inside the reading viewport.</p>'.repeat(45) +
   '<p id="later">Destination paragraph after the internal link.</p>' + '<p>Following content.</p>'.repeat(15),
   true, false, 'body{background:linear-gradient(#dceedd 50%,#ddccbb 50%) fixed}');
+chapter('/translucent', '<p>Translucent paper</p>', true, false,
+  'body{background:rgba(0,255,0,.5)}@media(min-width:600px){body{background:rgba(0,0,255,.5)}}');
 chapter('/inner', gallery, false, true);
 chapter('/playback', Array.from(assets.keys()).map(name => {
   const tag = name.endsWith('.mp4') ? 'video' : 'audio';
@@ -213,6 +215,19 @@ async function browserResult(url, temp) {
     const saved = after.snippet;
     await evaluate('hsdaEpub.seek(' + JSON.stringify(after) + ')');
     assert.equal(await evaluate('hsdaEpub.spot().snippet'), saved, 'internal anchor position survives restore');
+    await command('Page.navigate', { url: url + 'translucent' });
+    await delay(700);
+    for (const width of [430, 720]) {
+      await command('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: true });
+      await delay(300);
+      const png = await command('Page.captureScreenshot', { format: 'png' });
+      const file = path.join(temp, `paper-${width}.png`); fs.writeFileSync(file, Buffer.from(png.data, 'base64'));
+      const colors = JSON.parse(execFileSync('python', ['-c',
+        'from PIL import Image;import json,sys;i=Image.open(sys.argv[1]).convert("RGB");print(json.dumps([i.getpixel((200,y)) for y in [20,450,i.height-10]]))', file],
+      { windowsHide: true, encoding: 'utf8' }));
+      const expected = width === 430 ? [127, 255, 127] : [127, 127, 255];
+      assert.deepEqual(colors, [expected, expected, expected], 'translucent paper renders once and follows responsive styles at width ' + width);
+    }
     value.checks.push('paged header/footer clip positioned content while preserving fixed backgrounds on later pages; internal anchor progress restores');
     return value;
   }

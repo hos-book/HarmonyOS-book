@@ -1,3 +1,4 @@
+import { ReaderRegionStyle } from '../model/ReaderRegionStyle';
 import { ReaderChapterJumpHint } from '../components/ReaderChapterJumpHint';
 import { ReaderCommentChapter, ReaderParagraphComment, ReaderCommentMessages } from '../model/ReaderComment';
 import { ReaderCommentLayout } from '../service/text/ReaderCommentLayout';
@@ -188,12 +189,16 @@ export struct ReaderPage {
   @Local previewParagraphSpacing: number = -1;
   @Local chapterHeadingVisible: boolean = true;
   @Local chapterHeadingSize: number = 26;
-  @Local chapterHeadingStyle: string = 'center';
+  @Local chapterHeadingStyle: string = 'plain';
   @Local previewChapterHeadingSize: number = 0;
   @Local pickingBackgroundImage: boolean = false;
   @Local membership: MembershipState = MembershipState.current;
-  @Local followSystemTheme: boolean = false;
+  @Local followSystemTheme: boolean = true;
   @Local systemNightOverride: boolean = false;
+  @Local bodyColor: string = '';
+  @Local headerStyle: ReaderRegionStyle = new ReaderRegionStyle();
+  @Local footerStyle: ReaderRegionStyle = new ReaderRegionStyle();
+  @Local headingLayout: ReaderRegionStyle = new ReaderRegionStyle();
   @Local marginLeft: number = 16;
   @Local marginRight: number = 16;
   @Local marginTop: number = 12;
@@ -1238,7 +1243,7 @@ export struct ReaderPage {
     const pages = OnlineTextPaginator.paginate(content, Math.max(1, columns ? (contentWidthVp - READER_COLUMN_GAP) / 2 : contentWidthVp) * density,
       contentHeightVp * density, fontSizePx, this.lineHeight, this.fontFamily, this.fontWeight, this.textAlignment, this.paragraphSpacing, this.letterSpacing * density,
       this.chapterHeadingVisible ? this.chapterTitle(chapterIndex) : '', this.getUIContext().fp2px(this.chapterHeadingSize), this.chapterHeadingStyle,
-      commentOffsets, (ReaderCommentLayout.ICON_SIZE + 2) * density, this.dialogueQuotePairs);
+      commentOffsets, (ReaderCommentLayout.ICON_SIZE + 2) * density, this.dialogueQuotePairs, this.headingLayout.pixels(density));
     return columns ? OnlineTextPage.spreads(content, pages) : pages;
   }
 
@@ -1530,6 +1535,10 @@ export struct ReaderPage {
       this.autoPageSeconds = await PreferenceService.getAutoPageSeconds(false);
       this.autoScrollSpeed = await PreferenceService.getAutoScrollSpeed(false);
       this.followSystemTheme = settings.followSystemTheme;
+      this.bodyColor = settings.bodyColor;
+      this.headerStyle = settings.headerStyle;
+      this.footerStyle = settings.footerStyle;
+      this.headingLayout = settings.headingLayout;
       this.marginLeft = settings.marginLeft;
       this.marginRight = settings.marginRight;
       this.marginTop = settings.marginTop;
@@ -1619,7 +1628,11 @@ export struct ReaderPage {
   private applyDefaultReadingSettings(): void {
     this.speechFollowPage = true;
     this.speechBrowsing = false;
-    this.followSystemTheme = false;
+    this.followSystemTheme = true;
+    this.bodyColor = '';
+    this.headerStyle = new ReaderRegionStyle();
+    this.footerStyle = new ReaderRegionStyle();
+    this.headingLayout = new ReaderRegionStyle();
     this.marginLeft = 16;
     this.marginRight = 16;
     this.marginTop = 12;
@@ -1644,7 +1657,7 @@ export struct ReaderPage {
     this.paragraphSpacing = TextReadingSettings.PARAGRAPH_SPACING_DEFAULT;
     this.chapterHeadingVisible = true;
     this.chapterHeadingSize = 26;
-    this.chapterHeadingStyle = 'center';
+    this.chapterHeadingStyle = 'plain';
     this.themeId = TextReadingSettings.THEME_DEFAULT;
     this.customBackground = TextReadingSettings.CUSTOM_BACKGROUND_DEFAULT;
     this.customThemes = ReaderCustomTheme.defaults();
@@ -1691,6 +1704,7 @@ export struct ReaderPage {
     this.effectiveThemeId = resolveEffectiveThemeId(this.themeId, this.followSystemTheme, systemDark);
     const palette = resolvePalette(this.effectiveThemeId, this.customBackground, this.fontColor,
       this.imageBackground, this.imageFontColor);
+    if (this.bodyColor) palette.primary = this.bodyColor;
     palette.accent = resolveReaderAccent(this.getUIContext().getHostContext(), this.themeAccent);
     this.palette = palette;
     // 深色底配白字状态栏，浅色底配黑字
@@ -1749,6 +1763,10 @@ export struct ReaderPage {
     settings.showChapterNumber = this.showChapterNumber;
     settings.showBookName = this.showBookName;
 
+    settings.bodyColor = this.bodyColor;
+    settings.headerStyle = this.headerStyle;
+    settings.footerStyle = this.footerStyle;
+    settings.headingLayout = this.headingLayout;
     settings.marginLeft = this.marginLeft;
     settings.marginRight = this.marginRight;
     settings.marginTop = this.marginTop;
@@ -2378,7 +2396,7 @@ export struct ReaderPage {
   }
 
   private onlineTextTurnRevision(): string {
-    return `${this.chapterHeadingVisible}:${this.chapterHeadingSize}:${this.chapterHeadingStyle}:` +
+    return `${JSON.stringify(this.headingLayout)}:${JSON.stringify(this.headerStyle)}:${JSON.stringify(this.footerStyle)}:${this.chapterHeadingVisible}:${this.chapterHeadingSize}:${this.chapterHeadingStyle}:` +
       `${this.currentResourceIndex}:${this.onlineTextPageIndex}:${this.fontSize}:${this.lineHeight}:${this.paragraphSpacing}:${this.letterSpacing}:` +
       `${this.cornerLayout}:${this.showChapterTitle}:${this.showPageNumber}:${this.showChapterNumber}:${this.showBookName}:${this.showReadingStatus}:${this.showPageRules}:` +
       `${this.textAlignment}:${this.fontFamily}:${this.systemTypographyRevision}:${this.fontWeight}:${this.fontColor}:${this.themeId}:${this.customBackground}:${this.backgroundPattern}:${this.bgImagePath}:${this.backgroundImageMode}:${this.overlayAlpha}:` +
@@ -2721,7 +2739,7 @@ export struct ReaderPage {
   }
 
   private readerHeaderHeight(): number {
-    return this.showHeader && (this.cornerVisible(0) || this.cornerVisible(1)) ? READER_TEXT_HEADER_HEIGHT : 0;
+    return this.showHeader && (this.cornerVisible(0) || this.cornerVisible(1)) ? READER_TEXT_HEADER_HEIGHT + this.headerStyle.top + this.headerStyle.bottom : 0;
   }
 
   private cornerVisible(corner: number): boolean {
@@ -2775,7 +2793,7 @@ export struct ReaderPage {
   }
 
   private readerFooterHeight(): number {
-    return this.showFooter && (this.cornerVisible(2) || this.cornerVisible(3) || this.showReadingStatus) ? READER_TEXT_FOOTER_HEIGHT : 0;
+    return this.showFooter && (this.cornerVisible(2) || this.cornerVisible(3) || this.showReadingStatus) ? READER_TEXT_FOOTER_HEIGHT + this.footerStyle.top + this.footerStyle.bottom : 0;
   }
 
   private readerTextBottomPaddingVp(): number {
@@ -3487,14 +3505,14 @@ export struct ReaderPage {
     Row() {
       Text(this.cornerText(0))
         .fontSize(AppFont.Caption)
-        .fontColor(this.epubOriginalEnabled ? this.epubOriginalInk : this.palette.primary)
+        .fontColor(this.headerStyle.color || (this.epubOriginalEnabled ? this.epubOriginalInk : this.palette.primary))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .layoutWeight(1)
         .visibility(this.cornerVisible(0) ? Visibility.Visible : Visibility.Hidden)
       Text(this.cornerText(1))
         .fontSize(AppFont.Caption)
-        .fontColor(this.epubOriginalEnabled ? this.epubOriginalInk : this.palette.primary)
+        .fontColor(this.headerStyle.color || (this.epubOriginalEnabled ? this.epubOriginalInk : this.palette.primary))
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .textAlign(TextAlign.End)
@@ -3504,6 +3522,7 @@ export struct ReaderPage {
           if (typeof current.width === 'number') this.pageLabelWidthVp = current.width;
         })
     }
+    .padding({ top: this.headerStyle.top, bottom: this.headerStyle.bottom, left: this.headerStyle.left, right: this.headerStyle.right })
     .width('100%')
     .height(this.readerHeaderHeight())
     .visibility(this.readerHeaderHeight() > 0 ? Visibility.Visible : Visibility.None)
@@ -3516,23 +3535,24 @@ export struct ReaderPage {
     Row({ space: AppSpace.Sm }) {
       Text(this.cornerText(2))
         .fontSize(AppFont.Caption)
-        .fontColor(this.epubOriginalEnabled ? this.epubOriginalInk : this.palette.primary)
+        .fontColor(this.footerStyle.color || (this.epubOriginalEnabled ? this.epubOriginalInk : this.palette.primary))
         .layoutWeight(1)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .visibility(this.cornerVisible(2) ? Visibility.Visible : Visibility.Hidden)
       if (this.showFooter && this.showReadingStatus) {
-        ReaderStatusIndicator({ color: this.epubOriginalEnabled ? this.epubOriginalInk : this.palette.primary })
+        ReaderStatusIndicator({ color: this.footerStyle.color || (this.epubOriginalEnabled ? this.epubOriginalInk : this.palette.primary) })
       }
       Text(this.cornerText(3))
         .fontSize(AppFont.Caption)
-        .fontColor(this.epubOriginalEnabled ? this.epubOriginalInk : this.palette.primary)
+        .fontColor(this.footerStyle.color || (this.epubOriginalEnabled ? this.epubOriginalInk : this.palette.primary))
         .layoutWeight(1)
         .textAlign(TextAlign.End)
         .maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .visibility(this.cornerVisible(3) ? Visibility.Visible : Visibility.Hidden)
     }
+    .padding({ top: this.footerStyle.top, bottom: this.footerStyle.bottom, left: this.footerStyle.left, right: this.footerStyle.right })
     .width('100%')
     .height(this.readerFooterHeight())
     .visibility(this.readerFooterHeight() > 0 ? Visibility.Visible : Visibility.None)
@@ -3580,7 +3600,7 @@ export struct ReaderPage {
               content: this.onlineTextContent, charOffset: this.currentOnlineTextCharOffset(),
               chapterCount: this.book?.chapters.length ?? 0,
               fontSize: this.fontSize, lineHeight: this.lineHeight, paragraphSpacing: this.paragraphSpacing, palette: this.palette,
-              chapterHeadingVisible: this.chapterHeadingVisible, chapterHeadingSize: this.chapterHeadingSize, chapterHeadingStyle: this.chapterHeadingStyle,
+              headingLayout: this.headingLayout, chapterHeadingVisible: this.chapterHeadingVisible, chapterHeadingSize: this.chapterHeadingSize, chapterHeadingStyle: this.chapterHeadingStyle,
               letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
               textAlignment: this.textAlignment,
               fontFamily: this.fontFamily, fontWeight: this.fontWeight,
@@ -3948,15 +3968,20 @@ export struct ReaderPage {
       lineHeight: this.previewLineHeight || this.lineHeight,
       paragraphSpacing: this.previewParagraphSpacing >= 0 ? this.previewParagraphSpacing : this.paragraphSpacing,
       paragraphSpacingEnabled: this.isOnlineTextBook(),
+      bodyColor: this.bodyColor,
+      onBodyColor: (color: string): void => { this.bodyColor = color; this.refreshPalette(); this.saveReadingSettings(); },
+      headerStyle: this.headerStyle, footerStyle: this.footerStyle, headingLayout: this.headingLayout,
+      onRegionStyle: (region: string, style: ReaderRegionStyle): void => {
+        if (region === 'header') this.headerStyle = style;
+        if (region === 'footer') this.footerStyle = style;
+        if (region === 'heading') this.headingLayout = style;
+        this.applyAppTypography();
+        this.saveReadingSettings();
+      },
       chapterHeadingVisible: this.chapterHeadingVisible,
       chapterHeadingSize: this.previewChapterHeadingSize || this.chapterHeadingSize,
-      chapterHeadingStyle: this.chapterHeadingStyle,
       onChapterHeadingVisibleChange: (visible: boolean): void => {
         this.chapterHeadingVisible = visible;
-        this.applyAppTypography(); this.saveReadingSettings();
-      },
-      onChapterHeadingStyleChange: (style: string): void => {
-        this.chapterHeadingStyle = TextReadingSettings.normalizeChapterHeadingStyle(style);
         this.applyAppTypography(); this.saveReadingSettings();
       },
       onChapterHeadingSizeChange: (value: number, commit: boolean): void => {

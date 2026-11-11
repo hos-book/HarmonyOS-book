@@ -5,23 +5,35 @@
   var anchor = cfg.spot, current = cfg.spot, restoration = cfg.spot;
   var contentTouch = null;
   var flowing = false, viewportWidth = innerWidth, viewportHeight = innerHeight;
+  var pagedBackground = null, originalBackground = '', originalBackgroundPriority = '';
   function protectPagedBounds() {
     if (!cfg.paged) return;
-    var body = document.body, style = getComputedStyle(body);
+    var body = document.body;
+    if (pagedBackground) {
+      if (originalBackground) body.style.setProperty('background', originalBackground, originalBackgroundPriority);
+      else body.style.removeProperty('background');
+    } else {
+      originalBackground = body.style.getPropertyValue('background');
+      originalBackgroundPriority = body.style.getPropertyPriority('background');
+      pagedBackground = document.createElement('div');
+      pagedBackground.setAttribute('aria-hidden', 'true');
+      pagedBackground.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:-1;';
+      document.documentElement.appendChild(pagedBackground);
+    }
+    var style = getComputedStyle(body);
     var top = Math.max(0, parseFloat(style.paddingTop) || 0);
     var bottom = Math.max(0, parseFloat(style.paddingBottom) || 0);
     // Padding paginates the text but does not clip positioned content or column ink.
     // Paint the original background behind the clipped body, including its images.
-    var background = document.createElement('div');
-    background.setAttribute('aria-hidden', 'true');
-    background.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:-1;';
     ['image', 'size', 'position', 'repeat', 'attachment', 'origin', 'clip', 'color'].forEach(function (name) {
-      background.style.setProperty('background-' + name, style.getPropertyValue('background-' + name));
+      pagedBackground.style.setProperty('background-' + name, style.getPropertyValue('background-' + name));
     });
-    document.documentElement.appendChild(background);
+    // Transfer, rather than duplicate, translucent paper/gradient layers.
+    body.style.setProperty('background', 'transparent', 'important');
     // Horizontal overflow is the upstream column strip; only clip vertically.
     body.style.setProperty('clip-path', 'inset(' + top + 'px -1000000px ' + bottom + 'px -1000000px)', 'important');
   }
+  addEventListener('resize', function () { if (ready) protectPagedBounds(); });
   function setViewport(height) {
     document.documentElement.style.setProperty('--hsda-vh', height / 100 + 'px');
     document.documentElement.style.setProperty('--hsda-vmin', Math.min(innerWidth, height) / 100 + 'px');
@@ -285,10 +297,10 @@
     ready: function () {
       if (cfg.restorePage >= 0) window.__legado.goPage(cfg.restorePage, false);
       ready = true; current = spot(); send(current);
-      protectPagedBounds();
       var body = getComputedStyle(document.body), html = getComputedStyle(document.documentElement);
       send({ kind: 'appearance', background: color(body.backgroundColor, color(html.backgroundColor, '#ffffff')),
         foreground: color(body.color, '#303030') });
+      protectPagedBounds();
       painted(cfg.paint, 'ready');
     },
     position: function () {

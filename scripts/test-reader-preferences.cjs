@@ -43,13 +43,14 @@ function load(relative) {
   assert.equal(TextReadingSettings.normalizeTextAlignment('invalid'), 'justify');
   const { TextReadingSettingsService: service } = load('service/text/TextReadingSettingsService');
   values.set('font_size', 22); // Existing installations have no new preference keys.
+  values.set('chapter_heading_style', 'center'); // Removed presets migrate to the plain heading.
   const migrated = await service.get({});
   const { ReaderDialogueRules } = load('model/ReaderDialogueRules');
   assert.equal(migrated.dialogueQuotePairs, ReaderDialogueRules.DEFAULT);
   migrated.dialogueQuotePairs = '‘’\n【】';
   assert.equal(migrated.chapterHeadingVisible, true);
   assert.equal(migrated.chapterHeadingSize, 26);
-  assert.equal(migrated.chapterHeadingStyle, 'center');
+  assert.equal(migrated.chapterHeadingStyle, 'plain');
   migrated.chapterHeadingVisible = false;
   migrated.chapterHeadingSize = 34;
   migrated.chapterHeadingStyle = 'bold';
@@ -106,7 +107,7 @@ function load(relative) {
   const restored = await service.get({});
   assert.equal(restored.chapterHeadingVisible, false);
   assert.equal(restored.chapterHeadingSize, 34);
-  assert.equal(restored.chapterHeadingStyle, 'bold');
+  assert.equal(restored.chapterHeadingStyle, 'plain');
   assert.equal(restored.dialogueQuotePairs, '‘’\n【】', 'dialogue delimiters persist independently of the enabled flag');
   assert.equal(restored.dialogueHighlight, true);
   assert.equal(restored.dialogueHighlightColor, '#12AB34', 'dialogue color survives reopening independently of text color');
@@ -157,7 +158,7 @@ function load(relative) {
   values.set('chapter_heading_style', 'broken');
   const invalidHeading = await service.get({});
   assert.equal(invalidHeading.chapterHeadingSize, 26);
-  assert.equal(invalidHeading.chapterHeadingStyle, 'center');
+  assert.equal(invalidHeading.chapterHeadingStyle, 'plain');
   assert.equal(sanitized.dialogueHighlightColor, '', 'invalid persisted colors use the theme fallback');
   assert.equal(sanitized.speechMarkColor, '', 'invalid speech colors use the theme fallback');
   assert.equal(sanitized.cornerLayout, '0123', 'invalid corner layouts return to the original order');
@@ -171,7 +172,7 @@ function load(relative) {
   const reset = await service.get({});
   assert.equal(reset.chapterHeadingVisible, true);
   assert.equal(reset.chapterHeadingSize, 26);
-  assert.equal(reset.chapterHeadingStyle, 'center');
+  assert.equal(reset.chapterHeadingStyle, 'plain');
   assert.equal(reset.dialogueHighlightColor, '', 'reset restores automatic dialogue colors');
   assert.equal(reset.speechMarkColor, '', 'reset restores automatic speech mark colors');
   assert.equal(reset.speechFollowPage, true);
@@ -291,7 +292,7 @@ function load(relative) {
   assert.equal(legacyHeading.dialogueQuotePairs, ReaderDialogueRules.DEFAULT, 'old backups retain existing quote behavior');
   assert.equal(legacyHeading.chapterHeadingVisible, true);
   assert.equal(legacyHeading.chapterHeadingSize, 26);
-  assert.equal(legacyHeading.chapterHeadingStyle, 'center');
+  assert.equal(legacyHeading.chapterHeadingStyle, 'plain');
   assert.equal((await service.get({})).textAlignment, 'justify', 'old backups adopt justified text');
   assert.equal((await service.get({})).showPageRules, true, 'old backups retain visible page rules');
   assert.equal((await service.get({})).pageTurnHaptic, 'none', 'old backups disable haptics');

@@ -611,7 +611,7 @@ export struct EpubOriginalReader {
   }
 
   private async openLinkAt(x: number, y: number): Promise<boolean> {
-    if (!this.alive || this.loading || !this.paged || this.checkpoint !== null ||
+    if (!this.alive || this.loading || this.layoutUpdating || !this.paged || this.checkpoint !== null ||
       !Number.isFinite(x) || !Number.isFinite(y)) return false;
     const ticket = this.serial;
     try {
@@ -633,12 +633,12 @@ export struct EpubOriginalReader {
   }
 
   private turn(forward: boolean): void {
-    if (this.loading || !this.alive || !this.attached || this.checkpoint !== null) return;
+    if (this.loading || this.layoutUpdating || !this.alive || !this.attached || this.checkpoint !== null) return;
     this.controller.runJavaScript(`window.hsdaEpub.turn(${forward})`).catch((): void => this.fail());
   }
 
   private async seek(offset: number): Promise<void> {
-    if (this.loading || !this.alive || !this.parts.length || this.checkpoint !== null) return;
+    if (this.loading || this.layoutUpdating || !this.alive || !this.parts.length || this.checkpoint !== null) return;
     let index = 0;
     for (let at = 0; at < this.parts.length; at++) if (this.parts[at].offset <= offset) index = at;
     try {
@@ -724,9 +724,10 @@ export struct EpubOriginalReader {
 
   private selectionMenu(): EditMenuOptions {
     return {
-      onCreateMenu: (_items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(false),
-      onPrepareMenu: (_items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(false),
+      onCreateMenu: (items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(false, items),
+      onPrepareMenu: (items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(false, items),
       onMenuItemClick: (item: TextMenuItem, _range: TextRange): boolean => {
+        if (!ReaderSelectionMenu.isReaderAction(item.id)) return false;
         if (!this.alive || this.loading || this.checkpoint !== null || this.selectionSerial !== this.serial) return true;
         const frame = this.paged ? null : this.frames.find((value: EpubOriginalFrame): boolean => value.id === this.selectionFrame);
         if (!this.paged && frame === undefined) return true;

@@ -1,3 +1,4 @@
+import { ReaderRegionStyle } from '../../model/ReaderRegionStyle';
 import { ReaderTapPolicy } from '../../utils/ReaderTapPolicy';
 import { common } from '@kit.AbilityKit';
 import { preferences } from '@kit.ArkData';
@@ -93,8 +94,8 @@ export class TextReadingSettingsService {
     result.chapterHeadingVisible = store.getSync('chapter_heading_visible', true) !== false;
     const headingSize = store.getSync('chapter_heading_size', 26);
     result.chapterHeadingSize = TextReadingSettings.normalizeChapterHeadingSize(typeof headingSize === 'number' ? headingSize : 26);
-    const headingStyle = store.getSync('chapter_heading_style', 'center');
-    result.chapterHeadingStyle = TextReadingSettings.normalizeChapterHeadingStyle(typeof headingStyle === 'string' ? headingStyle : 'center');
+    const headingStyle = store.getSync('chapter_heading_style', 'plain');
+    result.chapterHeadingStyle = TextReadingSettings.normalizeChapterHeadingStyle(typeof headingStyle === 'string' ? headingStyle : 'plain');
     const tapLeftPercent = store.getSync('tapLeftPercent', 33);
     result.tapLeftPercent = ReaderTapPolicy.percent(typeof tapLeftPercent === 'number' ? tapLeftPercent : 33);
     const tapRightPercent = store.getSync('tapRightPercent', 33);
@@ -198,6 +199,14 @@ export class TextReadingSettingsService {
     result.fontName = typeof fontName === 'string' ? fontName : '';
     const minutes = store.getSync('screen_on_minutes', 0);
     result.screenOnMinutes = TextReadingSettings.normalizeScreenOnMinutes(typeof minutes === 'number' ? minutes : 0);
+    const bodyColor = store.getSync('bodyColor', '');
+    result.bodyColor = typeof bodyColor === 'string' ? TextReadingSettings.normalizeDialogueHighlightColor(bodyColor) : '';
+    const headerStyle = store.getSync('headerStyle', '');
+    result.headerStyle = ReaderRegionStyle.decode(typeof headerStyle === 'string' ? headerStyle : '');
+    const footerStyle = store.getSync('footerStyle', '');
+    result.footerStyle = ReaderRegionStyle.decode(typeof footerStyle === 'string' ? footerStyle : '');
+    const headingLayout = store.getSync('headingLayout', '');
+    result.headingLayout = ReaderRegionStyle.decode(typeof headingLayout === 'string' ? headingLayout : '');
     return result;
   }
 
@@ -212,6 +221,10 @@ export class TextReadingSettingsService {
     store.putSync('showChapterBar', settings.showChapterBar);
     store.putSync('showBrightnessBar', settings.showBrightnessBar);
     store.putSync('reader_brightness', TextReadingSettings.normalizeBrightness(settings.brightness));
+    store.putSync('bodyColor', TextReadingSettings.normalizeDialogueHighlightColor(settings.bodyColor));
+    store.putSync('headerStyle', JSON.stringify(ReaderRegionStyle.normalize(settings.headerStyle)));
+    store.putSync('footerStyle', JSON.stringify(ReaderRegionStyle.normalize(settings.footerStyle)));
+    store.putSync('headingLayout', JSON.stringify(ReaderRegionStyle.normalize(settings.headingLayout)));
     store.putSync('showHeader', settings.showHeader);
     store.putSync('corner_layout', ReaderCornerLayout.normalize(settings.cornerLayout));
     store.putSync('showFooter', settings.showFooter);

@@ -8,7 +8,7 @@
 
 ## 章节大标题
 
-阅读页 → 字体 → 章节大标题：默认显示，默认 26fp、居中加粗；可选择简约（常规字重左对齐）、加粗（左对齐）、居中（加粗），字号独立调节为 18–48fp，也可关闭。使用当前正文字体和主题文字颜色。页眉章节名称仍由原来的独立开关控制。
+阅读页 → 阅读主题 → 正文标题：将原“显示章节大标题”与标题边距颜色合并为同一卡片，集中设置显示开关、18–48fp 字号、上下左右边距及颜色。默认显示、26fp、简约（常规字重左对齐），去掉简约/加粗/居中的预设切换，旧预设统一迁移为简约。空字色跟随阅读主题。页眉章节名称仍由原来的独立开关控制。
 
 样式选项采用整行等宽的圆角分段按钮，高 36vp、外侧留白 4vp；选中项使用系统底色和主题强调色文字，移除紧贴文字的黑色描边。标题字号滑条与正文“字号 / 行高 / 段间距”统一为 6vp 轨道、主题色进度、系统分隔色底轨和白色滑块。依据在线 ArkUI [布局权重](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/03-layout/ts-universal-attributes-size.md)及 [Slider](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/04-components/basic/ts-basic-components-slider.md)说明，沿用现有 V2 状态回调。
 
@@ -685,7 +685,7 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 
 ## 小说阅读
 
-- 替换净化规则面板支持“导入规则”：选择一个 UTF-8 JSON 文件（最大 1 MiB），预览名称列表后确认作用于当前书（默认）或全部书籍。支持规则数组、单个规则及 `{ "rules": [...] }`，读取 `name/pattern/replacement/isRegex/enabled`（兼容 `isEnabled`）；替换文本可为空，缺省正则/启用均为 true。最多保存 200 条；重复规则跳过，正则先经有界 QuickJS 批量校验，保存失败整批回滚。仅标题、特定书源、非空 scope/excludeScope 等不能直接迁移的范围显式报错，不静默扩大应用范围；不执行文件脚本。
+- 替换净化规则面板支持“导入规则”：选择一个 UTF-8 JSON 文件（最大 1 MiB），预览名称列表后确认作用于当前书（默认）或全部书籍。支持规则数组、单个规则及 `{ "rules": [...] }`，读取 `name/pattern/replacement/isRegex/enabled`（兼容 `isEnabled`）；替换文本可为空，缺省正则/启用均为 true。最多保存 1000 条；重复规则跳过，正则先经有界 QuickJS 批量校验，保存失败整批回滚。仅标题、特定书源、非空 scope/excludeScope 等不能直接迁移的范围显式报错，不静默扩大应用范围；不执行文件脚本。
 - 覆盖翻页复用单张 PixelMap 的 Image 层，点击和松手后统一由显式 Animator 进度更新位移，避免新挂载图层仅收到属性过渡终点而直接跳页；不逐帧重绘整页 Canvas。拖动排队帧只读取最新动画进度。覆盖在准备、收尾及异步提交期间接收最近一次点击、按键或滑动；新输入将当前动画收尾缩短为 80ms，等进度与布局提交后接续，保留交接期间的滑动位置和松手状态。等待操作最多一项，取消、离页、后台、模式或窗口变化时清空，旧动画回调不能重复提交；原版 EPUB 提交完成前不准备下一页。应用排版横屏双栏仿真采用页角折叠与斜折线裁剪：中缝书脊与另一侧旧页固定，纸背显示目标内页，文字保持原比例；每帧最多四次正文图片绘制。上下页角与纵向拖动决定折线，横向页角跟随手指，松手从最后实际绘制的位置减速落页，取消还原的布局完成后再移除截图。原中央直线改为 36vp 内的渐变书缝，保留中央凹陷、侧面柔光与上下渐隐，避开页眉、页脚及阅听状态；书缝独立于正文截图，翻动纸背覆盖其上，落平末段平滑恢复。纸背轮廓先绘制不透明底色，再叠加正文和折痕光影，底页不得穿透；取消整页纸边描线，起止帧直接绘制完整截图，避免中缝上下黑线闪烁。单栏保留原柱面卷页。截图及目标布局就绪后开始，取消不提交阅读进度；快划、离页与过期完成回调受同一代次守卫。
 
 2026-11-09：几何与真实组件回归覆盖页角跟手、书脊约束、面积与文字比例、双向纹理、松手接续、取消交接、书缝层级和资源释放。参考并实际运行 [StPageFlip 官方演示](https://nodlik.github.io/StPageFlip/)，阅读其 [FlipCalculation](https://github.com/Nodlik/StPageFlip/blob/master/src/Flip/FlipCalculation.ts) 与 [CanvasRender](https://github.com/Nodlik/StPageFlip/blob/master/src/Render/CanvasRender.ts)；采用页角反射、内外折痕与固定书缝的绘制思路，未引入第三方运行库。实现使用已读取的在线 [lang-syntax](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkUI 检索技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)及 [CanvasRenderingContext2D 指南](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/04-components/drawing/ts-canvasrenderingcontext2d.md)，构建诊断参照 [ArkTS 检查技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)。
@@ -719,9 +719,9 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 - 设置与字体面板的选项、数值、字体菜单和操作文字使用自适应深浅色的中性文字，不受全局主题色影响；选中档位通过中性底色和边框区分，正文及预览仍使用阅读配色。
 
 - 正文上下左右边距滑杆两端提供“− / +”按钮，点击按 1vp 微调并保存，到达对应上下限时禁用。
-- 底栏三个入口等宽平分、图标各自居中，只展示图标并保留无障碍名称，“字体”在“设置”旁边；字体面板首项为阅读主题，随后提供预览、字号、行高、连续字重、文字调色盘和 TTF/OTF 字体导入。设置面板保留翻页方式、边距、亮屏时间和状态栏/页脚开关。
+- 底栏三个入口等宽平分、图标各自居中，只展示图标并保留无障碍名称，“阅读主题”在“设置”旁边；阅读主题面板依次提供主题外观、字体与字号字重、段落排版、正文边距与颜色、正文标题、页眉和页脚样式。设置面板保留翻页交互、亮屏时间、状态栏和页眉页脚显示内容。
 - “点击区域”默认折叠为标题与箭头，点击整行展开说明、九宫格、尺寸调整和恢复默认，再次点击收起；展开状态只保存在当前面板，不写入阅读偏好。每格点击循环切换上一页／工具栏／下一页／无操作，至少保留一个工具栏入口；默认左列上一页、中列工具栏、右列下一页。左右列宽、上下行高通过百分比滑杆调整（单侧至少 5%，中间至少 10%），九宫格按实际比例预览。“上／下／左／右”横向选项 Tab 每次只显示当前方向的比例滑杆，实时显示百分比，左右提供 − / + 按钮，按 1% 微调并在边界禁用；拖动松手后保存。配置持久化并参与阅读备份，支持恢复默认；滚动模式上一页／下一页移动约 85% 屏高。
-- 字体面板的章节大标题卡片直接显示“显示章节大标题”开关，去掉上方重复的小标题，保留开启后的样式和字号控制。字距与段落间距采用一致的无背景 − / + 按钮、内嵌滑条和右侧数值，范围 0–10vp、步长 0.5vp，到达边界禁用按钮，点击立即保存。
+- 正文标题的显示、字号、边距与颜色统一放在阅读主题面板同一卡片，关闭时隐藏编辑项并保留原数值；默认简约，无样式预设切换。字距与段落间距采用一致的无背景 − / + 按钮、内嵌滑条和右侧数值，范围 0–10vp、步长 0.5vp，到达边界禁用按钮，点击立即保存。
 - 阅读设置提供“音量键翻页”开关（默认关闭并持久化、支持备份）：仅在工具栏隐藏的纯净阅读状态下，音量加上一页、音量减下一页，上下滚动模式每次滚动约 85% 屏；工具栏或弹层打开、开关关闭时注销音量键消费，交给系统调节声音，收起工具栏后恢复翻页。小说和漫画均遵循此规则。通过 inputConsumer.keyPressed 拦截系统音量键，不依赖正文/底部 Tab 焦点；阅读页不可见或退出时注销。回归检查按下一次只翻一页、长按不重复、工具栏展开/收起时释放/恢复订阅、首末页边界及重新进入后的开关状态。
 - 分页正文更新使用 FrameNode 自绘重绘通知，覆盖/仿真/无效果均需检查正文实际前进、回退、跨章与手势回弹，而不仅检查动画和页码。
 - “翻页震感”位于翻页效果下方，左侧标题、右侧下拉选项依次为无效果、强劲、中等、弱感；默认无效果，选择立即保存并反馈一次。手动分页成功、连续滚动完成后位置变化、EPUB 原版手动翻页时单次反馈；取消、边界未移动、自动翻页、恢复和重排不反馈。档位随阅读偏好及备份恢复，旧配置和旧备份均默认无效果。使用 Sensor Service Kit 的预置触觉及 API 12 强度参数，先查询效果支持，不支持时回退短时振动；设备不支持强度调节时由预置效果决定实际力度。
@@ -1333,6 +1333,10 @@ HTTP 合成区分访问拒绝、限流、超时/网络、服务端错误、坏�
 
 ## EPUB 原版精排预设
 
+精排正文在分页和连续滚动模式下均裁剪到页眉、页脚与安全区之间，原书纸张、图片及固定背景仍延伸到整页。正文与页脚使用同一底部避让基准，左右安全区不重复叠加；页眉页脚、系统栏或安全区变化后按当前字符位置重新排版，加载及翻页预览期间的变更合并到完成后处理。长章节点击区域按可见窗口计算；页内链接跳转同步保存新位置，脚注弹层不改变进度。加载底色沿用原书纸色，系统栏文字随原书背景明暗调整；半透明背景只绘制一次，窗口变宽后的原书媒体样式仍生效。
+
+2026-11-10：宿主翻页/回弹/动态边距回归、Chromium 分页与连续阅读回归通过，覆盖头脚裁剪、固定及半透明背景、响应式背景、点击坐标、链接字符恢复、画廊与媒体交互、真实触摸跨章。使用 Release SDK 26.0.0.105 构建 debug HAP；独立 ArkTS MCP 超时，构建 MCP 遇到 ohpm 批处理递归，改用同一 Release IDE 的 CLI。当前无已连接设备，Mate 90 Pro 模拟器启动超时，本次浏览器结果不代表手机、折叠屏、平板或 2in1 实机验收。实现参考在线 [ArkTS 语法技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkUI 知识技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md) 和 [安全区适配技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/06-solutions/multi-device/hmos-multidevice-avoid-areas/SKILL.md)，继续使用项目既有 ArkUI V2 与动态安全区。
+
 新导入的文字 EPUB 自动生成当前书专属的“EPUB 原版精排”，默认使用书内字体、背景、标题、内联样式及插图。阅读页“字体 → 预设主题”显示书名和当前选中状态，选择羊皮纸、夜间、纯黑或自定义主题切换为应用排版，点击原版卡片恢复书内效果；该选择仅作用于当前书，不占自定义主题名额。原版与应用排版共用覆盖、仿真、无动画翻页以及页眉页脚、阅读状态、点击区域和按键入口；字体、字号、行距、边距等设置保留，手动调整时切换到应用排版，可随时重新选中原版主题。原版排版、分页和文字定位复用轻页 EpubOriginalScript；公共 ArkUI 翻页组件处理手势、截图动画与提交，Web 不再重复处理横向滑动和点击。分页通过视口横向滚动切换多栏，不平移 body；书内固定背景覆盖完整阅读区，页眉页脚透明叠放并采用原书字色。预览阶段不提交位置，滑动取消后恢复原页，跨章同样遵循该规则；系统主题不直接改写原书颜色。
 
 两种排版共用原目录、章节 ID、书签、朗读和字符进度，切换先保存当前位置；窗口变化按文字定位恢复。原版支持目录跳章、横向翻页、竖向滚动及按键翻页。页眉页脚覆盖层及其全部子控件使用 API 20 的 `HitTestMode.BLOCK_DESCENDANTS` 退出触摸测试，避免全屏 `Blank` 截住正文上下滚动和点击；不能退回只排除容器自身的 `None`。背景资源不进入文字或朗读流。旧导入文件需要重新导入才生成此预设；不支持原版 Web 或加载失败时保留应用排版。验证重点为带嵌入字体和背景的实书、同章多 spine/同文件多目录锚点、主题往返和重启记忆；连续滚动须检查上下滑动、点击显隐工具栏和返回后位置恢复。
@@ -1379,3 +1383,19 @@ HTTP 合成区分访问拒绝、限流、超时/网络、服务端错误、坏�
 花纹显式图片层与品牌图标圆角调整的最终真机效果仍待验证。
 
 开发依据（本次在线读取，按项目 ArkUI V2 规则应用）：[ArkTS 语法](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkUI 检索与 V2 规则](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)、[图片分享技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/sdk/hmos-one-sdk-skill/hmos-sdk-basic-skill/Share%20Kit(%E5%88%86%E4%BA%AB%E6%9C%8D%E5%8A%A1)/hmos-share-kit-share-image/SUB_SKILL.md)。
+
+
+### 阅读自由布局与漫画外观
+
+- 统一文字阅读的页眉、页脚与正文标题分别保存上下左右边距（0–64vp）和字色；正文沿用四边边距，新增独立字色。空字色跟随阅读主题。标题边距计入分页测量与连续滚动行间隔，不进入书签/朗读字符坐标；EPUB 原版正文仍遵循书内 CSS。
+- 页眉、页脚和标题的边距编辑复用正文同款“上/下/左/右”切换、单根滑杆及加减步进按钮；各组保留独立选中状态。滑杆使用本地响应式数值显示拖动和步进结果，加减按钮使用独立 V2 组件更新边界禁用状态，避免多参数 Builder 停留在初始值。边距与漫画裁边滑杆均复用 `SliderGestureModifier`，禁止点击跳变，拖动超过范围 4% 后才调节。
+- 原生文字与 EPUB 菜单保留系统工具并追加摘录、朗读、字典、总结。精排正文将当前所选原文交给原生 Text 选区菜单，“问问小艺”等系统项由系统直接处理；不再弹出中间文字面板。正文仍使用原测量字形与拖柄，不为菜单重新排版；拖动选区后以更新的原文重新创建菜单锚点。使用 API 11 的 `selection` 覆盖 API 20 基线，参见 [Text 官方文档](https://developer.huawei.com/consumer/cn/doc/harmonyos-references/ts-basic-components-text)。
+- 漫画分页模式可将横向跨页拆成先左后右或先右后左，单页不拆；滚动/连页模式保留原图。拆页只影响显示，进度和缓存仍对应原图。
+- 自动去白边之外，支持按原图四边分别裁剪 0–25%，与自动结果取较大裁剪量，不叠加误裁、不改原文件。浅/深色模式分别保存黑色、纯色、牛皮纸和护眼绿背景，牛皮纸显示轻量纹理。
+- 漫画新增的跨页分割、浅色背景和深色背景均使用“左侧标题、右侧选项”的行布局；自定义去白边顶行标题与上下左右切换并排，下方复用阅读边距控件显示单根百分比滑杆、加减按钮及实时百分比，四边独立保存。
+- 漫画图片、分页与连页容器使用透明底色，统一透出阅读页选择的背景和牛皮纸纹理；加载与失败提示按当前背景明暗适配文字颜色。
+- “字体主题”及工具栏入口统一改为“阅读主题”，按主题、字体、段落、正文边距与颜色、正文标题、页眉、页脚排序。“设置”保留翻页、交互、状态栏、页眉页脚显示内容与辅助功能。跟随系统深浅色默认开启，明确保存的开启/关闭选择在重新进入和重启后保留，恢复默认时回到开启。
+
+数值刷新实现参考本次读取的在线 [ArkUI Builder 参数与刷新规则](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/18-arkts-rules/arkts-ui-extension.md)：动态数值和按钮边界通过独立 V2 组件与本地状态刷新，不再使用多参数 Builder 承载动态裁边读数。
+
+阅读主题整理、边距控件与系统选区菜单调整已通过 ArkTS 静态检查和 Release SDK 26.0.0.105 增量 Debug 编译，阅读偏好及段落分页回归通过；偏好回归包含系统跟随缺省开启及显式关闭后的保存恢复。已覆盖安装并启动于 VYG-AL00 实机，确认阅读主题入口、漫画左右设置布局、牛皮纸背景生效，以及页眉边距从 0 加至 1 后数值和减号状态同步更新，再恢复为 0。问问小艺的实际拉起、系统菜单位置与滑杆防误触效果仍待针对性实机确认。

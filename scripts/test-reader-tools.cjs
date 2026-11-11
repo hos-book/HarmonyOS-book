@@ -101,7 +101,9 @@ function rule(pattern, replacement = '', regex = false, bookId = 'book') {
   for (const scope of [{ scopeContent: false }, { scopeSource: true }, { scope: '某书' }, { excludeScope: '某书' }]) {
     assert.throws(() => ReaderReplaceImport.parse(JSON.stringify([{ pattern: 'x', ...scope }])), /scope_error/);
   }
-  assert.throws(() => ReaderReplaceImport.parse(JSON.stringify(Array.from({ length: 201 }, () => ({ pattern: 'x' })))), /reader_tools_limit/);
+  assert.throws(() => ReaderReplaceImport.parse(JSON.stringify(Array.from({ length: 1001 }, () => ({ pattern: 'x' })))), /reader_tools_limit/);
+  const large = Array.from({ length: 1000 }, (_, i) => ({ pattern: 'purify-' + i, isRegex: false }));
+  assert.equal(ReaderReplaceImport.parse(JSON.stringify(large)).length, 1000);
   const beforeImportFailure = values.get('data');
   await assert.rejects(service.importRules(ctx, [rule('valid'), rule('(', '', true)], 'book'), /reader_replace_invalid/);
   assert.equal(values.get('data'), beforeImportFailure, 'invalid batch must not partially save');
@@ -109,7 +111,7 @@ function rule(pattern, replacement = '', regex = false, bookId = 'book') {
   await assert.rejects(service.importRules(ctx, [rule('save-failure')], 'book'), /reader_tools_storage_error/);
   failFlush = false;
   assert.equal(values.get('data'), beforeImportFailure, 'failed import restores previous data');
-  await assert.rejects(service.importRules(ctx, Array.from({ length: 200 }, (_, i) => rule('limit' + i)), 'book'), /reader_tools_limit/);
+  await assert.rejects(service.importRules(ctx, Array.from({ length: 1000 }, (_, i) => rule('limit' + i)), 'book'), /reader_tools_limit/);
   assert.equal(values.get('data'), beforeImportFailure, 'rule cap applies to existing plus imported entries atomically');
   const saved = values.get('data');
   failFlush = true;
@@ -126,5 +128,13 @@ function rule(pattern, replacement = '', regex = false, bookId = 'book') {
   await service.restore(ctx, { bookmarks: [mark], rules: [] });
   assert.equal((await service.bookmarks(ctx, 'import_local')).length, 1);
   assert.equal((await service.bookmarks(ctx, 'book')).length, 1);
+  const existingCount = (await service.rules(ctx)).length;
+  const fill = Array.from({ length: 1000 - existingCount }, (_, i) => rule('thousand-' + i));
+  assert.equal(await service.importRules(ctx, fill, 'large-book'), fill.length);
+  assert.equal((await service.rules(ctx)).length, 1000, '1000 rules persist and reload');
+  assert.equal((await service.render(ctx, 'large-book', 'thousand-999')).failed, false);
+  const fullSnapshot = values.get('data');
+  await assert.rejects(service.importRules(ctx, [rule('over-cap')], 'large-book'), /reader_tools_limit/);
+  assert.equal(values.get('data'), fullSnapshot, '1001st rule rolls back atomically');
   console.log('PASS bookmark persistence/deduplication/restore, failed writes, literal and regex rules, scope, disable/delete, raw offsets, image preservation and bounded execution');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -1,3 +1,4 @@
+import { ComicReaderAppearance } from '../model/ComicReaderAppearance';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { BookPresentation, BookPresentationEdit } from '../model/BookPresentation';
 import lazy { MembershipService } from './MembershipService';
@@ -374,6 +375,17 @@ export class PreferenceService {
   static async setComicDisplayMode(mode: number): Promise<void> {
     if (![0, 1, 2, 3].includes(mode)) throw new Error('Invalid comic display mode');
     await PreferenceService.saveComicPreference('comic_display_mode', mode, 0);
+  }
+
+  static async getComicAppearance(): Promise<ComicReaderAppearance> {
+    const store = await PreferenceService.ensureStore();
+    const value = store.getSync('comic_appearance', '');
+    return ComicReaderAppearance.decode(typeof value === 'string' ? value : '');
+  }
+
+  static async setComicAppearance(value: ComicReaderAppearance): Promise<void> {
+    await PreferenceService.saveComicPreference('comic_appearance',
+      JSON.stringify(ComicReaderAppearance.normalize(value)), '');
   }
 
   static async getComicTrimWhiteBorder(): Promise<boolean> {

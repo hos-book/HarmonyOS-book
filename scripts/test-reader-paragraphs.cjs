@@ -18,6 +18,7 @@ function load(relative, mocks = {}) {
   vm.runInNewContext(code, { exports, require: name => {
     if (name === './LocalTextImage') return localImages ??= load('main/ets/service/text/LocalTextImage.ets');
     if (name === '../../model/ReaderDialogueRules') return load('main/ets/model/ReaderDialogueRules.ets');
+    if (name === '../../model/ReaderRegionStyle') return load('main/ets/model/ReaderRegionStyle.ets');
     if (name === './ReaderDialogueHighlighter') return load('main/ets/service/text/ReaderDialogueHighlighter.ets');
     if (name === '../../utils/PlatformCompat') return { PlatformCompat: { supports: version => apiVersion >= version } };
     if (!(name in mocks)) throw new Error(`Unexpected dependency: ${name}`);
@@ -90,6 +91,17 @@ const graphicsText = {
   }
 };
 const native = load('main/ets/service/text/OnlineTextPaginator.ets', { '@kit.ArkGraphics2D': { text: graphicsText } });
+const { ReaderRegionStyle } = load('main/ets/model/ReaderRegionStyle.ets');
+const titleStyle = ReaderRegionStyle.decode('{"top":12,"bottom":8,"left":20,"right":30,"color":"#123456"}');
+const customHeading = native.OnlineTextPaginator.paginate('正文甲乙丙丁戊己庚辛壬癸', 300, 200, 18, 1.9,
+  '', 400, 'justify', 0, 0, '章节标题', 26, 'center', [], 0, undefined, titleStyle);
+assert.equal(customHeading[0].parts[0].paragraph.width, 250, 'heading uses its own horizontal margins');
+assert.equal(customHeading[0].parts[0].flowSpacing, 12, 'top margin counts in page geometry');
+assert.equal(customHeading[0].parts[0].headingColor, '#123456');
+assert.equal(customHeading[0].parts[0].trailingSpacing, 26 * 0.6 + 8);
+assert.equal(customHeading.at(-1).endOffset, '正文甲乙丙丁戊己庚辛壬癸'.length);
+assert.equal(ReaderRegionStyle.decode('{"top":999,"left":-1,"color":"bad"}').top, 64);
+console.log('PASS independent heading margins/color, measured geometry, source offsets and malformed preference fallback');
 const replacedContent = '\n\n甲乙\n\n\n丙丁&nbsp;';
 const replacedPages = native.OnlineTextPaginator.paginate(replacedContent, 300, 40, 18, 1.9);
 assert.equal(replacedPages.at(-1).endOffset, replacedContent.length,

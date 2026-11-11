@@ -1,3 +1,5 @@
+import { ReaderRegionStyle } from '../model/ReaderRegionStyle';
+import { ReaderDialogueRules } from '../model/ReaderDialogueRules';
 import { ReaderParagraphComment } from '../model/ReaderComment';
 import { ReaderCommentLayout } from '../service/text/ReaderCommentLayout';
 import { ReaderTapPolicy, ReaderTouchTracker } from '../utils/ReaderTapPolicy';
@@ -58,9 +60,10 @@ export struct ReaderContinuousComponent {
   @Param fontSize: number = 18;
   @Param lineHeight: number = 1.9;
   @Param paragraphSpacing: number = 0;
+  @Param headingLayout: ReaderRegionStyle = new ReaderRegionStyle();
   @Param chapterHeadingVisible: boolean = true;
   @Param chapterHeadingSize: number = 26;
-  @Param chapterHeadingStyle: string = 'center';
+  @Param chapterHeadingStyle: string = 'plain';
   @Param palette: ReaderPalette = new ReaderPalette();
   @Param speechState: TextToSpeechState = new TextToSpeechState();
   @Param bookId: string = '';
@@ -131,7 +134,7 @@ export struct ReaderContinuousComponent {
     }
   }
 
-  @Monitor('revision', 'fontFamily', 'fontWeight', 'fontSize', 'lineHeight', 'paragraphSpacing', 'textAlignment', 'letterSpacing', 'chapterHeadingVisible', 'chapterHeadingSize', 'chapterHeadingStyle')
+  @Monitor('headingLayout', 'revision', 'fontFamily', 'fontWeight', 'fontSize', 'lineHeight', 'paragraphSpacing', 'textAlignment', 'letterSpacing', 'chapterHeadingVisible', 'chapterHeadingSize', 'chapterHeadingStyle')
   onRevisionChanged(): void { this.scheduleReset(); }
 
   private scheduleReset(): void {
@@ -186,9 +189,9 @@ export struct ReaderContinuousComponent {
     const headingPx = ui.fp2px(this.chapterHeadingSize);
     const commentOffsets = this.getComments(index).map((item: ReaderParagraphComment): number => item.offset);
     const lines = OnlineTextPaginator.paginate(content, ui.vp2px(Math.max(1, this.contentWidth)), 1, fontPx, this.lineHeight, this.fontFamily, this.fontWeight, this.textAlignment, this.paragraphSpacing, ui.vp2px(this.letterSpacing), title, headingPx, this.chapterHeadingStyle,
-      commentOffsets, ui.vp2px(ReaderCommentLayout.ICON_SIZE + 2));
+      commentOffsets, ui.vp2px(ReaderCommentLayout.ICON_SIZE + 2), ReaderDialogueRules.DEFAULT, this.headingLayout.pixels(ui.vp2px(1)));
     const chapter = OnlineTextScrollChapter.create(index, this.getKey(index), title, content, lines);
-    chapter.layoutSignature = `${this.contentWidth}:${fontPx}:${this.fontFamily}:${this.fontWeight}:${this.lineHeight}:${this.textAlignment}:${this.paragraphSpacing}:${this.letterSpacing}:${title}:${headingPx}:${this.chapterHeadingStyle}`;
+    chapter.layoutSignature = `${JSON.stringify(this.headingLayout)}:${this.contentWidth}:${fontPx}:${this.fontFamily}:${this.fontWeight}:${this.lineHeight}:${this.textAlignment}:${this.paragraphSpacing}:${this.letterSpacing}:${title}:${headingPx}:${this.chapterHeadingStyle}`;
     return chapter;
   }
 
@@ -425,7 +428,7 @@ export struct ReaderContinuousComponent {
                 highlightEnabled: this.speechState.bookId === this.bookId && this.speechState.chapterIndex === row.chapterIndex
               })
                 .width('100%').height(this.getUIContext().px2vp(row.page.layoutHeight))
-                .margin({ bottom: this.getUIContext().px2vp(row.page.trailingSpacing) })
+                .margin({ top: this.getUIContext().px2vp(row.page.headingTop), bottom: this.getUIContext().px2vp(row.page.trailingSpacing) })
           }
         }, (row: OnlineTextScrollRow): string => row.key)
       }
