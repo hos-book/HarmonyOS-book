@@ -21,8 +21,10 @@
 - APP：`artifacts/releases/1.1.2-1012001/Jianting-1.1.2-1012001-release.app`，298435934 字节。
 - SHA-256：`b2a693f79a0fb924c45b4eecec44a47b0399cd54586048e054f2a2920a2a6465`。
 - 在线依据：[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)。已刷新实时目录并读取相关指南，通过项目已有服务账号授权使用任务专属临时 CLI 操作本应用。
-- AGC 邀测草稿：`2081269343571723392`；创建时设置 `onshelfSelfDetect=0`。已回读全部现有两组：简听外部体验 164 人、内测组 2 人，均 `bind=1`；`needNotify=1`，实际通知送达以平台结果为准。
-- 测试时间：北京时间 2026-11-11 14:32:50 至 2026-12-11 14:32:50。APP 上传及送审结果在本次分发完成后记录。
+- AGC 软件包：`2081276691010837440`，解析成功（`successStatus=0`）；邀测版本：`2081269343571723392`。上传、绑定及提交均返回 `ret.code=0`，最终回读版本为 1.1.2 / 1012001 / 构建 1，`releaseState=7`、`reviewState=1`；已提交待审核，尚未确认可安装。
+- 已回读全部现有两组：简听外部体验 165 人、内测组 2 人，均 `bind=1`；`needNotify=1`，实际通知送达以平台结果为准。创建邀测时设置 `onshelfSelfDetect=0`，未启动上架自检；平台正常审核仍需完成。
+- 测试时间：北京时间 2026-11-11 14:32:50 至 2026-12-11 14:32:50，审核通过后在有效期内生效。
+- 本包对应代码提交 `5d2c144`，已通过既有 SSH 远端推送至 `main`；本轮未提交机器签名配置。
 
 ## 邀测说明
 
