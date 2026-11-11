@@ -6,9 +6,6 @@ import { CooperativeCancellationToken, CooperativeScheduler, CooperativeTimeSlic
 import { AnalyzeRule } from './AnalyzeRule';
 import { RuleContext } from './RuleContext';
 import { RuleBatchExecutionRequest, RuleBatchExecutionResult, RuleFieldRequest } from './RuleExecutionModels';
-import { QuickJsAsyncRouter } from '../script/QuickJsAsyncRouter';
-import { QuickJsScriptRuntime } from '../script/QuickJsScriptRuntime';
-import { QuickJsObservationContext } from '../script/QuickJsRuntimeStatus';
 import { RuleValue } from './RuleValue';
 import { BookSourceDebugRuleTrace } from '../book/BookSourceDebugModels';
 
@@ -87,9 +84,7 @@ export class RuleExecutionService {
         if (code === null && embeddedProcessor === null && postProcessor === null) continue;
         try {
           if (code !== null) {
-            fullJsValues[field.name] = QuickJsScriptRuntime.isPureExpressionCandidate(code) ?
-              await this.executeRoutedPureJsFieldBatch(request, field, code, token, slice) :
-              await this.executeFullJsFieldBatch(request, field, code, token);
+            fullJsValues[field.name] = await this.executeFullJsFieldBatch(request, field, code, token);
           } else if (embeddedProcessor !== null) {
             fullJsValues[field.name] = await this.executePostProcessorJsFieldBatch(request, field,
               embeddedProcessor.baseRule, embeddedProcessor.code, token, slice, embeddedProcessor.trailingRule);
@@ -141,7 +136,6 @@ this.seedSourceVariables(analyzer.getContext(), request.source, request.contextV
         const itemValues: Record<string, string> = {};
         for (const field of request.fields) {
           token.throwIfCancelled();
-          analyzer.setQuickJsObservation(this.observationContext(request, field));
           const jsValues = fullJsValues[field.name];
           if (jsValues !== undefined) {
             const value = itemIndex < jsValues.length ? jsValues[itemIndex] : '';
@@ -204,42 +198,6 @@ this.seedSourceVariables(analyzer.getContext(), request.source, request.contextV
     }
   }
 
-  private async executeRoutedPureJsFieldBatch(request: RuleBatchExecutionRequest, field: RuleFieldRequest,
-    code: string, token: CooperativeCancellationToken, slice: CooperativeTimeSlice): Promise<string[]> {
-    let legacyValuesPromise: Promise<string[]> | null = null;
-    const getLegacyValues = (): Promise<string[]> => {
-      if (!legacyValuesPromise) {
-        legacyValuesPromise = this.executeFullJsFieldBatch(request, field, code, token);
-      }
-      return legacyValuesPromise;
-    };
-    const values: string[] = [];
-    const itemCount = this.itemCount(request);
-    for (let index = 0; index < itemCount; index++) {
-      token.throwIfCancelled();
-      await slice.checkpoint(token);
-      const contentValue = this.itemValue(request, index);
-      const runtimeValue = contentValue.runtimeValue();
-      const bindings: Record<string, Object> = {};
-      for (const key of Object.keys(request.contextValues)) {
-        const value = request.contextValues[key] || '';
-        bindings[key] = /^-?(?:\d+\.?\d*|\.\d+)$/.test(value) ? Number(value) : value;
-      }
-      bindings['result'] = runtimeValue;
-      bindings['src'] = runtimeValue;
-      bindings['$'] = runtimeValue;
-      bindings['baseUrl'] = request.baseUrl || request.source.bookSourceUrl || '';
-      const itemIndex = index;
-      const value = await QuickJsAsyncRouter.evaluate(code, bindings, async (): Promise<string> => {
-        const legacyValues = await getLegacyValues();
-        return itemIndex < legacyValues.length ? legacyValues[itemIndex] : '';
-      }, Math.min(200, Math.max(40, Math.round((request.timeoutMs || 15000) /
-        Math.max(1, itemCount)))), this.observationContext(request, field));
-      values.push(value);
-    }
-    return values;
-  }
-
   private async executeFullJsFieldBatch(request: RuleBatchExecutionRequest, field: RuleFieldRequest,
     code: string, token: CooperativeCancellationToken): Promise<string[]> {
     token.throwIfCancelled();
@@ -274,6 +232,8 @@ this.seedSourceVariables(analyzer.getContext(), request.source, request.contextV
     const capturesIntroInfo = field.name === 'intro' && introInfoDeclaration.test(code);
     const compatibleCode = capturesIntroInfo ?
       code.replace(/\b(?:let|const|var)\s+(?=info\s*=\s*`)/, '') : code;
+    // The wrapper's own value is explicit; the field code runs in a nested eval it does not reach.
+    runtimeRequest.rhinoCompletion = false;
     runtimeRequest.code = `const __fieldItems=JSON.parse(result||'[]');const __fieldCodeTemplate=${JSON.stringify(compatibleCode)};` +
       `const __fieldList=${field.listResult ? 'true' : 'false'};` +
       `JSON.stringify(__fieldItems.map(function(__fieldItem){java.__setContextContent(__fieldItem);` +
@@ -334,6 +294,7 @@ this.seedSourceVariables(analyzer.getContext(), request.source, request.contextV
     runtimeRequest.baseUrl = request.baseUrl || request.source.bookSourceUrl;
     runtimeRequest.variables = request.contextValues;
     runtimeRequest.ownerId = request.ownerId;
+    runtimeRequest.rhinoCompletion = false;
     runtimeRequest.code = `const __postItems=JSON.parse(result||'[]');` +
       `const __postBases=${JSON.stringify(baseValues)};const __postTemplate=${JSON.stringify(code)};` +
       `JSON.stringify(__postItems.map(function(__postItem,__postIndex){java.__setContextContent(__postItem);` +
@@ -389,17 +350,6 @@ this.seedSourceVariables(analyzer.getContext(), request.source, request.contextV
     if (tagged) return (tagged[1] || '').trim();
     if (/^@?js:/i.test(value)) return value.replace(/^@?js:\s*/i, '');
     return null;
-  }
-
-  private observationContext(request: RuleBatchExecutionRequest,
-    field: RuleFieldRequest): QuickJsObservationContext {
-    const observation = new QuickJsObservationContext();
-    observation.sourceUrl = request.source.bookSourceUrl || '';
-    observation.sourceName = request.source.bookSourceName || observation.sourceUrl;
-    observation.stage = request.stage || '';
-    if (field.name === 'value' || !request.stage) observation.field = field.name;
-    else observation.field = `${request.stage}.${field.name}`;
-    return observation;
   }
 
   private extractPostProcessorJs(rule: string): { baseRule: string, code: string } | null {

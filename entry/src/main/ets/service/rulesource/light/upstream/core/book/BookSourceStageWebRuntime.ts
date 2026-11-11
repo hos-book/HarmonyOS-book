@@ -13,6 +13,7 @@ import { BookSourceExecutionJournal, BookSourceHostActionKind } from './BookSour
 import { BookSourceDebugContext } from './BookSourceDebugModels';
 import { SourceScriptNotice } from './SourceScriptNotice';
 import { SourceEngineHost } from '../host/SourceEngineHost';
+import { StageScriptCompletion } from './StageScriptCompletion';
 
 export class StageWebRuntimeRequest {
   source: BookSource = new BookSource();
@@ -29,6 +30,11 @@ export class StageWebRuntimeRequest {
   maxTotalResponseBytes: number = 16 * 1024 * 1024;
   maxInputBytes: number = 20 * 1024 * 1024;
   maxRequestCount: number = 12;
+  /**
+   * Use Rhino's script value when ArkWeb's completion value is `undefined` (see StageScriptCompletion).
+   * Callers that send a generated wrapper whose own value is always explicit can turn it off.
+   */
+  rhinoCompletion: boolean = true;
   stage: string = SourceRuntimeStage.URL;
   ownerId: string = '';
   debugContext: BookSourceDebugContext | null = null;
@@ -501,11 +507,12 @@ export class BookSourceStageWebRuntime {
     // that is the runaway pattern the request guard exists to stop. Distinct legitimate
     // requests (a source fetching several categories/tabs) are bounded separately.
     const issuedSpecs: Record<string, number> = {};
+    const stageCode = await this.prepareStageCode(request);
     for (let stepIndex = 0; stepIndex < 20; stepIndex++) {
       this.ensureNotCancelled(request);
       const timingId = SourceEngineHost.id(request.source);
       const buildStartedAt = Date.now();
-      const script = this.buildScript(request, responses, stringResults, cookies, cacheState,
+      const script = this.buildScript(request, stageCode, responses, stringResults, cookies, cacheState,
         fixedNow, randomSeed, journal.responseHeaders);
       if (timingId > 0) SourceEngineHost.end(timingId, 'stage-script-build', buildStartedAt, `replay=${stepIndex}`);
       const raw = await this.runJavaScript(script, request.source.bookSourceUrl, timingId);
@@ -833,6 +840,7 @@ export class BookSourceStageWebRuntime {
       } catch (_) {
       }
       return await new AnalyzeUrl(request.source, client, runtimeHeaders)
+        .useScriptResolvedHeaders()
         .setNoTimeoutRetry(true)
         .fetch(requestUrl, responseLimit, request.debugContext);
     } finally {
@@ -1047,7 +1055,32 @@ export class BookSourceStageWebRuntime {
     }
   }
 
-  private buildScript(request: StageWebRuntimeRequest, responses: Record<string, string>,
+  /**
+   * Normalizes the stage code and, when it may rely on Rhino's script value, wraps its expression
+   * statements once per distinct script (parsed inside the Web host, then cached). A parse failure
+   * keeps the original code; a host failure is not cached so the next run can try again.
+   */
+  private async prepareStageCode(request: StageWebRuntimeRequest): Promise<string> {
+    const code = this.normalizeScript(request.code || '');
+    if (!request.rhinoCompletion || !StageScriptCompletion.isCandidate(code)) return code;
+    const cached = StageScriptCompletion.cached(code);
+    if (cached !== undefined) return cached;
+    let prepared = code;
+    try {
+      const raw = await this.runJavaScript(StageScriptCompletion.locateScript(code),
+        request.source.bookSourceUrl, SourceEngineHost.id(request.source));
+      prepared = StageScriptCompletion.instrument(code, raw);
+    } catch (error) {
+      console.warn('[StageWebRuntime] script value preparation failed, using original code: ' +
+        (error instanceof Error ? error.message : String(error)));
+      return code;
+    }
+    this.ensureNotCancelled(request);
+    StageScriptCompletion.remember(code, prepared);
+    return prepared;
+  }
+
+  private buildScript(request: StageWebRuntimeRequest, stageCode: string, responses: Record<string, string>,
     stringResults: Record<string, string>, cookies: Record<string, string>,
     cacheState: Record<string, string>, fixedNow: number, randomSeed: number,
     responseHeaders: Record<string, string> = {}): string {
@@ -1100,7 +1133,6 @@ export class BookSourceStageWebRuntime {
     });
     const library = this.normalizeScript(request.source.jsLib || '');
     const exposeFunctions = this.functionExposeScript(library);
-    const stageCode = this.normalizeScript(request.code || '');
     const code = `${library}\n${exposeFunctions}\n${stageCode}\n//# sourceURL=book-source-stage.js`;
     const stateBase64 = this.encodeBase64(state);
     const codeBase64 = this.encodeBase64(code);
@@ -1135,6 +1167,12 @@ export class BookSourceStageWebRuntime {
       `function hexD(v){try{v=String(v??'').replace(/\\s+/g,'');const a=[];for(let i=0;i<v.length;i+=2)` +
       `a.push(parseInt(v.substring(i,i+2),16));return new TextDecoder().decode(new Uint8Array(a));}catch(e){return '';}}` +
       `function hexE(v){return bytes(v).map(function(x){return Number(x).toString(16).padStart(2,'0');}).join('');}` +
+      `function b64bytes(v){try{const s=atob(String(v??''));const a=[];for(let i=0;i<s.length;i++)a.push(s.charCodeAt(i)&255);` +
+      `return a;}catch(e){return [];}}` +
+      `function symmetricCrypto(t,k,iv){return {` +
+      `encrypt:function(v){return cryptoOp(t,k,iv,'encrypt',v);},encryptStr:function(v){return cryptoOp(t,k,iv,'encryptStr',v);},` +
+      `encryptBase64:function(v){return cryptoOp(t,k,iv,'encryptBase64',v);},encryptHex:function(v){return cryptoOp(t,k,iv,'encryptHex',v);},` +
+      `decrypt:function(v){return cryptoOp(t,k,iv,'decrypt',v);},decryptStr:function(v){return cryptoOp(t,k,iv,'decryptStr',v);}};}` +
       `function cryptoOp(transformation,key,iv,method,data){const request=JSON.stringify({` +
       `transformation:String(transformation??''),key:Array.isArray(key)?key:String(key??''),` +
       `iv:Array.isArray(iv)?iv:String(iv??''),method:method,data:Array.isArray(data)?data:String(data??'')});` +
@@ -1242,7 +1280,9 @@ export class BookSourceStageWebRuntime {
       `if(!v||typeof v!=='object'||Array.isArray(v))return {};const o={};for(const k of Object.keys(v)){` +
       `const x=v[k];if(x!==undefined&&x!==null&&typeof x!=='object')o[String(k)]=String(x);}return o;}` +
       `function sourceHeaders(){const raw=String(S.sourceHeader||'').trim();if(!raw)return {};` +
-      `if(/^@?js\\s*:/i.test(raw)){try{return headerObject((0,eval)(raw.replace(/^@?js\\s*:/i,'')));}catch(e){return {};}}` +
+      `const block=/^<js>([\\s\\S]*)<\\/js>$/i.exec(raw);` +
+      `const script=/^@?js\\s*:/i.test(raw)?raw.replace(/^@?js\\s*:/i,''):(block?block[1]:null);` +
+      `if(script!==null){try{return headerObject((0,eval)(script));}catch(e){return {};}}` +
       `return headerObject(raw);}` +
       `function browserDocument(h,p){let html=typeof h==='string'?h:'';const preload=typeof p==='string'?p:'';` +
       `if(!preload)return html;const safe=preload.replace(/<\\/script/gi,'<\\\\/script');` +
@@ -1275,6 +1315,18 @@ export class BookSourceStageWebRuntime {
       `md5Encode:function(v){return cryptoOp('MD5','','','digestHex',v);},` +
       `md5Encode32:function(v){return cryptoOp('MD5','','','digestHex',v);},` +
       `md5Encode16:function(v){return String(cryptoOp('MD5','','','digestHex',v)).substring(8,24);},` +
+      // Legado's symmetric-crypto helpers. Each distinct operation is answered by the native crypto
+      // bridge on the next replay, like java.ajax; DES itself is not offered by the system framework.
+      `createSymmetricCrypto:function(t,k,iv){return symmetricCrypto(t,k,iv);},` +
+      `aesBase64DecodeToString:function(d,k,t,iv){return cryptoOp(t,k,iv,'decryptStr',d);},` +
+      `aesDecodeToString:function(d,k,t,iv){return cryptoOp(t,k,iv,'decryptStr',d);},` +
+      `aesEncodeToBase64String:function(d,k,t,iv){return cryptoOp(t,k,iv,'encryptBase64',d);},` +
+      `aesDecodeArgsBase64Str:function(d,k,m,p,iv){return cryptoOp('AES/'+m+'/'+p,b64bytes(k),b64bytes(iv),'decryptStr',d);},` +
+      `aesEncodeArgsBase64Str:function(d,k,m,p,iv){return cryptoOp('AES/'+m+'/'+p,b64bytes(k),b64bytes(iv),'encryptBase64',d);},` +
+      `tripleDESDecodeStr:function(d,k,m,p,iv){return cryptoOp('DESede/'+m+'/'+p,k,iv,'decryptStr',d);},` +
+      `tripleDESEncodeBase64Str:function(d,k,m,p,iv){return cryptoOp('DESede/'+m+'/'+p,k,iv,'encryptBase64',d);},` +
+      `tripleDESDecodeArgsBase64Str:function(d,k,m,p,iv){return cryptoOp('DESede/'+m+'/'+p,b64bytes(k),b64bytes(iv),'decryptStr',d);},` +
+      `tripleDESEncodeArgsBase64Str:function(d,k,m,p,iv){return cryptoOp('DESede/'+m+'/'+p,b64bytes(k),b64bytes(iv),'encryptBase64',d);},` +
       `__setContextContent:function(v){contextValue=v;if(v&&typeof v==='object'){const raw=JSON.stringify(v);` +
       `try{Object.defineProperty(v,'toString',{configurable:true,enumerable:false,value:function(){return raw;}});}catch(e){}` +
       `try{Object.defineProperty(v,Symbol.toPrimitive,{configurable:true,enumerable:false,value:function(){return raw;}});}catch(e){}` +
@@ -1319,7 +1371,9 @@ export class BookSourceStageWebRuntime {
       `globalThis.title=S.chapterTitle||'';Object.keys(bookData).forEach(function(k){` +
       `if(/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(k)&&globalThis[k]===undefined)globalThis[k]=bookData[k];});` +
       `Object.keys(S.variables||{}).forEach(function(k){globalThis[k]=S.variables[k];});` +
-      `let evaluated;try{evaluated=(function(){return eval(dec('${codeBase64}'));}).call(globalThis);}` +
+      `${StageScriptCompletion.prelude()}` +
+      `let evaluated;try{evaluated=(function(){return eval(dec('${codeBase64}'));}).call(globalThis);` +
+      `if(evaluated===undefined&&${StageScriptCompletion.STATE}.set)evaluated=${StageScriptCompletion.STATE}.value;}` +
       `catch(e){error=String((e&&e.name?e.name+': ':'')+((e&&e.message)||e||'脚本执行失败')+(e&&e.stack?'\\n'+e.stack:''));}` +
       `function text(v){if(typeof v==='string')return v;if(v===undefined||v===null)return '';try{return JSON.stringify(v);}catch(e){return String(v);}}` +
       `const evaluatedText=text(evaluated);const fallbackText=text(globalThis.result);` +

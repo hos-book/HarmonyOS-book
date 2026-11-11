@@ -38,8 +38,8 @@
 
 ## Harmony Book AI Engine
 
-- 上游：https://github.com/wip3l/harmony-book-ai-engine ，固定提交 `e4592264e70402fa6396fd7860b1cb90fd349802`，包名 `@legado/aiengine`，版本 1.0.0。
-- 许可证：GPL-3.0。通过独立 HAR 子包提供漫画本地着色，主工程不复制引擎源码。包构建补充公开 Worker 入口的导出声明，并在项目外应用可复现补丁 `scripts/comic_ai_calibration_patch.py`：仅原 CPU FP16 画质校验失败时增加 FP32 复核，速度比较和回退仍使用原 CPU FP16 路径，模型、推理参数及误差阈值不变。持久化校验标识包含补丁版本，以便规则更新后重新校验。补丁版本见 `scripts/comic-ai-package.json`。
+- 上游：https://github.com/wip3l/harmony-book-ai-engine ，固定提交 `e9040be8bf567ea67c0fef874c21f2dd72ef8586`，包名 `@legado/aiengine`，版本 1.0.0。
+- 许可证：GPL-3.0。通过独立 HAR 子包提供漫画本地着色，主工程不复制引擎源码。包构建补充公开 Worker 入口的导出声明；当前固定版本已包含 CPU FP16 校验失败后的 FP32 复核及性能修订，不再重复应用旧版宿主补丁。集成标记与固定版本见 `scripts/comic-ai-package.json`，准备流程见 `scripts/prepare-comic-ai.py`。
 - AlacGAN / Manga-Colorizer 模型沿用上游 MIT 声明；HAR 内的 OpenCC 字典使用 Apache-2.0。完整资源来源、散列及许可证随 HAR 保留。
 - 引擎 LICENSE、NOTICE、THIRD_PARTY_NOTICES 随应用保存在 `rawfile/comic_ai_engine/`；准备脚本与版本清单见 `scripts/prepare-comic-ai.py` 和 `scripts/comic-ai-package.json`。
 
@@ -81,23 +81,26 @@ Apache License 2.0 全文见 `third_party/quickjs/LICENSE-APACHE-2.0`。
 ## 独立书源内核与轻页应用辅助代码
 
 - 内核上游：https://github.com/wip3l/harmony-book-source-engine
-- 内核固定提交：`1eb86df3e38189fee400ca5982f07e3dc4501d51`
-- 应用辅助代码上游：https://github.com/wip3l/legado-harmony
-- 组织 Fork：https://github.com/hos-book/legado-harmony
-- 应用辅助代码固定提交：`67e5f2dc99b4fb62fe714b45d7d6acc56e7afad2`（共同维护分支 `codex/sourceengine-host`，末次修复尚未推送；保留搜索/发现/阅读调度及导入、音频后处理）
+- 内核固定提交：`1f0cfeae7267f6bf0a28104212a1e3c087f3d46e`
+- 应用辅助代码上游：https://github.com/wip3l/qingye-reader
+- 应用辅助代码固定提交：`c3dbe650bb078f94e93b9944d2429fa5258f9dda`（搜索/发现/阅读调度及导入、音频后处理）
 - 许可证：GPL-3.0，全文见 `third_party/light-source/LICENSE`
 
 迁入位置：`entry/src/main/ets/service/rulesource/light/upstream/`。原版权头保留；修改和适配由 `scripts/sync-light-source.cjs` 记录，双来源版本、逐文件归属和校验值见 `third_party/light-source/upstream.json`，维护流程见 `docs/LIGHT_SOURCE_SYNC.md`。独立仓库的 NOTICE 同时保留在 `third_party/light-source/NOTICE` 和应用资源中。内核首版未包含的网页等待修复由可校验补丁保留。没有引入独立仓库附带的第二套 QuickJS HAR。
 
+脚本完成值解析器内置 Acorn 8.15.0（MIT，Copyright (C) 2012-2022 by various contributors，https://github.com/acornjs/acorn）。上游第三方声明及完整许可同步到 `third_party/light-source/THIRD_PARTY_NOTICES.md`、`THIRD_PARTY_LICENSES.txt`，并随应用保存在 `rawfile/third_party/light-source/`。
+
 ## 轻页 EPUB 精排核心
 
 - 上游：https://github.com/wip3l/qingye-reader
-- 固定提交：`0e4334d1690c7aa9d44eab8dd1a26e667e173fba`
+- 固定提交：`c3dbe650bb078f94e93b9944d2429fa5258f9dda`
 - 原文件：`entry/src/main/ets/core/book/EpubOriginalScript.ts`
 - 迁入位置：`entry/src/main/ets/service/text/light/EpubOriginalScript.ets`
 - 许可证：GPL-3.0，全文见 `third_party/light-source/LICENSE`
 
 生成文件保留上游版权信息，宿主适配由 `scripts/light-epub-sync.cjs` 维护。独立版本及 SHA256 见 `third_party/light-source/epub-upstream.json`。只复用排版、分页和定位核心，现有页面与导入存储继续由简听维护。
+
+同版辅助文件包括 `ReaderNightImage.ts`、`EpubOriginalFont.ts`，以及从 `EpubDuokanExtensions.ts` 提取的两个布局常量；逐文件来源与散列记录在上述清单。
 
 ## CryptoJS
 
@@ -117,14 +120,10 @@ Apache License 2.0 全文见 `third_party/quickjs/LICENSE-APACHE-2.0`。
 - 许可证：Apache-2.0 with Runtime Library Exception
 - 版权所有：Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
 
-`entry/libs/arm64-v8a` 与 `entry/libs/x86_64` 中的核心标准库及 `libboundscheck.so` 来自上述官方 SDK。`libcangjie-runtime.so` 由同版本 v1.2.0 官方源码 commit `52f9e08f985ba42e23581e725e1b11f956f941d6` 使用 HarmonyOS Release 应用 NDK 重编，以匹配应用的 `libc++_shared.so` ABI。构建使用的 securec 头/源码依赖固定于 OpenHarmony-v6.0-Release commit `2ae82839ecaaa7d031e66ccbd2076d671acfd615`。实际打包清单、版本和 SHA256 记录在 `entry/libs/rulecore-build.json`。
-
-运行时唯一代码适配为 `RULECORE_APP_RUNTIME` 下跳过系统 ROM namespace 探测；应用仍使用公开 `dlopen/dlsym`，未引入私有 namespace API。工具链路径、C++ 链接及该适配由 `third_party/rulecore/tools/prepare_app_runtime.py` 可重复生成，构建入口为 `scripts/build-cangjie-app-runtime.ps1`。
-
-许可全文见 `third_party/rulecore/licenses/CANGJIE-LICENSE`，官方随 SDK 提供的第三方软件声明原件见 `third_party/rulecore/licenses/CANGJIE-Open_Source_Software_Notice.docx`。运行时公共头文件 `third_party/rulecore/include/Cangjie.h` 保留上游版权和许可头。仓颉源码、薄层绑定和复现说明位于 `third_party/rulecore/`。
+旧规则引擎的历史源码及复现材料保留在 `third_party/rulecore/`，当前应用不再依赖或打包仓颉运行时、标准库、tokenizer 及 NAPI 绑定。历史许可全文见 `third_party/rulecore/licenses/CANGJIE-LICENSE`，官方第三方声明原件见同目录 `CANGJIE-Open_Source_Software_Notice.docx`；公共头文件继续保留上游版权和许可头。
 
 ## LLVM libc++ runtime
 
-仓颉 NAPI 薄层及同版本源码重编的运行时共同使用 HarmonyOS Release SDK 26.0.0.105 提供的 `libc++_shared.so`，遵循 Apache License 2.0 with LLVM Exceptions。SDK 原始声明见 `third_party/rulecore/licenses/LLVM-NOTICE`；仓颉与 LLVM 许可材料同时保存在 `entry/src/main/resources/rawfile/third_party/cangjie/` 随 HAP 打包。
+应用的 C++ 原生库使用 HarmonyOS Release SDK 26.0.0.105 提供的 `libc++_shared.so`，遵循 Apache License 2.0 with LLVM Exceptions。SDK 原始声明保留在 `third_party/rulecore/licenses/LLVM-NOTICE`，随 HAP 打包的许可位于 `entry/src/main/resources/rawfile/third_party/llvm/LLVM-NOTICE.txt`。
 
 漫画翻译 OPUS-MT 权重采用固定版本按需下载，不随 HAP 打包；许可声明仍随应用提供。下载清单及 SHA256 见 `scripts/comic-offline-assets.json`，运行时只允许读取已校验的本地资源。

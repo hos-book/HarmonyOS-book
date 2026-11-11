@@ -3,18 +3,13 @@ import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { CookieStore } from '../http/CookieStore';
 import { SourceCookieJar } from '../host/SourceEngineHost';
 import { JsonPathEvaluator } from './JsonPathEvaluator';
-import { QuickJsScriptRuntime, QuickJsShadowComparator } from '../script/QuickJsScriptRuntime';
-import { QuickJsObservationContext } from '../script/QuickJsRuntimeStatus';
+import { QuickJsScriptRuntime } from '../script/QuickJsScriptRuntime';
 
 export class JsRuntime {
   private vars: Record<string, string> = {};
   private jsonContext: Object | null = null;
-  private quickJsObservation: QuickJsObservationContext | null = null;
 
   setVar(k: string, v: string): void { this.vars[k] = v; }
-  setQuickJsObservation(observation: QuickJsObservationContext | null): void {
-    this.quickJsObservation = observation;
-  }
   getVar(k: string): string { return this.vars[k] || ''; }
   setJsonContext(text: string): void {
     try {
@@ -32,25 +27,13 @@ export class JsRuntime {
   evaluate(expression: string, result: string = ''): string {
     this.vars['result'] = result;
     this.setJsonContext(result);
-    const legacyValue = this.evalExpr(expression.replace(/^\s*(?:return\s+)?/, '').replace(/;\s*$/, ''));
-    QuickJsShadowComparator.compare(expression, this.vars, legacyValue, this.quickJsObservation);
-    return legacyValue;
-  }
-
-  /** Reference-only evaluation used by the local regression runner; it must not affect shadow statistics. */
-  evaluateWithoutShadow(expression: string, result: string = ''): string {
-    this.vars['result'] = result;
-    this.setJsonContext(result);
     return this.evalExpr(expression.replace(/^\s*(?:return\s+)?/, '').replace(/;\s*$/, ''));
   }
 
   evalTemplate(tpl: string): string {
     if (!tpl.includes('{{')) return tpl;
     return tpl.replace(/\{\{([\s\S]*?)\}\}/g, (_: string, expr: string) => {
-      const expression = expr.trim();
-      const legacyValue = this.evalExpr(expression);
-      QuickJsShadowComparator.compare(expression, this.vars, legacyValue, this.quickJsObservation);
-      return legacyValue;
+      return this.evalExpr(expr.trim());
     });
   }
 
@@ -157,9 +140,9 @@ export class JsRuntime {
       }
       // The textual shim resolves known calls but cannot execute the JavaScript that remains
       // around them (String/method chains, ternaries, comparisons). The residue is a
-      // shim-processed fragment, so hand it to the sandboxed QuickJS engine with a screen tuned
-      // for that shape — the strict pure-expression gate rejects regex literals and comparisons
-      // that legitimately occur here. Expressions the shim never touched (raw `$.json.path`
+      // shim-processed fragment, so hand it to the sandboxed QuickJS engine, whose screen
+      // accepts the regex literals and comparisons that legitimately occur here. Expressions the
+      // shim never touched (raw `$.json.path`
       // rules) are left to the native evaluator untouched.
       if (expr !== originalExpr) {
         const quickValue = QuickJsScriptRuntime.evaluateResidualExpression(expr, this.vars, 150);

@@ -24,6 +24,7 @@ class SubtitleDataSource implements IDataSource {
 
 @ComponentV2
 export struct AudioSubtitlePanel {
+  @Param navStack: NavPathStack = new NavPathStack();
   @Param book: Book | null = null;
   @Param playerState: PlayerState = new PlayerState();
   @Local state: AudioSubtitleState = AudioSubtitleService.instance.state;
@@ -45,12 +46,14 @@ export struct AudioSubtitlePanel {
     this.chapterKey = '';
   };
   private foregroundHandler = (): void => { this.foreground = true; this.syncChapter(); };
+  private modelsHandler = (): void => { this.chapterKey = ''; this.syncChapter(); };
 
   aboutToAppear(): void {
     this.mounted = true;
     this.context = this.getUIContext().getHostContext();
     emitter.on('app.reader.background', this.backgroundHandler);
     emitter.on('app.reader.foreground', this.foregroundHandler);
+    emitter.on('app.ai.models.changed', this.modelsHandler);
     this.syncChapter();
   }
 
@@ -58,6 +61,7 @@ export struct AudioSubtitlePanel {
     this.mounted = false;
     emitter.off('app.reader.background', this.backgroundHandler);
     emitter.off('app.reader.foreground', this.foregroundHandler);
+    emitter.off('app.ai.models.changed', this.modelsHandler);
     if (this.scrollTimer !== -1) clearTimeout(this.scrollTimer);
     AudioSubtitleService.instance.release();
   }
@@ -175,8 +179,9 @@ export struct AudioSubtitlePanel {
           }
           Text(this.statusText()).fontSize(14).lineHeight(22).fontColor('#CCFFFFFF').textAlign(TextAlign.Center)
           if (this.state.phase === 'needsModel') {
-            Button($r('app.string.subtitle_download_model')).backgroundColor(AppColor.Brand)
-              .onClick((): void => this.syncChapter(true)).id('subtitle-download-model')
+            Button($r('app.string.model_pack_import')).backgroundColor(AppColor.Brand)
+              .onClick((): void => { this.navStack.pushPathByName('aiModelSettings', 'audio-subtitle-v1'); })
+              .id('subtitle-import-model')
           } else if (this.state.phase === 'error') {
             Button($r('app.string.subtitle_retry')).backgroundColor(AppColor.Brand)
               .onClick((): void => { this.chapterKey = ''; this.syncChapter(); })

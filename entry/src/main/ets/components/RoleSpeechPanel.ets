@@ -27,7 +27,7 @@ class RoleSpeakerDataSource implements IDataSource {
   }
 }
 
-/** 阅读器与设置页共用配音交互，模型操作只在独立管理页进行。 */
+/** 阅读器与设置页共用配音交互，模型统一在“我的 → 模型管理”中管理。 */
 @ComponentV2
 export struct RoleSpeechPanel {
   @Param bookId: string = '';
@@ -37,7 +37,6 @@ export struct RoleSpeechPanel {
   @Param topInset: number = 0;
   @Param bottomInset: number = 0;
   @Event onClose: () => void = () => {};
-  @Event onModelSettings: () => void = () => {};
   @Local model: RoleModelState = RoleModelService.getInstance().state;
   @Local liveRoles: RoleSpeechState = RoleSpeechService.getInstance().state;
   @Local savedRoles: RoleSpeechState = new RoleSpeechState();
@@ -189,8 +188,6 @@ export struct RoleSpeechPanel {
     if (this.previewState.error) this.toast($r('app.string.tts_preview_error'));
   }
 
-  private openModels(): void { this.finishPreview(); this.onModelSettings(); }
-
   @Builder
   roleRow(id: string, name: ResourceStr, voice: string) {
     Button({ type: ButtonType.Normal }) {
@@ -242,8 +239,6 @@ export struct RoleSpeechPanel {
           Column({ space: AppSpace.Sm }) {
             Text($r('app.string.role_prepare_title')).fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium).fontColor(this.primary())
             Text($r('app.string.role_prepare_hint')).fontSize(AppFont.Body).fontColor(this.secondary())
-            Button($r('app.string.role_prepare_action')).fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
-              .width('100%').constraintSize({ minHeight: 44 }).onClick((): void => this.openModels()).id('role-prepare-model')
           }.alignItems(HorizontalAlign.Start).width('100%').padding(AppSpace.Md).borderRadius(AppRadius.Lg).backgroundColor(this.surface())
         } else {
           Row({ space: AppSpace.Sm }) {
@@ -257,19 +252,6 @@ export struct RoleSpeechPanel {
                 if (enabled !== this.model.enabled) this.change((): Promise<void> => RoleModelService.getInstance().setEnabled(enabled));
               }).id('role-speech-toggle')
           }.width('100%').padding(AppSpace.Md).borderRadius(AppRadius.Lg).backgroundColor(this.surface())
-        }
-      }
-      if (this.model.model !== null) {
-        ListItem() {
-          Button({ type: ButtonType.Normal }) {
-            Row({ space: AppSpace.Sm }) {
-              Text($r('app.string.role_model_manage')).fontSize(AppFont.BodyL).fontColor(this.primary()).layoutWeight(1)
-              Text(this.model.busy ? $r('app.string.role_model_busy') : $r('app.string.role_model_ready'))
-                .fontSize(AppFont.Caption).fontColor(this.secondary())
-              SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(16).fontColor([this.secondary()])
-            }.width('100%')
-          }.width('100%').padding(AppSpace.Md).constraintSize({ minHeight: 56 }).borderRadius(AppRadius.Lg)
-            .backgroundColor(this.surface()).margin({ top: AppSpace.Xs }).onClick((): void => this.openModels()).id('role-model-settings')
         }
       }
       if (this.targetId) {

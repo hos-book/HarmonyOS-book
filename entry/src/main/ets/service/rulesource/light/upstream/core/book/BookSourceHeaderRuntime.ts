@@ -33,10 +33,24 @@ export class BookSourceHeaderRuntime {
   private static readonly CACHE_KEY: string = '@cache';
   private static cache: Record<string, BookSourceHeaderRuntimeEntry> = {};
 
+  /**
+   * The JavaScript of a header rule written as `@js:…` or `<js>…</js>` (both are Legado forms), or an
+   * empty string when the header is a literal block.
+   */
+  static script(header: string): string {
+    const raw = (header || '').trim();
+    if (/^@?js\s*:/i.test(raw)) return raw.replace(/^@?js\s*:/i, '');
+    const block = /^<js>([\s\S]*)<\/js>$/i.exec(raw);
+    return block ? block[1] : '';
+  }
+
   static async resolve(source: BookSource): Promise<Record<string, string>> {
-    const raw = (source.header || '').trim();
-    if (!raw || !/^@?js\s*:/i.test(raw)) return {};
-    const cacheKey = `${source.bookSourceUrl || ''}\n${source.variable || ''}`;
+    const raw = BookSourceHeaderRuntime.script(source.header || '');
+    if (!raw.trim()) return {};
+    // Header scripts commonly read login fields (a token typed into the login form), so a login
+    // change must not keep serving the previous headers for the rest of the TTL.
+    const cacheKey = `${source.bookSourceUrl || ''}\n${source.variable || ''}\n${source.loginHeader || ''}\n` +
+      `${BookSourceHeaderRuntime.hash(source.loginInfo || '')}`;
     const cached = BookSourceHeaderRuntime.cache[cacheKey];
     if (cached && cached.expiresAt > Date.now()) return cached.headers;
     const result = await BookSourceHeaderRuntime.evaluate(source, raw);
@@ -58,13 +72,19 @@ export class BookSourceHeaderRuntime {
     request.applyStageBudget(SourceRuntimeStage.URL);
     request.source = source;
     request.baseUrl = source.bookSourceUrl || '';
-    request.code = raw.replace(/^@?js\s*:/i, '');
+    request.code = raw;
     try {
       const result = await runtime.execute(request);
       return BookSourceHeaderRuntime.parseHeaderJson(result.value || '');
     } catch (_) {
       return failed;
     }
+  }
+
+  private static hash(value: string): string {
+    let hash = 0;
+    for (let index = 0; index < value.length; index++) hash = (hash * 31 + value.charCodeAt(index)) | 0;
+    return `${value.length}:${hash}`;
   }
 
   /** Accepts either a JSON object or a JSON-encoded object string (the common script shape). */

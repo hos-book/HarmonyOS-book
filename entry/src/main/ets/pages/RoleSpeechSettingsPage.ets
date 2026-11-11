@@ -7,16 +7,11 @@ import { WindowUtils } from '../utils/WindowUtils';
 export struct RoleSpeechSettingsPage {
   @Param navStack: NavPathStack = new NavPathStack();
   @Local headerHeight: number = WindowUtils.getStatusBarHeightVp() + 56;
-  @Local panelActive: boolean = true;
 
   build() {
     Stack({ alignContent: Alignment.Top }) {
       Column() {
-        RoleSpeechPanel({ active: this.panelActive, topInset: this.headerHeight, bottomInset: WindowUtils.getBottomSafeVp(),
-          onModelSettings: (): void => {
-            this.panelActive = false;
-            this.navStack.pushPathByName('roleModelSettings', '', (): void => { this.panelActive = true; });
-          } })
+        RoleSpeechPanel({ topInset: this.headerHeight, bottomInset: WindowUtils.getBottomSafeVp() })
       }.width('100%').height('100%')
       FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {
         Row({ space: AppSpace.Sm }) {

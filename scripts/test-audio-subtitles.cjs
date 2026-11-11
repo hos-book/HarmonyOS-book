@@ -66,6 +66,7 @@ const fileIo = {
 };
 const { AudioSubtitleService } = load('service/subtitle/AudioSubtitleService.ets', {
   '../../model/AudioSubtitleState': uiState,
+  '../AiModelPackService': { AiModelPackService: { instance: { isBusy: () => false } } },
   '../MembershipService': { MembershipService: { instance: { hasCurrentEntitlement: async () => membership.hasAccess } } },
   '../../model/MembershipState': { MembershipState: { current: membership } },
   '../membership/MembershipFeatureLease': { MembershipFeatureLease: class {
@@ -113,6 +114,7 @@ function check(name, fn) { fn(); passed++; console.log(`PASS ${name}`); }
   });
   let digestCalls = 0;
   const { SubtitleModelService } = load('service/subtitle/SubtitleModelService.ets', {
+    '../AiModelPackService': { AiModelPackService: { instance: { recover: async () => {}, isBusy: () => false } } },
     '@kit.CoreFileKit': { fileIo }, './SubtitleFiles': { SubtitleFiles: {
       digest: async p => { digestCalls++; return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex'); }
     } }
@@ -348,7 +350,11 @@ function check(name, fn) { fn(); passed++; console.log(`PASS ${name}`); }
   check('preload disabled never schedules next chapter', () => assert.equal(disabledHost.requests.length, 1));
   service.release(); ready = async () => false;
   service.begin(context, book, chapter, 180000, 0); await service.setup;
-  check('model download requires explicit UI action', () => {
+  check('missing model waits for local import without implicit downloads', () => {
+    assert.equal(service.state.phase, 'needsModel'); assert.equal(modelDownloads, 0);
+  });
+  service.begin(context, book, chapter, 180000, 0, true); await service.setup;
+  check('legacy download flag cannot bypass local model import', () => {
     assert.equal(service.state.phase, 'needsModel'); assert.equal(modelDownloads, 0);
   });
   let finish;

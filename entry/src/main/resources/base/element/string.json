@@ -78,7 +78,7 @@
     },
     {
       "name": "desktop_lyric_needs_model",
-      "value": "请先在播放页的 AI 字幕中下载识别模型"
+      "value": "请在设置的模型管理中导入 AI 字幕模型包"
     },
     {
       "name": "reader_auto_page_title",
@@ -7390,7 +7390,7 @@
     },
     {
       "name": "subtitle_model_prompt",
-      "value": "开启边听边看需下载约 367 MB 中文离线模型。音频仅在本机识别，建议使用 WLAN 下载。"
+      "value": "请先导入 AI 字幕模型包，包含语音识别和标点恢复模型，音频不会上传。"
     },
     {
       "name": "subtitle_download_model",
@@ -8522,7 +8522,7 @@
     },
     {
       "name": "role_prepare_hint",
-      "value": "首次使用需准备本地模型来识别人物，声音沿用你已添加的音色。"
+      "value": "请先到“我的 → 模型管理”导入多角色朗读模型。模型用于识别人物，声音沿用你已添加的音色。"
     },
     {
       "name": "role_prepare_action",
@@ -8720,23 +8720,169 @@
       "name": "reader_excerpt_card_limit",
       "value": "这条摘录分行过多，请使用分享文字"
     },
-    {"name": "reader_region_header", "value": "页眉"},
-    {"name": "reader_region_footer", "value": "页脚"},
-    {"name": "reader_region_heading", "value": "正文标题"},
-    {"name": "reader_region_body_color", "value": "正文颜色"},
-    {"name": "reader_region_color_hint", "value": "#RRGGBB，留空跟随阅读主题"},
-    {"name": "comic_split_title", "value": "跨页分割"},
-    {"name": "comic_split_hint", "value": "分页阅读时将横向跨页拆成两半，竖向单页保持完整；滚动与连页阅读保持原图。"},
-    {"name": "comic_split_off", "value": "关闭"},
-    {"name": "comic_split_ltr", "value": "先左后右"},
-    {"name": "comic_split_rtl", "value": "先右后左"},
-    {"name": "comic_custom_crop", "value": "自定义去白边"},
-    {"name": "comic_custom_crop_hint", "value": "分别裁去原图四边的百分比，可与自动去白边同时使用，不修改图片文件。"},
-    {"name": "comic_background_light", "value": "浅色模式背景"},
-    {"name": "comic_background_dark", "value": "深色模式背景"},
-    {"name": "comic_background_black", "value": "黑色"},
-    {"name": "comic_background_plain", "value": "纯色"},
-    {"name": "comic_background_kraft", "value": "牛皮纸"},
-    {"name": "comic_background_green", "value": "护眼绿"}
+    {
+      "name": "reader_region_header",
+      "value": "页眉"
+    },
+    {
+      "name": "reader_region_footer",
+      "value": "页脚"
+    },
+    {
+      "name": "reader_region_heading",
+      "value": "正文标题"
+    },
+    {
+      "name": "reader_region_body_color",
+      "value": "正文颜色"
+    },
+    {
+      "name": "reader_region_color_hint",
+      "value": "#RRGGBB，留空跟随阅读主题"
+    },
+    {
+      "name": "comic_split_title",
+      "value": "跨页分割"
+    },
+    {
+      "name": "comic_split_hint",
+      "value": "分页阅读时将横向跨页拆成两半，竖向单页保持完整；滚动与连页阅读保持原图。"
+    },
+    {
+      "name": "comic_split_off",
+      "value": "关闭"
+    },
+    {
+      "name": "comic_split_ltr",
+      "value": "先左后右"
+    },
+    {
+      "name": "comic_split_rtl",
+      "value": "先右后左"
+    },
+    {
+      "name": "comic_custom_crop",
+      "value": "自定义去白边"
+    },
+    {
+      "name": "comic_custom_crop_hint",
+      "value": "分别裁去原图四边的百分比，可与自动去白边同时使用，不修改图片文件。"
+    },
+    {
+      "name": "comic_background_light",
+      "value": "浅色模式背景"
+    },
+    {
+      "name": "comic_background_dark",
+      "value": "深色模式背景"
+    },
+    {
+      "name": "comic_background_black",
+      "value": "黑色"
+    },
+    {
+      "name": "comic_background_plain",
+      "value": "纯色"
+    },
+    {
+      "name": "comic_background_kraft",
+      "value": "牛皮纸"
+    },
+    {
+      "name": "comic_background_green",
+      "value": "护眼绿"
+    },
+    {
+      "name": "model_pack_manage",
+      "value": "模型管理"
+    },
+    {
+      "name": "model_pack_color",
+      "value": "漫画着色"
+    },
+    {
+      "name": "model_pack_subtitle",
+      "value": "AI 字幕"
+    },
+    {
+      "name": "model_pack_color_hint",
+      "value": "用于黑白漫画自动着色。请选择当前版本配套的 .jtmodel 加密模型包，无需解压或输入密码。导入后在本机运行，支持替换和删除。"
+    },
+    {
+      "name": "model_pack_subtitle_hint",
+      "value": "包含中文语音识别、词表和标点恢复模型，音频在本机处理。"
+    },
+    {
+      "name": "model_pack_installed",
+      "value": "已安装"
+    },
+    {
+      "name": "model_pack_color_required",
+      "value": "漫画模型尚未完整安装或正在管理，请先在模型管理中导入配套的加密模型包，再开启着色。"
+    },
+    {
+      "name": "model_pack_missing",
+      "value": "未完整安装"
+    },
+    {
+      "name": "model_pack_size",
+      "value": "完整模型约 %1$d MiB · 已占用 %2$d MiB"
+    },
+    {
+      "name": "model_pack_import",
+      "value": "导入模型包"
+    },
+    {
+      "name": "model_pack_replace",
+      "value": "重新导入"
+    },
+    {
+      "name": "model_pack_importing",
+      "value": "正在导入 %1$d%"
+    },
+    {
+      "name": "model_pack_verifying",
+      "value": "正在校验模型…"
+    },
+    {
+      "name": "model_pack_imported",
+      "value": "模型包已安装"
+    },
+    {
+      "name": "model_pack_delete",
+      "value": "删除模型"
+    },
+    {
+      "name": "model_pack_delete_hint",
+      "value": "删除后将释放模型空间，对应功能需重新导入模型后使用。书籍、原图和音频不会删除。"
+    },
+    {
+      "name": "model_pack_help",
+      "value": "漫画着色请选择配套的 .jtmodel 加密模型包，AI 字幕请选择配套 ZIP，均无需解压；多角色朗读请选择 GGUF。这些模型不随应用预装，未导入不影响普通阅读和播放。导入期间离开此页会取消并保留原有模型。漫画翻译语言包仍在首次使用时按需下载。"
+    },
+    {
+      "name": "model_pack_space",
+      "value": "空间不足，请先释放存储空间后重试"
+    },
+    {
+      "name": "model_pack_invalid",
+      "value": "模型包不匹配、损坏或校验失败，请选择当前版本配套的模型包。"
+    },
+    {
+      "name": "model_pack_busy",
+      "value": "模型正在处理，请稍后再试"
+    },
+    {
+      "name": "model_pack_write",
+      "value": "模型文件处理失败，请重试"
+    },
+    {
+      "name": "model_pack_role",
+      "value": "多角色朗读"
+    },
+    {
+      "name": "model_pack_deleting",
+      "value": "正在删除模型…"
+    }
   ]
 }

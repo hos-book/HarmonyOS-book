@@ -8,6 +8,7 @@ from math import hypot
 from pathlib import Path
 
 from PIL import Image, ImageDraw
+from optimize_app_assets import optimize_icons
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,3 +61,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    optimize_icons()

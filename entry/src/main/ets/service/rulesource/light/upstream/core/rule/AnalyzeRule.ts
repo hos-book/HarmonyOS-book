@@ -6,7 +6,6 @@ import { JsonPathEvaluator } from './JsonPathEvaluator';
 import { JavaRegexCompat } from './JavaRegexCompat';
 import { ScriptEngine, ScriptEngineContext } from './ScriptEngine';
 import { BookUrlResolver } from '../book/BookUrlResolver';
-import { QuickJsObservationContext } from '../script/QuickJsRuntimeStatus';
 import { RuleExecutionTarget, RuleValue, RuleValueKind } from './RuleValue';
 import { SourceScriptNotice } from '../book/SourceScriptNotice';
 
@@ -94,11 +93,6 @@ export class AnalyzeRule {
   setNoticeScope(stage: string, sourceName: string): AnalyzeRule {
     this.noticeStage = stage || '';
     this.noticeSourceName = sourceName || '';
-    return this;
-  }
-
-  setQuickJsObservation(observation: QuickJsObservationContext | null): AnalyzeRule {
-    this.js.setQuickJsObservation(observation);
     return this;
   }
 

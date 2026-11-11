@@ -2,7 +2,6 @@ import { BookSource } from '../../model/data/Book';
 import { JsRuntime } from '../rule/JsRuntime';
 import { ScriptEngine, ScriptEngineContext } from '../rule/ScriptEngine';
 import { BookUrlResolver } from './BookUrlResolver';
-import { QuickJsObservationContext } from '../script/QuickJsRuntimeStatus';
 
 export class BookSourceLoginItem {
   name: string = '';
@@ -30,15 +29,14 @@ export class BookSourceScriptResult {
  * source variables behave consistently in search, explore and login flows.
  */
 export class BookSourceScriptRunner {
-  static evaluateUrl(source: BookSource, rawRule: string, key: string = '', page: string = '1',
-    observation: QuickJsObservationContext | null = null): BookSourceScriptResult {
+  static evaluateUrl(source: BookSource, rawRule: string, key: string = '', page: string = '1'): BookSourceScriptResult {
     const raw = (rawRule || '').trim();
     if (!raw) return new BookSourceScriptResult();
     if (!/^\s*@?js:/i.test(raw) && !/^\s*<js>/i.test(raw)) {
       const result = new BookSourceScriptResult();
       result.handled = true;
       result.variable = source.variable || '';
-      result.value = this.resolveUrl(this.applyTemplates(source, raw, key, page, observation), source);
+      result.value = this.resolveUrl(this.applyTemplates(source, raw, key, page), source);
       return result;
     }
     const code = raw.replace(/^\s*@?js:\s*/i, '').replace(/^\s*<js>|<\/js>\s*$/gi, '');
@@ -242,10 +240,8 @@ export class BookSourceScriptRunner {
     env.ctx.put('pageIndex', page || '1');
   }
 
-  private static applyTemplates(source: BookSource, raw: string, key: string, page: string,
-    observation: QuickJsObservationContext | null = null): string {
+  private static applyTemplates(source: BookSource, raw: string, key: string, page: string): string {
     const js = new JsRuntime();
-    js.setQuickJsObservation(observation);
     js.setVar('key', encodeURIComponent(key || ''));
     js.setVar('searchKey', encodeURIComponent(key || ''));
     js.setVar('keyword', encodeURIComponent(key || ''));

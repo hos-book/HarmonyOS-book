@@ -17,7 +17,7 @@ function load(name, imports = {}) {
 }
 const documentModule = load('EpubOriginalDocument');
 const { EpubOriginalDocument: Document, EpubOriginalPart: Part } = documentModule;
-const { EpubOriginalScript: Script, EpubOriginalLayoutOptions: Options } = load('light/EpubOriginalScript', documentModule);
+const { EpubOriginalScript: Script, EpubOriginalLayoutOptions: Options } = require('./epub-script-fixture.cjs').loadEpubScript();
 const raw = name => fs.readFileSync(path.join(root, 'entry/src/main/resources/rawfile', name), 'utf8');
 const picture = 'data:image/svg+xml;base64,' + Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="600" height="800"><rect width="600" height="800" fill="#975630"/></svg>').toString('base64');
 const cover = `<div style="text-align:center"><svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" viewBox="0 0 600 800" preserveAspectRatio="xMidYMid meet"><image href="${picture}" width="600" height="800"/></svg></div>`;

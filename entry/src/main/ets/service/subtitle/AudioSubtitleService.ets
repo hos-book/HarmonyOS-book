@@ -19,6 +19,7 @@ import { SubtitleModelService } from './SubtitleModelService';
 import lazy { MembershipService } from '../MembershipService';
 import { MembershipState } from '../../model/MembershipState';
 import { MembershipFeatureLease } from '../membership/MembershipFeatureLease';
+import { AiModelPackService } from '../AiModelPackService';
 
 class SubtitleCache {
   version: string = SUBTITLE_MODEL_VERSION;
@@ -71,6 +72,12 @@ export class AudioSubtitleService {
     this.desktopActive = false;
     this.desktopKey = '';
     this.release();
+  }
+
+  async pauseForModelChange(): Promise<void> {
+    this.stop(); this.desktopKey = '';
+    await this.setup.catch((): void => {});
+    await this.waitWorkerExit();
   }
 
   showPanel(context: common.Context, book: Book, chapter: Chapter, durationMs: number,
@@ -198,13 +205,9 @@ export class AudioSubtitleService {
         if (!entitled) { this.revokeMembership(); return; }
         this.membershipLease.start((): void => this.revokeMembership());
         if (this.durationMs <= 0 || DownloadPolicy.isHls(chapter.source.value, '')) throw new Error('subtitle_unsupported');
-        if (!await SubtitleModelService.ready(context, active)) {
+        if (AiModelPackService.instance.isBusy('audio-subtitle-v1') || !await SubtitleModelService.ready(context, active)) {
           if (!active()) return;
-          if (!downloadModel) { this.state.phase = 'needsModel'; this.publishDesktop(); return; }
-          this.state.phase = 'model';
-          await SubtitleModelService.ensure(context, active, (percent: number): void => {
-            if (active()) this.state.percent = percent;
-          });
+          this.state.phase = 'needsModel'; this.publishDesktop(); return;
         }
         if (!active()) return;
         this.modelDir = SubtitleModelService.directory(context);

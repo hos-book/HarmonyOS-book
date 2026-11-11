@@ -13,6 +13,7 @@ import tempfile
 import zipfile
 import urllib.request
 from comic_ai_calibration_patch import apply_calibration_patch
+from ai_model_packs import externalize_har
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = json.loads((ROOT / 'scripts/comic-ai-package.json').read_text(encoding='utf-8'))
@@ -115,6 +116,8 @@ def verify(path):
         if app['targetAPIVersion'] % 1000 != SPEC['targetSdkVersion']:
             raise ValueError('Unexpected AI package target API')
         names = set(package.getnames())
+        if any(name.endswith(('.ms', '.onnx', '.gguf')) for name in names):
+            raise ValueError('Optional model weights must not be bundled in the AI HAR')
         for abi in ['arm64-v8a', 'x86_64']:
             if f'package/libs/{abi}/libcomic_pixels.so' not in names:
                 raise ValueError(f'Missing native AI library: {abi}')
@@ -129,6 +132,7 @@ def verify(path):
 
 def install(project):
     artifact = project / 'aiengine/build/default/outputs/default/aiengine.har'
+    externalize_har(artifact)
     verify(artifact)
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(artifact, OUTPUT.with_suffix('.har.pending'))
@@ -266,8 +270,15 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--from-build', type=Path, help='Install a previously built pinned engine project outside this checkout')
     parser.add_argument('--force', action='store_true', help='Rebuild even if the existing HAR matches its stamp')
+    parser.add_argument('--externalize', action='store_true', help='Export encrypted comic models and strip the current HAR')
     args = parser.parse_args()
-    if args.from_build:
+    if args.externalize:
+        externalize_har(OUTPUT)
+        verify(OUTPUT)
+        STAMP.write_text(json.dumps(dict(SPEC, sha256=sha256(OUTPUT), bytes=OUTPUT.stat().st_size),
+                                   ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+        print('Encrypted comic model pack verified; AI HAR contains no model weights.')
+    elif args.from_build:
         install(args.from_build.resolve())
     elif not args.force and OUTPUT.exists() and STAMP.exists():
         stamp = json.loads(STAMP.read_text(encoding='utf-8'))

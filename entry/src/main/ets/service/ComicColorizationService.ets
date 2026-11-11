@@ -9,6 +9,7 @@ import { ComicTranslationService } from './ComicTranslationService';
 import { ComicOfflineTranslationService } from './ComicOfflineTranslationService';
 import { ReaderCacheService } from './ReaderCacheService';
 import { MembershipState } from '../model/MembershipState';
+import { AiModelPackService } from './AiModelPackService';
 
 /** 仅处理用户主动开启后的可见图片，原图不覆盖，队列和派生缓存均有界。 */
 export class ComicColorizationService {
@@ -17,23 +18,27 @@ export class ComicColorizationService {
   private static blockedRevision: number = -1;
   private static revision: number = 0;
   private static engineUsed: boolean = false;
-  private static modelPreparation: Promise<void> | undefined = undefined;
+  private static preparation: Promise<void> = Promise.resolve();
 
   private static async ensureModels(context: common.Context, active: () => boolean): Promise<void> {
     if (!active() || !MembershipState.current.hasAccess) return;
-    if (ComicColorizationService.modelPreparation) {
-      try { await ComicColorizationService.modelPreparation; } catch (_) {}
-      if (!active() || !MembershipState.current.hasAccess) return;
+    await AiModelPackService.instance.recover(context);
+    if (!ComicColorizationService.modelsAvailable(context) || ComicColorModels.missingBytes(context) !== 0) {
+      throw new Error('model_pack_missing');
     }
-    if (ComicColorModels.missingBytes(context) === 0) return;
-    const task = ComicColorModels.download(context,
-      (): boolean => active() && MembershipState.current.hasAccess, (_status: string): void => {});
-    ComicColorizationService.modelPreparation = task;
-    try { await task; }
-    finally { if (ComicColorizationService.modelPreparation === task) ComicColorizationService.modelPreparation = undefined; }
   }
 
   static supported(): boolean { return canIUse('SystemCapability.AI.MindSporeLite'); }
+
+  static modelsAvailable(context: common.Context): boolean {
+    return !AiModelPackService.instance.isBusy('comic-color-v1') &&
+      AiModelPackService.instance.usage(context, 'comic-color-v1').installed;
+  }
+
+  static async pauseForModelChange(): Promise<void> {
+    ComicColorizationService.release();
+    await Promise.all([ComicColorizationService.queue, ComicColorizationService.preparation]);
+  }
 
   static resetFailure(): void {
     ComicColorizationService.revision++;
@@ -46,14 +51,18 @@ export class ComicColorizationService {
   }
 
   static prepare(context: common.Context, active: () => boolean): void {
-    if (!active() || !MembershipState.current.hasAccess || !ComicColorizationService.supported()) return;
+    if (!active() || !MembershipState.current.hasAccess || !ComicColorizationService.supported() ||
+      !ComicColorizationService.modelsAvailable(context)) return;
     const revision = ComicColorizationService.revision;
     ComicAiHost.install(context);
     ComicColorizationService.engineUsed = true;
     const valid = (): boolean => active() && MembershipState.current.hasAccess &&
-      revision === ComicColorizationService.revision;
-    ComicColorizationService.ensureModels(context, valid)
-      .then((): Promise<void> => ComicColorizer.prepare(context, valid)).catch((): void => {});
+      revision === ComicColorizationService.revision && ComicColorizationService.modelsAvailable(context);
+    ComicColorizationService.preparation = ComicColorizationService.preparation.then(async (): Promise<void> => {
+      if (!valid()) return;
+      await ComicColorizationService.ensureModels(context, valid);
+      if (valid()) await ComicColorizer.prepare(context, valid);
+    }).catch((): void => {});
   }
 
   static async colorize(context: common.Context, uri: string, active: () => boolean): Promise<string> {
@@ -63,7 +72,8 @@ export class ComicColorizationService {
   static async transform(context: common.Context, uri: string, active: () => boolean,
     targetLanguage: string, colorization: boolean = false, trace: string = ''): Promise<string> {
     if (targetLanguage) ComicOfflineTranslationService.validateDirection(targetLanguage);
-    const permitted = (): boolean => MembershipState.current.hasAccess;
+    const permitted = (): boolean => MembershipState.current.hasAccess &&
+      ((!colorization && !!targetLanguage) || ComicColorizationService.modelsAvailable(context));
     if (!active() || !permitted()) return '';
     if (ComicColorizationService.pending >= 4) return '';
     const revision = ComicColorizationService.revision;

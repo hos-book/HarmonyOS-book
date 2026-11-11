@@ -1,6 +1,7 @@
 """Check SDK channel, compatibility and layered icons before publishing an APP/HAP."""
 
 import argparse
+import hashlib
 import io
 import json
 import re
@@ -17,6 +18,31 @@ def verify_hap(data, name, args):
             'targetAPIVersion', 'compileSdkVersion', 'apiReleaseType', 'buildMode', 'debug')}
         summary['module'] = name
         errors = []
+        obsolete_libraries = {'libnative_rulecore.so', 'librulecore_cj.so', 'libcangjie-runtime.so',
+                              'libcangjie-std-core.so', 'libboundscheck.so'}
+        obsolete = [resource for resource in hap.namelist() if resource.startswith('libs/') and
+                    Path(resource).name in obsolete_libraries]
+        if obsolete:
+            errors.append('Unused legacy rule libraries must not be bundled: ' + ', '.join(obsolete))
+        summary['appIconBytes'] = sum(entry.file_size for entry in hap.infolist()
+                                     if entry.filename.startswith('resources/base/media/app_icon'))
+        bundled_models = [resource for resource in hap.namelist()
+                          if resource.endswith(('.ms', '.onnx', '.gguf')) and resource.startswith('resources/rawfile/')]
+        if bundled_models:
+            errors.append('Optional model weights must not be bundled: ' + ', '.join(bundled_models))
+        summary['bundledModels'] = len(bundled_models)
+        key_file = Path(__file__).resolve().parents[1] / 'signing/model-pack.key'
+        release_key = key_file.read_bytes() if key_file.exists() else None
+        for abi in ['arm64-v8a', 'x86_64']:
+            library = f'libs/{abi}/libmodel_pack_crypto.so'
+            if library not in hap.namelist():
+                errors.append('Missing model-pack crypto bridge: ' + abi)
+            elif release_key is not None:
+                data = hap.read(library)
+                if hashlib.sha256(release_key).hexdigest()[:16].encode('ascii') not in data:
+                    errors.append('Model-pack release key identifier mismatch: ' + abi)
+                if release_key in data:
+                    errors.append('Unmasked model-pack release key in native binary: ' + abi)
         default_forms = []
         for resource in hap.namelist():
             if resource.startswith('resources/') and '/profile/' in resource and resource.endswith('.json'):
@@ -57,6 +83,16 @@ def verify_hap(data, name, args):
             summary[f'{layer}Icon'] = list(size)
             if size != (1024, 1024):
                 errors.append(f'{layer} icon must be 1024x1024')
+        # restool rewrites layered-image references to numeric resource IDs.
+        # Check every packaged desktop layer directly; source references are
+        # validated by optimize_app_assets and the resource compiler.
+        icon_layers = [resource for resource in hap.namelist() if re.fullmatch(
+            r'resources/base/media/app_icon(?:_[a-z]+)?_(?:foreground|background)\.png', resource)]
+        summary['layeredIconLayers'] = len(icon_layers)
+        for resource in icon_layers:
+            png = hap.read(resource)
+            if len(png) < 24 or png[:8] != b'\x89PNG\r\n\x1a\n' or struct.unpack('>II', png[16:24]) != (1024, 1024):
+                errors.append(f'{resource} must be a 1024x1024 PNG')
         summary['errors'] = errors
         return summary
 
@@ -100,6 +136,7 @@ def main():
         ]
         wire_names = {'version', 'chunks', 'samples', 'sampleRate', 'decodeSubtitleAudio',
                       'extract', 'shatterPrepare', 'shatterAttach', 'shatterBegin', 'shatterClose',
+                      'format', 'id', 'chunkBytes', 'cipher', 'keyId', 'getKey', 'getKeyId',
                       'handle', 'width', 'height', 'surfaceWidth', 'surfaceHeight', 'top'}
         for contract in contracts:
             wire_names.update(re.findall(r'^  (\w+)\??\s*:',

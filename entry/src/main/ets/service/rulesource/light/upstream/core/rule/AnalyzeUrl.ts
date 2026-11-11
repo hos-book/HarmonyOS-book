@@ -38,6 +38,7 @@ export class AnalyzeUrl {
   private source: BookSource | null;
   private client: HttpClient;
   private runtimeSourceHeaders: Record<string, string>;
+  private scriptResolvedHeaders: boolean = false;
   private noTimeoutRetry: boolean = false;
   private requestDeadlineAt: number = 0;
   private cancelCheck?: () => boolean;
@@ -69,6 +70,18 @@ export class AnalyzeUrl {
    */
   setStaticSourceHeader(enabled: boolean): AnalyzeUrl {
     this.staticSourceHeader = enabled;
+    return this;
+  }
+
+  /**
+   * The caller is a stage script that already evaluated the source's `@js:` header rule (with the
+   * full jsLib and login state) and passed the result to the constructor. Resolving it again would
+   * queue a header task on the serial stage runtime — the very runtime that is waiting for this
+   * request — and the request would never start. Those headers are sent to whatever host the
+   * script requested (see loadSourceHeaders).
+   */
+  useScriptResolvedHeaders(): AnalyzeUrl {
+    this.scriptResolvedHeaders = true;
     return this;
   }
 
@@ -229,9 +242,13 @@ export class AnalyzeUrl {
     }
     // Complex source scripts can compute their header rule using functions from jsLib and the
     // current login state. The bounded stage runtime evaluates that source-owned expression and
-    // passes only its scalar result here. Runtime headers are source-site scoped: a dynamic
-    // Cookie/Referer must not reach third-party hosts. URL-local explicit headers still win.
-    if (this.isTrustedRequestHost(requestUrl)) {
+    // passes only its scalar result here. Requests the host issues for a source (detail/content
+    // addresses, images) only send them to the source's own site, so a dynamic Cookie/Referer does
+    // not reach third-party hosts. A request the source script itself issues through java.ajax
+    // carries them to any host, as on Android: the script already holds these values and chose
+    // the address, and sources whose bookSourceUrl is a name rather than a URL (aggregators) have
+    // no own site to match at all. URL-local explicit headers still win.
+    if (this.scriptResolvedHeaders || this.isTrustedRequestHost(requestUrl)) {
       for (const key of Object.keys(this.runtimeSourceHeaders)) {
         const name = String(key || '').trim();
         if (name) headers[name] = String(this.runtimeSourceHeaders[key] || '');
@@ -308,8 +325,10 @@ export class AnalyzeUrl {
     // Legado permits a header rule such as `@js: JSON.stringify({...})`. Most imported sources
     // use that form only to combine literal credentials with the WebView user agent. Resolve that
     // safe, declarative subset here so every native request receives the same headers; arbitrary
-    // source JavaScript remains in the bounded stage runtime.
-    if (/^@?js\s*:/i.test(text)) {
+    // source JavaScript remains in the bounded stage runtime. `<js>…</js>` is the other Legado form
+    // of the same rule; its code is never a literal header block.
+    const blockScript = /^<js>[\s\S]*<\/js>$/i.test(text);
+    if (blockScript || /^@?js\s*:/i.test(text)) {
       const property = /["']([^"']+)["']\s*:\s*(?:(["'])((?:\\.|(?!\2)[\s\S])*?)\2|java\.getWebViewUA\s*\(\s*\))/g;
       let match: RegExpExecArray | null;
       let found = false;
@@ -326,7 +345,7 @@ export class AnalyzeUrl {
         target[name] = value;
         found = true;
       }
-      if (found) return;
+      if (found || blockScript) return;
     }
     try {
       const parsed = this.parseLooseObject(text);
@@ -514,7 +533,7 @@ export class AnalyzeUrl {
     // A `@js:` header rule may compute dynamic values (Referer/Origin/Cookie from source state).
     // Resolve the complete header map before parsing so those values can join the request; the
     // result is cached per source+variable and still scoped per host in loadSourceHeaders().
-    if (this.source && /^@?js\s*:/i.test((this.source.header || '').trim())) {
+    if (this.source && !this.scriptResolvedHeaders && BookSourceHeaderRuntime.script(this.source.header || '').trim()) {
       this.runtimeSourceHeaders = await BookSourceHeaderRuntime.resolve(this.source);
     }
     this.parse(urlTemplate);

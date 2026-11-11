@@ -20,11 +20,7 @@ for (const offset of [0, 4, 10, 17, indexedText.length]) {
   const restored = indexed.offset(spot);
   assert.equal(positionExports.EpubOriginalPosition.compact(indexedText.slice(restored, restored + 32)).startsWith(spot.snippet), true);
 }
-const lightExports = {};
-vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(root,
-  'entry/src/main/ets/service/text/light/EpubOriginalScript.ets'), 'utf8'), { compilerOptions: {
-  module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021
-} }).outputText, { exports: lightExports, require: () => ({ EpubOriginalInjection: class { style = ''; script = ''; } }) });
+const lightExports = require('./epub-script-fixture.cjs').loadEpubScript();
 const source = fs.readFileSync(path.join(root, 'entry/src/main/ets/components/EpubOriginalReader.ets'), 'utf8');
 const component = source.slice(0, source.indexOf('  build() {')) + '}';
 const sourceClasses = component.replace(/^import .*;\r?\n/gm, '').replace('@ComponentV2', '')
@@ -37,7 +33,7 @@ function viewport(code) {
   const style = { setProperty(name, value) { this[name] = value; },
     getPropertyValue(name) { return this[name] || ''; }, getPropertyPriority() { return ''; },
     removeProperty(name) { delete this[name]; } };
-  const document = { readyState: 'complete', fonts: { ready: Promise.resolve() },
+  const document = { readyState: 'complete', fonts: { ready: Promise.resolve() }, styleSheets: [],
     body: { style, querySelectorAll: () => [] },
     documentElement: { style, scrollWidth: 390 * 5, scrollHeight: 760, appendChild() {} },
     head: { appendChild() {} }, getElementById: () => null, querySelectorAll: () => [],

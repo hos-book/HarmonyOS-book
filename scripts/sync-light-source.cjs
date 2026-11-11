@@ -307,6 +307,8 @@ const manifest = { schemaVersion: 2, sources, license: 'GPL-3.0',
 const manifestText = JSON.stringify(manifest, null, 2) + '\n';
 const license = readText(path.join(engineSource, 'LICENSE'));
 const notice = readText(path.join(engineSource, 'NOTICE'));
+const thirdPartyLegal = ['THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_LICENSES.txt']
+  .map(name => ({ name, text: readText(path.join(engineSource, name)) }));
 if (checkOnly) {
   if (!previous || readText(manifestPath) !== manifestText) throw new Error('Upstream manifest differs; synchronize the pinned inputs first.');
   for (const entry of generated) {
@@ -315,6 +317,11 @@ if (checkOnly) {
   for (const folder of ['third_party/light-source', 'entry/src/main/resources/rawfile/third_party/light-source']) {
     if (readText(path.join(project, folder, 'LICENSE')) !== license || readText(path.join(project, folder, 'NOTICE')) !== notice) {
       throw new Error(`Upstream license/notice differs: ${folder}`);
+    }
+    for (const entry of thirdPartyLegal) {
+      if (readText(path.join(project, folder, entry.name)) !== entry.text) {
+        throw new Error(`Upstream third-party license differs: ${folder}/${entry.name}`);
+      }
     }
   }
   console.log(`Verified ${generated.length} files against both pinned upstream commits.`);
@@ -336,5 +343,9 @@ const packagedLicense = path.join(project, 'entry/src/main/resources/rawfile/thi
 fs.mkdirSync(path.dirname(packagedLicense), {recursive:true});
 fs.writeFileSync(packagedLicense, license);
 fs.writeFileSync(path.join(path.dirname(packagedLicense), 'NOTICE'), notice);
+for (const entry of thirdPartyLegal) {
+  fs.writeFileSync(path.join(licenseDir, entry.name), entry.text);
+  fs.writeFileSync(path.join(path.dirname(packagedLicense), entry.name), entry.text);
+}
 fs.writeFileSync(manifestPath, manifestText);
 console.log(`Imported ${generated.length} files. Engine: ${sources.engine.commit}; application helpers: ${sources.application.commit}. No pages copied.`);

@@ -306,6 +306,23 @@ async function run() {
   assert.equal(JSON.parse(compactToc)[0].variables.session, 'preserve-rule-variable');
   assert.equal(JSON.parse(compactToc)[0].variables.__audioTocDefinition, undefined);
   assert.equal(JSON.parse(await engine.content(JSON.stringify(local), toc[0].url, '{}')).content, 'chapter text');
+  const paginatedLocal = {...local, definition:JSON.stringify({...source,
+    ruleContent:{content:'$.text',nextContentUrl:'$.next'}})};
+  fixtures.set('https://engine.test/toc-paged', JSON.stringify({chapters:[
+    {name:'First',url:'/paged-first'},{name:'Second',url:'/paged-second'}]}));
+  fixtures.set('https://engine.test/paged-first', '{"text":"first part","next":"/paged-first-2"}');
+  fixtures.set('https://engine.test/paged-first-2', '{"text":"last part","next":"/paged-second#top"}');
+  fixtures.set('https://engine.test/paged-second', '{"text":"another chapter"}');
+  const paginatedToc = JSON.parse(await engine.toc(JSON.stringify(paginatedLocal),
+    'https://engine.test/toc-paged',JSON.stringify({bookUrl:search[0].bookUrl})));
+  assert.equal(paginatedToc[0].variables.__lightNextChapterUrl, 'https://engine.test/paged-second');
+  const beforePages = requests.length;
+  const paginatedContent = JSON.parse(await engine.content(JSON.stringify(paginatedLocal),
+    paginatedToc[0].url,JSON.stringify(paginatedToc[0].variables)));
+  assert.equal(paginatedContent.content, 'first part\n\nlast part', 'merge pages within the same chapter');
+  assert.deepEqual(requests.slice(beforePages).map(item=>item.url),
+    ['https://engine.test/paged-first','https://engine.test/paged-first-2'],
+    'catalog boundary stops pagination before requesting the next chapter');
   const { BookSourceStageWebRuntime, StageWebRuntimeRequest } = load(prefix + 'upstream/core/book/BookSourceStageWebRuntime');
   const canonical = new LightSourceImport().parseBookSource(source);
   await LightSourceRuntime.run(canonical, local, async () => {
@@ -315,6 +332,11 @@ async function run() {
     assert.equal((await BookSourceStageWebRuntime.get().execute(request)).value, '2,4,6');
     request.code = 'JSON.parse(java.ajax("https://engine.test/search")).books[0].name';
     assert.equal((await BookSourceStageWebRuntime.get().execute(request)).value, 'Book');
+    request.code = 'const previous = "previous value"; previous; if (false) { "unreachable"; }';
+    assert.equal((await BookSourceStageWebRuntime.get().execute(request)).value, 'previous value',
+      'Rhino completion retains the previous value when a trailing branch does not run');
+    request.code = 'if (true) return "top-level return"; "unreachable";';
+    assert.equal((await BookSourceStageWebRuntime.get().execute(request)).value, 'top-level return');
   });
   const { NativeSourceSpec } = load(prefix + 'upstream/core/nativesource/NativeSourceSpec');
   const native = NativeSourceSpec.fromObject({ sourceFormat: 'native', version: 1,

@@ -57,6 +57,8 @@ def build_icon(name, variant=None):
 
 
 if __name__ == '__main__':
+    from optimize_app_assets import optimize_icons
     for icon_name in ('wave', 'life'):
         build_icon(icon_name)
     build_icon('life', 'lifewhite')
+    optimize_icons()

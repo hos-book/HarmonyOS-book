@@ -20,7 +20,7 @@ class ProfileItem {
   icon: Resource;
   label: ResourceStr;
   id: string;
-  private iconBackground: ResourceColor;
+  iconBg: ResourceColor;
   /** 副标题,如公众号说明、群号;空时不占位 */
   subtitle: ResourceStr;
 
@@ -28,41 +28,37 @@ class ProfileItem {
     this.icon = icon;
     this.label = label;
     this.id = id;
-    this.iconBackground = iconBg;
+    this.iconBg = iconBg;
     this.subtitle = subtitle;
   }
 
-  get iconBg(): ResourceColor {
-    if (AppTheme.BrandedProfileIcons || this.id === 'ruleSources' || this.id === 'membership' || this.id === 'community') {
-      return AppColor.Brand;
-    }
-    return this.iconBackground;
-  }
 }
 
 const SOURCE_ITEMS: ProfileItem[] = [
   new ProfileItem($r('sys.symbol.bookshelf'), $r('app.string.rule_source_title'), 'ruleSources',
-    $r('app.color.app_brand')),
+    '#C98B4B'),
   new ProfileItem($r('sys.symbol.arrow_down_circle'), $r('app.string.profile_local_import'), 'import', '#34C759')
 ];
 
 const CONTENT_ITEMS: ProfileItem[] = [
   new ProfileItem($r('sys.symbol.medal'), $r('app.string.achievement_title'), 'achievements', '#E6A23C'),
-  new ProfileItem($r('sys.symbol.star_fill'), $r('app.string.membership_title'), 'membership', $r('app.color.app_brand'))
+  new ProfileItem($r('sys.symbol.star_fill'), $r('app.string.membership_title'), 'membership', '#AD78B8')
 ];
 
 const SETTINGS_ITEMS: ProfileItem[] = [
   new ProfileItem($r('sys.symbol.gearshape'), '设置', 'settings', '#8E8E93'),
   new ProfileItem($r('sys.symbol.book'), $r('app.string.reading_settings_title'), 'readingSettings',
-    $r('app.color.app_brand')),
+    '#4E8FC6'),
+  new ProfileItem($r('sys.symbol.doc_text'), $r('app.string.model_pack_manage'), 'aiModelSettings',
+    '#7E74C8'),
   new ProfileItem($r('sys.symbol.car'), $r('app.string.hicar_settings_title'), 'hicar',
-    $r('app.color.app_brand')),
+    '#3B9F9B'),
   new ProfileItem($r('sys.symbol.person_fill'), $r('app.string.jianjian_settings_title'),
-    'jianjianSettings', $r('app.color.app_brand'))
+    'jianjianSettings', '#D47D96')
 ];
 
 const SYSTEM_ITEMS: ProfileItem[] = [
-  new ProfileItem($r('sys.symbol.book'), $r('app.string.guide_title'), 'guide', $r('app.color.app_brand')),
+  new ProfileItem($r('sys.symbol.book'), $r('app.string.guide_title'), 'guide', '#679D79'),
   new ProfileItem($r('sys.symbol.doc_text'), $r('app.string.log_title'), 'logs', '#0A84FF'),
   new ProfileItem($r('sys.symbol.info_circle'), '关于', 'about', '#0A59F7')
 ];
@@ -71,7 +67,7 @@ const SUPPORT_ITEMS: ProfileItem[] = [
   new ProfileItem($r('sys.symbol.qrcode'), $r('app.string.profile_wechat_title'), 'wechat',
     '#07C160', $r('app.string.profile_wechat_desc')),
   new ProfileItem($r('sys.symbol.person_2'), $r('app.string.profile_community_group'), 'community',
-    $r('app.color.app_brand'), $r('app.string.about_community_group_number'))
+    '#D68F5A', $r('app.string.about_community_group_number'))
 ];
 const ROW_INDENT: number = AppSpace.Md;
 const MINI_TITLE_BAR_HEIGHT: number = 56;
@@ -116,6 +112,8 @@ export struct ProfilePage {
 
     } else if (id === 'readingSettings') {
       this.navStack.pushPathByName('readingSettings', '');
+    } else if (id === 'aiModelSettings') {
+      this.navStack.pushPathByName('aiModelSettings', '');
     } else if (id === 'hicar') {
       this.navStack.pushPathByName('hicar', '');
     } else if (id === 'jianjianSettings') {
@@ -364,7 +362,7 @@ export struct ProfilePage {
       Stack() {
         SymbolGlyph(item.icon)
           .fontSize(18)
-          .fontColor([AppTheme.BrandedProfileIcons ? AppColor.OnBrand : Color.White])
+          .fontColor([Color.White])
       }
       .width(28)
       .height(28)

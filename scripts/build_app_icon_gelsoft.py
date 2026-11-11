@@ -49,4 +49,6 @@ def main():
     print('gelsoft: exported to both resource scopes')
 
 if __name__ == '__main__':
+    from optimize_app_assets import optimize_icons
     main()
+    optimize_icons()

@@ -69,7 +69,9 @@ export class BookSourceRuntimeRouter {
     'md5Encode', 'md5Encode16', 'md5Encode32',
     'androidId', 'deviceID', 'randomUUID', 'getCookie', 'lang', 'log', 'logType',
     'getWebViewUA', 'timeFormat', 'timeFormatUTC', 'strToBytes', 'bytesToStr', 'evalJS',
-    'createSymmetricCrypto', 'reLoginView', 'refreshExplore', 'refreshBookToc', 'refreshContent',
+    'createSymmetricCrypto', 'aesBase64DecodeToString', 'aesDecodeToString', 'aesEncodeToBase64String',
+    'aesDecodeArgsBase64Str', 'aesEncodeArgsBase64Str', 'tripleDESDecodeStr', 'tripleDESEncodeBase64Str',
+    'tripleDESDecodeArgsBase64Str', 'tripleDESEncodeArgsBase64Str', 'reLoginView', 'refreshExplore', 'refreshBookToc', 'refreshContent',
     'searchBook', 'upConfig', 'upLoginData', 'webView', 'emitSearch'
   ];
 

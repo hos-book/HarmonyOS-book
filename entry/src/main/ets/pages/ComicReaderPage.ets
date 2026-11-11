@@ -1757,10 +1757,20 @@ export struct ComicReaderPage {
       return;
     }
     if (enabled && !ComicColorizationService.supported()) return;
+    const context = this.getUIContext().getHostContext();
+    if (enabled && context && !ComicColorizationService.modelsAvailable(context)) {
+      this.getUIContext().showAlertDialog({
+        title: $r('app.string.model_pack_color'), message: $r('app.string.model_pack_color_required'),
+        primaryButton: { value: $r('app.string.common_cancel'), action: (): void => {} },
+        secondaryButton: { value: $r('app.string.model_pack_manage'), action: (): void => {
+          this.navStack.pushPathByName('aiModelSettings', 'comic-color-v1');
+        } }
+      });
+      return;
+    }
     ComicColorizationService.release();
     this.showTranslationMenu = false;
     this.colorization = enabled;
-    const context = this.getUIContext().getHostContext();
     if (enabled && context) {
       ComicColorizationService.prepare(context, (): boolean =>
         this.alive && this.foreground && this.readerVisible && this.colorization && this.membership.hasAccess);

@@ -1,6 +1,0 @@
-{
-  "name": "libnative_rulecore.so",
-  "version": "1.0.0",
-  "description": "Bounded Cangjie HTML tokenizer C ABI / NAPI binding",
-  "types": "index.d.ts"
-}

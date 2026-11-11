@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "repository": "https://github.com/wip3l/qingye-reader",
-  "commit": "0e4334d1690c7aa9d44eab8dd1a26e667e173fba",
+  "commit": "c3dbe650bb078f94e93b9944d2429fa5258f9dda",
   "upstreamPath": "entry/src/main/ets/core/book/EpubOriginalScript.ts",
   "path": "entry/src/main/ets/service/text/light/EpubOriginalScript.ets",
   "license": "GPL-3.0",
@@ -9,8 +9,29 @@
     "host-native-turn-and-position-v2",
     "host-continuous-scroll-v2",
     "visible-text-index-v1",
-    "host-media-controls-v1"
+    "host-media-controls-v1",
+    "host-gallery-and-media-ownership-v1"
   ],
-  "upstreamSha256": "b7ad1ea52d13571ff6083857bcec56cf31dc35699d9aeac14ee9054ae7e11752",
-  "sha256": "f33782a37febdabadc40a09f2eacafe0b5cb997c021b2bf4d4c59de99efbe741"
+  "upstreamSha256": "894c86ab09cace1cfd982e88a8d78dadb5f9c2c787313f21a95e780ebc684e87",
+  "sha256": "3192c85abc67ce07f7d61bff0d48d90f74c70ed017a39aecab695c53e6226878",
+  "files": [
+    {
+      "upstreamPath": "entry/src/main/ets/core/reader/ReaderNightImage.ts",
+      "path": "entry/src/main/ets/service/text/light/ReaderNightImage.ts",
+      "upstreamSha256": "9523e221cc2fc0edb381fa5ee218bc445fb96b9ab3fca56b34d54468884dd801",
+      "sha256": "93abd441383b5e375cde2beadfbda30cf1e5a03fd5078ee5aad14e2771cadb7c"
+    },
+    {
+      "upstreamPath": "entry/src/main/ets/core/book/EpubOriginalFont.ts",
+      "path": "entry/src/main/ets/service/text/light/EpubOriginalFont.ts",
+      "upstreamSha256": "0bb01a76e07234c29e0aaaff7be71abd7f797cbf553722fac738070fb88b6978",
+      "sha256": "7b6dac60d542ad50702663d120052f36202d8666e3f4b1582f86b13f94d302dd"
+    },
+    {
+      "upstreamPath": "entry/src/main/ets/core/book/EpubDuokanExtensions.ts",
+      "path": "entry/src/main/ets/service/text/light/EpubDuokanExtensions.ts",
+      "upstreamSha256": "607e98e335ce216d095f2f0389dd301ae58dfd18eaa2a1917cbf219db2ffccaf",
+      "sha256": "8b6e5520334ddf0ceb1d882f38c33db0f07d85d4390314b1fc8796259e0acaaf"
+    }
+  ]
 }

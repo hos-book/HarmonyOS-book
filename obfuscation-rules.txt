@@ -31,6 +31,9 @@
   # Fixed N-API exports from librole_inference.so.
   run
   cancel
+  # Fixed N-API exports from libmodel_pack_crypto.so.
+  getKey
+  getKeyId
 
 -keep-property-name
   EpubParserService
@@ -46,6 +49,12 @@
   shatterClose
   run
   cancel
+  getKey
+  getKeyId
+  # Optional model-pack manifest fields.
+  chunkBytes
+  cipher
+  keyId
 
 # ─── 保留 JSON 序列化/反序列化的属性名 ───
 # 这些属性来自外部 JSON（Legado 书源格式）或本地持久化，

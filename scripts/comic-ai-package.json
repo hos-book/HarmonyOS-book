@@ -1,11 +1,12 @@
 {
   "repository": "wip3l/harmony-book-ai-engine",
-  "revision": "010dde13eefbef46ebb2982163021923ccf635b0",
+  "revision": "e9040be8bf567ea67c0fef874c21f2dd72ef8586",
   "name": "@legado/aiengine",
   "version": "1.0.0",
   "integrationPatch": "upstream-fp32-nnrt-v1",
   "performancePatch": "upstream-worker-reuse-native-io-v1",
   "modelAssetsRevision": "e4592264e70402fa6396fd7860b1cb90fd349802",
+  "assetDelivery": "encrypted-comic-model-pack-v2",
   "compatibleSdkVersion": 20,
   "targetSdkVersion": 26
 }

@@ -2,6 +2,30 @@
 
 简听通过 `LocalRuleDispatcher → light/LightSourceBridge → LightSourceCore` 调用轻页的书源核心。页面仍由简听维护。轻页兼容源和轻页 `sourceFormat: native` 源走此链路；原简听规则核心、`jianting.source` 引擎及按域名分流的专用内容适配器已删除；历史定义保留为数据，停用格式不执行。
 
+## 公共包更新（2026-11-11）
+
+本轮固定版本如下；下方早期记录中的提交及文件数仅代表当时状态。
+
+| 依赖 | 固定提交 |
+| --- | --- |
+| 书源内核 `wip3l/harmony-book-source-engine` | `1f0cfeae7267f6bf0a28104212a1e3c087f3d46e` |
+| 应用辅助及 EPUB `wip3l/qingye-reader` | `c3dbe650bb078f94e93b9944d2429fa5258f9dda` |
+| AI HAR `wip3l/harmony-book-ai-engine` | `e9040be8bf567ea67c0fef874c21f2dd72ef8586` |
+
+书源通过既有同步入口生成并核对 95 个文件。吸收 Rhino 脚本完成值、函数外 `return`、动态请求头与 `java.ajax` 互等修复、`<js>` 请求头及对称加密兼容，移除上游旧迁移诊断框架；继续使用简听有界 QuickJS、源隔离 Cookie、原有网络与 Web 租约。新增 Acorn 8.15.0 解析器的上游第三方声明及完整许可证，源码目录和 HAP 资源均保留。应用辅助新增简繁搜索可选接口及评论卡片识别；接口同步不表示页面已新增对应开关。
+
+`LightSourceCore.toc` 在章节上下文记录下一条非分卷章节地址，正文调用传入上游 `nextChapterUrl`，防止“下一页”指向下一章时把后续章节拼进本章。旧目录没有该字段时继续原有行为，不强制清缓存。新增回归验证同章分页正常合并、遇下一章不发请求，以及 Rhino 分支完成值和函数外返回。
+
+EPUB 核心按同一应用提交更新；新增同版 `ReaderNightImage.ts`、`EpubOriginalFont.ts` 和仅含两个布局常量的 `EpubDuokanExtensions.ts`，原始与生成散列均记录在 `epub-upstream.json`。同步脚本保留现有翻页、字符定位及最多 5 文档连续窗口；`host-gallery-and-media-ownership-v1` 明确由简听处理画廊原生滚动和媒体控件，避免上游新增处理器重复接管。导入、存储、原生页面与安全边界继续沿用项目实现。AI HAR 新增等长繁转简、简转台湾繁体接口，本轮未更换漫画模型。
+
+已通过：95 文件同步检查、EPUB 同步检查、书源核心、图片脚本、文件导入、网页等待、EPUB 原生翻页/媒体/连续窗口回归，以及 AI 上游完整检查、宿主包回归和 Release HAR 构建。EPUB 媒体与连续窗口回归使用真实桌面 Chromium，不能替代设备验证。
+
+1.1.3 发布复核已使用现有 `signing/model-pack.key` 完成最终 Release APP 构建，书源核心与 EPUB 连续阅读回归通过。包内确认 Release SDK 26.0.0.105、最低 API 20 / 目标 API 26，双架构模型解密桥、混淆动态接口与第三方许可均通过发布检查；未生成替代密钥。本轮未新增设备安装验证，主机回归不作为实机验证，发布结果见 `docs/RELEASE_NOTES.md`。
+
+MCP 静态检查因 LSP 未初始化未完成，MCP 构建遇本机 OHPM 批处理递归故障；改用 Release IDE Node/Hvigor 直接入口及 `--no-daemon`。在线依据已刷新目录并读取 [ArkTS 语法](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkUI 指引](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md) 和 [Hvigor 构建指引](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)，具体编译与运行结论以本机结果为准。
+
+编译诊断另按在线 [ArkTS 编译检查技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md) 及其 [错误修复参考](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/references/error-fixing-examples.md) 核对；未按泛用示例改动项目配置或扩大功能范围。
+
 ## 通用规则边界（2026-11-09）
 
 同步脚本增加 `host-generic-source-rules-v3` 补丁，删除按特定格式构造 data URL 的快捷路径及退役发现分支，并将发现字段修复中的具名书源举例改为通用说明。导入规则继续通过通用脚本解析生成请求；补丁同时校验预期方法、调用数量和待替换注释，遇到上游结构变化直接报错。更新仍使用当前固定提交，不手改生成文件。

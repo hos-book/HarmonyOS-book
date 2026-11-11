@@ -295,7 +295,6 @@ export struct ReaderPage {
   private screenOn: ReaderScreenOnService = new ReaderScreenOnService();
   @Local showSpeechSheet: boolean = false;
   @Local rolePanelOpen: boolean = false;
-  private pendingRoleModels: boolean = false;
   @Local speechState: TextToSpeechState = TextToSpeechService.getInstance().state;
   private openingSpeechPlayer: boolean = false;
   private speechSelectionSerial: number = 0;
@@ -3102,8 +3101,7 @@ export struct ReaderPage {
     if (this.rolePanelOpen) {
       RoleSpeechPanel({ bookId: this.bookId, bookTitle: this.book?.title ?? '', embedded: true,
         active: this.showSpeechSheet && !this.leaving,
-        onClose: (): void => { this.showSpeechSheet = false; },
-        onModelSettings: (): void => { this.pendingRoleModels = true; this.showSpeechSheet = false; } })
+        onClose: (): void => { this.showSpeechSheet = false; } })
     } else {
     ReaderSpeechSheet({ state: this.speechState,
       speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
@@ -3207,12 +3205,7 @@ export struct ReaderPage {
           systemMaterial: AppMaterial.ReaderSheetThick,
           onDisappear: (): void => {
             this.showSpeechSheet = false;
-            if (this.pendingRoleModels && !this.leaving) {
-              this.pendingRoleModels = false;
-              this.navStack.pushPathByName('roleModelSettings', '', (): void => {
-                if (!this.leaving) this.openRoleSpeech();
-              });
-            } else if (!this.leaving) this.showReaderBar();
+            if (!this.leaving) this.showReaderBar();
           }
         })
 

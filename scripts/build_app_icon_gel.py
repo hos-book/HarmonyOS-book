@@ -118,4 +118,6 @@ const sources = __SOURCES__;
 
 
 if __name__ == '__main__':
+    from optimize_app_assets import optimize_icons
     main()
+    optimize_icons()

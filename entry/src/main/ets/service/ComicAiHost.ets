@@ -1,7 +1,6 @@
 import { AbilityConstant, common } from '@kit.AbilityKit';
 import { worker, util } from '@kit.ArkTS';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
-import { fileIo } from '@kit.CoreFileKit';
 import lazy { AiHost, AiRuntime, ComicColorizer } from '@legado/aiengine';
 import { ReaderCacheService } from './ReaderCacheService';
 import { MembershipState } from '../model/MembershipState';
@@ -50,36 +49,10 @@ export class ComicAiHost implements AiHost {
     throw new Error('comic_ai_local_image_required');
   }
 
-  async downloadColorModel(file: string, destination: string, bytes: number, active: () => boolean,
-    progress: (received: number) => void): Promise<void> {
-    if (!['alac.ms', 'alac-npu-portrait.ms', 'alac-npu-landscape.ms'].includes(file) ||
-      !destination.startsWith(`${this.context.filesDir}/comic_colorizer/`)) {
-      throw new Error('comic_ai_request_failed');
-    }
-    const resource = `comic-colorizer/${file}`;
-    const input = await this.context.resourceManager.getRawFd(resource);
-    try {
-      if (input.length !== bytes) throw new Error('comic_ai_request_failed');
-      const output = await fileIo.open(destination,
-        fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
-      try {
-        let received = 0;
-        while (received < bytes) {
-          if (!active() || !this.isAllowed('colorization')) throw new Error('comic_ai_request_failed');
-          const chunk = new ArrayBuffer(Math.min(1024 * 1024, bytes - received));
-          const count = await fileIo.read(input.fd, chunk, { offset: input.offset + received, length: chunk.byteLength });
-          if (count <= 0) throw new Error('comic_ai_request_failed');
-          let written = 0;
-          while (written < count) {
-            const size = await fileIo.write(output.fd, chunk.slice(written, count));
-            if (size <= 0) throw new Error('comic_ai_request_failed');
-            written += size;
-          }
-          received += count;
-          progress(received);
-        }
-      } finally { await fileIo.close(output); }
-    } finally { await this.context.resourceManager.closeRawFd(resource); }
+  async downloadColorModel(_file: string, _destination: string, _bytes: number, _active: () => boolean,
+    _progress: (received: number) => void): Promise<void> {
+    // 漫画模型只能由配套加密包导入，不提供内置展开或远程下载回退。
+    throw new Error('model_pack_missing');
   }
 
   digestHashHex(algorithm: string, value: string): string {

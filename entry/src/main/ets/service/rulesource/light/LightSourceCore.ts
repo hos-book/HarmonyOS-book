@@ -522,9 +522,12 @@ export class LightSourceCore {
       if (!items.length && failure) throw new Error(failure);
       const bookVariables = JSON.parse(book.variable || '{}') as Record<string, string>;
       delete bookVariables.__audioTocDefinition;
-      return JSON.stringify(items.map(item => {
+      return JSON.stringify(items.map((item, index) => {
+        let nextIndex = index + 1;
+        while (nextIndex < items.length && (items[nextIndex] as BookChapter & {isVolume?:boolean}).isVolume) nextIndex++;
         const variables = ChapterRuleContext.create(item.title, item.index,
-          {...bookVariables, ...JSON.parse(item.variable || '{}'),__lightBookType:String(book.type || 0), chapterName:item.title});
+          {...bookVariables, ...JSON.parse(item.variable || '{}'),__lightBookType:String(book.type || 0),
+            __lightNextChapterUrl:items[nextIndex]?.url || '', chapterName:item.title});
         delete variables.__audioTocDefinition;
         return {name:item.title,url:item.url,isVip:item.isVip,isPay:item.isPay,isVolume:!!(item as BookChapter & {isVolume?:boolean}).isVolume,
           updateTime:String(variables.updateTime || ''),duration:Number(variables.duration || 0),variables};
@@ -555,7 +558,7 @@ export class LightSourceCore {
       const ruleStartedAt = Date.now();
       let content = '';
       try { content = await new WebBookService().getContent(source, book, chapter,
-        () => LightSourceRequestPolicy.isCancelled(source)); }
+        () => LightSourceRequestPolicy.isCancelled(source), null, undefined, vars.__lightNextChapterUrl || ''); }
       finally { LightSourceTiming.end(timingId, 'content-rule', ruleStartedAt); }
       const mediaStartedAt = Date.now();
       const failure = LightSourceRuntime.getError(source);

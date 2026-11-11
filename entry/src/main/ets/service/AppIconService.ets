@@ -40,15 +40,15 @@ export class AppIconService {
       new AppIconOption('gel', $r('app.string.app_icon_gel'), $r('app.media.app_icon_gel_legacy')),
       new AppIconOption('nostalgia', $r('app.string.app_icon_nostalgia'), $r('app.media.app_icon_nostalgia_legacy')),
       new AppIconOption('iridescent', $r('app.string.app_icon_iridescent'), $r('app.media.app_icon_iridescent_legacy')),
-      new AppIconOption('leather', $r('app.string.app_icon_leather'), $r('app.media.app_icon_leather_legacy')),
-      new AppIconOption('enamel', $r('app.string.app_icon_enamel'), $r('app.media.app_icon_enamel_legacy')),
-      new AppIconOption('ink', $r('app.string.app_icon_ink'), $r('app.media.app_icon_ink_legacy')),
-      new AppIconOption('clay', $r('app.string.app_icon_clay'), $r('app.media.app_icon_clay_legacy')),
+      new AppIconOption('leather', $r('app.string.app_icon_leather'), $r('app.media.app_icon_leather_foreground')),
+      new AppIconOption('enamel', $r('app.string.app_icon_enamel'), $r('app.media.app_icon_enamel_foreground')),
+      new AppIconOption('ink', $r('app.string.app_icon_ink'), $r('app.media.app_icon_ink_foreground')),
+      new AppIconOption('clay', $r('app.string.app_icon_clay'), $r('app.media.app_icon_clay_foreground')),
       new AppIconOption('glass', $r('app.string.app_icon_glass'), $r('app.media.app_icon_glass_legacy')),
-      new AppIconOption('origami', $r('app.string.app_icon_origami'), $r('app.media.app_icon_origami_legacy')),
+      new AppIconOption('origami', $r('app.string.app_icon_origami'), $r('app.media.app_icon_origami_foreground')),
       new AppIconOption('embroidery', $r('app.string.app_icon_embroidery'), $r('app.media.app_icon_embroidery_legacy')),
-      new AppIconOption('retro', $r('app.string.app_icon_retro'), $r('app.media.app_icon_retro_legacy')),
-      new AppIconOption('cartoon', $r('app.string.app_icon_cartoon'), $r('app.media.app_icon_cartoon_legacy')),
+      new AppIconOption('retro', $r('app.string.app_icon_retro'), $r('app.media.app_icon_retro_foreground')),
+      new AppIconOption('cartoon', $r('app.string.app_icon_cartoon'), $r('app.media.app_icon_cartoon_foreground')),
       new AppIconOption('cartooncat', $r('app.string.app_icon_cartooncat'), $r('app.media.app_icon_cartooncat_legacy')),
       new AppIconOption('cartoondog', $r('app.string.app_icon_cartoondog'), $r('app.media.app_icon_cartoondog_legacy')),
       new AppIconOption('wave', $r('app.string.app_icon_wave'), $r('app.media.app_icon_wave_legacy')),
@@ -58,7 +58,7 @@ export class AppIconService {
       new AppIconOption('waveorange', $r('app.string.app_icon_waveorange'), $r('app.media.app_icon_waveorange_legacy')),
       new AppIconOption('wavegraphite', $r('app.string.app_icon_wavegraphite'), $r('app.media.app_icon_wavegraphite_legacy')),
       new AppIconOption('wavepurple', $r('app.string.app_icon_wavepurple'), $r('app.media.app_icon_wavepurple_legacy')),
-      new AppIconOption('waveclear', $r('app.string.app_icon_waveclear'), $r('app.media.app_icon_waveclear_legacy'))
+      new AppIconOption('waveclear', $r('app.string.app_icon_waveclear'), $r('app.media.app_icon_waveclear_foreground'))
     ];
   }
 

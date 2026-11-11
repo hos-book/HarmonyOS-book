@@ -6,13 +6,13 @@
   "author": "ylwang",
   "license": "GPL-3.0",
   "dependencies": {
+    "libmodel_pack_crypto.so": "file:./src/main/cpp/types/libmodel_pack_crypto",
     "librole_inference.so": "file:./src/main/cpp/types/librole_inference",
     "sherpa_onnx": "1.13.3",
     "libsubtitle_audio.so": "file:./src/main/cpp/types/libsubtitle_audio",
     "libcba_archive.so": "file:./src/main/cpp/types/libcba_archive",
     "librecord_dissolve.so": "file:./src/main/cpp/types/librecord_dissolve",
     "@legado/aiengine": "file:./libs/aiengine.har",
-    "libnative_rulecore.so": "file:./src/main/cpp/types/libnative_rulecore",
     "@devzeng/quickjs": "file:./libs/quickjs.har"
   }
 }

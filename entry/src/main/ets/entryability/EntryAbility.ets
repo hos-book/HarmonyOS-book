@@ -12,6 +12,7 @@ import { rpc } from '@kit.IPCKit';
 import { BusinessError, emitter } from '@kit.BasicServicesKit';
 import { WindowUtils } from '../utils/WindowUtils';
 import { PreferenceService } from '../service/PreferenceService';
+import { AiModelPackService } from '../service/AiModelPackService';
 import { AppIconService } from '../service/AppIconService';
 import { BottomTabIconService } from '../service/BottomTabIconService';
 import lazy { AuthService } from '../service/AuthService';
@@ -157,6 +158,7 @@ export default class EntryAbility extends UIAbility {
     const startTime = Date.now();
     hilog.info(DOMAIN, TAG, 'initServicesCore: start');
 
+    await AiModelPackService.instance.recover(this.context).catch((): void => {});
     AVSessionService.getInstance().init(this.context);
     await PreferenceService.init(this.context);
     this.restoreAppIcon();

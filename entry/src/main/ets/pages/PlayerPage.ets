@@ -1788,7 +1788,7 @@ export struct PlayerPage {
     this.buildMeta()
     if (this.isSpeechBook()) { this.buildSpeechParagraphs(!scrollable) }
     if (this.showAudioSubtitles()) {
-      AudioSubtitlePanel({ book: this.book, playerState: this.playerState })
+      AudioSubtitlePanel({ book: this.book, playerState: this.playerState, navStack: this.navStack })
         .height(scrollable ? 240 : undefined).layoutWeight(scrollable ? 0 : 1)
         .constraintSize({ minHeight: 160 }).margin({ top: 8 })
     }

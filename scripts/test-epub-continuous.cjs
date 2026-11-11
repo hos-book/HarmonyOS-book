@@ -21,7 +21,7 @@ const load = (name, imports = {}) => {
 };
 const documentModule = load('EpubOriginalDocument');
 const { EpubOriginalDocument: Document, EpubOriginalPart: Part } = documentModule;
-const { EpubOriginalScript: Script, EpubOriginalLayoutOptions: Options } = load('light/EpubOriginalScript', documentModule);
+const { EpubOriginalScript: Script, EpubOriginalLayoutOptions: Options } = require('./epub-script-fixture.cjs').loadEpubScript();
 const raw = name => fs.readFileSync(path.join(root, 'entry/src/main/resources/rawfile', name), 'utf8');
 const chapters = new Map();
 for (let id = 1; id <= 12; id++) {
