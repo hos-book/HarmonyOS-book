@@ -4,16 +4,13 @@ import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSou
 import { BookCoverPolicy } from '../utils/BookCoverPolicy';
 import { BookMetadataPolicy } from '../utils/BookMetadataPolicy';
 import { BookMetadataText } from '../utils/BookMetadataText';
-import { LengthMetrics } from '@kit.ArkUI';
+import { LengthMetrics, PathShape } from '@kit.ArkUI';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
-import { HdsCompat } from '../utils/HdsCompat';
-import { CompatibleGridInsets, PlatformCompat } from '../utils/PlatformCompat';
-import {
-  HdsNavDestination, HdsNavDestinationTitleMode, HideMode, BottomBuilderParams, BuilderOptions, TitleBarContentOptions
-} from '@kit.UIDesignKit';
+import { CompatibleGridInsets } from '../utils/PlatformCompat';
+import { HdsNavDestination } from '@kit.UIDesignKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { AppColor, AppCurve, AppFont, AppMaterial, AppMotion, AppRadius, AppSpace, HomeTheme, AppTheme } from '../theme/Theme';
+import { AppColor, AppCurve, AppFont, AppMotion, AppRadius, AppSpace, HomeTheme, AppTheme } from '../theme/Theme';
 import { Book, Chapter } from '../model/Book';
 import { BookSource, SearchResult } from '../model/BookSource';
 import { LocalRuleSource } from '../model/LocalRuleSource';
@@ -44,6 +41,18 @@ const RESULT_TOOLBAR_HEIGHT: number = 48;
 const HISTORY_HEADING_HEIGHT: number = 52;
 // onShown 在当前导航中先于系统滑入动画触发；450ms 转场期间不读取整份书源或执行推荐规则。
 const SEARCH_ENTRY_SETTLE_MS: number = 500;
+
+/** 自绘顶部使用独立磨砂，不依赖 HDS 标题栏的材质合成范围。 */
+class SearchControlSurface implements AttributeModifier<CommonAttribute> {
+  applyNormalAttribute(node: CommonAttribute): void {
+    node.backgroundColor(Color.Transparent)
+      .backgroundEffect({ radius: 16, saturation: 1, brightness: 1,
+        color: $r('app.color.shelf_toolbar_background') })
+      .borderRadius(AppRadius.Pill)
+      .border({ width: 0.5, color: $r('sys.color.comp_divider') })
+      .clip(true);
+  }
+}
 
 class SearchCoverTask {
   source: LocalRuleSource;
@@ -174,32 +183,26 @@ export struct SearchPage {
   private recommendationsStarted: boolean = false;
   private recommendationsLoaded: boolean = false;
   private leavingPage: boolean = false;
-  private readonly searchNavigationBottomBuilder: CustomBuilder = (): void => this.buildSearchNavigationBottom();
-  private readonly searchTitleBarBuilder: CustomBuilder = (): void => this.buildSearchTitleBar();
   @Local statusBarContentColor: string = WindowUtils.isDarkMode() ? '#FFFFFFFF' : '#FF000000';
   private readonly statusBarColorListener = (): void => {
     this.statusBarContentColor = WindowUtils.isDarkMode() ? '#FFFFFFFF' : '#FF000000';
   };
 
   @Computed
-  get searchTitleBarContent(): TitleBarContentOptions {
-    const bottom: BottomBuilderParams = {
-      // 保留同一棵历史/结果控件树，让初始布局与触摸代理使用一致的尺寸。
-      builder: this.searchNavigationBottomBuilder,
-      height: this.hasSearched ? RESULT_TOOLBAR_HEIGHT : this.historyPanelHeight
-    };
-    const content: TitleBarContentOptions = {
-      title: { mainTitle: '' },
-      stackBuilder: this.searchTitleBarBuilder,
-      bottomBuilder: bottom
-    };
-    if (PlatformCompat.supports(26)) {
-      const titleBuilder: BuilderOptions = { builder: this.searchTitleBarBuilder, updated: false };
-      const bottomBuilder: BuilderOptions = { builder: this.searchNavigationBottomBuilder, updated: false };
-      content.stackBuilderContent = titleBuilder;
-      bottom.builderContent = bottomBuilder;
-    }
-    return content;
+  get headerBackdropHeight(): number {
+    return WindowUtils.getStatusBarHeightVp() + SEARCH_HEADER_HEIGHT - this.searchCollapseOffset +
+      (this.hasSearched ? RESULT_TOOLBAR_HEIGHT : this.historyPanelHeight);
+  }
+
+  private headerBackdropClip(): PathShape {
+    const ui = this.getUIContext();
+    const width: number = ui.vp2px(this.menuViewportWidth);
+    const height: number = ui.vp2px(this.headerBackdropHeight);
+    const radius: number = ui.vp2px(Math.min(AppRadius.Xl, this.menuViewportWidth / 2));
+    // 中间保持原吸顶下缘，两侧向下延伸，用反向四分之一圆连接列表。
+    return new PathShape().commands(`M 0 0 H ${width} V ${height + radius} ` +
+      `A ${radius} ${radius} 0 0 0 ${width - radius} ${height} H ${radius} ` +
+      `A ${radius} ${radius} 0 0 0 0 ${height + radius} Z`);
   }
 
   @Computed
@@ -1085,7 +1088,7 @@ export struct SearchPage {
     }
     .padding({ left: 9, right: 9, top: 5, bottom: 5 })
     .borderRadius(AppRadius.Pill)
-    .backgroundColor(Color.Transparent)
+    .backgroundColor(this.searchTab === index ? AppColor.BrandSoft : Color.Transparent)
     .onClick(() => this.selectSearchTab(index))
   }
 
@@ -1126,7 +1129,7 @@ export struct SearchPage {
       .height(40)
       .borderRadius(AppRadius.Pill)
       .backgroundColor(Color.Transparent)
-      .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
+      .attributeModifier(new SearchControlSurface())
     }
     .width('100%')
     .height(48)
@@ -1325,32 +1328,39 @@ export struct SearchPage {
       .height(SEARCH_TITLE_CONTROL_HEIGHT)
       .borderRadius(AppRadius.Pill)
       .backgroundColor(Color.Transparent)
-      .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
+      .attributeModifier(new SearchControlSurface())
       .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.94 })
+      .id('search-back-button')
       .onClick(() => this.navStack.pop())
 
-      Search({ value: this.keyword, placeholder: $r('app.string.search_placeholder'),
-        controller: this.searchController })
-        .searchButton($r('app.string.search_action'), { fontColor: HomeTheme.Accent })
-        .placeholderColor($r('sys.color.font_tertiary'))
-        .placeholderFont({ size: AppFont.Body, weight: FontWeight.Regular })
-        .textFont({ size: AppFont.Body, weight: FontWeight.Regular })
-        .layoutWeight(1)
-        .height(SEARCH_TITLE_CONTROL_HEIGHT)
-        .backgroundColor(Color.Transparent)
-        .borderRadius(AppRadius.Pill)
-        .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
-        .id('search-page-input')
-        .focusable(true)
-        .enableKeyboardOnFocus(true)
-        .onSubmit(() => this.doSearch())
-        .onChange((value: string) => {
-          if (this.leavingPage) return;
-          this.keyword = value;
-          if (value.trim().length > 0) this.cancelRecommendations();
-          else if (this.hasSearched) this.clearSearch();
-          else this.scheduleRecommendations();
-        })
+      Stack() {
+        Search({ value: this.keyword, placeholder: $r('app.string.search_placeholder'),
+          controller: this.searchController })
+          .searchButton($r('app.string.search_action'), { fontColor: HomeTheme.Accent })
+          .placeholderColor($r('sys.color.font_tertiary'))
+          .placeholderFont({ size: AppFont.Body, weight: FontWeight.Regular })
+          .textFont({ size: AppFont.Body, weight: FontWeight.Regular })
+          .width('100%')
+          .height(SEARCH_TITLE_CONTROL_HEIGHT)
+          .margin(0)
+          .backgroundColor(Color.Transparent)
+          .borderRadius(AppRadius.Pill)
+          .id('search-page-input')
+          .focusable(true)
+          .enableKeyboardOnFocus(true)
+          .onSubmit(() => this.doSearch())
+          .onChange((value: string) => {
+            if (this.leavingPage) return;
+            this.keyword = value;
+            if (value.trim().length > 0) this.cancelRecommendations();
+            else if (this.hasSearched) this.clearSearch();
+            else this.scheduleRecommendations();
+          })
+      }
+      .layoutWeight(1)
+      .height(SEARCH_TITLE_CONTROL_HEIGHT)
+      .borderRadius(AppRadius.Pill)
+      .attributeModifier(new SearchControlSurface())
 
       if (this.hasSearched && !this.searching) {
         Button({ type: ButtonType.Circle }) {
@@ -1364,7 +1374,7 @@ export struct SearchPage {
         .padding(0)
         .borderRadius(AppRadius.Pill)
         .backgroundColor(Color.Transparent)
-        .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
+        .attributeModifier(new SearchControlSurface())
         .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.94 })
         .accessibilityText($r('app.string.search_switch_layout'))
         .id('search-layout-button')
@@ -1392,7 +1402,7 @@ export struct SearchPage {
           .height(SEARCH_TITLE_CONTROL_HEIGHT)
           .padding(0)
           .backgroundColor(Color.Transparent)
-          .attributeModifier(AppMaterial.modifier(AppMaterial.InteractiveClean))
+          .attributeModifier(new SearchControlSurface())
           .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.94 })
           .accessibilityText($r('app.string.search_options'))
           .id('search-options-button')
@@ -1413,7 +1423,6 @@ export struct SearchPage {
     .padding({ left: AppSpace.Xs, right: AppSpace.Md })
     .alignItems(VerticalAlign.Center)
     .backgroundColor(Color.Transparent)
-    .translate({ y: -this.searchCollapseOffset })
     .opacity(Math.max(0, Math.min(1, (SEARCH_HEADER_HEIGHT - this.searchCollapseOffset) / 24)))
     .visibility(this.searchCollapseOffset >= SEARCH_HEADER_HEIGHT - 0.5 ? Visibility.Hidden : Visibility.Visible)
   }
@@ -1487,12 +1496,25 @@ export struct SearchPage {
   }
 
   @LocalBuilder
+  buildSearchHeader() {
+    Column() {
+      this.buildSearchTitleBar()
+      this.buildSearchNavigationBottom()
+    }
+    .width('100%')
+    .height(WindowUtils.getStatusBarHeightVp() + SEARCH_HEADER_HEIGHT +
+      (this.hasSearched ? RESULT_TOOLBAR_HEIGHT : this.historyPanelHeight))
+    .padding({ top: WindowUtils.getStatusBarHeightVp() })
+    .translate({ y: -this.searchCollapseOffset })
+    .id('search-page-header')
+  }
+
+  @LocalBuilder
   buildSearchNavigationBottom() {
     Column() {
     if (this.hasSearched) {
       this.buildResultToolbar()
     } else if (this.entryReady && this.searchHistory.length > 0) {
-      // 通用沉浸材质置于导航自定义区域，与首页分类标签使用同一渲染范围。
       Column() {
         this.buildSearchHistory()
       }
@@ -1546,43 +1568,28 @@ export struct SearchPage {
         .height('100%')
         .clip(false)
         .backgroundColor(Color.Transparent)
+
+        // 可编辑控件必须位于目的页内容树，避免标题栏/overlay 的独立触摸链路。
+        Column()
+          .width('100%')
+          .height(this.headerBackdropHeight + AppRadius.Xl)
+          .backgroundEffect({ radius: 24, saturation: 1, brightness: 1,
+            color: $r('app.color.shelf_toolbar_background') })
+          .clipShape(this.headerBackdropClip())
+          .hitTestBehavior(HitTestMode.None)
+        this.buildSearchHeader()
       }
       .width('100%')
       .height('100%')
       .backgroundColor(HomeTheme.BgNeutral)
     }
-    .titleBar({
-      avoidLayoutSafeArea: true,
-      content: this.searchTitleBarContent,
-      // 保留透明初态，内容上滑后由系统绘制沉浸渐变模糊。
-      style: {
-        scrollEffectOpts: {
-          scrollEffectType: HdsCompat.scrollEffect
-        },
-        originalStyle: {
-          backgroundStyle: { backgroundColor: Color.Transparent }
-        },
-        scrollEffectStyle: {
-          backgroundStyle: { backgroundColor: Color.Transparent }
-        },
-        thermoCtrl: true
-      }
-    })
-    .titleMode(HdsNavDestinationTitleMode.MINI)
+    .hideTitleBar(true)
     .hideBackButton(true)
-    .bindToScrollable(this.hasSearched ? [this.resultScroller] : [this.recommendationScroller])
-    .dynamicHideTitleBar({
-      hideTitleArea: this.hasSearched && this.visibleResultCount > 0,
-      hideBottomBuilder: false,
-      hideStatusBar: false,
-      mode: HideMode.SCROLL_UP_TO,
-      hideRatio: 1.0
-    })
     .systemBarStyle(
       { statusBarContentColor: this.statusBarContentColor },
       { statusBarContentColor: this.statusBarContentColor }
     )
-    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.BOTTOM])
+    .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
     .backgroundColor(HomeTheme.BgNeutral)
     .bindMenu(this.resultGroupVisible, this.buildResultGroup, this.resultGroupMenuOptions())
     .onSizeChange((_oldSize: SizeOptions, size: SizeOptions): void => {

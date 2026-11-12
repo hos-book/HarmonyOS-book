@@ -6,6 +6,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { PageTurnMode } from '../model/TextReading';
 import { ReaderCurlGeometry, ReaderCurlPoint } from '../utils/ReaderCurlGeometry';
 import { ReaderSpreadGeometry } from '../utils/ReaderSpreadGeometry';
+import { PerformanceTrace } from '../utils/PerformanceTrace';
 
 class ReaderTurnFrame extends FrameCallback {
   private draw: () => void;
@@ -209,6 +210,7 @@ export struct ReaderPageTurnComponent {
   private async finishTurn(commit: boolean, ticket: number): Promise<void> {
     if (ticket !== this.serial || this.phase === 'completing') return;
     this.phase = 'completing';
+    const trace = PerformanceTrace.begin('ReaderTurn.Commit');
     try { await this.onComplete(commit); }
     catch (e) {
       this.pendingTurn = null;
@@ -216,6 +218,7 @@ export struct ReaderPageTurnComponent {
         e instanceof Error ? e.message : String(e));
     }
     finally {
+      PerformanceTrace.end('ReaderTurn.Commit', trace);
       if (ticket === this.serial) {
         // 仿真取消时底层仍是预览页，等还原/提交完成布局后再撤去纸面，避免闪出另一页。
         if (this.mode === PageTurnMode.Simulation && this.canvasReady) await this.pageFrame(100);
@@ -276,13 +279,12 @@ export struct ReaderPageTurnComponent {
     if (tap) this.onTurnFeedback(forward);
     try {
       if (this.mode === PageTurnMode.None && tap) {
-        const prepared = await this.onPrepare(forward);
+        const prepared = await this.preparePage(forward);
         if (ticket !== this.serial) return;
         await this.finishTurn(prepared, ticket);
         return;
       }
-      const bitmap = await this.getUIContext().getComponentSnapshot().get(this.snapshotId,
-        { waitUntilRenderFinished: true });
+      const bitmap = await this.capturePage();
       if (ticket !== this.serial) {
         bitmap.release().catch((): void => {});
         return;
@@ -297,7 +299,7 @@ export struct ReaderPageTurnComponent {
       this.drawFrame(0);
       await this.pageFrame();
       if (ticket !== this.serial) return;
-      const prepared = await this.onPrepare(forward);
+      const prepared = await this.preparePage(forward);
       if (ticket !== this.serial) return;
       if (!prepared) {
         this.cancelTurn();
@@ -308,8 +310,7 @@ export struct ReaderPageTurnComponent {
       if (ticket !== this.serial) return;
       if (this.spread && this.mode === PageTurnMode.Simulation) {
         // 布局 onIdle 不代表原生正文节点已提交绘制；必须等待渲染完成才缓存纸背。
-        const target = await this.getUIContext().getComponentSnapshot().get(this.snapshotId,
-          { waitUntilRenderFinished: true });
+        const target = await this.capturePage();
         if (ticket !== this.serial) { target.release().catch((): void => {}); return; }
         this.targetSnapshot = target;
         this.targetImage = new ImageBitmap(target);
@@ -327,14 +328,31 @@ export struct ReaderPageTurnComponent {
     }
   }
 
-  private pageFrame(timeout: number = 0): Promise<void> {
-    return new Promise<void>((resolve): void => {
-      const timer = timeout > 0 ? setTimeout(resolve, timeout) : -1;
-      this.getUIContext().postFrameCallback(new ReaderTurnLayoutFrame((): void => {
-        if (timer >= 0) clearTimeout(timer);
-        resolve();
-      }));
-    });
+  private async capturePage(): Promise<image.PixelMap> {
+    const trace = PerformanceTrace.begin('ReaderTurn.Capture');
+    try {
+      return await this.getUIContext().getComponentSnapshot().get(this.snapshotId,
+        { waitUntilRenderFinished: true });
+    } finally { PerformanceTrace.end('ReaderTurn.Capture', trace); }
+  }
+
+  private async preparePage(forward: boolean): Promise<boolean> {
+    const trace = PerformanceTrace.begin('ReaderTurn.Prepare');
+    try { return await this.onPrepare(forward); }
+    finally { PerformanceTrace.end('ReaderTurn.Prepare', trace); }
+  }
+
+  private async pageFrame(timeout: number = 0): Promise<void> {
+    const trace = PerformanceTrace.begin('ReaderTurn.Layout');
+    try {
+      await new Promise<void>((resolve): void => {
+        const timer = timeout > 0 ? setTimeout(resolve, timeout) : -1;
+        this.getUIContext().postFrameCallback(new ReaderTurnLayoutFrame((): void => {
+          if (timer >= 0) clearTimeout(timer);
+          resolve();
+        }));
+      });
+    } finally { PerformanceTrace.end('ReaderTurn.Layout', trace); }
   }
 
   private handleTouch(event: TouchEvent): void {
@@ -416,7 +434,7 @@ export struct ReaderPageTurnComponent {
     this.updatePagePan(new ReaderPanSample(event));
   }
 
-  private updatePagePan(event: ReaderPanSample): void {
+  private updatePagePan(event: ReaderPanSample, render: boolean = true): void {
     const content = this.contentPan;
     if (content !== null) {
       content.latest = event;
@@ -437,7 +455,11 @@ export struct ReaderPageTurnComponent {
     const travel = this.mode === PageTurnMode.Simulation && !this.spread ? size * 2 : size;
     this.progress = Math.max(0, Math.min(1, distance / Math.max(1, travel)));
     this.verticalDrag = event.offsetY;
-    if (this.phase === 'dragging') this.scheduleFrame();
+    if (render && this.phase === 'dragging') {
+      // Image 的位移由 ArkUI 合并提交；再排帧会让手指位置多等待一轮 VSync。
+      if (this.mode === PageTurnMode.Cover) this.drawFrame(this.progress);
+      else this.scheduleFrame();
+    }
   }
 
   private handlePanEnd(event: GestureEvent): void {
@@ -462,7 +484,8 @@ export struct ReaderPageTurnComponent {
       return;
     }
     if (this.released || (this.phase !== 'preparing' && this.phase !== 'dragging')) return;
-    this.updatePagePan(event);
+    // 松手样本只参与提交判定，收尾仍从上一笔已提交的纸面位置接续。
+    this.updatePagePan(event, false);
     const speed = this.mode === PageTurnMode.Vertical ? event.velocityY : event.velocityX;
     const velocity = this.forward ? -speed : speed;
     this.released = true;
@@ -543,7 +566,9 @@ export struct ReaderPageTurnComponent {
       this.progress = value;
       const remaining = Math.abs(end - this.settleStart);
       this.verticalDrag = this.releaseVertical * (remaining > 0.001 ? Math.abs(end - value) / remaining : 0);
-      this.scheduleFrame();
+      // Animator 已按显示帧回调，覆盖层直接提交位移，避免二次排帧造成滞后。
+      if (this.mode === PageTurnMode.Cover) this.drawFrame(value);
+      else this.scheduleFrame();
     };
     animation.onFinish = (): void => {
       if (ticket !== this.serial || this.animator !== animation) return;

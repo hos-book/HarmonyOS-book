@@ -172,6 +172,14 @@
     {"name":"theme_jianjian_cover_text","value":"#FBEAF2"},
     {"name":"theme_jianjian_cover_label","value":"#E6302330"},
     {"name":"theme_jianjian_local_cover_text","value":"#FBEAF2"},
-    {"name":"theme_jianjian_local_cover_author","value":"#D7BDC9"}
+    {"name":"theme_jianjian_local_cover_author","value":"#D7BDC9"},
+    {"name":"app_background_paper_top","value":"#342C26"},
+    {"name":"app_background_paper_mid","value":"#242322"},
+    {"name":"app_background_paper_bottom","value":"#212923"},
+    {"name":"app_background_mist_top","value":"#1E2935"},
+    {"name":"app_background_mist_mid","value":"#242B32"},
+    {"name":"app_background_mist_bottom","value":"#202C2D"},
+    {"name":"app_background_veil","value":"#151319"},
+    {"name":"app_background_night_scrim","value":"#88000000"}
   ]
 }

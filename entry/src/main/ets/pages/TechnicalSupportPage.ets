@@ -129,6 +129,7 @@ export struct TechnicalSupportPage {
     ['浅度', $r('app.string.support_thanks_qiandu')],
     ['相思界', $r('app.string.support_thanks_xiangsijie')],
     ['XIAOBAO', $r('app.string.support_thanks_xiaobao')],
+    ['三三', $r('app.string.support_thanks_sansan')],
     ['WT', $r('app.string.support_thanks_wt')],
     ['子阳', $r('app.string.support_thanks_ziyang')],
     ['default', $r('app.string.support_thanks_default')],

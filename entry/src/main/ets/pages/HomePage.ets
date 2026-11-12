@@ -12,6 +12,8 @@ import { AppColor, AppRadius, AppSpace, AppFont, AppMaterial, AppCurve, HomeThem
 import { ThemeIconRole } from '../theme/ThemeIcons';
 import { ThemeIconComponent } from '../components/ThemeIconComponent';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
+import { AppBackgroundScene } from '../model/AppBackground';
+import { AppBackgroundService } from '../service/AppBackgroundService';
 import { WindowUtils } from '../utils/WindowUtils';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { PlatformCompat } from '../utils/PlatformCompat';
@@ -45,6 +47,7 @@ import { EVT_HOME_SOURCE_CHANGED, EVT_FAVORITES_CHANGED, PreferenceService } fro
 import { HomeSourceCategory, HomeSourceContent, HomeSourceService } from '../service/rulesource/HomeSourceService';
 import { RankingHomePage } from './RankingHomePage';
 import { RankingService } from '../service/ranking/RankingService';
+import { ReadingSession, SessionLocation } from '../service/ReadingSessionService';
 
 class HomeFilterOptionItem {
   control: LocalRuleControl;
@@ -297,6 +300,7 @@ struct HomeLoadingSkeleton {
 @ComponentV2
 export struct HomePage {
   @Param visible: boolean = true;
+  @Local appBackgrounds: AppBackgroundService = AppBackgroundService.instance;
   @Param bottomTabInset: number = 0;
   @Param miniPlayerVisible: boolean = false;
   @Local rankingMode: boolean = false;
@@ -305,6 +309,9 @@ export struct HomePage {
   @Event onManageSources: (resume: () => void) => void = () => {};
   @Event onSourceSettings: (sourceUrl: string) => void = () => {};
   @Event onRankingBookTap: (id: string, resume: () => void) => void = () => {};
+  @Event onOpenReader: (book: Book, onReturn: () => void, resourceIndex?: number) => void = () => {};
+  @Event onOpenHistory: (book: Book) => void = () => {};
+  @Event onHistoryJump: (session: ReadingSession, location: SessionLocation) => void = () => {};
   @Local homeBlocks: HomeBlockSection[] = [];
   @Local carouselBooks: SearchResult[] = [];
   @Local carouselCover: string = '';
@@ -1648,16 +1655,23 @@ export struct HomePage {
     Column().width(0).height(0)
   }
 
+  private hasAppBackground(): boolean {
+    return this.appBackgrounds.revision >= 0 &&
+      this.appBackgrounds.resolve(AppBackgroundScene.Home).preset !== 'theme';
+  }
+
   build() {
     Stack() {
-      if (!AppTheme.ShowCoverBackdrop) {
-        ThemeBackgroundComponent()
+      if (!AppTheme.ShowCoverBackdrop || this.hasAppBackground()) {
+        ThemeBackgroundComponent({ appScene: AppBackgroundScene.Home })
       }
       if (!this.homeResolved) {
         LoadingProgress().width(28).height(28).color(AppColor.Brand)
       } else if (this.rankingMode) {
         RankingHomePage({ visible: this.visible, bottomTabInset: this.bottomTabInset,
-          miniPlayerVisible: this.miniPlayerVisible, headerBuilder: (): void => this.buildSearchTitleBar(), onBookTap: this.onRankingBookTap,
+          customBackground: this.hasAppBackground(),
+          headerBuilder: (): void => this.buildSearchTitleBar(), onBookTap: this.onRankingBookTap,
+          onOpenReader: this.onOpenReader, onOpenHistory: this.onOpenHistory, onHistoryJump: this.onHistoryJump,
           onSearchTap: this.onSearchTap, onManageSources: this.onManageSources,
           onScrollerReady: this.onScrollerReady, onContentScroll: this.onContentScroll,
           onBackHandlerChange: (handler: (() => boolean) | undefined): void => { this.rankingBackHandler = handler; }
@@ -1685,7 +1699,7 @@ export struct HomePage {
   buildSourceHome() {
     Stack({ alignContent: Alignment.TopStart }) {
       Stack({ alignContent: Alignment.TopStart }) {
-        if (AppTheme.ShowCoverBackdrop) {
+        if (AppTheme.ShowCoverBackdrop && !this.hasAppBackground()) {
           RankingPosterBackground({ cover: this.carouselCover,
             suspended: !this.visible || this.openingCarouselBook || this.coverState.detailBookId.length > 0,
             imageHeight: this.contentHeight + this.topSafeVp + this.bottomSafeVp })
@@ -1693,7 +1707,7 @@ export struct HomePage {
       }
         .width('100%')
         .height('100%')
-        .backgroundColor(!AppTheme.ShowCoverBackdrop ? Color.Transparent : HomeTheme.BgNeutral)
+        .backgroundColor(!AppTheme.ShowCoverBackdrop || this.hasAppBackground() ? Color.Transparent : HomeTheme.BgNeutral)
         .clip(true)
         .hitTestBehavior(HitTestMode.None)
         .accessibilityLevel('no')

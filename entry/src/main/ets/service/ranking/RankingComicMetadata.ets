@@ -74,7 +74,27 @@ export class RankingComicMetadata {
     }
   }
 
-  private static async fetch(context: common.Context, id: string): Promise<RankingBook | null> {
+  /**
+   * 封面加载失败后的强制刷新：绕过“已有 URL”和 60 秒失败节流，也跳过磁盘旧封面，
+   * 重新访问作品页拿当前封面。
+   */
+  static async refresh(context: common.Context, book: RankingBook): Promise<string> {
+    if (book.platformId !== 'qqcomic' || !/^qqcomic:\d+$/.test(book.id)) return '';
+    RankingComicMetadata.failedAt.delete(book.id);
+    const result = await RankingComicMetadata.fetch(context, book.id, true);
+    if (result === null) {
+      RankingComicMetadata.failedAt.set(book.id, Date.now());
+      return '';
+    }
+    book.coverUrl = result.coverUrl;
+    book.author = result.author;
+    book.intro = result.intro;
+    book.rating = result.rating;
+    RankingComicMetadata.memory.set(book.id, result);
+    return result.coverUrl;
+  }
+
+  private static async fetch(context: common.Context, id: string, fresh: boolean = false): Promise<RankingBook | null> {
     const key = `qqcomic-info-${id.substring(8)}`;
     let stale: RankingBook | null = null;
     try {
@@ -90,7 +110,8 @@ export class RankingComicMetadata {
           const rating = Number(record.getString('rating'));
           stale.rating = Number.isFinite(rating) && rating > 0 && rating <= 10 ? rating : 0;
           const age = Date.now() - record.getInt('updatedAt');
-          if (age >= 0 && age < 7 * 86400000) return stale;
+          // fresh 时跳过旧封面直接访问作品页，但保留 stale 作为网络失败兜底。
+          if (age >= 0 && age < 7 * 86400000 && !fresh) return stale;
         }
       }
     } catch (_error) { /* 缓存失效时访问官方作品页。 */ }

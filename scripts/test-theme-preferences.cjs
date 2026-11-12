@@ -9,7 +9,7 @@ const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-l
 const etsRoot = path.join(__dirname, '../entry/src/main/ets');
 const themeKey = 'app_theme_preferences';
 const realModules = new Set([
-  'model/AppAppearance', 'model/AppThemeBundle', 'model/AppThemeVisual', 'theme/ThemeBundles',
+  'model/AppAppearance', 'model/AppThemeBundle', 'model/AppThemeVisual', 'model/ComicReaderAppearance', 'theme/ThemeBundles',
   'theme/bundles/DefaultTheme', 'theme/bundles/PaperTheme', 'theme/bundles/MistTheme', 'theme/bundles/InkTheme',
   'theme/bundles/JianjianTheme', 'service/PreferenceService', 'service/sync/LibrarySyncModel'
 ]);

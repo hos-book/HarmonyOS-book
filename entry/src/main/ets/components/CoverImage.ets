@@ -33,6 +33,7 @@ class CoverCompositeClip implements AttributeModifier<CommonAttribute> {
  */
 @ComponentV2
 export struct CoverImage {
+  @Event onLoadError: () => void = () => {};
   @Param url: string = '';
   @Param title: string = '';
   @Param author: string = '';
@@ -162,6 +163,7 @@ export struct CoverImage {
       if (this.appeared && this.url === raw && generation === this.resolveGeneration) {
         this.loadHandle = undefined;
         this.giveUp = true;
+        this.onLoadError();
       }
     });
   }
@@ -181,6 +183,7 @@ export struct CoverImage {
         CoverImage.failedUntil.delete(key);
       }
       this.giveUp = true;
+      this.onLoadError();
       return;
     }
     this.retryCount = this.retryCount + 1;

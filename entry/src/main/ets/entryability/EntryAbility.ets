@@ -15,6 +15,7 @@ import { PreferenceService } from '../service/PreferenceService';
 import { AiModelPackService } from '../service/AiModelPackService';
 import { AppIconService } from '../service/AppIconService';
 import { BottomTabIconService } from '../service/BottomTabIconService';
+import { AppBackgroundService } from '../service/AppBackgroundService';
 import lazy { AuthService } from '../service/AuthService';
 import lazy { MembershipService } from '../service/MembershipService';
 import lazy { AutoBackupService } from '../service/AutoBackupService';
@@ -573,6 +574,7 @@ export default class EntryAbility extends UIAbility {
     await Promise.all([
       PreferenceService.init(this.context).catch((): void => {}),
       BottomTabIconService.instance.init(this.context).catch((): void => {}),
+      AppBackgroundService.instance.init(this.context).catch((): void => {}),
       MembershipService.instance.prepareAppearance(this.context)
     ]);
     windowStage.loadContent('pages/Index', (err) => {

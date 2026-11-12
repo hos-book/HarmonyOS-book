@@ -67,7 +67,7 @@ export class RankingService {
       new RankingBoard('bilicomic-13', 'bilicomic', $r('app.string.ranking_bilicomic'), $r('app.string.ranking_comic_finished'),
         'https://manga.bilibili.com/ranking/13'),
       new RankingBoard('lr-hot', 'lrts', $r('app.string.ranking_lrts'), $r('app.string.ranking_hot'),
-        'https://www.lrts.me/rank/hot/week'),
+        RankingService.lanrenEndpoint(75)),
       new RankingBoard('qd-month', 'qidian', $r('app.string.ranking_qidian'), $r('app.string.ranking_month'),
         'https://m.qidian.com/rank/yuepiao/'),
       new RankingBoard('xm-free', 'ximalaya', $r('app.string.ranking_ximalaya'), $r('app.string.ranking_free'),
@@ -83,7 +83,7 @@ export class RankingService {
       new RankingBoard('qd-sales', 'qidian', $r('app.string.ranking_qidian'), $r('app.string.ranking_sales'),
         'https://m.qidian.com/rank/hotsales/'),
       new RankingBoard('lr-comment', 'lrts', $r('app.string.ranking_lrts'), $r('app.string.ranking_comment'),
-        'https://www.lrts.me/rank/comment/week'),
+        RankingService.lanrenEndpoint(76)),
       new RankingBoard('xm-paid', 'ximalaya', $r('app.string.ranking_ximalaya'), $r('app.string.ranking_paid'),
         'https://www.ximalaya.com/revision/rank/getRankList?rankType=paidAlbum&pageSize=50'),
       new RankingBoard('qm-boy', 'qimao', $r('app.string.ranking_qimao'), $r('app.string.ranking_boy_hot'),
@@ -95,13 +95,13 @@ export class RankingService {
       new RankingBoard('jj-month', 'jjwxc', $r('app.string.ranking_jjwxc'), $r('app.string.ranking_monthly'),
         'https://www.jjwxc.net/topten.php?orderstr=5'),
       new RankingBoard('lr-search', 'lrts', $r('app.string.ranking_lrts'), $r('app.string.ranking_search_week'),
-        'https://www.lrts.me/rank/search/week'),
+        RankingService.lanrenEndpoint(77)),
       new RankingBoard('lr-free', 'lrts', $r('app.string.ranking_lrts'), $r('app.string.ranking_free_week'),
-        'https://www.lrts.me/rank/down/week'),
+        RankingService.lanrenEndpoint(14481)),
       new RankingBoard('lr-sales', 'lrts', $r('app.string.ranking_lrts'), $r('app.string.ranking_sales_week'),
-        'https://www.lrts.me/rank/male/week'),
+        RankingService.lanrenEndpoint(265)),
       new RankingBoard('lr-finished', 'lrts', $r('app.string.ranking_lrts'), $r('app.string.ranking_finished_week'),
-        'https://www.lrts.me/rank/female/week'),
+        RankingService.lanrenEndpoint(739)),
       new RankingBoard('xm-hot', 'ximalaya', $r('app.string.ranking_ximalaya'), $r('app.string.ranking_audio_hot'),
         'https://www.ximalaya.com/revision/rank/v3/element?typeId=12&clusterId=52&pageNum=1&pageSize=30'),
       new RankingBoard('xm-new', 'ximalaya', $r('app.string.ranking_ximalaya'), $r('app.string.ranking_audio_new'),
@@ -145,6 +145,11 @@ export class RankingService {
       new RankingBoard('fl-month-favorites', 'faloo', $r('app.string.ranking_faloo'),
         $r('app.string.ranking_month_favorites'), 'https://b.faloo.com/y_0_0_0_0_3_8_1.html')
     ];
+  }
+
+  /** 新版官网榜单接口：rangeType=1 为周榜；保留旧 board ID 和用户排序。 */
+  private static lanrenEndpoint(rankId: number): string {
+    return `https://www.lanrentingshu.com/api/ranking/resList?rankId=${rankId}&rangeType=1&pageSize=100`;
   }
 
   /** 官网分类榜：gender 1/0 为男/女频，rankMold 2/1 为阅读/新书榜。 */
@@ -204,6 +209,9 @@ export class RankingService {
 
   /** 漫画榜使用官网桌面页面；手机 UA 会重定向到不同结构的移动站。 */
   static headers(platform: string): Record<string, string> {
+    if (platform === 'lrts') {
+      return { 'Referer': 'https://www.lanrentingshu.com/discover/ranking', 'Accept': 'application/json' };
+    }
     if (platform !== 'qqcomic' && platform !== 'bilicomic') return {};
     return {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',

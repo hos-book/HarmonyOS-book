@@ -46,6 +46,7 @@ import { RuleSourceEditPage } from './RuleSourceEditPage';
 import { RuleSourceDebugPage } from './RuleSourceDebugPage';
 import { RuleSourcePanelPage } from './RuleSourcePanelPage';
 import { TextReaderRouteParams } from '../model/TextReading';
+import { RankingReaderTransition } from '../utils/RankingReaderTransition';
 import { ShelfReaderOpenSurface } from '../components/ShelfReaderOpenSurface';
 import { ShelfReaderOpenState, ShelfReaderRouteParams } from '../utils/ShelfReaderTransition';
 import { RuleSourceLoginRouteParams } from '../model/RuleSourceLogin';
@@ -114,6 +115,8 @@ struct Index {
   @Local parallelNavigation: boolean = false;
   @Local playerRenderGroup: boolean = false;
   @Local playerOpacity: number = 1;
+  @Local rankingReaderVeil: number = 0;
+  @Local rankingReaderOpacity: number = 1;
   @Local playerDragState: PlayerDragState = PlayerDragTransition.getInstance().state;
   @Local navigationEnabled: boolean = true;
   @Local detailOpaqueBackground: boolean = true;
@@ -348,6 +351,12 @@ struct Index {
 
   private oneShotNavigationTransition(from: NavContentInfo, to: NavContentInfo,
     operation: NavigationOperation): NavigationAnimatedTransition | undefined {
+    if (operation === NavigationOperation.POP && to.index === -1 &&
+      from.param instanceof TextReaderRouteParams &&
+      RankingReaderTransition.canReturn(from.name ?? '', from.param.bookId)) {
+      OneShotTransitionCoordinator.getInstance().discardPending();
+      return this.rankingReaderReturnTransition(from.param.bookId);
+    }
     if (operation === NavigationOperation.PUSH && to.name === 'reader' &&
       to.param instanceof ShelfReaderRouteParams && to.param.opening.active) {
       OneShotTransitionCoordinator.getInstance().discardPending();
@@ -506,6 +515,49 @@ struct Index {
     return animatedTransition;
   }
 
+  /** 正文原地淡白，由满屏详情卡接力收回；卡片恢复完成才结束导航。 */
+  private rankingReaderReturnTransition(bookId: string): NavigationAnimatedTransition {
+    let finished: boolean = false;
+    const animation: NavigationAnimatedTransition = {
+      timeout: 1400,
+      transition: (proxy: NavigationTransitionProxy): void => {
+        this.navigationEnabled = false;
+        this.rankingReaderVeil = 0;
+        this.rankingReaderOpacity = 1;
+        RankingReaderTransition.prepareClose(bookId, (): void => {
+          if (!finished) proxy.finishTransition();
+        });
+        this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+          if (finished) return;
+          this.getUIContext().animateTo({ duration: AppMotion.Fast, curve: AppCurve.Decelerate,
+            onFinish: (): void => {
+              if (finished) return;
+              this.rankingReaderOpacity = 0;
+              RankingReaderTransition.beginClose(bookId);
+            }
+          }, (): void => { this.rankingReaderVeil = 1; });
+        }));
+      },
+      onTransitionEnd: (success: boolean): void => {
+        finished = true;
+        this.rankingReaderVeil = 0;
+        this.rankingReaderOpacity = 1;
+        this.navigationEnabled = true;
+        if (!success) RankingReaderTransition.cancelClose(bookId);
+      }
+    };
+    return animation;
+  }
+
+  @Builder
+  private rankingReaderReturnVeil() {
+    Column().width('100%').height('100%').backgroundColor(AppTheme.Surface)
+      .opacity(this.rankingReaderVeil).zIndex(1)
+      .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+        [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM, SafeAreaEdge.START, SafeAreaEdge.END])
+      .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
+  }
+
   private playerFadeTransition(isPush: boolean): NavigationAnimatedTransition {
     let finished: boolean = false;
     const animation: NavigationAnimatedTransition = {
@@ -627,20 +679,30 @@ struct Index {
       .opacity(this.playerOpacity)
     } else if (name === 'comicReader') {
       NavDestination() {
-        ComicReaderPage({ navStack: this.navStack,
-          params: param instanceof TextReaderRouteParams ? param : new TextReaderRouteParams() })
+        Stack() {
+          ComicReaderPage({ navStack: this.navStack,
+            params: param instanceof TextReaderRouteParams ? param : new TextReaderRouteParams() })
+          this.rankingReaderReturnVeil()
+        }.width('100%').height('100%')
       }.hideTitleBar(true).backgroundColor('#121212')
+      .opacity(this.rankingReaderOpacity)
       .onShown((): void => { this.syncReaderWindowMode(); WindowUtils.setReaderStatusBarLight(true); })
       .onHidden((): void => { this.syncReaderWindowMode(); })
     } else if (name === 'reader') {
       NavDestination() {
-        ReaderPageWrapper({ navStack: this.navStack, param: param as Object })
+        Stack() {
+          ReaderPageWrapper({ navStack: this.navStack, param: param as Object })
+          this.rankingReaderReturnVeil()
+        }.width('100%').height('100%')
       }
       .hideTitleBar(true)
       .backgroundColor(param instanceof ShelfReaderRouteParams && param.opening.active ? Color.Transparent : '#F5F2EA')
+      .opacity(this.rankingReaderOpacity)
       .onShown((): void => this.syncReaderWindowMode())
       .onHidden((): void => this.syncReaderWindowMode())
-      .systemTransition(NavigationSystemTransitionType.SLIDE_RIGHT)
+      .systemTransition(param instanceof TextReaderRouteParams &&
+        RankingReaderTransition.canReturn('reader', param.bookId) ?
+        NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.SLIDE_RIGHT)
     } else if (name === 'search') {
       SearchPage({ navStack: this.navStack, initialKeyword: this.resolveParam(param, 'keyword') })
     } else if (name === 'achievements') {
@@ -720,9 +782,9 @@ struct Index {
           MembershipPage({ navStack: this.navStack })
         }
       }
-    } else if (name === 'membership') {
+    } else if (name === 'membership' || name === 'appBackground') {
       ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
-        MembershipPage({ navStack: this.navStack })
+        MembershipPage({ navStack: this.navStack, initialTab: name === 'appBackground' ? 1 : 0 })
       }
     } else if (name === 'ruleSources') {
       // RuleSourcePage 自带 ProfileMenuDestination：页内多级视图需拦截侧滑返回

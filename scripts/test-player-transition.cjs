@@ -316,3 +316,76 @@ drag.end(-12, 0);
 assert.equal(drag.state.coverSource, '/cancelled-cover.jpg', 'cancellation retains the cover while settling');
 finishCancel(); resetCheck(); drag.clearReturnTarget();
 console.log('PASS decoded cover handoff, snapshot fallback, late callback isolation and cancellation cleanup');
+
+// The first render must already use the final full viewport, before deferred size callbacks run.
+const playerPageSource = fs.readFileSync(path.join(__dirname,
+  '../entry/src/main/ets/pages/PlayerPage.ets'), 'utf8');
+const pageMethods = playerPageSource.slice(playerPageSource.indexOf('  private initializeViewport('),
+  playerPageSource.indexOf('  private landscapeBodyHeight('));
+const viewportFields = playerPageSource.slice(playerPageSource.indexOf('  @Local viewportWidth:'),
+  playerPageSource.indexOf('  @Local topSafeVp:')).replace(/@Local\s*/g, '');
+const appearMethod = playerPageSource.slice(playerPageSource.indexOf('  aboutToAppear('),
+  playerPageSource.indexOf('  /** 同步从 SearchCache'));
+const cancelViewportMethod = playerPageSource.slice(playerPageSource.indexOf('  private cancelViewportUpdateTimer('),
+  playerPageSource.indexOf('  aboutToAppear('));
+const adaptiveExports = {};
+vm.runInNewContext(ts.transpileModule(fs.readFileSync(path.join(__dirname,
+  '../entry/src/main/ets/utils/AdaptiveLayout.ets'), 'utf8'), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
+}).outputText, { exports: adaptiveExports });
+const layoutExports = {};
+const sizeTasks = new Map();
+let sizeSequence = 0;
+let rootViewport = rect(0, 0, 1740, 800);
+let rootAvailable = true;
+vm.runInNewContext(ts.transpileModule(
+  'export class Page { ' + viewportFields + pageMethods + appearMethod + cancelViewportMethod + ' }', {
+    compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 }
+  }).outputText, {
+  exports: layoutExports,
+  AdaptiveLayout: adaptiveExports.AdaptiveLayout,
+  WindowUtils: { getWindowWidthVp: () => 870, getWindowHeightVp: () => 400 },
+  OneShotTransitionIds: { ROOT_NAVIGATION: 'root' },
+  PlayerDragTransition: { measure: () => {
+    if (!rootAvailable) throw new Error('root not mounted');
+    return rootViewport;
+  } },
+  setTimeout: callback => { const id = ++sizeSequence; sizeTasks.set(id, callback); return id; },
+  clearTimeout: id => sizeTasks.delete(id)
+});
+function layoutPage(dragState) {
+  const page = new layoutExports.Page();
+  Object.assign(page, { dragState, previewOnly: true, isLeaving: false, viewportUpdateTimerId: -1,
+    getUIContext: () => ({ px2vp: value => value / 2 }),
+    primeFromCache() { this.firstLayout = [this.viewportWidth, this.viewportHeight, this.isLandscapePlayer()]; }
+  });
+  return page;
+}
+const landscapePage = layoutPage({ active: true, viewportWidth: 870, viewportHeight: 400 });
+rootViewport = rect(0, 0, 736, 120); // A source bar/split pane must not replace the captured full viewport.
+landscapePage.aboutToAppear();
+assert.deepEqual(landscapePage.firstLayout, [870, 400, true]);
+assert.equal(sizeTasks.size, 0, 'landscape entry does not wait for an asynchronous layout correction');
+const portraitPage = layoutPage({ active: true, viewportWidth: 400, viewportHeight: 870 });
+portraitPage.aboutToAppear();
+assert.deepEqual(portraitPage.firstLayout, [400, 870, false]);
+rootViewport = rect(0, 0, 1740, 800);
+const directPage = layoutPage({ active: false });
+directPage.aboutToAppear();
+assert.deepEqual(directPage.firstLayout, [870, 400, true], 'direct entry measures the root in vp');
+rootAvailable = false;
+const fallbackPage = layoutPage({ active: false });
+fallbackPage.aboutToAppear();
+assert.deepEqual(fallbackPage.firstLayout, [870, 400, true], 'missing root retains the actual window fallback');
+landscapePage.handleViewportSizeChange({ width: 400, height: 870 });
+landscapePage.handleViewportSizeChange({ width: 820, height: 420 });
+assert.equal(sizeTasks.size, 1, 'resizing replaces stale pending dimensions');
+for (const callback of sizeTasks.values()) callback();
+sizeTasks.clear();
+assert.equal(landscapePage.viewportWidth, 820);
+assert.equal(landscapePage.isLandscapePlayer(), true);
+landscapePage.handleViewportSizeChange({ width: 400, height: 870 });
+landscapePage.isLeaving = true;
+for (const callback of sizeTasks.values()) callback();
+assert.equal(landscapePage.viewportWidth, 820, 'late resize cannot mutate a removed player');
+console.log('PASS first-frame landscape/portrait, preview/full viewport, direct entry, missing root and resize cleanup');

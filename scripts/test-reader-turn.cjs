@@ -89,7 +89,8 @@ vm.runInNewContext(compiled.outputText, {
   ReaderCurlPoint: geometry.ReaderCurlPoint, ReaderCurlGeometry: geometry.ReaderCurlGeometry, ReaderSpreadGeometry: geometry.ReaderSpreadGeometry,
   ReaderTapPolicy: { DEFAULT: '', resolve: (_regions, x) => x < 260 ? 0 : x > 540 ? 2 : 1 },
   ReaderTouchTracker: class { canTap() { return true; } cancel() {} },
-  hilog: { warn() {} }, emitter: { on() {}, off() {} }, Curve: { EaseOut: 'easeOut' }
+  hilog: { warn() {} }, emitter: { on() {}, off() {} }, Curve: { EaseOut: 'easeOut' },
+  PerformanceTrace: { begin: () => -1, end() {} }
 });
 const { ReaderPageTurnComponent } = exportsObject;
 async function flush() { for (let i = 0; i < 15; i++) await Promise.resolve(); }
@@ -261,6 +262,34 @@ async function checkContinuousInput() {
   assert.equal(animations.length, 0);
   assert.equal(captures, releases, 'continuous input never leaks a page snapshot');
 }
+async function checkCoverFrameDelivery() {
+  for (const forward of [true, false]) {
+    const cover = make();
+    const sign = forward ? -1 : 1;
+    const starting = cover.beginTurn(forward, false, 300);
+    await flush(); await frame(); await frame(); await starting;
+    const queued = frames.length;
+    for (const distance of [40, 80, 160, 280, 320]) {
+      cover.handlePanUpdate(pan(sign * distance));
+      assert.equal(cover.coverOffset, sign * distance,
+        'cover accepts the current finger position without waiting for a second display callback');
+    }
+    assert.equal(frames.length, queued, 'touch samples cannot accumulate extra display callbacks');
+    cover.handlePanEnd(pan(sign * 320, sign * 900));
+    const animation = animations.shift();
+    assert.equal(animation.options.begin, 0.4, 'release continues from the latest submitted touch position');
+    for (const progress of [0.5, 0.7, 0.9]) {
+      animation.onFrame(progress);
+      assert.equal(cover.coverOffset, sign * 800 * progress,
+        'the animator frame is submitted immediately instead of being delayed into another frame');
+    }
+    assert.equal(frames.length, queued, 'cover animation has no second frame scheduler');
+    assert.deepEqual(cover.completed, [], 'frame delivery cannot commit reading progress');
+    await handoff(animation);
+    assert.deepEqual(cover.completed, [true]);
+  }
+  console.log('PASS immediate cover touch/animation delivery in both directions, continuous input and progress handoff');
+}
 async function checkSpread() {
   for (const forward of [true, false]) {
     for (const commit of [true, false]) {
@@ -423,6 +452,7 @@ async function main() {
   assert.deepEqual(aborted.completed, [false], 'cancel during loading restores the previous page');
   assert.equal(aborted.coverSnapshot, null);
   assert.equal(releases, 3, 'all snapshots released exactly once');
+  await checkCoverFrameDelivery();
   await checkContinuousInput();
   await checkContentPan();
   await checkSpread();

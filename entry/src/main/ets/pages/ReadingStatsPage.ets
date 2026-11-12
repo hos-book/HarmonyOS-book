@@ -12,6 +12,7 @@ import { emitter } from '@kit.BasicServicesKit';
 import { HdsNavigation, HdsNavigationTitleMode } from '@kit.UIDesignKit';
 import { AppColor, AppMaterial, AppFont, AppRadius, AppSpace, HomeTheme, AppTheme } from '../theme/Theme';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
+import { AppBackgroundScene } from '../model/AppBackground';
 import { ThemeBackgroundScene } from '../model/AppThemeVisual';
 import { ThemeIconRole } from '../theme/ThemeIcons';
 import { WindowUtils } from '../utils/WindowUtils';
@@ -880,7 +881,7 @@ export struct ReadingStatsPage {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      ThemeBackgroundComponent({ warmMid: 0.42, scene: ThemeBackgroundScene.Record })
+      ThemeBackgroundComponent({ warmMid: 0.42, scene: ThemeBackgroundScene.Record, appScene: AppBackgroundScene.Record })
 
       HdsNavigation() {
         Refresh({ refreshing: $$this.refreshing, builder: this.refreshIndicator() }) {

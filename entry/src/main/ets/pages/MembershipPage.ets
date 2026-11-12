@@ -11,24 +11,32 @@ import { AppIconPage } from './AppIconPage';
 import { AppIconService } from '../service/AppIconService';
 import { ThemeBundleComponent } from '../components/ThemeBundleComponent';
 import { BottomTabIconComponent } from '../components/BottomTabIconComponent';
+import { AppBackgroundSettingsComponent } from '../components/AppBackgroundSettingsComponent';
+import { ImmersiveOptionTabs } from '../components/ImmersiveOptionTabs';
 
 /** 主题选择独立展示，受限图标按需打开会员中心。 */
 @ComponentV2
 export struct MembershipPage {
   @Param navStack: NavPathStack = new NavPathStack();
+  @Param initialTab: number = 0;
   @Local membership: MembershipService = MembershipService.instance;
 
   @Local showMembership: boolean = false;
   @Local selectedTab: number = 0;
+  @Local selectedIconTab: number = 0;
   @Local tabBarHeight: number = 40;
   @Local tabBarWidth: number = 0;
   @Local titleBarHeight: number = WindowUtils.getStatusBarHeightVp() + 40 + AppSpace.Sm * 2;
   private tabsController: TabsController = new TabsController();
   private tabItems: SegmentButtonV2Items = new SegmentButtonV2Items([
-    { text: $r('app.string.app_icon_title') },
     { text: $r('app.string.theme_bundle_title') },
-    { text: $r('app.string.bottom_tab_icon_title') }
+    { text: $r('app.string.app_background_title') },
+    { text: $r('app.string.theme_icons_tab') }
   ]);
+
+  aboutToAppear(): void {
+    this.selectedTab = this.initialTab === 1 ? 1 : 0;
+  }
 
   @Builder
   membershipSheet() {
@@ -96,7 +104,7 @@ export struct MembershipPage {
         })
 
       Row() {
-        ForEach(['app-icon', 'theme-bundle', 'bottom-tab-icon'], (key: string, index: number) => {
+        ForEach(['theme-bundle', 'app-background', 'theme-icons'], (key: string, index: number) => {
           Row()
             .layoutWeight(1)
             .height(this.tabBarHeight - 6)
@@ -139,15 +147,8 @@ export struct MembershipPage {
         TabContent() {
           Scroll() {
             Column({ space: AppSpace.Lg }) {
-              if (AppIconService.instance.membershipRequired && this.membership.busy) {
-                Row({ space: AppSpace.Sm }) {
-                  LoadingProgress().width(24).height(24).color(AppColor.Brand)
-                  Text($r('app.string.membership_syncing')).fontSize(AppFont.Body)
-                    .fontColor(AppTheme.TextSecondary).layoutWeight(1)
-                }.width('100%')
-              }
-              AppIconPage({ onMembershipRequired: (): void => { this.showMembership = true; } })
-            }.width('100%').constraintSize({ maxWidth: 680 }).padding({ left: AppSpace.Md, right: AppSpace.Md,
+              ThemeBundleComponent({ onMembershipRequired: (): void => { this.showMembership = true; } })
+            }.width('100%').constraintSize({ maxWidth: 920 }).padding({ left: AppSpace.Md, right: AppSpace.Md,
               top: this.titleBarHeight + this.tabBarHeight + AppSpace.Sm * 3,
               bottom: WindowUtils.getBottomSafeVp() + AppSpace.Lg })
           }.width('100%').height('100%').scrollBar(BarState.Off).align(Alignment.Top)
@@ -155,8 +156,8 @@ export struct MembershipPage {
         TabContent() {
           Scroll() {
             Column() {
-              ThemeBundleComponent({ onMembershipRequired: (): void => { this.showMembership = true; } })
-            }.width('100%').constraintSize({ maxWidth: 920 })
+              AppBackgroundSettingsComponent()
+            }.width('100%').constraintSize({ maxWidth: 680 })
             .padding({ left: AppSpace.Md, right: AppSpace.Md,
               top: this.titleBarHeight + this.tabBarHeight + AppSpace.Sm * 3,
               bottom: WindowUtils.getBottomSafeVp() + AppSpace.Lg })
@@ -164,8 +165,24 @@ export struct MembershipPage {
         }
         TabContent() {
           Scroll() {
-            Column() {
-              BottomTabIconComponent()
+            Column({ space: AppSpace.Md }) {
+              ImmersiveOptionTabs({
+                labels: [$r('app.string.app_icon_title'), $r('app.string.bottom_tab_icon_title')],
+                selected: this.selectedIconTab,
+                onSelect: (index: number): void => { this.selectedIconTab = index; }
+              })
+              if (this.selectedIconTab === 0) {
+                if (AppIconService.instance.membershipRequired && this.membership.busy) {
+                  Row({ space: AppSpace.Sm }) {
+                    LoadingProgress().width(24).height(24).color(AppColor.Brand)
+                    Text($r('app.string.membership_syncing')).fontSize(AppFont.Body)
+                      .fontColor(AppTheme.TextSecondary).layoutWeight(1)
+                  }.width('100%')
+                }
+                AppIconPage({ onMembershipRequired: (): void => { this.showMembership = true; } })
+              } else {
+                BottomTabIconComponent()
+              }
             }.width('100%').constraintSize({ maxWidth: 680 })
             .padding({ left: AppSpace.Md, right: AppSpace.Md,
               top: this.titleBarHeight + this.tabBarHeight + AppSpace.Sm * 3,

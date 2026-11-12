@@ -2,6 +2,8 @@ import { MedalService } from '../service/MedalService';
 import { HdsCompat } from '../utils/HdsCompat';
 import { AppColor, AppRadius, AppSpace, AppFont, AppTheme } from '../theme/Theme';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
+import { AppBackgroundScene } from '../model/AppBackground';
+import { AppBackgroundService } from '../service/AppBackgroundService';
 import { AppAppearance } from '../model/AppAppearance';
 import { ThemeIconComponent } from '../components/ThemeIconComponent';
 import { ThemeIconRole } from '../theme/ThemeIcons';
@@ -13,7 +15,6 @@ import { CommunityGroupService } from '../service/CommunityGroupService';
 import { AccountAvatar } from '../components/AccountAvatar';
 import { MembershipSubscriptionPage, MEMBERSHIP_BACKGROUND_TOP } from './MembershipSubscriptionPage';
 import { MembershipState } from '../model/MembershipState';
-import { VipFeatureBadge } from '../components/VipFeatureBadge';
 import { MembershipBadge } from '../components/MembershipBadge';
 
 class ProfileItem {
@@ -75,6 +76,7 @@ const MINI_TITLE_BAR_HEIGHT: number = 56;
 @ComponentV2
 export struct ProfilePage {
   @Local appearance: AppAppearance = AppAppearance.current;
+  @Local appBackgrounds: AppBackgroundService = AppBackgroundService.instance;
   @Param navStack: NavPathStack = new NavPathStack();
   @Event onScrollerReady: (scroller: Scroller) => void = () => {};
   @Event onContentScroll: (offset: number, state: ScrollState) => void = () => {};
@@ -94,6 +96,11 @@ export struct ProfilePage {
         console.warn(`[ProfilePage] medals unavailable: ${error.message}`);
       });
     }
+  }
+
+  private hasAppBackground(): boolean {
+    return this.appBackgrounds.revision >= 0 &&
+      this.appBackgrounds.resolve(AppBackgroundScene.Profile).preset !== 'theme';
   }
 
   private onItemTap(id: string): void {
@@ -157,7 +164,7 @@ export struct ProfilePage {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      ThemeBackgroundComponent()
+      ThemeBackgroundComponent({ appScene: AppBackgroundScene.Profile })
 
       HdsNavigation() {
         Scroll(this.scrollScroller) {
@@ -310,7 +317,8 @@ export struct ProfilePage {
         }.width('100%').padding({ left: 20, right: 20, top: 14, bottom: 14 })
       }
     }.width('100%').backgroundColor(AppTheme.Surface)
-    .backgroundImage(AppTheme.resolve(this.appearance.themeBundleId).visual.background.profileCardImage)
+    .backgroundImage(this.hasAppBackground() ? undefined :
+      AppTheme.resolve(this.appearance.themeBundleId).visual.background.profileCardImage)
     .backgroundImageSize(ImageSize.Cover)
     .backgroundImagePosition(Alignment.Center)
     .borderRadius(AppRadius.Lg).clip(true)
@@ -377,9 +385,6 @@ export struct ProfilePage {
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
             .flexShrink(1)
-          if (item.id === 'membership' && MembershipState.featureEnabled) {
-            VipFeatureBadge()
-          }
           if (item.id === 'achievements' && this.auth.isLoggedIn && this.medalService.ready &&
             this.medalService.selectedMedalId !== '') {
             Image(this.medalService.selected()?.badge)

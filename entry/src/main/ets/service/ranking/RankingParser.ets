@@ -111,6 +111,7 @@ export class RankingParser {
 
   static parse(platform: string, boardId: string, body: string): RankingBook[] {
     if (!body || body.length > 2 * 1024 * 1024) return [];
+    if (platform === 'lrts' && body.trim().startsWith('{')) return RankingParser.lanren(body);
     if (platform === 'qqcomic') return RankingParser.qqcomic(body);
     if (platform === 'bilicomic') return RankingParser.bilicomic(boardId, body);
     if (platform === 'ximalaya') return RankingParser.ximalaya(boardId, body);
@@ -157,6 +158,41 @@ export class RankingParser {
       }
       if (!book.title) continue;
       seen.add(platformBookId);
+      books.push(book);
+    }
+    return books;
+  }
+
+  /** 官网 2026 新版 JSON；旧 HTML 分支仅用于读取历史缓存。 */
+  private static lanren(body: string): RankingBook[] {
+    const root = new JsonObj(JSON.parse(body));
+    if (root.getInt('status', -1) !== 0 || root.getInt('apiStatus') !== 0) return [];
+    const list = root.getObj('data').getArr('list');
+    const books: RankingBook[] = [];
+    const seen: Set<string> = new Set<string>();
+    for (let index: number = 0; index < Math.min(list.length(), 100); index++) {
+      const item = list.getObj(index);
+      const id: string = item.getString('id');
+      const entityType: number = item.getInt('entityType');
+      if ((entityType !== 1 && entityType !== 2) || !/^[1-9]\d*$/.test(id)) continue;
+      const key: string = entityType === 1 ? `lrts:${id}` : `lrts:album:${id}`;
+      if (seen.has(key)) continue;
+      const title: string = RankingParser.text(item.getString('name'));
+      if (title.length === 0) continue;
+      const book: RankingBook = new RankingBook();
+      book.id = key;
+      book.platformId = 'lrts';
+      book.contentType = 'audio';
+      book.rank = index + 1;
+      book.title = title;
+      book.author = RankingParser.text(item.getString('author'));
+      book.narrator = RankingParser.text(item.getString('announcer') || item.getString('announcerName'));
+      book.coverUrl = RankingParser.imageUrl(item.getString('cover'))
+        .replace(/(bookpic\.lrts\.me\/[^/?]+-1-\d+)\.(png|jpg|jpeg)$/, '$1_600x600.$2');
+      book.originalUrl = `https://www.lanrentingshu.com/${entityType === 1 ? 'book' : 'album'}/${id}`;
+      book.intro = RankingParser.text(item.getString('desc') || item.getString('recReason'));
+      book.rating = BookMetadataPolicy.rating(item.getString('score'));
+      seen.add(key);
       books.push(book);
     }
     return books;

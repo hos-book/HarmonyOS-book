@@ -91,7 +91,7 @@ export struct BottomTabIconComponent {
   @Builder
   private icon(option: BottomTabIconOption) {
     if (this.service.resolve(option.role) !== undefined) {
-      Image(this.service.resolve(option.role)).width(28).height(28).objectFit(ImageFit.Contain)
+      Image(this.service.resolve(option.role)).width(32).height(32).objectFit(ImageFit.Contain)
         .accessibilityLevel('no')
     } else {
       ThemeIconComponent({ role: option.role, symbol: option.symbol, iconSize: 28,

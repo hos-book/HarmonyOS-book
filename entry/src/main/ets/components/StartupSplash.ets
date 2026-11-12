@@ -1,4 +1,3 @@
-import { AppColor } from '../theme/Theme';
 import { OneShotLayoutCallback } from '../utils/OneShotTransition';
 
 /** 原生单次开屏；不创建 WebView，不等待网络或阻塞首页初始化。 */
@@ -8,7 +7,6 @@ export struct StartupSplash {
   @Local glowVisible: boolean = false;
   @Local titleVisible: boolean = false;
   @Local taglineVisible: boolean = false;
-  @Local progressScale: number = 0.02;
   @Local splashOpacity: number = 1;
   @Local viewportHeight: number = 667;
   @Local artworkScale: number = 1;
@@ -36,10 +34,6 @@ export struct StartupSplash {
       if (this.disposed) return;
       this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, (): void => {
         this.glowVisible = true;
-      });
-      // 使用可插值的绘制缩放，确保横条逐帧增长，不直接跳到 Progress 的终值。
-      this.getUIContext().animateTo({ duration: 1050, curve: Curve.Linear }, (): void => {
-        this.progressScale = 1;
       });
       this.later(580, (): void => {
         this.getUIContext().animateTo({ duration: 160, curve: Curve.EaseOut }, (): void => {
@@ -81,28 +75,20 @@ export struct StartupSplash {
       .width(132 * this.artworkScale).height(132 * this.artworkScale)
       .position({ x: '50%', y: '43%' })
       .translate({ x: -66 * this.artworkScale, y: -63 * this.artworkScale })
-      Text($r('app.string.splash_brand_name'))
-        .fontSize(19).fontWeight(FontWeight.Medium).letterSpacing(3)
-        .fontColor($r('app.color.splash_brand_text'))
-        .textAlign(TextAlign.Center).width('100%')
-        .position({ x: 0, y: this.viewportHeight * 0.43 + 101 * this.artworkScale })
-        .translate({ y: this.titleVisible ? 0 : 14 }).opacity(this.titleVisible ? 1 : 0)
-      Text($r('app.string.splash_brand_tagline'))
-        .fontSize(10).letterSpacing(3)
-        .fontColor($r('app.color.splash_brand_caption'))
-        .textAlign(TextAlign.Center).width('100%')
-        .position({ x: 0, y: this.viewportHeight * 0.43 + 133 * this.artworkScale })
-        .translate({ y: this.taglineVisible ? 0 : 14 }).opacity(this.taglineVisible ? 1 : 0)
-      Stack({ alignContent: Alignment.TopStart }) {
-        Row()
-          .width(120).height(3).borderRadius(2)
-          .backgroundColor(AppColor.Brand)
-          .scale({ x: this.progressScale, y: 1, centerX: 0, centerY: '50%' })
+      Column({ space: 12 }) {
+        Text($r('app.string.splash_brand_name'))
+          .fontSize(26).fontWeight(FontWeight.Medium).letterSpacing(3)
+          .fontColor($r('app.color.splash_brand_text'))
+          .textAlign(TextAlign.Center).width('100%')
+          .translate({ y: this.titleVisible ? 0 : 14 }).opacity(this.titleVisible ? 1 : 0)
+        Text($r('app.string.splash_brand_tagline'))
+          .fontSize(14).letterSpacing(3)
+          .fontColor($r('app.color.splash_brand_caption'))
+          .textAlign(TextAlign.Center).width('100%')
+          .translate({ y: this.taglineVisible ? 0 : 14 }).opacity(this.taglineVisible ? 1 : 0)
       }
-        .width(120).height(3).borderRadius(2).clip(true)
-        .backgroundColor($r('app.color.splash_progress_track'))
-        .position({ x: '50%', y: '84%' }).translate({ x: -60 })
-        .opacity(this.glowVisible ? 1 : 0)
+      .width('100%')
+      .position({ x: 0, y: this.viewportHeight * 0.43 + 101 * this.artworkScale })
     }
     .width('100%').height('100%')
     .backgroundColor($r('app.color.start_window_background'))

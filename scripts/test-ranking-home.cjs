@@ -189,6 +189,31 @@ const qidian = '<a href="//m.qidian.com/book/123/" class="_bookItem_x"><img data
   const ratedAudio = RankingParser.parse('lrts', 'lr-hot',
     '<li class="book-item"><a href="/book/43"></a><a class="book-item-name">评分有声书</a><span class="score">8.6</span></li>');
   assert.equal(ratedAudio[0].rating, 8.6);
+  const lanrenResponse = (status = 0) => JSON.stringify({ status, apiStatus: 0, data: { list: [
+    { id: 1377, entityType: 1, name: '仙逆', author: '耳根', announcer: '朱宇',
+      cover: 'https://bookpic.lrts.me/test-1-1377.png', desc: '凡人修仙', score: 9.6 },
+    { id: 1377, entityType: 1, name: '重复' },
+    { id: 42, entityType: 6, name: '主播不应作为书籍' },
+    { id: 'javascript:bad', entityType: 1, name: '非法编号' },
+    { id: 5622, entityType: 1, name: '斗破苍穹', announcerName: '大灰狼', recReason: '推荐简介' },
+    { id: 1377, entityType: 2, name: '有声专辑', announcer: '主播' }
+  ] } });
+  const lanren = RankingParser.parse('lrts', 'lr-hot', lanrenResponse());
+  assert.equal(lanren.length, 3, 'new official JSON excludes duplicate and unsupported entities');
+  assert.equal(lanren[0].id, 'lrts:1377', 'migration preserves platform identity');
+  assert.equal(lanren[0].contentType, 'audio');
+  assert.equal(lanren[0].title, '仙逆');
+  assert.equal(lanren[0].author, '耳根');
+  assert.equal(lanren[0].narrator, '朱宇');
+  assert.equal(lanren[0].rating, 9.6);
+  assert.equal(lanren[0].coverUrl, 'https://bookpic.lrts.me/test-1-1377_600x600.png');
+  assert.equal(lanren[1].narrator, '大灰狼');
+  assert.equal(lanren[1].intro, '推荐简介');
+  assert.equal(lanren[1].rank, 5, 'filtered entities do not shift the official ranking');
+  assert.equal(lanren[2].id, 'lrts:album:1377', 'audio albums have a separate identity from books');
+  assert.equal(RankingParser.parse('lrts', 'lr-hot', lanrenResponse(1)).length, 0);
+  assert.equal(RankingParser.parse('lrts', 'lr-hot', '{"data":{"list":[]}}').length, 0);
+  assert.equal(RankingParser.parse('lrts', 'lr-hot', '{' + ' '.repeat(2 * 1024 * 1024)).length, 0);
   assert.equal(BookMatchService.keyword(lr[0]), '夜无疆');
   assert.equal(BookMatchService.score(qd[0], { ...result({ bookSourceUrl: 'a' }), name: '另一本书' }), 0,
     'same author must not cause an unrelated book to match');
@@ -413,6 +438,18 @@ const qidian = '<a href="//m.qidian.com/book/123/" class="_bookItem_x"><img data
     }
     assert.ok(verified > 0, 'compare decoded names against independent official plain-text metadata');
     console.log(`LIVE verified ${verified} decoded titles/authors against official plain-text metadata`);
+  } else if (process.argv[2] === '--lanren-live') {
+    for (const board of RankingService.boards().filter(board => board.platformId === 'lrts')) {
+      const response = await fetch(board.endpoint, { headers: RankingService.headers('lrts'),
+        signal: AbortSignal.timeout(20000) });
+      assert.equal(response.status, 200, board.id);
+      const body = await response.text();
+      const books = RankingParser.parse('lrts', board.id, body);
+      assert.ok(books.length >= 3, `${board.id}: current official JSON returns books`);
+      assert.equal(new Set(books.map(book => book.id)).size, books.length);
+      assert.ok(books.every(book => book.title && book.contentType === 'audio' && book.coverUrl.startsWith('https://')));
+      console.log(`LIVE ${board.id}: ${books.length} books; first: ${books[0].title}`);
+    }
   } else if (process.argv[2] === '--qidian-live') {
     for (const board of RankingService.boards().filter(board => board.platformId === 'qidian')) {
       const response = await fetch(board.endpoint, { signal: AbortSignal.timeout(20000) });

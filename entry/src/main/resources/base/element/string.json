@@ -338,7 +338,7 @@
     },
     {
       "name": "theme_bundle_hint",
-      "value": "默认主题免费，其他主题套装为 VIP 专享，可免费预览。应用套装会恢复推荐主题色与材质，并切换默认封面、页面背景和首页图标；已有书封保留原图。"
+      "value": "默认主题免费，其他主题套装为 VIP 专享，可免费预览。应用套装会恢复推荐主题色与材质，并切换默认封面、套装背景和首页图标；已有书封及单独设置的 App 背景会保留。"
     },
     {
       "name": "theme_bundle_apply",
@@ -2061,6 +2061,10 @@
       "value": "XIAOBAO，感谢你对简听阅读的技术支持。把一个想法做成能用的东西，背后总有许多琐碎的功夫，你的帮助也在其中。这份情我记着。希望以后做出的每一点进步，都对得起这些支持，也祝你自己的项目顺顺利利，做起来越来越有意思。"
     },
     {
+      "name": "support_thanks_sansan",
+      "value": "三三，谢谢你为简听阅读提供首页 UI 设计与动效，让首页更有美感，也让每一次滑动与切换更加流畅、生动。感谢你的用心与创意，让阅读与聆听从打开首页的那一刻，就多了一份愉悦。"
+    },
+    {
       "name": "support_thanks_wt",
       "value": "WT，谢谢你愿意赞助简听阅读。对我来说，这份支持最珍贵的地方，是让我知道自己认真做的东西，有人在意、也有人认可。我会带着这份鼓励继续打磨。希望你每次打开它，都能找到一本想读的书，或者一段愿意听下去的故事。"
     },
@@ -2166,7 +2170,7 @@
     },
     {
       "name": "technical_support_names",
-      "value": "QG\n浅度\n相思界\nXIAOBAO"
+      "value": "QG\n浅度\n相思界\nXIAOBAO\n三三"
     },
     {
       "name": "sponsor_thanks_title",
@@ -5726,7 +5730,7 @@
     },
     {
       "name": "membership_title",
-      "value": "主题"
+      "value": "主题与背景"
     },
     {
       "name": "theme_bundle_title",
@@ -5938,15 +5942,15 @@
     },
     {
       "name": "book_detail_action_in_shelf",
-      "value": "已在书架"
+      "value": "已收藏"
     },
     {
       "name": "book_detail_action_add_shelf",
-      "value": "加入书架"
+      "value": "收藏"
     },
     {
       "name": "book_detail_action_chapters",
-      "value": "查看目录"
+      "value": "目录"
     },
     {
       "name": "book_detail_action_switch_source",
@@ -5958,7 +5962,7 @@
     },
     {
       "name": "book_detail_action_read_record",
-      "value": "阅读记录"
+      "value": "记录"
     },
     {
       "name": "book_detail_reading",
@@ -5998,11 +6002,11 @@
     },
     {
       "name": "book_detail_start_listen",
-      "value": "听书"
+      "value": "开始收听"
     },
     {
       "name": "book_detail_start_read",
-      "value": "阅读"
+      "value": "开始阅读"
     },
     {
       "name": "book_detail_continue_listen",
@@ -8883,6 +8887,78 @@
     {
       "name": "model_pack_deleting",
       "value": "正在删除模型…"
-    }
+    },
+    {
+      "name": "ranking_back_top",
+      "value": "回到 TOP1"
+    },
+    {
+      "name": "ranking_board_more",
+      "value": "更多好书"
+    },
+    {
+      "name": "ranking_board_rest_count",
+      "value": "共 %d 本"
+    },
+    {
+      "name": "ranking_top_badge",
+      "value": "TOP %d"
+    },
+    {
+      "name": "ranking_reader_loading",
+      "value": "正在加载…"
+    },
+    {
+      "name": "ranking_shelf_start_read",
+      "value": "开始阅读"
+    },
+    {
+      "name": "ranking_card_chapter_count",
+      "value": "%d章"
+    },
+    { "name": "theme_icons_tab", "value": "图标" },
+    { "name": "app_background_title", "value": "App 背景" },
+    { "name": "app_background_hint", "value": "可共用通用背景，也可为首页、书架、记录和我的分别设置。修改仅预览，应用后生效。" },
+    { "name": "app_background_common", "value": "通用背景" },
+    { "name": "app_background_scope", "value": "设置哪个页面" },
+    { "name": "app_background_follow_common", "value": "跟随通用背景" },
+    { "name": "app_background_follow_hint", "value": "此页跟随通用背景，关闭后恢复原来的独立设置。" },
+    { "name": "app_background_independent_hint", "value": "当前单独设置，仅影响此页。" },
+    { "name": "app_background_common_hint", "value": "只影响选择跟随通用背景的页面。" },
+    { "name": "app_background_preset_theme", "value": "跟随主题" },
+    { "name": "app_background_preset_paper", "value": "暖纸" },
+    { "name": "app_background_preset_mist", "value": "雾蓝" },
+    { "name": "app_background_preset_image", "value": "我的图片" },
+    { "name": "app_background_choose_image", "value": "从相册选择" },
+    { "name": "app_background_change_image", "value": "更换图片" },
+    { "name": "app_background_remove_image", "value": "移除图片" },
+    { "name": "app_background_image_hint", "value": "图片仅保存在本机，支持 20 MiB 以内的图片，动态图片以首帧保存。" },
+    { "name": "app_background_veil", "value": "背景淡化" },
+    { "name": "app_background_blur", "value": "背景模糊" },
+    { "name": "app_background_advanced", "value": "位置与缩放" },
+    { "name": "app_background_position_x", "value": "左右位置" },
+    { "name": "app_background_position_y", "value": "上下位置" },
+    { "name": "app_background_scale", "value": "图片缩放" },
+    { "name": "app_background_reset_adjustments", "value": "重置调整" },
+    { "name": "app_background_cancel", "value": "取消修改" },
+    { "name": "app_background_apply", "value": "应用背景" },
+    { "name": "app_background_applied", "value": "背景已应用" },
+    { "name": "app_background_save_failed", "value": "背景保存失败，请重试" },
+    { "name": "app_background_import_failed", "value": "无法导入这张图片，请重新选择或重试" },
+    { "name": "app_background_import_too_large", "value": "原图超过 20 MiB，请选择较小的图片" },
+    { "name": "app_background_import_invalid", "value": "图片文件为空或无效，请重新选择" },
+    { "name": "app_background_import_dimensions", "value": "图片像素过高，请缩小至 1 亿像素以内后重试" },
+    { "name": "app_background_import_read_failed", "value": "无法读取这张图片，请重新选择或先保存到本机" },
+    { "name": "app_background_import_decode_failed", "value": "无法解码这张图片，请尝试重新导出为 PNG 或 JPG" },
+    { "name": "app_background_import_encode_failed", "value": "图片转换失败，请尝试重新导出图片后重试" },
+    { "name": "app_background_import_save_failed", "value": "图片保存失败，请检查本机可用空间后重试" },
+    { "name": "app_background_loading_failed", "value": "背景设置加载失败" },
+    { "name": "app_background_cancelled", "value": "已恢复上次应用的背景" },
+    { "name": "app_background_preview", "value": "页面效果预览" },
+    { "name": "app_background_preview_total", "value": "累计阅听" },
+    { "name": "app_background_preview_streak", "value": "连续阅听" },
+    { "name": "app_background_preview_profile", "value": "简听书友" },
+    { "name": "app_background_preview_recent", "value": "最近阅读" },
+    { "name": "app_background_unsaved", "value": "修改待应用" }
   ]
 }

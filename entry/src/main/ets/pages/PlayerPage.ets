@@ -42,6 +42,7 @@ import { ChapterCacheService, EVT_CHAPTER_DURATION_UPDATED } from '../service/Ch
 import { ChapterDataSource } from '../utils/ChapterDataSource';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
+import { OneShotTransitionIds } from '../utils/OneShotTransition';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { TextToSpeechState, SpeechVoice } from '../model/TextToSpeechState';
 import { ChapterCacheIndicator } from '../components/ChapterCacheIndicator';
@@ -210,8 +211,8 @@ export struct PlayerPage {
   /** 章节搜索关键词；非空时章节列表按标题过滤 */
   @Local chapterSearchKeyword: string = '';
   /** 根容器实时尺寸，用于跟随小窗缩放切换紧凑布局。 */
-  @Local viewportWidth: number = 0;
-  @Local viewportHeight: number = 0;
+  @Local viewportWidth: number = WindowUtils.getWindowWidthVp();
+  @Local viewportHeight: number = WindowUtils.getWindowHeightVp();
   @Local topSafeVp: number = WindowUtils.getStatusBarHeightVp();
   @Local bottomSafeVp: number = WindowUtils.getBottomSafeVp();
   @Local leftSafeVp: number = WindowUtils.getLeftSafeVp();
@@ -285,6 +286,7 @@ export struct PlayerPage {
   }
 
   aboutToAppear(): void {
+    this.initializeViewport();
     if (this.previewOnly) {
       this.primeFromCache();
       return;
@@ -371,6 +373,23 @@ export struct PlayerPage {
     }
     WindowUtils.setStatusBarLight(false);
     if (!this.isSpeechBook()) AudioService.getInstance().flushHistory();
+  }
+
+  private initializeViewport(): void {
+    // 转场会在首批布局帧内读取封面；不能等异步 onSizeChange 才从竖排切成横排。
+    // 预览和正式页共用已捕获的全宽容器，避免把正在展开的胶囊尺寸当成视口。
+    if (this.dragState.active && this.dragState.viewportWidth > 0 && this.dragState.viewportHeight > 0) {
+      this.viewportWidth = this.dragState.viewportWidth;
+      this.viewportHeight = this.dragState.viewportHeight;
+      return;
+    }
+    try {
+      const viewport = PlayerDragTransition.measure(this.getUIContext(), OneShotTransitionIds.ROOT_NAVIGATION);
+      if (viewport.isValid()) {
+        this.viewportWidth = this.getUIContext().px2vp(viewport.widthPx);
+        this.viewportHeight = this.getUIContext().px2vp(viewport.heightPx);
+      }
+    } catch (_error) { /* 容器尚未挂载时使用当前窗口尺寸，后续由 onSizeChange 校准。 */ }
   }
 
   private handleViewportSizeChange(newValue: SizeOptions): void {

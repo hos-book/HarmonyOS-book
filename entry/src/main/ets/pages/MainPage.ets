@@ -5,6 +5,13 @@ import lazy { HdsBarLayoutMode } from '@kit.UIDesignKit';
 import { AppAppearance } from '../model/AppAppearance';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { Book, Chapter } from '../model/Book';
+import { RankingBookCard } from '../components/RankingBookCard';
+import { RankingCardStore, rankingCardStore } from '../utils/RankingCardStore';
+import { RankingReaderTransition } from '../utils/RankingReaderTransition';
+import { RankingMatch } from '../service/ranking/BookMatchService';
+import { TextReaderRouteParams, TextReadingPosition } from '../model/TextReading';
+import { TextReadingProgressService } from '../service/text/TextReadingProgressService';
+import { ReadingSession, SessionLocation } from '../service/ReadingSessionService';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { TextToSpeechState } from '../model/TextToSpeechState';
 import { CompatibleTabsModifier, HdsCompat } from '../utils/HdsCompat';
@@ -35,6 +42,9 @@ import { BookSourceAudioWebRuntimeHost } from '../service/rulesource/light/BookS
 import { RuleSourceImportWebHost } from '../service/rulesource/light/RuleSourceImportWebHost';
 import { MainTabPolicy } from '../utils/MainTabPolicy';
 import { BottomTabIconService } from '../service/BottomTabIconService';
+import { AppBackgroundScene } from '../model/AppBackground';
+import { AppBackgroundService } from '../service/AppBackgroundService';
+import { AppBackgroundLayerComponent } from '../components/AppBackgroundLayerComponent';
 
 /**
  * 全局事件:点击某本书时调,统一收口路由策略。
@@ -65,6 +75,22 @@ class MainTabsAppearance {
   materialSupported: boolean = false;
 }
 
+class RankingAudioRouteParams {
+  bookId: string;
+  chapterId: string;
+  progressMs: number;
+  constructor(bookId: string, chapterId: string, progressMs: number = 0) {
+    this.bookId = bookId;
+    this.chapterId = chapterId;
+    this.progressMs = progressMs;
+  }
+}
+
+class RankingHistoryRouteParams {
+  bookIds: string;
+  constructor(bookId: string) { this.bookIds = JSON.stringify([bookId]); }
+}
+
 @ComponentV2
 export struct MainPage {
   @Param navStack: NavPathStack = new NavPathStack();
@@ -72,11 +98,35 @@ export struct MainPage {
   @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
   @Event onHomeShownHandlerChange: (handler: (() => void) | undefined) => void = () => {};
   private pendingHomeResume: (() => void) | undefined = undefined;
+  @Local cardStore: RankingCardStore = rankingCardStore;
+  private cardBackHandler: (() => boolean) | undefined = undefined;
+  @Local cardBarInsetVp: number = 0;
+  private cardBarObserved: boolean = false;
+  private cardBarMeasuredAt: number = 0;
+  private readonly cardBarDrawHandler = (): void => {
+    const now: number = Date.now();
+    if (now - this.cardBarMeasuredAt < 120) return;
+    this.cardBarMeasuredAt = now;
+    this.measureCardBottomBar();
+  };
   private homeBackHandler: (() => boolean) | undefined = undefined;
   private shelfBackHandler: (() => boolean) | undefined = undefined;
   private recordsBackHandler: (() => boolean) | undefined = undefined;
   @Local appearance: AppAppearance = AppAppearance.current;
   @Local bottomTabIcons: BottomTabIconService = BottomTabIconService.instance;
+  @Local appBackgrounds: AppBackgroundService = AppBackgroundService.instance;
+
+  private appBackgroundScene(): AppBackgroundScene {
+    if (this.currentTab === 1) return AppBackgroundScene.Shelf;
+    if (this.currentTab === 2) return AppBackgroundScene.Record;
+    if (this.currentTab === 3) return AppBackgroundScene.Profile;
+    return AppBackgroundScene.Home;
+  }
+
+  private hasAppBackground(): boolean {
+    return this.appBackgrounds.revision >= 0 &&
+      this.appBackgrounds.resolve(this.appBackgroundScene()).preset !== 'theme';
+  }
   private useFloatingTabs(): boolean { return PlatformCompat.floatingTabs; }
   private useVerticalTabs(): boolean { return PlatformCompat.supports(24) && this.appearance.verticalBottomTabs; }
   private useWideFloatingBars(): boolean { return this.useVerticalTabs() && this.viewportWidth >= FLOATING_WIDE_BREAKPOINT; }
@@ -85,6 +135,59 @@ export struct MainPage {
     return this.useFloatingTabs()
       ? Math.max(this.bottomSafeVp, FLOATING_MIN_SAFE_BOTTOM) + FLOATING_BOTTOM + FLOATING_TAB_HEIGHT
       : this.bottomSafeVp + 56;
+  }
+  @Monitor('cardStore.visible')
+  private onCardVisibleChanged(): void {
+    if (this.cardStore.visible) this.startCardBarObserver();
+    else this.stopCardBarObserver();
+  }
+
+  /** 卡片用原始底栏高度，+12 的呼吸区由卡片自己的 CARD_EDGE_GAP 负责。 */
+  private cardBottomInset(): number {
+    if (!this.useFloatingTabs()) return this.bottomSafeVp + 56;
+    if (this.cardBarInsetVp > 0) return this.cardBarInsetVp;
+    // 标签栏本身高度：不带竖向双栏的 72 内容补偿。
+    return Math.max(this.bottomSafeVp, FLOATING_MIN_SAFE_BOTTOM) +
+      FLOATING_BOTTOM + FLOATING_TAB_HEIGHT;
+  }
+
+  private startCardBarObserver(): void {
+    if (this.cardBarObserved || !this.useFloatingTabs()) return;
+    this.getUIContext().getUIObserver().on('willDraw', this.cardBarDrawHandler);
+    this.cardBarObserved = true;
+    this.measureCardBottomBar();
+  }
+
+  private stopCardBarObserver(): void {
+    if (!this.cardBarObserved) return;
+    this.getUIContext().getUIObserver().off('willDraw', this.cardBarDrawHandler);
+    this.cardBarObserved = false;
+    this.cardBarInsetVp = 0;
+  }
+
+  /**
+   * 原版 PlayerDragTransition.measure 会读取包含祖先绘制位移的真实位置；
+   * HDS 底栏收展不能只看 getRectangleById 的 windowOffset。
+   */
+  private measureCardBottomBar(): void {
+    if (!this.cardStore.visible || !this.useFloatingTabs()) return;
+    try {
+      const ui = this.getUIContext();
+      const host = PlayerDragTransition.measure(ui, 'main-page-root');
+      const bar = PlayerDragTransition.measure(ui, 'main-mini-bar');
+      const hostBottom: number = host.isValid() ?
+        WindowUtils.pxToVp(host.topPx + host.heightPx) : WindowUtils.getWindowHeightVp();
+      const windowHeight: number = WindowUtils.getWindowHeightVp();
+      // 标签栏的实际高度，不包含竖向双栏的 72vp 内容补偿。
+      const tabBase: number = Math.max(this.bottomSafeVp, FLOATING_MIN_SAFE_BOTTOM) +
+        FLOATING_BOTTOM + FLOATING_TAB_HEIGHT;
+      const tabTop: number = windowHeight - tabBase;
+      let raw: number = Math.max(0, hostBottom - tabTop);
+      if (bar.isValid()) {
+        raw = Math.max(raw, hostBottom - WindowUtils.pxToVp(bar.topPx));
+      }
+      if (raw > 0 && Math.abs(raw - this.cardBarInsetVp) > 0.5) this.cardBarInsetVp = raw;
+    } catch (_error) { /* 布局尚未提交时保留上一次值 */ }
   }
   @Monitor('appearance.verticalBottomTabs')
   private onTabStyleChanged(): void {
@@ -174,7 +277,7 @@ export struct MainPage {
   private get tabsAppearance(): MainTabsAppearance {
     const value: MainTabsAppearance = new MainTabsAppearance();
     value.style = this.floatingBarStyle();
-    value.background = HomeTheme.BgNeutral;
+    value.background = this.hasAppBackground() ? Color.Transparent : HomeTheme.BgNeutral;
     value.materialSupported = HdsCompat.materialSupported;
     value.surface = value.materialSupported ? Color.Transparent : AppTheme.Surface;
     const key: string = JSON.stringify(value);
@@ -204,6 +307,7 @@ export struct MainPage {
       resume?.();
     });
     this.onBackHandlerChange((): boolean => {
+      if (this.cardStore.visible && this.cardBackHandler?.()) return true;
       if (this.showMiniChapters) { this.closeMiniChapters(); return true; }
       if (this.currentTab === 1) return this.shelfBackHandler?.() ?? false;
       if (this.currentTab === 2 && this.generalSettings.historyEnabled) return this.recordsBackHandler?.() ?? false;
@@ -221,6 +325,9 @@ export struct MainPage {
   }
 
   aboutToDisappear(): void {
+    this.stopCardBarObserver();
+    rankingCardStore.close();
+    RankingReaderTransition.clear();
     this.miniPlayerIdleAlive = false;
     this.clearMiniPlayerIdleTimer();
     this.miniChapterRequest++;
@@ -555,11 +662,22 @@ export struct MainPage {
 
   private buildTabBar(icon: Resource, label: string, role: ThemeIconRole): BottomTabBarStyle {
     // 标签及图标的收展交给原生 HdsTabs，避免样式回调中销毁/重建 Text 引起闪现。
-    const themeIcon: ResourceStr | undefined = this.bottomTabIcons.resolve(role) ?? ThemeIcons.resolve(role);
+    const customIcon: string | undefined = this.bottomTabIcons.resolve(role);
+    const themeIcon: ResourceStr | undefined = customIcon === undefined ? ThemeIcons.resolve(role) : undefined;
     const symbol: TabBarSymbol = {
       normal: new SymbolGlyphModifier(icon).fontSize(24).fontColor([$r('sys.color.font_primary')]),
       selected: new SymbolGlyphModifier(icon).fontSize(26).fontColor([AppColor.Brand])
     };
+    if (customIcon !== undefined) {
+      // 原生图片固定为 24vp；用可设尺寸的符号承载原色图片，保留原生标签及收展动画。
+      const customSymbol = new SymbolGlyphModifier(icon);
+      customSymbol.fontSize(32).width(32).height(32).fontColor([Color.Transparent])
+        .backgroundImage(customIcon, ImageRepeat.NoRepeat)
+        .backgroundImageSize(ImageSize.Contain)
+        .backgroundImagePosition(Alignment.Center);
+      symbol.normal = customSymbol;
+      symbol.selected = customSymbol;
+    }
     const tabBar: BottomTabBarStyle = new BottomTabBarStyle(themeIcon ?? symbol, label);
     return tabBar
       .labelStyle({
@@ -614,7 +732,7 @@ export struct MainPage {
             this.navigateToPlayer();
           }
         }
-      }).onAppear((): void => {
+      }).id('main-mini-bar').onAppear((): void => {
         hilog.info(0x0000, 'MainTabs', 'mini mount');
         this.syncVerticalBars();
       })
@@ -668,7 +786,8 @@ export struct MainPage {
       // 旧版沿用系统宽度与侧边距，新版在下方按实际容器宽度配置两层。
       barSideMargin: Math.max(FLOATING_SIDE_MARGIN, (this.viewportWidth - 720) / 2),
       barBottomMargin: Math.max(this.bottomSafeVp, FLOATING_MIN_SAFE_BOTTOM) + FLOATING_BOTTOM,
-      gradientMask: { maskColor: HomeTheme.FloatingBarMask, maskHeight: 92 },
+      gradientMask: { maskColor: this.hasAppBackground() ? Color.Transparent : HomeTheme.FloatingBarMask,
+        maskHeight: 92 },
       systemMaterialEffect: HdsCompat.adaptiveMaterial,
       // 保留随主题色变化的沉浸光感。
       lightColor: AppColor.Brand,
@@ -750,6 +869,66 @@ export struct MainPage {
     }
   }
 
+  /** 榜单卡片复用既有阅读/播放入口，默认恢复已保存位置。 */
+  private async openRankingReader(book: Book, onReturn: () => void, resourceIndex?: number): Promise<void> {
+    try {
+      await DataService.upsertCachedBook(book);
+      const back = (): void => {
+        if (this.cardStore.visible) RankingReaderTransition.beginClose(book.id);
+        else onReturn();
+      };
+      if (book.contentType === 'audio') {
+        const chapter: Chapter | undefined = resourceIndex !== undefined && resourceIndex >= 0
+          ? book.chapters[resourceIndex] : undefined;
+        if (chapter !== undefined) {
+          this.navStack.pushPathByName('player', new RankingAudioRouteParams(book.id, chapter.id), back, false);
+        } else {
+          this.navStack.pushPathByName('player', book.id, back, false);
+        }
+      } else {
+        TextToSpeechService.getInstance().stop();
+        const index: number = resourceIndex !== undefined && resourceIndex >= 0 ? resourceIndex : -1;
+        this.navStack.pushPathByName(book.contentType === 'comic' ? 'comicReader' : 'reader',
+          TextReaderRouteParams.of(book.id, index), false);
+      }
+      setTimeout((): void => RankingReaderTransition.take(book.id), 80);
+    } catch (_error) {
+      onReturn();
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.ranking_open_failed') });
+    }
+  }
+
+  private async jumpToRankingSession(session: ReadingSession, location: SessionLocation): Promise<void> {
+    try {
+      const context = this.getUIContext().getHostContext();
+      if (context === undefined) return;
+      const book = await DataService.getBookById(context, location.bookId);
+      if (book === null || book === undefined) throw new Error('Book unavailable');
+      const index: number = book.chapters.findIndex((chapter: Chapter): boolean =>
+        chapter.id === location.chapterId || (location.chapterUrl.length > 0 &&
+          (chapter.originSourceValue || chapter.source.value) === location.chapterUrl));
+      const back = (): void => RankingReaderTransition.beginClose(book.id);
+      if (session.kind === 'audio') {
+        if (index < 0) throw new Error('Chapter unavailable');
+        await AudioService.getInstance().playChapterAndSeek(book, book.chapters[index], location.position);
+        this.navStack.pushPathByName('player',
+          new RankingAudioRouteParams(book.id, book.chapters[index].id, location.position), back, false);
+      } else {
+        if (index < 0 && location.domPos.length === 0) throw new Error('Position unavailable');
+        TextToSpeechService.getInstance().stop();
+        await TextReadingProgressService.save(context, TextReadingPosition.atChar(book.id,
+          index >= 0 ? index : location.chapterIndex, location.domPos, location.position,
+          location.pageOffset, location.chapterTitle));
+        this.navStack.pushPathByName(book.contentType === 'comic' ? 'comicReader' : 'reader',
+          TextReaderRouteParams.of(book.id), false);
+      }
+      setTimeout((): void => RankingReaderTransition.take(book.id), 80);
+    } catch (_error) {
+      RankingReaderTransition.beginClose(location.bookId);
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.session_jump_failed') });
+    }
+  }
+
   @Builder
   private mainTabContents(): void {
         TabContent() {
@@ -757,6 +936,15 @@ export struct MainPage {
             visible: this.currentTab === 0,
             bottomTabInset: this.bottomTabInset(),
             miniPlayerVisible: this.miniPlayerVisible(),
+            onOpenReader: (book: Book, onReturn: () => void, resourceIndex?: number): void => {
+              this.openRankingReader(book, onReturn, resourceIndex);
+            },
+            onOpenHistory: (book: Book): void => {
+              this.navStack.pushPathByName('sessionHistory', new RankingHistoryRouteParams(book.id));
+            },
+            onHistoryJump: (session: ReadingSession, location: SessionLocation): void => {
+              this.jumpToRankingSession(session, location);
+            },
             onSourceSettings: (sourceUrl: string): void => {
               this.navStack.pushPathByName('ruleSourceExplore', sourceUrl);
             },
@@ -881,12 +1069,16 @@ export struct MainPage {
       .animationDuration(TAB_SWITCH_DURATION)
       .width('100%')
       .height('100%')
-      .backgroundColor(HomeTheme.BgNeutral)
+      .backgroundColor(this.hasAppBackground() ? Color.Transparent : HomeTheme.BgNeutral)
       .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
   }
 
   build() {
     Stack({ alignContent: Alignment.Bottom }) {
+      // 为原生 TabContent 之外的安全区续上同一张底图，浮动底栏不再以套装底色截断图片。
+      if (this.hasAppBackground()) {
+        AppBackgroundLayerComponent({ scene: this.appBackgroundScene() })
+      }
       ReaderFloatingLyrics().zIndex(100).align(Alignment.Center)
       if (this.tabsReady) {
       // 属性刷新仍读取最新选中页；子页 visible 单独响应 currentTab，不反向重配底栏。
@@ -915,9 +1107,33 @@ export struct MainPage {
         BookSourceAudioWebRuntimeHost()
         RuleSourceImportWebHost()
       }
+      // 榜单卡片：在 HdsTabs 之后（盖住底栏），但在 Navigation 目的地之前（阅读器会盖住它）。
+      if (this.cardStore.visible) {
+        RankingBookCard({ book: this.cardStore.book, platformName: this.cardStore.platform,
+          refreshToken: this.cardStore.refreshToken,
+          origin: this.cardStore.origin, baseCx: this.cardStore.baseCx, baseCy: this.cardStore.baseCy,
+          bottomTabInset: this.cardBottomInset(), topBoundary: this.cardStore.topBoundary,
+          hostTop: this.cardStore.hostTop,
+          onExit: (): void => { this.cardStore.actions.exit(); },
+          onRestoreSource: (): void => { this.cardStore.actions.restoreSource(); },
+          onPrepareMatch: (match: RankingMatch): Promise<void> => this.cardStore.actions.prepareMatch(match),
+          onOpenReader: (book: Book, onReturn: () => void, resourceIndex?: number): void => {
+            this.cardStore.actions.openReader(book, onReturn, resourceIndex);
+          },
+          onOpenHistory: (book: Book): void => { this.cardStore.actions.openHistory(book); },
+          onHistoryJump: (session: ReadingSession, location: SessionLocation): void => {
+            this.cardStore.actions.historyJump(session, location);
+          },
+          onBackHandlerChange: (handler: (() => boolean) | undefined): void => {
+            this.cardBackHandler = handler;
+          },
+          onManageSources: (): void => { this.cardStore.actions.manageSources(); } })
+          .zIndex(200)
+      }
     }
     .width('100%')
     .height('100%')
+    .id('main-page-root')
     .backgroundColor(HomeTheme.BgNeutral)
     .bindSheet($$this.showMiniChapters, this.buildMiniChapterSheet(), {
       height: '90%', detents: ['90%', '60%', SheetSize.LARGE], preferType: SheetType.BOTTOM,

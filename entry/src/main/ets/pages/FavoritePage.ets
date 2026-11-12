@@ -32,6 +32,7 @@ import {
   HomeTheme
 } from '../theme/Theme';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
+import { AppBackgroundScene } from '../model/AppBackground';
 import { ThemeBackgroundScene } from '../model/AppThemeVisual';
 import { Book, Chapter } from '../model/Book';
 import { TocItem } from '../model/BookSource';
@@ -1827,7 +1828,7 @@ export struct FavoritePage {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      ThemeBackgroundComponent({ scene: ThemeBackgroundScene.Shelf })
+      ThemeBackgroundComponent({ scene: ThemeBackgroundScene.Shelf, appScene: AppBackgroundScene.Shelf })
 
       HdsNavigation() {
         Column() {

@@ -719,6 +719,16 @@ export struct SettingsPage {
         this.buildDivider()
         AppearanceSettingsComponent()
         this.buildDivider()
+        Row({ space: AppSpace.Sm }) {
+          Text($r('app.string.app_background_title')).fontSize(AppFont.BodyL)
+            .fontColor(AppTheme.TextPrimary).layoutWeight(1)
+          SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(16)
+            .fontColor([AppTheme.TextSecondary])
+        }.width('100%').padding({ left: ROW_INDENT, right: ROW_INDENT,
+          top: AppSpace.Sm, bottom: AppSpace.Sm }).constraintSize({ minHeight: 52 })
+          .id('settings-app-background-entry')
+          .onClick((): void => { this.navStack.pushPathByName('appBackground', ''); })
+        this.buildDivider()
         this.buildSwitchItem(
           $r('app.string.settings_cover_super_resolution'),
           CoverSuperResolutionService.supported() ? $r('app.string.settings_cover_super_resolution_desc')

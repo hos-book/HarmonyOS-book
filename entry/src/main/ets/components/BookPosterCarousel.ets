@@ -1,6 +1,6 @@
 import { CoverImage } from './CoverImage';
 import { BookRatingBadge } from './BookRatingBadge';
-import { AppColor, AppRadius, AppTheme } from '../theme/Theme';
+import { AppColor, AppRadius, AppTheme, AppCurve, AppMotion } from '../theme/Theme';
 import { OneShotCoverState, OneShotTransitionCoordinator, OneShotTransitionIds } from '../utils/OneShotTransition';
 
 export const BOOK_POSTER_HEIGHT: number = 232;
@@ -73,6 +73,7 @@ export struct BookPosterCarousel {
   @Param items: BookPosterItem[] = [];
   @Param autoPlay: boolean = false;
   @Param openCover: boolean = false;
+  @Param hiddenId: string = '';
   @Param useOriginalCoverRatio: boolean = false;
   @Local coverState: OneShotCoverState = OneShotTransitionCoordinator.getInstance().coverState;
   private nodePrefix: string = OneShotTransitionIds.nextSourceId('poster');
@@ -86,6 +87,7 @@ export struct BookPosterCarousel {
   @Local returningIndex: number = -1;
   @Local returnProgress: number = 0;
   @Local deckWidth: number = BOOK_POSTER_COVER_WIDTH;
+  @Local introOpacity: number = 1;
   private exitX: number = 0;
   private dragging: boolean = false;
   private touching: boolean = false;
@@ -256,12 +258,24 @@ export struct BookPosterCarousel {
 
   private coverNodeId(item: BookPosterItem): string { return this.nodePrefix + '-' + item.id; }
 
+  @Monitor('hiddenId', 'current')
+  private syncIntroVisibility(): void {
+    const current: BookPosterItem | undefined = this.items[this.current];
+    const hidden: boolean = current !== undefined &&
+      (current.id === this.hiddenId || this.coverNodeId(current) === this.hiddenId);
+    this.getUIContext().animateTo({ duration: hidden ? AppMotion.Fast : AppMotion.Base,
+      curve: hidden ? AppCurve.Accelerate : AppCurve.Decelerate }, (): void => {
+      this.introOpacity = hidden ? 0 : 1;
+    });
+  }
+
   build() {
     Column() {
       Row({ space: 16 }) {
         if (this.items[this.current] !== undefined) {
           BookPosterIntroduction({ item: this.items[this.current],
             onChoose: (): void => this.choose() }).layoutWeight(1)
+            .opacity(this.introOpacity)
         }
         Stack({ alignContent: Alignment.Center }) {
           ForEach(this.items, (item: BookPosterItem, index: number) => {
@@ -284,7 +298,8 @@ export struct BookPosterCarousel {
             .id(this.coverNodeId(item))
             .renderGroup(true)
             .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
-            .opacity(this.coverState.hiddenSourceId === this.coverNodeId(item) ? 0 : 1)
+            .opacity(this.coverState.hiddenSourceId === this.coverNodeId(item) || item.id === this.hiddenId ||
+              this.coverNodeId(item) === this.hiddenId ? 0 : 1)
             .scale({ x: this.cardScale(index), y: this.cardScale(index) })
             .rotate({ angle: this.cardAngle(index),
               centerX: '50%', centerY: '85%' })
