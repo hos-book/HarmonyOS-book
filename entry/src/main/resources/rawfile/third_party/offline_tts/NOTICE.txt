@@ -1,0 +1,147 @@
+简听阅读 — 本地 TTS 第三方来源与许可
+
+1. Kokoro v1.1-zh / ONNX INT8
+
+Model author: hexgrad / Kokoro contributors.
+Model license: Apache License 2.0.
+Original model card:
+https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh
+ONNX conversion and distribution: Fangjun Kuang / csukuangfj.
+Pinned converted model repository:
+https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_1/tree/1355334be009ccce397060ee639a874137a128fa
+
+Apache-2.0 全文见 LICENSE.Apache-2.0.txt。模型权重不随 HAP 或
+Git 分发，仅通过用户选择的官方 tar.bz2 或配套 ZIP 导入。项目没有重新训练权重。
+固定资产散列、来源 revision 和说话人顺序见 scripts/offline-tts-assets.json。
+模型目录里的 Apache LICENSE 仅适用于相应 Apache 组件，不能覆盖下列
+GPL/MIT 等独立依赖的许可。
+
+2. sherpa-onnx 1.13.3
+
+License: Apache License 2.0 (LICENSE.Apache-2.0.txt).
+Upstream:
+https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.3
+HarmonyOS HAR:
+https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.3/harmony-os
+License source:
+https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/v1.13.3/LICENSE
+License SHA256:
+cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+
+应用复用已安装的官方 HarmonyOS HAR，通过 Worker 使用 Kokoro 或 Piper CPU 合成；
+应用自身适配代码不替换上游版权或许可证。
+
+3. piper-phonemize
+
+MIT License. Copyright (c) 2023 Michael Hansen.
+Full license: LICENSE.piper-phonemize.txt.
+Upstream:
+https://github.com/rhasspy/piper-phonemize
+Pinned fork selected by sherpa-onnx 1.13.3:
+https://github.com/csukuangfj/piper-phonemize/tree/78a788e0b719013401572d70fef372e77bff8e43
+Dependency declaration:
+https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.3/cmake/piper-phonemize.cmake
+License source:
+https://raw.githubusercontent.com/csukuangfj/piper-phonemize/78a788e0b719013401572d70fef372e77bff8e43/LICENSE.md
+License SHA256:
+13746d509d74e55ea2265fbef204bb7cdbf84a8315b0207e988326cb54387028
+
+The upstream uni-algo license is retained in LICENSE.uni-algo.txt:
+https://raw.githubusercontent.com/csukuangfj/piper-phonemize/78a788e0b719013401572d70fef372e77bff8e43/licenses/uni-algo/LICENSE.md
+It contains the upstream Public Domain License and MIT License notices.
+
+4. eSpeak NG and ucd-tools
+
+eSpeak NG is released under GNU GPL version 3 or later.
+Full GPL v3 text: LICENSE.espeak-ng-GPL-3.0.txt.
+The same GPL v3 text covers the bundled ucd-tools COPYING.
+Upstream:
+https://github.com/espeak-ng/espeak-ng
+Pinned fork selected by sherpa-onnx 1.13.3:
+https://github.com/csukuangfj/espeak-ng/tree/f6fed6c58b5e0998b8e68c6610125e2d07d595a7
+Dependency declaration:
+https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.3/cmake/espeak-ng-for-piper.cmake
+License declaration:
+https://github.com/csukuangfj/espeak-ng/blob/f6fed6c58b5e0998b8e68c6610125e2d07d595a7/README.md#license-information
+License source:
+https://raw.githubusercontent.com/csukuangfj/espeak-ng/f6fed6c58b5e0998b8e68c6610125e2d07d595a7/COPYING
+GPL text SHA256:
+8ceb4b9ee5adedde47b31e975c1d90c73ad27b6b165a1dcd80c7c545eb65b903
+
+The upstream BSD-2-Clause helper license is also retained, without alteration,
+in LICENSE.espeak-ng-BSD-2-Clause.txt:
+https://raw.githubusercontent.com/csukuangfj/espeak-ng/f6fed6c58b5e0998b8e68c6610125e2d07d595a7/COPYING.BSD2
+
+当前 sherpa-onnx 1.13.3 Kokoro 前端会初始化 eSpeak；模型使用的完整
+espeak-ng-data 由用户独立导入。GPL 条款与模型的 Apache 条款分别适用。
+应用组合分发沿用项目 GPL-3.0 要求，并提供相应对应源码；以上链接和
+固定提交记录构建输入来源，不替代 GPL 规定的源码提供义务。
+
+5. ONNX Runtime and other existing runtime notices
+
+ONNX Runtime is MIT licensed. The existing HarmonyOS HAR binary reports 1.16.3.
+Full license and bundled third-party notices are already retained in:
+rawfile/audio_subtitles/onnxruntime-LICENSE
+rawfile/audio_subtitles/onnxruntime-ThirdPartyNotices.txt
+Its runtime source is https://github.com/microsoft/onnxruntime .
+The app reuses these existing resources; their licenses remain unchanged.
+
+6. bzip2 1.0.8
+
+Copyright (C) 1996-2019 Julian Seward. All rights reserved.
+The app statically links the unmodified bzip2 1.0.8 source to unpack official
+Kokoro and Piper tar.bz2 archives. Full license: ../bzip2/LICENSE.txt.
+Source: https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz
+Pinned source files and hashes: third_party/bzip2/upstream.json.
+
+7. Piper Chaowen / Xiaoya INT8 model compatibility
+
+The app supports user import of two unmodified official sherpa-onnx archives.
+Each is one Chinese speaker (sid=0) at 22,050 Hz. Model weights are not included
+in the HAP or Git repository. The app has not retrained or relicensed them.
+
+Release source:
+https://github.com/k2-fsa/sherpa-onnx/releases/tag/tts-models
+
+Chaowen archive:
+https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-zh_CN-chaowen-medium-int8.tar.bz2
+Archive SHA256:
+f5f7c8628427fbb259ea4b7ec1a9a822a0c04e3f267071f0abfa0610371d9e0c
+Original archive MODEL_CARD: MODEL_CARD.piper-chaowen-int8.txt
+MODEL_CARD SHA256:
+7155212ec9192b1201898500621ae562dc5eeb6d90fa183f3267cd06dc7d5b6b
+
+Xiaoya archive:
+https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-zh_CN-xiao_ya-medium-int8.tar.bz2
+Archive SHA256:
+eab027e194e70289233cf12308373611fa4e2e96ef2d97354ef433ab663d831f
+Original archive MODEL_CARD: MODEL_CARD.piper-xiaoya-int8.txt
+MODEL_CARD SHA256:
+5720e170d3872dcea10803c77a4a6b4424a9af366431fdc5668adafd95e33f42
+
+小雅归档中的模型卡声明：训练数据 BZNSYP 仅供非商业使用。
+https://huggingface.co/openspeech/BZNSYP
+https://www.data-baker.com/data/index/TNtts/
+
+超文归档中的模型卡声明：新增训练数据集使用 CC0；该固定检查点由
+Xiao Ya voice (medium quality) 微调。不能把新增数据集的 CC0 声明解释为
+整个检查点已经清除小雅基座的非商业使用限制。当前线上模型卡已改为其他
+基座描述，本应用保留本次固定归档的原始模型卡，不将最新卡套用到旧检查点。
+https://github.com/OHF-Voice/voice-datasets
+
+两个固定原包均未提供单独的模型授权文件。以上说明忠实保留发布包的
+来源和使用限制，不为用户导入的第三方权重增加商业使用许可。
+
+Upstream voice directories (may change independently of the pinned archives):
+https://huggingface.co/rhasspy/piper-voices/tree/main/zh/zh_CN/chaowen/medium
+https://huggingface.co/rhasspy/piper-voices/tree/main/zh/zh_CN/xiao_ya/medium
+
+The original Piper MODEL_CARD mentions Python/g2pW. This restriction describes
+the original Piper frontend. The official sherpa-onnx conversion used here
+contains lexicon.txt and tokens.txt; sherpa-onnx 1.13.3 uses its native
+CharacterLexicon frontend and does not bundle Python or g2pW for these models.
+Native frontend source:
+https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.3/sherpa-onnx/csrc/offline-tts-vits-impl.h
+https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.3/sherpa-onnx/csrc/character-lexicon.cc
+
+Pinned archive members and model configuration: scripts/piper-tts-assets.json.

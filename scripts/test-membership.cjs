@@ -551,9 +551,9 @@ async function main() {
     const source = fs.readFileSync(path.join(root, `pages/${kind}.ets`), 'utf8');
     let methods;
     if (kind === 'SettingsPage') {
-      const start = source.indexOf('  private async requireSearchMembership()');
+      const start = source.indexOf('  private async submitSearchConcurrency()');
       const end = source.indexOf('  private async setColorMode(', start);
-      assert.ok(start >= 0 && end > start, 'extract only settings membership handlers');
+      assert.ok(start >= 0 && end > start, 'extract search settings handlers');
       methods = source.slice(start, end)
         .replace(/@Monitor\([^\n]+\)\s*/g, '');
     } else if (kind === 'AccountPage') {
@@ -566,7 +566,6 @@ async function main() {
     const ui = { getHostContext: () => context,
       getPromptAction: () => ({ showToast: value => messages.push(value.message) }) };
     const prefs = { setSearchConcurrency: async count => {
-      if (!await s.service.hasCurrentEntitlement()) throw new Error('MEMBERSHIP_REQUIRED');
       saved.push(count);
     } };
     vm.runInNewContext(ts.transpileModule(`class Page {
@@ -591,7 +590,7 @@ async function main() {
     page.navStack = { pushPathByName: route => routes.push(route) };
     return { page, routes, messages, saved };
   }
-  await test('Settings and backup actions await one cold query and never open purchase while pending', async () => {
+  await test('Search settings are free while backup awaits its cold membership query', async () => {
     const s = session(); s.current.push(payload());
     const settings = membershipPage(s, 'SettingsPage'), backup = membershipPage(s, 'AccountPage');
     const actions = [settings.page.setSearchConcurrency(9, false), backup.page.setAutomatic(true, 3)];
@@ -601,12 +600,14 @@ async function main() {
     assert.deepEqual(settings.saved, [9]); assert.equal(backup.saved.length, 1);
     assert.equal(settings.routes.length, 0); assert.equal(backup.routes.length, 0);
   });
-  await test('Settings and backup failures show errors, while confirmed nonmembers open purchase', async () => {
+  await test('Search settings stay free when membership fails or is inactive; backup stays protected', async () => {
     for (const failed of [true, false]) {
       const s = session(); if (failed) s.setQueryError({ code: 1001860005 });
       const settings = membershipPage(s, 'SettingsPage'), backup = membershipPage(s, 'AccountPage');
       await Promise.all([settings.page.setSearchConcurrency(9, false), backup.page.setAutomatic(true, 3)]);
-      for (const h of [settings, backup]) {
+      assert.deepEqual(settings.saved, [9]);
+      assert.equal(settings.routes.length, 0);
+      for (const h of [backup]) {
         assert.equal(h.saved.length, 0); assert.equal(h.routes.length, failed ? 0 : 1);
         if (failed) assert.equal(h.messages.at(-1), 'app.string.membership_network_error');
       }
@@ -615,8 +616,8 @@ async function main() {
   await test('Closed settings and backup pages ignore delayed membership results', async () => {
     const s = session(); s.current.push(payload());
     const settings = membershipPage(s, 'SettingsPage'), backup = membershipPage(s, 'AccountPage');
-    const actions = [settings.page.setSearchConcurrency(9, false), backup.page.setAutomatic(true, 3)];
     settings.page.alive = false; backup.page.alive = false;
+    const actions = [settings.page.setSearchConcurrency(9, false), backup.page.setAutomatic(true, 3)];
     await Promise.all(actions);
     assert.equal(settings.saved.length, 0); assert.equal(backup.saved.length, 0);
     assert.equal(settings.routes.length + backup.routes.length, 0);
@@ -685,8 +686,11 @@ async function main() {
     assert.equal(s.state.hasAccess, false); assert.equal(s.service.busy, false);
     const settings = membershipPage(s, 'SettingsPage');
     const pending = settings.page.setSearchConcurrency(9, false);
-    await Promise.resolve(); assert.equal(settings.saved.length, 0); assert.equal(settings.routes.length, 0);
+    await pending;
+    assert.deepEqual(settings.saved, [9], 'search setting does not wait for account verification');
+    assert.equal(settings.routes.length, 0);
     release(); await pending;
+    await new Promise(resolve => setImmediate(resolve));
     assert.equal(s.state.hasAccess, true); assert.equal(s.state.revalidating, false);
     assert.deepEqual(settings.saved, [9]); assert.equal(settings.routes.length, 0);
     assert.equal(s.queries.length, 2);

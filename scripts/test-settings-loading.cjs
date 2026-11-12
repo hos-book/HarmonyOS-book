@@ -23,7 +23,8 @@ function harness() {
     getDefaultTab: async () => 2,
     getAutoPlayOnLaunch: async () => true,
     getStoredCoverSuperResolution: async () => true,
-    getCoverSuperResolution: () => { throw new Error('Settings must not query membership while loading'); },
+    getCoverSuperResolution: async () => true,
+    getAudioFocusMode: async () => 0,
     getAudioInterruptMode: async () => 1,
     getAudioAutoResume: async () => false,
     getDefaultPlaybackSpeed: async () => 1.5,
@@ -94,7 +95,7 @@ async function tick() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
   const revoked = harness(); await revoked.page.loadPrefs();
   revoked.page.membership.hasAccess = false; revoked.page.membership.confirmedInactive = true;
   revoked.search.resolve(12); await tick();
-  assert.equal(revoked.page.searchConcurrency, 3, 'late result cannot display revoked custom access');
+  assert.equal(revoked.page.searchConcurrency, 12, 'membership expiry does not alter local search settings');
   await revoked.page.loadPrefs();
   assert.equal(revoked.page.isLoaded, true);
   assert.equal(revoked.page.defaultPlaybackSpeed, 1.5, 'default speed is available without membership');

@@ -1722,19 +1722,10 @@ export class PreferenceService {
   }
 
   static async getSearchConcurrency(): Promise<number> {
-    const s = await PreferenceService.ensureStore();
-    if (!await MembershipService.instance.hasCurrentEntitlement()) {
-      const previous = await s.get(KEY_SEARCH_CONCURRENCY, 3);
-      if (previous !== 3) {
-        await s.put(KEY_SEARCH_CONCURRENCY, 3);
-        try { await s.flush(); } catch (_error) { /* 本次搜索仍只使用默认并发。 */ }
-      }
-      return 3;
-    }
     return PreferenceService.getStoredSearchConcurrency();
   }
 
-  /** 仅供设置展示，不授予搜索并发权限。 */
+  /** 搜索和设置均读取本机偏好，不依赖会员或联网核验。 */
   static async getStoredSearchConcurrency(): Promise<number> {
     const s = await PreferenceService.ensureStore();
     const count = await s.get(KEY_SEARCH_CONCURRENCY, 3);
@@ -1746,9 +1737,6 @@ export class PreferenceService {
       throw new Error('Search concurrency must be an integer from 1 to 12');
     }
     const s = await PreferenceService.ensureStore();
-    if (count !== 3 && !await MembershipService.instance.hasCurrentEntitlement()) {
-      throw new Error('MEMBERSHIP_REQUIRED');
-    }
     const previous = await s.get(KEY_SEARCH_CONCURRENCY, 3);
     await s.put(KEY_SEARCH_CONCURRENCY, count);
     try {
@@ -2125,7 +2113,7 @@ export class PreferenceService {
     await s.put(KEY_PRELOAD_CHAPTERS, Number.isFinite(snapshot.preloadChapters) ?
       Math.max(0, Math.min(50, Math.round(snapshot.preloadChapters))) : 1);
     await s.put('search_recommendations', snapshot.searchRecommendations !== false);
-    await s.put(KEY_SEARCH_CONCURRENCY, MembershipState.current.hasAccess && typeof snapshot.searchConcurrency === 'number' &&
+    await s.put(KEY_SEARCH_CONCURRENCY, typeof snapshot.searchConcurrency === 'number' &&
       Number.isInteger(snapshot.searchConcurrency) && snapshot.searchConcurrency >= 1 &&
       snapshot.searchConcurrency <= 12 ? snapshot.searchConcurrency : 3);
     try {

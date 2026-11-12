@@ -39,6 +39,11 @@ module.exports = function createRoleFixture(load) {
       async flush() { if (failFlush) throw Error('disk full'); } };
   } } };
   const roleModel = load('model/RoleSpeech.ets');
+  const offlineAssets = load('model/OfflineTtsAssets.ets');
+  const offlinePiperAssets = load('model/OfflineTtsPiperAssets.ets', { './OfflineTtsAssets': offlineAssets });
+  const offlineCatalog = load('model/OfflineTtsCatalog.ets', {
+    './OfflineTtsAssets': offlineAssets, './OfflineTtsPiperAssets': offlinePiperAssets
+  });
   const quoteModel = load('model/ReaderDialogueRules.ets');
   const highlighter = load('service/text/ReaderDialogueHighlighter.ets', { '../../model/ReaderDialogueRules': quoteModel });
   const planner = load('service/text/RoleSpeechPlanner.ets', { '../../model/RoleSpeech': roleModel, './ReaderDialogueHighlighter': highlighter });
@@ -67,6 +72,7 @@ module.exports = function createRoleFixture(load) {
   const roleExports = load('service/text/RoleSpeechService.ets', {
     '@kit.CoreFileKit': { fileIo: io }, '../../model/RoleSpeech': roleModel, './RoleSpeechPlanner': planner,
     './RoleModelService': modelExports,
+    '../../model/OfflineTtsCatalog': offlineCatalog,
     '../subtitle/SubtitleFiles': { SubtitleFiles: { key: async text => crypto.createHash('sha256').update(text).digest('hex') } }
   });
   const roles = roleExports.RoleSpeechService.getInstance();

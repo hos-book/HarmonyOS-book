@@ -8,6 +8,7 @@ import { BookSourceService } from '../BookSourceService';
 import { PreferenceService } from '../PreferenceService';
 import { RankingStorage } from './RankingStorage';
 import { JsonObj } from '../builtin/JsonValue';
+import { LightSourceRequest } from '../rulesource/light/LightSourceRequestPolicy';
 
 export class RankingMatch {
   book: Book;
@@ -23,7 +24,7 @@ export class RankingMatch {
 
 export class RankingMatchProgress {
   matches: RankingMatch[] = [];
-  total: number = 0;
+  total: number = -1;
   completed: number = 0;
   failed: number = 0;
 }
@@ -42,8 +43,19 @@ class RankingMatchMemory {
 /** 可取消的匹配会话；旧会话不会调度更多书源或覆盖新点击。 */
 export class BookMatchService {
   private generation: number = 0;
+  private cancelWait: (() => void) | undefined = undefined;
+  private requests: Set<LightSourceRequest> = new Set<LightSourceRequest>();
+  private timeoutMs: number;
 
-  cancel(): void { this.generation++; }
+  constructor(timeoutMs: number = 30000) { this.timeoutMs = timeoutMs; }
+
+  cancel(): void {
+    this.generation++;
+    this.cancelWait?.();
+    this.cancelWait = undefined;
+    for (const request of this.requests) request.cancel();
+    this.requests.clear();
+  }
 
   static keyword(book: RankingBook): string {
     return book.title.split(/[|｜]/)[0].replace(/【[^】]*】|\[[^\]]*\]/g, '').trim() || book.title;
@@ -105,27 +117,50 @@ export class BookMatchService {
 
   async search(context: common.Context, target: RankingBook, keyword: string,
     onProgress: (progress: RankingMatchProgress) => void): Promise<void> {
-    const generation = ++this.generation;
+    this.cancel();
+    const generation = this.generation;
     const progress = new RankingMatchProgress();
-    const memories = await BookMatchService.memories(context);
-    const remembered = memories.find((entry: RankingMatchMemory): boolean => entry.id === target.id);
-    const sources = await SourceDataService.getEnabledSources();
-    const concurrency = await PreferenceService.getSearchConcurrency();
+    onProgress(progress);
+    const cancellation = new Promise<SearchResult[]>((resolve): void => {
+      this.cancelWait = (): void => resolve([]);
+    });
+    const concurrencyTask = PreferenceService.getSearchConcurrency().catch((): number => 3);
+    const memoriesTask = BookMatchService.memories(context);
+    const sources = await Promise.race([SourceDataService.getEnabledSources(),
+      cancellation.then((): BookSource[] => [])]);
     if (generation !== this.generation) return;
     const eligible = sources.filter((source: BookSource): boolean =>
       target.contentType === 'comic' ? source.bookSourceType === 2 : source.bookSourceType !== 2);
+    progress.total = eligible.length;
+    onProgress(progress);
+    if (eligible.length === 0) {
+      this.cancelWait = undefined;
+      return;
+    }
+    const memories = await Promise.race([memoriesTask, cancellation.then((): RankingMatchMemory[] => [])]);
+    const concurrency = await Promise.race([concurrencyTask, cancellation.then((): number => 1)]);
+    if (generation !== this.generation) return;
+    const remembered = memories.find((entry: RankingMatchMemory): boolean => entry.id === target.id);
     // 上次选择的来源优先搜索；仍重新执行规则验证，不复用过期结果或自动跳转。
     eligible.sort((left: BookSource, right: BookSource): number =>
       Number(right.bookSourceUrl === remembered?.sourceUrl) - Number(left.bookSourceUrl === remembered?.sourceUrl));
-    progress.total = eligible.length;
-    onProgress(progress);
     let cursor = 0;
     const seen = new Set<string>();
     const worker = async (): Promise<void> => {
       while (generation === this.generation && cursor < eligible.length) {
         const source = eligible[cursor++];
+        const request = new LightSourceRequest(2);
+        this.requests.add(request);
+        let timer: number = -1;
         try {
-          const results = await BookSourceService.searchBooks(source, keyword);
+          const timeout = new Promise<SearchResult[]>((_resolve, reject): void => {
+            timer = setTimeout((): void => {
+              request.cancel();
+              reject(new Error('ranking source search timeout'));
+            }, this.timeoutMs);
+          });
+          const results = await Promise.race([
+            BookSourceService.searchBooks(source, keyword, 1, request), timeout, cancellation]);
           if (generation !== this.generation) return;
           for (const result of results.slice(0, 80)) {
             if (!result.bookUrl || !result.sourceUrl) continue;
@@ -140,7 +175,12 @@ export class BookMatchService {
             match.remembered = match.book.sourceUrl === remembered?.sourceUrl && match.book.bookUrl === remembered?.bookUrl;
             progress.matches.push(match);
           }
-        } catch (_error) { progress.failed++; }
+        } catch (_error) {
+          if (generation === this.generation) progress.failed++;
+        } finally {
+          if (timer !== -1) clearTimeout(timer);
+          this.requests.delete(request);
+        }
         if (generation !== this.generation) return;
         progress.completed++;
         progress.matches.sort((left: RankingMatch, right: RankingMatch): number =>
@@ -152,6 +192,7 @@ export class BookMatchService {
     const tasks: Promise<void>[] = [];
     for (let index = 0; index < Math.min(12, Math.max(1, concurrency), eligible.length); index++) tasks.push(worker());
     await Promise.all(tasks);
+    if (generation === this.generation) this.cancelWait = undefined;
   }
 }
 

@@ -34,10 +34,16 @@ const desktopLyricModel = load('model/DesktopLyric.ets', { './AudioSubtitle': su
 const readerToolsModel = load('model/ReaderTools.ets');
 const { SpeechTextHighlighter } = load('service/text/SpeechTextHighlighter.ets');
 const { CustomTtsConfig } = load('model/CustomTtsConfig.ets');
+const offlineAssets = load('model/OfflineTtsAssets.ets');
+const offlinePiperAssets = load('model/OfflineTtsPiperAssets.ets', { './OfflineTtsAssets': offlineAssets });
+const offlineCatalog = load('model/OfflineTtsCatalog.ets', {
+  './OfflineTtsAssets': offlineAssets, './OfflineTtsPiperAssets': offlinePiperAssets
+});
 const { CustomTtsTemplate: LocalRuleTemplate } = load('service/text/CustomTtsTemplate.ets');
 const { CustomTtsConfigParser } = load('service/text/CustomTtsConfigParser.ets', {
   '@kit.NetworkKit': { http: { RequestMethod: { POST: 'POST', GET: 'GET' }, HttpDataType: { ARRAY_BUFFER: 1 } } },
   '../../model/CustomTtsConfig': { CustomTtsConfig },
+  '../../model/OfflineTtsCatalog': offlineCatalog,
   './CustomTtsTemplate': { CustomTtsTemplate: LocalRuleTemplate },
   '../rulesource/LocalRuleQuickJsRuntime': { LocalRuleQuickJsRequest: class {}, LocalRuleQuickJsRuntime: {
     async execute(request) { return { success: true, value: String(vm.runInNewContext(request.script, {}, { timeout: 100 })) }; }
@@ -47,8 +53,21 @@ const settle = async () => { for (let i = 0; i < 45; i++) await Promise.resolve(
 const book = (id = 'book', texts = ['第一句。第二句！', '第三句。']) => ({ id, contentType: 'text', title: id,
   sourceUrl: 'https://source.example', bookUrl: `https://book.example/${id}`, author: 'author', cover: '',
   chapters: texts.map((text, index) => ({ id: String(index), title: `章节${index}`, source: { value: `${id}/${index}`, type: 'url' }, text })) });
-function harness(memory = new Map()) {
+const localVoice = speakerId => Object.assign(new CustomTtsConfig(), {
+  provider: 'local-kokoro', modelId: 'kokoro-int8-v1_1', speakerId,
+  id: `local-kokoro-v1_1:${speakerId}`, name: `本地音色${speakerId}`, group: '本地 Kokoro'
+});
+const piperVoice = (name = 'chaowen') => Object.assign(new CustomTtsConfig(), {
+  provider: 'local-piper', modelId: `piper-${name}-int8-v1`, speakerId: 0,
+  id: `local-piper-${name}-v1:0`, name: `Piper ${name}`, group: '本地 Piper'
+});
+function harness(memory = new Map(), initialOffline = []) {
   const roleFixture = createRoleFixture(load);
+  let offlineVoices = initialOffline;
+  const offlineModel = { ensure: async () => {},
+    voices: () => offlineVoices.map(voice => Object.assign(new CustomTtsConfig(), voice)),
+    isVoiceId: value => offlineCatalog.getOfflineTtsVoiceModel(value) !== undefined };
+  const offlineService = { pauses: 0, async pauseForModelChange() { this.pauses++; } };
   let uptime = 0;
   const engines = [], spoken = [], timers = new Map(), cached = new Map(), stats = [], httpSpoken = [], httpPrepared = [], systemSpoken = [], widgets = [];
   let id = 0, failContent = false, createDeferred = null, deviceCallback = null, httpPrepareFailure = '', httpPrepareWait = null;
@@ -82,6 +101,9 @@ function harness(memory = new Map()) {
       engines.push(engine); return engine;
     } };
   const dependencies = {
+    './OfflineTtsModelService': { OfflineTtsModelService: { instance: offlineModel } },
+    './OfflineTtsService': { OfflineTtsService: { instance: offlineService } },
+    '../../model/OfflineTtsCatalog': offlineCatalog,
     './RoleSpeechService': roleFixture.roleExports,
     './RoleModelService': roleFixture.modelExports,
     './TextReadingSettingsService': { TextReadingSettingsService: { get: async () => ({ dialogueQuotePairs: '“”\n「」\n『』' }) } },
@@ -95,6 +117,7 @@ function harness(memory = new Map()) {
     './TextReadingProgressService': { TextReadingProgressService: { save: async () => {}, get: async () => null } },
     '../sync/LibrarySyncModel': { LibrarySyncActivity: { remoteText: new Set(), prepareResume: async () => {} } },
     '../../model/TextReading': load('model/TextReading.ets', { './ReaderTheme': load('model/ReaderTheme.ets'),
+      './ReaderRegionStyle': load('model/ReaderRegionStyle.ets'),
       './ReaderDialogueRules': load('model/ReaderDialogueRules.ets') }),
     './SpeechPcmBuffer': { SpeechPcmBuffer },
     '../DiagnosticLogService': { DiagnosticLogService: { info() {} } },
@@ -176,7 +199,8 @@ function harness(memory = new Map()) {
   const service = TextToSpeechService.getInstance();
   const context = { filesDir: '/files', resourceManager: { getStringSync: key => key } };
   return { cached, HttpTtsFailure: dependencies['./HttpTtsPlayer'].HttpTtsFailure, focusFixture, service, tts, memory, spoken, systemSpoken, engines, timers, session, httpSpoken, httpPrepared, stats, widgets,
-    roleFixture, syncActivity: dependencies['../sync/LibrarySyncModel'].LibrarySyncActivity,
+    roleFixture, offlineService, setOfflineVoices: voices => { offlineVoices = voices; },
+    syncActivity: dependencies['../sync/LibrarySyncModel'].LibrarySyncActivity,
     progress: dependencies['./TextReadingProgressService'].TextReadingProgressService,
     advance: ms => { uptime += ms; }, coordinator: coordinator.PlaybackCoordinator,
     init: () => service.initialize(context), reloadSettings: () => TextToSpeechService.reloadSettings(context),
@@ -198,6 +222,211 @@ async function check(name, action) {
   catch (error) { console.error(`FAIL ${name}`, error); process.exitCode = 1; }
 }
 (async () => {
+  await check('本地首段优先，600ms或首段ready后填满四槽，长段提前生成且切段即补窗', async () => {
+    const voice = piperVoice();
+    const text = ['短。', '又短。', '长'.repeat(160) + '。', '后续四。', '后续五。', '后续六。'].join('\n');
+    const blocked = harness(new Map(), [voice]); await blocked.init(); await blocked.service.selectCustomTts(voice.id);
+    let finish;
+    blocked.deferHttpPrepare(new Promise(resolve => { finish = resolve; }));
+    await blocked.service.start(book('local-head-start', [text]), 0, 0); await settle();
+    assert.equal(blocked.service.httpTasks.size, 1, 'the head enters synthesis before any lookahead');
+    const timer = [...blocked.timers.values()].find(t => t.delay === 600);
+    assert.ok(timer); timer.callback(); await settle();
+    assert.equal(blocked.service.httpTasks.size, 4);
+    blocked.service.pause(); finish(); await settle();
+    assert.equal(blocked.service.httpTasks.size, 0);
+    assert.equal(blocked.httpPrepared.length + blocked.httpSpoken.length, 0, 'cancelled queued preparations cannot publish audio');
+    blocked.service.stop();
+
+    const ready = harness(new Map(), [voice]); await ready.init(); await ready.service.selectCustomTts(voice.id);
+    const settings = new synthesisModel.SpeechSynthesisSettings(); settings.concurrency = 1;
+    await ready.service.setSynthesisSettings(settings);
+    await ready.service.start(book('local-filled-window', [text]), 0, 0); await settle();
+    assert.equal(ready.httpPrepared.length, 4, 'ready head fills local lookahead without waiting for playback start');
+    assert.equal(ready.httpSpoken.length, 1);
+    assert.ok(ready.httpPrepared.some(item => item.text.length > 150), 'the long third segment starts before the short second segment plays');
+    const first = ready.httpSpoken[0]; first.onStart(); first.complete(); await settle();
+    assert.equal(ready.httpSpoken.length, 2);
+    assert.ok(ready.service.httpTasks.has(4), 'advancing to the second segment immediately prepares another lookahead');
+    assert.equal(ready.service.httpTasks.size, 4);
+    ready.service.stop();
+  });
+  await check('混合角色的本地扩展槽不增加HTTP窗口，额外位置仅准备本地声音', async () => {
+    const voice = piperVoice();
+    const h = harness(new Map(), [voice]); await h.init();
+    const remote = CustomTtsConfigParser.parse('{"name":"网络角色","url":"https://tts.example?text={{text}}"}')[0];
+    await h.service.importCustomTts([remote]); await h.service.selectCustomTts(voice.id);
+    const settings = new synthesisModel.SpeechSynthesisSettings(); settings.concurrency = 1;
+    await h.service.setSynthesisSettings(settings); await h.roleFixture.enable();
+    const parts = ['远程首段。', '本地第二段。', '远程第三段。', '本地第四段。', '远程第五段。'];
+    const text = parts.join('\n');
+    h.roleFixture.roles.voiceAt = offset => {
+      const before = text.substring(0, offset).split('\n').length - 1;
+      return before % 2 === 0 ? remote.id : voice.id;
+    };
+    await h.service.start(book('local-http-window', [text]), 0, 0); await settle();
+    assert.deepEqual(Array.from(h.service.httpTasks.keys()), [0, 1, 3]);
+    assert.equal(h.httpPrepared.filter(item => item.config.provider === 'http').length, 1);
+    assert.equal(h.httpPrepared.filter(item => item.config.provider === 'local-piper').length, 2);
+    h.httpSpoken[0].onStart(); await settle();
+    assert.ok(!h.service.httpTasks.has(2), 'a third remote segment stays outside concurrency=1 even with local lookahead');
+    assert.equal(h.service.state.synthesis.concurrency, 1);
+    h.service.stop();
+  });
+  await check('真实本地串行队列取消未启动片段，旧native结束后不再提交排队合成', async () => {
+    const protocol = load('model/OfflineTtsWorkerProtocol.ets');
+    const posted = [], hosts = [], timers = new Map();
+    let timerId = 0;
+    class ThreadWorker {
+      constructor() { hosts.push(this); }
+      postMessage(request) {
+        if (request.shutdown) this.onexit?.();
+        else posted.push(request);
+      }
+    }
+    const { OfflineTtsService } = load('service/text/OfflineTtsService.ets', {
+      '@kit.ArkTS': { worker: { ThreadWorker }, ThreadWorkerPriority: { HIGH: 0 } },
+      '../../model/OfflineTts': { OFFLINE_TTS_MODEL_ID: 'kokoro-int8-v1_1' },
+      '../../model/OfflineTtsCatalog': offlineCatalog,
+      '../../model/OfflineTtsWorkerProtocol': protocol,
+      './OfflineTtsModelService': { OfflineTtsModelService: { instance: {
+        isBusy: () => false, stateFor: () => ({ installed: true }),
+        isVoiceId: id => offlineCatalog.getOfflineTtsVoiceModel(id) !== undefined,
+        directory: id => '/files/offline_tts/' + id
+      } } }
+    }, {
+      setTimeout: fn => { const id = ++timerId; timers.set(id, fn); return id; }, clearTimeout: id => timers.delete(id),
+      setInterval: fn => { const id = ++timerId; timers.set(id, fn); return id; }, clearInterval: id => timers.delete(id)
+    });
+    const local = new OfflineTtsService();
+    const cancelled = [false, false, false];
+    const pending = cancelled.map((_value, index) => local.synthesize(piperVoice(), '本地排队片段。', 1,
+      () => cancelled[index]));
+    const results = Promise.allSettled(pending);
+    await settle();
+    assert.equal(posted.length, 1, 'native generate has only one active request');
+    cancelled[1] = true; cancelled[2] = true;
+    const response = new protocol.OfflineTtsWorkerResponse();
+    response.requestId = posted[0].requestId; response.speakers = 1; response.wave = new ArrayBuffer(48);
+    hosts[0].onmessage({ data: response });
+    const settled = await results;
+    assert.equal(settled[0].status, 'fulfilled');
+    assert.ok(settled.slice(1).every(item => item.status === 'rejected' && /cancelled/.test(item.reason.message)));
+    assert.equal(posted.length, 1, 'cancelled queued items never enter the worker');
+    await local.pauseForModelChange();
+    assert.equal(timers.size, 0);
+  });
+  await check('Piper新角色只选Piper且保留跨模型手动绑定，无同系列候选跟随默认', async () => {
+    const piper = piperVoice(), anotherPiper = piperVoice('xiaoya');
+    const kokoro = localVoice(3), anotherKokoro = localVoice(4);
+    const online = CustomTtsConfigParser.parse('{"name":"网络音色","url":"https://tts.example?text={{text}}"}')[0];
+    const text = '王林说：“我回来了。”李慕婉说：“你终于回来。”';
+    const context = { filesDir: '/files' };
+    for (const [selected, companion, other] of [[piper, anotherPiper, kokoro], [kokoro, anotherKokoro, piper]]) {
+      const f = createRoleFixture(load); await f.enable();
+      f.native.answer = prompt => JSON.parse(prompt).lines.map((line, index) =>
+        ({ id: line.id, speaker: index === 0 ? '王林' : '李慕婉' }));
+      const voices = [online, other, companion, selected];
+      await f.roles.prepare(context, 'local-provider', '分角色测试', 'chapter-1', text, '“”');
+      await f.roles.ensureAt(text.indexOf('“'), voices, selected.id);
+      assert.equal(f.roles.state.speakers.length, 2);
+      assert.ok(f.roles.state.speakers.every(item => item.voiceId === companion.id),
+        'HTTP and another local provider appearing first must not be assigned automatically');
+      await f.roles.setVoice('王林', other.id);
+      await f.roles.prepare(context, 'local-provider', '分角色测试', 'chapter-2', text, '“”');
+      await f.roles.ensureAt(text.indexOf('“'), voices, selected.id);
+      assert.equal(f.roles.state.speakers.find(item => item.id === '王林').voiceId, other.id,
+        'manual bindings across model families survive later analysis');
+      await f.roles.prepare(context, 'local-single', '单音色测试', 'chapter-1', text, '“”');
+      await f.roles.ensureAt(text.indexOf('“'), [online, other, selected], selected.id);
+      assert.ok(f.roles.state.speakers.every(item => item.voiceId === ''),
+        'a single enabled voice follows the default without choosing another provider');
+    }
+  });
+  await check('Piper独立恢复、删除型号隔离与只刷新目标模型隐藏音色', async () => {
+    const voices = [localVoice(3), localVoice(4), piperVoice(), piperVoice('xiaoya')];
+    const h = harness(new Map(), voices); await h.init();
+    await h.service.selectCustomTts(voices[2].id);
+    await h.service.setCustomTtsEnabled(voices[3].id, false);
+    const restored = harness(h.memory, voices); await restored.init();
+    assert.equal(restored.service.state.customTtsId, voices[2].id);
+    assert.equal(restored.service.state.customTtsConfigs.find(item => item.id === voices[3].id).enabled, false);
+    await h.service.updateCustomTtsBatch(voices.slice(1).map(item => item.id), true, false);
+    await h.service.refreshOfflineVoices(voices[2].modelId);
+    assert.deepEqual(Array.from(h.service.state.customTtsConfigs, item => item.id), [voices[0].id, voices[2].id]);
+    assert.equal(h.service.state.customTtsId, '', 'restoring an imported model does not change the chosen voice');
+    h.setOfflineVoices([voices[0], voices[1], voices[3]]);
+    await h.service.refreshOfflineVoices(voices[2].modelId);
+    assert.deepEqual(Array.from(h.service.state.customTtsConfigs, item => item.id), [voices[0].id],
+      'removing one model preserves another model and keeps other hidden voices hidden');
+    assert.deepEqual(JSON.parse(h.memory.get('offlineTtsHidden')).sort(), [voices[1].id, voices[3].id].sort());
+  });
+  await check('本地音色目录跨重启保留顺序启停，删除不复活，无模型清除本地选择', async () => {
+    const voices = [localVoice(3), localVoice(4)];
+    const h = harness(new Map(), voices); await h.init();
+    const online = CustomTtsConfigParser.parse('{"name":"网络音色","url":"https://tts.example?text={{text}}"}');
+    await h.service.importCustomTts(online);
+    await assert.rejects(() => h.service.importCustomTts([localVoice(5)]), /installed model/);
+    await h.service.selectCustomTts(voices[0].id);
+    await h.service.setCustomTtsEnabled(voices[1].id, false);
+    await h.service.reorderCustomTts([voices[1].id, voices[0].id]);
+    const restored = harness(h.memory, voices); await restored.init();
+    assert.equal(restored.service.state.customTtsId, voices[0].id);
+    assert.equal(restored.service.state.customTtsConfigs.filter(item => item.provider === 'local-kokoro')
+      .map(item => `${item.speakerId}:${item.enabled}`).join(), '4:false,3:true');
+    const missing = harness(h.memory); await missing.init();
+    assert.equal(missing.service.state.customTtsId, '');
+    assert.equal(missing.service.state.customTtsConfigs.length, 1);
+    assert.equal(missing.service.state.customTtsConfigs[0].id, online[0].id, 'missing local models preserve HTTP voices');
+    await h.service.removeCustomTts(voices[0].id);
+    const removed = harness(h.memory, voices); await removed.init();
+    assert.ok(removed.service.state.customTtsConfigs.every(item => item.id !== voices[0].id));
+    assert.equal(removed.service.state.customTtsId, '');
+  });
+  await check('本地多角色按speaker分流，长对白不跨角色且300字内，原文位置完整推进', async () => {
+    const voices = [localVoice(3), localVoice(4), localVoice(5)];
+    const h = harness(new Map(), voices); await h.init();
+    const online = CustomTtsConfigParser.parse('{"name":"排在最前的网络音色","url":"https://tts.example?text={{text}}"}');
+    await h.service.importCustomTts(online);
+    await h.service.reorderCustomTts([online[0].id, ...voices.map(voice => voice.id)]);
+    assert.equal(h.service.state.customTtsConfigs[0].provider, 'http', 'HTTP voice precedes every local candidate');
+    await h.service.selectCustomTts(voices[0].id);
+    await h.roleFixture.enable();
+    h.roleFixture.native.answer = prompt => JSON.parse(prompt).lines.map(line =>
+      ({ id: line.id, speaker: line.text.includes('长') ? '张三' : '李四' }));
+    const text = '张三说：“' + '长'.repeat(410) + '。”\n李四回答：“你好。”\n两人走远。';
+    await h.service.start(book('local-roles', [text]), 0, 0); await settle(); await settle();
+    for (let i = 0; i < 20 && h.service.requestId; i++) {
+      const audio = h.httpSpoken.find(item => item.id === h.service.requestId);
+      assert.ok(audio, 'every local role segment uses the shared bounded audio path');
+      assert.equal(audio.config.provider, 'local-kokoro');
+      assert.ok(audio.text.length <= 300);
+      audio.onStart(); audio.complete(); await settle(); await settle();
+    }
+    assert.equal(h.spoken.length, 0, 'local model does not invoke platform synthesis');
+    assert.equal(h.httpSpoken.map(item => item.text).join('').replace(/\s/g, ''), text.replace(/\s/g, ''));
+    assert.equal(h.service.state.charOffset, text.length);
+    assert.equal(h.service.state.customTtsId, voices[0].id);
+    for (const audio of [...h.httpPrepared, ...h.httpSpoken]) {
+      const expected = audio.text.includes('长') ? voices[1] : audio.text.includes('你好') ? voices[2] : voices[0];
+      assert.equal(audio.config.speakerId, expected.speakerId, audio.text);
+    }
+    h.service.stop();
+  });
+  await check('替换本地模型先取消合成与播放，迟到本地音频不出声或推进正文', async () => {
+    const voice = localVoice(3);
+    const h = harness(new Map(), [voice]); await h.init(); await h.service.selectCustomTts(voice.id);
+    let release;
+    h.deferHttpPrepare(new Promise(resolve => { release = resolve; }));
+    await h.service.start(book('local-cancel', ['第一句话。\n下一段。']), 0, 0); await settle();
+    const changing = h.service.pauseForOfflineModelChange();
+    release(); await changing; await settle();
+    assert.equal(h.offlineService.pauses, 1);
+    assert.equal(h.httpSpoken.length + h.systemSpoken.length, 0);
+    assert.equal(h.service.state.charOffset, 0);
+    assert.equal(h.service.state.playing || h.service.state.loading, false);
+    h.service.stop();
+  });
   await check('桌面字幕只跟随实际起播，合成等待/暂停保留末句，跨章及旧回调不串字', async () => {
     const h = harness(); await h.init(); h.tts.deferSynthesis = true;
     h.service.setReadingPageEnds('lyric', 0, [4, 9]);

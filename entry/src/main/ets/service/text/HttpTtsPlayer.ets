@@ -1,4 +1,6 @@
 import { PlatformCompat } from '../../utils/PlatformCompat';
+import { OfflineTtsService } from './OfflineTtsService';
+import { isOfflineTtsProvider } from '../../model/OfflineTtsCatalog';
 import { common } from '@kit.AbilityKit';
 import { http } from '@kit.NetworkKit';
 import { media } from '@kit.MediaKit';
@@ -219,6 +221,15 @@ export class HttpTtsPlayer {
   }
 
   private async synthesize(config: CustomTtsConfig, text: string, speed: number): Promise<void> {
+    if (isOfflineTtsProvider(config.provider)) {
+      this.check();
+      this.trace('local-synthesis');
+      const audio = await OfflineTtsService.instance.synthesize(config, text, speed, (): boolean => this.cancelled);
+      this.check();
+      this.preparedAudio = audio;
+      this.trace('ready');
+      return;
+    }
     for (let attempt = 0; attempt <= this.retries; attempt++) {
       this.check();
       try { await this.synthesizeOnce(config, text, speed); return; }
@@ -423,6 +434,7 @@ export class HttpTtsPlayer {
             }).catch((): void => reject(new Error('TTS audio play failed')));
           } catch (_error) { reject(new Error('TTS audio play failed')); }
         } else if (state === 'playing') {
+          this.trace('playing');
           onStart();
         } else if (state === 'completed') {
           resolve();

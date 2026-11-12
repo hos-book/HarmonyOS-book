@@ -11,6 +11,7 @@ import { CoverImage } from './CoverImage';
 import { LocalBookCover } from './LocalBookCover';
 import { MembershipState } from '../model/MembershipState';
 import { VipFeatureBadge } from './VipFeatureBadge';
+import { SettingsHintButton } from './SettingsHintButton';
 
 /** 套装预览只读取候选定义；点击应用后才持久化并通知现有页面。 */
 @ComponentV2
@@ -165,7 +166,9 @@ export struct ThemeBundleComponent {
       this.preview(bundle)
       Row({ space: AppSpace.Xs }) {
         Text(bundle.name).fontSize(AppFont.BodyL).fontWeight(FontWeight.Bold)
-          .fontColor(AppTheme.TextPrimary).layoutWeight(1)
+          .fontColor(AppTheme.TextPrimary).flexShrink(1)
+        SettingsHintButton({ title: bundle.name, message: bundle.description })
+        Blank()
         if (this.isCurrent(bundle)) {
           Row({ space: 4 }) {
             SymbolGlyph($r('sys.symbol.checkmark_circle')).fontSize(14).fontColor([AppColor.Brand])
@@ -173,8 +176,6 @@ export struct ThemeBundleComponent {
           }
         }
       }.width('100%')
-      Text(bundle.description).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
-        .lineHeight(19).width('100%').constraintSize({ minHeight: 38 })
       Button({ type: ButtonType.Normal }) {
         Row({ space: AppSpace.Xs }) {
           if (MembershipState.featureEnabled && bundle.id !== ThemeBundles.DefaultId) { VipFeatureBadge() }
@@ -198,8 +199,11 @@ export struct ThemeBundleComponent {
 
   build() {
     Column({ space: AppSpace.Md }) {
-      Text($r('app.string.theme_bundle_hint')).fontSize(AppFont.Caption).lineHeight(20)
-        .fontColor(AppTheme.TextSecondary).width('100%')
+      Row({ space: AppSpace.Xs }) {
+        Text($r('app.string.theme_bundle_title')).fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium)
+          .fontColor(AppTheme.TextPrimary)
+        SettingsHintButton({ title: $r('app.string.theme_bundle_title'), message: $r('app.string.theme_bundle_hint') })
+      }.width('100%')
       GridRow({ columns: 3, gutter: { x: 10, y: 12 } }) {
         ForEach(this.options, (bundle: AppThemeBundle) => {
           GridCol() {

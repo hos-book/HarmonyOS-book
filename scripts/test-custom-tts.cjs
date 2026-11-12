@@ -65,6 +65,33 @@ const parse = entry => Parser.parse(JSON.stringify(entry));
   assert.equal(explicit.id, grouped.id, 'metadata changes must not duplicate a voice');
   assert.equal(parse(explicit)[0].group, '我的音色');
   assert.equal(parse(explicit)[0].tier, 'hd');
+  const localEntry = { provider: 'local-kokoro', modelId: 'kokoro-int8-v1_1', speakerId: 3,
+    id: 'forged-id', name: '本地女声', group: '本地 Kokoro', enabled: false,
+    url: 'file:///not-a-model.onnx', body: '{{text}}' };
+  assert.throws(() => parse(localEntry), 'file/URL JSON imports cannot manufacture a local voice');
+  const restoredLocal = Parser.parse(JSON.stringify([localEntry]), true)[0];
+  assert.equal(restoredLocal.provider, 'local-kokoro');
+  assert.equal(restoredLocal.id, 'local-kokoro-v1_1:3');
+  assert.equal(restoredLocal.speakerId, 3);
+  assert.equal(restoredLocal.enabled, false);
+  assert.equal(restoredLocal.url, '', 'a saved voice cannot inject a model path or endpoint');
+  assert.equal(Parser.usesSpeed(restoredLocal), true, 'native synthesis receives the rate once');
+  for (const invalid of [{ speakerId: 2 }, { speakerId: 103 }, { speakerId: 3.5 }, { modelId: 'another-model' }]) {
+    assert.throws(() => Parser.parse(JSON.stringify([{ ...localEntry, ...invalid }]), true));
+  }
+  for (const name of ['chaowen', 'xiaoya']) {
+    const piper = { ...localEntry, provider: 'local-piper', modelId: `piper-${name}-int8-v1`, speakerId: 0 };
+    assert.throws(() => parse(piper), 'HTTP/file imports cannot forge Piper voices');
+    const restored = Parser.parse(JSON.stringify([piper]), true)[0];
+    assert.equal(restored.id, `local-piper-${name}-v1:0`);
+    assert.equal(restored.provider, 'local-piper');
+    assert.equal(restored.url, '');
+    assert.equal(Parser.usesSpeed(restored), true);
+    for (const invalid of [{ speakerId: -1 }, { speakerId: 1 }, { provider: 'local-kokoro' }]) {
+      assert.throws(() => Parser.parse(JSON.stringify([{ ...piper, ...invalid }]), true));
+    }
+  }
+  console.log('PASS 本地音色只允许内部目录恢复，拒绝HTTP导入伪造、路径注入和越界音色');
   const sentence = '她说："你好"。\\下一行\n&测试=$1 {{text}}';
   for (const speed of [0.5, 1, 1.5, 2]) {
     const options = await Parser.requestOptions(formVoice, sentence, speed);

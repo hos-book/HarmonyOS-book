@@ -253,8 +253,6 @@ export struct MembershipSubscriptionPage {
           $r('app.string.membership_comparison_manual_backup'), $r('app.string.membership_comparison_auto_backup'))
         this.benefitRow($r('app.string.library_sync_title'),
           $r('app.string.membership_comparison_unavailable'), $r('app.string.membership_comparison_available'))
-        this.benefitRow($r('app.string.membership_feature_search'),
-          $r('app.string.membership_comparison_search_free'), $r('app.string.membership_comparison_unlimited'))
         this.benefitRow($r('app.string.membership_feature_preview'),
           $r('app.string.membership_comparison_regular_release'), $r('app.string.membership_comparison_early_access'))
         this.benefitRow($r('app.string.membership_feature_support'),

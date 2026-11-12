@@ -24,6 +24,7 @@ function harness() {
     MembershipService: { instance: { hasCurrentEntitlement: async () => entitled, busy: false, message: 'verify' } },
     ConfigurationConstant: { ColorMode: { COLOR_MODE_NOT_SET: -1 } },
     ReaderCacheUsage: class {}, PreferenceService: prefs,
+    WindowUtils: { getStatusBarHeightVp: () => 24 },
     ChapterCacheService: { getInstance: () => ({ setPreloadCount: value => calls.push(['cache', value]) }) },
     AudioService: { getInstance: () => ({ refreshPreload: () => calls.push(['refresh']) }) },
     PRELOAD_OPTIONS: [0, 1, 5, 10, -1].map(count => ({ count })),
@@ -87,7 +88,7 @@ async function tick() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
   await page.chooseSearchConcurrency(3);
   assert.equal(page.searchConcurrencyDraft, '12');
   assert.equal(page.searchConcurrency, 3);
-  assert.equal(h.calls.length, beforeSearch, 'member selection remains a draft');
+  assert.equal(h.calls.length, beforeSearch, 'selection remains a draft');
   await page.submitSearchConcurrency();
   assert.equal(page.searchConcurrency, 12);
   assert.deepEqual(h.calls.at(-1), ['search', 12]);
@@ -96,13 +97,14 @@ async function tick() { for (let i = 0; i < 12; i++) await Promise.resolve(); }
   h.revoke();
   await page.chooseSearchConcurrency(1);
   await page.submitSearchConcurrency();
-  assert.equal(h.calls.length, beforeDenied, 'nonmember cannot select or commit');
+  assert.equal(h.calls.length, beforeDenied + 1, 'nonmembers can select and commit');
+  assert.deepEqual(h.calls.at(-1), ['search', 6]);
   const expired = harness(); const expPage = expired.settings();
   expPage.alive = true; expPage.searchConcurrencyLoading = false;
   expPage.searchConcurrencyDraft = '9'; expired.expireDuringCheck();
   await expPage.submitSearchConcurrency();
-  assert.equal(expired.calls.length, 0, 'apply rechecks entitlement even if the visible state was previously active');
+  assert.deepEqual(expired.calls, [['search', 9]], 'search settings do not wait for entitlement checks');
   h.fail(); accent.selectAccent('#2869B8'); await accent.applyCustomAccent();
   assert.equal(h.appearance.accent, '', 'failed apply does not change the live theme');
-  console.log('PASS: preset drafts, explicit apply, default color, invalid input, cancel, preload side effects, membership denial and expiry, failed save');
+  console.log('PASS: preset drafts, explicit apply, default color, invalid input, cancel, preload side effects, free search concurrency, failed save');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -1717,8 +1717,8 @@
       "value": "搜索并发数"
     },
     {
-      "name": "settings_search_concurrency_membership_hint",
-      "value": "非会员固定为 3，VIP 可自定义 1–12"
+      "name": "settings_search_concurrency_description",
+      "value": "所有用户均可设置 1–12，默认 3，应用后下次搜索生效"
     },
     {
       "name": "membership_vip_label",
@@ -4830,7 +4830,7 @@
     },
     {
       "name": "tts_custom_hint",
-      "value": "导入后可随时切换音色。每次最多选择 50 个 JSON 文件，保留已有配置；自定义语音需联网。"
+      "value": "每次最多导入 50 个网络 TTS JSON 文件。离线音色请先到“我的 → 模型管理”导入本地 TTS 模型包，导入后可在此选择，也可用于多角色朗读。"
     },
     {
       "name": "tts_custom_import_success",
@@ -5309,6 +5309,10 @@
       "value": "输入书名，查找可用版本"
     },
     {
+      "name": "ranking_match_preparing",
+      "value": "简简正在准备书源…"
+    },
+    {
       "name": "ranking_matching",
       "value": "简简正在找书源 · %d / %d"
     },
@@ -5653,14 +5657,6 @@
       "value": "自动云备份"
     },
     {
-      "name": "membership_comparison_search_free",
-      "value": "3 个并发"
-    },
-    {
-      "name": "membership_comparison_unlimited",
-      "value": "无限制"
-    },
-    {
       "name": "membership_comparison_regular_release",
       "value": "正式版体验"
     },
@@ -5693,10 +5689,6 @@
       "value": "云备份"
     },
     {
-      "name": "membership_feature_search",
-      "value": "搜索并发"
-    },
-    {
       "name": "membership_feature_preview",
       "value": "功能尝鲜"
     },
@@ -5722,7 +5714,7 @@
     },
     {
       "name": "membership_benefit_short",
-      "value": "AI 上色 / 翻译 / 超分 / 字幕 · 桌面歌词 · 图标与主题 · 自动云备份 · 无限搜索并发 · 功能尝鲜 · 专属客服"
+      "value": "AI 上色 / 翻译 / 超分 / 字幕 · 桌面歌词 · 图标与主题 · 自动云备份 · 功能尝鲜 · 专属客服"
     },
     {
       "name": "membership_details",
@@ -5790,7 +5782,7 @@
     },
     {
       "name": "membership_benefit",
-      "value": "会员享有 AI 上色、AI 翻译、AI 超分、有声书 AI 字幕、桌面歌词、全部会员图标、专属主题、自动云备份、搜索并发无限制、功能尝鲜及专属客服。\n非会员可使用默认图标、基础主题和手动云备份，搜索并发为 3。原有界面配色、阅读器主题、阅读听书和不限数量导入自定义源保持免费。\n图标切换及 AI 能力需系统和设备支持；自动云备份需登录华为账号并开通可用云空间，在应用使用期间执行。"
+      "value": "会员享有 AI 上色、AI 翻译、AI 超分、有声书 AI 字幕、桌面歌词、全部会员图标、专属主题、自动云备份、功能尝鲜及专属客服。\n非会员可使用默认图标、基础主题和手动云备份。所有用户均可设置 1–12 搜索并发，默认 3。原有界面配色、阅读器主题、阅读听书和不限数量导入自定义源保持免费。\n图标切换及 AI 能力需系统和设备支持；自动云备份需登录华为账号并开通可用云空间，在应用使用期间执行。"
     },
     {
       "name": "membership_month",
@@ -5854,7 +5846,7 @@
     },
     {
       "name": "membership_terms",
-      "value": "会员购买与自动续费说明\n终身会员为一次性购买的非消耗型商品，权益长期有效，不自动续费；退款或撤销后权益终止。购买终身会员不会自动取消已有月度或年度订阅，请到“管理订阅”关闭原订阅续费。\n月度、年度会员：订阅费用由华为支付收取，按所选月度或年度周期自动续费。请在当前周期结束前通过“管理订阅”取消，以华为页面显示的取消截止时间和扣费规则为准。取消后，已支付周期内权益继续有效。月度会员可选择年度套餐升级，由华为处理同组订阅变更；实际扣费、剩余权益处理和生效时间以华为确认页为准。若下期生效，当前月度权益继续有效，并显示年度预约提示，无需重复购买。\n会员权益包含自动云备份及周期设置、全部会员桌面图标及后续新增官方皮肤、AI 封面与漫画超分、有声书 AI 字幕、桌面歌词、漫画 AI 上色、自定义搜索并发及专属客服支持。图标切换需要支持该功能的系统；自动备份需登录华为账号并开通可用云空间，在应用使用期间执行，不提供实时双向同步。所有用户均可不限数量导入自定义源，非会员也可手动云备份。默认图标、原有界面配色、阅读器主题和阅读听书功能保持免费。\n会员到期或退款导致权益失效后，停止自动备份、AI 超分、AI 上色、AI 字幕及桌面歌词，联网核验时恢复默认图标。会员随购买时的系统华为账号恢复，重新安装或切换账号后请联网恢复购买。暂时无法联网时保留现有图标，新会员操作需核验有效权益。"
+      "value": "会员购买与自动续费说明\n终身会员为一次性购买的非消耗型商品，权益长期有效，不自动续费；退款或撤销后权益终止。购买终身会员不会自动取消已有月度或年度订阅，请到“管理订阅”关闭原订阅续费。\n月度、年度会员：订阅费用由华为支付收取，按所选月度或年度周期自动续费。请在当前周期结束前通过“管理订阅”取消，以华为页面显示的取消截止时间和扣费规则为准。取消后，已支付周期内权益继续有效。月度会员可选择年度套餐升级，由华为处理同组订阅变更；实际扣费、剩余权益处理和生效时间以华为确认页为准。若下期生效，当前月度权益继续有效，并显示年度预约提示，无需重复购买。\n会员权益包含自动云备份及周期设置、全部会员桌面图标及后续新增官方皮肤、AI 封面与漫画超分、有声书 AI 字幕、桌面歌词、漫画 AI 上色及专属客服支持。图标切换需要支持该功能的系统；自动备份需登录华为账号并开通可用云空间，在应用使用期间执行，不提供实时双向同步。所有用户均可不限数量导入自定义源和设置 1–12 搜索并发，非会员也可手动云备份。默认图标、原有界面配色、阅读器主题和阅读听书功能保持免费。\n会员到期或退款导致权益失效后，停止自动备份、AI 超分、AI 上色、AI 字幕及桌面歌词，联网核验时恢复默认图标。会员随购买时的系统华为账号恢复，重新安装或切换账号后请联网恢复购买。暂时无法联网时保留现有图标，新会员操作需核验有效权益。"
     },
     {
       "name": "membership_consent",
@@ -8470,7 +8462,7 @@
     },
     {
       "name": "role_book_hint",
-      "value": "角色会随朗读逐步出现，自动从已启用的导入音色中分配，也可点击修改。绑定按书保存，首次识别需要等待；无法确认的对白使用默认对白音色。"
+      "value": "角色会随朗读逐步出现，自动从已启用的本地或网络音色中分配，也可点击修改。绑定按书保存，首次识别需要等待；无法确认的对白使用默认对白音色。使用本地音色时，角色识别与发声均在本机执行。"
     },
     {
       "name": "role_narrator",
@@ -8862,7 +8854,7 @@
     },
     {
       "name": "model_pack_help",
-      "value": "漫画着色请选择配套的 .jtmodel 加密模型包，AI 字幕请选择配套 ZIP，均无需解压；多角色朗读请选择 GGUF。这些模型不随应用预装，未导入不影响普通阅读和播放。导入期间离开此页会取消并保留原有模型。漫画翻译语言包仍在首次使用时按需下载。"
+      "value": "漫画着色请选择配套的 .jtmodel 模型包，AI 字幕请选择配套 ZIP；本地 TTS 可直接导入下载的官方 Kokoro .tar.bz2 模型包，也兼容已有配套 ZIP，均无需解压；多角色朗读请选择 GGUF。搭配多角色朗读和本地 TTS，可在离线时使用不同人物声音。这些模型不随应用预装，未导入不影响普通阅读和播放。导入期间离开此页会取消并保留原有模型。漫画翻译语言包仍在首次使用时按需下载。"
     },
     {
       "name": "model_pack_space",
@@ -8916,7 +8908,12 @@
       "name": "ranking_card_chapter_count",
       "value": "%d章"
     },
+    { "name": "theme_bundle_tab", "value": "套装" },
+    { "name": "app_background_tab", "value": "背景" },
     { "name": "theme_icons_tab", "value": "图标" },
+    { "name": "bottom_tab_icons_tab", "value": "Tab" },
+    { "name": "app_icon_free_hint", "value": "点击喜欢的图标即可更换桌面应用图标。" },
+    { "name": "app_background_help", "value": "可共用通用背景，也可为首页、书架、记录和我的分别设置。修改仅预览，应用后生效。\n\n图片仅保存在本机，支持 20 MiB 以内的图片，动态图片以首帧保存。" },
     { "name": "app_background_title", "value": "App 背景" },
     { "name": "app_background_hint", "value": "可共用通用背景，也可为首页、书架、记录和我的分别设置。修改仅预览，应用后生效。" },
     { "name": "app_background_common", "value": "通用背景" },
@@ -8959,6 +8956,29 @@
     { "name": "app_background_preview_streak", "value": "连续阅听" },
     { "name": "app_background_preview_profile", "value": "简听书友" },
     { "name": "app_background_preview_recent", "value": "最近阅读" },
-    { "name": "app_background_unsaved", "value": "修改待应用" }
+    { "name": "app_background_unsaved", "value": "修改待应用" },
+    { "name": "offline_tts_title", "value": "本地 TTS" },
+    { "name": "offline_tts_hint", "value": "按下方模型选择对应的官方 .tar.bz2 文件导入，无需解压或转换。导入后到音色管理选择默认声音，或在多角色朗读中为旁白和人物绑定声音。多角色识别需另行导入 GGUF；正文已在本机且全部角色使用本地音色时，可离线朗读。首次起读需加载模型，速度与设备有关。" },
+    { "name": "offline_tts_kokoro_hint", "value": "Kokoro 提供 100 个中文音色，可在同一模型内为不同人物选声。直接导入官方 v1.1 INT8 .tar.bz2，也兼容已有配套 ZIP。模型较大，加载与合成速度需在当前设备试听确认。" },
+    { "name": "offline_tts_piper_hint", "value": "Piper 中文单音色模型，通过本机 CPU 合成语音。可将超文、小雅分别绑定旁白或人物，也可搭配已导入的 Kokoro 音色。直接导入对应的官方 INT8 .tar.bz2，无需解压。手机上的速度和听感以试听为准。" },
+    { "name": "offline_tts_missing", "value": "未导入" },
+    { "name": "offline_tts_installed", "value": "已导入 · %d 音色" },
+    { "name": "offline_tts_size", "value": "占用 %d MB" },
+    { "name": "offline_tts_download_title", "value": "模型来源与导入" },
+    { "name": "offline_tts_download_message", "value": "复制下方官方下载地址，下载 kokoro-int8-multi-lang-v1_1.tar.bz2 后，返回此页直接选择该文件导入，无需解压或转换。也兼容已有的简听阅读配套 ZIP 模型包。模型通过 sherpa-onnx 在本机合成语音；模型版权及音色使用范围遵循发布者许可。" },
+    { "name": "offline_tts_piper_download_message", "value": "复制下方官方下载地址，下载超文的官方 INT8 .tar.bz2 原包后，在此卡片直接导入，无需解压。本版本由小雅模型微调，其基础模型的 BZNSYP 训练数据带有非商业使用限制；请遵守模型与数据集许可。" },
+    { "name": "offline_tts_piper_xiaoya_download_message", "value": "复制下方官方下载地址，下载小雅的官方 INT8 .tar.bz2 原包后，在此卡片直接导入，无需解压。发布者模型卡中的 BZNSYP 训练数据带有非商业使用限制，使用前请查看并遵守模型与数据集许可。" },
+    { "name": "offline_tts_download_link", "value": "模型来源与导入说明" },
+    { "name": "offline_tts_imported", "value": "本地 TTS 已导入，可到音色管理或多角色朗读选择声音" },
+    { "name": "offline_tts_invalid", "value": "模型包不兼容或校验未通过，请在对应模型卡片选择完整下载的官方 INT8 .tar.bz2；Kokoro 也兼容已有配套 ZIP" },
+    { "name": "offline_tts_space", "value": "存储空间不足，请释放空间后重新导入" },
+    { "name": "offline_tts_failed", "value": "本地语音暂不可用，请检查模型或重新导入，也可切换其他音色" },
+    { "name": "offline_tts_voice_group", "value": "本地 Kokoro" },
+    { "name": "offline_tts_piper_voice_group", "value": "本地 Piper" },
+    { "name": "offline_tts_piper_chaowen_voice", "value": "Piper 超文" },
+    { "name": "offline_tts_piper_xiaoya_voice", "value": "Piper 小雅" },
+    { "name": "offline_tts_voice_female", "value": "Kokoro 中文女声 %s" },
+    { "name": "offline_tts_voice_male", "value": "Kokoro 中文男声 %s" },
+    { "name": "offline_tts_model_name", "value": "Kokoro v1.1 中文 · int8" }
   ]
 }

@@ -8,6 +8,7 @@
   "dependencies": {
     "libmodel_pack_crypto.so": "file:./src/main/cpp/types/libmodel_pack_crypto",
     "librole_inference.so": "file:./src/main/cpp/types/librole_inference",
+    "liboffline_tts_archive.so": "file:./src/main/cpp/types/liboffline_tts_archive",
     "sherpa_onnx": "1.13.3",
     "libsubtitle_audio.so": "file:./src/main/cpp/types/libsubtitle_audio",
     "libcba_archive.so": "file:./src/main/cpp/types/libcba_archive",

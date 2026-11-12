@@ -98,6 +98,7 @@ export struct RankingBookCard {
   @Local surfaceUp: boolean = false;
   /** 面板内容是否已淡入。 */
   @Local panelShown: boolean = false;
+  @Local matchReady: boolean = false;
   /** 选中的结果键（sourceUrl + bookUrl）。 */
   @Local selectedKey: string = '';
   @Local matchPreparing: boolean = false;
@@ -365,15 +366,20 @@ export struct RankingBookCard {
    */
   private enterMatch(): void {
     if (this.matchMode) return;
+    this.matchReady = false;
     this.matchMode = true;
     setTimeout((): void => {
+      if (!this.alive || this.closing || !this.matchMode) return;
       this.getUIContext().animateTo({ duration: 300, curve: AppCurve.Decelerate }, (): void => {
         this.surfaceUp = true;
       });
       this.getUIContext().animateTo({ duration: 120, curve: Curve.EaseOut }, (): void => {
         this.textShown = false;
       });
-      this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseOut, delay: 240 }, (): void => {
+      this.getUIContext().animateTo({ duration: 220, curve: Curve.EaseOut, delay: 240,
+        onFinish: (): void => {
+          if (this.alive && this.matchMode && this.panelShown) this.matchReady = true;
+        } }, (): void => {
         this.panelShown = true;
       });
     }, 0);
@@ -442,6 +448,7 @@ export struct RankingBookCard {
 
   /** 从匹配退回封面：白块落下、封面文字淡回，最后卸载面板。 */
   private exitMatch(): void {
+    this.matchReady = false;
     this.panelShown = false;
     this.getUIContext().animateTo({ duration: 220, curve: AppCurve.Decelerate }, (): void => {
       this.surfaceUp = false;
@@ -887,6 +894,7 @@ export struct RankingBookCard {
         if (this.matchMode && !this.detailMode) {
           RankingMatchPanel({ book: this.book, selectedKey: this.selectedKey,
             refreshToken: this.refreshToken,
+            searchReady: this.matchReady,
             compact: this.cardHeight() < 520,
             onSelect: (match: RankingMatch): void => { this.pick(match); },
             onManageSources: (): void => this.onManageSources() })

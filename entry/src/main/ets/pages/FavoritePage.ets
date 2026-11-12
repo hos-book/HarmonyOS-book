@@ -60,7 +60,7 @@ import { CoverImage } from '../components/CoverImage';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
 import { ShelfUpdateService, ShelfUpdateReport, BookUpdateInfo } from '../service/ShelfUpdateService';
 import { DownloadService } from '../service/DownloadService';
-import { TextReaderRouteParams, TextReadingPosition } from '../model/TextReading';
+import { TextReadingPosition } from '../model/TextReading';
 import { TextReadingProgressService, EVT_TEXT_READING_PROGRESS_CHANGED } from '../service/text/TextReadingProgressService';
 
 const BOOKSHELF_COVER_RATIO: number = 0.75;
@@ -1312,9 +1312,8 @@ export struct FavoritePage {
     }
     SearchCache.put(book);
     if (book.contentType === 'text' || book.contentType === 'comic') {
-      const params: TextReaderRouteParams = book.contentType === 'text' ?
-        ShelfReaderRouteParams.fromShelf(book.id, book.cover, book.title, coverNodeId, this.getUIContext()) :
-        TextReaderRouteParams.of(book.id);
+      const params = ShelfReaderRouteParams.fromShelf(book.id, book.cover, book.title,
+        coverNodeId, this.getUIContext(), book.author);
       this.navStack.pushPathByName(book.contentType === 'comic' ? 'comicReader' : 'reader', params, onPop);
       return;
     }

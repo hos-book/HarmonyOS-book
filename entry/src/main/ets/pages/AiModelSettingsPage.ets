@@ -2,6 +2,7 @@ import { sendableContextManager } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { RoleModelCard } from '../components/RoleModelCard';
+import { OfflineTtsModelCard } from '../components/OfflineTtsModelCard';
 import { SettingsHintButton } from '../components/SettingsHintButton';
 import { AiModelPack, AiModelPackState, AiModelPackUsage, AI_MODEL_PACKS } from '../model/AiModelPack';
 import { AiModelPackService } from '../service/AiModelPackService';
@@ -21,6 +22,7 @@ export struct AiModelSettingsPage {
   @Local failed: boolean = false;
   @Local picking: boolean = false;
   @Local roleChanging: boolean = false;
+  @Local offlineChanging: boolean = false;
   private alive: boolean = false;
   private service: AiModelPackService = AiModelPackService.instance;
 
@@ -62,7 +64,7 @@ export struct AiModelSettingsPage {
 
   private async importPack(id: string): Promise<void> {
     const context = this.getUIContext().getHostContext();
-    if (!context || this.state.busyId || this.picking || this.roleChanging) return;
+    if (!context || this.state.busyId || this.picking || this.roleChanging || this.offlineChanging) return;
     this.picking = true;
     try {
       const imported = await this.service.pick(sendableContextManager.convertToUIAbilityContext(
@@ -87,7 +89,7 @@ export struct AiModelSettingsPage {
 
   private async remove(id: string): Promise<void> {
     const context = this.getUIContext().getHostContext();
-    if (!context || this.state.busyId || this.picking || this.roleChanging) return;
+    if (!context || this.state.busyId || this.picking || this.roleChanging || this.offlineChanging) return;
     try { await this.service.remove(context, id, (): Promise<void> => this.beforeMutation(id)); }
     catch (_error) { this.toast($r('app.string.model_pack_write')); }
     finally { this.refresh(); emitter.emit('app.ai.models.changed'); }
@@ -125,11 +127,13 @@ export struct AiModelSettingsPage {
         Row({ space: AppSpace.Sm }) {
           Button(this.usage(pack.id).installed ? $r('app.string.model_pack_replace') : $r('app.string.model_pack_import'))
             .fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand).layoutWeight(1)
-            .enabled(!this.state.busyId && !this.picking && !this.roleChanging).onClick((): void => { this.importPack(pack.id); })
+            .enabled(!this.state.busyId && !this.picking && !this.roleChanging && !this.offlineChanging)
+            .onClick((): void => { this.importPack(pack.id); })
             .id(`model-pack-import-${pack.id}`)
           if (this.usage(pack.id).bytes > 0) {
             Button($r('app.string.common_delete')).fontColor(AppTheme.TextSecondary).backgroundColor(Color.Transparent)
-              .enabled(!this.state.busyId && !this.picking && !this.roleChanging).onClick((): void => this.confirmRemove(pack.id))
+              .enabled(!this.state.busyId && !this.picking && !this.roleChanging && !this.offlineChanging)
+              .onClick((): void => this.confirmRemove(pack.id))
               .id(`model-pack-delete-${pack.id}`)
           }
         }.width('100%')
@@ -150,8 +154,24 @@ export struct AiModelSettingsPage {
               .onClick((): void => { this.load(); })
           } else {
             ForEach(AI_MODEL_PACKS, (pack: AiModelPack) => { this.packCard(pack) }, (pack: AiModelPack): string => pack.id)
-            RoleModelCard({ blocked: this.state.busyId.length > 0 || this.picking,
+            RoleModelCard({ blocked: this.state.busyId.length > 0 || this.picking || this.offlineChanging,
               onChanging: (changing: boolean): void => { this.roleChanging = changing; } })
+            Column({ space: AppSpace.Sm }) {
+              Row({ space: AppSpace.Xxs }) {
+                Text($r('app.string.offline_tts_title')).fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium)
+                  .fontColor(AppTheme.TextPrimary)
+                SettingsHintButton({ title: $r('app.string.offline_tts_title'), message: $r('app.string.offline_tts_hint') })
+                  .id('model-pack-hint-offline-tts')
+              }.width('100%').padding({ left: AppSpace.Xs, top: AppSpace.Xs })
+              OfflineTtsModelCard({ modelId: 'piper-chaowen-int8-v1',
+                blocked: this.state.busyId.length > 0 || this.picking || this.roleChanging || this.offlineChanging,
+                onChanging: (changing: boolean): void => { this.offlineChanging = changing; } })
+              OfflineTtsModelCard({ modelId: 'piper-xiaoya-int8-v1',
+                blocked: this.state.busyId.length > 0 || this.picking || this.roleChanging || this.offlineChanging,
+                onChanging: (changing: boolean): void => { this.offlineChanging = changing; } })
+              OfflineTtsModelCard({ blocked: this.state.busyId.length > 0 || this.picking || this.roleChanging || this.offlineChanging,
+                onChanging: (changing: boolean): void => { this.offlineChanging = changing; } })
+            }.width('100%').alignItems(HorizontalAlign.Start)
           }
         }.width('100%').constraintSize({ maxWidth: 760 }).padding({ left: AppSpace.Md, right: AppSpace.Md,
           top: this.headerHeight + AppSpace.Md, bottom: WindowUtils.getBottomSafeVp() + AppSpace.Xl })

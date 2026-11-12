@@ -12,7 +12,7 @@ function load(relative, modules = {}) {
   }).outputText;
   const module = { exports: {} };
   vm.runInNewContext(code, { module, exports: module.exports, $r: value => value,
-    ObservedV2: target => target, Trace: () => {},
+    ObservedV2: target => target, Trace: () => {}, setTimeout, clearTimeout,
     require: name => { assert.ok(modules[name], `Unexpected import: ${name}`); return modules[name]; }
   }, { filename });
   return module.exports;
@@ -45,11 +45,14 @@ const { RankingService } = load('service/ranking/RankingService.ets', {
   } }
 });
 let sources = [], searchFn = async () => [], concurrency = 2;
+let sourcesFn = async () => sources;
+const requestPolicy = load('service/rulesource/light/LightSourceRequestPolicy.ts');
 const { BookMatchService } = load('service/ranking/BookMatchService.ets', {
   '../../utils/BookIdentity': identity, './RankingStorage': storage, '../builtin/JsonValue': json,
-  '../SourceDataService': { SourceDataService: { getEnabledSources: async () => sources } },
+  '../SourceDataService': { SourceDataService: { getEnabledSources: () => sourcesFn() } },
   '../BookSourceService': { BookSourceService: { searchBooks: (...args) => searchFn(...args) } },
-  '../PreferenceService': { PreferenceService: { getSearchConcurrency: async () => concurrency } }
+  '../PreferenceService': { PreferenceService: { getSearchConcurrency: async () => concurrency } },
+  '../rulesource/light/LightSourceRequestPolicy': requestPolicy
 });
 function result(source, name = '夜无疆', type = 'text') {
   return { name, author: '辰东', intro: '作者辰东', bookUrl: '/book/1', sourceUrl: source.bookSourceUrl,
@@ -362,15 +365,54 @@ const qidian = '<a href="//m.qidian.com/book/123/" class="_bookItem_x"><img data
     identity.BookIdentity.onlineAudioBookId(audioVersion.book.sourceUrl, audioVersion.book.bookUrl));
 
   concurrency = 1;
-  let resolveRequest, called = 0, progressCount = 0;
-  searchFn = source => { called++; return new Promise(resolve => { resolveRequest = () => resolve([result(source)]); }); };
+  let resolveRequest, called = 0, progressCount = 0, activeRequest;
+  searchFn = (source, _keyword, _page, request) => {
+    called++; activeRequest = request;
+    return new Promise(resolve => { resolveRequest = () => resolve([result(source)]); });
+  };
   const pending = service.search({}, qd[0], '夜无疆', () => progressCount++);
   while (!resolveRequest) await new Promise(resolve => setImmediate(resolve));
   service.cancel();
   const before = progressCount;
+  await pending;
+  assert.equal(activeRequest.isCancelled(), true, 'cancellation reaches the source runtime');
   resolveRequest(); await pending;
   assert.equal(called, 1, 'cancel prevents additional source scheduling');
   assert.equal(progressCount, before, 'late results do not overwrite new selection');
+
+  // Preparation feedback is immediate, even while the source database is pending.
+  let releaseSources;
+  sourcesFn = () => new Promise(resolve => { releaseSources = resolve; });
+  const preparing = [];
+  const preparingWork = service.search({}, qd[0], '夜无疆', state => preparing.push(state.total));
+  assert.deepEqual(preparing, [-1]);
+  service.cancel(); await preparingWork;
+  releaseSources(sources); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(called, 1, 'cancelled preparation cannot start searches');
+  sourcesFn = async () => sources;
+
+  // A stalled source must release its slot; late success cannot change final progress.
+  disk.clear();
+  sources = sources.slice(0, 2);
+  let releaseSlow, slowRequest;
+  searchFn = (source, _keyword, _page, request) => {
+    if (source === sources[0]) {
+      slowRequest = request;
+      return new Promise(resolve => { releaseSlow = () => resolve([result(source)]); });
+    }
+    return Promise.resolve([result(source)]);
+  };
+  const bounded = new BookMatchService(15);
+  let timeoutUpdates = 0;
+  await bounded.search({}, qd[0], '夜无疆', state => { last = state; timeoutUpdates++; });
+  assert.equal(last.completed, 2);
+  assert.equal(last.failed, 1);
+  assert.equal(last.matches.length, 1, 'fast source survives another source timeout');
+  assert.equal(slowRequest.isCancelled(), true);
+  const finalUpdates = timeoutUpdates;
+  releaseSlow(); await new Promise(resolve => setImmediate(resolve));
+  assert.equal(timeoutUpdates, finalUpdates);
+  assert.equal(last.matches.length, 1, 'late timeout result is discarded');
 
   if (process.argv[2] === '--comic-live') {
     const { execFile } = require('node:child_process');

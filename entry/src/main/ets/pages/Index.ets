@@ -352,12 +352,17 @@ struct Index {
   private oneShotNavigationTransition(from: NavContentInfo, to: NavContentInfo,
     operation: NavigationOperation): NavigationAnimatedTransition | undefined {
     if (operation === NavigationOperation.POP && to.index === -1 &&
+      (from.name === 'reader' || from.name === 'comicReader') && from.param instanceof ShelfReaderRouteParams) {
+      OneShotTransitionCoordinator.getInstance().discardPending();
+      return from.param.opening.navigationTransition(this.getUIContext(), false);
+    }
+    if (operation === NavigationOperation.POP && to.index === -1 &&
       from.param instanceof TextReaderRouteParams &&
       RankingReaderTransition.canReturn(from.name ?? '', from.param.bookId)) {
       OneShotTransitionCoordinator.getInstance().discardPending();
       return this.rankingReaderReturnTransition(from.param.bookId);
     }
-    if (operation === NavigationOperation.PUSH && to.name === 'reader' &&
+    if (operation === NavigationOperation.PUSH && (to.name === 'reader' || to.name === 'comicReader') &&
       to.param instanceof ShelfReaderRouteParams && to.param.opening.active) {
       OneShotTransitionCoordinator.getInstance().discardPending();
       return to.param.opening.navigationTransition(this.getUIContext());
@@ -680,14 +685,18 @@ struct Index {
     } else if (name === 'comicReader') {
       NavDestination() {
         Stack() {
-          ComicReaderPage({ navStack: this.navStack,
+          ComicReaderPageWrapper({ navStack: this.navStack,
             params: param instanceof TextReaderRouteParams ? param : new TextReaderRouteParams() })
           this.rankingReaderReturnVeil()
         }.width('100%').height('100%')
-      }.hideTitleBar(true).backgroundColor('#121212')
+      }.hideTitleBar(true)
+      .backgroundColor(param instanceof ShelfReaderRouteParams ? Color.Transparent : '#121212')
       .opacity(this.rankingReaderOpacity)
       .onShown((): void => { this.syncReaderWindowMode(); WindowUtils.setReaderStatusBarLight(true); })
       .onHidden((): void => { this.syncReaderWindowMode(); })
+      .systemTransition(param instanceof ShelfReaderRouteParams || (param instanceof TextReaderRouteParams &&
+        RankingReaderTransition.canReturn('comicReader', param.bookId)) ?
+        NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.SLIDE_RIGHT)
     } else if (name === 'reader') {
       NavDestination() {
         Stack() {
@@ -696,12 +705,12 @@ struct Index {
         }.width('100%').height('100%')
       }
       .hideTitleBar(true)
-      .backgroundColor(param instanceof ShelfReaderRouteParams && param.opening.active ? Color.Transparent : '#F5F2EA')
+      .backgroundColor(param instanceof ShelfReaderRouteParams ? Color.Transparent : '#F5F2EA')
       .opacity(this.rankingReaderOpacity)
       .onShown((): void => this.syncReaderWindowMode())
       .onHidden((): void => this.syncReaderWindowMode())
-      .systemTransition(param instanceof TextReaderRouteParams &&
-        RankingReaderTransition.canReturn('reader', param.bookId) ?
+      .systemTransition(param instanceof ShelfReaderRouteParams || (param instanceof TextReaderRouteParams &&
+        RankingReaderTransition.canReturn('reader', param.bookId)) ?
         NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.SLIDE_RIGHT)
     } else if (name === 'search') {
       SearchPage({ navStack: this.navStack, initialKeyword: this.resolveParam(param, 'keyword') })
@@ -1372,6 +1381,23 @@ struct BlockMorePageWrapper {
       moreUrl: this.str('moreUrl'),
       keyword: this.str('keyword')
     })
+  }
+}
+
+@ComponentV2
+struct ComicReaderPageWrapper {
+  @Param navStack: NavPathStack = new NavPathStack();
+  @Param params: TextReaderRouteParams = new TextReaderRouteParams();
+  private inactiveOpening: ShelfReaderOpenState = new ShelfReaderOpenState();
+
+  private openingState(): ShelfReaderOpenState {
+    return this.params instanceof ShelfReaderRouteParams ? this.params.opening : this.inactiveOpening;
+  }
+
+  build() {
+    ShelfReaderOpenSurface({ motion: this.openingState() }) {
+      ComicReaderPage({ navStack: this.navStack, params: this.params })
+    }
   }
 }
 

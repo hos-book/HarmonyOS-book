@@ -8,9 +8,14 @@ const source = fs.readFileSync(path.join(__dirname, '../entry/src/main/ets/servi
 const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021 } }).outputText;
 const requests = [], players = [], files = new Set();
 const gainRequests = [];
+const localSynthesis = [];
+let localGate = null;
 const settle = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
 const moduleMock = { exports: {} };
 vm.runInNewContext(code, { module: moduleMock, exports: moduleMock.exports, ArrayBuffer, Uint8Array, setTimeout, clearTimeout, require(name) {
+  if (name === '../../model/OfflineTtsCatalog') return {
+    isOfflineTtsProvider: provider => provider === 'local-kokoro' || provider === 'local-piper'
+  };
   if (name === '../../utils/PlatformCompat') return { PlatformCompat: { supports: () => true } };
   if (name === '@kit.PerformanceAnalysisKit') return { hilog: { info() {} } };
   if (name === '@kit.NetworkKit') return { http: { createHttp() {
@@ -30,8 +35,16 @@ vm.runInNewContext(code, { module: moduleMock, exports: moduleMock.exports, Arra
     requests.push(req); return req;
   } } };
   if (name === './CustomTtsConfigParser') return { CustomTtsConfigParser: {
-    expand: async () => 'https://example.invalid/tts', requestOptions: async () => ({}), usesSpeed: config => config.speedTemplate
+    expand: async () => 'https://example.invalid/tts', requestOptions: async () => ({}),
+    usesSpeed: config => config.provider === 'local-kokoro' || config.provider === 'local-piper' || config.speedTemplate
   } };
+  if (name === './OfflineTtsService') return { OfflineTtsService: { instance: {
+    async synthesize(config, text, speed, cancelled) {
+      localSynthesis.push({ config, text, speed, cancelled });
+      if (localGate) return localGate.promise;
+      return new ArrayBuffer(48);
+    }
+  } } };
   if (name === '@kit.CoreFileKit') return { fileIo: {
     OpenMode: { CREATE: 1, READ_WRITE: 2, TRUNC: 4 },
     async open(file) { files.add(file); return { fd: file }; }, async write(_fd, data) { return data.byteLength; },
@@ -177,5 +190,54 @@ const respond = req => req.resolve({ responseCode: 200, result: new ArrayBuffer(
   const sizeResult = assert.rejects(oversized.prepare({}, '超限。', 1), e => e.kind === 'audio');
   await settle(); requests.at(-1).chunk(new ArrayBuffer(8 * 1024 * 1024 + 1));
   await sizeResult;
+  const localConfig = { id: 'local-kokoro-v1_1:3', provider: 'local-kokoro', modelId: 'kokoro-int8-v1_1', speakerId: 3 };
+  const requestCount = requests.length;
+  const local = new HttpTtsPlayer();
+  await local.prepare(localConfig, '本地角色说话。', 1.5);
+  assert.equal(local.ready, true);
+  assert.equal(requests.length, requestCount, 'local synthesis must not create HTTP requests');
+  assert.equal(localSynthesis.at(-1).config.speakerId, 3);
+  const localOutput = new HttpTtsAudioOutput();
+  const playerCount = players.length;
+  let localStarted = 0;
+  const localSpeech = local.speak({ cacheDir: '/cache' }, localConfig, '本地角色说话。', 1.5,
+    'local', () => localStarted++, localOutput);
+  await settle();
+  assert.equal(localSynthesis.length, 1, 'prepared local audio is consumed without synthesizing twice');
+  assert.equal(players.length, playerCount + 1);
+  assert.equal(players.at(-1).rate, 1, 'native rate is not applied again by the player');
+  assert.equal(localStarted, 1);
+  players.at(-1).complete(); await localSpeech; await localOutput.release();
+  assert.equal(files.size, 0);
+  let finishLocal;
+  localGate = { promise: new Promise(resolve => { finishLocal = resolve; }) };
+  const lateLocal = new HttpTtsPlayer();
+  const latePreparation = lateLocal.prepare(localConfig, '取消后不出声。', 1);
+  const lateRejected = assert.rejects(latePreparation, /cancelled/);
+  await settle(); lateLocal.cancel();
+  assert.equal(localSynthesis.at(-1).cancelled(), true);
+  finishLocal(new ArrayBuffer(48)); await lateRejected;
+  assert.equal(lateLocal.ready, false, 'late native audio cannot become ready after cancellation');
+  assert.equal(players.length, playerCount + 1, 'cancelled local synthesis never opens an audio player');
+  assert.equal(requests.length, requestCount);
+  localGate = null;
+  for (const name of ['chaowen', 'xiaoya']) {
+    const config = { id: `local-piper-${name}-v1:0`, provider: 'local-piper', modelId: `piper-${name}-int8-v1`, speakerId: 0 };
+    const task = new HttpTtsPlayer();
+    const beforeRequests = requests.length;
+    await task.prepare(config, 'Piper 本地人物对白。', 1.25);
+    assert.equal(task.ready, true);
+    assert.equal(requests.length, beforeRequests);
+    assert.equal(localSynthesis.at(-1).config.modelId, config.modelId);
+    assert.equal(localSynthesis.at(-1).config.speakerId, 0);
+    const audio = new HttpTtsAudioOutput();
+    const speaking = task.speak({ cacheDir: '/cache' }, config, 'Piper 本地人物对白。', 1.25, name, () => {}, audio);
+    await settle();
+    assert.equal(players.at(-1).rate, 1, 'Piper native speed is applied only once');
+    players.at(-1).complete(); await speaking; await audio.release();
+    assert.equal(files.size, 0);
+  }
+  console.log('PASS Piper超文/小雅按modelId与speaker零HTTP分流，音频复用且语速只应用一次');
+  console.log('PASS 本地speaker原样分流、零HTTP请求、合成音频复用及取消迟到本地结果');
   console.log('PASS 连续片段复用同一播放器、停止释放、预取不播放、合成去重、取消迟到请求和临时文件释放');
 })().catch(error => { console.error(error); process.exitCode = 1; });

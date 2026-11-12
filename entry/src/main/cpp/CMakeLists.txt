@@ -22,6 +22,32 @@ add_library(cba_archive SHARED cba_archive.cpp ace/AceArchive.cpp ace/AceDecoder
 target_compile_options(cba_archive PRIVATE -Wall -Wextra -fstack-protector-strong)
 target_link_libraries(cba_archive PUBLIC libace_napi.z.so)
 
+# API 20-compatible streaming support for the publishers' original tar.bz2 models.
+set(OFFLINE_TTS_ASSET_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/../../../../scripts/offline-tts-assets.json")
+set(OFFLINE_TTS_PIPER_ASSET_SPEC "${CMAKE_CURRENT_SOURCE_DIR}/../../../../scripts/piper-tts-assets.json")
+set(OFFLINE_TTS_ASSET_GENERATOR "${CMAKE_CURRENT_SOURCE_DIR}/../../../../scripts/generate-offline-tts-native-assets.py")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${OFFLINE_TTS_ASSET_SPEC}"
+  "${OFFLINE_TTS_PIPER_ASSET_SPEC}" "${OFFLINE_TTS_ASSET_GENERATOR}")
+execute_process(COMMAND "${Python3_EXECUTABLE}" "${OFFLINE_TTS_ASSET_GENERATOR}"
+  --spec "${OFFLINE_TTS_ASSET_SPEC}" --piper-spec "${OFFLINE_TTS_PIPER_ASSET_SPEC}"
+  --output "${CMAKE_CURRENT_BINARY_DIR}/private/offline_tts_assets.h"
+  RESULT_VARIABLE OFFLINE_TTS_ASSET_RESULT)
+if(NOT OFFLINE_TTS_ASSET_RESULT EQUAL 0)
+  message(FATAL_ERROR "Cannot generate the pinned offline TTS archive asset allowlist")
+endif()
+set(BZIP2_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/bzip2")
+add_library(offline_tts_bzip2 STATIC
+  "${BZIP2_SOURCE}/bzlib.c" "${BZIP2_SOURCE}/blocksort.c" "${BZIP2_SOURCE}/compress.c"
+  "${BZIP2_SOURCE}/decompress.c" "${BZIP2_SOURCE}/huffman.c" "${BZIP2_SOURCE}/crctable.c"
+  "${BZIP2_SOURCE}/randtable.c")
+set_target_properties(offline_tts_bzip2 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+target_compile_definitions(offline_tts_bzip2 PRIVATE BZ_NO_STDIO)
+target_compile_options(offline_tts_bzip2 PRIVATE -O2 -fexceptions -fvisibility=hidden -fstack-protector-strong)
+add_library(offline_tts_archive SHARED offline_tts_archive.cpp offline_tts_archive_core.cpp)
+target_include_directories(offline_tts_archive PRIVATE "${BZIP2_SOURCE}" "${CMAKE_CURRENT_BINARY_DIR}/private")
+target_compile_options(offline_tts_archive PRIVATE -O2 -Wall -Wextra -fstack-protector-strong -fvisibility=hidden)
+target_link_libraries(offline_tts_archive PRIVATE offline_tts_bzip2 libace_napi.z.so)
+
 add_library(record_dissolve SHARED record_dissolve/module.cpp record_dissolve/shatter_renderer.cpp)
 target_compile_options(record_dissolve PRIVATE -Wall -Wextra -fstack-protector-strong)
 target_link_libraries(record_dissolve PRIVATE libace_napi.z.so libhilog_ndk.z.so

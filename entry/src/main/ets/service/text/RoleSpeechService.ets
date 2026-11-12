@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { CustomTtsConfig } from '../../model/CustomTtsConfig';
+import { isOfflineTtsProvider } from '../../model/OfflineTtsCatalog';
 import { RoleAnalysisWindow, RoleBookSettings, RoleChapterCache, RoleDialogue,
   RoleSpeaker, RoleSpeechState, RoleSpeechSample } from '../../model/RoleSpeech';
 import { SubtitleFiles } from '../subtitle/SubtitleFiles';
@@ -241,7 +242,10 @@ export class RoleSpeechService {
         const result = await RoleModelService.getInstance().infer(prompt);
         if (ticket !== this.epoch || !this.enabled) return;
         const names = RoleSpeechPlanner.answers(result, window.indices.length, RoleSpeechPlanner.evidence(prompt), known);
-        const available = voices.filter((item: CustomTtsConfig): boolean => item.enabled && item.id !== defaultVoice);
+        const selected = voices.find((item: CustomTtsConfig): boolean => item.id === defaultVoice);
+        const localProvider = selected && isOfflineTtsProvider(selected.provider) ? selected.provider : '';
+        const available = voices.filter((item: CustomTtsConfig): boolean => item.enabled && item.id !== defaultVoice &&
+          (!localProvider || item.provider === localProvider));
         for (let position = 0; position < window.indices.length; position++) {
           const dialogue = this.dialogues[window.indices[position]];
           let name = names[position];

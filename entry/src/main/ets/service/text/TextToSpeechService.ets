@@ -37,6 +37,9 @@ import { OnlineTextPaginator } from './OnlineTextPaginator';
 import { SpeechSegment, SpeechTextSegmenter } from './SpeechTextSegmenter';
 import { RoleSpeechService } from './RoleSpeechService';
 import { RoleModelService } from './RoleModelService';
+import { OfflineTtsModelService } from './OfflineTtsModelService';
+import { OfflineTtsService } from './OfflineTtsService';
+import { getOfflineTtsVoiceModel, isOfflineTtsProvider } from '../../model/OfflineTtsCatalog';
 import { TextReadingSettingsService } from './TextReadingSettingsService';
 
 /** 有界预取下一章开头片段；身份、文本均匹配才交给当前播放队列。 */
@@ -78,6 +81,7 @@ export class TextToSpeechService {
   private httpPlaybackChain: Promise<void> = Promise.resolve();
   private httpPrefetchTimer: number = -1;
   private unavailableVoices: Map<string, number> = new Map();
+  private offlineHidden: Set<string> = new Set<string>();
   private httpTasks: Map<number, HttpTtsPlayer> = new Map();
   private httpTaskVoices: Map<number, string> = new Map<number, string>();
   private roles: RoleSpeechService = RoleSpeechService.getInstance();
@@ -204,8 +208,18 @@ export class TextToSpeechService {
     this.state.follow = typeof follow === 'boolean' ? follow : true;
     const catalog = this.store.getSync('customTtsCatalog', '[]');
     try {
-      this.state.customTtsConfigs = typeof catalog === 'string' && catalog !== '[]' ? CustomTtsConfigParser.parse(catalog) : [];
+      this.state.customTtsConfigs = typeof catalog === 'string' && catalog !== '[]' ? CustomTtsConfigParser.parse(catalog, true) : [];
     } catch (_error) { this.state.customTtsConfigs = []; }
+    const hidden = this.store.getSync('offlineTtsHidden', '[]');
+    this.offlineHidden.clear();
+    try {
+      const ids: string[] = JSON.parse(typeof hidden === 'string' ? hidden : '[]');
+      if (Array.isArray(ids)) for (const id of ids.slice(0, 102)) {
+        if (typeof id === 'string' && OfflineTtsModelService.instance.isVoiceId(id)) this.offlineHidden.add(id);
+      }
+    } catch (_error) { /* 损坏的隐藏列表不阻止系统和 HTTP 音色使用。 */ }
+    await OfflineTtsModelService.instance.ensure(context).catch((): void => {});
+    this.mergeOfflineVoices();
     const selected = this.store.getSync('customTtsId', '');
     this.state.customTtsId = typeof selected === 'string' &&
       this.state.customTtsConfigs.some((item: CustomTtsConfig): boolean => item.id === selected && item.enabled) ? selected : '';
@@ -343,6 +357,9 @@ export class TextToSpeechService {
   async importCustomTts(configs: CustomTtsConfig[]): Promise<void> {
     const store = this.store;
     if (store === null || configs.length === 0) return;
+    if (configs.some((config: CustomTtsConfig): boolean => isOfflineTtsProvider(config.provider))) {
+      throw new Error('Local voices require an installed model');
+    }
     const catalog = this.state.customTtsConfigs.slice();
     const indexes: Map<string, number> = new Map();
     for (let index = 0; index < catalog.length; index++) indexes.set(catalog[index].id, index);
@@ -357,7 +374,8 @@ export class TextToSpeechService {
         catalog.push(config);
       }
     }
-    if (catalog.length > CustomTtsConfigParser.MAX_CONFIGS) throw new Error('TTS catalog full');
+    if (catalog.filter((config: CustomTtsConfig): boolean => !isOfflineTtsProvider(config.provider)).length >
+      CustomTtsConfigParser.MAX_CONFIGS) throw new Error('TTS catalog full');
     const previous = JSON.stringify(this.state.customTtsConfigs);
     store.putSync('customTtsCatalog', JSON.stringify(catalog));
     try { await store.flush(); }
@@ -390,17 +408,22 @@ export class TextToSpeechService {
   /** 整批只持久化一次，成功后发布状态，当前音色失效时只切换一次。 */
   async updateCustomTtsBatch(ids: string[], remove: boolean, enabled: boolean): Promise<void> {
     const selected = new Set<string>(ids);
+    const hidden = new Set<string>(this.offlineHidden);
     const catalog: CustomTtsConfig[] = [];
     for (const item of this.state.customTtsConfigs) {
       if (!selected.has(item.id)) { catalog.push(item); continue; }
-      if (remove) continue;
+      if (remove) {
+        if (isOfflineTtsProvider(item.provider)) hidden.add(item.id);
+        continue;
+      }
       const updated: CustomTtsConfig = {
+        provider: item.provider, modelId: item.modelId, speakerId: item.speakerId,
         id: item.id, name: item.name, group: item.group, tier: item.tier, enabled: enabled, url: item.url,
         method: item.method, body: item.body, header: item.header, contentType: item.contentType
       };
       catalog.push(updated);
     }
-    await this.saveCustomTtsCatalog(catalog);
+    await this.saveCustomTtsCatalog(catalog, hidden);
     if (selected.has(this.state.customTtsId) && (remove || !enabled)) await this.selectCustomTts('');
   }
 
@@ -420,14 +443,65 @@ export class TextToSpeechService {
     await this.saveCustomTtsCatalog(catalog);
   }
 
-  private async saveCustomTtsCatalog(catalog: CustomTtsConfig[]): Promise<void> {
+  private async saveCustomTtsCatalog(catalog: CustomTtsConfig[], hidden: Set<string> = this.offlineHidden): Promise<void> {
     const store = this.store;
     if (store === null) throw new Error('TTS store unavailable');
     const previous = this.state.customTtsConfigs;
     store.putSync('customTtsCatalog', JSON.stringify(catalog));
+    store.putSync('offlineTtsHidden', JSON.stringify(Array.from(hidden)));
     try { await store.flush(); }
-    catch (_error) { store.putSync('customTtsCatalog', JSON.stringify(previous)); throw new Error('TTS save failed'); }
+    catch (_error) {
+      store.putSync('customTtsCatalog', JSON.stringify(previous));
+      store.putSync('offlineTtsHidden', JSON.stringify(Array.from(this.offlineHidden)));
+      throw new Error('TTS save failed');
+    }
+    this.offlineHidden = hidden;
     this.state.customTtsConfigs = catalog;
+  }
+
+  /** 已安装模型是本地音色的唯一来源，偏好只恢复顺序和启停状态。 */
+  private mergeOfflineVoices(): void {
+    const available = new Map<string, CustomTtsConfig>();
+    for (const voice of OfflineTtsModelService.instance.voices()) available.set(voice.id, voice);
+    const catalog: CustomTtsConfig[] = [];
+    for (const saved of this.state.customTtsConfigs) {
+      if (!isOfflineTtsProvider(saved.provider)) { catalog.push(saved); continue; }
+      const voice = available.get(saved.id);
+      if (!voice || this.offlineHidden.has(saved.id)) continue;
+      voice.enabled = saved.enabled; catalog.push(voice); available.delete(saved.id);
+    }
+    available.forEach((voice: CustomTtsConfig): void => {
+      if (!this.offlineHidden.has(voice.id)) catalog.push(voice);
+    });
+    this.state.customTtsConfigs = catalog;
+  }
+
+  async refreshOfflineVoices(modelId: string = ''): Promise<void> {
+    if (this.context === null) return;
+    if (this.store === null) await this.initialize(this.context);
+    await OfflineTtsModelService.instance.ensure(this.context);
+    if (!modelId) this.offlineHidden.clear();
+    else for (const id of Array.from(this.offlineHidden)) {
+      if (getOfflineTtsVoiceModel(id)?.id === modelId) this.offlineHidden.delete(id);
+    }
+    this.mergeOfflineVoices();
+    await this.saveCustomTtsCatalog(this.state.customTtsConfigs);
+    if (this.state.customTtsId && !this.state.customTtsConfigs.some((voice: CustomTtsConfig): boolean =>
+      voice.id === this.state.customTtsId && voice.enabled)) {
+      this.state.customTtsId = ''; this.saveSettings();
+    }
+    this.rebuildSpeechSegments(); this.notify();
+  }
+
+  async pauseForOfflineModelChange(): Promise<void> {
+    PlaybackCoordinator.stopPreview?.();
+    this.pause();
+    await OfflineTtsService.instance.pauseForModelChange();
+    await this.httpPlaybackChain.catch((): void => {});
+  }
+
+  private customBatching(): boolean {
+    return this.state.customTtsId.length > 0 && !OfflineTtsModelService.instance.isVoiceId(this.state.customTtsId);
   }
 
   private downloadVoice(voice: SpeechVoice): Promise<void> {
@@ -520,7 +594,7 @@ export class TextToSpeechService {
     if (store === null) throw new Error('TTS settings unavailable');
     const next = SpeechSynthesisSettings.normalize(value);
     if (this.chapterContent.length > 0) SpeechTextSegmenter.batches(this.chapterContent, next,
-      this.state.customTtsId.length > 0, [], this.roles.boundaries());
+      this.customBatching(), [], this.roles.boundaries());
     const previous = this.state.synthesis;
     store.putSync('synthesis', JSON.stringify(next));
     try { await store.flush(); }
@@ -995,7 +1069,7 @@ export class TextToSpeechService {
       this.clearWatchdog();
       this.watchdog = setTimeout((): void => {
         if (this.valid(ticket)) this.fail(new Error('Speech callback timed out'));
-      }, voiceId ? (this.state.synthesis.timeoutSeconds * 4 + 2) *
+      }, voiceId && !OfflineTtsModelService.instance.isVoiceId(voiceId) ? (this.state.synthesis.timeoutSeconds * 4 + 2) *
         (this.state.synthesis.retries + 1) * 1000 + 30000 : 150000);
       if (voiceId) this.speakHttp(segment.text, this.requestId, ticket, voiceId);
       else if (this.nextSystemIndex === this.segmentIndex && this.nextSystemId.length > 0) {
@@ -1154,7 +1228,7 @@ export class TextToSpeechService {
       pageEnds.push(this.state.charOffset);
     }
     this.segments = SpeechTextSegmenter.batches(this.chapterContent, this.state.synthesis,
-      this.state.customTtsId.length > 0, pageEnds, this.roles.boundaries());
+      this.customBatching(), pageEnds, this.roles.boundaries());
     this.segmentIndex = SpeechTextSegmenter.indexAt(this.segments, this.state.charOffset);
   }
 
@@ -1202,9 +1276,13 @@ export class TextToSpeechService {
   }
 
   private prefetchHttp(config: CustomTtsConfig | null, ticket: number, playing: boolean = false, headStarted: boolean = false): void {
-    // 当前请求占一个槽位；进入播放后补齐后续预取，有界并发可按提供方限制调整。
+    // HTTP 沿用提供方并发；本地预留当前及后续三段，native 仍由 OfflineTtsService 串行生成。
     const first = !playing && !headStarted && !this.httpTasks.has(this.segmentIndex);
-    const end = Math.min(this.segments.length, this.segmentIndex + (first ? 1 : this.state.synthesis.concurrency) + (playing ? 1 : 0));
+    const local = (this.roles.enabled || OfflineTtsModelService.instance.isVoiceId(this.state.customTtsId)) &&
+      this.state.customTtsConfigs.some((voice: CustomTtsConfig): boolean => isOfflineTtsProvider(voice.provider) && voice.enabled);
+    const httpEnd = this.segmentIndex + (first ? 1 : this.state.synthesis.concurrency) + (playing ? 1 : 0);
+    const localEnd = this.segmentIndex + (first || !local ? 1 : 4);
+    const end = Math.min(this.segments.length, Math.max(httpEnd, localEnd));
     if (first) {
       if (this.httpPrefetchTimer !== -1) clearTimeout(this.httpPrefetchTimer);
       this.httpPrefetchTimer = setTimeout((): void => {
@@ -1225,6 +1303,7 @@ export class TextToSpeechService {
       if (this.httpTasks.has(index) || !voiceId) continue;
       const voice = this.state.customTtsConfigs.find((item: CustomTtsConfig): boolean => item.id === voiceId && item.enabled);
       if (!voice) continue;
+      if (index >= (isOfflineTtsProvider(voice.provider) ? localEnd : httpEnd)) continue;
       const task = new HttpTtsPlayer(this.state.synthesis.timeoutSeconds, this.state.synthesis.retries);
       const text = this.segments[index].text;
       this.httpTasks.set(index, task);
@@ -1250,7 +1329,7 @@ export class TextToSpeechService {
     if (this.roles.enabled) return '';
     const chapter = book.chapters[index];
     const config = this.state.customTtsConfigs.find((item: CustomTtsConfig): boolean => item.id === this.state.customTtsId);
-    if (!chapter || !config || !config.enabled) return '';
+    if (!chapter || !config || !config.enabled || isOfflineTtsProvider(config.provider)) return '';
     return JSON.stringify([book.id, book.sourceUrl, book.bookUrl || book.id,
       chapter.originSourceValue || chapter.source.value, chapter.variables,
       config, CustomTtsConfigParser.usesSpeed(config) ? this.state.speed : 1, this.state.synthesis]);
@@ -1267,6 +1346,7 @@ export class TextToSpeechService {
   }
 
   private prefetchNextChapterSpeech(config: CustomTtsConfig): void {
+    if (isOfflineTtsProvider(config.provider)) return;
     const book = this.book;
     const context = this.context;
     if (book === null || context === null || this.state.stopAtChapterEnd ||
@@ -1379,7 +1459,8 @@ export class TextToSpeechService {
           if (error instanceof HttpTtsFailure && error.kind === 'voice') {
             this.unavailableVoices.set(config.id, Date.now() + 5 * 60 * 1000);
           }
-          this.state.error = this.httpFailureMessage(error instanceof HttpTtsFailure ? error.kind : 'playback');
+          this.state.error = isOfflineTtsProvider(config.provider) ? this.message($r('app.string.offline_tts_failed')) :
+            this.httpFailureMessage(error instanceof HttpTtsFailure ? error.kind : 'playback');
           this.notify();
         }
       } finally {

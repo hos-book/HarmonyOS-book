@@ -118,3 +118,26 @@ updatedAt
 durationMs
 sourceUrl
 bookUrl
+# Offline TTS native exports, imported model receipts and persisted voice identity.
+extract
+cancel
+progress
+format
+id
+chunkBytes
+assets
+name
+bytes
+sha256
+provider
+modelId
+speakerId
+# Messages cross the independently compiled OfflineTts worker boundary.
+requestId
+directory
+text
+speed
+shutdown
+wave
+speakers
+error

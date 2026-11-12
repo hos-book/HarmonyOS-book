@@ -307,7 +307,9 @@ export struct ProfilePage {
         this.navStack.pushPathByName('account', '');
       })
       if (MembershipState.featureEnabled) {
-        Divider().strokeWidth(0.5).color(AppTheme.Divider).margin({ left: 20, right: 20 })
+        Divider().strokeWidth(0.5)
+          .color(this.hasAppBackground() ? $r('app.color.profile_background_divider') : AppTheme.Divider)
+          .margin({ left: 20, right: 20 })
         Row({ space: 12 }) {
         Text($r('app.string.membership_entry_desc')).fontSize(AppFont.Body)
           .fontColor(AppTheme.TextSecondary).layoutWeight(1).maxLines(2)
@@ -316,7 +318,9 @@ export struct ProfilePage {
           .fontWeight(FontWeight.Medium).onClick((): void => { this.showMembership = true; })
         }.width('100%').padding({ left: 20, right: 20, top: 14, bottom: 14 })
       }
-    }.width('100%').backgroundColor(AppTheme.Surface)
+    }.width('100%')
+    // 自选背景仅降低底色不透明度，前景内容与跟随主题时的卡片外观独立保留。
+    .backgroundColor(this.hasAppBackground() ? $r('app.color.profile_background_surface') : AppTheme.Surface)
     .backgroundImage(this.hasAppBackground() ? undefined :
       AppTheme.resolve(this.appearance.themeBundleId).visual.background.profileCardImage)
     .backgroundImageSize(ImageSize.Cover)
@@ -350,13 +354,14 @@ export struct ProfilePage {
           if (index < items.length - 1) {
             Divider()
               .strokeWidth(0.5)
-              .color(AppTheme.Divider)
+              .color(this.hasAppBackground() ? $r('app.color.profile_background_divider') : AppTheme.Divider)
               .margin({ left: ROW_INDENT + 28 + AppSpace.Sm })
           }
         }, (item: ProfileItem) => item.id)
       }
       .width('100%')
-      .backgroundColor(AppTheme.resolve(this.appearance.themeBundleId).visual.colors.profileMenuSurface ?? AppTheme.Surface)
+      .backgroundColor(this.hasAppBackground() ? $r('app.color.profile_background_surface') :
+        AppTheme.resolve(this.appearance.themeBundleId).visual.colors.profileMenuSurface ?? AppTheme.Surface)
       .borderRadius(AppRadius.Lg)
       .clip(true)
     }

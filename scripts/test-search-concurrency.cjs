@@ -78,14 +78,15 @@ async function preferencesTest() {
 
   await prefs.setSearchConcurrency(12);
   h.control.member = false;
-  assert.equal(await prefs.getSearchConcurrency(), 3, 'expired member uses default');
-  assert.equal(values.get('search_concurrency'), 3, 'old custom value is reset durably');
-  await assert.rejects(prefs.setSearchConcurrency(9), /MEMBERSHIP_REQUIRED/);
+  assert.equal(await prefs.getSearchConcurrency(), 12, 'membership expiry preserves search settings');
+  assert.equal(values.get('search_concurrency'), 12);
+  await prefs.setSearchConcurrency(9);
+  assert.equal(await prefs.getSearchConcurrency(), 9, 'nonmembers can save custom concurrency');
   exported.searchConcurrency = 12;
   await prefs.restoreBackupSnapshot(exported);
-  assert.equal(values.get('search_concurrency'), 3, 'backup restore cannot bypass membership');
+  assert.equal(values.get('search_concurrency'), 12, 'nonmembers restore the same valid search settings');
   h.control.member = true;
-  assert.equal(await prefs.getSearchConcurrency(), 3, 'rejoining does not resurrect old custom value');
+  assert.equal(await prefs.getSearchConcurrency(), 12, 'membership changes do not reset concurrency');
 
   const { AppBackupService: backup } = h.load('service/AppBackupService');
   const data = snapshot();

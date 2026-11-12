@@ -74,7 +74,7 @@ API 21 及以上的普通有声书播放页顶部提供喇叭图标，与右侧�
 
 书架状态筛选、分组及阅听记录的类型筛选统一使用原生 `bindMenu`，由系统控制开合动效；文字与选中项底色和设置页 `Select` 保持一致，材质沿用 `AppMaterial.Sheet` 与旧系统磨砂回退。状态与类型使用 `Menu/MenuItem`；分组选项使用明确限高的 `List + LazyForEach` 和分组名称稳定键，支持上下滚动，底部固定“分组管理”入口。不能仅给 `Menu` 加 `maxHeight`，否则超出的菜单项可能被裁切且无法滚动。
 
-从书架三种视图点击电子书，通过 `ShelfReaderRouteParams` 携带本次封面的窗口坐标：仅封面层从书籍位置展开并沿左侧翻开，露出原阅读页，约 400ms 完成。正文固定在目标尺寸，只做短淡入，不随封面缩放/旋转，不因动画逐帧重排；仍由原阅读服务恢复章节位置。根 Navigation 优先调度本次翻书转场，避免叠加右滑；返回及其他入口沿用原转场，漫画不受影响。来源/目标测量失败、离页、导航超时和窗口变化均落到正常正文并释放状态。主机回归入口为 `scripts/test-shelf-reader-transition.cjs`。依据已读取的在线 [导航转场技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-navigation-transition/SKILL.md)、[菜单控制](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/08-dialog-menu/menu/arkts-popup-and-menu-components-menu.md)和[菜单项字体接口](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/08-dialog-menu/menu/ts-basic-components-menuitem.md)，接口经本机 Release SDK 复核。
+从书架三种视图点击电子书或漫画，通过 `ShelfReaderRouteParams` 携带封面节点与本次窗口坐标：仅封面层从书籍位置展开并沿左侧翻开，露出原阅读页，约 400ms 完成。无自定义封面的本地书沿用书架默认 `LocalBookCover`，保留书名和作者，进入与返回均不使用单独的纯色封面；在线无封面沿用默认占位图。正文固定在目标尺寸，只做短淡入，不随封面缩放/旋转，不因动画逐帧重排；仍由原阅读服务恢复章节位置。返回书架时共用约 400ms 的反向合拢与归位，先等待书架恢复布局并测量当前封面位置；封面在完整阅读尺寸下翻回，盖住正文后才隐藏正文，再次测量书架重排后的封面位置并缩回，合拢途中不提前露出书架背景；封面已移除或移出可见区域时仍先合拢，再短淡出返回，不飞向入场旧坐标。有声书沿用封面展开与收回，三种内容均保持双向过渡。根 Navigation 优先调度书架转场，避免叠加右滑；其他入口保留原路由行为。来源/目标测量失败、离页、导航超时和窗口变化均完成导航并释放本次绘制状态，取消返回恢复正文；代次标识隔离过期布局和动画回调，避免旧入场结束新返回。主机回归入口为 `scripts/test-shelf-reader-transition.cjs`，播放器回归为 `scripts/test-player-transition.cjs`。依据已读取的在线 [导航转场技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-navigation-transition/SKILL.md)及其 [API 参考](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-navigation-transition/references/navigation-transition-api.md)，所用转场接口经本机 Release SDK 复核，未新增最低 API 20 之后的能力依赖。
 
 2026-11-07：Release SDK 26.0.0.105 Debug 构建通过。Mate 80 已验证三态循环、横划过程抽出与松手回位、长按菜单、点击电子书进入阅读；主机 `test-shelf-spine.cjs`、`test-page-type-swipe.cjs`、`test-shelf-batch-delete.cjs` 通过。2026-11-08 按反馈取消书籍主题占位叠加与立式作者标注，重新构建并安装 Mate 80，实机确认多行书架显示原封面、书脊底部无作者。最终 HAP 元数据为 Release、最低 API 20 / 目标 API 26。平板、折叠屏与 2in1 尚未实机验证。实现参考在线 [ArkTS 语法技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkUI 知识检索技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md) 及其 [手势响应规则](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/18-arkts-rules/arkts-interaction-rules.md)。
 
@@ -276,7 +276,7 @@ API 21 及以上的普通有声书播放页顶部提供喇叭图标，与右侧�
 
 2026-10-29 本项验证：47 项 TTS 回归及 JSON 配置、阅读跟读同步、阅读偏好/备份、漫画按键和智控键订阅六组定向脚本通过；附件 Kokoro 等效配置及生成的直连 JSON 均通过真实解析器和请求模板校验。Release SDK 26.0.0.105 编译、打包与签名成功，Debug HAP 元数据为 Release、minimum API 20、target API 26。构建工具 OHPM 批处理递归失败后使用 Release IDE CLI；签名文件占用解除后重建通过。按用户要求停止启动流程，未完成滑条实时显示、真实 Kokoro 出声或智控键硬件验收，不将主机回归视作实机验证。
 
-普通设置进入时只加载本地值。会员查询在现有生命周期中静默执行，页面和搜索并发区域不再随全局查询显示加载行；只有提交会员设置才等待鉴权。可编辑搜索并发草稿，应用前仍需有效会员，查询失败不能获得权限；已确认失效时展示默认值。
+普通设置进入时只加载本地值。会员查询在现有生命周期中静默执行，页面和搜索并发区域不再随全局查询显示加载行；只有提交其他会员设置才等待鉴权。搜索并发属于免费本机设置，所有用户均可编辑和应用 1–12，默认 3；会员查询和到期不改变草稿或已保存值。
 
 实现参考：轻页 [ReaderAutoScrollClock](https://github.com/hos-book/legado-harmony/blob/345fef5cf80ed5b26238da83aec3fe21e8ea1907/entry/src/main/ets/core/reader/ReaderAutoScrollClock.ets) 的按帧位移及掉帧限幅思路；在线 [IAP 订阅技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/sdk/hmos-one-sdk-skill/hmos-sdk-basic-skill/IAP%20Kit%28%E5%BA%94%E7%94%A8%E5%86%85%E6%94%AF%E4%BB%98%E6%9C%8D%E5%8A%A1%29/hmos-iap-kit-integrate-subscription/SUB_SKILL.md) 的请求频率与验签约束、[Account Kit 静默登录技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/sdk/hmos-one-sdk-skill/hmos-sdk-basic-skill/Account%20Kit%28%E5%8D%8E%E4%B8%BA%E8%B4%A6%E5%8F%B7%E6%9C%8D%E5%8A%A1%29/hmos-account-kit-silent-login/SUB_SKILL.md) 的无交互身份检查。SDK 26 本地声明确认 `FrameCallback/postFrameCallback` 自 API 12 可用；本次没有替换账号登录或支付流程。
 
@@ -294,9 +294,9 @@ API 21 及以上的普通有声书播放页顶部提供喇叭图标，与右侧�
 
 套餐卡片与权益对比保留 24vp 间距。三个套餐卡片按最高内容等高拉伸、顶部对齐，优惠标记位于右上角，徽章、套餐名、现价、划线原价与周期说明纵向居中排列；现价按月度黑色、年度金色、永久深黑金色区分；优惠标记贴右上角叠放，不占内容行；图标高 56vp、内容间距 4vp、上下内边距 10vp，仅保留 14vp 原价行用于对齐；统一 2vp 边框避免选中后内容位移，金额沿用实际套餐数据。内容区按固定间距纵向滚动，购买说明勾选框与订购按钮位于滚动区外，固定在会员弹层底部并避让系统安全区；购买区背景透明，透出页面原有渐变。订购按钮固定显示“11月1日 00:00 开放订购”，禁用且无购买点击回调；切换套餐、勾选说明或会员状态变化均不解锁，不按设备时间自动开放。
 
-会员页在套餐卡片下方展示“权益 / 非会员 / 会员”三列对比，包含 AI 上色、AI 翻译、AI 超分、图标、主题、云备份、搜索并发、功能尝鲜和专属客服。表格随页面纵向滚动，保持金色视觉；默认图标、基础主题和手动云备份标为免费能力。会员搜索并发按产品要求展示“无限制”；本次仅更新展示，现有搜索设置的 1–12 并发范围尚未调整，不能将此文案视为运行逻辑已开放。2026-10-28 套餐卡片对齐与禁用订购按钮通过 ArkTS 检查和 Release SDK Debug HAP 构建；设备未连接，卡片视觉、窄窗口与大字体下的换行及整表滚动尚未完成实机验收。
+会员页在套餐卡片下方展示“权益 / 非会员 / 会员”三列对比，包含 AI 上色、AI 翻译、AI 超分、图标、主题、云备份、功能尝鲜和专属客服。表格随页面纵向滚动，保持金色视觉；默认图标、基础主题和手动云备份标为免费能力。搜索并发已向所有用户开放 1–12（默认 3），不再列为会员权益。2026-10-28 套餐卡片对齐与禁用订购按钮通过 ArkTS 检查和 Release SDK Debug HAP 构建；设备未连接，卡片视觉、窄窗口与大字体下的换行及整表滚动尚未完成实机验收。
 
-已上线权益的会员限制：AI 上色覆盖工具栏、设置、预热、队列、缓存显示及 HAR 宿主；AI 翻译的图片与离线推理入口独立校验，失效后取消任务；AI 超分、替换图标、自动备份和自定义搜索并发继续使用现有验签权限。默认主题免费，其余主题套装可免费预览，应用时要求会员；冷启动在首帧前读取已保存主题与本地有效会员展示记录，先恢复所选套装，再后台核验；回前台复核不闪回默认套装。本地记录只恢复已选外观，不授权新会员操作；订阅到期、账号变更或核验失败时撤销展示，缺少有效记录时使用默认套装。原有自定义强调色、材质和阅读纸张保持免费。“功能尝鲜”和“专属客服”按产品要求仅保留权益说明，尚无功能入口。
+已上线权益的会员限制：AI 上色覆盖工具栏、设置、预热、队列、缓存显示及 HAR 宿主；AI 翻译的图片与离线推理入口独立校验，失效后取消任务；AI 超分、替换图标、自动备份继续使用现有验签权限。默认主题免费，其余主题套装可免费预览，应用时要求会员；冷启动在首帧前读取已保存主题与本地有效会员展示记录，先恢复所选套装，再后台核验；回前台复核不闪回默认套装。本地记录只恢复已选外观，不授权新会员操作；订阅到期、账号变更或核验失败时撤销展示，缺少有效记录时使用默认套装。原有自定义强调色、材质和阅读纸张保持免费。“功能尝鲜”和“专属客服”按产品要求仅保留权益说明，尚无功能入口。
 
 ## PDF 本地导入
 
@@ -329,7 +329,7 @@ API 21 及以上的普通有声书播放页顶部提供喇叭图标，与右侧�
 
 会员促销：仅终身商品 `lastVip` 使用 `lifetime_half_2026`，展示华为返回的优惠价和划线常规价；月度 6 元、年度 60 元不参与此活动。后台终身原价 120 元、活动价 60 元，活动覆盖至 2026-12-25 全天（结束时间 12-26 00:00），旧 `cheaplist` 已结束。价格与活动有效性以华为返回为准。购买前重新查询促销商品，优惠失效或价格变化时停留页面重新确认。签名失败停止下单，禁止静默按原价购买。签名服务已部署到中国区 AGC 云函数 `membership-offer` 版本 `1`，App 通过 CloudFoundationKit 客户端鉴权调用；云端测试已返回有效格式的优惠签名。PC/2in1 需 API 23+，不支持时明确停止优惠下单。真实收银台金额和付款仍待邀测验证，不能将云端签名返回成功视为真实支付成功。
 
-会员功能当前开放：账号卡片显示会员入口，已购会员按展示状态显示徽章和彩色昵称，主题页显示会员提示。会员中心提供购买、恢复购买和订阅管理；搜索并发、自动备份及主题图标按现有会员权益规则校验，书源导入对所有用户不限数量且不核验会员。主题入口、主题图标区、“搜索并发数”和“自动备份”标题旁显示金色 VIP 标签，标识功能权益，不代表当前账号会员状态。非会员搜索并发固定为 3，VIP 可设置 1–12；默认图标免费，其他主题图标为 VIP 专享。自动备份下方不再展示“开通会员”按钮；点击受限开关仍执行会员校验，状态核验失败时保留重试。主题入口继续可用。
+会员功能当前开放：账号卡片显示会员入口，已购会员按展示状态显示徽章和彩色昵称，主题页显示会员提示。会员中心提供购买、恢复购买和订阅管理；自动备份及主题图标按现有会员权益规则校验，书源导入对所有用户不限数量且不核验会员。主题入口、主题图标区和“自动备份”标题旁显示金色 VIP 标签，标识功能权益，不代表当前账号会员状态。所有用户搜索并发默认 3，可设置 1–12，不显示 VIP 标记；默认图标免费，其他主题图标为 VIP 专享。自动备份下方不再展示“开通会员”按钮；点击受限开关仍执行会员校验，状态核验失败时保留重试。主题入口继续可用。
 
 会员中心在“会员周期”标题旁显示金棕色小字“会员半价活动截至到 2026年12月25日”，窄窗口下允许提示换行并完整显示日期。会员中心右上角并排展示“恢复/刷新”和“管理订阅”，底部不再重复展示；账号区会员徽章紧跟昵称。“我的”页账号区域右侧不显示进入箭头，点击账号区域仍进入账号页面，登录/恢复中保留加载提示。
 
@@ -490,7 +490,7 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 
 技术与支持页实现参考本轮在线读取的 [ArkTS 语法约束](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkUI 开发规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/SKILL.md)与[原生动画规则](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/arkui-performance-analysis/references/animation/animateTo-patterns.md)，并核对本机 Release SDK 26.0.0.105 中的弹窗转场接口（API 19 起）。2026-11-10 定向 ArkTS 检查无错误，Release SDK 调试 HAP 构建成功并安装到 Mate 80；已查看名单页面的真机静态显示，尚未完成长感谢信滚动、深色、大屏及连续动画验收。
 - “简听交流群”下方显示微信公众号卡片，说明为“关注「简听好运来」获取最新更新计划”；点击“复制名称”将“简听好运来”写入剪贴板，并提示结果。使用教程支持离线查看：首页以“从第一本书开始”入门主卡、六个主题卡片和常见问题入口组织内容；主题为书源与找书、阅读与朗读、听书与播放、书架与记录、本地与下载、备份与设置。卡片默认两列，实际容器宽度达到 600vp 后三列，统一 24vp 圆角和 12vp 卡片间距。点击进入 `guideDetail`，按编号、操作标题和说明分步展示，保留快速上手、书源、首页搜索、书架、记录、有声书、电子书、漫画、本地导入、离线下载、备份、迷你播放栏、系统播控、设置及常见问题全部 15 组教程。详情使用稳定 ID 的 `LazyForEach`，返回保留首页位置；页面跟随应用主题，正文限制最大宽度并避让动态安全区，文案统一使用资源字符串。
-- 设置页进入即展示布局，本地偏好就绪后开放外观、启动与播放操作；搜索并发的会员核验独立加载，不阻塞整页。读取失败显示重试，离页和重试后的旧请求不得回写页面状态。
+- 设置页进入即展示布局，本地偏好就绪后开放外观、启动与播放操作；搜索并发只读取本机偏好，不等待会员核验。读取失败显示重试，离页和重试后的旧请求不得回写页面状态。
 - 教程入口的右箭头统一为 24vp，不添加底座；保留 48×48vp 的布局区域，整张卡片均可点击。页面使用应用设置页的分层背景，卡片使用主题表面色，避免浅色模式下卡片与背景混在一起。
 - “我的”中书源管理、成就馆、本地导入、使用教程、日志管理、设置、关于统一使用 `ProfileMenuDestination` 整页侧滑：按所在屏幕物理对角线分为小于 8.5 英寸 320ms、8.5 至 12 英寸 380ms、大于 12 英寸 450ms，为实际可见动效的 200/250/300ms 下限留出缓入缓出及采样余量，进入与返回时长一致。关于内的使用教程、隐私政策、开源声明及书源账号、子源、网页登录、编辑、调试、发现/登录面板路由复用同一规则；书源编辑页仍保留未保存修改的返回确认。用物理 DPI 计算英寸数，分屏、窗口缩放和字体大小不改变档位；屏幕信息异常时回退 450ms。
 - 菜单转场使用 `EaseInOut` 曲线并保持页面不透明，左上角返回、系统返回和导入完成后的返回共用路由转场。回归检查各菜单的进入、返回和连续操作无残留位移；质检以录屏中的实际可见时长为准，系统动画回调耗时不能替代画面变化时长。
@@ -531,7 +531,7 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 - 发布渠道由 `ReleasePolicy` 控制：AGC 邀测的会员购买按钮显示“11.1开始订阅”并禁用；正式版开放购买，仍要求权益核验、商品价格和协议同意。构建前使用 `scripts/set-release-channel.py` 明确设置渠道、版本名和内部版本号，详情见 `docs/RELEASE_NOTES.md`。
 
 - “我的”顶部账号卡片在昵称下展示会员标识，分隔线下为权益说明和金色会员中心按钮，点击打开会员弹层；主题图标页保留独立入口，点击受限图标可打开会员弹层。会员中心展示月度、年度、终身套餐以及恢复购买、管理订阅。
-- 所有用户导入、新增书源均无会员数量上限；非会员搜索并发为 3。自动备份与周期、专属图标及 1–12 自定义搜索并发要求有效会员。状态未知显示核验错误和重试，不直接引导再次购买。
+- 所有用户导入、新增书源均无会员数量上限；所有用户可设置 1–12 搜索并发，默认 3。自动备份与周期、专属图标要求有效会员。状态未知显示核验错误和重试，不直接引导再次购买。
 - 手机调试使用 Release SDK 的 debug HAP；正式分发使用发布签名的 release APP。会员逻辑回归见 `node scripts/test-membership.cjs`；真实购买、退款和换号仍需华为 IAP 环境验证。
 - 八款资源由 `scripts/extract_app_icon_variants.py` 从指定 JPEG 及替换玻璃 PNG 生成，每款包含 1024×1024 前景、背景、合成预览及分层描述；背景不透明且无预制圆角。素材是扁平图，前景/背景通过边缘采样与柔和蒙版重建，不等同于设计源文件的独立物体图层。
 - 新增小狐狸、卡通猫、卡通狗使用用户提供的 1024×1024 PNG，前景、背景、合成预览及分层描述同步至 AppScope 和 entry，经过保留 RGBA 像素的无损压缩。三款主体在原有构图基础上居中等比放大约 20%，保留耳机、书本和阴影完整，桌面图标与设置页预览同步；猫狗前景透明；小狐狸前景保留整幅不透明原图，尚未拆分独立主体图层。
@@ -769,7 +769,7 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 - 播放页封面保留首帧小图，高清层按实际容器尺寸分档解码，确认解码成功后才显示；失败保留搜索备用封面或原图。详情规则封面优先于后续搜索缩略图，封面来源和备用地址随书籍缓存持久化；新详情地址仍可更新旧图，同名异源书籍不混用封面。
 
 - AI 封面超分、漫画 AI 超分、AI 翻译与 AI 着色均为有效会员权益，仍需设备支持；入口、预热、排队推理和增强缓存显示均校验权益。权益失效后取消任务并恢复原图；关闭偏好无需会员。
-- “设置 → 外观 → AI 封面超分”名称右侧显示与搜索并发一致的金色 VIP 标签，标识功能权益，不依赖当前账号是否开通会员。开关默认关闭，持久化到本机偏好。仅增强播放页低清网络静态封面；API 26 以下或缺少系统视觉能力时置灰。开启后先显示原图，成功才叠加增强图，失败继续显示原图；关闭开关立即撤下增强图。切换封面、离开页面后不应用旧任务结果。
+- “设置 → 外观 → AI 封面超分”名称右侧显示金色 VIP 标签，标识功能权益，不依赖当前账号是否开通会员。开关默认关闭，持久化到本机偏好。仅增强播放页低清网络静态封面；API 26 以下或缺少系统视觉能力时置灰。开启后先显示原图，成功才叠加增强图，失败继续显示原图；关闭开关立即撤下增强图。切换封面、离开页面后不应用旧任务结果。
 - 设置开关通过 `Binding` 读取最新状态；本地偏好加载完成后恢复可操作，保存期间临时禁用，保存失败时同步回滚开关。回归覆盖超分、启动自动播放和音频播放方式的初始值与重复切换。
 - 超分使用 CoreVisionKit ImageSRAnalyzer（API 26），以书源图片请求头读取原图，串行处理 32–640 像素边长内的封面；增强缓存位于 cacheDir，最多 12 张、单张不超过 4 MiB，不替换书籍原始封面 URL。验收需覆盖开关重启保持、旧系统回退、处理失败、切书离场、缓存复用及真实设备效果。
 
@@ -858,13 +858,14 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 ## 主题与加载
 
 - 书源管理、成就馆、主题、日志管理、关于与设置页统一使用 `AppTheme.SettingsBackground` 作为整页及路由外层底色，卡片使用 `AppTheme.Surface`，文字、分割线和品牌按钮前景使用对应主题语义色。书源页顶部搜索/筛选、展开操作区、页内管理视图及导入弹层，以及主题图标面板与套装预览弹层同样接入主题色；应用套装后通过现有 V2 外观状态即时刷新。设置、阅听设置及其五个子页、书源管理、成就馆、主题、日志管理和关于共用 `FrostedPageHeader`：标题栏叠在滚动容器上方，通过实测高度提供首屏内容留白，滚动内容可进入标题栏背后。组件统一使用背景模糊与 72% 不透明度的主题底色叠层，透明度只影响底色，文字保持清晰；背景装饰不参与触摸，返回与操作控件保留点击，主题胶囊的 HDS 材质、阴影裁剪和触摸透传保持原有实现。关于页支持纵向滚动，日志控制区与懒加载条目在同一列表内滚动。验收包含滚动透出、返回、标题栏操作、主题切换及加载/空态。实现参照在线 [ArkUI 开发规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/SKILL.md)、[ArkTS 语法规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)和[设备验证技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-verify/SKILL.md)。
-- “我的 → 主题与背景”分为“主题套装 / App背景 / 图标”三个一级 Tab，默认显示主题套装；图标内设“桌面主题图标 / Tab图标”二级切换。一级标签使用书架同款原生 `CapsuleSegmentButtonV2` 和描边；NavDestination 内由 `HdsTabs` 承载沉浸光感材质，并按实际高度半径进行离屏圆角裁剪，保留透视且不外溢阴影。材质层整棵子树不参与触摸命中，分段按钮负责切换。顶部“主题与背景”标题栏使用原生磨砂并叠在滚动内容上方，卡片经过标题区域时柔化透出；胶囊标签栏没有整条不透明底板，卡片上滑后从标签后方透出。描边装饰整棵子树使用 BLOCK_DESCENDANTS 透传，避免透明子节点挡住原生按钮点击。点击与左右滑动同步选中项，各页保留独立滚动区域；标签按内容自适应高度，圆角、描边和首屏留白跟随实际高度，旧系统沿用能力守卫和薄磨砂回退。桌面图标保留图标选择、会员与 API 版本校验；图标卡片的名称下统一保留一行说明，首个图标显示“默认图标”，其余显示会员说明，字号与行数一致，保持卡片等高；主题套装内置“默认套装”、“纸感书房”、“雾蓝”、“墨山”和“百变简简”，展示背景、封面和图标的局部预览。套装缩略卡固定每行三张，点击打开可滚动预览面板，展示背景、封面和图标；关闭预览不修改全局，点击“应用套装”后保存并更新现有界面。显示当前使用标记，应用期间禁用重复操作，失败提示重试。
+- “我的 → 主题与背景”分为“套装 / 背景 / 图标 / Tab”四个一级 Tab，默认显示套装；桌面图标与 Tab 图标分别独立展示，不再使用二级切换。一级标签使用书架同款原生 `CapsuleSegmentButtonV2` 和描边；NavDestination 内由 `HdsTabs` 承载沉浸光感材质，并按实际高度半径进行离屏圆角裁剪，保留透视且不外溢阴影。材质层整棵子树不参与触摸命中，分段按钮负责切换。顶部“主题与背景”标题栏使用原生磨砂并叠在滚动内容上方，卡片经过标题区域时柔化透出；胶囊标签栏没有整条不透明底板，卡片上滑后从标签后方透出。描边装饰整棵子树使用 BLOCK_DESCENDANTS 透传，避免透明子节点挡住原生按钮点击。点击与左右滑动同步选中项，各页保留独立滚动区域；标签按内容自适应高度，圆角、描边和首屏留白跟随实际高度，旧系统沿用能力守卫和薄磨砂回退。桌面图标保留图标选择、会员与 API 版本校验；图标网格只保留图片、名称与当前选中标记，免费与会员说明集中在标题旁的感叹号内；会员状态后台静默查询，核验完成后静默刷新当前图标，实际图标读取或切换只保留标题处单个加载反馈；主题套装内置“默认套装”、“纸感书房”、“雾蓝”、“墨山”和“百变简简”，展示背景、封面和图标的局部预览。套装缩略卡固定每行三张，点击打开可滚动预览面板，展示背景、封面和图标；关闭预览不修改全局，点击“应用套装”后保存并更新现有界面。显示当前使用标记，应用期间禁用重复操作，失败提示重试。
+- 套装、背景、桌面图标、Tab 图标及套装预览中的说明统一使用已有 `SettingsHintButton` 感叹号锚点弹框；背景的作用范围说明放在“设置哪个页面”旁，图片本机存储和大小规则并入背景标题说明。保留选中标记、配置状态、错误与待应用提示；关闭按钮、外部点击和系统返回收起说明。
 - App背景支持通用、首页、书架、记录和我的五个范围，各页可“跟随通用”或使用独立配置，允许全部共用、分别设置及部分共用；切回跟随时保留原独立设置，应用主题套装也不会覆盖已单独设置的 App背景。配置可选择跟随主题、内置渐变或系统相册图片，支持遮罩及图片模糊、焦点位置与缩放；四页预览使用当前草稿，预览与页面共用背景组件，套装预览仍只展示套装自身效果。点击“应用”后统一保存，取消或离页清理未提交图片，保存失败保留原生效配置；选图取消不改变原图，未完成的异步处理不迟到应用。原图 20 MiB 限制与重编码输出预算分别判断；PNG 输出过大时保留透明通道并有界缩小重编码，读取、解码、转换及存储失败分别提示，只有原文件实际超限才提示大小限制。缺失 EXIF 或方向元数据读取失败时按正常方向继续导入，透明 PNG 保留透明与半透明像素。
 - App背景最低支持 API 20，仅作用于四个主页面，不修改阅读器内部主题与背景；图片仅本机处理与保存，无上传接口。独立 Preferences `app_backgrounds.selection_v1` 与 `filesDir/app_backgrounds` 保存配置和图片，跟随通用时仍保留独立图片引用，缺图回退主题背景。自选背景延伸至状态栏和底部安全区，不截获触摸或无障碍焦点；启用时避免首页封面氛围及我的账号卡背景重复叠加，保留前景语义色与内容避让。回归关注共用/独立/混合切换、取消与失败回滚、冷启动恢复、选图及缺图、深浅色、横竖屏与大屏、底栏背景连续性和既有滚动/刷新交互；这些是验收范围，不代表已完成设备验证。
 - 标签栏实现已读取在线 [ArkTS 语法技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkUI 检索技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)及其 [SegmentButtonV2](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/04-components/advanced/ohos-arkui-advanced-SegmentButtonV2.md)、[Stack](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/03-layout/other/ts-container-stack.md)、[Tabs](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/03-layout/other/ts-container-tabs.md)参考，并核对 [HdsTabs 官方参考](https://developer.huawei.com/consumer/cn/doc/harmonyos-references/ui-design-hdstabs)和本机 Release SDK 声明。在线目录已刷新，未运行知识库检索脚本。
 - 2026-11-07（当时旧版三个页签）：Release SDK 26.0.0.105 的 Debug HAP 构建并安装到连接手机，包内标记 Release / API 20–26。实机确认三个页签点击切换及内容上滑；滚动截图确认胶囊后方内容经 HDS 柔化，顶部标题采用独立原生磨砂。独立 ArkTS 检查因 LSP 未初始化不可用，MCP 构建遇到 OHPM 批处理递归，实际使用 Release IDE Node/Hvigor `--no-daemon` 完成编译。深色、大字体、旧 API 回退及其他设备未做实机覆盖。触摸透传依据已读取的 [ArkUI 事件响应规则](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/18-arkts-rules/arkts-interaction-rules.md)和本机 `HitTestMode` 声明。
 - 主题背景：未启用自选 App背景时沿用套装背景。墨山六张图片分为浅深各三张：首页及“我的”使用留白山水，书架及详情使用山水孤舟，记录使用墨竹溪石；随深浅模式选择对应资源，保留原图清晰度。详情加载和失败状态也显示书架背景；默认主题继续使用封面氛围。首页骨架仅封面、文字等局部占位着色，外层透明，不覆盖主题背景。播放页封面保留细边框，不叠加书脊（含真实封面及默认占位）。
-- “我的”账号卡及各组选项卡的主题底色使用 55% 不透明度，透出页面背景；透明度仅作用于底色，文字、图标、按钮和分隔线保持原有清晰度。
+- “我的”启用自选 App背景（包括跟随通用的图片或渐变）时，账号卡及各组菜单卡统一使用轻透底色：浅色约 24%、深色约 32% 不透明度，分隔线分别约 8% / 13%，让背景在卡片内外连续透出。仅底色与分隔线变淡，文字、头像、图标和按钮保持原有配色与不透明度，不逐卡叠加模糊或阴影；App背景中的“我的”草稿预览同步此效果。跟随主题时保留套装原有卡片底色、菜单专属底色和账号卡图片；不修改主题资源、强调色、阅读背景及其他页面。回归需检查共用/独立背景切换、恢复跟随主题及深浅模式，图片实际可读性与视觉融合以设备检查为准。
 - 纸感书房使用暖纸/深炭纸背景、墨绿主题色和统一细线图标，覆盖书源首页、全网榜单及主要页面底色、表面和前景。默认封面与本地无图书籍使用对应主题素材；真实书封及用户自选封面保留原图，书封框内增加细书脊和边框，紧凑封面采用细边框，不拦截点击或遮盖状态标记。首页搜索、筛选、视图切换、箭头、分类及底部导航通过功能角色选择图标。
 - 墨山使用宣纸白/墨灰配色和朱砂强调色，山水背景、山水普通封面与墨竹本地封面均提供深浅变体；10 个单色矢量图标采用微不规则笔触，保留小尺寸识别性。普通书封叠加细书脊和边框，紧凑封面仅保留细边框，文字实时排版，真实书封沿用原图。
 - 雾蓝使用浅冷灰蓝/深蓝灰背景、适配深浅色的蓝色强调色、线性功能图标与细书脊、边框；真实书封保留原图。首页、书架、记录、我的共用主题背景组件，书架不再单独绘制旧渐变。预览与正式页面共用强类型主题定义，新增套装在 ThemeBundles 注册一次，页面按背景、图标和封面能力呈现，不判断具体套装名称。
@@ -1100,7 +1101,7 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 - 本轮设置验证：重装启动后搜索并发保留 3、预缓存保留 12；随后预缓存改为 2，实测显示成功提示。主机测试覆盖设置写失败回滚、冷启动读取、搜索并发 1/3/6/12，会话持久化及 PCM 校验；TTS 28 项、音频命令 31 项通过。Release SDK 26.0.0.105 增量构建 Debug HAP 并安装启动成功；独立 ArkTS 检查因 LSP 未初始化不可用，构建工具 OHPM 递归错误后使用 Release IDE CLI 编译。
 - 在线有声书闭环尚未通过：其中两个导入源在本轮未取得可播放搜索结果，宿主站点访问返回 403；另一个导入源可返回搜索结果但与普通关键词不匹配。不能据此声明真实书源的边加载边播放、预缓存、下载及导出已验收。已读技术参考：[ArkTS 语法技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkUI 技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)、[系统 TTS API](https://developer.huawei.com/consumer/cn/doc/harmonyos-references/hms-ai-texttospeech)。
 
-- 搜索并发默认 3，只有有效会员可保存并实际使用自定义 1–12。选择和输入仅编辑草稿，应用时检查当前权益；自动查询不闪烁、不阻塞普通设置。已确认会员失效回退 3，备份恢复不能绕过权益校验。
+- 搜索并发默认 3，所有用户可保存并使用 1–12。选择和输入仅编辑草稿，点击应用后保存，下次搜索生效；读取、保存和备份恢复均不等待会员核验，会员失效、切号或查询失败不重置设置。
 
 阅读页右上角四宫格菜单的弹出选项使用 `AppMaterial.Sheet` 沉浸光感材质，API 26+ 使用透明底色与原生材质，API 20–25 回退系统磨砂；菜单材质需独立于入口按钮配置，不能沿用系统默认白底。
 
@@ -1381,6 +1382,8 @@ HTTP 合成区分访问拒绝、限流、超时/网络、服务端错误、坏�
 
 本书音色区显示书名、旁白、默认对白及逐步发现的人物。点击后切换为音色编辑视图，可搜索已启用音色、选择、试听，再明确确认保存；取消不改原绑定。列表懒加载并使用角色/音色 ID，滚动条隐藏。“试听当前片段”作为无背景文字按钮放在书名右侧，随角色列表滚动；独立设置页的标题和底部安全区留白使用列表内容偏移，避免外层留白提前截断卡片。编辑视图的试听和确认仍固定在列表外并避让底部安全区。试听不写入阅读进度，只恢复本次试听暂停的同一朗读会话；主动暂停、换书、后台或音频抢占撤销自动恢复。确认音色保留当前发声片段，从下一片段使用新声音。角色绑定按书保存，不改变全局音色；无当前书时给出开始朗读的提示。
 
+导入本地 TTS 模型后，Piper 超文、小雅各 1 个中文声音及 Kokoro 100 个中文音色直接出现在现有音色选择和角色编辑列表，可为旁白、默认对白和人物分别选择。全局默认为 Piper 时，新人物仅从其他已启用 Piper 声音分配；默认为 Kokoro 时，仅从其他已启用 Kokoro 声音分配；无候选则跟随默认。HTTP 和其他系列本地音色排在列表前也不会自动分配。已有角色手动绑定保留，可以混合选择不同系列；绑定 HTTP 音色的人物继续依赖网络。只导入 TTS 模型可单音色朗读，自动分角色还需独立导入 GGUF 并开启多角色朗读。跨模型切换可能重新加载模型。2026-11-12 真机日志测得已导入 Kokoro 的 31 字片段合成准备约 21.95 秒；新增 Piper 手机速度和听感尚未验收。详见 [OFFLINE_TTS.md](OFFLINE_TTS.md)。
+
 2026-11-10：改动 ArkTS 检查无错误，Release SDK 26.0.0.105 Debug HAP 构建通过；78 项 TTS 回归与音色试听回归通过，覆盖下一片段生效、字符位置保留、重复关闭、连续试听与中断取消恢复。模型推理边界使用 mock。Mate 80 已安装并检查新版界面；真实模型识别质量、持续后台功耗、深色和其他窗口尺寸尚未全部验收。
 
 ## 读书摘录
@@ -1414,7 +1417,7 @@ HTTP 合成区分访问拒绝、限流、超时/网络、服务端错误、坏�
 
 ## 可选 AI 模型管理
 
-“我的 → 模型管理”为一级入口，漫画着色、AI 字幕、多角色朗读以平级卡片分别展示状态和大小。漫画模型不随主包预装，选择配套 `.jtmodel` 加密包导入，无需解压或密码；显示安装状态和占用，支持替换、取消和确认删除，删除后需重新导入。AI 字幕支持选择 ZIP 导入、取消、重新导入与确认删除；多角色卡片直接支持 GGUF 导入/替换、取消、删除和推荐下载链接。普通设置与多角色朗读配音页不重复放置管理入口；字幕或漫画缺模型时可进入统一管理页。无需先解压 ZIP，不新增底部固定操作栏，滚动内容延伸到底部安全区。已有完整模型沿用原目录；缺少资源、损坏、空间不足或取消不影响普通阅读和播放，失败保留旧模型。资源包和验证边界见 [AI_MODEL_PACKS.md](AI_MODEL_PACKS.md)。
+“我的 → 模型管理”为一级入口，漫画着色、AI 字幕、多角色朗读分别展示模型卡片，本地 TTS 分组包含 Piper 超文、小雅和 Kokoro 的独立卡片。各型号显示安装状态、音色数和占用，支持对应官方 INT8 `.tar.bz2` 原包导入、替换、取消、确认删除和来源说明；Kokoro 继续兼容旧配套 ZIP，`scripts/pack-offline-tts.py` 仅作为可选开发工具。小雅与由其微调的固定超文包均在来源说明中披露 BZNSYP 数据的非商业使用限制。漫画选择配套 `.jtmodel` 加密包，字幕选择 ZIP，多角色直接选择 GGUF；均无需先解压。相关卡片操作互斥，导入和删除先暂停朗读并等待本地推理释放，成功后只刷新该型号音色；新型号不覆盖已安装 Kokoro 和角色绑定。普通设置与多角色配音页不重复放置模型管理入口，不新增底部固定操作栏，滚动内容延伸到底部安全区。缺资源、损坏、空间不足或取消不影响普通阅读和播放，失败保留旧模型。资源包和验证边界见 [AI_MODEL_PACKS.md](AI_MODEL_PACKS.md) 与 [OFFLINE_TTS.md](OFFLINE_TTS.md)。
 
 模型说明全部收进标题旁的感叹号，页面导入规则放在总标题的感叹号内，复用 `SettingsHintButton`；关闭按钮、外部点击和系统返回收起说明。卡片保留状态、文件名、大小与操作。“我的”页各功能入口采用预先搭配的固定多色图标底色和白色符号，切换主题或强调色不改变这些入口配色。
 
@@ -1431,3 +1434,7 @@ HTTP 合成区分访问拒绝、限流、超时/网络、服务端错误、坏�
 实现依据已读取的 [ArkUI 交互规则](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/18-arkts-rules/arkts-interaction-rules.md)、[焦点规则](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/18-arkts-rules/arkts-focus-rules.md)、[窗口尺寸与初始化](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/06-solutions/multi-device/hmos-multidevice-screen-window-size/references/window_detection.md)和[导航转场技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-navigation-transition/SKILL.md)，继续使用项目 ArkUI V2、最低 API 20 和现有材质兼容分支。
 
 2026-11-12：修改的 SearchPage / PlayerPage ArkTS 检查无错误；播放器转场与首帧尺寸、搜索调度和路由定向回归通过。使用 Release SDK 26.0.0.105 构建 Debug HAP，包内确认 apiReleaseType=Release、最低 API 20 / 目标 API 26，已覆盖安装并启动 Mate 80。构建 MCP 的 OHPM 批处理递归失败后使用同一 Release IDE CLI；共享日志锁通过进程级临时构建缓存避开。Mate 80（OpenHarmony-7.0.0.111）实机确认：真实点击搜索输入区后出现光标和软键盘，UI 树 Search focused=true；输入“盗墓笔记”并提交后显示结果，筛选菜单正常打开，点击历史记录可搜索并再次点击输入框弹出键盘。Nova13 / HarmonyOS 6.1.0.145 尚未实机复测；播放器横屏动画仍未完成独立动态验收。
+
+2026-11-12 找源响应修复：全网榜单卡片先显示书源准备提示及品牌色加载指示器，转场结束后再发起搜索；本地选择记忆、书源和并发设置并行读取，进度保存为格式化文本。单源最多等待 30 秒，失败或超时释放并发位置，已有匹配结果仍可选择；离页、重搜取消旧任务，迟到结果不再更新。搜索并发改为所有用户可设置 1–12（默认 3），移除会员核验、设置页 VIP 标记、会员失效重置及权益宣传。
+
+本轮参考已读取的 [ArkTS 语法指南](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkUI 指南](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)和[性能分析指南](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/arkui-performance-analysis/SKILL.md)处理生命周期和转场期间的任务启动。找源、搜索并发、设置应用、设置加载及会员五项主机回归通过（会员回归 74 组），修改的 ArkTS 文件检查无错误。Release SDK 26.0.0.105 构建 Debug HAP 成功，包内确认 apiReleaseType=Release、最低 API 20 / 目标 API 26，已覆盖安装并启动 Mate 80。实机确认找源准备提示、品牌色加载动画、3 / 7 进度及真实匹配结果，退出后重新进入可再次显示准备状态；未对全部偶发条件、精确响应耗时或其他机型作验证。

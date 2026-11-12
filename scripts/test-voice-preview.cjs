@@ -182,6 +182,27 @@ function harness() {
   assert.equal(sequence.speech.resumed, 1);
   assert.equal(sequence.speech.offset, 42, 'preview leaves the reading position untouched');
 
+  const local = harness();
+  const localId = 'local-kokoro-v1_1:3';
+  const piperId = 'local-piper-xiaoya-v1:0';
+  local.selected.customTtsId = localId;
+  local.selected.customTtsConfigs.push({ id: localId, provider: 'local-kokoro',
+    modelId: 'kokoro-int8-v1_1', speakerId: 3, enabled: true });
+  local.selected.customTtsConfigs.push({ id: piperId, provider: 'local-piper',
+    modelId: 'piper-xiaoya-int8-v1', speakerId: 0, enabled: true });
+  const localTask = local.service.playSequence({}, local.selected,
+    [{ text: '本地旁白', voiceId: localId }, { text: '本地人物对白', voiceId: piperId }], true);
+  await settle();
+  assert.equal(local.requests[0].config.speakerId, 3, 'preview passes the local speaker to the shared synthesis path');
+  assert.equal(local.engines.length, 0);
+  local.requests[0].player.pending.resolve(); await settle();
+  assert.equal(local.requests[1].config.provider, 'local-piper');
+  assert.equal(local.requests[1].config.modelId, 'piper-xiaoya-int8-v1');
+  assert.equal(local.requests[1].config.speakerId, 0);
+  local.requests[1].player.pending.resolve(); await localTask;
+  assert.equal(local.speech.resumed, 1);
+  assert.equal(local.speech.offset, 42);
+
   const closing = harness();
   const closingTask = closing.service.playSequence({}, closing.selected, [{ text: '关闭', voiceId: 'one' }], true);
   await settle();

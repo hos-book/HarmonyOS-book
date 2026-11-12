@@ -15,6 +15,7 @@ import { CoverImage } from './CoverImage';
 import { ImmersiveOptionTabs } from './ImmersiveOptionTabs';
 import { ThemeBackgroundComponent } from './ThemeBackgroundComponent';
 import { ThemeIconComponent } from './ThemeIconComponent';
+import { SettingsHintButton } from './SettingsHintButton';
 
 class BackgroundPageOption {
   scene: AppBackgroundScene;
@@ -410,12 +411,16 @@ export struct AppBackgroundSettingsComponent {
           SymbolGlyph($r('sys.symbol.person_fill')).fontSize(34).fontColor([AppColor.Brand])
           Text($r('app.string.app_background_preview_profile')).fontSize(AppFont.Body)
             .fontColor(AppTheme.TextPrimary).layoutWeight(1)
-        }.width('100%').padding(12).backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Md)
+        }.width('100%').padding(12)
+          .backgroundColor(this.current().preset !== 'theme' ? $r('app.color.profile_background_surface') : AppTheme.Surface)
+          .borderRadius(AppRadius.Md)
         Row() {
           Text($r('app.string.app_background_title')).fontSize(AppFont.Body).fontColor(AppTheme.TextPrimary)
             .layoutWeight(1)
           SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(12).fontColor([AppTheme.TextSecondary])
-        }.width('100%').padding(12).backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Md)
+        }.width('100%').padding(12)
+          .backgroundColor(this.current().preset !== 'theme' ? $r('app.color.profile_background_surface') : AppTheme.Surface)
+          .borderRadius(AppRadius.Md)
       }.width('100%')
     } else {
       Column({ space: AppSpace.Sm }) {
@@ -547,8 +552,6 @@ export struct AppBackgroundSettingsComponent {
       }.width('100%').height(44).backgroundColor(AppColor.BrandSoft).borderRadius(AppRadius.Md)
         .enabled(this.canEdit && !this.following).id('app-background-choose-image')
         .onClick((): void => { this.pickImage(); })
-      Text($r('app.string.app_background_image_hint')).fontSize(AppFont.Caption).lineHeight(19)
-        .fontColor(AppTheme.TextSecondary).width('100%')
     }.width('100%')
   }
 
@@ -556,8 +559,13 @@ export struct AppBackgroundSettingsComponent {
   private controls() {
     Column({ space: AppSpace.Md }) {
       Column({ space: AppSpace.Sm }) {
-        Text($r('app.string.app_background_scope')).fontSize(AppFont.Body).fontColor(AppTheme.TextPrimary)
-          .width('100%')
+        Row({ space: AppSpace.Xs }) {
+          Text($r('app.string.app_background_scope')).fontSize(AppFont.Body).fontColor(AppTheme.TextPrimary)
+          SettingsHintButton({ title: $r('app.string.app_background_scope'),
+            message: this.scene === AppBackgroundScene.Common ? $r('app.string.app_background_common_hint') :
+              this.following ? $r('app.string.app_background_follow_hint') :
+              $r('app.string.app_background_independent_hint') })
+        }.width('100%')
         ImmersiveOptionTabs({ labels: this.sceneLabels(),
           selected: this.scene, fillWidth: true,
           onSelect: (index: number): void => { this.selectSceneIndex(index); } })
@@ -572,10 +580,6 @@ export struct AppBackgroundSettingsComponent {
             .onChange((follow: boolean): void => this.setFollowing(follow))
         }.width('100%').constraintSize({ minHeight: 44 })
       }
-      Text(this.scene === AppBackgroundScene.Common ? $r('app.string.app_background_common_hint') :
-        this.following ? $r('app.string.app_background_follow_hint') :
-        $r('app.string.app_background_independent_hint')).fontSize(AppFont.Caption).lineHeight(19)
-        .fontColor(AppTheme.TextSecondary).width('100%')
       Column({ space: AppSpace.Md }) {
         GridRow({ columns: 3, gutter: { x: 8, y: 8 } }) {
           ForEach(this.presets, (option: BackgroundPresetOption) => {
@@ -614,8 +618,10 @@ export struct AppBackgroundSettingsComponent {
     Column({ space: AppSpace.Md }) {
       Row({ space: AppSpace.Xs }) {
         Text($r('app.string.app_background_title')).fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium)
-          .fontColor(AppTheme.TextPrimary).layoutWeight(1).maxLines(1)
+          .fontColor(AppTheme.TextPrimary).flexShrink(1).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+        SettingsHintButton({ title: $r('app.string.app_background_title'), message: $r('app.string.app_background_help') })
+        Blank()
         Button($r('app.string.app_background_cancel')).fontSize(AppFont.Caption)
           .fontColor(AppTheme.TextSecondary).backgroundColor(AppTheme.Surface).height(40)
           .padding({ left: 12, right: 12 }).enabled(this.canEdit && this.dirty)
@@ -629,8 +635,6 @@ export struct AppBackgroundSettingsComponent {
           .enabled(this.canEdit && this.dirty).id('app-background-apply')
           .onClick((): void => { this.apply(); })
       }.width('100%')
-      Text($r('app.string.app_background_hint')).fontSize(AppFont.Caption).lineHeight(20)
-        .fontColor(AppTheme.TextSecondary).width('100%')
       if (this.loading) {
         LoadingProgress().width(24).height(24).color(AppColor.Brand)
       } else if (this.loadFailed) {

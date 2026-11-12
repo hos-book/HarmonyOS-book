@@ -4,6 +4,7 @@ import { sendableContextManager } from '@kit.AbilityKit';
 import { MembershipService } from '../service/MembershipService';
 import { MembershipState } from '../model/MembershipState';
 import { VipFeatureBadge } from '../components/VipFeatureBadge';
+import { SettingsHintButton } from '../components/SettingsHintButton';
 
 /** 主题会员页内的图标选择区，保留原文件名，不再注册独立路由。 */
 @ComponentV2
@@ -24,18 +25,27 @@ export struct AppIconPage {
 
   @Monitor('membership.busy')
   private onMembershipUpdated(): void {
-    if (this.service.membershipRequired && !this.membership.busy && !this.switching) this.loadCurrent();
+    if (this.service.membershipRequired && !this.membership.busy && !this.switching && !this.loading) {
+      this.readCurrent(false);
+    }
   }
 
   private async loadCurrent(): Promise<void> {
-    this.loading = true;
-    this.loadFailed = false;
+    await this.readCurrent(true);
+  }
+
+  private async readCurrent(showLoading: boolean): Promise<void> {
+    if (showLoading) {
+      this.loading = true;
+      this.loadFailed = false;
+    }
     try {
       this.current = await this.service.getCurrent();
+      this.loadFailed = false;
     } catch (_error) {
-      this.loadFailed = true;
+      if (showLoading) this.loadFailed = true;
     } finally {
-      this.loading = false;
+      if (showLoading) this.loading = false;
     }
   }
 
@@ -80,18 +90,15 @@ export struct AppIconPage {
         if (MembershipState.featureEnabled) {
           VipFeatureBadge()
         }
+        SettingsHintButton({ title: $r('app.string.app_icon_title'), message: this.service.supported ?
+          (MembershipState.featureEnabled ? $r('app.string.app_icon_hint') : $r('app.string.app_icon_free_hint')) :
+          $r('app.string.app_icon_unsupported') })
         Blank()
-        if (this.loading || this.switching || (this.service.membershipRequired && this.membership.busy)) {
+        if (this.loading || this.switching) {
           LoadingProgress().width(24).height(24).color(AppColor.Brand)
         }
       }
       .width('100%')
-      if (MembershipState.featureEnabled) {
-        Text($r('app.string.app_icon_hint'))
-          .fontSize(AppFont.Caption)
-          .fontColor(AppTheme.TextSecondary)
-          .width('100%')
-      }
       if (this.loadFailed) {
         Button($r('app.string.app_icon_retry'))
           .fontColor(AppColor.Brand)
@@ -134,14 +141,6 @@ export struct AppIconPage {
                   .fontColor(AppTheme.TextPrimary)
                   .maxLines(1)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
-                if (MembershipState.featureEnabled) {
-                  Text(option.name === '' ? $r('app.string.app_icon_default_description') :
-                    (this.service.membershipRequired ? $r('app.string.membership_icon_exclusive') :
-                      $r('app.string.app_icon_invite_free'))).fontSize(AppFont.Caption)
-                    .fontColor(AppTheme.TextSecondary)
-                    .maxLines(1)
-                    .textOverflow({ overflow: TextOverflow.Ellipsis })
-                }
               }
               .width('100%')
               .padding({ left: 6, right: 6, top: 6, bottom: 10 })

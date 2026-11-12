@@ -1,0 +1,193 @@
+{
+  "schemaVersion": 1,
+  "provenance": "Each official archive was downloaded and checked against the SHA256 digest returned by the GitHub tts-models release API. File hashes below are over the original unmodified archive members.",
+  "models": [
+    {
+      "modelId": "piper-chaowen-int8-v1",
+      "appModelId": "piper-chaowen-int8-v1",
+      "modelVersion": "1",
+      "engine": "sherpa-onnx-vits",
+      "archiveRoot": "vits-piper-zh_CN-chaowen-medium-int8",
+      "archive": {
+        "name": "vits-piper-zh_CN-chaowen-medium-int8.tar.bz2",
+        "bytes": 14011298,
+        "sha256": "f5f7c8628427fbb259ea4b7ec1a9a822a0c04e3f267071f0abfa0610371d9e0c",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-zh_CN-chaowen-medium-int8.tar.bz2",
+        "assetId": 406468505
+      },
+      "sampleRate": 22050,
+      "totalBytes": 20933252,
+      "source": {
+        "releaseTag": "tts-models",
+        "releaseApi": "https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/tts-models",
+        "upstreamModelCard": "https://huggingface.co/rhasspy/piper-voices/blob/main/zh/zh_CN/chaowen/medium/MODEL_CARD",
+        "upstreamCardNotice": "The MODEL_CARD embedded in this pinned archive says finetuned from Xiao Ya. The current upstream card has since changed; the pinned archive card is retained verbatim.",
+        "documentation": "https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese/vits-piper-zh_CN-chaowen-medium.html"
+      },
+      "licensing": {
+        "dataset": "CC0",
+        "datasetUrl": "https://github.com/OHF-Voice/voice-datasets",
+        "baseModel": "Xiao Ya voice (medium quality), as stated in the pinned archive MODEL_CARD",
+        "baseModelDatasetRestriction": "Non-commercial use",
+        "modelLicense": "No separate model license grant is included in the pinned archive; do not describe the whole checkpoint as CC0 or commercial-use cleared."
+      },
+      "configuration": {
+        "model": "zh_CN-chaowen-medium.onnx",
+        "lexicon": "lexicon.txt",
+        "tokens": "tokens.txt",
+        "dataDir": "",
+        "ruleFsts": [
+          "phone.fst",
+          "date.fst",
+          "number.fst"
+        ],
+        "noiseScale": 0.667,
+        "noiseScaleW": 0.8,
+        "lengthScale": 1
+      },
+      "speakers": [
+        {
+          "id": 0,
+          "name": "chaowen",
+          "language": "zh-CN",
+          "gender": "unspecified"
+        }
+      ],
+      "files": [
+        {
+          "path": "MODEL_CARD",
+          "bytes": 273,
+          "sha256": "7155212ec9192b1201898500621ae562dc5eeb6d90fa183f3267cd06dc7d5b6b"
+        },
+        {
+          "path": "date.fst",
+          "bytes": 59154,
+          "sha256": "eb8aa079ae3cb81d8f4404992f39d61a0cb990947512b5b8d1e54d1f6980e718"
+        },
+        {
+          "path": "lexicon.txt",
+          "bytes": 2064505,
+          "sha256": "003e76f89fec389ec109b557f47cc315a1ac31a99091f0cc9d15949f9024416b"
+        },
+        {
+          "path": "number.fst",
+          "bytes": 64482,
+          "sha256": "743f402181fcfebf76cc2f0546b71fa26476e626fbe4e460fb7b4c3a7a8bd5bd"
+        },
+        {
+          "path": "phone.fst",
+          "bytes": 88630,
+          "sha256": "1ac2b6fa56b1442320c4de7db08353bab8963a2b57f365eebcdd3a2d3562f8d7"
+        },
+        {
+          "path": "tokens.txt",
+          "bytes": 485,
+          "sha256": "e9e6d2838a2676749adbf0376c4cf3c3cd28eb27ed953dcc2adcab8db3c33ba7"
+        },
+        {
+          "path": "zh_CN-chaowen-medium.onnx",
+          "bytes": 18652796,
+          "sha256": "d5ad252f165b26bcecb01759d07cc6cf4cf14045bac8752947a5fb35080c5e6b"
+        },
+        {
+          "path": "zh_CN-chaowen-medium.onnx.json",
+          "bytes": 2927,
+          "sha256": "a6bb2caafa0645642f13cbf7e2f6fbbb16fded66e51109fc26d622f6472fa16f"
+        }
+      ]
+    },
+    {
+      "modelId": "piper-xiaoya-int8-v1",
+      "appModelId": "piper-xiaoya-int8-v1",
+      "modelVersion": "1",
+      "engine": "sherpa-onnx-vits",
+      "archiveRoot": "vits-piper-zh_CN-xiao_ya-medium-int8",
+      "archive": {
+        "name": "vits-piper-zh_CN-xiao_ya-medium-int8.tar.bz2",
+        "bytes": 14016124,
+        "sha256": "eab027e194e70289233cf12308373611fa4e2e96ef2d97354ef433ab663d831f",
+        "url": "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/vits-piper-zh_CN-xiao_ya-medium-int8.tar.bz2",
+        "assetId": 406468348
+      },
+      "sampleRate": 22050,
+      "totalBytes": 20933412,
+      "source": {
+        "releaseTag": "tts-models",
+        "releaseApi": "https://api.github.com/repos/k2-fsa/sherpa-onnx/releases/tags/tts-models",
+        "upstreamModelCard": "https://huggingface.co/rhasspy/piper-voices/blob/main/zh/zh_CN/xiao_ya/medium/MODEL_CARD",
+        "upstreamCardNotice": "The original Piper note requires Python/g2pW; the sherpa conversion includes a lexicon and uses its native CharacterLexicon frontend.",
+        "documentation": "https://k2-fsa.github.io/sherpa/onnx/tts/all/Chinese/vits-piper-zh_CN-xiao_ya-medium.html"
+      },
+      "licensing": {
+        "dataset": "Non-commercial use",
+        "datasetUrl": "https://huggingface.co/openspeech/BZNSYP",
+        "termsUrl": "https://www.data-baker.com/data/index/TNtts/",
+        "modelLicense": "The pinned MODEL_CARD states non-commercial dataset use; no separate model license grant is included in the archive."
+      },
+      "configuration": {
+        "model": "zh_CN-xiao_ya-medium.onnx",
+        "lexicon": "lexicon.txt",
+        "tokens": "tokens.txt",
+        "dataDir": "",
+        "ruleFsts": [
+          "phone.fst",
+          "date.fst",
+          "number.fst"
+        ],
+        "noiseScale": 0.667,
+        "noiseScaleW": 0.8,
+        "lengthScale": 1
+      },
+      "speakers": [
+        {
+          "id": 0,
+          "name": "xiao_ya",
+          "language": "zh-CN",
+          "gender": "unspecified"
+        }
+      ],
+      "files": [
+        {
+          "path": "MODEL_CARD",
+          "bytes": 434,
+          "sha256": "5720e170d3872dcea10803c77a4a6b4424a9af366431fdc5668adafd95e33f42"
+        },
+        {
+          "path": "date.fst",
+          "bytes": 59154,
+          "sha256": "eb8aa079ae3cb81d8f4404992f39d61a0cb990947512b5b8d1e54d1f6980e718"
+        },
+        {
+          "path": "lexicon.txt",
+          "bytes": 2064505,
+          "sha256": "003e76f89fec389ec109b557f47cc315a1ac31a99091f0cc9d15949f9024416b"
+        },
+        {
+          "path": "number.fst",
+          "bytes": 64482,
+          "sha256": "743f402181fcfebf76cc2f0546b71fa26476e626fbe4e460fb7b4c3a7a8bd5bd"
+        },
+        {
+          "path": "phone.fst",
+          "bytes": 88630,
+          "sha256": "1ac2b6fa56b1442320c4de7db08353bab8963a2b57f365eebcdd3a2d3562f8d7"
+        },
+        {
+          "path": "tokens.txt",
+          "bytes": 485,
+          "sha256": "e9e6d2838a2676749adbf0376c4cf3c3cd28eb27ed953dcc2adcab8db3c33ba7"
+        },
+        {
+          "path": "zh_CN-xiao_ya-medium.onnx",
+          "bytes": 18652795,
+          "sha256": "d4145488f47914614116e4f77338532d827cfccf5f5d7a58c15c5e54cc5434ba"
+        },
+        {
+          "path": "zh_CN-xiao_ya-medium.onnx.json",
+          "bytes": 2927,
+          "sha256": "e1ec027b7065959643c1463705398d413ed4fdaa626d7d8ef1d12ab87e9a0320"
+        }
+      ]
+    }
+  ]
+}

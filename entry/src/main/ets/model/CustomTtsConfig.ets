@@ -1,5 +1,8 @@
-/** 用户导入的 HTTP 语音配置；表达式只在有界 QuickJS 中执行。 */
+/** HTTP 导入音色或已安装的本地模型音色；本地项不接受用户提供的文件路径。 */
 export class CustomTtsConfig {
+  provider: string = 'http';
+  modelId: string = '';
+  speakerId: number = -1;
   id: string = '';
   name: string = '';
   group: string = '';

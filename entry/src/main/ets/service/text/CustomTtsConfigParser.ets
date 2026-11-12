@@ -1,5 +1,6 @@
 import { http } from '@kit.NetworkKit';
 import { CustomTtsConfig } from '../../model/CustomTtsConfig';
+import { getOfflineTtsModel, isOfflineTtsProvider } from '../../model/OfflineTtsCatalog';
 import { CustomTtsTemplate as LocalRuleTemplate } from './CustomTtsTemplate';
 import { LocalRuleQuickJsRequest, LocalRuleQuickJsRuntime } from '../rulesource/LocalRuleQuickJsRuntime';
 
@@ -7,6 +8,9 @@ import { LocalRuleQuickJsRequest, LocalRuleQuickJsRuntime } from '../rulesource/
 class TtsHeaders {}
 class TtsBody {}
 class TtsImportEntry {
+  provider: string = '';
+  modelId: string = '';
+  speakerId: number = -1;
   name: string = '';
   group: string = '';
   tier: string = '';
@@ -34,14 +38,29 @@ export class CustomTtsConfigParser {
   static readonly DEFAULT_USER_AGENT: string = 'Mozilla/5.0';
   static readonly MAX_CONFIGS: number = 1000;
 
-  static parse(raw: string): CustomTtsConfig[] {
+  static parse(raw: string, installedCatalog: boolean = false): CustomTtsConfig[] {
     if (raw.length > 1024 * 1024) throw new Error('TTS config too large');
     const text = raw.replace(/^\uFEFF/, '').trim();
     const entries: TtsImportEntry[] = JSON.parse(text.startsWith('[') ? text : `[${text}]`);
-    if (!Array.isArray(entries) || entries.length === 0 || entries.length > CustomTtsConfigParser.MAX_CONFIGS) {
+    if (!Array.isArray(entries) || entries.length === 0 ||
+      entries.length > CustomTtsConfigParser.MAX_CONFIGS + (installedCatalog ? 102 : 0)) {
       throw new Error('Invalid TTS config count');
     }
-    return entries.map((entry: TtsImportEntry): CustomTtsConfig => CustomTtsConfigParser.normalize(entry));
+    return entries.map((entry: TtsImportEntry): CustomTtsConfig => {
+      if (entry && isOfflineTtsProvider(entry.provider)) {
+        const model = getOfflineTtsModel(entry.modelId);
+        if (!installedCatalog || !model || entry.provider !== model.provider ||
+          !Number.isInteger(entry.speakerId) || entry.speakerId < model.minSpeaker || entry.speakerId > model.maxSpeaker) {
+          throw new Error('Unsupported local TTS config');
+        }
+        const local = new CustomTtsConfig();
+        local.provider = model.provider; local.modelId = model.id; local.speakerId = entry.speakerId;
+        local.id = `${model.voicePrefix}:${entry.speakerId}`;
+        local.enabled = entry.enabled !== false;
+        return local;
+      }
+      return CustomTtsConfigParser.normalize(entry);
+    });
   }
 
   private static normalize(entry: TtsImportEntry): CustomTtsConfig {
@@ -179,6 +198,7 @@ export class CustomTtsConfigParser {
   }
 
   static usesSpeed(config: CustomTtsConfig): boolean {
+    if (isOfflineTtsProvider(config.provider)) return true;
     return /\{\{[^}]*\b(speakSpeed|speakSpeedPercent|speechRate|speed|rate)\b[^}]*\}\}/.test(config.url + config.body);
   }
 

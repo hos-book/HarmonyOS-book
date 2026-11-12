@@ -92,7 +92,6 @@ export struct SettingsPage {
   @Local preloadCustom: boolean = false;
   @Local membership: MembershipState = MembershipState.current;
   @Local membershipService: MembershipService = MembershipService.instance;
-  @Local checkingSearchMembership: boolean = false;
   @Local searchConcurrency: number = 3;
   @Local searchConcurrencyDraft: string = '3';
   @Local searchConcurrencyCustom: boolean = false;
@@ -196,7 +195,7 @@ export struct SettingsPage {
     try {
       const count = await PreferenceService.getStoredSearchConcurrency();
       if (!this.alive || serial !== this.preferencesLoadSerial) return;
-      this.searchConcurrency = this.membership.confirmedInactive && !this.membership.hasAccess ? 3 : count;
+      this.searchConcurrency = count;
       this.searchConcurrencyDraft = this.searchConcurrency.toString();
       this.searchConcurrencyCustom = !SEARCH_CONCURRENCY_OPTIONS.includes(this.searchConcurrency);
     } catch (_error) {
@@ -318,42 +317,15 @@ export struct SettingsPage {
     }
   }
 
-  private async requireSearchMembership(): Promise<boolean> {
-    if (this.checkingSearchMembership || this.searchConcurrencyLoading || this.searchConcurrencyLoadFailed) return false;
-    if (!MembershipState.featureEnabled) return this.alive;
-    this.checkingSearchMembership = true;
-    try {
-      const entitled = await this.membershipService.hasCurrentEntitlement();
-      if (!this.alive) return false;
-      if (entitled) return true;
-      this.showSearchMembershipUnavailable();
-      return false;
-    } finally {
-      this.checkingSearchMembership = false;
-    }
-  }
-
-  private showSearchMembershipUnavailable(): void {
-    if (this.membership.confirmedInactive && !this.membershipService.busy) {
-      this.onSearchMembershipChanged();
-      this.navStack.pushPathByName('membershipSubscription', '');
-    } else {
-      this.getUIContext().getPromptAction().showToast({ message: this.membershipService.message });
-    }
-  }
-
   @Monitor('membership.confirmedInactive')
-  private onSearchMembershipChanged(): void {
+  private onMembershipChanged(): void {
     if (this.membership.confirmedInactive && !this.membership.hasAccess) {
-      this.searchConcurrency = 3;
-      this.searchConcurrencyDraft = '3';
-      this.searchConcurrencyCustom = false;
       this.coverSuperResolution = false;
     }
   }
 
   private async submitSearchConcurrency(): Promise<void> {
-    if (this.isSavingSearchConcurrency || this.checkingSearchMembership) return;
+    if (this.isSavingSearchConcurrency) return;
     const count = Number(this.searchConcurrencyDraft);
     if (!new RegExp('^[0-9]+$').test(this.searchConcurrencyDraft) ||
       !Number.isInteger(count) || count < 1 || count > 12) {
@@ -364,13 +336,14 @@ export struct SettingsPage {
   }
 
   private async chooseSearchConcurrency(index: number): Promise<void> {
-    if (this.isSavingSearchConcurrency || this.checkingSearchMembership || index < 0 || index > 4) return;
+    if (this.isSavingSearchConcurrency || index < 0 || index > 4) return;
     this.searchConcurrencyCustom = index === 4;
     if (!this.searchConcurrencyCustom) this.searchConcurrencyDraft = SEARCH_CONCURRENCY_OPTIONS[index].toString();
   }
 
   private async setSearchConcurrency(count: number, custom: boolean): Promise<void> {
-    if (this.isSavingSearchConcurrency || !await this.requireSearchMembership()) return;
+    if (!this.alive || this.isSavingSearchConcurrency || this.searchConcurrencyLoading ||
+      this.searchConcurrencyLoadFailed) return;
     const previous = this.searchConcurrency;
     const previousCustom = this.searchConcurrencyCustom;
     this.isSavingSearchConcurrency = true;
@@ -383,10 +356,6 @@ export struct SettingsPage {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_search_concurrency_saved', count) });
     } catch (error) {
       if (!this.alive) return;
-      if (!this.membership.hasAccess) {
-        this.showSearchMembershipUnavailable();
-        return;
-      }
       this.searchConcurrencyDraft = previous.toString();
       this.searchConcurrencyCustom = previousCustom;
       hilog.warn(0xFF00, 'SettingsPage', 'Save search concurrency failed: %{public}s', String(error));
@@ -996,13 +965,10 @@ export struct SettingsPage {
               .fontSize(AppFont.BodyL)
               .fontColor(AppTheme.TextPrimary)
               .flexShrink(1)
-            if (MembershipState.featureEnabled) {
-              VipFeatureBadge()
-              SettingsHintButton({
-                title: $r('app.string.settings_search_concurrency'),
-                message: $r('app.string.settings_search_concurrency_membership_hint')
-              })
-            }
+            SettingsHintButton({
+              title: $r('app.string.settings_search_concurrency'),
+              message: $r('app.string.settings_search_concurrency_description')
+            })
           }.width('100%')
           if (this.searchConcurrencyLoadFailed) {
             Row({ space: AppSpace.Sm }) {
@@ -1032,8 +998,7 @@ export struct SettingsPage {
           }
           .width('100%')
           .alignItems(VerticalAlign.Center)
-          .enabled(!this.isSavingSearchConcurrency && !this.searchConcurrencyLoading && !this.searchConcurrencyLoadFailed &&
-            !this.checkingSearchMembership)
+          .enabled(!this.isSavingSearchConcurrency && !this.searchConcurrencyLoading && !this.searchConcurrencyLoadFailed)
         }
         .width('100%')
         .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })

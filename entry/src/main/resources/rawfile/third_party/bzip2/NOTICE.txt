@@ -1,0 +1,9 @@
+bzip2 / libbzip2 1.0.8
+Copyright (C) 1996-2019 Julian R Seward
+Source: https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz
+Archive SHA256: ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
+
+The original library sources are preserved without modification in third_party/bzip2.
+The application's bounded TAR parser and asynchronous N-API bridge are separate code.
+The library is used only to import user-selected offline TTS model archives.
+The complete upstream license is included in LICENSE.txt in this directory.

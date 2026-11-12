@@ -180,6 +180,8 @@
     {"name":"app_background_mist_mid","value":"#E9EFF2"},
     {"name":"app_background_mist_bottom","value":"#DEE8E7"},
     {"name":"app_background_veil","value":"#FFF8F4EF"},
+    {"name":"profile_background_surface","value":"#3DFFFFFF"},
+    {"name":"profile_background_divider","value":"#14000000"},
     {"name":"app_background_night_scrim","value":"#00000000"}
   ]
 }

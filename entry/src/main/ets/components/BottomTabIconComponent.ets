@@ -5,6 +5,7 @@ import { ThemeIconComponent } from './ThemeIconComponent';
 import { ThemeIconRole } from '../theme/ThemeIcons';
 import { AppColor, AppFont, AppRadius, AppSpace, AppTheme } from '../theme/Theme';
 import { BottomTabIconService } from '../service/BottomTabIconService';
+import { SettingsHintButton } from './SettingsHintButton';
 
 class BottomTabIconOption {
   id: string;
@@ -147,8 +148,11 @@ export struct BottomTabIconComponent {
 
   build() {
     Column({ space: AppSpace.Md }) {
-      Text($r('app.string.bottom_tab_icon_hint')).fontSize(AppFont.Caption).lineHeight(20)
-        .fontColor(AppTheme.TextSecondary).width('100%')
+      Row({ space: AppSpace.Xs }) {
+        Text($r('app.string.bottom_tab_icon_title')).fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium)
+          .fontColor(AppTheme.TextPrimary)
+        SettingsHintButton({ title: $r('app.string.bottom_tab_icon_title'), message: $r('app.string.bottom_tab_icon_hint') })
+      }.width('100%')
       this.preview()
       if (!this.service.ready || this.service.busy || this.picking) {
         if (this.loadFailed) {

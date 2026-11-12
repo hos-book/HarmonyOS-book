@@ -767,7 +767,6 @@ export class MembershipService {
       try { await PreferenceService.setCoverSuperResolution(false); } catch (_error) {}
       try { await PreferenceService.setAudioSubtitlesEnabled(false); } catch (_error) {}
     }
-    try { await PreferenceService.setSearchConcurrency(3); } catch (_error) { /* 后续读取仍按默认并发执行。 */ }
     if (!MembershipState.current.confirmedInactive || !AppIconService.instance.supported ||
       !AppIconService.instance.membershipRequired) return;
     try { await AppIconService.instance.select('', false); } catch (_error) { /* 下次前台刷新重试系统图标。 */ }

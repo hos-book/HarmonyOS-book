@@ -2,7 +2,6 @@ import { RankingBook } from '../model/Ranking';
 import { BookMatchService, RankingMatch, RankingMatchProgress } from '../service/ranking/BookMatchService';
 import { AppColor, AppTheme } from '../theme/Theme';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
-import { ImmersiveTabComponent } from './ImmersiveTabComponent';
 
 /**
  * 卡片内的书源匹配面板：卡片展开后整块白底内容。
@@ -14,6 +13,7 @@ export struct RankingMatchPanel {
   /** 当前选中的结果（sourceUrl + bookUrl），由外层持有，按钮也要读它。 */
   @Param selectedKey: string = '';
   @Param refreshToken: number = 0;
+  @Param searchReady: boolean = true;
   /** 卡片顶到屏幕最上沿后，内容整体下移状态栏高度，避开顶部按钮。 */
   @Param topInset: number = 0;
   /** 横屏/矮卡片：压缩上下留白，把高度让给结果列表。 */
@@ -22,7 +22,8 @@ export struct RankingMatchPanel {
   @Event onManageSources: () => void = () => {};
   @Local keyword: string = '';
   @Local matchType: string = '';
-  @Local searching: boolean = false;
+  @Local searching: boolean = true;
+  @Local status: ResourceStr = $r('app.string.ranking_match_preparing');
   @Local sourceTotal: number = -1;
   @Local completed: number = 0;
   @Local failed: number = 0;
@@ -63,6 +64,11 @@ export struct RankingMatchPanel {
     if (this.alive) this.search();
   }
 
+  @Monitor('searchReady')
+  onSearchReady(): void {
+    if (this.alive && this.searchReady) this.search();
+  }
+
   private keyOf(match: RankingMatch): string {
     return `${match.book.sourceUrl}\u001f${match.book.bookUrl}`;
   }
@@ -71,14 +77,20 @@ export struct RankingMatchPanel {
     const context = this.getUIContext().getHostContext();
     if (context === undefined || this.keyword.trim().length === 0) return;
     const generation = ++this.generation;
+    this.matcher.cancel();
     this.searching = true;
     this.matchError = false;
     this.sourceTotal = -1;
     this.completed = 0;
     this.failed = 0;
     this.matchesCount = 0;
+    this.audioCount = 0;
+    this.textCount = 0;
+    this.comicCount = 0;
     this.allMatches = [];
     this.matchData.setItems([]);
+    this.status = this.statusText();
+    if (!this.searchReady) return;
     this.matcher.search(context, this.book, this.keyword.trim(), (progress: RankingMatchProgress): void => {
       if (!this.alive || generation !== this.generation) return;
       this.sourceTotal = progress.total;
@@ -89,7 +101,10 @@ export struct RankingMatchPanel {
     }).catch((): void => {
       if (this.alive && generation === this.generation) this.matchError = true;
     }).finally((): void => {
-      if (this.alive && generation === this.generation) this.searching = false;
+      if (this.alive && generation === this.generation) {
+        this.searching = false;
+        this.status = this.statusText();
+      }
     });
   }
 
@@ -101,6 +116,7 @@ export struct RankingMatchPanel {
     this.textCount = this.allMatches.filter((match: RankingMatch): boolean => match.book.contentType === 'text').length;
     this.comicCount = this.allMatches.filter((match: RankingMatch): boolean => match.book.contentType === 'comic').length;
     this.matchData.setItems(visible);
+    this.status = this.statusText();
   }
 
   private selectType(type: string): void {
@@ -109,8 +125,19 @@ export struct RankingMatchPanel {
     this.filter();
   }
 
-  private statusText(): Resource {
-    if (this.searching) return $r('app.string.ranking_matching', this.completed, Math.max(0, this.sourceTotal));
+  private statusText(): ResourceStr {
+    if (this.searching) {
+      if (this.sourceTotal < 0) return $r('app.string.ranking_match_preparing');
+      // 显式保存格式化文本，让进度刷新不依赖同一资源 ID 的参数更新。
+      const context = this.getUIContext().getHostContext();
+      if (context !== undefined) {
+        try {
+          return context.resourceManager.getStringSync($r('app.string.ranking_matching').id,
+            this.completed, this.sourceTotal);
+        } catch (_error) { /* 资源不可用时保留加载提示。 */ }
+      }
+      return $r('app.string.ranking_match_preparing');
+    }
     if (this.sourceTotal === 0) return $r('app.string.ranking_no_sources');
     if (this.matchesCount === 0) {
       return this.matchError || this.failed > 0 ? $r('app.string.ranking_match_failed') : $r('app.string.ranking_no_match');
@@ -176,8 +203,13 @@ export struct RankingMatchPanel {
         }.height(this.compact ? 30 : 36)
       }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%')
 
-      Text(this.statusText()).fontSize(11).fontColor(AppTheme.TextTertiary)
-        .width('100%').maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      Row({ space: 6 }) {
+        if (this.searching) {
+          LoadingProgress().width(14).height(14).color(AppColor.Brand)
+        }
+        Text(this.status).fontSize(11).fontColor(AppTheme.TextTertiary)
+          .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+      }.width('100%')
 
       List({ space: 8 }) {
         LazyForEach(this.matchData, (match: RankingMatch) => {
