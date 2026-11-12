@@ -24,6 +24,13 @@
 - SHA-256：`5c9f7ded1d24cb51116a2fb35c487493f048f683a195b38c3450f7a3cc3c2aa0`。
 - 在线依据：[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)。已读取实时目录及相关指南；浏览器和桌面控制连接不可用，使用项目现有服务账号授权调用同一应用，未变更授权配置。
 
+- AGC 软件包：`2082153505446961408`，解析成功（`successStatus=0`）；邀测版本：`2082151628604973312`。上传、软件包绑定、配置及提交均返回 `ret.code=0`；提交成功，审核及最终可安装状态以平台为准。
+- 已回读 1.1.5 / 1015001 / 构建 1，以及全部现有测试组“简听外部体验”183 人、“内测组”2 人，均 `bind=1`，`needNotify=1`。通知实际送达以平台分发结果为准。
+- 创建时设置 `onshelfSelfDetect=0`，配置请求同时设置 `onshelfSelfDetectNotice=0`；未调用上架自检。关闭可选自检不取消平台正常审核。
+- 测试时间：北京时间 2026-11-12 19:50:48 至 2026-12-12 19:50:48，开始时间设为本次操作此刻；外部组审核通过后在有效期内生效。
+- 代码提交：`146aba2`，已通过 SSH 推送至 `main`。根目录本机签名配置未修改或提交；`entry/build-profile.json5` 仅增加本地语音 Worker 注册。
+- 静态检查补充：部分页面 LSP 返回旧的 `ShelfReaderOpenState` 字段及方法参数诊断，而当前源码已包含对应成员；本轮完整 Release 编译成功及相关转场回归通过。保留该工具诊断差异，不将静态检查描述为全部无错误。
+
 ## 邀测说明
 
 请重点体验模型导入与替换、本地音色试听、连续朗读及暂停续听、多角色音色切换、榜单作品匹配、书架阅读返回，以及外观设置保存。反馈请附设备型号、系统版本和复现步骤。
