@@ -17,7 +17,11 @@
 - MCP 构建遇到本机 OHPM 批处理递归错误后，使用已核验 Release IDE 官方 Node/Hvigor CLI（`--no-daemon`）完成，未修改本机签名配置。
 - 在线依据：[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)。已刷新实时索引并读取相关指南，使用已登录 AGC 控制台提交。
 - 旧版 1.1.6 正式上架申请已撤回，替换为本次版本。
-- AGC 提交结果待回填。
+- AGC 正式版：已提交，预审通过，当前“正在等待审核”；版本 ID `2082714329685214336`，审核通过立即上架。
+- AGC 邀请测试：已提交，预审通过，当前“正在审核”；版本 ID `2082754082417712256`，版本代码 1017001 / 构建 1。
+- 测试范围：全部两个群组，简听外部体验 197 人、内测组 2 人；发送通知开启，回执邀请量 199，生效方式 `sendMode=0`（即刻生效）。内部组按平台规则可开始测试，外部组需审核通过。
+- 测试时间：2026-11-13 15:55:00 至 2026-12-13 23:59:59（北京时间）。测试链接：https://appgallery.huawei.com/apptest/join/0921d5680b18e519a665ecb83f330252 。
+- 邀测上架自检已关闭；额外云端自检已请求终止，控制台当前显示“终止中”。平台必经预审与该可选自检分别处理。
 
 ---
 
