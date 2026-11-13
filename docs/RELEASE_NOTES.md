@@ -26,7 +26,12 @@
 - MCP 存在已知 OHPM 批处理递归错误、LSP 未初始化，使用已核验 Release IDE 官方 Node/Hvigor CLI（`--no-daemon`）构建，未改动本机签名配置。
 - APP：`artifacts/releases/1.1.8-1018001/Jianting-1.1.8-1018001-release.app`，55,763,817 字节；SHA-256：`b8ab7fb402a7caeba640dae13e1210e9cdfb7906d0d2bcd9d4e1c32b3bc8c79f`。
 - 在线依据：[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)。已读取实时目录和指南；本机浏览器控制连接不可用，沿用本项目现有服务账号授权操作同一应用。
-- AGC 邀测草稿：`2082797821089586304`，创建时关闭自检（`onshelfSelfDetect=0`）；上传与提交回执待补充。
+- AGC 邀测版本：`2082797821089586304`；软件包 ID：`2082799348529247808`。上传、包绑定、配置与送审均成功；包解析 `successStatus=0`，提交 `ret.code=0`，回读 `reviewState=1` / `releaseState=7`，已提交待审核，尚未确认外部用户可安装。
+- 全部现有两个测试组均已绑定：“简听外部体验”198 人、“内测组”2 人，共 200 人；`needNotify=1`，已开启测试通知，实际送达以平台结果为准。
+- 测试时间：北京时间 2026-11-13 17:11:05 至 2026-12-13 23:59:59，开始时间设为配置此刻；外部组审核通过后在有效期内生效。
+- 可选上架自检已关闭：创建设置 `onshelfSelfDetect=0`，配置同时设置 `onshelfSelfDetectNotice=0`；未调用启动自检。首次送审因必经软件包检查未完成而被拒，待包解析成功后再次提交成功；平台必经检查与可选自检分别处理。
+- 测试链接：https://appgallery.huawei.com/apptest/join/7443d5a9e1ca846ae7faa2c83642b168 。
+- 代码提交 `2f63b48` 已通过本机 SSH 密钥推送至 `main`；机器签名配置未修改或提交，本地设计草稿及未使用素材未纳入提交。
 
 ---
 
