@@ -3,6 +3,7 @@ import { preferences } from '@kit.ArkData';
 import { fileIo } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { ThemeIconRole } from '../theme/ThemeIcons';
+import { MembershipService } from './MembershipService';
 
 /** 只保存本目录生成的文件名，避免图库授权 URI 失效或设备路径变化。 */
 class BottomTabIconSelection {
@@ -122,6 +123,8 @@ export class BottomTabIconService {
     let committed: boolean = false;
     try {
       await this.writeIcon(uri, `${this.directory}/${name}`);
+      if (!isCurrent()) return false;
+      if (!await MembershipService.instance.hasCurrentEntitlement()) throw new Error('MEMBERSHIP_REQUIRED');
       if (!isCurrent()) return false;
       const next = this.selection.copy();
       next.set(role, name);

@@ -5750,7 +5750,7 @@
     },
     {
       "name": "membership_feature_theme",
-      "value": "主题"
+      "value": "主题、背景与 Tab"
     },
     {
       "name": "membership_feature_backup",
@@ -8090,7 +8090,7 @@
     },
     {
       "name": "bottom_tab_icon_hint",
-      "value": "为首页、书架、记录和我的选择图片，保存后立即生效。建议使用透明背景的正方形图片；其他图片将居中裁剪。恢复默认后跟随当前主题套装。"
+      "value": "自定义 Tab 图标为 VIP 专享。为首页、书架、记录和我的选择图片，保存后立即生效。建议使用透明背景的正方形图片；其他图片将居中裁剪。恢复默认免费，恢复后跟随当前主题套装。"
     },
     {
       "name": "bottom_tab_icon_home",
@@ -8981,9 +8981,9 @@
     { "name": "theme_icons_tab", "value": "图标" },
     { "name": "bottom_tab_icons_tab", "value": "Tab" },
     { "name": "app_icon_free_hint", "value": "点击喜欢的图标即可更换桌面应用图标。" },
-    { "name": "app_background_help", "value": "可共用通用背景，也可为首页、书架、记录和我的分别设置。修改仅预览，应用后生效。\n\n图片仅保存在本机，支持 20 MiB 以内的图片，动态图片以首帧保存。" },
+    { "name": "app_background_help", "value": "App 背景为 VIP 专享，可免费预览，应用时需要有效会员。可共用通用背景，也可为首页、书架、记录和我的分别设置。\n\n图片仅保存在本机，支持 20 MiB 以内的图片，动态图片以首帧保存。" },
     { "name": "app_background_title", "value": "App 背景" },
-    { "name": "app_background_hint", "value": "可共用通用背景，也可为首页、书架、记录和我的分别设置。修改仅预览，应用后生效。" },
+    { "name": "app_background_hint", "value": "App 背景为 VIP 专享，可免费预览，应用时需要有效会员。可共用通用背景，也可为首页、书架、记录和我的分别设置。" },
     { "name": "app_background_common", "value": "通用背景" },
     { "name": "app_background_scope", "value": "设置哪个页面" },
     { "name": "app_background_follow_common", "value": "跟随通用背景" },

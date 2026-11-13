@@ -238,6 +238,8 @@ export struct MainPage {
   private miniChapterRequest: number = 0;
   @Local speechState: TextToSpeechState = TextToSpeechService.getInstance().state;
   @Local miniPlayerIdleHidden: boolean = false;
+  @Local miniPlayerBarRevision: number = 0;
+  private appliedMiniPlayerHideMinutes: number | undefined = undefined;
   private miniPlayerIdleTimer: number = -1;
   private miniPlayerIdleSince: number = 0;
   private miniPlayerIdleBook: string = '';
@@ -280,7 +282,7 @@ export struct MainPage {
     value.background = this.hasAppBackground() ? Color.Transparent : HomeTheme.BgNeutral;
     value.materialSupported = HdsCompat.materialSupported;
     value.surface = value.materialSupported ? Color.Transparent : AppTheme.Surface;
-    const key: string = JSON.stringify(value);
+    const key: string = `${this.miniPlayerBarRevision}:${JSON.stringify(value)}`;
     if (key !== this.cachedTabsAppearanceKey) {
       this.cachedTabsAppearance = value;
       this.cachedTabsAppearanceKey = key;
@@ -301,6 +303,7 @@ export struct MainPage {
     this.miniPlayerIdleAlive = true;
     this.refreshMiniPlayerIdle(true);
     this.onHomeShownHandlerChange((): void => {
+      this.refreshMiniPlayerIdle();
       this.resetTabStyle();
       const resume = this.pendingHomeResume;
       this.pendingHomeResume = undefined;
@@ -361,7 +364,8 @@ export struct MainPage {
   }
 
   private miniPlayerVisible(): boolean {
-    return this.generalSettings.miniPlayerHideMinutes !== -1 && !this.miniPlayerIdleHidden &&
+    const minutes: number = this.generalSettings.miniPlayerHideMinutes;
+    return minutes !== -1 && (minutes === 0 || !this.miniPlayerIdleHidden) &&
       (this.speechState.active || this.playerState.currentBook !== null);
   }
 
@@ -374,6 +378,12 @@ export struct MainPage {
     const busy: boolean = this.speechState.active ? this.speechState.playing || this.speechState.loading
       : this.playerState.isPlaying || this.playerState.isLoading;
     const minutes: number = this.generalSettings.miniPlayerHideMinutes;
+    const preferenceChanged: boolean = this.appliedMiniPlayerHideMinutes !== minutes;
+    if (preferenceChanged) {
+      this.appliedMiniPlayerHideMinutes = minutes;
+      // 设置页覆盖主页时，显隐变化仍须让两种原生底栏重新接收配置。
+      this.miniPlayerBarRevision++;
+    }
     if (minutes === -1) {
       this.miniPlayerIdleHidden = true;
       this.appliedVerticalBarStyle = undefined;
@@ -381,7 +391,7 @@ export struct MainPage {
       return;
     }
     const wasHidden: boolean = this.miniPlayerIdleHidden;
-    if (reset || busy || busy !== this.miniPlayerWasBusy || bookKey !== this.miniPlayerIdleBook ||
+    if (reset || preferenceChanged || busy || busy !== this.miniPlayerWasBusy || bookKey !== this.miniPlayerIdleBook ||
       bookKey.length === 0 || minutes === 0) {
       this.miniPlayerIdleSince = Date.now();
       this.miniPlayerIdleHidden = false;
@@ -846,7 +856,7 @@ export struct MainPage {
       }
     }
     // 这里只比较声明式外观参数；回调绑定当前实例，Builder 自身继续响应播放状态。
-    const key: string = JSON.stringify(style);
+    const key: string = `${this.miniPlayerBarRevision}:${JSON.stringify(style)}`;
     if (this.cachedFloatingStyle !== undefined && this.cachedFloatingStyleKey === key) {
       return this.cachedFloatingStyle;
     }

@@ -7,7 +7,8 @@ const ide = process.env.DEVECO_HOME;
 if (!ide) throw new Error('Set DEVECO_HOME to the Release IDE');
 const ts = require(path.join(ide, 'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const source = fs.readFileSync(path.join(__dirname, '../entry/src/main/ets/pages/MainPage.ets'), 'utf8');
-const helpers = source.slice(source.indexOf('  private useFloatingTabs'), source.indexOf("  @Monitor('appearance.verticalBottomTabs')"));
+const helpers = source.slice(source.indexOf('  private useFloatingTabs'), source.indexOf("  @Monitor('appearance.verticalBottomTabs')"))
+  .replace(/  @Monitor\([\s\S]*?\)\r?\n/g, '');
 const method = source.slice(source.indexOf('  private floatingBarStyle'), source.indexOf('  private handleTabBarClick'));
 const sync = source.slice(source.indexOf('  private syncVerticalBars'), source.indexOf('  private floatingBarStyle'));
 const reset = source.slice(source.indexOf('  private resetTabStyle'), source.indexOf('  @Local currentTab'));
@@ -33,6 +34,7 @@ vm.runInNewContext(ts.transpileModule(`${constants}\nexport class Page { ${helpe
 const page = new exportsObject.Page();
 Object.assign(page, { appearance: { verticalBottomTabs: true }, bottomSafeVp: 10, sideSafeVp: 0,
   generalSettings: { adaptiveHandedness: true }, miniPlayerVisible: () => true,
+  miniPlayerBarRevision: 0, hasAppBackground: () => false,
   stableMiniBarBuilder: () => {} });
 for (const width of [320, 360, 440, 480, 520, 599]) {
   page.viewportWidth = width;
@@ -67,6 +69,12 @@ assert.equal(page.tabsAppearance, resolvedAppearance, 'unchanged computed appear
 page.bottomSafeVp += 10;
 assert.notEqual(page.tabsAppearance, resolvedAppearance, 'actual safe-area change updates computed appearance');
 page.bottomSafeVp -= 10;
+const beforePreference = page.tabsAppearance;
+const beforePreferenceStyle = beforePreference.style;
+page.miniPlayerBarRevision++;
+assert.notEqual(page.tabsAppearance, beforePreference, 'a new visibility preference rebinds the native appearance');
+assert.notEqual(page.tabsAppearance.style, beforePreferenceStyle, 'both native style caches honor the preference change');
+assert.equal(page.tabsAppearance, page.tabsAppearance, 'unchanged preferences retain the native appearance identity');
 page.miniPlayerVisible = () => false;
 for (const width of [480, 800]) {
   page.viewportWidth = width;

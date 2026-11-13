@@ -16,6 +16,7 @@ import { ImmersiveOptionTabs } from './ImmersiveOptionTabs';
 import { ThemeBackgroundComponent } from './ThemeBackgroundComponent';
 import { ThemeIconComponent } from './ThemeIconComponent';
 import { SettingsHintButton } from './SettingsHintButton';
+import { VipFeatureBadge } from './VipFeatureBadge';
 
 class BackgroundPageOption {
   scene: AppBackgroundScene;
@@ -46,6 +47,7 @@ enum BackgroundAdjustment { Veil, Blur, PositionX, PositionY, Scale }
 /** 本地草稿与已应用背景分离；被跟随开关隐藏的独立配置仍保留。 */
 @ComponentV2
 export struct AppBackgroundSettingsComponent {
+  @Event onMembershipRequired: () => void = () => {};
   @Local service: AppBackgroundService = AppBackgroundService.instance;
   @Local appearance: AppAppearance = AppAppearance.current;
   @Local tabIcons: BottomTabIconService = BottomTabIconService.instance;
@@ -232,8 +234,13 @@ export struct AppBackgroundSettingsComponent {
       }
       await this.discardImports();
       this.toast($r('app.string.app_background_applied'));
-    } catch (_error) {
-      this.toast($r('app.string.app_background_save_failed'));
+    } catch (error) {
+      if (error instanceof Error && error.message === 'MEMBERSHIP_REQUIRED') {
+        this.toast($r('app.string.membership_feature_required'));
+        if (this.alive) this.onMembershipRequired();
+      } else {
+        this.toast($r('app.string.app_background_save_failed'));
+      }
     } finally {
       this.saving = false;
       if (!this.alive) await this.discardImports();
@@ -630,6 +637,7 @@ export struct AppBackgroundSettingsComponent {
           Row({ space: 4 }) {
             if (this.saving) { LoadingProgress().width(16).height(16).color(AppColor.Brand) }
             Text($r('app.string.app_background_apply')).fontSize(AppFont.Caption).fontColor(AppColor.OnBrand)
+            VipFeatureBadge()
           }.justifyContent(FlexAlign.Center)
         }.height(40).padding({ left: 12, right: 12 }).borderRadius(20).backgroundColor(AppColor.Brand)
           .enabled(this.canEdit && this.dirty).id('app-background-apply')

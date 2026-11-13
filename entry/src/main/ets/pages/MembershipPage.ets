@@ -152,7 +152,7 @@ export struct MembershipPage {
         TabContent() {
           Scroll() {
             Column() {
-              AppBackgroundSettingsComponent()
+              AppBackgroundSettingsComponent({ onMembershipRequired: (): void => { this.showMembership = true; } })
             }.width('100%').constraintSize({ maxWidth: 680 })
             .padding({ left: AppSpace.Md, right: AppSpace.Md,
               top: this.titleBarHeight + this.tabBarHeight + AppSpace.Sm * 3,
@@ -172,7 +172,7 @@ export struct MembershipPage {
         TabContent() {
           Scroll() {
             Column({ space: AppSpace.Md }) {
-              BottomTabIconComponent()
+              BottomTabIconComponent({ onMembershipRequired: (): void => { this.showMembership = true; } })
             }.width('100%').constraintSize({ maxWidth: 680 })
             .padding({ left: AppSpace.Md, right: AppSpace.Md,
               top: this.titleBarHeight + this.tabBarHeight + AppSpace.Sm * 3,

@@ -3,6 +3,7 @@ import { preferences } from '@kit.ArkData';
 import { fileIo } from '@kit.CoreFileKit';
 import { image } from '@kit.ImageKit';
 import { BusinessError } from '@kit.BasicServicesKit';
+import { MembershipService } from './MembershipService';
 import {
   AppBackgroundConfig, AppBackgroundImportError, AppBackgroundImportReason,
   AppBackgroundScene, AppBackgroundSelection
@@ -92,6 +93,7 @@ export class AppBackgroundService {
     const next = value.copy();
     this.pendingApply = next;
     try {
+      if (!await MembershipService.instance.hasCurrentEntitlement()) throw new Error('MEMBERSHIP_REQUIRED');
       for (const name of next.imageFiles()) {
         if (!await fileIo.access(`${this.directory}/${name}`).catch((): boolean => false)) {
           throw new Error('Background image missing');

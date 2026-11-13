@@ -6,6 +6,8 @@ import { ThemeIconRole } from '../theme/ThemeIcons';
 import { AppColor, AppFont, AppRadius, AppSpace, AppTheme } from '../theme/Theme';
 import { BottomTabIconService } from '../service/BottomTabIconService';
 import { SettingsHintButton } from './SettingsHintButton';
+import { MembershipService } from '../service/MembershipService';
+import { VipFeatureBadge } from './VipFeatureBadge';
 
 class BottomTabIconOption {
   id: string;
@@ -23,6 +25,7 @@ class BottomTabIconOption {
 
 @ComponentV2
 export struct BottomTabIconComponent {
+  @Event onMembershipRequired: () => void = () => {};
   @Local service: BottomTabIconService = BottomTabIconService.instance;
   @Local appearance: AppAppearance = AppAppearance.current;
   @Local generalSettings: GeneralSettings = GeneralSettings.current;
@@ -63,6 +66,11 @@ export struct BottomTabIconComponent {
     this.picking = true;
     const request = ++this.request;
     try {
+      if (!await MembershipService.instance.hasCurrentEntitlement()) {
+        if (this.alive && request === this.request) this.requireMembership();
+        return;
+      }
+      if (!this.alive || request !== this.request) return;
       const options = new photoAccessHelper.PhotoSelectOptions();
       options.MIMEType = photoAccessHelper.PhotoViewMIMETypes.IMAGE_TYPE;
       options.maxSelectNumber = 1;
@@ -73,11 +81,20 @@ export struct BottomTabIconComponent {
       if (saved && this.alive) {
         this.getUIContext().getPromptAction().showToast({ message: $r('app.string.bottom_tab_icon_saved') });
       }
-    } catch (_error) {
+    } catch (error) {
       if (this.alive) {
-        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.bottom_tab_icon_failed') });
+        if (error instanceof Error && error.message === 'MEMBERSHIP_REQUIRED') {
+          this.requireMembership();
+        } else {
+          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.bottom_tab_icon_failed') });
+        }
       }
     } finally { this.picking = false; }
+  }
+
+  private requireMembership(): void {
+    this.getUIContext().getPromptAction().showToast({ message: $r('app.string.membership_feature_required') });
+    this.onMembershipRequired();
   }
 
   private async reset(role: ThemeIconRole = ThemeIconRole.None): Promise<void> {
@@ -151,6 +168,7 @@ export struct BottomTabIconComponent {
       Row({ space: AppSpace.Xs }) {
         Text($r('app.string.bottom_tab_icon_title')).fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium)
           .fontColor(AppTheme.TextPrimary)
+        VipFeatureBadge()
         SettingsHintButton({ title: $r('app.string.bottom_tab_icon_title'), message: $r('app.string.bottom_tab_icon_hint') })
       }.width('100%')
       this.preview()

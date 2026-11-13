@@ -1,3 +1,26 @@
+# 1.1.7 更新日志（2026-11-13）
+
+## 新增与优化
+
+1. 修复迷你播放器显隐设置切换后未及时生效的问题，优化返回主页后的状态刷新。
+2. 完善迷你播放器常驻显示与闲置自动隐藏逻辑，提升底部播放控件的使用体验。
+3. 完善 App 背景与底部导航图标的会员权益标识、操作提示及开通入口，支持免费预览背景和恢复默认图标。
+4. 统一个性化设置中的说明文案，提升设置选项的清晰度与操作一致性。
+
+## 构建与分发
+
+- 版本：1.1.7（1017001），构建 1。正式版与邀请测试使用同一 Release 发布包，保留正式渠道功能配置。
+- 构建：Release SDK 26.0.0.105，release 产品、buildMode=release、debug=false，最低 API 20、目标 API 26。
+- 包内版本、SDK 渠道、分层图标及混淆动态接口契约校验通过。归档：`artifacts/releases/1.1.7-1017001/Jianting-1.1.7-1017001-release.app`。
+- SHA-256：`c914261aa85c26452f30c17f5306125292b1163687973fd7bebd37375e1aa38d`。
+- 验证：6 个改动 ETS 文件执行静态检查，完整 Release 编译与迷你播放器、悬浮底栏、背景设置、底部图标四组定向回归通过；补充会员权限拒绝时的数据保留及临时图片清理检查。保留既有兼容性、设备能力、废弃接口及依赖警告。本轮未新增设备回归。
+- MCP 构建遇到本机 OHPM 批处理递归错误后，使用已核验 Release IDE 官方 Node/Hvigor CLI（`--no-daemon`）完成，未修改本机签名配置。
+- 在线依据：[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)。已刷新实时索引并读取相关指南，使用已登录 AGC 控制台提交。
+- 旧版 1.1.6 正式上架申请已撤回，替换为本次版本。
+- AGC 提交结果待回填。
+
+---
+
 # 1.1.6 更新日志（2026-11-13）
 
 ## 新增与优化

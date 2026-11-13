@@ -147,6 +147,9 @@ async function launch(storage) {
   const loaded = new Map();
   const observed = new WeakSet();
   function load(name) {
+    if (path.basename(name) === 'MembershipService') return {
+      MembershipService: { instance: { hasCurrentEntitlement: async () => controls.entitled !== false } }
+    };
     const filename = name.endsWith('.ets') ? name : name + '.ets';
     if (loaded.has(filename)) return loaded.get(filename);
     const exports = {};
@@ -236,6 +239,12 @@ async function expectImageFailure(app, storage, reason, originalCode = 0) {
   assert.equal(app.handles.size, 0);
   draft.shelf.config.preset = 'image';
   draft.shelf.config.imageFile = photo;
+  app.controls.entitled = false;
+  const beforeDeniedApply = storage.saved;
+  await assert.rejects(app.service.apply(draft), /MEMBERSHIP_REQUIRED/);
+  assert.equal(storage.saved, beforeDeniedApply, 'membership denial does not publish a background');
+  assert.ok(storage.files.has(`${directory}/${photo}`), 'membership denial preserves the editable preview');
+  app.controls.entitled = true;
   await app.service.apply(draft);
   app = await launch(storage);
   assert.equal(app.service.resolve(Scene.Shelf).imageFile, photo);

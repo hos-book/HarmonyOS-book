@@ -24,6 +24,7 @@ function create(minutes = 1, speech = false) {
   });
   const page = new exports.Page();
   Object.assign(page, { miniPlayerIdleAlive: true, miniPlayerIdleHidden: false,
+    miniPlayerBarRevision: 0, appliedMiniPlayerHideMinutes: undefined,
     miniPlayerIdleTimer: -1, miniPlayerIdleSince: 0, miniPlayerIdleBook: '', miniPlayerWasBusy: false,
     generalSettings: { miniPlayerHideMinutes: minutes },
     playerState: { currentBook: { id: 'audio' }, isPlaying: !speech, isLoading: false, progressMs: 1234 },
@@ -67,6 +68,40 @@ function create(minutes = 1, speech = false) {
   p.miniPlayerIdleAlive = false; p.clearMiniPlayerIdleTimer();
   h.advance(60000); assert.equal(p.miniPlayerVisible(), true, 'unmount cancels timeout');
 
+  for (const speech of [false, true]) {
+    const h = create(-1, speech), p = h.page;
+    assert.equal(p.miniPlayerVisible(), false, 'off hides active audio and TTS');
+    const playing = speech ? p.speechState.playing : p.playerState.isPlaying;
+    for (const minutes of [0, -1, 0, 5, -1, 1]) {
+      const revision = p.miniPlayerBarRevision;
+      p.generalSettings.miniPlayerHideMinutes = minutes;
+      if (minutes <= 0) {
+        assert.equal(p.miniPlayerVisible(), minutes === 0,
+          'off/permanent applies before the asynchronous preference monitor');
+      }
+      // Returning from settings also reconciles a preference whose monitor has not run yet.
+      p.refreshMiniPlayerIdle();
+      assert.equal(p.miniPlayerVisible(), minutes !== -1);
+      assert.equal(p.miniPlayerBarRevision, revision + 1, 'new preference invalidates native bar options');
+      p.onMiniPlayerHidePreferenceChanged();
+      assert.equal(p.miniPlayerBarRevision, revision + 1, 'the same preference is not invalidated twice');
+      assert.equal(speech ? p.speechState.playing : p.playerState.isPlaying, playing);
+      assert.equal(p.playerState.progressMs, 1234, 'switching visibility preserves progress');
+    }
+    if (speech) p.speechState.playing = false; else p.playerState.isPlaying = false;
+    p.onMiniPlayerPlaybackChanged();
+    h.advance(59000);
+    p.refreshMiniPlayerIdle(); // A normal page return must not restart the idle countdown.
+    h.advance(1000);
+    assert.equal(p.miniPlayerVisible(), false, 'normal page return preserves the original idle deadline');
+    p.generalSettings.miniPlayerHideMinutes = 5;
+    p.refreshMiniPlayerIdle();
+    h.advance(5 * 60000 - 1);
+    assert.equal(p.miniPlayerVisible(), true, 'changed duration starts a full new interval');
+    h.advance(1);
+    assert.equal(p.miniPlayerVisible(), false);
+  }
+
   const values = new Map(); let failFlush = false;
   const settings = { miniPlayerHideMinutes: 0 };
   const store = { getSync: (k, fallback) => values.get(k) ?? fallback,
@@ -76,7 +111,7 @@ function create(minutes = 1, speech = false) {
     exports, require: name => name === '../model/GeneralSettings' ? { GeneralSettings: { current: settings } } : {}
   });
   const prefs = exports.PreferenceService; prefs.store = store;
-  for (const minutes of [0, 1, 5, 10, 20]) {
+  for (const minutes of [-1, 0, 1, 5, 10, 20]) {
     await prefs.setMiniPlayerHideMinutes(minutes);
     assert.equal(values.get('mini_player_hide_minutes'), minutes);
     assert.equal(settings.miniPlayerHideMinutes, minutes);
@@ -86,6 +121,6 @@ function create(minutes = 1, speech = false) {
   await assert.rejects(prefs.setMiniPlayerHideMinutes(1));
   assert.equal(settings.miniPlayerHideMinutes, 20, 'failed save preserves UI choice');
   assert.equal(values.get('mini_player_hide_minutes'), 20, 'failed save rolls back preference');
-  for (const invalid of [-1, 2, Infinity, NaN]) assert.equal(prefs.normalizeMiniPlayerHideMinutes(invalid), 0);
-  console.log('Mini player idle: audio/TTS, all durations, permanent, touch, loading, cleanup and save rollback passed');
+  for (const invalid of [-2, 2, Infinity, NaN]) assert.equal(prefs.normalizeMiniPlayerHideMinutes(invalid), 0);
+  console.log('Mini player idle: live off/permanent switches, native invalidation, page return, audio/TTS, durations and save rollback passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

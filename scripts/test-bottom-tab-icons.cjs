@@ -57,6 +57,9 @@ async function launch(disk) {
     unlink: async file => { disk.files.delete(file); }
   };
   const mocks = {
+    './MembershipService': { MembershipService: {
+      instance: { hasCurrentEntitlement: async () => controls.entitled !== false }
+    } },
     '@kit.AbilityKit': {},
     '@kit.ArkData': { preferences: { getPreferences: async () => preferences } },
     '@kit.CoreFileKit': { fileIo },
@@ -134,6 +137,11 @@ function iconFiles(disk) {
   app = await launch(disk);
   assert.equal(app.service.resolve(roles.Home), home, 'selection survives restart');
 
+  app.controls.entitled = false;
+  await assert.rejects(app.service.importIcon(roles.Home, 'photo://selected', () => true), /MEMBERSHIP_REQUIRED/);
+  assert.equal(app.service.resolve(roles.Home), home, 'membership denial preserves the existing icon');
+  assert.deepEqual(iconFiles(disk), [home.slice(7)], 'membership denial cleans the staged icon');
+  app.controls.entitled = true;
   app.controls.failFlush = true;
   await assert.rejects(app.service.importIcon(roles.Home, 'photo://selected', () => true), /disk full/);
   assert.equal(app.service.resolve(roles.Home), home);
