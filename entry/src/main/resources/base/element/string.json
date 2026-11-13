@@ -1,6 +1,70 @@
 {
   "string": [
     {
+      "name": "common_ok",
+      "value": "确定"
+    },
+    {
+      "name": "selection_settings",
+      "value": "划词配置"
+    },
+    {
+      "name": "selection_configure",
+      "value": "配置"
+    },
+    {
+      "name": "selection_done",
+      "value": "完成"
+    },
+    {
+      "name": "selection_reset",
+      "value": "恢复默认顺序与开关"
+    },
+    {
+      "name": "selection_move_up",
+      "value": "上移"
+    },
+    {
+      "name": "selection_move_down",
+      "value": "下移"
+    },
+    {
+      "name": "selection_drag_sort",
+      "value": "长按拖拽排序"
+    },
+    {
+      "name": "selection_settings_hint",
+      "value": "关闭不常用的功能，长按条目拖拽调整顺序，松手自动保存，下次划词生效。字典优先使用系统词典，不支持时使用已配置的 AI 字典。问问小艺以设备支持为准，部分功能可能放入更多菜单。"
+    },
+    {
+      "name": "selection_translate",
+      "value": "系统翻译"
+    },
+    {
+      "name": "selection_dictionary",
+      "value": "字典"
+    },
+    {
+      "name": "selection_copy",
+      "value": "复制"
+    },
+    {
+      "name": "selection_share",
+      "value": "分享"
+    },
+    {
+      "name": "selection_search",
+      "value": "搜索"
+    },
+    {
+      "name": "selection_select_all",
+      "value": "全选"
+    },
+    {
+      "name": "selection_other",
+      "value": "问问小艺"
+    },
+    {
       "name": "app_icon_gel",
       "value": "胶彩"
     },
@@ -22,11 +86,15 @@
     },
     {
       "name": "settings_mini_player_hide_desc",
-      "value": "听书或电子书朗读暂停且未操作控件达到所选时间后隐藏，播放中保持显示；永久表示不自动隐藏。"
+      "value": "关闭表示始终不显示听书控件，播放不受影响。永久表示不自动隐藏；选择时长后，暂停且未操作达到该时长时隐藏，播放中保持显示。"
     },
     {
       "name": "settings_mini_player_hide_never",
       "value": "永久"
+    },
+    {
+      "name": "settings_mini_player_hide_off",
+      "value": "关闭"
     },
     {
       "name": "settings_mini_player_hide_1",
@@ -2322,7 +2390,7 @@
     },
     {
       "name": "privacy_content_rights",
-      "value": "请在法律法规及内容提供方许可范围内阅读、收听、下载和导出内容，尊重作品及相关素材的合法权益。"
+      "value": "请在法律法规及内容提供方许可范围内阅读、收听、下载和导出内容，尊重作品及相关素材的合法权益。书源导入成功、测试通过或内容可访问均不代表已获得授权；不得利用规则绕过付费、登录或其他访问控制。开发者依法不得免除的责任不受使用须知或免责声明影响。"
     },
     {
       "name": "privacy_data_title",
@@ -3194,7 +3262,7 @@
     },
     {
       "name": "guide_source_import_desc",
-      "value": "点击右下角加号，选择文件导入、链接或粘贴、扫码导入。使用自己的书源 JSON 文件、规则内容或订阅链接，查看导入结果后返回列表；书源规则文件与小说正文文件的入口不同。"
+      "value": "点击右下角加号，首次导入前阅读并确认书源使用须知，再选择文件导入、链接或扫码导入。请自行准备可信、合法且已获授权的书源 JSON 或订阅链接；书源规则文件与小说正文文件的入口不同。取消须知不会导入文件，可在书源管理中继续。"
     },
     {
       "name": "guide_source_test_action",
@@ -3366,7 +3434,7 @@
     },
     {
       "name": "guide_start_source_desc",
-      "value": "在线阅读和听书需要先在「我的 → 书源管理」导入并启用自己的书源。已有音频或电子书文件，可直接前往「我的 → 本地导入」，无需配置书源。"
+      "value": "在线阅读和听书需要先在「我的 → 书源管理」导入并启用自己的书源。请先核验来源与内容授权，并阅读书源使用须知。已有音频或电子书文件，可直接前往「我的 → 本地导入」，无需配置书源。"
     },
     {
       "name": "guide_start_book_action",
@@ -3574,7 +3642,7 @@
     },
     {
       "name": "rule_source_title",
-      "value": "书源管理"
+      "value": "实验室"
     },
     {
       "name": "rule_source_search_placeholder",
@@ -8979,6 +9047,106 @@
     { "name": "offline_tts_piper_xiaoya_voice", "value": "Piper 小雅" },
     { "name": "offline_tts_voice_female", "value": "Kokoro 中文女声 %s" },
     { "name": "offline_tts_voice_male", "value": "Kokoro 中文男声 %s" },
-    { "name": "offline_tts_model_name", "value": "Kokoro v1.1 中文 · int8" }
+    { "name": "offline_tts_model_name", "value": "Kokoro v1.1 中文 · int8" },
+    {
+      "name": "comic_turn_scope",
+      "value": "翻页方式记忆"
+    },
+    {
+      "name": "comic_turn_book_hint",
+      "value": "已为本漫画单独保存翻页方式"
+    },
+    {
+      "name": "comic_turn_default_hint",
+      "value": "当前跟随通用翻页方式，切换后仅为本漫画保存"
+    },
+    {
+      "name": "comic_turn_follow_default",
+      "value": "跟随通用"
+    },
+    {
+      "name": "comic_turn_set_default",
+      "value": "设为通用"
+    },
+    {
+      "name": "rule_source_notice_title",
+      "value": "书源使用须知"
+    },
+    {
+      "name": "rule_source_notice_summary",
+      "value": "书源由你自行提供。导入成功或测试通过不代表内容已获授权，请仅使用可信、合法且获授权的来源。"
+    },
+    {
+      "name": "rule_source_notice_confirm",
+      "value": "导入前请了解：\n\n简听阅读不内置默认书源、在线小说正文或音频，不提供第三方内容授权或付费权益。请自行核验来源和授权，不得破解付费内容、绕过登录或访问控制，也不得未经授权下载、导出或传播作品。\n\n书源规则可能联网并运行受限脚本，第三方会收到必要的请求信息；恶意规则可能泄露你提供的信息。请仅导入可信规则，并谨慎提交账号、密码和验证码。搜索、测试、播放和下载可能产生流量及第三方费用，站点变更也可能导致失效或数据错误。\n\n各方责任依法认定，本须知不免除开发者依法应承担的责任。完整说明可随时在书源管理的「书源使用须知」中查看。"
+    },
+    {
+      "name": "rule_source_notice_accept",
+      "value": "我已了解，继续"
+    },
+    {
+      "name": "rule_source_notice_cancel",
+      "value": "暂不导入"
+    },
+    {
+      "name": "rule_source_notice_resume",
+      "value": "继续导入"
+    },
+    {
+      "name": "rule_source_notice_scope_title",
+      "value": "1. 功能边界与第三方服务"
+    },
+    {
+      "name": "rule_source_notice_scope",
+      "value": "书源管理用于导入、测试和管理你自行提供的规则，并按规则访问第三方站点。应用不内置默认书源、在线小说正文或音频，不提供书源下载推荐、第三方账号、内容授权或付费权益。全网榜单中的公开榜单、书名、作者与封面属于独立的展示功能，不构成对应正文或音频的授权。内容、登录及交易由对应第三方提供，其服务条款和隐私政策另行适用。"
+    },
+    {
+      "name": "rule_source_notice_rights_title",
+      "value": "2. 合法使用、版权与授权"
+    },
+    {
+      "name": "rule_source_notice_rights",
+      "value": "请自行核验书源及内容的来源、版权和授权范围，遵守法律法规及目标站点协议。不得破解付费内容、绕过登录或访问控制、规避技术保护措施，或未经授权抓取、下载、导出、传播、出售受保护内容。能够导入、测试通过或能够访问，均不表示合法或已获授权。下载或导出仅限内容提供方许可的用途与范围。"
+    },
+    {
+      "name": "rule_source_notice_privacy_title",
+      "value": "3. 网络、隐私与账号"
+    },
+    {
+      "name": "rule_source_notice_privacy",
+      "value": "使用书源时，规则指定的第三方可能收到搜索词、内容地址、请求头、IP 地址及你提交的账号或表单信息。恶意规则可能将你输入或提供给该规则的信息发送至其他地址。登录凭证和 Cookie 在本机加密保存，不代表第三方可信。请勿在不明站点填写重要账号、重复密码、验证码或支付信息；书源定义、导出文件及备份可能包含敏感配置，请妥善保管，不要随意分享。"
+    },
+    {
+      "name": "rule_source_notice_security_title",
+      "value": "4. 规则脚本与内容安全"
+    },
+    {
+      "name": "rule_source_notice_security",
+      "value": "请勿导入来源不明、被篡改或与当前版本不兼容的规则。规则可发起网络请求并在受限环境中解析或运行脚本；受限执行不能保证消除全部漏洞、恶意请求或资源消耗风险。第三方可能包含虚假、违法、不适宜或诱导性内容；如被要求额外下载、转账或授权，请谨慎核验，发现异常及时停止访问。"
+    },
+    {
+      "name": "rule_source_notice_cost_title",
+      "value": "5. 费用、可用性与数据"
+    },
+    {
+      "name": "rule_source_notice_cost",
+      "value": "搜索、测试、登录、播放及下载会消耗流量、电量、存储或第三方服务额度，费用按你与对应服务的约定承担。站点变更、规则错误、封禁、账号限制、网络中断或停止服务，可能导致访问失败、内容错误、进度偏差或数据丢失。开发者无法保证第三方内容的真实性、完整性、安全性、持续可用性或所有规则的兼容性；请备份重要数据。"
+    },
+    {
+      "name": "rule_source_notice_responsibility_title",
+      "value": "6. 责任边界与法定权利"
+    },
+    {
+      "name": "rule_source_notice_responsibility",
+      "value": "书源选择、来源核验、账号使用及访问、下载、导出、传播和交易由你自主决定。因不当使用、违法侵权、规则或第三方服务产生的费用、损失、投诉和法律后果，由相应责任主体依法承担。开发者不对书源或第三方服务作出授权、安全认证或推荐保证。本须知不是对侵权行为的许可，也不排除或限制法律规定不得免除的开发者责任，不减损你的法定权利。"
+    },
+    {
+      "name": "rule_source_notice_exit_title",
+      "value": "7. 停止使用与既有数据"
+    },
+    {
+      "name": "rule_source_notice_exit",
+      "value": "不接受本须知时，请取消导入；你仍可使用本地文件导入和阅读。发现来源可疑或存在侵权风险时，应停止使用并禁用或删除对应书源。第三方账号注销和授权撤回需到对应服务处理。确认本须知不会修改既有书源、登录状态、书架或进度；关闭书源搜索仍可供既有书架解析，若要停止对应来源的访问，请停止读听、下载等操作并删除该书源。删除时请留意页面说明。"
+    }
   ]
 }

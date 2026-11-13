@@ -7,10 +7,10 @@ import { BookMetadataText } from '../utils/BookMetadataText';
 import { LengthMetrics, PathShape } from '@kit.ArkUI';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
-import { CompatibleGridInsets } from '../utils/PlatformCompat';
+import { CompatibleGridInsets, PlatformCompat } from '../utils/PlatformCompat';
 import { HdsNavDestination } from '@kit.UIDesignKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { AppColor, AppCurve, AppFont, AppMotion, AppRadius, AppSpace, HomeTheme, AppTheme } from '../theme/Theme';
+import { AppColor, AppCurve, AppFont, AppMotion, AppRadius, AppSpace, HomeTheme, AppTheme, AppMaterial } from '../theme/Theme';
 import { Book, Chapter } from '../model/Book';
 import { BookSource, SearchResult } from '../model/BookSource';
 import { LocalRuleSource } from '../model/LocalRuleSource';
@@ -872,6 +872,9 @@ export struct SearchPage {
 
   private resultGroupMenuOptions(): MenuOptions {
     const options = ImmersiveMenu.options((): void => { this.resultGroupVisible = false; });
+    // 同名来源列表固定强磨砂，封面不能透过弹层干扰正文。
+    options.backgroundBlurStyle = PlatformCompat.immersiveMaterial ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK;
+    options.systemMaterial = AppMaterial.ReaderSheetThick;
     options.anchorPosition = { x: this.resultMenuX, y: this.resultMenuY };
     return options;
   }

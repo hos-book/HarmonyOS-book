@@ -84,6 +84,7 @@ export struct ComicReaderPage {
   @Local leftSafe: number = WindowUtils.getLeftSafeVp();
   @Local rightSafe: number = WindowUtils.getRightSafeVp();
   @Local mode: number = 0;
+  @Local bookReadingMode: boolean = false;
   @Local pageLayout: number = 1;
   @Local displayMode: number = 0;
   @Local trimWhiteBorder: boolean = false;
@@ -356,7 +357,8 @@ export struct ComicReaderPage {
       const settings = await TextReadingSettingsService.get(context);
       // 首次沿用旧章节条偏好，此后漫画与小说分别保存。
       const showChapterBar = await PreferenceService.getComicChapterBar(settings.showChapterBar);
-      const mode = await PreferenceService.getComicReadingMode();
+      const mode = await PreferenceService.getComicReadingMode(book.id);
+      const bookReadingMode = await PreferenceService.hasComicReadingMode(book.id);
       const autoPageSeconds = await PreferenceService.getAutoPageSeconds(true);
       const autoScrollSpeed = await PreferenceService.getAutoScrollSpeed(true);
       const pageLayout = await PreferenceService.getComicPageLayout();
@@ -389,7 +391,8 @@ export struct ComicReaderPage {
       this.chapters.setChapters(book.chaptersDescending ? book.chapters.slice().reverse() : book.chapters);
       const explicit = this.params.resourceIndex >= 0;
       this.mode = mode;
-    this.refreshSplitPages(true);
+      this.bookReadingMode = bookReadingMode;
+      this.refreshSplitPages(true);
       this.autoPageSeconds = autoPageSeconds;
       this.autoScrollSpeed = autoScrollSpeed;
       this.pageLayout = pageLayout;
@@ -564,8 +567,9 @@ export struct ComicReaderPage {
     if (this.settingsSaving || mode === this.mode) return;
     this.settingsSaving = true;
     try {
-      await PreferenceService.setComicReadingMode(mode);
-      if (this.alive) this.applyMode(mode);
+      if (!this.book) return;
+      await PreferenceService.setComicReadingMode(mode, this.book.id);
+      if (this.alive) { this.bookReadingMode = true; this.applyMode(mode); }
     } catch (_error) {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
     } finally { this.settingsSaving = false; }
@@ -582,6 +586,22 @@ export struct ComicReaderPage {
     }
     this.restorePage();
     this.scheduleSave();
+  }
+
+  private async changeModeScope(useDefault: boolean): Promise<void> {
+    if (this.settingsSaving || !this.book) return;
+    this.settingsSaving = true;
+    try {
+      if (useDefault) {
+        await PreferenceService.resetComicReadingMode(this.book.id);
+        const mode = await PreferenceService.getComicReadingMode();
+        if (this.alive) { this.bookReadingMode = false; this.applyMode(mode); }
+      } else {
+        await PreferenceService.setComicReadingMode(this.mode);
+      }
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    } finally { this.settingsSaving = false; }
   }
 
   private usesJoinedPages(): boolean { return this.mode === 1 && this.pageLayout === 2; }
@@ -1933,6 +1953,15 @@ export struct ComicReaderPage {
     Scroll() {
     Column({ space: 6 }) {
       ReaderSettingsSectionHeader({ title: $r('app.string.comic_settings_reading_group') })
+      ReaderSettingCard({ compact: true, title: $r('app.string.comic_turn_scope'), inline: true,
+        description: this.bookReadingMode ? $r('app.string.comic_turn_book_hint') : $r('app.string.comic_turn_default_hint') }) {
+        Row({ space: 8 }) {
+          Button($r('app.string.comic_turn_follow_default'), { buttonStyle: ButtonStyleMode.TEXTUAL })
+            .fontColor(AppColor.Brand).onClick((): void => { this.changeModeScope(true); })
+          Button($r('app.string.comic_turn_set_default'), { buttonStyle: ButtonStyleMode.TEXTUAL })
+            .fontColor(AppColor.Brand).onClick((): void => { this.changeModeScope(false); })
+        }.enabled(!this.settingsSaving)
+      }
       ReaderSettingCard({ compact: true, title: $r('app.string.reader_turn_title'), inline: true }) {
         ImmersiveOptionTabs({ labels: [$r('app.string.comic_scroll'), $r('app.string.comic_paged'),
           $r('app.string.comic_rtl'), $r('app.string.comic_dissolve')], selected: this.mode,

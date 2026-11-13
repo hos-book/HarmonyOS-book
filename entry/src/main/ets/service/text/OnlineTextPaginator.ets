@@ -340,7 +340,19 @@ export class OnlineTextPaginator {
       }
       OnlineTextPaginator.appendImageText(pages, content, start, content.length, widthPx, 1,
         fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx, dialogueQuotePairs);
-      return OnlineTextPaginator.composeHeading(content, pages, widthPx, heightPx, heading, headingSizePx, fontFamily, headingStyle, headingLayout);
+      const result = OnlineTextPaginator.composeHeading(content, pages, widthPx, heightPx, heading, headingSizePx, fontFamily, headingStyle, headingLayout);
+      // 纯图片页在阅读视口内居中，图文混排仍按原顺序自然流动。
+      if (heightPx > 1) {
+        for (const item of result) {
+          const images = item.parts.filter((part: OnlineTextPage): boolean => part.imageUrl.length > 0);
+          if (images.length === 1 && item.parts.every((part: OnlineTextPage): boolean => part.isHeading || part.imageUrl.length > 0)) {
+            const extra = Math.max(0, (heightPx - item.layoutHeight) / 2);
+            images[0].flowSpacing += extra;
+            item.layoutHeight += extra;
+          }
+        }
+      }
+      return result;
     }
     const layout = OnlineTextPaginator.measure(content, widthPx, fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx);
     const displayed = layout.displayed;
@@ -534,20 +546,30 @@ export class OnlineTextPaginator {
     paragraph.layoutSync(safeWidth);
     let metrics = paragraph.getLineMetrics();
     if (PlatformCompat.supports(26)) {
-      // Use layout insets rather than inline content: justification must start after the indent.
-      // The first layout determines which physical lines begin a source paragraph.
-      paragraphStyle.headIndents = metrics.map((line: graphicsText.LineMetrics, index: number): number =>
+      let indents = metrics.map((line: graphicsText.LineMetrics, index: number): number =>
         index === 0 || layout.displayed.text.charAt(line.startIndex - 1) === '\n' ? safeFontSize * 2 : 0);
-      const insetBuilder = new graphicsText.ParagraphBuilder(paragraphStyle, graphicsText.FontCollection.getGlobalInstance());
-      insetBuilder.pushStyle(textStyle);
-      layout.displayed.appendToBuilder(insetBuilder, textStyle, true);
-      insetBuilder.popStyle();
-      paragraph = insetBuilder.build();
-      paragraph.layoutSync(safeWidth);
-      metrics = paragraph.getLineMetrics();
-      layout.nativeIndents = true;
-      for (const metric of metrics) {
-        metric.startIndex = layout.displayed.displayOffsetForNative(metric.startIndex);
+      // 去掉展示空格后系统字体可能重新换行；必须按新行首重算，不能沿用第一次的行号。
+      for (let attempt = 0; attempt < 8; attempt++) {
+        paragraphStyle.headIndents = indents;
+        const insetBuilder = new graphicsText.ParagraphBuilder(paragraphStyle, graphicsText.FontCollection.getGlobalInstance());
+        insetBuilder.pushStyle(textStyle);
+        layout.displayed.appendToBuilder(insetBuilder, textStyle, true);
+        insetBuilder.popStyle();
+        const candidate = insetBuilder.build();
+        candidate.layoutSync(safeWidth);
+        const candidateMetrics = candidate.getLineMetrics();
+        const next = candidateMetrics.map((line: graphicsText.LineMetrics, index: number): number => {
+          const start = layout.displayed.displayOffsetForNative(line.startIndex);
+          return index === 0 || layout.displayed.text.charAt(start - 1) === '\n' ? safeFontSize * 2 : 0;
+        });
+        if (next.length === indents.length && next.every((value: number, index: number): boolean => value === indents[index])) {
+          paragraph = candidate;
+          metrics = candidateMetrics;
+          layout.nativeIndents = true;
+          for (const metric of metrics) metric.startIndex = layout.displayed.displayOffsetForNative(metric.startIndex);
+          break;
+        }
+        indents = next;
       }
     }
     const lines: OnlineTextMeasuredLine[] = [];

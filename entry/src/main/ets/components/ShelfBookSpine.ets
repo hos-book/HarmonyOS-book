@@ -1,10 +1,12 @@
 import { CoverImage } from './CoverImage';
 import { AppColor } from '../theme/Theme';
+import { CoverTheme } from '../theme/CoverTheme';
 
 /** 固定命中区域，只有书脊展示层抽出；手势和书架菜单由宿主处理。 */
 @ComponentV2
 export struct ShelfBookSpine {
   @Param cover: string = '';
+  @Param localPlaceholder: boolean = false;
   @Param spineWidth: number = 34;
   @Param spineHeight: number = 174;
   @Param spineColor: string = '#345B58';
@@ -39,6 +41,9 @@ export struct ShelfBookSpine {
             Image($rawfile(this.cover)).width('100%').height('100%')
               .objectFit(ImageFit.Cover).autoResize(true).draggable(false)
           }
+        } else if (this.localPlaceholder) {
+          Image(CoverTheme.localPlaceholder()).width('100%').height('100%')
+            .objectFit(ImageFit.Fill).draggable(false)
         }
         Row().width('100%').height('100%')
           .linearGradient({ direction: GradientDirection.Right,

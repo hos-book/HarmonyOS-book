@@ -86,7 +86,7 @@ export class BookSourceLoginCrypto {
       };
     }
     if (family === 'DES') {
-      throw new Error('当前系统加密框架不支持单DES，请使用书源提供的兼容分支');
+      throw new Error('当前系统加密框架不支持单DES，请使用规则提供的兼容分支');
     }
     throw new Error(`暂不支持的对称加密算法：${raw || '空'}`);
   }

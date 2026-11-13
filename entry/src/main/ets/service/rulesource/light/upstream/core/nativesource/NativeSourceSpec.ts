@@ -195,12 +195,39 @@ export interface NativeCommentPageSpec {
   fetch?: Record<string, NativeFetchSpec>;
 }
 
+/**
+ * 按段取热评：只请求评论数最多的前 top 段，同时发出、整体限时，任何一段失败都只是不显示卡片。
+ * request 里可用 para.index / para.count / para.text；text、likes 再加上请求结果 res。
+ */
+export interface NativeChapterHotSpec {
+  /** 为假时不发热评请求（例如书源自己的热评开关）。 */
+  when?: string;
+  request: NativeRequestSpec;
+  text: string;
+  likes?: string;
+}
+
+export interface NativeHotCommentsSpec extends NativeChapterHotSpec {
+  /** 1 到 12，默认 6。 */
+  top?: number;
+}
+
 export interface NativeCommentsSpec {
   when?: string;
   /** 评论数统计接口，结果绑定为 stats。 */
   stats?: NativeRequestSpec;
   /** 每段评论数：键（或下标）是正文行号，值是条数。 */
   counts?: string;
+  /**
+   * 每段热评（可选）。写成表达式时，结果的键（或下标）是正文行号，值是文字或 { text, likes }；
+   * 写成对象时按段请求，见 NativeHotCommentsSpec。有气泡的段落才用得上。
+   */
+  hot?: string | NativeHotCommentsSpec;
+  /**
+   * 本章说卡片上的热评（可选）。写成表达式时结果是文字或 { text, likes }；写成对象时发一个请求，
+   * 结果绑定为 res。与段落热评同时请求、同样限时。
+   */
+  chapterHot?: string | NativeChapterHotSpec;
   /** 段评页地址，可用 para.index / para.text / para.count。 */
   paragraphUrl?: string;
   /** 整章评论页地址，可用 total。 */
@@ -378,11 +405,11 @@ export class NativeSourceSpec {
 
   /** 从导入对象整理出定义；不合法时抛出带原因的错误。 */
   static fromObject(value: NativeValue): NativeSourceDefinition {
-    if (!NativeSourceSpec.isDefinitionObject(value)) throw new Error('不是原生书源：缺少 "sourceFormat": "native"');
+    if (!NativeSourceSpec.isDefinitionObject(value)) throw new Error('不是原生规则：缺少 "sourceFormat": "native"');
     const raw = value as Record<string, NativeValue>;
     const version = Number(raw['version'] || raw['nativeSource'] || NativeSourceSpec.VERSION);
     if (version > NativeSourceSpec.VERSION) {
-      throw new Error(`该原生书源需要更新版本的应用（格式版本 ${version}）`);
+      throw new Error(`该原生规则需要更新版本的应用（格式版本 ${version}）`);
     }
     const definition: Record<string, NativeValue> = { nativeSource: NativeSourceSpec.VERSION };
     for (const key of Object.keys(raw)) {
@@ -479,8 +506,8 @@ export class NativeSourceSpec {
         errors.push('coverDecode 需要 AES/CBC/PKCS7Padding、16/24/32 字节的 key，以及 iv 或 ivPrefixBytes:16');
       }
     }
-    if (!definition.name) errors.push('缺少书源名称 name');
-    if (!/^https?:\/\//i.test(definition.url || '')) errors.push('书源地址 url 必须以 http:// 或 https:// 开头');
+    if (!definition.name) errors.push('缺少规则名称 name');
+    if (!/^https?:\/\//i.test(definition.url || '')) errors.push('规则地址 url 必须以 http:// 或 https:// 开头');
     if (!definition.search && !definition.explore) errors.push('至少需要 search 或 explore 其中之一');
     const type = String(definition.type || 'text').toLowerCase();
     if (['text', 'audio', 'comic', 'image', 'video'].indexOf(type) < 0) {
@@ -731,6 +758,13 @@ export class NativeSourceSpec {
         if ((content.comments.paragraphUrl || content.comments.page) && !content.comments.counts) {
           errors.push('content.comments 使用 paragraphUrl/page 时需要 counts');
         }
+        const hot = content.comments.hot;
+        NativeSourceSpec.checkHotSpec(hot, 'content.comments.hot', errors);
+        if (hot && typeof hot === 'object' && !Array.isArray(hot) && hot.top !== undefined &&
+          !(Number.isInteger(hot.top) && hot.top >= 1 && hot.top <= 12)) {
+          errors.push('content.comments.hot.top 只允许 1 到 12');
+        }
+        NativeSourceSpec.checkHotSpec(content.comments.chapterHot, 'content.comments.chapterHot', errors);
         NativeSourceSpec.checkCommentPage(content.comments.page, 'content.comments.page', errors);
         NativeSourceSpec.checkCommentPage(content.comments.chapterPage, 'content.comments.chapterPage', errors);
       }
@@ -749,6 +783,17 @@ export class NativeSourceSpec {
     if (batch !== undefined && !(typeof batch === 'number' && Number.isInteger(batch) && batch >= 1 && batch <= 16)) {
       errors.push(`${path} 必须是 1 到 16 的整数`);
     }
+  }
+
+  /** hot / chapterHot：表达式字符串，或含 request.url 与 text 的对象。 */
+  private static checkHotSpec(hot: string | NativeChapterHotSpec | undefined, path: string, errors: string[]): void {
+    if (hot === undefined || typeof hot === 'string') return;
+    if (!hot || typeof hot !== 'object' || Array.isArray(hot)) {
+      errors.push(`${path} 需要表达式，或含 request 和 text 的对象`);
+      return;
+    }
+    if (!hot.request || typeof hot.request !== 'object' || !hot.request.url) errors.push(`${path} 需要 request.url`);
+    if (typeof hot.text !== 'string' || !hot.text) errors.push(`${path} 需要 text`);
   }
 
   private static checkCommentPage(page: NativeCommentPageSpec | undefined, path: string, errors: string[]): void {
@@ -823,7 +868,7 @@ export class NativeSourceSpec {
         problem = NativeExpr.check(text.substring(1));
         if (!problem) names = NativeExpr.calledNames(text.substring(1));
       } else if (/^@?js\s*:|<js>|@js\s*:/i.test(text)) {
-        problem = '原生书源不支持脚本，请改用 = 表达式';
+        problem = '原生规则不支持脚本，请改用 = 表达式';
       } else if (text.indexOf('{{') >= 0) {
         problem = NativeExpr.checkTemplate(text);
         if (!problem) names = NativeExpr.calledNames(text, true);

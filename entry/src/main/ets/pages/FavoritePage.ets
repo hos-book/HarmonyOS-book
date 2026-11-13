@@ -2493,6 +2493,7 @@ export struct FavoritePage {
     Stack() {
       Stack() {
         ShelfBookSpine({ cover: item.book.cover,
+          localPlaceholder: item.book.id.startsWith('import_'),
           spineWidth: item.width, spineHeight: item.height, spineColor: item.color,
           pulled: this.pulledSpineBookId === item.book.id, managing: this.isManaging,
           selected: this.selectedBookIds.has(item.book.id), pinned: this.pinnedBookIds.has(item.book.id),

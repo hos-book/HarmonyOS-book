@@ -36,8 +36,6 @@ class ProfileItem {
 }
 
 const SOURCE_ITEMS: ProfileItem[] = [
-  new ProfileItem($r('sys.symbol.bookshelf'), $r('app.string.rule_source_title'), 'ruleSources',
-    '#C98B4B'),
   new ProfileItem($r('sys.symbol.arrow_down_circle'), $r('app.string.profile_local_import'), 'import', '#34C759')
 ];
 
@@ -59,6 +57,8 @@ const SETTINGS_ITEMS: ProfileItem[] = [
 ];
 
 const SYSTEM_ITEMS: ProfileItem[] = [
+  new ProfileItem($r('sys.symbol.bookshelf'), $r('app.string.rule_source_title'), 'ruleSources',
+    '#C98B4B'),
   new ProfileItem($r('sys.symbol.book'), $r('app.string.guide_title'), 'guide', '#679D79'),
   new ProfileItem($r('sys.symbol.doc_text'), $r('app.string.log_title'), 'logs', '#0A84FF'),
   new ProfileItem($r('sys.symbol.info_circle'), '关于', 'about', '#0A59F7')

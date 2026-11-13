@@ -152,7 +152,23 @@ const qidian = '<a href="//m.qidian.com/book/123/" class="_bookItem_x"><img data
   const biliBooks = RankingParser.parse('bilicomic', 'bilicomic-1', biliRaw);
   assert.equal(biliBooks[0].author, '作者甲 / 作者乙');
   assert.equal(biliBooks[0].rank, 1, 'use current order, not previous rank');
-  assert.equal(biliBooks[0].coverUrl, 'https://i0.hdslb.com/bfs/manga-static/cover.jpg');
+  assert.equal(biliBooks[0].coverUrl, 'https://i0.hdslb.com/bfs/manga-static/cover.jpg@600w.jpg');
+  const biliGifCover = 'http://i0.hdslb.com/bfs/manga-static/b43f5c803a53439b7889195639c9547c35b7d4dc.gif';
+  const biliGifBook = RankingParser.parse('bilicomic', 'bilicomic-1', biliPage('1', [{
+    comic_id: 101, title: '动态封面漫画', vertical_cover: biliGifCover
+  }]))[0];
+  assert.equal(biliGifBook.coverUrl, biliGifCover.replace('http://', 'https://') + '@600w.jpg',
+    'large animated covers use a bounded official CDN static image, including cached ranking bodies');
+  for (const cover of ['https://i0.hdslb.com/bfs/manga-static/large.png',
+    'https://i1.hdslb.com/bfs/manga-static/cover.webp',
+    'https://i0.hdslb.com/bfs/manga-static/cover.jpg@600w.jpg',
+    'https://cover.example/cover.png']) {
+    const book = RankingParser.parse('bilicomic', 'bilicomic-1', biliPage('1', [{
+      comic_id: 102, title: '静态封面漫画', vertical_cover: cover
+    }]))[0];
+    assert.equal(book.coverUrl, /^https:\/\/i\d+\.hdslb\.com\/bfs\/manga-static\/[^@]+\.(png|webp)$/.test(cover)
+      ? cover + '@600w.jpg' : cover, 'resize originals only; preserve processed and unrelated URLs');
+  }
   assert.equal(RankingParser.parse('bilicomic', 'bilicomic-0', biliRaw).length, 0, 'redirect to another board is not valid data');
   assert.equal(RankingService.headers('qqcomic')['User-Agent'].includes('Windows'), true);
   assert.equal(Object.keys(RankingService.headers('qidian')).length, 0);

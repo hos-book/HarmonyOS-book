@@ -5,6 +5,7 @@ import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { ReaderSettingCard, ReaderSettingsSectionHeader } from './ReaderSettingCard';
 import { SettingsHintButton } from './SettingsHintButton';
 import { ReaderAutoPageSettings } from './ReaderAutoPageSettings';
+import { ReaderSelectionSettingsDialog } from './ReaderSelectionSettingsPanel';
 import { ReaderTapPolicy } from '../utils/ReaderTapPolicy';
 import { ReaderImportedFont } from '../service/text/ReaderFontService';
 import { ReaderFontTabs } from './ReaderFontTabs';
@@ -964,6 +965,11 @@ export struct ReaderSettingsSheet {
             this.buildReadingStatusSection()
             ReaderSettingsSectionHeader({ title: $r('app.string.reader_settings_assistance_group') })
             this.buildScreenOnSection()
+            ReaderSettingCard({ compact: true, title: $r('app.string.selection_settings'), inline: true }) {
+              Button($r('app.string.selection_configure')).fontColor(AppColor.Brand)
+                .backgroundColor(AppColor.GlassSheetControlTint)
+                .onClick((): void => { ReaderSelectionSettingsDialog.open(this.getUIContext()); })
+            }
             if (this.supportsSpeech) {
               ReaderSettingCard({ compact: true, title: $r('app.string.tts_title'), inline: true }) {
                 Button($r('app.string.reader_speech_display')).fontColor(AppColor.Brand)

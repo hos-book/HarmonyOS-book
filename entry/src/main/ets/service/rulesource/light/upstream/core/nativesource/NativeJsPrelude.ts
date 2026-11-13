@@ -254,7 +254,7 @@ ${script ? NativeJsPrelude.SCRIPT_API : NativeJsPrelude.EXPRESSION_STUBS}
       return `${summary}；${name} 不是全局变量：阶段脚本里用 ctx.${name}，表达式调用的函数请把它作为参数传入`;
     }
     if (!NativeJsPrelude.isIdentifier(name) || builtins.indexOf(name) < 0) return summary;
-    return `${summary}；若要调用原生书源内置函数，请使用 native.${name}(...)`;
+    return `${summary}；若要调用原生规则内置函数，请使用 native.${name}(...)`;
   }
 
   /** 规则里能直接用、在 js 里只能从 ctx 读的名字（http、vars 等接口在脚本里本来就是全局的，不在此列）。 */

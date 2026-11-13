@@ -58,7 +58,8 @@ export class SourceTestTaskService {
         return;
       }
       SourceTestTaskService.notice(context, true);
-      const tester = LocalRuleSourceBulkTester.createDefault(mode);
+      const tester = LocalRuleSourceBulkTester.createDefault(
+        mode === 'search' && sources.length === 1 ? 'singleSearch' : mode);
       SourceTestTaskService.tester = tester;
       state.report = await tester.run(sources, keyword, (progress: LocalRuleSourceBulkTestProgress): void => {
         state.progress = progress;

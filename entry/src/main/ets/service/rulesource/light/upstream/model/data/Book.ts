@@ -437,6 +437,8 @@ export class BookGroup {
   order: number = 0;
   show: boolean = true;
   enableRefresh: boolean = true;
+  /** 书架根层置顶，和置顶书籍一起排在最前。 */
+  pinned: boolean = false;
 
   static readonly ID_ALL: number = -2147483648;
   static readonly ID_LOCAL: number = -2147483647;

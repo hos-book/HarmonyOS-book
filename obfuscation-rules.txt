@@ -13,17 +13,21 @@
 -print-namecache obfuscation-cache.json
 
 # 动态 import 的模块命名空间访问不会随导出符号同步改名。
-# 保留 ReaderKit 和阅读替换规则的延迟加载入口。
+# 保留阅读解析器、本地文件导入和阅读替换规则的延迟加载入口。
 -keep-global-name
   EpubParserService
+  PdfImportService
+  CbaImportService
+  BookCoverImageService
   createEpubReaderController
   createEpubReaderBuilder
   LocalRuleQuickJsRequest
   LocalRuleQuickJsRuntime
   # N-API export name is fixed in libsubtitle_audio.so.
   decodeSubtitleAudio
-  # Fixed exports from libcba_archive.so and librecord_dissolve.so.
+  # Fixed exports from libcba_archive.so, liboffline_tts_archive.so and librecord_dissolve.so.
   extract
+  progress
   shatterPrepare
   shatterAttach
   shatterBegin
@@ -37,12 +41,16 @@
 
 -keep-property-name
   EpubParserService
+  PdfImportService
+  CbaImportService
+  BookCoverImageService
   createEpubReaderController
   createEpubReaderBuilder
   LocalRuleQuickJsRequest
   LocalRuleQuickJsRuntime
   decodeSubtitleAudio
   extract
+  progress
   shatterPrepare
   shatterAttach
   shatterBegin

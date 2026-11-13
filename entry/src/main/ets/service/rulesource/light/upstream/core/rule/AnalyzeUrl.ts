@@ -719,7 +719,7 @@ export class AnalyzeUrl {
       body: '',
       success: false,
       error: reason === RateLimitAcquireResult.Cancelled ? '请求已取消' :
-        `书源限流：等待超过 ${Math.round(this.rateLimitMaxWaitMs / 1000)} 秒仍未轮到（并发率 ${this.source?.concurrentRate || ''}）`
+        `规则限流：等待超过 ${Math.round(this.rateLimitMaxWaitMs / 1000)} 秒仍未轮到（并发率 ${this.source?.concurrentRate || ''}）`
     };
   }
 

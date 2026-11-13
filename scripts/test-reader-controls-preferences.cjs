@@ -16,6 +16,8 @@ const store = {
   getSync: (key, fallback) => values.get(key) ?? fallback,
   get: async (key, fallback) => values.get(key) ?? fallback,
   has: async key => values.has(key),
+  hasSync: key => values.has(key),
+  delete: async key => values.delete(key),
   put: async (key, value) => values.set(key, value),
   flush: async () => { if (failFlush) throw new Error('disk full'); }
 };
@@ -24,6 +26,8 @@ function load() {
   vm.runInNewContext(code, { exports, require: name => {
     if (name === '../model/GeneralSettings') return { GeneralSettings: { current: state } };
     if (name === '@kit.ArkData') return { preferences: { getPreferences: async () => store } };
+    if (name === '@kit.BasicServicesKit') return { emitter: { emit() {} } };
+    if (name === '../model/AppAppearance') return { AppAppearance: { current: { themeBundleId: 'default' } } };
     if (name === './ReadingSessionService') return { ReadingSessionService: { init() {} } };
     if (name === '../model/BookPresentation') return { BookPresentation: { edits: [], groups: [] } };
     return {};
@@ -35,6 +39,20 @@ function load() {
 }
 (async () => {
   const service = load();
+  await service.setMiniPlayerHideMinutes(-1);
+  assert.equal(state.miniPlayerHideMinutes, -1);
+  assert.equal(values.get('mini_player_hide_minutes'), -1, 'disabled persists independently of always-visible');
+  await service.setMiniPlayerHideMinutes(0);
+  assert.equal(state.miniPlayerHideMinutes, 0);
+  await assert.rejects(service.setMiniPlayerHideMinutes(-2));
+  await service.setSelectionMenu('copy,listen,excerpt', 'share');
+  assert.equal(values.get('reader_selection_menu'), 'copy,listen,excerpt|share');
+  assert.equal(state.selectionMenuHidden, 'share');
+  failFlush = true;
+  await assert.rejects(service.setSelectionMenu('listen,copy', 'copy'));
+  assert.equal(state.selectionMenuHidden, 'share', 'failed save preserves the active menu');
+  assert.equal(values.get('reader_selection_menu'), 'copy,listen,excerpt|share');
+  failFlush = false;
   assert.equal(await service.getComicVolumeKeyPageTurn(), false, 'volume keys default off');
   assert.equal(await service.getComicReadingMode(), 0);
   assert.equal(await service.getComicPageLayout(), 1, 'whole image fits the screen by default');
@@ -60,6 +78,17 @@ function load() {
   const otherComic = load();
   assert.equal(await otherComic.getComicVolumeKeyPageTurn(), true, 'reopen and other comics share volume preference');
   assert.equal(await otherComic.getComicReadingMode(), 3, 'reading mode is global across comics');
+  await service.setComicReadingMode(2, 'comic-a');
+  assert.equal(await load().getComicReadingMode('comic-a'), 2, 'per-book mode survives reopening');
+  assert.equal(await load().getComicReadingMode('comic-b'), 3, 'unset books follow the global default');
+  await service.setComicReadingMode(1);
+  assert.equal(await service.getComicReadingMode('comic-a'), 2, 'default changes preserve book overrides');
+  assert.equal(await service.getComicReadingMode('comic-b'), 1);
+  assert.equal(await service.hasComicReadingMode('comic-a'), true);
+  await service.resetComicReadingMode('comic-a');
+  assert.equal(await service.hasComicReadingMode('comic-a'), false);
+  assert.equal(await load().getComicReadingMode('comic-a'), 1, 'reset resumes following the default');
+  await service.setComicReadingMode(3);
   assert.equal(await otherComic.getComicChapterBar(), true);
   await otherComic.setComicVolumeKeyPageTurn(false);
   assert.equal(await load().getComicVolumeKeyPageTurn(), false, 'disabling is persisted too');

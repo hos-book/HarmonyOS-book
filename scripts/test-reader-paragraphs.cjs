@@ -20,6 +20,7 @@ function load(relative, mocks = {}) {
     if (name === '../../model/ReaderDialogueRules') return load('main/ets/model/ReaderDialogueRules.ets');
     if (name === '../../model/ReaderRegionStyle') return load('main/ets/model/ReaderRegionStyle.ets');
     if (name === './ReaderDialogueHighlighter') return load('main/ets/service/text/ReaderDialogueHighlighter.ets');
+    if (name === './SpeechTextHighlighter') return load('main/ets/service/text/SpeechTextHighlighter.ets');
     if (name === '../../utils/PlatformCompat') return { PlatformCompat: { supports: version => apiVersion >= version } };
     if (!(name in mocks)) throw new Error(`Unexpected dependency: ${name}`);
     return mocks[name];
@@ -35,7 +36,16 @@ assert.deepEqual(dialogueText(), ['“中文”', '「直角」', '『双角』'
 assert.deepEqual(dialogueText('‘’\n【】'), ['‘单引’', '【内心】']);
 assert.deepEqual(dialogueText(''), [], 'all ranges can be disabled without restoring defaults');
 assert.equal(ReaderDialogueRules.normalize('【】\n【》\n坏\n‘’'), '【】\n‘’');
-assert.equal(ReaderDialogueHighlighter.ranges('“未闭合\n下一段”').length, 0);
+const multilineDialogue = '叙述。“第一段对白\n\n　　第二段对白”后面的叙述。\n“下一句。”';
+assert.deepEqual(Array.from(ReaderDialogueHighlighter.ranges(multilineDialogue),
+  range => multilineDialogue.slice(range.start, range.end)), ['“第一段对白\n\n　　第二段对白”', '“下一句。”'],
+  'paired dialogue continues across paragraphs and stops at the closing quote');
+const customMultilineDialogue = '叙述。【第一段\r\n第二段】后续叙述。';
+assert.deepEqual(Array.from(ReaderDialogueHighlighter.ranges(customMultilineDialogue, '【】'),
+  range => customMultilineDialogue.slice(range.start, range.end)), ['【第一段\r\n第二段】'],
+  'custom quote pairs also span source paragraph breaks');
+assert.equal(ReaderDialogueHighlighter.ranges('“没有闭引号\n后续叙述。').length, 0,
+  'an unclosed quotation does not highlight the rest of the chapter');
 const crossPage = native => native.OnlineTextPaginator.paginate('【甲乙丙丁戊己庚辛壬癸】', 100, 20, 18, 1.9, '', 400, 'justify', 0, 0, '', 18, 'center', [], 0, '【】');
 let passed = 0;
 load('test/OnlineTextPaginator.test.ets', {
@@ -203,6 +213,12 @@ assert.equal(scrollSource.findPosition(2, 0), 0, 'chapter navigation retains the
 const restoredRow = scrollSource.getData(scrollSource.findPosition(2, 8));
 assert.equal(restoredRow.heading, false);
 assert.ok(restoredRow.startOffset <= 8 && restoredRow.endOffset > 8);
+assert.equal(headingChapter.rows.filter(row => !row.heading).length, 1, 'one paragraph shares a cross-line selection');
+assert.equal(restoredRow.page.lineMetrics.length, 3);
+assert.equal(restoredRow.offsetAtY(21), 2, 'scroll progress tracks the visible line within a paragraph');
+assert.equal(restoredRow.yForOffset(8), 40, 'reopening restores the line rather than the paragraph start');
+const imageOnly = native.OnlineTextPaginator.paginate(token, 300, 1200, 18, 1.9)[0];
+assert.equal(imageOnly.parts[0].flowSpacing, 100, 'standalone image centers vertically without stretching');
 console.log('PASS heading styles, size, hidden layout, long-title overflow, columns, images, dialogue and scroll offsets');
 for (const [alignment, expected] of [['justify', 3], ['start', 0], ['center', 2], ['end', 1]]) {
   const pages = native.OnlineTextPaginator.paginate('甲乙丙丁戊己庚辛壬癸', 100, 20, 18, 1.9, '', 400, alignment);
@@ -381,6 +397,11 @@ assert.equal(highlightColor.red, 0x34, 'underline uses the selected color');
 assert.equal(highlightColor.blue, 0xAB);
 assert.equal(highlightColor.alpha, 255);
 assert.ok(crossPage(native).slice(1).some(p => p.dialogueRanges.length > 0), 'custom delimiters retain highlighting across page breaks');
+const crossParagraphPages = native.OnlineTextPaginator.paginate('“甲\n乙”叙述', 100, 20, 18, 1.9);
+const paintedDialogue = crossParagraphPages.flatMap(p => p.dialogueRanges.map(range => p.text.slice(range.start, range.end))).join('');
+assert.ok(paintedDialogue.includes('甲') && paintedDialogue.includes('乙'),
+  'both paragraphs keep dialogue highlighting after pagination');
+assert.ok(!paintedDialogue.includes('叙述'), 'pagination does not extend dialogue color beyond the closing quote');
 console.log('PASS custom speech mark colors, repaint and independent highlight mode');
 controller.update(page, nativeRange, changedPalette, 'color', false, '', '');
 paints.length = 0;
@@ -462,6 +483,21 @@ console.log('PASS paragraph spacing pagination, scroll gaps, source position, ca
 
 apiVersion = 26;
 native.OnlineTextPaginator.invalidateLayouts();
+const originalBuild = graphicsText.ParagraphBuilder.prototype.build;
+graphicsText.ParagraphBuilder.prototype.build = function () {
+  const paragraph = originalBuild.call(this);
+  if (this.text.includes('庚辛\n')) {
+    const starts = this.style.headIndents === undefined ? [0, 4, 8, 12, 16] : [0, 3, 6, 9, 12];
+    paragraph.getLineMetrics = () => starts.map((startIndex, index) => ({
+      startIndex, height: 20, baseline: 15 + index * 20, ascent: 15, descent: 5
+    }));
+  }
+  return paragraph;
+};
+const fontReflow = native.OnlineTextPaginator.paginate('甲乙丙丁戊己庚辛\n下一段甲乙丙丁', 100, 200, 18, 1.9);
+assert.deepEqual(Array.from(fontReflow[0].paragraph.style.headIndents), [36, 0, 0, 36, 0],
+  'font-driven wrapping changes recompute paragraph starts instead of indenting a continuation');
+graphicsText.ParagraphBuilder.prototype.build = originalBuild;
 const insetPages = native.OnlineTextPaginator.paginate(sample, 100, 100, 18, 1.9);
 assert.equal(insetPages[0].paragraph.text, '甲\n乙\n丙丁');
 assert.deepEqual(Array.from(insetPages[0].paragraph.style.headIndents), [36, 36, 36]);

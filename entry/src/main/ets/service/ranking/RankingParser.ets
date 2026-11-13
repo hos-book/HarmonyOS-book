@@ -99,8 +99,12 @@ export class RankingParser {
         }
         book.author = names.join(' / ');
         book.intro = RankingParser.text(item.getString('comic_introduction'));
-        book.coverUrl = RankingParser.imageUrl(item.getString('vertical_cover')
+        const cover = RankingParser.imageUrl(item.getString('vertical_cover')
           .replace(/^http:\/\/(i[0-9]+\.hdslb\.com)\//, 'https://$1/'));
+        // GIF 和高分辨率 PNG 可超过下载/缓存的 8 MiB 上限；由官方 CDN 输出等比静态图。
+        // 缓存榜单原文同样经过此解析，旧缓存无需清空即可使用新地址。
+        book.coverUrl = /^https:\/\/i[0-9]+\.hdslb\.com\/bfs\/manga-static\/[^/?#@]+\.(?:gif|png|jpe?g|webp)$/i.test(cover)
+          ? `${cover}@600w.jpg` : cover;
         book.originalUrl = `https://manga.bilibili.com/detail/mc${id}`;
         seen.add(id);
         books.push(book);

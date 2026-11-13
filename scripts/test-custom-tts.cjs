@@ -101,6 +101,22 @@ const parse = entry => Parser.parse(JSON.stringify(entry));
     assert.match(options.header['Content-Type'], /form-urlencoded/);
   }
   assert.equal(Parser.usesSpeed(formVoice), true);
+  // Feedback 57: JSON numeric expressions and conditionals keep the established 5–20 scale.
+  for (const speed of [0.5, 1, 1.5, 2]) {
+    const n = Math.round(speed * 10);
+    for (const [expression, expected] of [
+      ['(speakSpeed + 5) / 10', (n + 5) / 10],
+      ['0.5 + (speakSpeed / 45) * 4.5', 0.5 + (n / 45) * 4.5],
+      ['speakSpeed >= 15 ? 3.0 : (0.5 + (speakSpeed / 45) * 4.5)', n >= 15 ? 3 : 0.5 + (n / 45) * 4.5]
+    ]) {
+      const voice = parse({ name: '反馈57', url: 'https://tts.example/speech', method: 'POST',
+        body: '{"input":"{{speakText}}","speed":{{' + expression + '}}}' })[0];
+      assert.equal(Parser.usesSpeed(voice), true);
+      const body = JSON.parse((await Parser.requestOptions(voice, sentence, speed)).extraData);
+      assert.equal(body.input, sentence);
+      assert.equal(body.speed, expected);
+    }
+  }
   const jsonVoice = parse({ name: 'JSON 音色测试', url: 'http://voice.example/speech,' + JSON.stringify({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: { text: '{{speakText}}', voice: 4001, speed: 50, volume: 50 } }) })[0];
   const payload = JSON.parse((await Parser.requestOptions(jsonVoice, sentence, 1.5)).extraData);
   assert.equal(payload.text, sentence);

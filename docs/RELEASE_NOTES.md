@@ -1,3 +1,23 @@
+# 1.1.6 更新日志（2026-11-13）
+
+## 新增与优化
+
+1. 新增划词菜单配置，支持自定义操作显示与排序，让阅读操作更贴合个人习惯。
+2. 优化连续滚动阅读的跨行选词与菜单交互，提升摘录、复制和分享的操作体验。
+3. 优化正文缩进与图片页面布局，改善系统字体下的排版表现。
+4. 完善漫画翻页偏好，支持单本设置、设为通用及恢复跟随通用。
+5. 新增听书悬浮控件关闭选项，保留音频播放与阅读进度。
+6. 优化书架封面展示及部分界面细节，提升使用体验。
+
+## 构建与分发
+
+- 版本名：1.1.6；版本代码：1016001；构建版本：1。正式版与邀请测试使用同一发布包，更新说明不包含书源相关内容。
+- 构建：Release SDK 26.0.0.105，release 产品 / buildMode=release / debug=false，最低 API 20、目标 API 26；发布包校验与实际混淆产物动态模块及原生接口契约检查通过。
+- 验证：阅读段落排版、划词菜单与 AI 操作、漫画阅读偏好、外部文件打开及后台任务定向回归通过。本次发布未重复实机视觉与全设备验证。
+- APP：`artifacts/releases/1.1.6-1016001/Jianting-1.1.6-1016001-release.app`，55,761,940 字节；SHA-256：`9b665e017db2191d81cef03fe25d1346ff6399c06f231e010a5f63c381a2d4dc`。
+- 使用已登录 AGC 网页提交；正式版审核通过立即上架，邀请测试选择全部现有测试组、发送通知、即刻开始，关闭可选上架自检。实际提交状态待平台回执确认。
+- 在线依据：[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)。已阅读相关指南；MCP 依赖安装发生批处理递归错误后，使用已核验 Release IDE 官方 Node/Hvigor CLI（`--no-daemon`）构建。
+
 # 1.1.5 更新日志（2026-11-12）
 
 ## 新增与优化

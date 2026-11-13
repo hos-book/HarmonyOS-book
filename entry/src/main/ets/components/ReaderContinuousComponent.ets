@@ -162,11 +162,25 @@ export struct ReaderContinuousComponent {
   onFollowChanged(): void {
     if (this.followOffset < 0 || this.restoring) return;
     const target = this.source.findPosition(this.chapterIndex, this.followOffset);
-    if (target >= 0 && (target < this.firstVisible || target >= this.lastVisible)) {
+    if (target >= 0) {
+      const row = this.source.getData(target);
+      const top = this.scroller.getItemRect(target).y + this.getUIContext().px2vp(row.yForOffset(this.followOffset));
+      if (target >= this.firstVisible && target <= this.lastVisible && top >= 0 && top < this.contentHeight * 0.8) return;
       this.manualScrollPosition = '';
       this.followingSpeech = true;
-      this.scroller.scrollToIndex(target, false, ScrollAlign.START);
+      this.scrollToCharacter(target, this.followOffset);
     }
+  }
+
+  private scrollToCharacter(target: number, offset: number): void {
+    this.scroller.scrollToIndex(target, false, ScrollAlign.START);
+    const row = this.source.getData(target);
+    if (row !== undefined) this.scroller.scrollBy(0, this.getUIContext().px2vp(row.yForOffset(offset)));
+  }
+
+  private visibleCharacter(row: OnlineTextScrollRow): number {
+    const top = this.scroller.getItemRect(this.firstVisible).y;
+    return row.offsetAtY(this.getUIContext().vp2px(Math.max(0, -top)));
   }
 
   aboutToDisappear(): void {
@@ -233,7 +247,7 @@ export struct ReaderContinuousComponent {
     this.restoreTimer = setTimeout((): void => {
       this.restoreTimer = -1;
       if (this.disposed || ticket !== this.serial) return;
-      this.scroller.scrollToIndex(target, false, ScrollAlign.START);
+      this.scrollToCharacter(target, this.charOffset);
       // 等待列表确认目标行；不让重排过程中旧索引回调覆盖章节/字符位置。
       this.loadNeighbor(true);
     }, 0);
@@ -287,7 +301,7 @@ export struct ReaderContinuousComponent {
 
   private visiblePositionKey(): string {
     const row = this.source.getData(this.firstVisible);
-    return row === undefined ? '' : `${row.chapterIndex}:${row.startOffset}`;
+    return row === undefined ? '' : `${row.chapterIndex}:${this.visibleCharacter(row)}`;
   }
 
   private beginManualScroll(): void {
@@ -328,7 +342,7 @@ export struct ReaderContinuousComponent {
     const row = this.source.getData(this.firstVisible);
     if (row === undefined) return;
     const chapter = this.chapters.find((item: OnlineTextScrollChapter): boolean => item.index === row.chapterIndex);
-    if (chapter !== undefined) this.onPosition(row.chapterIndex, row.startOffset, chapter.content, persist);
+    if (chapter !== undefined) this.onPosition(row.chapterIndex, this.visibleCharacter(row), chapter.content, persist);
   }
 
   private visibleChanged(first: number, last: number): void {

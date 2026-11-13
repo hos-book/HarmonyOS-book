@@ -41,6 +41,7 @@ import { ComicReaderPage } from './ComicReaderPage';
 import { ReaderPage } from './ReaderPage';
 import { SearchPage } from './SearchPage';
 import { RuleSourcePage } from './RuleSourcePage';
+import { RuleSourceNoticePage } from './RuleSourceNoticePage';
 import { RuleSourceLoginPage } from './RuleSourceLoginPage';
 import { RuleSourceEditPage } from './RuleSourceEditPage';
 import { RuleSourceDebugPage } from './RuleSourceDebugPage';
@@ -798,6 +799,10 @@ struct Index {
     } else if (name === 'ruleSources') {
       // RuleSourcePage 自带 ProfileMenuDestination：页内多级视图需拦截侧滑返回
       RuleSourcePage({ navStack: this.navStack })
+    } else if (name === 'ruleSourceNotice') {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
+        RuleSourceNoticePage({ navStack: this.navStack })
+      }
     } else if (name === 'ruleSourceLogin') {
       ProfileMenuDestination() {
         RuleSourceLoginPage({

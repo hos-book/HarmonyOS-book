@@ -265,13 +265,14 @@ export class BookSourceService {
     return localSource === undefined ? [] : LocalRuleDispatcher.search(localSource, keyword, page, request);
   }
 
-  static async testLocalSource(source: LocalRuleSource, keyword: string): Promise<LocalRuleSourceHealth> {
-    const health = await BookSourceService.testLocalSourceSearchChain(source, keyword);
-    return BookSourceService.completeSourceHealth(source, health);
+  static async testLocalSource(source: LocalRuleSource, keyword: string,
+    isCancelled: () => boolean = (): boolean => false): Promise<LocalRuleSourceHealth> {
+    const health = await BookSourceService.testLocalSourceSearchChain(source, keyword, isCancelled);
+    return BookSourceService.completeSourceHealth(source, health, isCancelled);
   }
 
   private static async testLocalSourceSearchChain(source: LocalRuleSource,
-    keyword: string): Promise<LocalRuleSourceHealth> {
+    keyword: string, isCancelled: () => boolean): Promise<LocalRuleSourceHealth> {
     const health = new LocalRuleSourceHealth();
     health.sourceUrl = source.bookSourceUrl;
     health.checkedAt = Date.now();
@@ -291,7 +292,8 @@ export class BookSourceService {
 
     try {
       BookSourceService.requireSearchCapability(source);
-      health.message = await BookSourceService.testRuleSource(source, cleanKeyword);
+      BookSourceService.checkHealthCancellation(isCancelled);
+      health.message = await BookSourceService.testRuleSource(source, cleanKeyword, isCancelled);
       health.status = LocalRuleSourceStatus.READY;
     } catch (error) {
       health.status = LocalRuleSourceStatus.FAILED;
@@ -361,14 +363,16 @@ export class BookSourceService {
     return health;
   }
 
-  private static async testRuleSource(source: LocalRuleSource, keyword: string): Promise<string> {
+  private static async testRuleSource(source: LocalRuleSource, keyword: string,
+    isCancelled: () => boolean): Promise<string> {
     const results = await LocalRuleDispatcher.searchForHealthCheck(source, keyword, 1);
+    BookSourceService.checkHealthCancellation(isCancelled);
     if (results.length === 0) {
       return '搜索请求正常，当前关键词暂无匹配，已保留书源';
     }
 
     const contentType: 'audio' | 'text' | 'comic' = results[0].contentType ?? (source.isComic() ? 'comic' : source.isAudio() ? 'audio' : 'text');
-    await BookSourceService.validateCandidate(source, results[0], contentType);
+    await BookSourceService.validateCandidate(source, results[0], contentType, isCancelled);
     const bookName: string = results[0].name;
     return contentType === 'audio'
       ? `搜索、详情、目录与音频解析正常：${bookName}`

@@ -425,7 +425,7 @@ export class NativeSourceService {
 
   static definitionOf(source: BookSource): NativeSourceDefinition {
     const definition = NativeSourceSpec.unpack(source.jsLib || '');
-    if (!definition) throw new Error('原生书源定义已损坏，请重新导入');
+    if (!definition) throw new Error('原生规则定义已损坏，请重新导入');
     return definition;
   }
 
@@ -925,7 +925,7 @@ export class NativeSourceService {
     for (const comment of result.paragraphComments) {
       if (comment.line < 0 || comment.line >= lines.length) continue;
       lines[comment.line] += ReaderActionMarker.create(`段评 ${comment.count > 99 ? '99+' : comment.count}`,
-        comment.url, '段评');
+        comment.url, '段评', comment.preview || '', comment.likes || '');
     }
     for (const link of result.links) {
       // 请求按钮把渲染好的请求编进标记地址，点击时由 runReaderAction 取出执行。
@@ -935,7 +935,8 @@ export class NativeSourceService {
       if (button) lines.push('', button);
     }
     if (result.chapterCommentUrl) {
-      const tail = ReaderActionMarker.create('本章说', result.chapterCommentUrl, '本章说');
+      const tail = ReaderActionMarker.create('本章说', result.chapterCommentUrl, '本章说',
+        result.chapterCommentPreview || '', result.chapterCommentLikes || '');
       if (tail) lines.push('', tail);
     }
     return lines.join('\n');

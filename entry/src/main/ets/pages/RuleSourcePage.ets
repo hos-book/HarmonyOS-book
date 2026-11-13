@@ -2,6 +2,7 @@ import { SourceTestTaskService } from '../service/rulesource/SourceTestTaskServi
 import { BusinessError } from '@kit.BasicServicesKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { RuleSourceImportQueue } from '../service/rulesource/RuleSourceImportQueue';
+import { RuleSourceNoticeService } from '../service/rulesource/RuleSourceNoticeService';
 import lazy { scanBarcode, scanCore } from '@kit.ScanKit';
 import { LocalRuleSource, LocalRuleSourceStatus, LocalRuleSourceType } from '../model/LocalRuleSource';
 import { RuleSourceLoginRouteParams } from '../model/RuleSourceLogin';
@@ -108,6 +109,9 @@ export struct RuleSourcePage {
   @Param navStack: NavPathStack = new NavPathStack();
   @Local externalImports: RuleSourceImportQueue = RuleSourceImportQueue.getInstance();
   private pageAttached: boolean = false;
+  @Local externalNoticeDeferred: boolean = false;
+  private noticeInFlight: boolean = false;
+  private noticeResolver: ((accepted: boolean) => void) | undefined = undefined;
   @Local importLink: string = '';
   @Local importLinkInvalid: boolean = false;
   @Local searchKeyword: string = '';
@@ -208,6 +212,8 @@ export struct RuleSourcePage {
 
   aboutToDisappear(): void {
     this.pageAttached = false;
+    this.noticeResolver?.(false);
+    this.noticeResolver = undefined;
     this.importMenuVisible = false;
     this.closeImportDialog();
     this.loadRevision++;
@@ -290,15 +296,22 @@ export struct RuleSourcePage {
   private async consumeExternalImports(): Promise<void> {
     const paths = this.navStack.getAllPathName();
     if (!this.pageAttached || this.isLoading || this.loadFailed || this.isImporting || this.isBulkTesting ||
+      this.externalNoticeDeferred || this.noticeInFlight ||
       this.busySourceUrl.length > 0 || this.importDialogKind.length > 0 ||
       paths[paths.length - 1] !== 'ruleSources' ||
       !this.externalImports.hasPending()) return;
     if (!this.externalImports.tryBegin()) return;
-    this.closeManagement();
-    this.isEditMode = false;
-    this.resetSelection();
     this.isImporting = true;
     try {
+      if (!await this.confirmImportNotice()) {
+        this.externalNoticeDeferred = true;
+        return;
+      }
+      const currentPaths = this.navStack.getAllPathName();
+      if (!this.pageAttached || currentPaths[currentPaths.length - 1] !== 'ruleSources') return;
+      this.closeManagement();
+      this.isEditMode = false;
+      this.resetSelection();
       while (this.pageAttached && this.externalImports.hasPending()) {
         const uri = this.externalImports.take();
         if (uri === undefined) break;
@@ -312,6 +325,46 @@ export struct RuleSourcePage {
     } finally {
       this.isImporting = false;
       this.externalImports.finish();
+    }
+  }
+
+  private async confirmImportNotice(): Promise<boolean> {
+    if (!this.pageAttached || this.noticeInFlight) return false;
+    this.noticeInFlight = true;
+    try {
+      const context = this.getUIContext().getHostContext();
+      if (context === undefined) return false;
+      if (await RuleSourceNoticeService.isAcknowledged(context)) return this.pageAttached;
+      if (!this.pageAttached) return false;
+      const accepted = await new Promise<boolean>((resolve: (accepted: boolean) => void): void => {
+        let finished: boolean = false;
+        const finish = (value: boolean): void => {
+          if (finished) return;
+          finished = true;
+          this.noticeResolver = undefined;
+          resolve(value && this.pageAttached);
+        };
+        this.noticeResolver = finish;
+        this.getUIContext().showAlertDialog({
+          title: $r('app.string.rule_source_notice_title'),
+          message: $r('app.string.rule_source_notice_confirm'),
+          primaryButton: { value: $r('app.string.rule_source_notice_accept'), fontColor: AppColor.Brand,
+            action: (): void => { finish(true); } },
+          secondaryButton: { value: $r('app.string.rule_source_notice_cancel'),
+            action: (): void => { finish(false); } },
+          cancel: (): void => { finish(false); }
+        });
+      });
+      if (!accepted || !this.pageAttached) return false;
+      await RuleSourceNoticeService.acknowledge(context);
+      this.externalNoticeDeferred = false;
+      return this.pageAttached;
+    } catch (_error) {
+      this.showToast($r('app.string.rule_source_operation_failed'));
+      return false;
+    } finally {
+      this.noticeResolver = undefined;
+      this.noticeInFlight = false;
     }
   }
 
@@ -624,6 +677,7 @@ export struct RuleSourcePage {
   private async openImportDialog(kind: string, sourceUrl: string = ''): Promise<void> {
     if (!this.pageAttached || this.importDialogKind.length > 0 || this.isImporting ||
       this.isBulkTesting || this.busySourceUrl.length > 0) return;
+    if (!await this.confirmImportNotice()) return;
     this.importDialogKind = kind;
     this.importLinkInvalid = false;
     this.talebookSourceUrl = sourceUrl;
@@ -828,6 +882,7 @@ export struct RuleSourcePage {
 
   private async importLocalFile(): Promise<void> {
     if (this.isImporting || this.isBulkTesting || this.busySourceUrl.length > 0) return;
+    if (!await this.confirmImportNotice()) return;
     this.isImporting = true;
     try {
       const uris = await this.pickLocalJsonUris();
@@ -861,6 +916,7 @@ export struct RuleSourcePage {
   private async scanQRCode(): Promise<void> {
     if (!canIUse('SystemCapability.Multimedia.Scan.ScanBarcode')) return;
     if (this.isImporting || this.isBulkTesting || this.busySourceUrl.length > 0) return;
+    if (!await this.confirmImportNotice()) return;
     this.isImporting = true;
     try {
       const context = this.getUIContext().getHostContext();
@@ -1376,6 +1432,9 @@ export struct RuleSourcePage {
       } else {
         List({ space: AppSpace.Xs, scroller: this.sourceListScroller }) {
           ListItem() {
+            this.buildNoticeSummary()
+          }
+          ListItem() {
             Row() {
               Text($r('app.string.rule_source_installed'))
                 .fontSize(AppFont.Caption)
@@ -1787,8 +1846,33 @@ export struct RuleSourcePage {
   }
 
   @Builder
+  buildNoticeSummary() {
+    Column({ space: AppSpace.Xs }) {
+      Text($r('app.string.rule_source_notice_summary'))
+        .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).lineHeight(20).width('100%')
+      Row() {
+        Button($r('app.string.rule_source_notice_title'), { type: ButtonType.Normal })
+          .height(36).fontSize(AppFont.Caption).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
+          .padding({ left: 0, right: AppSpace.Sm })
+          .id('rule-source-notice-open')
+          .onClick((): void => { this.navStack.pushPathByName('ruleSourceNotice', ''); })
+        Blank()
+        if (this.externalNoticeDeferred && this.externalImports.hasPending()) {
+          Button($r('app.string.rule_source_notice_resume'), { type: ButtonType.Normal })
+            .height(36).fontSize(AppFont.Caption).fontColor(AppColor.Brand).backgroundColor(AppColor.BrandSoft)
+            .borderRadius(AppRadius.Sm).enabled(!this.isImporting && !this.isBulkTesting)
+            .onClick((): void => { this.externalNoticeDeferred = false; this.consumeExternalImports(); })
+        }
+      }.width('100%')
+    }.width('100%').alignItems(HorizontalAlign.Start).padding(AppSpace.Md)
+      .backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg)
+  }
+
+  @Builder
   buildToolsMenu() {
     Menu() {
+      MenuItem({ content: $r('app.string.rule_source_notice_title') })
+        .onClick((): void => { this.navStack.pushPathByName('ruleSourceNotice', ''); })
       MenuItem({ content: $r('app.string.source_manage_groups') }).onClick(() => this.openManagement('groups'))
       MenuItem({ content: $r('app.string.source_manage_order') }).onClick(() => this.openManagement('order'))
       MenuItem({ content: $r('app.string.source_manage_tls') }).onClick(() => this.openManagement('tls'))

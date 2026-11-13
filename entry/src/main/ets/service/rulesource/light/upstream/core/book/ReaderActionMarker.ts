@@ -2,6 +2,10 @@ export class ReaderActionData {
   label: string = '';
   url: string = '';
   title: string = '';
+  /** 热评原文（书源卡片上的文字或原生书源 hot 字段），阅读器可把它画成段落下方的热评卡。 */
+  preview: string = '';
+  /** 热评点赞数，按书源原样保存（如 "1.2k"）。 */
+  likes: string = '';
 }
 
 export class ReaderActionMatch {
@@ -22,23 +26,40 @@ export class ReaderActionMarker {
   static readonly MAX_LABEL_LENGTH: number = 96;
   static readonly MAX_TITLE_LENGTH: number = 192;
   static readonly MAX_URL_LENGTH: number = 12288;
+  static readonly MAX_PREVIEW_LENGTH: number = 160;
+  static readonly MAX_LIKES_LENGTH: number = 16;
 
-  static create(label: string, url: string, title: string = ''): string {
+  /** 热评原文：去掉标签、合并空白，最多 MAX_PREVIEW_LENGTH 个字符。 */
+  static normalizePreview(value: string): string {
+    return (value || '').replace(/<[^>]*>/g, ' ').replace(/[\s　]+/g, ' ').trim()
+      .substring(0, ReaderActionMarker.MAX_PREVIEW_LENGTH);
+  }
+
+  static create(label: string, url: string, title: string = '', preview: string = '', likes: string = ''): string {
     const data = new ReaderActionData();
     data.label = ((label || '').trim() || '打开').substring(0, ReaderActionMarker.MAX_LABEL_LENGTH);
     data.url = (url || '').trim();
     data.title = (title || '').trim().substring(0, ReaderActionMarker.MAX_TITLE_LENGTH);
     if (!data.url || data.url.length > ReaderActionMarker.MAX_URL_LENGTH) return '';
-    const marker = `${ReaderActionMarker.PREFIX}${encodeURIComponent(JSON.stringify(data))}` +
+    // 没有热评时只写 label/url/title，与旧版本标记逐字相同，已缓存章节不受影响。
+    const record: Record<string, string> = { 'label': data.label, 'url': data.url, 'title': data.title };
+    const safePreview = ReaderActionMarker.normalizePreview(preview);
+    if (safePreview) {
+      record['preview'] = safePreview;
+      const safeLikes = (likes || '').trim().substring(0, ReaderActionMarker.MAX_LIKES_LENGTH);
+      if (safeLikes) record['likes'] = safeLikes;
+    }
+    const marker = `${ReaderActionMarker.PREFIX}${encodeURIComponent(JSON.stringify(record))}` +
       `${ReaderActionMarker.SUFFIX}`;
     return marker.length <= ReaderActionMarker.MAX_MARKER_LENGTH ? marker : '';
   }
 
   /** Persist a user-triggered action supplied by the imported source without interpreting it. */
-  static createSourceScript(label: string, script: string, title: string = ''): string {
+  static createSourceScript(label: string, script: string, title: string = '', preview: string = '',
+    likes: string = ''): string {
     const code = (script || '').trim();
     if (!code || code.length > 4096) return '';
-    return this.create(label, `${this.SOURCE_SCRIPT_SCHEME}${encodeURIComponent(code)}`, title);
+    return this.create(label, `${this.SOURCE_SCRIPT_SCHEME}${encodeURIComponent(code)}`, title, preview, likes);
   }
 
   static sourceScript(url: string): string {
@@ -100,6 +121,9 @@ export class ReaderActionMarker {
       data.label = String(record['label'] || '打开').substring(0, ReaderActionMarker.MAX_LABEL_LENGTH);
       data.url = String(record['url'] || '');
       data.title = String(record['title'] || '').substring(0, ReaderActionMarker.MAX_TITLE_LENGTH);
+      data.preview = ReaderActionMarker.normalizePreview(String(record['preview'] || ''));
+      data.likes = data.preview ?
+        String(record['likes'] || '').trim().substring(0, ReaderActionMarker.MAX_LIKES_LENGTH) : '';
       if (data.url.length > ReaderActionMarker.MAX_URL_LENGTH) return null;
       return data.url ? data : null;
     } catch (_) {

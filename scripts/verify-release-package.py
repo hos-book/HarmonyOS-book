@@ -104,7 +104,7 @@ def main():
     parser.add_argument('--version-code', required=True, type=int)
     parser.add_argument('--min-api', type=int, default=20)
     parser.add_argument('--target-api', type=int, default=26)
-    parser.add_argument('--name-cache', type=Path,
+    parser.add_argument('--name-cache', type=Path, required=True,
                         help='SDK-generated name cache from this release build; checks dynamic source property compatibility')
     args = parser.parse_args()
     if args.package.suffix.lower() == '.app':
@@ -120,7 +120,8 @@ def main():
     if args.name_cache is not None:
         cache = json.loads(args.name_cache.read_text(encoding='utf-8'))
         properties = cache.get('PropertyCache', {})
-        dynamic_exports = ['EpubParserService', 'createEpubReaderController', 'createEpubReaderBuilder',
+        dynamic_exports = ['EpubParserService', 'PdfImportService', 'CbaImportService', 'BookCoverImageService',
+                           'createEpubReaderController', 'createEpubReaderBuilder',
                            'LocalRuleQuickJsRequest', 'LocalRuleQuickJsRuntime',
                            'run', 'cancel']
         renamed_exports = [name for name in dynamic_exports if properties.get(name, name) != name]
@@ -134,6 +135,17 @@ def main():
             'model/LocalRulePanel.ets',
             'model/AudioSubtitle.ets',
         ]
+        # Native symbols are fixed in the .so, including aliased named imports.
+        # Discover them from their declarations so new bridges do not silently escape this check.
+        native_exports = set()
+        for declaration in (source_root.parent / 'cpp/types').rglob('*.d.ts'):
+            native_exports.update(re.findall(
+                r'\bexport\s+(?:declare\s+)?(?:const|let|function)\s+(\w+)',
+                declaration.read_text(encoding='utf-8')))
+        renamed_native = sorted(name for name in native_exports if properties.get(name, name) != name)
+        if renamed_native:
+            for result in results:
+                result['errors'].append('Obfuscation breaks native module exports: ' + ', '.join(renamed_native))
         wire_names = {'version', 'chunks', 'samples', 'sampleRate', 'decodeSubtitleAudio',
                       'extract', 'shatterPrepare', 'shatterAttach', 'shatterBegin', 'shatterClose',
                       'format', 'id', 'chunkBytes', 'cipher', 'keyId', 'getKey', 'getKeyId',

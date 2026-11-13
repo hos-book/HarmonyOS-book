@@ -577,6 +577,21 @@ async function run() {
   const commentContent = JSON.parse(await engine.content(JSON.stringify(commentSource), 'https://engine.test/comments', '{}'));
   assert.equal(commentContent.content, 'paragraph');
   assert.equal(commentContent.interactions[0].label, '段评 2');
+  const noteText = '正文前<note label="神评论" ident="/hot/1" text="读者&amp;热评\n第二行"></note>正文后';
+  fixtures.set('https://engine.test/comment-note', JSON.stringify({text:noteText}));
+  const noteContent = JSON.parse(await engine.content(JSON.stringify(commentSource), 'https://engine.test/comment-note', '{}'));
+  assert.ok(!noteContent.content.includes('<note') && !noteContent.content.includes('第二行'),
+    'inline comment text never leaks into chapter text or speech');
+  const noteAction = ReaderActionMarker.findFirst(noteContent.richContent).data;
+  assert.equal(noteAction.url, 'https://engine.test/hot/1');
+  assert.equal(noteAction.title, '热评');
+  assert.equal(noteAction.preview, '读者&热评 第二行');
+  assert.equal(noteAction.likes, '');
+  const legacyMarker = ReaderActionMarker.PREFIX + encodeURIComponent(JSON.stringify({
+    label:'段评 2',url:'https://engine.test/comments/1',title:''
+  })) + ReaderActionMarker.SUFFIX;
+  assert.equal(ReaderActionMarker.create('段评 2','https://engine.test/comments/1'), legacyMarker,
+    'chapters without hot previews retain byte-identical cached markers');
   const inlineSource = parser.parse(JSON.stringify({sourceFormat:'native',version:1,name:'Inline comments',url:'https://inline.test',
     search:{url:'/search',list:'$.books',fields:{name:'$.name',bookUrl:'$.url'}},
     content:{url:'{{chapter.url}}',text:'$.text',comments:{when:'=data.commentsReady',counts:'=data.counts',page:{

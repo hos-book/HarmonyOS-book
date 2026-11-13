@@ -130,7 +130,7 @@ export class HttpClient {
     this.timeout = timeout;
   }
 
-  static readonly CANCELLED_ERROR: string = '书源请求已取消';
+  static readonly CANCELLED_ERROR: string = '规则请求已取消';
 
   static timeoutResponse(req: HttpRequest): HttpResponse {
     if (req.useWebView && req.webRequestId) {

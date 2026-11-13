@@ -23,10 +23,6 @@ export class ReaderDialogueHighlighter {
           result.push(new ReaderDialogueRange(start, index + 1));
           start = -1;
           closing = '';
-        } else if (char === '\n') {
-          // 缺失闭引号不染色后续叙述段落。
-          start = -1;
-          closing = '';
         }
       } else if (closings.has(char)) {
         start = index;

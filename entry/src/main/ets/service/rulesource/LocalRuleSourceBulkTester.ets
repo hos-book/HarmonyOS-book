@@ -58,6 +58,9 @@ class DefaultLocalRuleSourceBulkTestExecutor implements LocalRuleSourceBulkTestE
     if (this.mode === 'exploreReading') {
       return BookSourceService.testLocalSourceExploreReading(source, this.isCancelled);
     }
+    if (this.mode === 'singleSearch') {
+      return BookSourceService.testLocalSource(source, keyword, this.isCancelled);
+    }
     return BookSourceService.testLocalSourceAvailability(source, keyword, this.isCancelled);
   }
 }
@@ -89,7 +92,7 @@ export class LocalRuleSourceBulkTester {
   }
 
   static createDefault(mode: string = 'search'): LocalRuleSourceBulkTester {
-    if (mode !== 'search' && mode !== 'exploreReading') throw new Error('不支持的书源校验模式');
+    if (mode !== 'search' && mode !== 'singleSearch' && mode !== 'exploreReading') throw new Error('不支持的书源校验模式');
     const tester = new LocalRuleSourceBulkTester(
       new DefaultLocalRuleSourceBulkTestExecutor(mode, (): boolean => false),
       new DefaultLocalRuleSourceBulkTestStore());
@@ -108,7 +111,7 @@ export class LocalRuleSourceBulkTester {
   async run(sources: LocalRuleSource[], keyword: string,
     onProgress?: LocalRuleSourceBulkTestProgressHandler): Promise<LocalRuleSourceBulkTestReport> {
     const cleanKeyword = keyword.trim();
-    if (this.mode === 'search' && cleanKeyword.length === 0) throw new Error('搜索测试关键词不能为空');
+    if (this.mode !== 'exploreReading' && cleanKeyword.length === 0) throw new Error('搜索测试关键词不能为空');
     if (this.running) throw new Error('书源校验正在运行');
     this.running = true;
     this.cancelled = false;

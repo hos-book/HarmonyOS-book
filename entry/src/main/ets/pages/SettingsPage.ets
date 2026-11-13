@@ -66,7 +66,7 @@ const PRELOAD_OPTIONS: PreloadOption[] = [
 
 const ROW_INDENT: number = AppSpace.Md;
 const SEARCH_CONCURRENCY_OPTIONS: number[] = [3, 6, 9, 12];
-const MINI_PLAYER_HIDE_MINUTES: number[] = [0, 1, 5, 10, 20];
+const MINI_PLAYER_HIDE_MINUTES: number[] = [-1, 0, 1, 5, 10, 20];
 
 enum SettingsCacheKind { Text, Comic, Audio }
 
@@ -865,7 +865,7 @@ export struct SettingsPage {
               })
             }.layoutWeight(1).alignItems(VerticalAlign.Center)
             ImmersiveOptionTabs({
-              labels: [$r('app.string.settings_mini_player_hide_never'),
+              labels: [$r('app.string.settings_mini_player_hide_off'), $r('app.string.settings_mini_player_hide_never'),
                 $r('app.string.settings_mini_player_hide_1'), $r('app.string.settings_mini_player_hide_5'),
                 $r('app.string.settings_mini_player_hide_10'), $r('app.string.settings_mini_player_hide_20')],
               selected: Math.max(0, MINI_PLAYER_HIDE_MINUTES.indexOf(this.generalSettings.miniPlayerHideMinutes)),

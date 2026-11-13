@@ -17,7 +17,8 @@ export struct ReaderNativeSelectionMenu {
       onCreateMenu: (items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(true, items),
       onPrepareMenu: (items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(true, items),
       onMenuItemClick: (item: TextMenuItem): boolean => {
-        if (ReaderSelectionMenu.isReaderAction(item.id)) {
+        if (item.id.equals(TextMenuItemId.SELECT_ALL) || ReaderSelectionMenu.isReaderAction(item.id)) {
+          // 全选交给正文，不能选中菜单锚点用于隔离系统手柄的前置换行。
           this.onAction(item.id);
           return true;
         }
@@ -29,12 +30,16 @@ export struct ReaderNativeSelectionMenu {
   }
 
   build() {
-    Text(this.text)
+    Text('\n' + this.text)
       // 透明的菜单锚点只承载所选原文，正文仍由测量后的 Paragraph 绘制。
-      .width('100%').fontSize(1).lineHeight(1).fontColor(Color.Transparent)
+      // 选区手柄由正文绘制；裁剪锚点使系统手柄的完整高度落在可见区域外。
+      // caretColor 只能隐藏外圈，不能隐藏系统固定的白色内圈。
+      .width('100%').height(1).fontSize(16).lineHeight(16).clip(true).fontColor(Color.Transparent)
+      // 禁止默认垂直居中把第二行的系统手柄移回这 1vp 的可见区域。
+      .align(Alignment.TopStart)
       .caretColor(Color.Transparent).selectedBackgroundColor(Color.Transparent)
       .copyOption(CopyOptions.LocalDevice).textSelectable(TextSelectableMode.SELECTABLE_FOCUSABLE)
-      .selection(this.selectionEnd > 0 ? 0 : -1, this.selectionEnd)
+      .selection(this.selectionEnd > 0 ? 1 : -1, this.selectionEnd > 0 ? this.selectionEnd + 1 : -1)
       .editMenuOptions(this.menuOptions()).draggable(false)
       .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
       .onAreaChange((): void => {

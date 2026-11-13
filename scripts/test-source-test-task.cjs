@@ -7,7 +7,7 @@ const ts = require(path.join(process.env.DEVECO_HOME,
   'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const tick = () => new Promise(resolve => setImmediate(resolve));
 function setup() {
-  const notices = [], interruptions = new Set();
+  const notices = [], interruptions = new Set(), modes = [];
   let release, stopped = 0, cancelled = false, runs = 0, rejectRun = false, permission;
   class Progress { total = 0; completed = 0; passed = 0; failed = 0; }
   class Report { total = 0; cancelled = false; }
@@ -28,7 +28,7 @@ function setup() {
     '../SourceDataService': { SourceDataService: { invalidateLocalSources() {} } },
     './LocalRuleSourceBulkTester': {
       LocalRuleSourceBulkTestProgress: Progress, LocalRuleSourceBulkTestReport: Report,
-      LocalRuleSourceBulkTester: { createDefault: () => ({
+      LocalRuleSourceBulkTester: { createDefault: mode => { modes.push(mode); return ({
         cancel: () => { cancelled = true; },
         async run(sources, keyword, update) {
           runs++;
@@ -39,7 +39,7 @@ function setup() {
           const report = new Report(); report.total = sources.length; report.cancelled = cancelled;
           return report;
         }
-      }) }
+      }); } }
     }
   };
   const exports = {};
@@ -49,7 +49,7 @@ function setup() {
   }).outputText, { exports, require: name => dependencies[name] || {}, $r: id => ({ id }) });
   const service = exports.SourceTestTaskService;
   service.setContext({ resourceManager: { getStringSync: (id, ...args) => [id, ...args].join('|') } });
-  return { service, notices, interruptions, release: () => release(), runs: () => runs,
+  return { service, notices, interruptions, modes, release: () => release(), runs: () => runs,
     stopped: () => stopped, fail: () => { rejectRun = true; }, holdPermission: value => { permission = value; } };
 }
 (async () => {
@@ -60,6 +60,7 @@ function setup() {
   await tick();
   assert.equal(h.service.state.running, true);
   assert.equal(h.service.state.progress.completed, 1);
+  assert.deepEqual(h.modes, ['search'], 'multiple sources retain the batch search path');
   h.service.unsubscribe(listener);
   await h.service.start([{}], 'duplicate', 'search');
   assert.equal(h.runs(), 1, 'reopening a page cannot start a duplicate task');
@@ -81,7 +82,9 @@ function setup() {
 
   const interrupted = setup();
   const interruptedTask = interrupted.service.start([{}], 'fixture', 'search');
-  await tick(); for (const listener of interrupted.interruptions) listener();
+  await tick();
+  assert.deepEqual(interrupted.modes, ['singleSearch'], 'one source must validate detail, catalog and content');
+  for (const listener of interrupted.interruptions) listener();
   interrupted.release(); await interruptedTask;
   assert.equal(interrupted.service.state.report.cancelled, true, 'system interruption stops new work');
 

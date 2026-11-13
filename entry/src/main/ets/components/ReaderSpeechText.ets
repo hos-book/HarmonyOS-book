@@ -8,6 +8,7 @@ import { ReaderParagraphNodeController } from '../service/text/ReaderParagraphNo
 import { EpubPageStyle } from '../service/text/EpubPageStyle';
 import { ReaderAiAction } from '../model/ReaderAi';
 import { ReaderSelectionMenu } from '../utils/ReaderSelectionMenu';
+import { ReaderSelectionSettingsDialog } from './ReaderSelectionSettingsPanel';
 import { ReaderSelectionGeometry, ReaderSelectionBounds, ReaderSelectionHandle } from '../service/text/ReaderSelectionGeometry';
 import { ReaderNativeSelectionMenu } from './ReaderNativeSelectionMenu';
 
@@ -111,6 +112,7 @@ struct ReaderTextFragment {
   @Local selectionStart: number = -1;
   @Local selectionEnd: number = -1;
   @Local selectionMenuVisible: boolean = false;
+  @Local selectionMenuRevision: number = 0;
   @Param fontFamily: string = '';
   @Param fontWeight: number = 400;
   @Param letterSpacing: number = 0;
@@ -155,6 +157,18 @@ struct ReaderTextFragment {
   }
 
   private runSelectionAction(id: TextMenuItemId, start: number, end: number): void {
+    if (id.equals(TextMenuItemId.SELECT_ALL)) {
+      if (this.selectionEnabled && this.text.length > 0) {
+        this.updateSelection(0, this.text.length);
+        this.showSelectionMenu();
+      }
+      return;
+    }
+    if (id.equals(TextMenuItemId.of(ReaderSelectionMenu.CONFIGURE))) {
+      this.updateSelection(-1, -1);
+      ReaderSelectionSettingsDialog.open(this.getUIContext());
+      return;
+    }
     if (!this.selectionEnabled || start < 0 || end <= start) return;
     if (id.equals(TextMenuItemId.of(ReaderSelectionMenu.EXCERPT))) {
       const from = this.sourceStart + SpeechTextHighlighter.sourceOffset(this.text, this.source, start);
@@ -196,7 +210,14 @@ struct ReaderTextFragment {
     const context = this.getUIContext();
     const word = ReaderSelectionGeometry.wordAt(this.page, context.vp2px(finger.localX), context.vp2px(finger.localY));
     this.updateSelection(word.start, word.end);
-    this.selectionMenuVisible = this.selecting;
+    this.showSelectionMenu();
+  }
+
+  private showSelectionMenu(): void {
+    if (!this.selecting) return;
+    // 系统菜单可独立收起，更新锚点身份才能在选区不变时重新唤起。
+    this.selectionMenuRevision++;
+    this.selectionMenuVisible = true;
   }
 
   @Computed
@@ -240,11 +261,13 @@ struct ReaderTextFragment {
       y: this.getUIContext().px2vp(this.selectionHandle(leading).top) - 20 })
     .hitTestBehavior(HitTestMode.Block)
     .onTouch((event: TouchEvent): void => event.stopPropagation())
-    .priorityGesture(PanGesture({ direction: PanDirection.All, distance: 1 })
-      .onActionStart((event: GestureEvent): void => { this.beginSelectionDrag(leading); this.dragSelection(event); })
-      .onActionUpdate((event: GestureEvent): void => this.dragSelection(event))
-      .onActionEnd((): void => { this.selectionMenuVisible = this.selecting; })
-      .onActionCancel((): void => { this.selectionMenuVisible = this.selecting; }))
+    .priorityGesture(GestureGroup(GestureMode.Exclusive,
+      PanGesture({ direction: PanDirection.All, distance: 1 })
+        .onActionStart((event: GestureEvent): void => { this.beginSelectionDrag(leading); this.dragSelection(event); })
+        .onActionUpdate((event: GestureEvent): void => this.dragSelection(event))
+        .onActionEnd((): void => this.showSelectionMenu())
+        .onActionCancel((): void => this.showSelectionMenu()),
+      TapGesture().onAction((): void => this.showSelectionMenu())))
     .id(leading ? 'reader-selection-start' : 'reader-selection-end')
   }
 
@@ -291,9 +314,12 @@ struct ReaderTextFragment {
         this.buildSelectionHandle(true)
         this.buildSelectionHandle(false)
         if (this.selectionMenuVisible) {
-          ReaderNativeSelectionMenu({ text: this.text.substring(this.selectionStart, this.selectionEnd),
-            onAction: (id: TextMenuItemId): void => this.runSelectionAction(id, this.selectionStart, this.selectionEnd) })
-            .position({ x: 0, y: this.getUIContext().px2vp(this.selectionBounds.start.top) })
+          ForEach([this.selectionMenuRevision], (_revision: number) => {
+            ReaderNativeSelectionMenu({ text: this.text.substring(this.selectionStart, this.selectionEnd),
+              onAction: (id: TextMenuItemId): void => this.runSelectionAction(id, this.selectionStart, this.selectionEnd) })
+              // 原生菜单锚点提前上移，给菜单本体和选区起始拖柄留出空间。
+              .position({ x: 0, y: this.getUIContext().px2vp(this.selectionBounds.start.top) - 64 })
+          }, (revision: number): string => revision.toString())
         }
       }
       }.width('100%').height(this.getUIContext().px2vp(this.page.layoutHeight))

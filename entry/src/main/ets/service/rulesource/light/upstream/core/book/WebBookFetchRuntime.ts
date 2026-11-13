@@ -271,7 +271,7 @@ export class WebBookFetchRuntime {
       request = task.request;
       task.resolve = resolve;
       if (request.cancelCheck && request.cancelCheck()) {
-        resolve(this.failure(url, '书源请求已取消', 'CANCELLED', 'cancel'));
+        resolve(this.failure(url, '规则请求已取消', 'CANCELLED', 'cancel'));
         return;
       }
       if (request.deadlineAt) {
@@ -296,7 +296,7 @@ export class WebBookFetchRuntime {
       if (request.cancelCheck) {
         task.cancelId = setInterval((): void => {
           if (!task.request.cancelCheck?.()) return;
-          const failed = this.failure(url, '书源请求已取消', 'CANCELLED', 'cancel');
+          const failed = this.failure(url, '规则请求已取消', 'CANCELLED', 'cancel');
           if (this.active === task) this.finishActive(failed);
           else {
             const index = this.queue.indexOf(task);
@@ -335,7 +335,7 @@ export class WebBookFetchRuntime {
     this.active = task;
     if (!task.startedAt) task.startedAt = Date.now();
     if (task.request.cancelCheck?.()) {
-      this.finishActive(this.failure(task.request.url, '书源请求已取消', 'CANCELLED', 'cancel'));
+      this.finishActive(this.failure(task.request.url, '规则请求已取消', 'CANCELLED', 'cancel'));
       return;
     }
     this.ready = false;
@@ -378,7 +378,7 @@ export class WebBookFetchRuntime {
   private navigate(task: WebBookFetchTask): void {
     if (this.active !== task || !this.controller) return;
     if (task.request.cancelCheck?.()) {
-      this.finishActive(this.failure(task.request.url, '书源请求已取消', 'CANCELLED', 'cancel'));
+      this.finishActive(this.failure(task.request.url, '规则请求已取消', 'CANCELLED', 'cancel'));
       return;
     }
     if (task.request.deadlineAt && Date.now() >= task.request.deadlineAt) {

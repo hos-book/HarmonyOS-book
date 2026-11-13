@@ -13,6 +13,7 @@ import { ReaderTapPolicy } from '../utils/ReaderTapPolicy';
 import { AppColor } from '../theme/Theme';
 import { ReaderAiAction } from '../model/ReaderAi';
 import { ReaderSelectionMenu } from '../utils/ReaderSelectionMenu';
+import { ReaderSelectionSettingsDialog } from './ReaderSelectionSettingsPanel';
 
 export class EpubOriginalRequest {
   root: string = '';
@@ -727,6 +728,10 @@ export struct EpubOriginalReader {
       onCreateMenu: (items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(false, items),
       onPrepareMenu: (items: TextMenuItem[]): TextMenuItem[] => ReaderSelectionMenu.items(false, items),
       onMenuItemClick: (item: TextMenuItem, _range: TextRange): boolean => {
+        if (item.id.equals(TextMenuItemId.of(ReaderSelectionMenu.CONFIGURE))) {
+          ReaderSelectionSettingsDialog.open(this.getUIContext());
+          return true;
+        }
         if (!ReaderSelectionMenu.isReaderAction(item.id)) return false;
         if (!this.alive || this.loading || this.checkpoint !== null || this.selectionSerial !== this.serial) return true;
         const frame = this.paged ? null : this.frames.find((value: EpubOriginalFrame): boolean => value.id === this.selectionFrame);

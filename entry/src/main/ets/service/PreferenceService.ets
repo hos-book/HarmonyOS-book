@@ -256,7 +256,21 @@ export class PreferenceService {
   }
 
   static normalizeMiniPlayerHideMinutes(minutes: number): number {
-    return [0, 1, 5, 10, 20].includes(minutes) ? minutes : 0;
+    return [-1, 0, 1, 5, 10, 20].includes(minutes) ? minutes : 0;
+  }
+
+  static async setSelectionMenu(order: string, hidden: string): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const previous = store.getSync('reader_selection_menu', '');
+    try {
+      await store.put('reader_selection_menu', order + '|' + hidden);
+      await store.flush();
+      GeneralSettings.current.selectionMenuOrder = order;
+      GeneralSettings.current.selectionMenuHidden = hidden;
+    } catch (error) {
+      await store.put('reader_selection_menu', previous);
+      throw new Error(`Failed to save selection menu: ${String(error)}`);
+    }
   }
 
   static async setMiniPlayerHideMinutes(minutes: number): Promise<void> {
@@ -348,10 +362,30 @@ export class PreferenceService {
     await PreferenceService.saveComicPreference('comic_volume_key_page_turn', enabled, false);
   }
 
-  static async getComicReadingMode(): Promise<number> {
+  static async getComicReadingMode(bookId: string = ''): Promise<number> {
     const store = await PreferenceService.ensureStore();
-    const value = store.getSync('comic_reading_mode', 0);
+    const fallback = store.getSync('comic_reading_mode', 0);
+    const value = bookId ? store.getSync('comic_reading_mode_book_' + bookId, fallback) : fallback;
     return value === 1 || value === 2 || value === 3 ? value : 0;
+  }
+
+  static async hasComicReadingMode(bookId: string): Promise<boolean> {
+    const store = await PreferenceService.ensureStore();
+    return bookId.length > 0 && store.hasSync('comic_reading_mode_book_' + bookId);
+  }
+
+  static async resetComicReadingMode(bookId: string): Promise<void> {
+    if (!bookId) return;
+    const store = await PreferenceService.ensureStore();
+    const key = 'comic_reading_mode_book_' + bookId;
+    const previous = store.getSync(key, -1);
+    try {
+      await store.delete(key);
+      await store.flush();
+    } catch (error) {
+      if (previous !== -1) await store.put(key, previous);
+      throw new Error(error instanceof Error ? error.message : 'Comic reading mode reset failed');
+    }
   }
 
   static async getComicImagePreloadCount(): Promise<number> {
@@ -457,8 +491,9 @@ export class PreferenceService {
     await store.flush();
   }
 
-  static async setComicReadingMode(mode: number): Promise<void> {
-    await PreferenceService.saveComicPreference('comic_reading_mode', mode === 1 || mode === 2 || mode === 3 ? mode : 0, 0);
+  static async setComicReadingMode(mode: number, bookId: string = ''): Promise<void> {
+    await PreferenceService.saveComicPreference(bookId ? 'comic_reading_mode_book_' + bookId : 'comic_reading_mode',
+      mode === 1 || mode === 2 || mode === 3 ? mode : 0, 0);
   }
 
   static async getComicChapterBar(fallback: boolean = true): Promise<boolean> {
@@ -606,6 +641,12 @@ export class PreferenceService {
         GeneralSettings.current.showShelfSource = s.getSync('show_shelf_source', true) !== false;
         GeneralSettings.current.adaptiveHandedness = s.getSync('adaptive_handedness', true) !== false;
         GeneralSettings.current.swipeSwitchTabs = s.getSync('swipe_switch_tabs', true) !== false;
+        const selectionMenu = s.getSync('reader_selection_menu', '');
+        if (typeof selectionMenu === 'string') {
+          const parts = selectionMenu.split('|');
+          GeneralSettings.current.selectionMenuOrder = parts[0] ?? '';
+          GeneralSettings.current.selectionMenuHidden = parts[1] ?? '';
+        }
         const miniPlayerHideMinutes = s.getSync('mini_player_hide_minutes', 0);
         GeneralSettings.current.miniPlayerHideMinutes = PreferenceService.normalizeMiniPlayerHideMinutes(
           typeof miniPlayerHideMinutes === 'number' ? miniPlayerHideMinutes : 0);

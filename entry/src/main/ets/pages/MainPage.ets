@@ -361,7 +361,8 @@ export struct MainPage {
   }
 
   private miniPlayerVisible(): boolean {
-    return !this.miniPlayerIdleHidden && (this.speechState.active || this.playerState.currentBook !== null);
+    return this.generalSettings.miniPlayerHideMinutes !== -1 && !this.miniPlayerIdleHidden &&
+      (this.speechState.active || this.playerState.currentBook !== null);
   }
 
   private refreshMiniPlayerIdle(reset: boolean = false): void {
@@ -373,6 +374,12 @@ export struct MainPage {
     const busy: boolean = this.speechState.active ? this.speechState.playing || this.speechState.loading
       : this.playerState.isPlaying || this.playerState.isLoading;
     const minutes: number = this.generalSettings.miniPlayerHideMinutes;
+    if (minutes === -1) {
+      this.miniPlayerIdleHidden = true;
+      this.appliedVerticalBarStyle = undefined;
+      this.showMiniChapters = false;
+      return;
+    }
     const wasHidden: boolean = this.miniPlayerIdleHidden;
     if (reset || busy || busy !== this.miniPlayerWasBusy || bookKey !== this.miniPlayerIdleBook ||
       bookKey.length === 0 || minutes === 0) {
