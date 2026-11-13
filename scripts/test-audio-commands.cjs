@@ -1311,7 +1311,9 @@ async function check(name, test) {
     assert.equal(f.preference.chapterDisplayIndex({ id: 'other', chapters: book.chapters }, 0), 0);
     const played = [];
     f.service.playChapter = async (_book, chapter) => played.push(chapter.id);
-    f.service.playChapterFromSavedProgress = f.service.playChapter;
+    f.service.playChapterFromSavedProgress = async () => {
+      assert.fail('上一曲、下一曲应从头起播，不能恢复目标章节的历史进度');
+    };
     await f.service.playNext();
     await f.service.playPrevious();
     f.service.autoPlayNext();

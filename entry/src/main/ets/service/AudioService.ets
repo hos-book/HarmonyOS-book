@@ -2180,7 +2180,7 @@ export class AudioService {
     const idx = this.findChapterIndex(this.state.currentBook, this.state.currentChapter);
     const previous = idx - 1;
     if (idx >= 0 && previous >= 0 && previous < chapters.length) {
-      await this.playChapterFromSavedProgress(this.state.currentBook, chapters[previous]);
+      await this.playChapter(this.state.currentBook, chapters[previous]);
     }
   }
 

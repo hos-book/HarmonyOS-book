@@ -101,6 +101,30 @@ const graphicsText = {
   }
 };
 const native = load('main/ets/service/text/OnlineTextPaginator.ets', { '@kit.ArkGraphics2D': { text: graphicsText } });
+// Imported chapter headings are display-only omissions; bookmarks keep their source coordinates.
+const duplicateTitle = '第九十六节：五十万狼启战端';
+const duplicateBody = '\n第九十六节: 五十万狼启战\n端\n\n正文甲乙丙丁戊己庚辛壬癸\n章内小标题';
+const duplicateEnd = native.OnlineTextPaginator.repeatedHeadingEnd(duplicateBody, duplicateTitle);
+assert.equal(duplicateEnd, duplicateBody.indexOf('\n\n正文') + 1);
+assert.equal(native.OnlineTextPaginator.repeatedHeadingEnd(duplicateBody, ''), 0);
+assert.equal(native.OnlineTextPaginator.repeatedHeadingEnd('章首引言\n' + duplicateBody, duplicateTitle), 0);
+assert.equal(native.OnlineTextPaginator.repeatedHeadingEnd(duplicateTitle + '，他走了过来。', duplicateTitle), 0);
+const duplicateDisplay = native.OnlineTextIndentedContent.fromNormalized(duplicateBody, duplicateEnd);
+assert.equal(duplicateDisplay.text, '　　正文甲乙丙丁戊己庚辛壬癸\n　　章内小标题');
+assert.equal(duplicateDisplay.sourceOffsetForDisplay(2), duplicateBody.indexOf('正文'));
+for (const height of [1, 100]) {
+  const pages = native.OnlineTextPaginator.paginate(duplicateBody, 300, height, 18, 1.9,
+    '', 400, 'justify', 0, 0, duplicateTitle, 26, 'center');
+  const parts = height === 1 ? pages : pages.flatMap(page => page.parts);
+  assert.ok(parts.filter(part => !part.isHeading).every(part => !part.paragraph.text.includes('第九十六')));
+  assert.equal(pages.at(-1).endOffset, duplicateBody.length);
+  const bodyOffset = duplicateBody.indexOf('丙');
+  const restored = pages[native.OnlineTextPaginator.pageIndexForOffset(pages, bodyOffset)];
+  assert.ok(restored.startOffset <= bodyOffset && restored.endOffset > bodyOffset);
+}
+const titleOff = native.OnlineTextPaginator.paginate(duplicateBody, 300, 200, 18, 1.9);
+assert.ok(titleOff[0].paragraph.text.includes('第九十六'), 'turning custom headings off retains the source heading');
+console.log('PASS duplicate EPUB headings, split lines, original offsets, scrolling and heading toggle');
 const { ReaderRegionStyle } = load('main/ets/model/ReaderRegionStyle.ets');
 const titleStyle = ReaderRegionStyle.decode('{"top":12,"bottom":8,"left":20,"right":30,"color":"#123456"}');
 const customHeading = native.OnlineTextPaginator.paginate('正文甲乙丙丁戊己庚辛壬癸', 300, 200, 18, 1.9,
@@ -123,6 +147,12 @@ const token = localImages.LocalTextImage.token('/files/ebooks/import_fixture/ima
 localImages.LocalTextImage.rememberSize('/files/ebooks/import_fixture/image_0_0.img', 80, 40);
 const mixedBody = '图前正文有很多文字\n' + token + '\n图后正文有很多文字';
 const mixedPages = native.OnlineTextPaginator.paginate(mixedBody, 300, 200, 18, 1.9);
+const titledImages = duplicateTitle + '\n' + mixedBody;
+const imageTitlePages = native.OnlineTextPaginator.paginate(titledImages, 300, 200, 18, 1.9,
+  '', 400, 'justify', 0, 0, duplicateTitle, 26, 'center');
+assert.ok(imageTitlePages.flatMap(page => page.parts).filter(part => !part.isHeading && part.paragraph)
+  .every(part => !part.paragraph.text.includes(duplicateTitle)));
+assert.equal(imageTitlePages.flatMap(page => page.parts).find(part => part.imageUrl).startOffset, titledImages.indexOf(token));
 assert.equal(mixedPages.length, 1, 'short text before and after a small image shares one page');
 const imagePage = mixedPages[0].parts.find(page => page.imageUrl);
 assert.ok(imagePage);

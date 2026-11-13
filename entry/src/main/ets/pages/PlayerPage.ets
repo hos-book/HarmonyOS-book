@@ -1130,7 +1130,7 @@ export struct PlayerPage {
     if (idx >= 0 && target >= 0 && target < this.book.chapters.length) {
       const ch = this.book.chapters[target];
       // AudioService 内部会查缓存/解析 URL，这里不用再做
-      await AudioService.getInstance().playChapterFromSavedProgress(this.book, ch);
+      await AudioService.getInstance().playChapter(this.book, ch);
     }
   }
 

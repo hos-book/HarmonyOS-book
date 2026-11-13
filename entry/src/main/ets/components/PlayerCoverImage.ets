@@ -138,7 +138,8 @@ export struct PlayerCoverImage {
             })
         }, (request: PlayerCoverRequest): string => request.key)
         if (this.highQuality) {
-          EnhancedPlayerCover({ url: this.failedKey === this.requestKey() ? (this.resolvedFallback || this.resolvedUrl) : this.resolvedUrl })
+          // 超分以原始网络地址识别封面；加载器会复用缓存，不能传入仅供 Image 显示的 file URI。
+          EnhancedPlayerCover({ url: this.failedKey === this.requestKey() && this.resolvedFallback ? this.fallback : this.url })
         }
       }
       }

@@ -5517,8 +5517,12 @@
       "value": "AI 封面超分"
     },
     {
+      "name": "player_cover_super_resolution_badge",
+      "value": "AI 超分"
+    },
+    {
       "name": "settings_cover_super_resolution_desc",
-      "value": "会员专享：增强播放页低清网络封面，首次处理需稍候；不可用时显示原图"
+      "value": "会员专享：增强播放页网络封面，尺寸较大但模糊的图片也可处理；首次处理需稍候，不可用时显示原图"
     },
     {
       "name": "settings_cover_super_resolution_unavailable",

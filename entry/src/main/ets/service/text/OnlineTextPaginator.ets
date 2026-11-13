@@ -82,7 +82,7 @@ export class OnlineTextIndentedContent {
   private indents: OnlineTextIndent[] = [];
   private static readonly INDENT: string = '\u3000\u3000';
 
-  static fromNormalized(content: string): OnlineTextIndentedContent {
+  static fromNormalized(content: string, hiddenPrefix: number = 0): OnlineTextIndentedContent {
     const result = new OnlineTextIndentedContent();
     result.sourceLength = content.length;
     const paragraphs = content.split('\n');
@@ -93,7 +93,7 @@ export class OnlineTextIndentedContent {
       const paragraph = paragraphs[index];
       const body = paragraph.replace(new RegExp('^\\s+'), '');
       // Source separators remain in the offset space, but must not reserve extra line boxes.
-      if (body.trim().length > 0) {
+      if (sourceStart >= hiddenPrefix && body.trim().length > 0) {
         if (displayed.length > 0) displayStart += 1;
         result.indents.push(new OnlineTextIndent(
           sourceStart, sourceStart + paragraph.length - body.length, displayStart));
@@ -309,11 +309,12 @@ export class OnlineTextPaginator {
     commentOffsets: number[] = [], commentSizePx: number = 0,
     dialogueQuotePairs: string = ReaderDialogueRules.DEFAULT, headingLayout: ReaderRegionStyle = new ReaderRegionStyle()): OnlineTextPage[] {
     const heading = headingTitle.trim();
+    const hiddenPrefix = OnlineTextPaginator.repeatedHeadingEnd(content, heading);
     const images = LocalTextImage.pattern();
     let match = images.exec(content);
     if (match !== null) {
       const pages: OnlineTextPage[] = [];
-      let start = 0;
+      let start = hiddenPrefix;
       while (match !== null) {
         OnlineTextPaginator.appendImageText(pages, content, start, match.index, widthPx, 1,
           fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx, dialogueQuotePairs);
@@ -354,7 +355,7 @@ export class OnlineTextPaginator {
       }
       return result;
     }
-    const layout = OnlineTextPaginator.measure(content, widthPx, fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx);
+    const layout = OnlineTextPaginator.measure(content, widthPx, fontSizePx, lineHeight, fontFamily, fontWeight, alignment, paragraphSpacing, letterSpacingPx, commentOffsets, commentSizePx, hiddenPrefix);
     const displayed = layout.displayed;
     const metrics = layout.metrics;
     const pages = OnlineTextPaginator.paginateMeasuredLines(displayed.text, layout.lines, heading ? 1 : heightPx);
@@ -392,6 +393,31 @@ export class OnlineTextPaginator {
     const restored = displayed.restoreSourceOffsets(pages);
     return heading ? OnlineTextPaginator.composeHeading(content, restored, widthPx, heightPx,
       heading, headingSizePx, fontFamily, headingStyle, headingLayout) : restored;
+  }
+
+  /** 只隐藏章首完整匹配的标题；空白、全半角冒号和拆行不影响匹配，原文坐标保持不变。 */
+  static repeatedHeadingEnd(content: string, title: string): number {
+    const expected = OnlineTextPaginator.headingIdentity(title);
+    if (!expected) return 0;
+    let combined = '';
+    let offset = 0;
+    for (const line of content.substring(0, 1024).split('\n')) {
+      combined += OnlineTextPaginator.headingIdentity(line);
+      offset += line.length + 1;
+      if (!expected.startsWith(combined)) return 0;
+      if (combined === expected) {
+        // 必须匹配完整段落，不能把正文句首或截断的长段误当标题。
+        const end = Math.min(offset, content.length);
+        if (end < content.length && content.charAt(end - 1) !== '\n') return 0;
+        return end;
+      }
+    }
+    return 0;
+  }
+
+  private static headingIdentity(value: string): string {
+    return value.replace(new RegExp('[\\s\\u200B\\uFEFF]', 'g'), '')
+      .replace(new RegExp('：', 'g'), ':');
   }
 
   /** 标题只占布局空间，不进入正文、朗读或书签的字符坐标。 */
@@ -500,9 +526,9 @@ export class OnlineTextPaginator {
 
   private static measure(content: string, widthPx: number, fontSizePx: number, lineHeight: number,
     fontFamily: string, fontWeight: number, alignment: string, paragraphSpacing: number, letterSpacingPx: number,
-    commentOffsets: number[], commentSizePx: number): OnlineTextLayout {
+    commentOffsets: number[], commentSizePx: number, hiddenPrefix: number = 0): OnlineTextLayout {
     const spacing = Number.isFinite(paragraphSpacing) ? Math.max(0, Math.min(2, paragraphSpacing)) : 0;
-    const key = `${widthPx}:${fontSizePx}:${lineHeight}:${fontWeight}:${alignment}:${fontFamily}:${spacing}:${letterSpacingPx}:${commentSizePx}:${commentOffsets.join(',')}`;
+    const key = `${widthPx}:${fontSizePx}:${lineHeight}:${fontWeight}:${alignment}:${fontFamily}:${spacing}:${letterSpacingPx}:${commentSizePx}:${commentOffsets.join(',')}:${hiddenPrefix}`;
     const cachedIndex = OnlineTextPaginator.layouts.findIndex((item: OnlineTextLayout): boolean =>
       item.key === key && item.source === content);
     if (cachedIndex >= 0) {
@@ -515,7 +541,7 @@ export class OnlineTextPaginator {
     layout.key = key;
     layout.serial = ++OnlineTextPaginator.layoutSerial;
     // 获取正文时已标准化；替换后的文字必须保持坐标，不能再次 trim/解码/去标签。
-    layout.displayed = OnlineTextIndentedContent.fromNormalized(content);
+    layout.displayed = OnlineTextIndentedContent.fromNormalized(content, hiddenPrefix);
     if (layout.displayed.text.length === 0) return layout;
     const safeWidth = Math.max(1, widthPx);
     const safeFontSize = Math.max(1, fontSizePx);

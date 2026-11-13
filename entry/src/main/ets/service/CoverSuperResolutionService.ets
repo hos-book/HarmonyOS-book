@@ -3,13 +3,15 @@ import { image } from '@kit.ImageKit';
 import { fileIo, fileUri } from '@kit.CoreFileKit';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { buffer, util } from '@kit.ArkTS';
-import lazy { imageSuperResolution, visionBase } from '@kit.CoreVisionKit';
+import lazy { ReaderComicSuperResolution } from '@legado/aiengine';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { PreferenceService } from './PreferenceService';
 import { CoverPrefetcher } from './CoverPrefetcher';
 import { MembershipState } from '../model/MembershipState';
+import { ComicAiHost } from './ComicAiHost';
+import { ReaderCacheService } from './ReaderCacheService';
 
-/** 仅为当前播放封面运行系统超分；串行处理、小图输入、有界派生缓存。 */
+/** 当前播放封面复用有界分块超分；尺寸大不等于画质清晰。 */
 export class CoverSuperResolutionService {
   private static queue: Promise<void> = Promise.resolve();
 
@@ -27,8 +29,8 @@ export class CoverSuperResolutionService {
         if (!allowed()) return '';
         const result = await CoverSuperResolutionService.process(context, url, allowed);
         return allowed() ? result : '';
-      } catch (_error) {
-        console.warn('[CoverSuperResolution] Enhancement unavailable; using original cover');
+      } catch (error) {
+        console.warn(`[CoverSuperResolution] Enhancement unavailable: ${String(error)}`);
         return '';
       }
     });
@@ -40,7 +42,7 @@ export class CoverSuperResolutionService {
     const digest = cryptoFramework.createMd('SHA256');
     await digest.update({ data: new util.TextEncoder().encodeInto(url) });
     const key = buffer.from((await digest.digest()).data).toString('hex');
-    const dir = `${context.cacheDir}/cover_super_resolution_v1`;
+    const dir = `${context.cacheDir}/cover_super_resolution_v2`;
     if (!await fileIo.access(dir)) await fileIo.mkdir(dir);
     const path = `${dir}/${key}.jpg`;
     if (await fileIo.access(path)) return fileUri.getUriFromPath(path);
@@ -50,58 +52,67 @@ export class CoverSuperResolutionService {
     let input: image.PixelMap | null = null;
     try {
       const info = await source.getImageInfo();
-      // 只处理低分辨率静态封面；大图无需超分，也不先缩小再放大。
+      // 仅限制异常输入和解码预算，不再把大尺寸封面当作高清图跳过。
       if (info.size.width < 32 || info.size.height < 32 ||
-        Math.max(info.size.width, info.size.height) > 640 || await source.getFrameCount() !== 1) return '';
-      input = await source.createPixelMap({ desiredPixelFormat: image.PixelMapFormat.RGBA_8888 });
+        info.size.width * info.size.height > 32 * 1024 * 1024 || await source.getFrameCount() !== 1) return '';
+      const scale = Math.min(1, 2048 / Math.max(info.size.width, info.size.height));
+      const width = Math.max(1, Math.round(info.size.width * scale));
+      const height = Math.max(1, Math.round(info.size.height * scale));
+      let encoded = bytes;
+      if (scale < 1) {
+        input = await source.createPixelMap({ desiredPixelFormat: image.PixelMapFormat.RGBA_8888,
+          desiredSize: { width: width, height: height } });
+        const packer = image.createImagePacker();
+        try { encoded = await packer.packToData(input, { format: 'image/png', quality: 100 }); }
+        finally { await packer.release(); }
+      }
       if (!active()) return '';
-      const engine = await imageSuperResolution.ImageSRAnalyzer.create();
+      const temporary = `${dir}/${key}.input`;
+      const pending = `${path}.tmp`;
       try {
-        if (!active()) return '';
-        const request: visionBase.Request = { inputData: { pixelMap: input } };
-        const response = await engine.process(request);
-        const output = response.pixelMap;
+        await CoverSuperResolutionService.write(temporary, encoded);
+        ComicAiHost.install(context);
+        ReaderCacheService.beginComicWrite();
         try {
-          if (!active() || !await PreferenceService.getCoverSuperResolution()) return '';
-          const size = (await output.getImageInfo()).size;
-          if (size.width <= info.size.width || size.height <= info.size.height ||
-            size.width * size.height > 16 * 1024 * 1024) return '';
-          const packer = image.createImagePacker();
+          // HAR 输出约为目标宽度的两倍，受 12M 像素约束；每块不超过 512K 像素。
+          // 至少请求输入宽度，避免 1500px 等模糊大封面被 HAR 的收益阈值跳过。
+          const result = await ReaderComicSuperResolution.enhance(fileUri.getUriFromPath(temporary),
+            Math.max(1024, width), active);
+          if (!result) return '';
+          ReaderCacheService.hold(result);
           try {
-            const encoded = await packer.packToData(output, { format: 'image/jpeg', quality: 95 });
-            if (!active() || encoded.byteLength > 4 * 1024 * 1024) return '';
-            const temporary = `${path}.tmp`;
-            try {
-              const file = await fileIo.open(temporary,
-                fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
-              try {
-                let offset: number = 0;
-                while (offset < encoded.byteLength) {
-                  const written = await fileIo.write(file.fd, encoded.slice(offset));
-                  if (written <= 0) throw new Error('Incomplete enhanced cover');
-                  offset += written;
-                }
-              } finally {
-                await fileIo.close(file);
-              }
-              await fileIo.rename(temporary, path);
-            } finally {
-              try { await fileIo.unlink(temporary); } catch (_error) { }
-            }
+            await ReaderCacheService.record([result]);
+            if (!active() || !await PreferenceService.getCoverSuperResolution()) return '';
+            const outputPath = new fileUri.FileUri(result).path;
+            const stat = await fileIo.stat(outputPath);
+            if (stat.size <= 0 || stat.size > 4 * 1024 * 1024) return '';
+            await fileIo.copyFile(outputPath, pending);
+            if (!active()) return '';
+            await fileIo.rename(pending, path);
             await CoverSuperResolutionService.trim(dir, `${key}.jpg`);
+            console.info(`[CoverSuperResolution] Enhanced ${info.size.width}x${info.size.height} cover`);
             return fileUri.getUriFromPath(path);
-          } finally {
-            await packer.release();
-          }
-        } finally {
-          if (output !== input) await output.release();
-        }
+          } finally { ReaderCacheService.unhold(result); }
+        } finally { ReaderCacheService.endComicWrite(); }
       } finally {
-        await engine.destroy();
+        try { await fileIo.unlink(temporary); } catch (_error) { }
+        try { await fileIo.unlink(pending); } catch (_error) { }
       }
     } finally {
       try { if (input !== null) await input.release(); } finally { await source.release(); }
     }
+  }
+
+  private static async write(path: string, bytes: ArrayBuffer): Promise<void> {
+    const file = await fileIo.open(path, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);
+    try {
+      let offset = 0;
+      while (offset < bytes.byteLength) {
+        const written = await fileIo.write(file.fd, bytes.slice(offset));
+        if (written <= 0) throw new Error('Incomplete cover input');
+        offset += written;
+      }
+    } finally { await fileIo.close(file); }
   }
 
   private static async trim(dir: string, current: string): Promise<void> {
