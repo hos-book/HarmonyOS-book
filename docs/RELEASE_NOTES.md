@@ -29,8 +29,16 @@
 - MCP 构建遇到 OHPM 批处理递归错误后，使用已核验 Release IDE 的官方 Node/Hvigor CLI（`--no-daemon`）完成构建；本机签名配置未修改。
 - APP：`artifacts/releases/1.1.9-1019001/Jianting-1.1.9-1019001-release.app`，55,773,162 字节；同次构建名称缓存已随包归档。
 - SHA-256：`aa36a8ed92c9e5234885360c6609025b02b2ebddb8083d40bc801d7a45514dcb`。
-- 在线依据：[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)、[元数据规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/app-metadata-audit-skill/SKILL.md)。本轮读取实时索引及相关目录；电脑与浏览器控制连接不可用，沿用本项目现有服务账号授权操作用户指定的同一应用。
-- AGC 上传与送审进行中，完成后追加平台回执。
+- 在线依据：[Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)、[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)、[元数据规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/app-metadata-audit-skill/SKILL.md)。本轮读取实时索引及相关目录；使用本项目现有服务账号授权向指定应用提交，并在已登录的 AGC 控制台核验最终状态。
+- AGC 软件包：`2085559029668533952`，正式版与邀测版共用同一包；上传、绑定及解析成功，`successStatus=0`。控制台显示使用场景为“测试和正式上架”、合法性“已达标”。
+- 正式版：`2085557479487339328`，提交 `ret.code=0`；回读 `releaseState=12`、`reviewState=1`。2026-11-17 12:36（北京时间）控制台显示“预审中”，上架时间明确为“审核通过立即上架”。当前已送审，尚未确认正式上架。
+- 邀测版：`2085554747720366912`，提交 `ret.code=0`；回读 `releaseState=7`、`reviewState=1`，已提交待审核。两渠道版本均为 1.1.9 / 1019001 / 构建 1，更新日志与本节一致。
+- 全部现有两个测试组均已绑定：简听外部体验 231 人、内测组 2 人，共 233 人；`bind=1`、`needNotify=1`，已开启通知，实际送达以平台为准。
+- 测试时间：北京时间 2026-11-17 12:33:49 至 2026-12-17 12:33:49，开始时间设为配置此刻；外部组审核通过后在有效期内生效。
+- 可选上架自检已关闭：邀测创建及正式提交均使用 `onshelfSelfDetect=0`，更新与提交同时使用 `onshelfSelfDetectNotice=0`。控制台最终显示软件包自检“未检测”，未调用启动自检；正式版自动预审属于平台必经审核流程。
+- 邀测链接：https://appgallery.huawei.com/apptest/join/b4f1a2ff4da037280833d3676ff6c1ae 。
+- 代码提交 `d83bffe` 已通过指定 SSH 密钥推送至 `main`；发布回执随本日志补充提交。本机签名配置、未纳入应用的设计草稿与素材未加入提交。
+- 归档包含 APP、SHA-256、同次构建名称缓存与发布回执，位于 `artifacts/releases/1.1.9-1019001/`。
 
 ---
 
