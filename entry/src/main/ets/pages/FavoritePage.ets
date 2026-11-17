@@ -1,3 +1,7 @@
+import { ShelfCollectionView } from '../components/ShelfCollectionView';
+import { FrostedPageHeader } from '../components/FrostedPageHeader';
+import { ShelfCollectionBookPicker } from '../components/ShelfCollectionBookPicker';
+import { ShelfCollectionData, ShelfCollectionGroup, ShelfCollectionRoute, ShelfRecentBook } from '../model/ShelfCollection';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { BookGroupSheet } from '../components/BookGroupSheet';
 import { RecordDissolveEffect } from '../components/RecordDissolveEffect';
@@ -169,12 +173,31 @@ export struct FavoritePage {
   private applicationState: ApplicationStateChangeCallback = {
     onApplicationForeground: (): void => {
       this.foreground = true;
-      if (this.visible && !this.loading) this.scheduleAutoUpdate();
+      if (this.visible && !this.loading) { this.scheduleAutoUpdate(); this.finishShelfScroll(); }
     },
     onApplicationBackground: (): void => { this.foreground = false; this.cancelAutoUpdate(); }
   };
   @Local missingFavoriteCount: number = 0;
-  @Local viewMode: number = 0; // 0=网格，1=列表，2=立式书架
+  @Local viewMode: number = 3; // 0=网格，1=列表，2=立式书架，3=书房
+  @Param collectionGroup: string | undefined = undefined;
+  @Param collectionExpanded: boolean = false;
+  @Param historyEnabled: boolean = true;
+  @Event onRecords: () => void = () => {};
+  @Event onRecentTouch: (active: boolean) => void = () => {};
+  @Event onCollectionClose: () => void = () => {};
+  @Event onCollectionExpand: () => void = () => {};
+  @Event onCollectionDragEnd: (offsetY: number) => void = (_offsetY: number): void => {};
+  @Local collectionRecent: ShelfRecentBook[] = [];
+  @Local collectionHeaderHeight: number = 122;
+  @Local showCollectionPicker: boolean = false;
+  @Local addingCollectionBooks: boolean = false;
+  @Local collectionPickerBooks: Book[] = [];
+  private collectionBooks: Book[] = [];
+  private collectionRecentSerial: number = 0;
+  private shelfScrolling: boolean = false;
+  private historyRefreshPending: boolean = false;
+  private textRefreshPending: boolean = false;
+  private recentRefreshPending: boolean = false;
   @Local pulledSpineBookId: string = '';
   @Local pulledSpineHint: ShelfSpineHint = new ShelfSpineHint();
   private spineContentWidth: number = 328;
@@ -256,13 +279,13 @@ export struct FavoritePage {
   private historyUpdatedHandler: (e: emitter.EventData) => void = (e) => this.onHistoryUpdated(e);
   /** 加入/移出书架后重新拉书清单。 */
   private favoritesChangedHandler: () => void = () => {
-    if (!this.removingBook && !this.committingShelfRemoval) this.loadFavorites();
+    if (!this.removingBook && !this.committingShelfRemoval && !this.addingCollectionBooks) this.loadFavorites();
   };
   private shelfSourceVisibilityHandler: () => void = () => this.syncShelfSourceVisibility();
   private textProgressLoadSerial: number = 0;
   private textProgressChangedHandler: () => void = () => { this.refreshTextProgress(); };
   private safeAreaChangedHandler: (topVp: number, bottomVp: number) => void =
-    (topVp: number, _bottomVp: number): void => { this.topSafeVp = topVp; };
+    (topVp: number, _bottomVp: number): void => { if (this.collectionGroup === undefined) this.topSafeVp = topVp; };
 
   @Computed
   get shelfGroupBooks(): Book[] {
@@ -292,6 +315,150 @@ export struct FavoritePage {
 
   private shelfFilterText(label: Resource, count: number): string {
     return this.getUIContext().getHostContext()?.resourceManager.getStringSync(label.id, count) ?? count.toString();
+  }
+
+  @Computed
+  get collectionGroups(): ShelfCollectionGroup[] {
+    return ShelfCollectionData.groups(this.favoriteBooks, this.shelfGroups, this.pendingShelfRemovalIds, this.shelfKeyword);
+  }
+
+  private openCollectionGroup(group: string): void {
+    if (this.loading || this.navStack.size() > 0) return;
+    this.navStack.pushPathByName('shelfCollection', new ShelfCollectionRoute(group), (): void => {
+      if (this.alive) this.loadFavorites();
+    }, false);
+  }
+
+  @Monitor('historyEnabled')
+  private onCollectionHistoryChanged(): void {
+    if (!this.historyEnabled) this.collectionRecent = [];
+    else this.refreshCollectionRecent();
+  }
+
+  private async refreshCollectionRecent(history?: PlayHistoryItem[]): Promise<void> {
+    if (!this.context || this.viewMode !== 3 || !this.historyEnabled || this.collectionGroup !== undefined) return;
+    if (this.shelfScrolling || !this.visible || !this.foreground) { this.recentRefreshPending = true; return; }
+    this.recentRefreshPending = false;
+    const serial = ++this.collectionRecentSerial;
+    try {
+      const records = history ?? await PreferenceService.getHistory();
+      const positions = await TextReadingProgressService.getAll(this.context, true);
+      if (!this.alive || serial !== this.collectionRecentSerial || !this.historyEnabled) return;
+      if (this.shelfScrolling || !this.visible || !this.foreground) { this.recentRefreshPending = true; return; }
+      const books = this.favoriteBooks.concat(this.collectionBooks)
+        .filter((book: Book): boolean => !this.pendingShelfRemovalIds.has(book.id) && !this.isMissingCachedBook(book))
+        .map((book: Book): Book => BookPresentation.apply(book));
+      const recent = ShelfCollectionData.recent(books, records, positions);
+      if (!ShelfCollectionData.sameRecent(this.collectionRecent, recent)) this.collectionRecent = recent;
+    } catch (_error) { /* 临时读取失败保留上次卡片。 */ }
+  }
+
+  @LocalBuilder
+  private buildCollectionDragHandle() {
+    Row() {
+      Row().width(32).height(4).borderRadius(2).backgroundColor(AppTheme.TextTertiary).opacity(0.3)
+    }.height(18).width('100%').justifyContent(FlexAlign.Center)
+      .id('shelf-collection-drag-handle')
+      .gesture(PanGesture({ direction: PanDirection.Vertical, distance: 12 })
+        .onActionEnd((event: GestureEvent): void => this.onCollectionDragEnd(event.offsetY)))
+  }
+
+  @LocalBuilder
+  private buildCollectionTitleBar() {
+    Row({ space: 8 }) {
+      Column({ space: 3 }) {
+        Text(this.isManaging ? $r('app.string.shelf_selected_count', this.selectedBookIds.size) :
+          this.shelfGroup === BookPresentation.UNGROUPED ? $r('app.string.shelf_group_none') :
+            this.shelfGroup || $r('app.string.collection_all_books'))
+          .fontSize(22).fontWeight(FontWeight.Bold).fontColor(AppTheme.TextPrimary)
+          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        Text($r('app.string.collection_book_count', this.shelfGroupBooks.length))
+          .fontSize(11).fontColor(AppTheme.TextSecondary)
+      }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+      if (this.canAddCollectionBooks()) {
+        ImmersiveCircleButton({ icon: $r('sys.symbol.plus'), label: $r('app.string.collection_add_books'),
+          diameter: 30, iconSize: 16, useMaterial: false,
+          onPress: (): void => this.openCollectionPicker() })
+          .enabled(!this.isManaging && !this.removingBook && !this.loading)
+          .id('shelf-collection-add-books')
+      }
+      ImmersiveCircleButton({ icon: this.collectionExpanded ? $r('sys.symbol.arrow_down_right_and_arrow_up_left') :
+        $r('sys.symbol.arrow_up_left_and_arrow_down_right'),
+        label: this.collectionExpanded ? $r('app.string.collection_collapse') : $r('app.string.collection_expand'),
+        diameter: 30, iconSize: 16, useMaterial: false,
+        onPress: (): void => this.onCollectionExpand() }).id('shelf-collection-expand')
+      ImmersiveCircleButton({ icon: $r('sys.symbol.xmark'), label: $r('app.string.common_close'),
+        diameter: 30, iconSize: 16, useMaterial: false,
+        onPress: (): void => this.onCollectionClose() }).id('shelf-collection-close')
+    }.height(56).width('100%').padding({ left: 20, right: 20, top: 4, bottom: 4 })
+  }
+
+  private canAddCollectionBooks(): boolean {
+    return this.collectionGroup !== undefined && this.shelfGroup.length > 0 &&
+      this.shelfGroup !== BookPresentation.UNGROUPED && this.shelfGroups.includes(this.shelfGroup);
+  }
+
+  private openCollectionPicker(): void {
+    if (!this.canAddCollectionBooks() || this.loading || this.removingBook || this.isManaging || this.addingCollectionBooks) return;
+    this.collectionPickerBooks = this.favoriteBooks.filter((book: Book): boolean =>
+      !this.pendingShelfRemovalIds.has(book.id) && BookPresentation.matchesGroup(book.id, BookPresentation.UNGROUPED));
+    this.showCollectionPicker = true;
+  }
+
+  private async addCollectionBooks(bookIds: string[]): Promise<void> {
+    if (this.addingCollectionBooks || this.removingBook) return;
+    this.addingCollectionBooks = true;
+    try {
+      const group = this.shelfGroup;
+      const favorites = new Set(await PreferenceService.getShelfFavorites());
+      if (!group || group === BookPresentation.UNGROUPED || !BookPresentation.groups.includes(group)) {
+        throw new Error('Collection group is no longer available');
+      }
+      const selected = new Set(bookIds);
+      const ids = this.favoriteBooks.filter((book: Book): boolean => selected.has(book.id) &&
+        !this.pendingShelfRemovalIds.has(book.id) && BookPresentation.matchesGroup(book.id, BookPresentation.UNGROUPED) &&
+        (this.favoriteIdsByBookId.get(book.id) ?? [book.id]).some((id: string): boolean => favorites.has(id)))
+        .map((book: Book): string => book.id);
+      if (ids.length === 0) throw new Error('Selected books are no longer ungrouped favorites');
+      await PreferenceService.setBookGroup(ids, group);
+      this.showCollectionPicker = false;
+      this.shelfFilter = 0;
+      await this.loadFavorites();
+    } finally { this.addingCollectionBooks = false; }
+  }
+
+  @LocalBuilder
+  private buildCollectionPicker() {
+    ShelfCollectionBookPicker({ group: this.shelfGroup, books: this.collectionPickerBooks,
+      onConfirm: async (ids: string[]): Promise<void> => { await this.addCollectionBooks(ids); },
+      onClose: (): void => { if (!this.addingCollectionBooks) this.showCollectionPicker = false; } })
+  }
+
+  private collectionFilterLabel(index: number): Resource {
+    if (index === 1) return $r('app.string.shelf_filter_audio_count', this.shelfAudioCount);
+    if (index === 2) return $r('app.string.shelf_filter_text_count', this.shelfTextCount);
+    if (index === 3) return $r('app.string.shelf_filter_comic_count',
+      this.shelfGroupBooks.filter((book: Book): boolean => book.contentType === 'comic').length);
+    return $r('app.string.shelf_filter_all_count', this.shelfGroupBooks.length);
+  }
+
+  @LocalBuilder
+  private buildCollectionFilter() {
+    Row({ space: 6 }) {
+      ForEach([0, 1, 2, 3], (index: number) => {
+        Button({ type: ButtonType.Capsule, stateEffect: true }) {
+          Text(this.collectionFilterLabel(index)).fontSize(11)
+            .fontWeight(this.shelfFilter === index ? FontWeight.Medium : FontWeight.Regular)
+            .fontColor(this.shelfFilter === index ? AppColor.Brand : AppTheme.TextSecondary)
+            .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+        }.height(32).layoutWeight(1).padding({ left: 6, right: 6 })
+          .backgroundColor(this.shelfFilter === index ? AppColor.BrandSoft : Color.Transparent)
+          .enabled(!this.removingBook && !this.showBatchDelete)
+          .onClick((): void => this.selectShelfFilter(index))
+          .accessibilitySelected(this.shelfFilter === index)
+      }, (index: number): string => index.toString())
+    }.width('100%').height(48).padding({ left: 20, right: 20, top: 4, bottom: 12 })
+      .id('shelf-collection-filters')
   }
 
   private getChapterCount(book: Book): number {
@@ -339,24 +506,33 @@ export struct FavoritePage {
       if (this.alive && this.updateReport.checkedAt < report.checkedAt) this.applyUpdateReport(report);
     });
     this.scheduleInitialLoad();
-    const viewRevision: number = this.viewModeRevision;
-    PreferenceService.getShelfViewMode().then((mode: number): void => {
-      if (this.alive && viewRevision === this.viewModeRevision) this.viewMode = mode;
-    }).catch((): void => {});
-    const groupRevision: number = this.groupSelectionRevision;
-    PreferenceService.getShelfGroup().then((group: string): void => {
-      if (!this.alive || groupRevision !== this.groupSelectionRevision) return;
-      // 偏好通常早于首屏书单返回；先同步已加载的分组，不能用初始空数组校验保存值。
-      this.shelfGroups = BookPresentation.groups.slice();
-      this.shelfGroup = group === BookPresentation.UNGROUPED || this.shelfGroups.includes(group) ? group : '';
-      this.updateShelfData(this.filteredBooks(this.favoriteBooks));
-    }).catch((): void => {});
-    const revision = this.statusFilterRevision;
-    PreferenceService.getShelfStatusFilter().then((value: number): void => {
-      if (!this.alive || revision !== this.statusFilterRevision) return;
-      this.shelfStatusFilter = value;
-      this.updateShelfData(this.filteredBooks(this.favoriteBooks));
-    }).catch((): void => {});
+    if (this.collectionGroup !== undefined) {
+      this.topSafeVp = 0;
+      this.viewMode = 0;
+      this.shelfGroup = this.collectionGroup;
+    } else {
+      const viewRevision: number = this.viewModeRevision;
+      PreferenceService.getShelfViewMode().then((mode: number): void => {
+        if (this.alive && viewRevision === this.viewModeRevision) {
+          this.viewMode = mode;
+          if (mode === 3 && !this.loading) this.refreshCollectionRecent();
+        }
+      }).catch((): void => {});
+      const groupRevision: number = this.groupSelectionRevision;
+      PreferenceService.getShelfGroup().then((group: string): void => {
+        if (!this.alive || groupRevision !== this.groupSelectionRevision) return;
+        // 偏好通常早于首屏书单返回；先同步已加载的分组，不能用初始空数组校验保存值。
+        this.shelfGroups = BookPresentation.groups.slice();
+        this.shelfGroup = group === BookPresentation.UNGROUPED || this.shelfGroups.includes(group) ? group : '';
+        this.updateShelfData(this.filteredBooks(this.favoriteBooks));
+      }).catch((): void => {});
+      const revision = this.statusFilterRevision;
+      PreferenceService.getShelfStatusFilter().then((value: number): void => {
+        if (!this.alive || revision !== this.statusFilterRevision) return;
+        this.shelfStatusFilter = value;
+        this.updateShelfData(this.filteredBooks(this.favoriteBooks));
+      }).catch((): void => {});
+    }
     emitter.on(EVT_HISTORY_UPDATED, this.historyUpdatedHandler);
     emitter.on(EVT_FAVORITES_CHANGED, this.favoritesChangedHandler);
     emitter.on(EVT_SHELF_SOURCE_VISIBILITY_CHANGED, this.shelfSourceVisibilityHandler);
@@ -386,6 +562,7 @@ export struct FavoritePage {
   @Monitor('visible')
   onVisibleChange(): void {
     if (!this.visible) {
+      this.shelfScrolling = false;
       this.pulledSpineBookId = '';
       this.cancelShelfDissolve();
       this.pressedShelfBookId = '';
@@ -395,7 +572,7 @@ export struct FavoritePage {
     if (this.visible) {
       this.syncShelfSourceVisibility();
       if (this.loading) this.scheduleInitialLoad();
-      else this.scheduleAutoUpdate();
+      else { this.scheduleAutoUpdate(); this.finishShelfScroll(); }
     } else if (!this.removingBook) {
       this.exitManagement();
     }
@@ -427,6 +604,7 @@ export struct FavoritePage {
   }
 
   private shelfContentEndOffset(): number {
+    if (this.collectionGroup !== undefined && !this.isManaging) return WindowUtils.getBottomSafeVp() + 24;
     return this.isManaging
       ? this.batchActionsBottomInset() + SHELF_BATCH_ACTIONS_HEIGHT + SHELF_BATCH_ACTIONS_GAP
       : WindowUtils.getFloatingTabBottomVp();
@@ -438,7 +616,7 @@ export struct FavoritePage {
     if (this.miniPlayerVisible) {
       try {
         const uiContext = this.getUIContext();
-        const shelf = PlayerDragTransition.measure(uiContext, SHELF_LAYOUT_ID);
+        const shelf = PlayerDragTransition.measure(uiContext, this.collectionGroup === undefined ? SHELF_LAYOUT_ID : 'shelf-collection-layout');
         const mini = PlayerDragTransition.measure(uiContext, 'mini-player-bar');
         if (!shelf.isValid() || !mini.isValid()) return;
         // HDS 收展使用祖先绘制位移，读取包含 transform 的实际位置，不能只依赖布局回调。
@@ -476,6 +654,7 @@ export struct FavoritePage {
 
   private scheduleAutoUpdate(): void {
     this.cancelAutoUpdate();
+    if (this.collectionGroup !== undefined) return;
     if (!this.alive || !this.visible || !this.foreground || this.loading || this.checkingUpdates ||
       this.removingBook || this.pendingShelfRemovalIds.size > 0 ||
       !ShelfUpdateService.shouldAutoCheck()) return;
@@ -492,9 +671,24 @@ export struct FavoritePage {
     this.updateShelfData(this.filteredBooks(this.favoriteBooks));
   }
 
+  private handleShelfScroll(offset: number, state: ScrollState): void {
+    if (state !== ScrollState.Idle) this.shelfScrolling = true;
+    this.onContentScroll(offset, state);
+  }
+
+  private finishShelfScroll(): void {
+    this.shelfScrolling = false;
+    if (!this.alive || !this.visible || !this.foreground) return;
+    if (this.textRefreshPending) this.refreshTextProgress();
+    if (this.historyRefreshPending) this.onHistoryUpdated({});
+    else if (this.recentRefreshPending) this.refreshCollectionRecent();
+  }
+
   /** 收到播放进度更新事件:只重算历史相关 map,不重拉书清单,避免列表抖动 */
   private async onHistoryUpdated(_e: emitter.EventData): Promise<void> {
-    if (!this.context || this.favoriteBooks.length === 0) return;
+    if (!this.context) return;
+    if (this.shelfScrolling || !this.visible || !this.foreground) { this.historyRefreshPending = true; return; }
+    this.historyRefreshPending = false;
     const history = await PreferenceService.getHistory();
     const map: Record<string, PlayHistoryItem> = {};
     for (const item of history) {
@@ -502,9 +696,20 @@ export struct FavoritePage {
         map[item.bookId] = item;
       }
     }
+    if (!this.alive) return;
+    if (this.shelfScrolling || !this.visible || !this.foreground) { this.historyRefreshPending = true; return; }
+    // 总览只需要最近卡片，点击时复用章节解析，不逐本读取收藏进度。
+    if (this.viewMode === 3) {
+      this.historyMap = map;
+      await this.refreshCollectionRecent(history);
+      return;
+    }
     const idxMap = await this.buildChapterIndexMap(this.favoriteBooks, map);
+    if (!this.alive) return;
+    if (this.shelfScrolling || !this.visible || !this.foreground) { this.historyRefreshPending = true; return; }
     this.historyMap = map;
     this.chapterIdxMap = idxMap;
+    await this.refreshCollectionRecent(history);
   }
 
   async loadFavorites(): Promise<void> {
@@ -518,6 +723,7 @@ export struct FavoritePage {
     if (this.shelfGroup && this.shelfGroup !== BookPresentation.UNGROUPED && !this.shelfGroups.includes(this.shelfGroup)) this.selectShelfGroup('');
     const pinnedIds = new Set(await PreferenceService.getPinnedFavorites());
     const allBooks = await DataService.getBooks(this.context);
+    this.collectionBooks = allBooks;
     const byId = new Map<string, Book>();
     for (const book of allBooks) {
       if (book && book.id) {
@@ -617,6 +823,7 @@ export struct FavoritePage {
     this.historyMap = map;
     this.chapterIdxMap = idxMap;
     this.loading = false;
+    await this.refreshCollectionRecent(history);
     this.scheduleAutoUpdate();
   }
 
@@ -645,6 +852,10 @@ export struct FavoritePage {
   private async refreshTextProgress(): Promise<void> {
     const context = this.context;
     if (context === null) return;
+    if (!this.loading && (this.shelfScrolling || !this.visible || !this.foreground)) {
+      this.textRefreshPending = true; return;
+    }
+    this.textRefreshPending = false;
     const serial = ++this.textProgressLoadSerial;
     const textProgress = new Map<string, TextReadingPosition>();
     try {
@@ -653,7 +864,12 @@ export struct FavoritePage {
         const position = await TextReadingProgressService.get(context, book.id);
         if (position) textProgress.set(book.id, position);
       }
-      if (serial === this.textProgressLoadSerial) this.textProgressMap = textProgress;
+      if (!this.alive) return;
+      if (this.shelfScrolling) { this.textRefreshPending = true; return; }
+      if (serial === this.textProgressLoadSerial) {
+        this.textProgressMap = textProgress;
+        if (!this.loading) await this.refreshCollectionRecent();
+      }
     } catch (_e) {
       // 读取失败保留已有展示，后续保存或刷新时重试。
     }
@@ -986,16 +1202,18 @@ export struct FavoritePage {
   private toggleViewMode(): void {
     this.viewModeRevision++;
     this.pulledSpineBookId = '';
+    const mode: number = (this.viewMode + 1) % 4;
     this.getUIContext().animateTo({ duration: 220, curve: Curve.FastOutSlowIn }, () => {
-      this.viewMode = (this.viewMode + 1) % 3;
+      this.viewMode = mode;
     });
-    const mode: number = this.viewMode;
+    if (mode === 3) this.refreshCollectionRecent();
+    else this.onHistoryUpdated({});
     this.viewModeSaveTask = this.viewModeSaveTask.then((): Promise<void> =>
       PreferenceService.setShelfViewMode(mode)).catch((): void => {});
   }
 
   private shelfHeaderHeight(): number {
-    return SHELF_FILTER_ROW_HEIGHT + (this.showShelfSearch ? SHELF_SEARCH_ROW_HEIGHT : 0);
+    return (this.viewMode === 3 ? 0 : SHELF_FILTER_ROW_HEIGHT) + (this.showShelfSearch ? SHELF_SEARCH_ROW_HEIGHT : 0);
   }
 
   @Computed
@@ -1009,9 +1227,9 @@ export struct FavoritePage {
       bottomBuilder: bottom
     };
     if (PlatformCompat.supports(26)) {
-      // 搜索展开只更新高度和内部状态，保留整排按钮及其 HDS 材质节点。
+      // 标题按钮保留实例；底部 Builder 必须随高度更新，才能从书房的零高度重新挂载类型 Tab。
       const titleBuilder: BuilderOptions = { builder: this.shelfTitleBarBuilder, updated: false };
-      const filterBuilder: BuilderOptions = { builder: this.shelfFilterBuilder, updated: false };
+      const filterBuilder: BuilderOptions = { builder: this.shelfFilterBuilder, updated: true };
       content.stackBuilderContent = titleBuilder;
       bottom.builderContent = filterBuilder;
     }
@@ -1082,6 +1300,7 @@ export struct FavoritePage {
     this.selectedBookIds = new Set();
     this.updateShelfData(this.filteredBooks(this.favoriteBooks));
     this.listScroller.scrollToIndex(0);
+    if (this.collectionGroup !== undefined) return;
     this.groupSaveTask = this.groupSaveTask.then((): Promise<void> =>
       PreferenceService.setShelfGroup(group)).catch((): void => {
         if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.shelf_filter_save_failed') });
@@ -1213,7 +1432,7 @@ export struct FavoritePage {
   }
 
   private handleShelfTypeSwipe(event: GestureEvent): void {
-    if (GeneralSettings.current.swipeSwitchTabs) return;
+    if (this.viewMode === 3 || GeneralSettings.current.swipeSwitchTabs) return;
     if (!this.visible || this.loading || this.isManaging || this.removingBook) return;
     if (Math.abs(event.offsetX) < 48 || Math.abs(event.offsetX) <= Math.abs(event.offsetY) * 1.2) return;
     this.selectShelfFilter(this.shelfFilter + (event.offsetX < 0 ? 1 : -1));
@@ -1228,6 +1447,7 @@ export struct FavoritePage {
   }
 
   private shelfCoverId(book: Book, list: boolean): string {
+    if (this.collectionGroup !== undefined) return 'shelf-collection-' + OneShotTransitionIds.sourceCover(book.id);
     if (this.viewMode === 2) return 'shelf-spine-' + OneShotTransitionIds.sourceCover(book.id);
     return (list ? 'shelf-list-' : 'shelf-grid-') + OneShotTransitionIds.sourceCover(book.id);
   }
@@ -1284,12 +1504,14 @@ export struct FavoritePage {
 
   private openShelfPlayer(bookId: string, coverNodeId: string, onPop: () => void,
     chapterId: string = '', progressMs: number = 0): void {
-    if (!this.visible || this.navStack.size() > 0) return;
+    const paths = this.navStack.getAllPathName();
+    if (!this.visible || (this.collectionGroup === undefined ? paths.length > 0 :
+      paths[paths.length - 1] !== 'shelfCollection')) return;
     const transition = PlayerDragTransition.getInstance();
     if (transition.state.active) return;
     // 在真正跳转时测量，异步目录加载期间封面可能已滚动或重排。
     const origin = transition.captureCover(this.getUIContext(), coverNodeId, 5);
-    if (origin !== undefined) transition.beginTap(origin);
+    if (origin !== undefined) transition.beginTap(origin, this.collectionGroup === undefined ? '' : 'shelfCollection');
     const params = new ShelfPlayerRoute();
     params.bookId = bookId;
     params.chapterId = chapterId;
@@ -1343,8 +1565,8 @@ export struct FavoritePage {
       }
       return;
     }
-    // 有进度但定位不到对应章节(可能 TOC 重排) → 详情页
-    const idx = this.chapterIdxMap[book.id];
+    // 最近阅听也包含未收藏书籍，其章节不一定在收藏进度映射中。
+    const idx = this.chapterIdxMap[book.id] ?? DataService.resolveChapterIndex(book, history.chapterId, history.chapterTitle);
     if (idx === undefined || idx < 0) {
       this.navStack.pushPathByName('detail', book.id, onPop);
       return;
@@ -1565,7 +1787,8 @@ export struct FavoritePage {
   }
 
   private handleManageBack(): boolean {
-    if (this.removingBook) return true;
+    if (this.removingBook || this.addingCollectionBooks) return true;
+    if (this.showCollectionPicker) { this.showCollectionPicker = false; return true; }
     if (this.showBatchGroup) { this.showBatchGroup = false; return true; }
     if (this.groupManagerVisible) {
       if (!this.savingGroups) this.groupManagerVisible = false;
@@ -1727,7 +1950,9 @@ export struct FavoritePage {
       try { await this.refreshShelfAfterRemoval(removedBooks, bookIds); } catch (_refreshError) {}
       if (!this.alive) return;
       this.scheduleAutoUpdate();
-      if (!this.visible || this.navStack.size() > 0) return;
+      const paths = this.navStack.getAllPathName();
+      if (!this.visible || (this.collectionGroup === undefined ? paths.length > 0 :
+        paths[paths.length - 1] !== 'shelfCollection')) return;
       const failedCount = bookIds.length - removedBooks.length;
       if (failure !== undefined || batch || failedCount > 0) {
         this.getUIContext().getPromptAction().showToast({ message: failure ?? (failedCount > 0 ?
@@ -1825,181 +2050,221 @@ export struct FavoritePage {
     }
   }
 
-  build() {
-    Stack({ alignContent: Alignment.TopStart }) {
-      ThemeBackgroundComponent({ scene: ThemeBackgroundScene.Shelf, appScene: AppBackgroundScene.Shelf })
-
-      HdsNavigation() {
-        Column() {
-          if (!this.loading && this.filteredBooks(this.favoriteBooks).length === 0) {
-            List({ scroller: this.listScroller }) {
-              ListItemGroup({ header: this.buildShelfContentInset() }) {
-                ListItem() {
-                  Column({ space: AppSpace.Md }) {
-                    if (this.favoriteBooks.length === this.pendingShelfRemovalIds.size) {
-                      Text($r('app.string.shelf_empty_hint')).fontSize(AppFont.Body)
-                        .fontColor($r('sys.color.font_secondary'))
-                        .textAlign(TextAlign.Center)
-                    } else {
-                      Text($r('app.string.shelf_filter_empty')).fontSize(AppFont.Body)
-                        .fontColor($r('sys.color.font_secondary'))
-                      Text($r('app.string.shelf_filter_empty_hint')).fontSize(AppFont.Caption)
-                        .fontColor($r('sys.color.font_tertiary'))
-                    }
-                  }.width('100%').padding(AppSpace.Lg)
+  @LocalBuilder
+  private buildShelfBody() {
+    Column() {
+      if (this.viewMode === 3) {
+        ShelfCollectionView({ groups: this.collectionGroups, recent: this.collectionRecent,
+          loading: this.loading, historyEnabled: this.historyEnabled, visible: this.visible,
+          topInset: this.topSafeVp + MINI_TITLE_BAR_HEIGHT + this.shelfHeaderHeight() + 6,
+          bottomInset: this.shelfContentEndOffset(), scroller: this.listScroller,
+          onGroup: (group: string): void => this.openCollectionGroup(group),
+          onBook: (book: Book, coverId: string): void => this.handleBookTap(book, coverId),
+          onRecords: (): void => this.onRecords(),
+          onRecentTouch: (active: boolean): void => this.onRecentTouch(active),
+          onContentScroll: (offset: number, state: ScrollState): void => this.handleShelfScroll(offset, state),
+          onScrollStopped: (): void => this.finishShelfScroll() })
+      } else if (!this.loading && this.filteredBooks(this.favoriteBooks).length === 0) {
+        List({ scroller: this.listScroller }) {
+          ListItemGroup({ header: this.buildShelfContentInset() }) {
+            ListItem() {
+              Column({ space: AppSpace.Md }) {
+                if (this.favoriteBooks.length === this.pendingShelfRemovalIds.size) {
+                  Text($r('app.string.shelf_empty_hint')).fontSize(AppFont.Body)
+                    .fontColor($r('sys.color.font_secondary'))
+                    .textAlign(TextAlign.Center)
+                } else {
+                  Text($r('app.string.shelf_filter_empty')).fontSize(AppFont.Body)
+                    .fontColor($r('sys.color.font_secondary'))
+                  Text($r('app.string.shelf_filter_empty_hint')).fontSize(AppFont.Caption)
+                    .fontColor($r('sys.color.font_tertiary'))
                 }
-              }
-            }.width('100%').height('100%').scrollBar(BarState.Off)
-            .contentEndOffset(this.shelfContentEndOffset())
-             .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
-            .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
-          } else if (this.viewMode === 0) {
-            // 三列书卡复用 List 的首尾边界，内容不足一屏时回弹后仍停留在安全起点。
-            List({ scroller: this.listScroller }) {
-              ListItemGroup({ header: this.buildShelfContentInset(), space: AppSpace.Md }) {
-                LazyForEach(this.bookDataSource, (book: Book) => {
-                  ListItem() {
-                    RecordDissolveEffect({ snapshotId: `${this.shelfCoverId(book, false)}-dissolve`,
-                      itemHeight: undefined, particleBudget: this.dissolveParticleBudget,
-                      lightweight: this.lightweightShelfDelete,
-                      active: this.visible && this.dissolvingBookIds.has(book.id),
-                      content: (): void => this.buildBookTile(book),
-                      onFinished: (): void => this.completeShelfDissolve(book.id) })
-                  }
-                  .clip(false)
-                  .onVisibleAreaChange([0], (_visible: boolean, ratio: number): void =>
-                    this.markShelfBookVisible(book.id, ratio))
-                  // 元数据变化时更新书卡；阅读进度由 @Local 映射驱动文本，不能重建封面。
-                }, (book: Book) => JSON.stringify([book.id, book.contentType, book.title, book.cover, this.showShelfSource,
-                  this.getChapterCount(book)]))
-              }
+              }.width('100%').padding(AppSpace.Lg)
             }
-            .lanes(this.bookColumns, AppSpace.Sm)
-            .enableScrollInteraction(!this.removingBook)
-            .cachedCount(6)
-            .width('100%')
-            .height('100%')
-            .padding({
-              left: AppSpace.Md,
-              right: AppSpace.Md
-            })
-            .contentEndOffset(this.shelfContentEndOffset())
-             .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
-            .scrollBar(BarState.Off)
-            // 内容不足一屏时也提供原生回弹。
-            .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
-            .backgroundColor(Color.Transparent)
-          } else if (this.viewMode === 2) {
-            List({ scroller: this.listScroller }) {
-              ListItemGroup({ header: this.buildShelfContentInset(), space: AppSpace.Md }) {
-                LazyForEach(this.spineDataSource, (row: ShelfSpineRow) => {
-                  ListItem() {
-                    this.buildSpineRow(row)
-                  }.clip(false)
-                    .zIndex(row.items.some((item: ShelfSpineItem): boolean => item.book.id === this.pulledSpineBookId) ? 1 : 0)
-                }, (row: ShelfSpineRow): string => row.key)
+          }
+        }.width('100%').height('100%').scrollBar(BarState.Off)
+        .contentEndOffset(this.shelfContentEndOffset())
+         .onDidScroll((offset: number, state: ScrollState): void => this.handleShelfScroll(offset, state))
+        .onScrollStop((): void => this.finishShelfScroll())
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+      } else if (this.viewMode === 0) {
+        // 三列书卡复用 List 的首尾边界，内容不足一屏时回弹后仍停留在安全起点。
+        List({ scroller: this.listScroller }) {
+          ListItemGroup({ header: this.buildShelfContentInset(), space: AppSpace.Md }) {
+            LazyForEach(this.bookDataSource, (book: Book) => {
+              ListItem() {
+                RecordDissolveEffect({ snapshotId: `${this.shelfCoverId(book, false)}-dissolve`,
+                  itemHeight: undefined, particleBudget: this.dissolveParticleBudget,
+                  lightweight: this.lightweightShelfDelete,
+                  active: this.visible && this.dissolvingBookIds.has(book.id),
+                  content: (): void => this.buildBookTile(book),
+                  onFinished: (): void => this.completeShelfDissolve(book.id) })
               }
-            }
-            .cachedCount(2).enableScrollInteraction(!this.removingBook)
-            .width('100%').height('100%')
-            .padding({ left: AppSpace.Md, right: AppSpace.Md })
-            .contentEndOffset(this.shelfContentEndOffset())
-            .onDidScroll((offset: number, state: ScrollState): void => {
-              this.pulledSpineBookId = '';
-              this.onContentScroll(offset, state);
-            })
-            .scrollBar(BarState.Off)
-            .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
-            .backgroundColor(Color.Transparent)
-          } else {
-            List({ scroller: this.listScroller }) {
-              ListItemGroup({ header: this.buildShelfContentInset(), space: AppSpace.Sm }) {
-                LazyForEach(this.bookDataSource, (book: Book) => {
-                  ListItem() {
-                    RecordDissolveEffect({ snapshotId: `${this.shelfCoverId(book, true)}-dissolve`,
-                      itemHeight: undefined, particleBudget: this.dissolveParticleBudget,
-                      lightweight: this.lightweightShelfDelete,
-                      active: this.visible && this.dissolvingBookIds.has(book.id),
-                      content: (): void => this.buildListItem(book),
-                      onFinished: (): void => this.completeShelfDissolve(book.id) })
-                  }
-                  .clip(false)
-                  .onVisibleAreaChange([0], (_visible: boolean, ratio: number): void =>
-                    this.markShelfBookVisible(book.id, ratio))
-                }, (book: Book) => JSON.stringify([book.id, book.contentType, book.title, book.cover, this.showShelfSource,
-                  this.getChapterCount(book), book.author, book.narrator, book.intro, book.category,
-                  book.rating, book.completed, book.wordCount, book.latestChapterTitle, book.updateTime]))
-              }
-            }
-            .cachedCount(6)
-            .enableScrollInteraction(!this.removingBook)
-            .width('100%')
-            .height('100%')
-            .padding({
-              left: AppSpace.Md,
-              right: AppSpace.Md
-            })
-            .contentEndOffset(this.shelfContentEndOffset())
-             .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
-            .scrollBar(BarState.Off)
-            .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
-            .backgroundColor(Color.Transparent)
+              .clip(false)
+              .onVisibleAreaChange([0], (_visible: boolean, ratio: number): void =>
+                this.markShelfBookVisible(book.id, ratio))
+              // 元数据变化时更新书卡；阅读进度由 @Local 映射驱动文本，不能重建封面。
+            }, (book: Book) => JSON.stringify([book.id, book.contentType, book.title, book.cover, this.showShelfSource,
+              this.getChapterCount(book)]))
           }
         }
-        .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('page-type-swipe')
-          .onActionEnd((event: GestureEvent): void => this.handleShelfTypeSwipe(event)))
-        .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult =>
-          info.tag === 'page-type-swipe' && GeneralSettings.current.swipeSwitchTabs ?
-            GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
+        .lanes(this.bookColumns, AppSpace.Sm)
+        .enableScrollInteraction(!this.removingBook)
+        .cachedCount(6)
         .width('100%')
         .height('100%')
-        .layoutWeight(1)
+        .padding({
+          left: AppSpace.Md,
+          right: AppSpace.Md
+        })
+        .contentEndOffset(this.shelfContentEndOffset())
+         .onDidScroll((offset: number, state: ScrollState): void => this.handleShelfScroll(offset, state))
+        .onScrollStop((): void => this.finishShelfScroll())
+        .scrollBar(BarState.Off)
+        // 内容不足一屏时也提供原生回弹。
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+        .backgroundColor(Color.Transparent)
+      } else if (this.viewMode === 2) {
+        List({ scroller: this.listScroller }) {
+          ListItemGroup({ header: this.buildShelfContentInset(), space: AppSpace.Md }) {
+            LazyForEach(this.spineDataSource, (row: ShelfSpineRow) => {
+              ListItem() {
+                this.buildSpineRow(row)
+              }.clip(false)
+                .zIndex(row.items.some((item: ShelfSpineItem): boolean => item.book.id === this.pulledSpineBookId) ? 1 : 0)
+            }, (row: ShelfSpineRow): string => row.key)
+          }
+        }
+        .cachedCount(2).enableScrollInteraction(!this.removingBook)
+        .width('100%').height('100%')
+        .padding({ left: AppSpace.Md, right: AppSpace.Md })
+        .contentEndOffset(this.shelfContentEndOffset())
+        .onDidScroll((offset: number, state: ScrollState): void => {
+          this.pulledSpineBookId = '';
+          this.onContentScroll(offset, state);
+        })
+        .scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
+        .backgroundColor(Color.Transparent)
+      } else {
+        List({ scroller: this.listScroller }) {
+          ListItemGroup({ header: this.buildShelfContentInset(), space: AppSpace.Sm }) {
+            LazyForEach(this.bookDataSource, (book: Book) => {
+              ListItem() {
+                RecordDissolveEffect({ snapshotId: `${this.shelfCoverId(book, true)}-dissolve`,
+                  itemHeight: undefined, particleBudget: this.dissolveParticleBudget,
+                  lightweight: this.lightweightShelfDelete,
+                  active: this.visible && this.dissolvingBookIds.has(book.id),
+                  content: (): void => this.buildListItem(book),
+                  onFinished: (): void => this.completeShelfDissolve(book.id) })
+              }
+              .clip(false)
+              .onVisibleAreaChange([0], (_visible: boolean, ratio: number): void =>
+                this.markShelfBookVisible(book.id, ratio))
+            }, (book: Book) => JSON.stringify([book.id, book.contentType, book.title, book.cover, this.showShelfSource,
+              this.getChapterCount(book), book.author, book.narrator, book.intro, book.category,
+              book.rating, book.completed, book.wordCount, book.latestChapterTitle, book.updateTime]))
+          }
+        }
+        .cachedCount(6)
+        .enableScrollInteraction(!this.removingBook)
+        .width('100%')
+        .height('100%')
+        .padding({
+          left: AppSpace.Md,
+          right: AppSpace.Md
+        })
+        .contentEndOffset(this.shelfContentEndOffset())
+         .onDidScroll((offset: number, state: ScrollState): void => this.handleShelfScroll(offset, state))
+        .onScrollStop((): void => this.finishShelfScroll())
+        .scrollBar(BarState.Off)
+        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
         .backgroundColor(Color.Transparent)
       }
-      .mode(NavigationMode.Stack)
-      .titleBar({
-        avoidLayoutSafeArea: true,
-        content: this.shelfTitleBarContent,
-        style: {
-          scrollEffectOpts: {
-            scrollEffectType: HdsCompat.scrollEffect
-          },
-          originalStyle: {
-            backgroundStyle: {
-              backgroundColor: Color.Transparent
-            },
-            contentStyle: {
-              titleStyle: {
-                mainTitleColor: $r('sys.color.font_primary')
-              },
-              menuStyle: {
-                iconColor: $r('sys.color.icon_primary')
-              }
-            }
-          },
-          scrollEffectStyle: {
-            backgroundStyle: {
-              backgroundColor: Color.Transparent
-            },
-            contentStyle: {
-              titleStyle: {
-                mainTitleColor: $r('sys.color.font_primary')
-              },
-              menuStyle: {
-                iconColor: $r('sys.color.icon_primary')
-              }
-            }
-          },
-          systemMaterialEffect: HdsCompat.material
-        }
-      })
-      .titleMode(HdsNavigationTitleMode.MINI)
-      .hideBackButton(true)
-      .bindToScrollable([this.listScroller])
-      .width('100%')
-      .height('100%')
-      .backgroundColor(Color.Transparent)
+    }
+    .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('page-type-swipe')
+      .onActionEnd((event: GestureEvent): void => this.handleShelfTypeSwipe(event)))
+    .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult =>
+      info.tag === 'page-type-swipe' && (this.viewMode === 3 || GeneralSettings.current.swipeSwitchTabs) ?
+        GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
+    .width('100%')
+    .height('100%')
+    .layoutWeight(1)
+    .backgroundColor(Color.Transparent)
+  }
 
+  build() {
+    Stack({ alignContent: Alignment.TopStart }) {
+      if (this.collectionGroup === undefined) {
+        ThemeBackgroundComponent({ scene: ThemeBackgroundScene.Shelf, appScene: AppBackgroundScene.Shelf })
+      }
+
+      if (this.collectionGroup !== undefined) {
+        Stack({ alignContent: Alignment.Top }) {
+          this.buildShelfBody()
+          FrostedPageHeader({ onHeightChange: (height: number): void => { this.collectionHeaderHeight = height; } }) {
+            this.buildCollectionDragHandle()
+            this.buildCollectionTitleBar()
+            this.buildCollectionFilter()
+          }
+        }.width('100%').height('100%')
+      } else {
+        HdsNavigation() {
+          this.buildShelfBody()
+        }
+        .mode(NavigationMode.Stack)
+        .titleBar({
+          avoidLayoutSafeArea: true,
+          content: this.shelfTitleBarContent,
+          style: {
+            scrollEffectOpts: {
+              scrollEffectType: HdsCompat.scrollEffect
+            },
+            originalStyle: {
+              backgroundStyle: {
+                backgroundColor: Color.Transparent
+              },
+              contentStyle: {
+                titleStyle: {
+                  mainTitleColor: $r('sys.color.font_primary')
+                },
+                menuStyle: {
+                  iconColor: $r('sys.color.icon_primary')
+                }
+              }
+            },
+            scrollEffectStyle: {
+              backgroundStyle: {
+                backgroundColor: Color.Transparent
+              },
+              contentStyle: {
+                titleStyle: {
+                  mainTitleColor: $r('sys.color.font_primary')
+                },
+                menuStyle: {
+                  iconColor: $r('sys.color.icon_primary')
+                }
+              }
+            },
+            systemMaterialEffect: HdsCompat.material
+          }
+        })
+        .titleMode(HdsNavigationTitleMode.MINI)
+        .hideBackButton(true)
+        .bindToScrollable([this.listScroller])
+        .width('100%')
+        .height('100%')
+        .backgroundColor(Color.Transparent)
+      }
+
+      Column().width(0).height(0)
+        .bindSheet($$this.showCollectionPicker, this.buildCollectionPicker(), {
+          height: '76%', detents: ['76%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
+          dragBar: true, showClose: false, backgroundColor: AppMaterial.SheetBackground,
+          blurStyle: AppMaterial.SheetBlur,
+          systemMaterial: PlatformCompat.immersiveMaterial ? AppMaterial.Sheet : undefined,
+          onWillDismiss: (action: DismissSheetAction): void => { if (!this.addingCollectionBooks) action.dismiss(); }
+        })
       Column().width(0).height(0)
         .bindSheet($$this.showBookEditor, this.buildBookEditor(), {
           height: '85%', detents: ['85%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, dragBar: true, showClose: true, backgroundColor: AppMaterial.SheetBackground,
@@ -2041,8 +2306,8 @@ export struct FavoritePage {
     }
     .width('100%')
     .height('100%')
-    .expandSafeArea([SafeAreaType.SYSTEM], [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM])
-    .id(SHELF_LAYOUT_ID)
+    .expandSafeArea([SafeAreaType.SYSTEM], this.collectionGroup === undefined ? [SafeAreaEdge.TOP, SafeAreaEdge.BOTTOM] : [])
+    .id(this.collectionGroup === undefined ? SHELF_LAYOUT_ID : 'shelf-collection-layout')
     .bindSheet($$this.showBatchDelete, this.buildBatchDeleteSheet(), {
       height: SheetSize.FIT_CONTENT,
       detents: [SheetSize.FIT_CONTENT, '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM,
@@ -2263,12 +2528,16 @@ export struct FavoritePage {
     // 使用真实的全宽组头预留导航空间，避免沉浸导航绑定后的滚动偏移影响首行位置。
     Column()
       .width('100%')
-      .height(this.topSafeVp + SHELF_FILTER_TOP_OFFSET + this.shelfHeaderHeight() + SHELF_CONTENT_GAP)
+      .height(this.collectionGroup !== undefined ? this.collectionHeaderHeight + 8 :
+        this.topSafeVp + SHELF_FILTER_TOP_OFFSET + this.shelfHeaderHeight() + SHELF_CONTENT_GAP)
       .hitTestBehavior(HitTestMode.None)
   }
 
   @Builder
   buildShelfTitleBar() {
+    if (this.collectionGroup !== undefined) {
+      this.buildCollectionTitleBar()
+    } else {
     Row({ space: 8 }) {
       Text(this.isManaging ? $r('app.string.shelf_selected_count', this.selectedBookIds.size) :
         $r('app.string.shelf_title'))
@@ -2301,45 +2570,52 @@ export struct FavoritePage {
           .accessibilityText($r('app.string.shelf_search_collapse'))
         }
       }.id('shelf-search-toggle').width(40).height(40).clip(false)
-      ImmersiveCircleButton({ icon: $r('sys.symbol.funnel'), label: $r('app.string.shelf_status_filter'),
-        useMaterial: false,
-        onPress: (): void => this.showStatusFilter() })
-        .enabled(!this.removingBook && !this.showBatchDelete)
-        .bindMenu(this.statusFilterMenuVisible, this.buildStatusFilterMenu, this.statusFilterMenuOptions())
-      if (!this.isManaging) {
-        ImmersiveCircleButton({ icon: $r('sys.symbol.folder'), label: $r('app.string.shelf_group_filter'),
+      if (this.viewMode !== 3) {
+        ImmersiveCircleButton({ icon: $r('sys.symbol.funnel'), label: $r('app.string.shelf_status_filter'),
           useMaterial: false,
-          iconColor: this.shelfGroup ? AppColor.Brand : $r('sys.color.icon_primary'),
-          onPress: (): void => {
-            this.statusFilterMenuVisible = false;
-            this.groupMenuData.setItems(['', BookPresentation.UNGROUPED, ...this.shelfGroups]);
-            this.groupMenuVisible = !this.groupMenuVisible;
-          } })
-          .id('shelf-group-button')
-          .priorityGesture(LongPressGesture({ repeat: false }).onAction((): void => this.openGroupManager()))
+          onPress: (): void => this.showStatusFilter() })
           .enabled(!this.removingBook && !this.showBatchDelete)
-          .bindMenu(this.groupMenuVisible, this.buildGroupMenu, this.groupMenuOptions())
+          .bindMenu(this.statusFilterMenuVisible, this.buildStatusFilterMenu, this.statusFilterMenuOptions())
+        if (!this.isManaging) {
+          ImmersiveCircleButton({ icon: $r('sys.symbol.folder'), label: $r('app.string.shelf_group_filter'),
+            useMaterial: false,
+            iconColor: this.shelfGroup ? AppColor.Brand : $r('sys.color.icon_primary'),
+            onPress: (): void => {
+              this.statusFilterMenuVisible = false;
+              this.groupMenuData.setItems(['', BookPresentation.UNGROUPED, ...this.shelfGroups]);
+              this.groupMenuVisible = !this.groupMenuVisible;
+            } })
+            .id('shelf-group-button')
+            .priorityGesture(LongPressGesture({ repeat: false }).onAction((): void => this.openGroupManager()))
+            .enabled(!this.removingBook && !this.showBatchDelete)
+            .bindMenu(this.groupMenuVisible, this.buildGroupMenu, this.groupMenuOptions())
+        }
+      } else {
+        ImmersiveCircleButton({ icon: $r('sys.symbol.folder'), label: $r('app.string.shelf_group_manage'),
+          useMaterial: false, onPress: (): void => this.openGroupManager() })
+          .id('shelf-collection-manage').enabled(!this.isManaging && !this.removingBook && !this.showBatchDelete)
       }
       ImmersiveCircleButton({ icon: $r('sys.symbol.arrow_clockwise'), label: $r('app.string.shelf_updates_title'),
         useMaterial: false,
         onPress: (): void => { this.showUpdates = true; } })
-        .enabled(!this.isManaging && !this.removingBook)
+        .id('shelf-refresh-button').enabled(!this.isManaging && !this.removingBook)
       ImmersiveCircleButton({
         useMaterial: false,
         icon: this.viewMode === 0 ? $r('sys.symbol.list_bullet') :
-          (this.viewMode === 1 ? $r('sys.symbol.bookshelf') : $r('sys.symbol.square_grid_2x2')),
+          (this.viewMode === 1 ? $r('sys.symbol.bookshelf') : (this.viewMode === 2 ? $r('sys.symbol.folder') : $r('sys.symbol.square_grid_2x2'))),
         label: this.viewMode === 0 ? $r('app.string.shelf_view_list') :
-          (this.viewMode === 1 ? $r('app.string.shelf_view_spine') : $r('app.string.shelf_view_grid')),
+          (this.viewMode === 1 ? $r('app.string.shelf_view_spine') : (this.viewMode === 2 ? $r('app.string.shelf_view_collection') : $r('app.string.shelf_view_grid'))),
         onPress: (): void => this.toggleViewMode()
-      }).id('shelf-view-toggle').enabled(!this.removingBook && !this.showBatchDelete)
+      }).id('shelf-view-toggle').enabled(!this.isManaging && !this.removingBook && !this.showBatchDelete)
     }
     .width('100%').height(MINI_TITLE_BAR_HEIGHT)
     .padding({ left: AppSpace.Md, right: AppSpace.Md })
     .clip(false)
     .hitTestBehavior(HitTestMode.Transparent)
+    }
   }
 
-  @Builder
+  @LocalBuilder
   buildShelfFilter() {
     Column({ space: 6 }) {
       if (this.showShelfSearch) {
@@ -2363,6 +2639,7 @@ export struct FavoritePage {
             this.listScroller.scrollTo({ xOffset: 0, yOffset: 0 });
           })
       }
+      if (this.viewMode !== 3) {
       Stack({ alignContent: Alignment.Center }) {
         CapsuleSegmentButtonV2({
           items: this.shelfFilterItems,
@@ -2414,6 +2691,7 @@ export struct FavoritePage {
           .accessibilityLevel('no-hide-descendants')
       }
       .width('100%').height(40)
+      }
 
     }
     .width('100%')

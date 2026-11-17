@@ -24,6 +24,7 @@ let timerId = 0, stored = null, getPosition = async () => stored;
 const scope = {
   ScrollAlign: { CENTER: 'center' },
   TextReadingProgressService: { get: (...args) => getPosition(...args) },
+  ReadingSessionService: { readChapterIds: async () => new Set() },
   setTimeout: callback => { timers.set(++timerId, callback); return timerId; },
   clearTimeout: id => timers.delete(id),
   hilog: { warn() {} }, DETAIL_LOG_DOMAIN: 0, DETAIL_LOG_TAG: 'test'
@@ -40,7 +41,7 @@ controller('Detail', 'pages/BookDetailPage.ets', [
 ]);
 controller('Sheet', 'components/ChapterSheet.ets', [
   'onBookChanged', 'onCurrentChanged', 'isReadingBook', 'chapters', 'currentIndex',
-  'refresh', 'applyQuery', 'scrollToCurrentChapter', 'shouldShowJumpButton'
+  'refresh', 'refreshReadChapters', 'applyQuery', 'scrollToCurrentChapter', 'shouldShowJumpButton'
 ]);
 function layout() {
   const callbacks = [...timers.values()]; timers.clear();

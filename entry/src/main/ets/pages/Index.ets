@@ -48,6 +48,8 @@ import { RuleSourceDebugPage } from './RuleSourceDebugPage';
 import { RuleSourcePanelPage } from './RuleSourcePanelPage';
 import { TextReaderRouteParams } from '../model/TextReading';
 import { RankingReaderTransition } from '../utils/RankingReaderTransition';
+import { ShelfCollectionPage } from './ShelfCollectionPage';
+import { ShelfCollectionRoute } from '../model/ShelfCollection';
 import { ShelfReaderOpenSurface } from '../components/ShelfReaderOpenSurface';
 import { ShelfReaderOpenState, ShelfReaderRouteParams } from '../utils/ShelfReaderTransition';
 import { RuleSourceLoginRouteParams } from '../model/RuleSourceLogin';
@@ -128,13 +130,14 @@ struct Index {
    */
   @Local detailScroller: Scroller = new Scroller();
   /**
-   * 详情页收藏态。
+   * 详情页刷新状态。
    * HDS 标题栏内容是一次性渲染的独立子树，详情页把状态写进 DetailTitleBarState
    * 并不会让标题栏里的组件重新 build，所以这里镜像一份 @Local：
    * 桥上的 @Trace 一变就改这个值，Index 重新 build → titleBar 的 stackBuilder 重跑 → 图标刷新。
    */
   @Local titleBarBridge: DetailTitleBarState = DetailTitleBarState.get();
-  @Local detailFavorite: boolean = false;
+  @Local detailRefreshing: boolean = false;
+  @Local detailRefreshBusy: boolean = true;
   @Local detailTitleOpacity: number = 1;
   private widgetSubscribed: boolean = false;
   @Local companionCarePulse: number = 0;
@@ -157,7 +160,8 @@ struct Index {
     // 详情页顶栏（HDS 标题栏内容）不是本组件的常规子树，收不到外部 @ObservedV2 的刷新，
     // 只能由这里在被通知后改自己的 @Local，重跑 titleBar 的 stackBuilder 来刷新。
     this.titleBarBridge.onChanged = (): void => {
-      this.detailFavorite = this.titleBarBridge.isFavorite;
+      this.detailRefreshing = this.titleBarBridge.refreshing;
+      this.detailRefreshBusy = this.titleBarBridge.refreshBusy;
     };
     // 首页常驻原生 NavBar；只切换布局，不搬移/重建首页和目的页。
     this.navStack.setInterception({
@@ -350,9 +354,12 @@ struct Index {
     // target === 'home' 默认停在 Tab,不需要跳转
   }
 
+  @Local collectionRouteActive: boolean = false;
+  private collectionBackHandler: (() => boolean) | undefined = undefined;
+
   private oneShotNavigationTransition(from: NavContentInfo, to: NavContentInfo,
     operation: NavigationOperation): NavigationAnimatedTransition | undefined {
-    if (operation === NavigationOperation.POP && to.index === -1 &&
+    if (operation === NavigationOperation.POP && (to.index === -1 || to.name === 'shelfCollection') &&
       (from.name === 'reader' || from.name === 'comicReader') && from.param instanceof ShelfReaderRouteParams) {
       OneShotTransitionCoordinator.getInstance().discardPending();
       return from.param.opening.navigationTransition(this.getUIContext(), false);
@@ -592,15 +599,16 @@ struct Index {
   }
 
   /**
-   * 详情页标题栏内容：返回 + 收藏。
+   * 详情页标题栏内容：返回 + 刷新。
    * 只能放在这里——按钮要在 HDS 标题栏内部才既不被模糊盖住、又能点得动，
-   * 而按钮的收藏态/动作由详情页通过 DetailTitleBarState 单例同步（组件自己订阅 @Trace）。
+   * 而按钮的刷新状态/动作由详情页通过 DetailTitleBarState 单例同步（组件自己订阅 @Trace）。
    */
   @Builder
   detailTitleBarContent() {
     Row() {
       DetailTitleBarActions({
-        isFavorite: this.detailFavorite,
+        refreshing: this.detailRefreshing,
+        refreshBusy: this.detailRefreshBusy,
         horizontalPadding: this.titleBarBridge.horizontalPadding
       })
     }
@@ -612,7 +620,16 @@ struct Index {
 
   @Builder
   routerMap(name: string, param: object) {
-    if (name === 'detail') {
+    if (name === 'shelfCollection' && param instanceof ShelfCollectionRoute) {
+      NavDestination() {
+        ShelfCollectionPage({ route: param, navStack: this.navStack, active: this.collectionRouteActive,
+          onBackHandlerChange: (handler: (() => boolean) | undefined): void => { this.collectionBackHandler = handler; } })
+      }.hideTitleBar(true).mode(NavDestinationMode.DIALOG).backgroundColor(Color.Transparent)
+        .onBackPressed((): boolean => this.collectionBackHandler?.() ?? false)
+        .onShown((): void => { this.collectionRouteActive = true; })
+        .onHidden((): void => { this.collectionRouteActive = false; })
+        .systemTransition(NavigationSystemTransitionType.NONE)
+    } else if (name === 'detail') {
       HdsNavDestination() {
         DetailPageWrapper({
           navStack: this.navStack,

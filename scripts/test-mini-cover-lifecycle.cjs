@@ -21,7 +21,7 @@ const dependencies = {
 };
 vm.runInNewContext(ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS,
   target: ts.ScriptTarget.ES2020 } }).outputText, { exports: exportsObject, require: key => dependencies[key] || {},
-  ImageFit: { Cover: 0 }, setTimeout, clearTimeout });
+  ImageFit: { Cover: 0 }, ImageInterpolation: { Medium: 1 }, setTimeout, clearTimeout });
 const flush = () => new Promise(resolve => setImmediate(resolve));
 (async () => {
   const cover = new exportsObject.CoverImage(); cover.url = 'https://example.test/cover'; cover.eagerLoad = true;

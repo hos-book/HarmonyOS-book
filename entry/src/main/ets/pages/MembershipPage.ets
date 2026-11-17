@@ -2,7 +2,7 @@ import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { MembershipSubscriptionPage, MEMBERSHIP_BACKGROUND_TOP } from './MembershipSubscriptionPage';
 import { CapsuleSegmentButtonV2, ColorMetrics, LengthMetrics, SegmentButtonV2Items } from '@kit.ArkUI';
 import { HdsTabs } from '@kit.UIDesignKit';
-import { AppFont, AppSpace, AppTheme, HomeTheme } from '../theme/Theme';
+import { AppColor, AppFont, AppSpace, AppTheme, HomeTheme } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { HdsCompat } from '../utils/HdsCompat';
@@ -19,6 +19,10 @@ export struct MembershipPage {
 
   @Local showMembership: boolean = false;
   @Local selectedTab: number = 0;
+  @Local backgroundApplyRequest: number = 0;
+  @Local backgroundCancelRequest: number = 0;
+  @Local backgroundActionsEnabled: boolean = false;
+  @Local backgroundSaving: boolean = false;
   @Local tabBarHeight: number = 40;
   @Local tabBarWidth: number = 0;
   @Local titleBarHeight: number = WindowUtils.getStatusBarHeightVp() + 40 + AppSpace.Sm * 2;
@@ -121,6 +125,25 @@ export struct MembershipPage {
   }
 
   @Builder
+  backgroundActions() {
+    Row({ space: AppSpace.Xs }) {
+      Button($r('app.string.app_background_cancel')).fontSize(AppFont.Caption)
+        .fontColor(AppTheme.TextSecondary).backgroundColor(AppTheme.Surface).height(40)
+        .padding({ left: AppSpace.Sm, right: AppSpace.Sm }).enabled(this.backgroundActionsEnabled)
+        .id('app-background-cancel').onClick((): void => { this.backgroundCancelRequest++; })
+      Button({ type: ButtonType.Normal }) {
+        Row({ space: AppSpace.Xs }) {
+          if (this.backgroundSaving) { LoadingProgress().width(16).height(16).color(AppColor.Brand) }
+          Text($r('app.string.app_background_apply')).fontSize(AppFont.Caption)
+            .fontColor(AppColor.OnBrand).maxLines(1)
+        }.justifyContent(FlexAlign.Center)
+      }.height(40).padding({ left: AppSpace.Sm, right: AppSpace.Sm }).borderRadius(20)
+        .backgroundColor(AppColor.Brand).enabled(this.backgroundActionsEnabled).id('app-background-apply')
+        .onClick((): void => { this.backgroundApplyRequest++; })
+    }.flexShrink(0)
+  }
+
+  @Builder
   themeTitleBar() {
     FrostedPageHeader({ onHeightChange: (height: number): void => { this.titleBarHeight = height; } }) {
       Row({ space: AppSpace.Sm }) {
@@ -129,8 +152,12 @@ export struct MembershipPage {
         }.width(40).height(40).backgroundColor(Color.Transparent)
         .accessibilityText($r('app.string.app_icon_back')).onClick(() => this.navStack.pop())
         Text($r('app.string.membership_title')).fontSize(AppFont.Title).fontWeight(FontWeight.Bold)
-          .fontColor(AppTheme.TextPrimary)
-        Blank()
+          .fontColor(AppTheme.TextPrimary).layoutWeight(1).maxLines(1)
+          .minFontSize(AppFont.BodyL).maxFontSize(AppFont.Title)
+          .textOverflow({ overflow: TextOverflow.Ellipsis })
+        if (this.selectedTab === 1) {
+          this.backgroundActions()
+        }
       }.width('100%').padding({ top: WindowUtils.getStatusBarHeightVp() + AppSpace.Sm,
         left: AppSpace.Sm, right: AppSpace.Md, bottom: AppSpace.Sm })
         .id('theme-frosted-title-bar')
@@ -152,7 +179,15 @@ export struct MembershipPage {
         TabContent() {
           Scroll() {
             Column() {
-              AppBackgroundSettingsComponent({ onMembershipRequired: (): void => { this.showMembership = true; } })
+              AppBackgroundSettingsComponent({
+                applyRequest: this.backgroundApplyRequest,
+                cancelRequest: this.backgroundCancelRequest,
+                onActionsChange: (enabled: boolean, saving: boolean): void => {
+                  this.backgroundActionsEnabled = enabled;
+                  this.backgroundSaving = saving;
+                },
+                onMembershipRequired: (): void => { this.showMembership = true; }
+              })
             }.width('100%').constraintSize({ maxWidth: 680 })
             .padding({ left: AppSpace.Md, right: AppSpace.Md,
               top: this.titleBarHeight + this.tabBarHeight + AppSpace.Sm * 3,

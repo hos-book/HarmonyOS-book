@@ -27,6 +27,14 @@ class CoverCompositeClip implements AttributeModifier<CommonAttribute> {
   }
 }
 
+class CoverEdgeAntialias implements AttributeModifier<ImageAttribute> {
+  private enabled: boolean;
+  constructor(enabled: boolean) { this.enabled = enabled; }
+  applyNormalAttribute(node: ImageAttribute): void {
+    if (PlatformCompat.supports(23)) node.antialiased(this.enabled);
+  }
+}
+
 /**
  * 网络封面图：占位始终保留，完整出图后显示；失败只后台重试一次。
  * 短期复用失败结果，避免列表重建时反复请求和闪动。
@@ -49,6 +57,7 @@ export struct CoverImage {
   @Param themeBundleId: string = '';
   // 旋转封面先统一裁剪再合成，避免图片与占位的裁剪边缘叠加。
   @Param compositeEdges: boolean = false;
+  @Param antialiasEdges: boolean = false;
   @Param imageFit: ImageFit = ImageFit.Cover;
   @Param interpolationQuality: ImageInterpolation = ImageInterpolation.Medium;
   @Param highPriority: boolean = true;
@@ -213,6 +222,7 @@ export struct CoverImage {
         // 按布局尺寸和 objectFit 等比降采样；sourceSize 的数字单位是 vp，不能传像素预算。
         .autoResize(true)
         .interpolation(this.interpolationQuality)
+        .attributeModifier(new CoverEdgeAntialias(this.antialiasEdges))
         .opacity(this.imageReady ? 1 : 0)
         .onComplete((event) => {
           // 数据加载阶段为原图尺寸；不能用 sourceSize 缩略解码后的尺寸覆盖它。
@@ -240,6 +250,7 @@ export struct CoverImage {
         .objectFit(this.imageFit)
         .autoResize(true)
         .interpolation(this.interpolationQuality)
+        .attributeModifier(new CoverEdgeAntialias(this.antialiasEdges))
         .opacity(this.imageReady ? 1 : 0)
         .onComplete((event) => {
           if (!this.appeared || this.url !== url) return;
@@ -271,6 +282,7 @@ export struct CoverImage {
         .borderRadius(this.compositeEdges ? 0 : this.radius)
         .clip(!this.compositeEdges)
         .objectFit(ImageFit.Cover)
+        .attributeModifier(new CoverEdgeAntialias(this.antialiasEdges))
         .autoResize(true)
     } else {
       Image(CoverTheme.placeholder(this.themeBundleId))
@@ -280,6 +292,7 @@ export struct CoverImage {
         .borderRadius(this.compositeEdges ? 0 : this.radius)
         .clip(!this.compositeEdges)
         .objectFit(ImageFit.Cover)
+        .attributeModifier(new CoverEdgeAntialias(this.antialiasEdges))
         .autoResize(true)
     }
   }
@@ -303,6 +316,7 @@ export struct CoverImage {
           .aspectRatio(this.useFixedHeight ? undefined : this.displayRatio()).objectFit(this.imageFit)
           .borderRadius(this.compositeEdges ? 0 : this.radius).autoResize(true)
           .interpolation(this.interpolationQuality)
+        .attributeModifier(new CoverEdgeAntialias(this.antialiasEdges))
       }
     }
     .width(this.displayWidth())

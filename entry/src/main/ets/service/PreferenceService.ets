@@ -1296,8 +1296,8 @@ export class PreferenceService {
 
   static async getShelfViewMode(): Promise<number> {
     const store = await PreferenceService.ensureStore();
-    const value = await store.get('shelf_view_mode', 0);
-    return value === 1 || value === 2 ? value : 0;
+    const value = await store.get('shelf_view_mode', 3);
+    return value === 0 || value === 1 || value === 2 || value === 3 ? value : 3;
   }
 
   static async getRecordEditLocked(): Promise<boolean> {
@@ -1319,7 +1319,7 @@ export class PreferenceService {
 
   static async setShelfViewMode(mode: number): Promise<void> {
     const store = await PreferenceService.ensureStore();
-    await store.put('shelf_view_mode', mode === 1 || mode === 2 ? mode : 0);
+    await store.put('shelf_view_mode', mode === 1 || mode === 2 || mode === 3 ? mode : 0);
     await store.flush();
   }
 

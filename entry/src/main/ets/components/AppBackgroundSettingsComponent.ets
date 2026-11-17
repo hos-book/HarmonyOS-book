@@ -47,7 +47,10 @@ enum BackgroundAdjustment { Veil, Blur, PositionX, PositionY, Scale }
 /** 本地草稿与已应用背景分离；被跟随开关隐藏的独立配置仍保留。 */
 @ComponentV2
 export struct AppBackgroundSettingsComponent {
+  @Param applyRequest: number = 0;
+  @Param cancelRequest: number = 0;
   @Event onMembershipRequired: () => void = () => {};
+  @Event onActionsChange: (enabled: boolean, saving: boolean) => void = () => {};
   @Local service: AppBackgroundService = AppBackgroundService.instance;
   @Local appearance: AppAppearance = AppAppearance.current;
   @Local tabIcons: BottomTabIconService = BottomTabIconService.instance;
@@ -80,13 +83,30 @@ export struct AppBackgroundSettingsComponent {
 
   aboutToAppear(): void {
     this.alive = true;
+    this.reportActions();
     this.load();
   }
 
   aboutToDisappear(): void {
     this.alive = false;
+    this.onActionsChange(false, false);
     this.request++;
     if (!this.saving) this.discardImports();
+  }
+
+  @Monitor('applyRequest')
+  onApplyRequested(): void {
+    if (this.alive) this.apply();
+  }
+
+  @Monitor('cancelRequest')
+  onCancelRequested(): void {
+    if (this.alive) this.cancel();
+  }
+
+  @Monitor('loading', 'service.ready', 'service.busy', 'saving', 'picking', 'dirty')
+  reportActions(): void {
+    if (this.alive) this.onActionsChange(this.canEdit && this.dirty, this.saving);
   }
 
   private async load(): Promise<void> {
@@ -628,20 +648,7 @@ export struct AppBackgroundSettingsComponent {
           .fontColor(AppTheme.TextPrimary).flexShrink(1).maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
         SettingsHintButton({ title: $r('app.string.app_background_title'), message: $r('app.string.app_background_help') })
-        Blank()
-        Button($r('app.string.app_background_cancel')).fontSize(AppFont.Caption)
-          .fontColor(AppTheme.TextSecondary).backgroundColor(AppTheme.Surface).height(40)
-          .padding({ left: 12, right: 12 }).enabled(this.canEdit && this.dirty)
-          .id('app-background-cancel').onClick((): void => { this.cancel(); })
-        Button({ type: ButtonType.Normal }) {
-          Row({ space: 4 }) {
-            if (this.saving) { LoadingProgress().width(16).height(16).color(AppColor.Brand) }
-            Text($r('app.string.app_background_apply')).fontSize(AppFont.Caption).fontColor(AppColor.OnBrand)
-            VipFeatureBadge()
-          }.justifyContent(FlexAlign.Center)
-        }.height(40).padding({ left: 12, right: 12 }).borderRadius(20).backgroundColor(AppColor.Brand)
-          .enabled(this.canEdit && this.dirty).id('app-background-apply')
-          .onClick((): void => { this.apply(); })
+        VipFeatureBadge()
       }.width('100%')
       if (this.loading) {
         LoadingProgress().width(24).height(24).color(AppColor.Brand)

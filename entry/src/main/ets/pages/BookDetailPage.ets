@@ -79,21 +79,22 @@ export class DetailBackInterceptor {
  * 为什么顶栏按钮不画在详情页自己身上：
  * 详情页用 HdsNavDestination 的 titleBar + scrollEffect 出顶部沉浸模糊，而 HDS 标题栏
  * 整体 zIndex 高于 NavDestinationContent（实测 dumpLayout 里 TitleBar zIndex=2），
- * 且会阻塞兄弟节点的命中测试。结果是页面自己画的返回/收藏按钮既被模糊盖成灰影、
- * 也完全点不动（实测点爱心不生效、点返回不退页）。所以按钮必须成为标题栏内容的一部分，
+ * 且会阻塞兄弟节点的命中测试。结果是页面自己画的返回/操作按钮既被模糊盖成灰影、
+ * 也完全点不动（实测操作按钮不生效、点返回不退页）。所以按钮必须成为标题栏内容的一部分，
  * 由 Index.ets 的 titleBar({ content: { stackBuilder } }) 渲染。
  *
- * 但按钮要读详情页的收藏态、要调详情页的方法，于是用这个单例做桥：动作回调由详情页
+ * 但按钮要读详情页的刷新状态、要调详情页的方法，于是用这个单例做桥：动作回调由详情页
  * 在 aboutToAppear 里挂上，状态变化通过 onChanged 通知 Index（Index 必须改自己的 @Local
  * 才会重跑 stackBuilder，光改 @Trace 是刷不动标题栏内容的）。
  * 与 DetailBackInterceptor 同一套做法。
  */
 @ObservedV2
 export class DetailTitleBarState {
-  @Trace isFavorite: boolean = false;
+  @Trace refreshing: boolean = false;
+  @Trace refreshBusy: boolean = true;
   @Trace horizontalPadding: number = 16;
   onBack: () => void = () => {};
-  onToggleFavorite: () => void = () => {};
+  onRefresh: () => void = () => {};
   /**
    * 状态变化通知。标题栏内容是一次性渲染的独立子树，靠 @Trace 刷不动它，
    * 只能由 Index 收到通知后改自己的 @Local，重跑 titleBar 的 stackBuilder。
@@ -108,16 +109,17 @@ export class DetailTitleBarState {
 }
 
 /**
- * 详情页顶栏按钮（返回 + 收藏），由 Index.ets 塞进 HDS 标题栏。
+ * 详情页顶栏按钮（返回 + 刷新），由 Index.ets 塞进 HDS 标题栏。
  *
- * 收藏态必须由 Index.ets 以 @Param 下发，不能在这里读 DetailTitleBarState 的 @Trace：
+ * 刷新状态必须由 Index.ets 以 @Param 下发，不能在这里读 DetailTitleBarState 的 @Trace：
  * 实测标题栏内容是被 HDS 一次性渲染进独立子树的，外部 @ObservedV2 的 @Trace 变化
  * 不会触发这里重新 build（日志里 DetailTitleBarActions 只在启动时 build 了 3 次）。
- * 所以 Index 自己持一份 @Local，收藏态一变就重跑 titleBar 的 stackBuilder。
+ * 所以 Index 自己持一份 @Local，刷新状态一变就重跑 titleBar 的 stackBuilder。
  */
 @ComponentV2
 export struct DetailTitleBarActions {
-  @Param isFavorite: boolean = false;
+  @Param refreshing: boolean = false;
+  @Param refreshBusy: boolean = true;
   @Param horizontalPadding: number = 16;
 
   build() {
@@ -130,17 +132,22 @@ export struct DetailTitleBarActions {
         onPress: (): void => { DetailTitleBarState.get().onBack(); }
       })
       Blank()
-      // 右上角放爱心：与首页精选行同一套语义（爱心 = 收藏），加入书架的能力留在操作行。
-      ImmersiveCircleButton({
-        icon: this.isFavorite ? $r('sys.symbol.heart_fill') : $r('sys.symbol.heart'),
-        label: this.isFavorite
-          ? $r('app.string.home_favorite_remove')
-          : $r('app.string.home_favorite_add'),
-        diameter: 40,
-        iconSize: 22,
-        iconColor: this.isFavorite ? AppColor.Brand : $r('sys.color.font_primary'),
-        onPress: (): void => { DetailTitleBarState.get().onToggleFavorite(); }
-      })
+      Stack({ alignContent: Alignment.Center }) {
+        ImmersiveCircleButton({
+          icon: $r('sys.symbol.arrow_clockwise'),
+          label: this.refreshing ? $r('app.string.book_detail_refreshing') : $r('app.string.book_detail_refresh'),
+          diameter: 40,
+          iconSize: 22,
+          iconColor: this.refreshing ? Color.Transparent : $r('sys.color.font_primary'),
+          onPress: (): void => { DetailTitleBarState.get().onRefresh(); }
+        })
+        if (this.refreshing) {
+          LoadingProgress().width(22).height(22).color(AppColor.Brand)
+            .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
+        }
+      }.width(40).height(40).enabled(!this.refreshBusy)
+        .opacity(this.refreshBusy && !this.refreshing ? 0.45 : 1)
+        .id('book-detail-refresh')
     }
     .width('100%')
     .height(DETAIL_TITLE_BAR_HEIGHT)
@@ -172,6 +179,8 @@ export struct BookDetailPage {
   @Local book: Book | null = null;
   @Local coverRatio: number = 1;
   @Local loadingDetail: boolean = true;
+  @Local resolvingBook: boolean = true;
+  @Local refreshing: boolean = false;
   @Local loadFailed: boolean = false;
   @Local isFavorite: boolean = false;
   @Local loadingToc: boolean = false;
@@ -242,8 +251,8 @@ export struct BookDetailPage {
     // 顶栏按钮画在 HDS 标题栏里（Index.ets 渲染），这里把动作和初始态挂上去。
     const titleBarState = DetailTitleBarState.get();
     titleBarState.onBack = (): void => this.handleTopBarBack();
-    titleBarState.onToggleFavorite = (): void => { this.toggleFavorite(); };
-    titleBarState.isFavorite = this.isFavorite;
+    titleBarState.onRefresh = (): void => { this.refreshBook(); };
+    this.syncTitleBarRefresh();
     titleBarState.horizontalPadding = this.horizontalPadding();
     titleBarState.onChanged();
     WindowUtils.setStatusBarLight(false);
@@ -267,11 +276,13 @@ export struct BookDetailPage {
     });
   }
 
-  /** 收藏态变化时同步给标题栏（@Local 的赋值点很多，用 Monitor 一处兜住）。 */
-  @Monitor('isFavorite')
-  private syncTitleBarFavorite(monitor: IMonitor): void {
+  @Monitor('refreshing', 'resolvingBook', 'loadingDetail', 'loadingToc', 'deferEntry', 'book')
+  private syncTitleBarRefresh(): void {
+    if (!this.detailActive) return;
     const titleBarState = DetailTitleBarState.get();
-    titleBarState.isFavorite = this.isFavorite;
+    titleBarState.refreshing = this.refreshing;
+    titleBarState.refreshBusy = this.refreshing || this.resolvingBook || this.loadingDetail ||
+      this.loadingToc || this.deferEntry || this.book === null;
     titleBarState.onChanged();
   }
 
@@ -362,9 +373,9 @@ export struct BookDetailPage {
     DetailBackInterceptor.set(null);
     const titleBarState = DetailTitleBarState.get();
     titleBarState.onBack = (): void => {};
-    titleBarState.onToggleFavorite = (): void => {};
-    // 复位，避免下一本详情页首帧闪出上一本的收藏态。
-    titleBarState.isFavorite = false;
+    titleBarState.onRefresh = (): void => {};
+    titleBarState.refreshing = false;
+    titleBarState.refreshBusy = true;
     titleBarState.horizontalPadding = 16;
     titleBarState.onChanged();
     WindowUtils.setStatusBarLight(false);
@@ -437,6 +448,7 @@ export struct BookDetailPage {
   }
 
   private async loadBook(): Promise<void> {
+    this.resolvingBook = true;
     this.loadingDetail = this.book === null;
     this.loadFailed = false;
     try {
@@ -448,6 +460,7 @@ export struct BookDetailPage {
         'detail load failed, id=%{public}s error=%{public}s', this.bookId, this.debugInfo);
     } finally {
       this.loadingDetail = false;
+      this.resolvingBook = false;
     }
   }
 
@@ -468,7 +481,7 @@ export struct BookDetailPage {
       if ((b.contentType === 'text' || b.contentType === 'comic')) {
         this.book = this.copyBookForRender(b);
         this.loadingDetail = false;
-        this.loadTextBook(b);
+        await this.loadTextBook(b);
         return;
       }
       // 独立 KV 为权威:贴回跳过头尾,详情页起播也带上正确 skip(否则会用无 skip 对象喂 AudioService)
@@ -531,6 +544,66 @@ export struct BookDetailPage {
     } finally {
       if (this.detailActive && generation === this.tocGeneration) this.loadingToc = false;
     }
+  }
+
+  /** 手动刷新直接调用书源详情和完整目录；现有内容保持可读，成功后整体替换。 */
+  private async refreshBook(): Promise<void> {
+    const current = this.book;
+    if (!this.detailActive || !current || this.refreshing || this.resolvingBook ||
+      this.loadingDetail || this.loadingToc || this.deferEntry) return;
+    const fallback = this.copyBookForRender(current);
+    const generation = ++this.tocGeneration;
+    this.refreshing = true;
+    try {
+      let result: Book;
+      if (fallback.id.startsWith('import_')) {
+        const context = this.getUIContext().getHostContext();
+        if (!context) throw new Error('Detail context unavailable');
+        const stored = await DataService.getBookById(context, fallback.id);
+        if (!stored) throw new Error('Imported book unavailable');
+        result = this.copyBookForRender(stored);
+        result.chapters = await DataService.getChaptersForBook(fallback.id);
+        result.tocComplete = true;
+      } else if (fallback.contentType === 'text' || fallback.contentType === 'comic') {
+        result = await BookSourceService.loadTextBook(this.copyBookForRender(fallback));
+      } else {
+        result = await BookSourceService.loadAudioBook(this.copyBookForRender(fallback), (_partial: Book): void => {});
+      }
+      if (result.chapters.length === 0 || result.tocComplete === false) {
+        throw new Error('Refreshed catalog is empty or incomplete');
+      }
+      if (!this.isCurrentRefresh(generation, fallback)) return;
+      const loaded = this.copyBookForRender(result);
+      loaded.chapterCount = loaded.chapters.length;
+      await PreferenceService.applyTocOrder(loaded);
+      if (loaded.contentType !== 'text' && loaded.contentType !== 'comic') {
+        await PreferenceService.applySkipConfig(loaded);
+      }
+      BookPresentation.apply(loaded);
+      if (!this.isCurrentRefresh(generation, fallback)) return;
+      await DataService.upsertCachedBook(loaded);
+      if (!this.isCurrentRefresh(generation, fallback)) return;
+      SearchCache.put(loaded);
+      this.book = loaded;
+      this.loadFailed = false;
+      this.tocFailed = false;
+      this.debugInfo = '';
+      this.resolveSourceName(loaded.sourceUrl);
+      this.showToast($r('app.string.book_detail_refresh_success'));
+    } catch (error) {
+      if (!this.isCurrentRefresh(generation, fallback)) return;
+      SearchCache.put(fallback);
+      this.debugInfo = error instanceof Error ? error.message : String(error);
+      hilog.warn(DETAIL_LOG_DOMAIN, DETAIL_LOG_TAG, 'detail refresh failed: %{public}s', this.debugInfo);
+      this.showToast($r('app.string.book_detail_refresh_failed'));
+    } finally {
+      this.refreshing = false;
+    }
+  }
+
+  private isCurrentRefresh(generation: number, book: Book): boolean {
+    return this.detailActive && generation === this.tocGeneration && this.bookId === book.id &&
+      this.book?.id === book.id && this.book?.sourceUrl === book.sourceUrl;
   }
 
   private copyBookForRender(book: Book): Book {

@@ -197,3 +197,66 @@ function iconFiles(disk) {
   }
   console.log('PASS: bottom tab icons persist, roll back, reset, enforce image budgets and release files');
 })().catch(error => { console.error(error); process.exitCode = 1; });
+
+// Apply the real tab style factory repeatedly to one native-node-shaped attribute bag.
+// Unspecified modifier properties remain on reused nodes, which exposed the reset bug.
+function checkReusedTabIcon() {
+  const pageSource = fs.readFileSync(path.join(__dirname, '../entry/src/main/ets/pages/MainPage.ets'), 'utf8');
+  const start = pageSource.indexOf('  private buildTabBar(');
+  assert.ok(start >= 0);
+  const method = pageSource.slice(start, pageSource.indexOf('\n  }', start) + 4);
+  class SymbolModifier {
+    constructor(icon) { this.attributes = { icon }; }
+  }
+  for (const property of ['fontSize', 'width', 'height', 'fontColor', 'backgroundImage',
+    'backgroundImageSize', 'backgroundImagePosition']) {
+    SymbolModifier.prototype[property] = function (value) {
+      this.attributes[property] = value;
+      return this;
+    };
+  }
+  class TabStyle {
+    constructor(icon, label) { this.icon = icon; this.label = label; }
+    labelStyle() { return this; }
+    iconStyle() { return this; }
+    layoutMode() { return this; }
+    verticalAlign() { return this; }
+  }
+  let custom;
+  let theme;
+  const output = {};
+  vm.runInNewContext(ts.transpileModule('export class Page {' + method + '}', { compilerOptions: {
+    target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS
+  } }).outputText, {
+    exports: output, SymbolGlyphModifier: SymbolModifier, BottomTabBarStyle: TabStyle,
+    ThemeIcons: { resolve: () => theme }, $r: name => name,
+    AppColor: { Brand: 'brand' }, AppTheme: { TextSecondary: 'secondary' },
+    Color: { Transparent: 'transparent' }, ImageRepeat: { NoRepeat: 0 },
+    ImageSize: { Contain: 'contain', Auto: 'auto' }, Alignment: { Center: 'center' },
+    FontWeight: { Medium: 500 }, LayoutMode: { VERTICAL: 1 }, VerticalAlign: { Center: 1 }
+  });
+  const page = Object.assign(new output.Page(), { bottomTabIcons: { resolve: () => custom } });
+  const style = () => page.buildTabBar('default-symbol', '首页', roles.Home).icon;
+  for (const state of ['normal', 'selected']) {
+    custom = 'file:///custom-home.png';
+    const node = {};
+    Object.assign(node, style()[state].attributes);
+    assert.equal(node.backgroundImage, custom);
+    assert.equal(node.fontColor[0], 'transparent');
+    custom = undefined;
+    Object.assign(node, style()[state].attributes);
+    assert.equal(node.backgroundImage, '', state + ': reset removes the previous picture from the reused node');
+    assert.equal(node.width, state === 'normal' ? 24 : 26, state + ': reset removes custom image sizing');
+    assert.equal(node.height, node.width);
+    assert.notEqual(node.fontColor[0], 'transparent', state + ': the default symbol becomes visible');
+    custom = 'file:///replacement-home.png';
+    Object.assign(node, style()[state].attributes);
+    assert.equal(node.backgroundImage, custom, state + ': a new custom picture can be applied after reset');
+    assert.equal(node.width, 32);
+  }
+  custom = undefined;
+  theme = 'theme-home.svg';
+  assert.equal(style(), theme, 'reset follows the current theme when it supplies an icon');
+  console.log('PASS: reused bottom tab icons clear pictures and sizing in normal and selected states');
+}
+checkReusedTabIcon();

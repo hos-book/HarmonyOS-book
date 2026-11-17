@@ -1,4 +1,4 @@
-// Run the actual packing, hit testing, three-mode persistence and page data refresh logic.
+// Run the actual packing, hit testing, four-mode persistence and page data refresh logic.
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -65,20 +65,21 @@ const { Page } = compile(`export class Page {
 }`, { PreferenceService, ShelfSpineLayout: layout, Curve: { FastOutSlowIn: 0 },
   ReaderHapticService: { play: value => hapticCalls.push(value) } });
 (async () => {
-  for (const mode of [0, 1, 2]) {
+  assert.equal(await PreferenceService.getShelfViewMode(), 3, 'a fresh install defaults to collection');
+  for (const mode of [0, 1, 2, 3]) {
     await PreferenceService.setShelfViewMode(mode);
     assert.equal(await PreferenceService.getShelfViewMode(), mode, 'mode survives reload');
   }
-  for (const invalid of [-1, 3, 1.5, '2', null]) {
+  for (const invalid of [-1, 4, 1.5, '2', null]) {
     values.set('shelf_view_mode', invalid);
-    assert.equal(await PreferenceService.getShelfViewMode(), 0);
+    assert.equal(await PreferenceService.getShelfViewMode(), 3);
   }
   const page = Object.assign(new Page(), { viewMode: 0, viewModeRevision: 0,
-    viewModeSaveTask: Promise.resolve(), getUIContext: () => ({ animateTo: (_opts, run) => run() }),
+    viewModeSaveTask: Promise.resolve(), refreshCollectionRecent: () => {}, onHistoryUpdated: () => {}, getUIContext: () => ({ animateTo: (_opts, run) => { run(); run(); } }),
     spineContentWidth: 328, visible: true, isManaging: false, removingBook: false, showBookActions: false,
     resolvingTocId: '', bookDataSource: { setBooks: b => { page.gridBooks = b; } },
     spineDataSource: { setItems: r => { page.rows = r; } } });
-  for (const next of [1, 2, 0, 1, 2]) { page.toggleViewMode(); assert.equal(page.viewMode, next); }
+  for (const next of [1, 2, 3, 0, 1, 2]) { page.toggleViewMode(); assert.equal(page.viewMode, next); }
   await page.viewModeSaveTask;
   assert.equal(await PreferenceService.getShelfViewMode(), 2, 'rapid taps persist the last mode in order');
   page.updateShelfData(books.slice(0, 3));
@@ -106,5 +107,5 @@ const { Page } = compile(`export class Page {
   page.updateShelfData(books.slice(1, 3));
   assert.equal(page.gridBooks.map(b => b.id).join(','), page.rows.flatMap(r => r.items.map(i => i.book.id)).join(','));
   assert.equal(page.pulledSpineBookId, '', 'filter or removal clears the pulled state');
-  console.log('PASS spine reflow, stable identity, hit boundaries, floating title bounds, per-book haptics, three-mode persistence and shelf refresh');
+  console.log('PASS spine reflow, stable identity, hit boundaries, floating title bounds, per-book haptics, four-mode persistence and shelf refresh');
 })().catch(error => { console.error(error); process.exitCode = 1; });

@@ -2957,6 +2957,22 @@
       "value": "下载失败"
     },
     {
+      "name": "book_detail_refresh",
+      "value": "刷新详情与章节"
+    },
+    {
+      "name": "book_detail_refreshing",
+      "value": "正在刷新详情与章节"
+    },
+    {
+      "name": "book_detail_refresh_success",
+      "value": "详情和章节已刷新"
+    },
+    {
+      "name": "book_detail_refresh_failed",
+      "value": "刷新失败，已保留原内容"
+    },
+    {
       "name": "book_detail_loading",
       "value": "简简正在翻开书籍介绍…"
     },
@@ -9155,6 +9171,45 @@
     {
       "name": "rule_source_notice_exit",
       "value": "不接受本须知时，请取消导入；你仍可使用本地文件导入和阅读。发现来源可疑或存在侵权风险时，应停止使用并禁用或删除对应书源。第三方账号注销和授权撤回需到对应服务处理。确认本须知不会修改既有书源、登录状态、书架或进度；关闭书源搜索仍可供既有书架解析，若要停止对应来源的访问，请停止读听、下载等操作并删除该书源。删除时请留意页面说明。"
-    }
+    },
+    {"name":"shelf_view_collection","value":"切换书房"},
+    {"name":"collection_monogram","value":"JIANTING · LIBRARY"},
+    {"name":"collection_book_count","value":"%d 本"},
+    {"name":"collection_empty_folder_hint","value":"留一格，给下一本好书"},
+    {"name":"collection_continue_read","value":"继续阅读"},
+    {"name":"collection_continue_listen","value":"继续收听"},
+    {"name":"collection_continue_position","value":"从上次的位置继续"},
+    {"name":"collection_recent","value":"最近阅听"},
+    {"name":"collection_all_records","value":"全部记录"},
+    {"name":"collection_recent_empty","value":"读几页，听一会儿。下次在这里继续。"},
+    {"name":"collection_groups","value":"我的书房"},
+    {"name":"collection_all_books","value":"全部书籍"},
+    {"name":"collection_greeting_night","value":"静夜里，与故事相伴。"},
+    {"name":"collection_greeting_morning","value":"新的一天，从好书开始。"},
+    {"name":"collection_greeting_afternoon","value":"翻开一页，遇见新意。"},
+    {"name":"collection_greeting_evening","value":"让故事，陪你度过今晚。"},
+    {"name":"collection_greeting_hint","value":"读到心动处，听见好故事。"},
+    {"name":"collection_date","value":"%d 月 %d 日 · %s"},
+    {"name":"collection_sunday","value":"星期日"},
+    {"name":"collection_monday","value":"星期一"},
+    {"name":"collection_tuesday","value":"星期二"},
+    {"name":"collection_wednesday","value":"星期三"},
+    {"name":"collection_thursday","value":"星期四"},
+    {"name":"collection_friday","value":"星期五"},
+    {"name":"collection_saturday","value":"星期六"},
+    {"name":"collection_sort","value":"排序与管理"},
+    {"name":"collection_sort_recent","value":"最近阅听优先"},
+    {"name":"collection_sort_title","value":"按书名排序"},
+    {"name":"collection_expand","value":"展开窗口"},
+    {"name":"collection_collapse","value":"缩小窗口"},
+    {"name":"collection_add_books","value":"添加书籍"},
+    {"name":"collection_add_books_hint","value":"从未分组添加到「%s」"},
+    {"name":"collection_add_books_search","value":"搜索未分组的书籍"},
+    {"name":"collection_add_books_empty","value":"暂无未分组书籍"},
+    {"name":"collection_add_books_no_results","value":"没有找到匹配的书籍"},
+    {"name":"collection_add_books_confirm","value":"加入当前分组"},
+    {"name":"collection_add_books_failed","value":"添加失败，请重试；书籍分组变化后需重新选择"},
+    {"name":"collection_select_all","value":"全选"},
+    {"name":"collection_clear_selection","value":"取消全选"}
   ]
 }

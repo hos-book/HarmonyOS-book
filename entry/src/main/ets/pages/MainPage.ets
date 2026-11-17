@@ -623,13 +623,17 @@ export struct MainPage {
     this.tabController.changeIndex(index);
   }
 
+  private shelfRecentGestureUntil: number = 0;
+
   private judgeTabSwipe(info: GestureInfo): GestureJudgeResult {
-    return info.tag === 'main-tab-swipe' && !this.generalSettings.swipeSwitchTabs ?
+    return info.tag === 'main-tab-swipe' && (!this.generalSettings.swipeSwitchTabs ||
+      (this.currentTab === 1 && Date.now() < this.shelfRecentGestureUntil)) ?
       GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE;
   }
 
   private handleTabSwipe(event: GestureEvent): void {
-    if (!this.generalSettings.swipeSwitchTabs) return;
+    if (!this.generalSettings.swipeSwitchTabs ||
+      (this.currentTab === 1 && Date.now() < this.shelfRecentGestureUntil)) return;
     if (Math.abs(event.offsetX) < 48 || Math.abs(event.offsetX) <= Math.abs(event.offsetY) * 1.2) return;
     this.requestTabChange(this.nativeTabIndex + (event.offsetX < 0 ? 1 : -1));
   }
@@ -681,9 +685,14 @@ export struct MainPage {
     // 标签及图标的收展交给原生 HdsTabs，避免样式回调中销毁/重建 Text 引起闪现。
     const customIcon: string | undefined = this.bottomTabIcons.resolve(role);
     const themeIcon: ResourceStr | undefined = customIcon === undefined ? ThemeIcons.resolve(role) : undefined;
+    // HdsTabs 会复用符号节点，恢复默认时须显式清除自选图片及其尺寸。
     const symbol: TabBarSymbol = {
-      normal: new SymbolGlyphModifier(icon).fontSize(24).fontColor([$r('sys.color.font_primary')]),
-      selected: new SymbolGlyphModifier(icon).fontSize(26).fontColor([AppColor.Brand])
+      normal: new SymbolGlyphModifier(icon).fontSize(24).width(24).height(24)
+        .fontColor([$r('sys.color.font_primary')]).backgroundImage('', ImageRepeat.NoRepeat)
+        .backgroundImageSize(ImageSize.Auto).backgroundImagePosition(Alignment.Center),
+      selected: new SymbolGlyphModifier(icon).fontSize(26).width(26).height(26)
+        .fontColor([AppColor.Brand]).backgroundImage('', ImageRepeat.NoRepeat)
+        .backgroundImageSize(ImageSize.Auto).backgroundImagePosition(Alignment.Center)
     };
     if (customIcon !== undefined) {
       // 原生图片固定为 24vp；用可设尺寸的符号承载原色图片，保留原生标签及收展动画。
@@ -997,6 +1006,12 @@ export struct MainPage {
               this.shelfBackHandler = handler;
             },
             visible: this.currentTab === 1,
+            historyEnabled: this.generalSettings.historyEnabled,
+            onRecords: (): void => { if (this.generalSettings.historyEnabled) this.changeTab(2); },
+            onRecentTouch: (active: boolean): void => {
+              // 只隔离卡片区域本次手势，其他书房位置仍可横滑切换主 Tab。
+              this.shelfRecentGestureUntil = active ? Number.MAX_SAFE_INTEGER : Date.now() + 120;
+            },
             bottomTabInset: this.bottomTabInset(),
             miniPlayerVisible: this.miniPlayerVisible(),
             navStack: this.navStack,

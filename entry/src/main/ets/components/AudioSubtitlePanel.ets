@@ -134,7 +134,7 @@ export struct AudioSubtitlePanel {
   }
 
   build() {
-    Column({ space: 8 }) {
+    Column({ space: 4 }) {
       if (this.state.cues.length > 0) {
         Stack() {
         List({ scroller: this.scroller }) {
@@ -154,14 +154,18 @@ export struct AudioSubtitlePanel {
           })
         Column().width('100%').height('100%')
           .linearGradient({ direction: GradientDirection.Bottom,
-            colors: [['#00FFFFFF', 0], ['#FFFFFFFF', 0.08], ['#FFFFFFFF', 0.92], ['#00FFFFFF', 1]] })
+            colors: [['#00FFFFFF', 0], ['#FFFFFFFF', 0.03], ['#FFFFFFFF', 0.97], ['#00FFFFFF', 1]] })
           .blendMode(BlendMode.DST_IN).hitTestBehavior(HitTestMode.None)
         }.width('100%').layoutWeight(1)
           .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
+        if (!this.following || this.state.phase === 'error' ||
+          (!this.activeId && this.state.phase === 'recognizing')) {
         Row({ space: 8 }) {
-          Text(this.state.phase === 'error' || (!this.activeId && this.state.phase === 'recognizing') ?
-            this.statusText() : $r('app.string.subtitle_ai_hint'))
-            .fontSize(11).fontColor('#99FFFFFF').layoutWeight(1).maxLines(2)
+          if (this.state.phase === 'error' || (!this.activeId && this.state.phase === 'recognizing')) {
+            Text(this.statusText()).fontSize(11).fontColor('#99FFFFFF').layoutWeight(1).maxLines(2)
+          } else {
+            Blank()
+          }
           if (!this.following) {
             Button($r('app.string.subtitle_follow')).fontSize(12).fontColor('#FFFFFF')
               .backgroundColor('#22FFFFFF').height(32).onClick((): void => this.follow())
@@ -171,6 +175,7 @@ export struct AudioSubtitlePanel {
               .backgroundColor('#22FFFFFF').height(32).onClick((): void => { this.chapterKey = ''; this.syncChapter(); })
           }
         }.width('100%')
+        }
       } else {
         Column({ space: 16 }) {
           if (this.state.phase === 'model' || this.state.phase === 'audio' ||

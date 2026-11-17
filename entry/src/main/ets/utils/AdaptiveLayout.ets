@@ -10,7 +10,7 @@ export class AdaptiveLayout {
     if (!Number.isFinite(width) || width < 720 || paths.length === 0) return false;
     // 沉浸页及其子页面沿用全宽，返回后再恢复双栏。
     return !paths.some((name: string): boolean =>
-      name === 'reader' || name === 'comicReader' || name === 'player' || name === 'hicar' ||
+      name === 'shelfCollection' || name === 'reader' || name === 'comicReader' || name === 'player' || name === 'hicar' ||
       name === 'ruleSourceLogin');
   }
 

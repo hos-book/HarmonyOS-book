@@ -166,7 +166,6 @@ export struct PlayerPage {
   private sourceVoices: SourceVoiceDataSource = new SourceVoiceDataSource();
   private sourceVoiceScroller: Scroller = new Scroller();
   private playbackTtsSource: ReaderTtsDataSource = new ReaderTtsDataSource();
-  @Local isFavorite: boolean = false;
   @Local showChapterList: boolean = false;
   @Local chapterGridVisible: boolean = false;
   @Local showSleepSheet: boolean = false;
@@ -609,7 +608,6 @@ export struct PlayerPage {
       this.book = b;
       this.chapterDataSource.setChapters(PreferenceService.orderedChapters(b));
       this.loadSourceName(b);
-      this.isFavorite = await PreferenceService.isFavorite(b.id);
       return;
     }
     this.sourceUnavailable = !!b.sourceUrl && !(await SourceDataService.getSourceByUrl(b.sourceUrl));
@@ -625,8 +623,6 @@ export struct PlayerPage {
     this.book = b;
     this.loadSourceName(b);
     this.chapterDataSource.setChapters(PreferenceService.orderedChapters(b));
-    this.isFavorite = await PreferenceService.isFavorite(b.id);
-    if (this.isLeaving) return;
     if (this.sourceUnavailable || (b.sourceUrl && b.chapters.length === 0)) {
       this.promptSourceRecovery(b);
       return;
@@ -1146,26 +1142,6 @@ export struct PlayerPage {
     if (idx >= 0 && target >= 0 && target < this.book.chapters.length) {
       const ch = this.book.chapters[target];
       await AudioService.getInstance().playChapter(this.book, ch);
-    }
-  }
-
-  private async toggleFavorite(): Promise<void> {
-    if (!this.book) return;
-    // 收藏 id 还在但本地快照已丢失:补回快照、保留收藏,而不是把仅存的收藏 id 也 toggle 掉
-    if (this.isFavorite && this.context) {
-      const snap = await DataService.getBookById(this.context!, this.book.id);
-      if (!snap) {
-        await DataService.upsertCachedBook(this.book);
-        this.isFavorite = true;
-        try {
-          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.shelf_readded') });
-        } catch (_e) { /* ignore */ }
-        return;
-      }
-    }
-    this.isFavorite = await PreferenceService.toggleFavorite(this.book.id);
-    if (this.isFavorite) {
-      await DataService.upsertCachedBook(this.book);
     }
   }
 
@@ -1815,21 +1791,21 @@ export struct PlayerPage {
       this.buildSpeechBookHeader()
     } else {
       this.buildCover()
+      this.buildMeta()
     }
-    this.buildMeta()
     if (this.isSpeechBook()) { this.buildSpeechParagraphs(!scrollable) }
     if (this.showAudioSubtitles()) {
       AudioSubtitlePanel({ book: this.book, playerState: this.playerState, navStack: this.navStack })
         .height(scrollable ? 240 : undefined).layoutWeight(scrollable ? 0 : 1)
-        .constraintSize({ minHeight: 160 }).margin({ top: 8 })
+        .constraintSize({ minHeight: 160 })
     }
-    // 仅滚动容器使用固定间距；可同屏显示时由 Blank 吸收余高，让播控贴合底部安全区。
-    if (this.isSpeechBook() || this.showAudioSubtitles()) {
-      Blank().height(AppSpace.Sm)
-    } else if (scrollable) {
-      Blank().height(AppSpace.Md)
-    } else {
-      Blank()
+    // 正文直接衔接紧凑进度条，剩余高度全部交给正文。
+    if (!this.isSpeechBook() && !this.showAudioSubtitles()) {
+      if (scrollable) {
+        Blank().height(AppSpace.Md)
+      } else {
+        Blank()
+      }
     }
     this.buildProgress()
     this.buildControls()
@@ -2033,26 +2009,33 @@ export struct PlayerPage {
 
   @Builder
   buildSpeechBookHeader() {
-    Row({ space: AppSpace.Lg }) {
+    Row({ space: AppSpace.Md }) {
       PlayerCoverImage({ title: this.book!.title, url: this.book!.cover,
         author: this.book!.author, localPlaceholder: this.book!.id.startsWith('import_'),
         fallback: this.book!.coverFallback ?? '', highQuality: this.highQualityCover, radius: 12,
         onImageReady: (source: string, size: number): void =>
           PlayerDragTransition.getInstance().setReadyCover(source, size) })
-        .width(this.isCompactPlayer() ? 88 : 104).aspectRatio(1).borderRadius(12).clip(true)
+        .width(this.isCompactPlayer() ? 64 : 72).aspectRatio(1).borderRadius(12).clip(true)
         .id('player-page-cover').opacity(this.dragState.active && !this.dragState.coverRevealed ? 0 : 1)
         .accessibilityText($r('app.string.reader_details'))
         .onClick((): void => { if (!this.dragState.active) this.openBookDetail(); })
-      Column({ space: AppSpace.Sm }) {
-        Text(this.sourceName).fontSize(AppFont.Caption).fontColor('#CCFFFFFF')
-          .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(this.book!.title).fontSize(22).fontWeight(FontWeight.Bold).fontColor('#FFFFFF')
-          .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-        Text(this.book!.author).fontSize(AppFont.Body).fontColor('#CCFFFFFF')
+      Column({ space: AppSpace.Xs }) {
+        Text(this.playbackChapter()?.title ?? this.book!.title)
+          .fontSize(20).fontWeight(FontWeight.Bold).fontColor('#FFFFFF')
+          .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).id('player-chapter-title')
+        Text(this.book!.author).fontSize(AppFont.Caption).fontColor('#CCFFFFFF')
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
     }.width('100%').alignItems(VerticalAlign.Center)
-      .margin({ top: this.isCompactPlayer() ? AppSpace.Xs : AppSpace.Lg })
+      .margin({ top: AppSpace.Xxs, bottom: AppSpace.Xxs }).id('player-text-header')
+    if (this.isSpeechBook() && this.playbackLoading()) {
+      Text(this.speechState.contentLength > 0 ? $r('app.string.tts_loading_audio') : $r('app.string.tts_loading_text'))
+        .fontSize(AppFont.Caption).fontColor('#FFFFFF').width('100%').margin({ bottom: AppSpace.Xs })
+    }
+    if (this.isSpeechBook() && this.speechMatchesBook() && this.speechState.error) {
+      Text(this.speechState.error).fontSize(AppFont.Caption).fontColor('#FFFFFF')
+        .width('100%').margin({ bottom: AppSpace.Xs })
+    }
   }
 
   @Builder
@@ -2232,53 +2215,30 @@ export struct PlayerPage {
       // 透明蒙版只作用于正文离屏层，露出原来的封面背景，不遮挡触摸。
       Column().width('100%').height('100%')
         .linearGradient({ direction: GradientDirection.Bottom,
-          colors: [['#00FFFFFF', 0], ['#FFFFFFFF', 0.08], ['#FFFFFFFF', 0.92], ['#00FFFFFF', 1]] })
+          colors: [['#00FFFFFF', 0], ['#FFFFFFFF', 0.03], ['#FFFFFFFF', 0.97], ['#00FFFFFF', 1]] })
         .blendMode(BlendMode.DST_IN)
         .hitTestBehavior(HitTestMode.None)
     }.width('100%').height(220).layoutWeight(fillAvailable ? 1 : 0)
       .blendMode(BlendMode.SRC_OVER, BlendApplyType.OFFSCREEN)
+      .id('player-speech-paragraphs')
   }
 
   @Builder
   buildMeta() {
     Column({ space: 4 }) {
-      Row() {
-        Column({ space: 4 }) {
-          Text(this.playbackChapter()?.title ?? this.book!.title)
-            .fontSize(20)
-            .fontColor('#FFFFFF')
-            .fontWeight(FontWeight.Bold)
-            .maxLines(2)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
-          if (!this.isSpeechBook()) {
-          Text(this.book!.author)
-            .fontSize(AppFont.Body)
-            .fontColor('#FFFFFF')
-            .maxLines(1)
-          }
-        }
-        .layoutWeight(1)
-        .alignItems(HorizontalAlign.Start)
-
-        SymbolGlyph(this.isFavorite
-          ? $r('sys.symbol.bookshelf_badge_checkmark_fill')
-          : $r('sys.symbol.bookshelf'))
-          .fontSize(24)
-          .fontColor([this.isFavorite ? AppColor.Brand : '#FFFFFF'])
-          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
-          .onClick(() => this.toggleFavorite())
-      }
-      .width('100%')
-      if (this.isSpeechBook() && this.playbackLoading()) {
-        Text(this.speechState.contentLength > 0 ? $r('app.string.tts_loading_audio') : $r('app.string.tts_loading_text'))
-          .fontSize(AppFont.Caption).fontColor('#FFFFFF').width('100%').margin({ top: AppSpace.Xs })
-      }
-      if (this.isSpeechBook() && this.speechMatchesBook() && this.speechState.error) {
-        Text(this.speechState.error).fontSize(AppFont.Caption).fontColor('#FFFFFF')
-          .width('100%').margin({ top: AppSpace.Xs })
-      }
+      Text(this.playbackChapter()?.title ?? this.book!.title)
+        .fontSize(20)
+        .fontColor('#FFFFFF')
+        .fontWeight(FontWeight.Bold)
+        .maxLines(2)
+        .textOverflow({ overflow: TextOverflow.Ellipsis })
+      Text(this.book!.author)
+        .fontSize(AppFont.Body)
+        .fontColor('#FFFFFF')
+        .maxLines(1)
     }
     .width('100%')
+    .alignItems(HorizontalAlign.Start)
     .padding({ top: this.isLandscapePlayer() ? 0 : this.isCompactPlayer() ? AppSpace.Md : AppSpace.Xl })
   }
 
@@ -2289,7 +2249,7 @@ export struct PlayerPage {
         Slider({ value: this.speechProgress(), min: 0, max: 100, step: 0.1, style: SliderStyle.OutSet })
           .attributeModifier(new SliderGestureModifier(0, 100))
           .selectedColor('#FFFFFF').trackColor('#33FFFFFF').blockColor('#FFFFFF')
-          .blockSize({ width: 18, height: 18 }).trackThickness(6).width('100%')
+          .blockSize({ width: 18, height: 18 }).trackThickness(6).width('100%').height(24)
           .enabled(this.canSkipPlayback())
           .accessibilityText($r('app.string.tts_chapter_progress'))
           .id('speech-chapter-progress')
@@ -2318,6 +2278,7 @@ export struct PlayerPage {
         .blockColor('#FFFFFF')
         .blockSize({ width: 18, height: 18 })
         .trackThickness(6)
+        .height(this.showAudioSubtitles() ? 24 : undefined)
         .enabled(this.audioMatchesBook() && this.playerState.durationMs > 0 && !this.playerState.isLoading)
         .onChange((value: number, mode: SliderChangeMode) => {
           if (mode === SliderChangeMode.Begin || mode === SliderChangeMode.Moving) {
