@@ -18,7 +18,7 @@ export class ComicTranslationService {
     let pixels: image.PixelMap | null = null;
     try {
       const size = (await source.getImageInfo()).size;
-      if (size.width < 32 || size.height < 32 || size.width * size.height > 2 * 1024 * 1024) {
+      if (size.width < 32 || size.height < 32 || size.width * size.height > 32 * 1024 * 1024) {
         throw new Error('comic_ai_image_too_large');
       }
       pixels = await source.createPixelMap({ desiredPixelFormat: image.PixelMapFormat.RGBA_8888 });
@@ -34,13 +34,14 @@ export class ComicTranslationService {
     const active = (): boolean => isActive() && MembershipState.current.hasAccess;
     if (!active()) throw new Error('comic_ai_cancelled');
     if (!ComicTranslationService.supported()) throw new Error('comic_ai_ocr_unsupported');
-    if (width < 32 || height < 32 || width * height > 2 * 1024 * 1024) throw new Error('comic_ai_image_too_large');
+    if (width < 32 || height < 32 || width * height > 32 * 1024 * 1024 ||
+      Math.max(width, height) > 32768) throw new Error('comic_ai_image_too_large');
     const started = Date.now();
-    const regions = await ComicTranslationService.recognize(pixels, width, height);
+    const regions = await ComicTranslationService.recognizeTiles(pixels, width, height, active);
     const recognized = Date.now();
     if (!active()) throw new Error('comic_ai_cancelled');
     // 无文字页不请求模型；兼容字节入口可直接复用原图。
-    if (regions.length === 0 && original !== undefined) return new Uint8Array(original);
+    if (regions.length === 0) return original === undefined ? new Uint8Array(0) : new Uint8Array(original);
     const input = regions.map((region: ComicTranslationRegion, id: number): ComicTranslationText =>
       new ComicTranslationText(id, region.source));
     const translated: ComicTranslationText[] = regions.length === 0 ? [] :
@@ -53,11 +54,60 @@ export class ComicTranslationService {
     return output;
   }
 
+  /** OCR 使用原尺寸的重叠分块，坐标平移回原图，回填始终保留原始像素。 */
+  private static async recognizeTiles(pixels: image.PixelMap, width: number, height: number,
+    active: () => boolean): Promise<ComicTranslationRegion[]> {
+    if (width <= 2048 && height <= 2048 && width * height <= 2 * 1024 * 1024) {
+      return ComicTranslationService.recognize(pixels, width, height);
+    }
+    const edge = 1280;
+    const overlap = 192;
+    const regions: ComicTranslationRegion[] = [];
+    for (let top = 0; top < height; top += edge - overlap) {
+      for (let left = 0; left < width; left += edge - overlap) {
+        if (!active()) throw new Error('comic_ai_cancelled');
+        const w = Math.min(edge, width - left); const h = Math.min(edge, height - top);
+        const canvas = new OffscreenCanvas(w, h, LengthMetricsUnit.PX);
+        let tile: image.PixelMap | null = null;
+        try {
+          const ctx = canvas.getContext('2d', new RenderingContextSettings(true));
+          if (!ctx) throw new Error('comic_ai_translate_render_failed');
+          ctx.drawImage(pixels, left, top, w, h, 0, 0, w, h);
+          tile = ctx.getPixelMap(0, 0, w, h);
+          const found = await ComicTranslationService.recognize(tile, w, h);
+          for (const region of found) {
+            region.x += left; region.y += top;
+            for (const box of region.masks) { box.x += left; box.y += top; }
+            ComicTranslationService.addRegion(regions, region);
+          }
+        } finally {
+          if (tile !== null) await tile.release();
+          canvas.width = 0; canvas.height = 0;
+        }
+        if (left + w >= width) break;
+      }
+      if (top + Math.min(edge, height - top) >= height) break;
+    }
+    if (regions.length > 128 || regions.reduce((sum: number, region: ComicTranslationRegion): number =>
+      sum + region.source.length, 0) > 16000) throw new Error('comic_ai_translate_too_large');
+    return regions;
+  }
+
+  static addRegion(regions: ComicTranslationRegion[], region: ComicTranslationRegion): void {
+    const index = regions.findIndex((other: ComicTranslationRegion): boolean => {
+      const overlap = Math.max(0, Math.min(other.x + other.width, region.x + region.width) - Math.max(other.x, region.x)) *
+        Math.max(0, Math.min(other.y + other.height, region.y + region.height) - Math.max(other.y, region.y));
+      return overlap > Math.min(other.width * other.height, region.width * region.height) * 0.65;
+    });
+    if (index < 0) regions.push(region);
+    else if (region.source.length > regions[index].source.length) regions[index] = region;
+  }
+
   private static async recognize(pixels: image.PixelMap, width: number, height: number): Promise<ComicTranslationRegion[]> {
     let result: textRecognition.TextRecognitionResult;
     try {
       if (!await textRecognition.init()) throw new Error('unavailable');
-      result = await textRecognition.recognizeText({ pixelMap: pixels }, { isDirectionDetectionSupported: true });
+      result = await textRecognition.recognizeText({ pixelMap: pixels }, { isDirectionDetectionSupported: false });
     } catch (_error) { throw new Error('comic_ai_ocr_failed'); }
     finally { try { await textRecognition.release(); } catch (_error) { } }
     return ComicTranslationService.regions(result, width, height);
@@ -124,12 +174,11 @@ export class ComicTranslationService {
     let output: image.PixelMap | null = null;
     try {
       ctx.drawImage(pixels, 0, 0, width, height);
-      const original = ctx.getImageData(0, 0, width, height);
       for (let index = 0; index < regions.length; index++) {
         if (!active()) throw new Error('comic_ai_cancelled');
         const region = regions[index];
-        const translated = translations[index];
-        if (!translated || translated.id !== index) throw new Error('comic_ai_translate_invalid_response');
+        const translated = translations.find((item: ComicTranslationText): boolean => item.id === index);
+        if (!translated) throw new Error('comic_ai_translate_invalid_response');
         if (translated.text.trim() === region.source.trim()) continue;
         let font = Math.max(6, Math.min(48, region.height * 0.8, region.width * 0.8));
         let lines: string[] = [];
@@ -143,7 +192,7 @@ export class ComicTranslationService {
         }
         // 放不下就报告明确错误，不裁掉译文或悄悄显示缺字结果。
         if (font < 6) throw new Error('comic_ai_translate_layout_failed');
-        const background = ComicTranslationService.background(original, region);
+        const background = ComicTranslationService.background(ctx, width, height, region);
         ctx.save();
         try {
           ctx.beginPath(); ctx.rect(region.x, region.y, region.width, region.height); ctx.clip();
@@ -164,9 +213,9 @@ export class ComicTranslationService {
       output = ctx.getPixelMap(0, 0, width, height);
       const packer = image.createImagePacker();
       try {
-        const bytes = await packer.packToData(output, { format: 'image/jpeg', quality: 95 });
+        const bytes = await packer.packToData(output, { format: 'image/png', quality: 100 });
         if (!active()) throw new Error('comic_ai_cancelled');
-        if (bytes.byteLength > 8 * 1024 * 1024) throw new Error('comic_ai_image_too_large');
+        if (bytes.byteLength > 20 * 1024 * 1024) throw new Error('comic_ai_image_too_large');
         return new Uint8Array(bytes);
       } finally { await packer.release(); }
     } finally {
@@ -195,24 +244,25 @@ export class ComicTranslationService {
     return lines;
   }
 
-  private static background(original: ImageData, box: ComicTextBox): string {
+  private static background(ctx: OffscreenCanvasRenderingContext2D, width: number, height: number, box: ComicTextBox): string {
     const reds: number[] = []; const greens: number[] = []; const blues: number[] = [];
     for (let n = 0; n < 8; n++) {
       const x = Math.round(box.x + box.width * n / 7);
       const y = Math.round(box.y + box.height * n / 7);
-      ComicTranslationService.sample(original, x, box.y - 2, reds, greens, blues);
-      ComicTranslationService.sample(original, x, box.y + box.height + 1, reds, greens, blues);
-      ComicTranslationService.sample(original, box.x - 2, y, reds, greens, blues);
-      ComicTranslationService.sample(original, box.x + box.width + 1, y, reds, greens, blues);
+      ComicTranslationService.sample(ctx, width, height, x, box.y - 2, reds, greens, blues);
+      ComicTranslationService.sample(ctx, width, height, x, box.y + box.height + 1, reds, greens, blues);
+      ComicTranslationService.sample(ctx, width, height, box.x - 2, y, reds, greens, blues);
+      ComicTranslationService.sample(ctx, width, height, box.x + box.width + 1, y, reds, greens, blues);
     }
     const median = (values: number[]): number => values.sort((a: number, b: number): number => a - b)[Math.floor(values.length / 2)] ?? 255;
     return '#' + [median(reds), median(greens), median(blues)].map((v: number): string => v.toString(16).padStart(2, '0')).join('');
   }
 
-  private static sample(original: ImageData, x: number, y: number, r: number[], g: number[], b: number[]): void {
-    const px = Math.max(0, Math.min(original.width - 1, Math.round(x)));
-    const py = Math.max(0, Math.min(original.height - 1, Math.round(y)));
-    const offset = (py * original.width + px) * 4;
-    r.push(original.data[offset]); g.push(original.data[offset + 1]); b.push(original.data[offset + 2]);
+  private static sample(ctx: OffscreenCanvasRenderingContext2D, width: number, height: number,
+    x: number, y: number, r: number[], g: number[], b: number[]): void {
+    const px = Math.max(0, Math.min(width - 1, Math.round(x)));
+    const py = Math.max(0, Math.min(height - 1, Math.round(y)));
+    const pixel = ctx.getImageData(px, py, 1, 1).data;
+    r.push(pixel[0]); g.push(pixel[1]); b.push(pixel[2]);
   }
 }

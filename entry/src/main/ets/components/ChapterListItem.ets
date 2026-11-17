@@ -26,6 +26,7 @@ export struct ChapterListItem {
   @Param title: string = '';
   @Param isTextBook: boolean = false;
   @Param isPlaying: boolean = false;
+  @Param isRead: boolean = false;
   /** 时长文案；为空则隐藏该行 */
   @Param durationText: string = '';
   /** 已下载体积文案；为空则隐藏 */
@@ -42,7 +43,8 @@ export struct ChapterListItem {
       Column({ space: 2 }) {
         Text(this.title)
           .fontSize(AppFont.BodyL)
-          .fontColor(this.isPlaying ? AppColor.BrandDark : $r('sys.color.font_primary'))
+          .fontColor(this.isPlaying ? AppColor.BrandDark :
+            this.isRead ? $r('sys.color.font_secondary') : $r('sys.color.font_primary'))
           .fontWeight(this.isPlaying ? FontWeight.Medium : FontWeight.Normal)
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })

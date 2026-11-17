@@ -102,30 +102,30 @@ export class ShelfReaderOpenState {
     }
     this.setOrigin(ui, source, viewport);
     this.started = true;
-    ui.animateTo({ duration: 220, curve: Curve.FastOutSlowIn }, (): void => {
+    ui.animateTo({ duration: 300, curve: Curve.FastOutSlowIn }, (): void => {
       this.offsetX = 0;
       this.offsetY = 0;
       this.zoomX = 1;
       this.zoomY = 1;
     });
-    ui.animateTo({ duration: 180, delay: 60, curve: Curve.EaseOut }, (): void => {
+    ui.animateTo({ duration: 240, delay: 80, curve: Curve.EaseOut }, (): void => {
       this.bodyAlpha = 1;
     });
     // 封面绕左侧书脊翻开，正文留在书页下方，避免整页旋转影响阅读布局。
-    ui.animateTo({ duration: 340, delay: 60, curve: Curve.EaseInOut }, (): void => {
+    ui.animateTo({ duration: 460, delay: 80, curve: Curve.EaseInOut }, (): void => {
       this.coverAngle = -92;
     });
-    ui.animateTo({ duration: 100, delay: 300, curve: Curve.EaseOut,
+    ui.animateTo({ duration: 140, delay: 400, curve: Curve.EaseOut,
       onFinish: (): void => { if (this.isCurrent(generation)) this.complete(); } },
       (): void => { this.coverAlpha = 0; });
   }
 
   private close(ui: UIContext, generation: number): void {
     this.started = true;
-    ui.animateTo({ duration: 100, curve: Curve.EaseOut },
+    ui.animateTo({ duration: 140, curve: Curve.EaseOut },
       (): void => { this.coverAlpha = 1; });
-    // 先让封面完整盖住正文，再收回书架；正文不能在合拢途中提前消失。
-    ui.animateTo({ duration: 220, curve: Curve.EaseInOut,
+    // 合拢 300ms 后归位 240ms，与翻开的 540ms 总时长一致；正文待封面盖住再隐藏。
+    ui.animateTo({ duration: 300, curve: Curve.EaseInOut,
       onFinish: (): void => {
         if (!this.isCurrent(generation)) return;
         this.bodyAlpha = 0;
@@ -144,12 +144,12 @@ export class ShelfReaderOpenState {
       target.topPx >= viewport.topPx + viewport.heightPx ||
       target.topPx + target.heightPx <= viewport.topPx) {
       // 封面已移出可见区域或被移除时，合拢后淡出，不飞向过期坐标。
-      ui.animateTo({ duration: 180, curve: Curve.EaseOut,
+      ui.animateTo({ duration: 240, curve: Curve.EaseOut,
         onFinish: (): void => { if (this.isCurrent(generation)) this.complete(); } },
         (): void => { this.coverAlpha = 0; });
       return;
     }
-    ui.animateTo({ duration: 180, curve: Curve.FastOutSlowIn,
+    ui.animateTo({ duration: 240, curve: Curve.FastOutSlowIn,
       onFinish: (): void => { if (this.isCurrent(generation)) this.complete(); } },
       (): void => { this.setOrigin(ui, target, viewport); });
   }

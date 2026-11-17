@@ -8,6 +8,7 @@ import { AppColor, AppFont, AppRadius, AppSpace, AppMotion, AppCurve } from '../
 import { DownloadService, EVT_DOWNLOAD_UPDATED, DownloadUpdatePayload } from '../service/DownloadService';
 import { DownloadChapterRecord } from '../service/DownloadStore';
 import { PreferenceService } from '../service/PreferenceService';
+import { ReadingSessionService } from '../service/ReadingSessionService';
 
 /**
  * 章节目录弹层内容（详情页 / 播放页 / 阅读页共用）。
@@ -31,6 +32,7 @@ export struct ChapterSheet {
   @Event onClose: () => void = () => {};
 
   @Local query: string = '';
+  @Local readChapterIds: Set<string> = new Set<string>();
   @Local segmentMode: boolean = false;
   @Local descending: boolean = false;
   @Local displayed: Chapter[] = [];
@@ -49,6 +51,7 @@ export struct ChapterSheet {
   aboutToAppear(): void {
     this.descending = this.book?.chaptersDescending ?? false;
     this.refresh();
+    this.refreshReadChapters();
     emitter.on(EVT_DOWNLOAD_UPDATED, this.downloadHandler);
     this.scrollToCurrentChapter();
   }
@@ -63,11 +66,13 @@ export struct ChapterSheet {
   private onBookChanged(): void {
     this.descending = this.book?.chaptersDescending ?? false;
     this.refresh();
+    this.refreshReadChapters();
     this.scrollToCurrentChapter();
   }
 
   @Monitor('currentId')
   private onCurrentChanged(): void {
+    this.refreshReadChapters();
     this.offsetFromCurrent = 0;
     this.scrollToCurrentChapter();
   }
@@ -108,6 +113,14 @@ export struct ChapterSheet {
       ? this.chapters().filter((chapter: Chapter): boolean => chapter.title.toLowerCase().includes(query))
       : this.chapters().slice();
     this.displayed = this.descending ? filtered.reverse() : filtered;
+  }
+
+  private refreshReadChapters(): void {
+    const bookId = this.book?.id ?? '';
+    this.readChapterIds = new Set<string>();
+    ReadingSessionService.readChapterIds(bookId).then((ids: Set<string>): void => {
+      if (this.book?.id === bookId) this.readChapterIds = ids;
+    });
   }
 
   private applyQuery(value: string): void {
@@ -230,6 +243,7 @@ export struct ChapterSheet {
       title: ri.item.title,
       isTextBook: this.isReadingBook(),
       isPlaying: ri.item.id === this.currentId,
+      isRead: this.readChapterIds.has(ri.item.id),
       durationText: this.isReadingBook() ? ''
         : (this.chapterDuration(ri.item) > 0 ? this.formatDuration(this.chapterDuration(ri.item)) : ''),
       bytesText: this.isReadingBook() ? ''
@@ -296,6 +310,7 @@ export struct ChapterSheet {
         } else if (this.segmentMode) {
           ChapterSegmentGrid({
             book: this.book,
+            readChapterIds: this.readChapterIds,
             chapters: this.chapters(),
             currentId: this.currentId,
             keyword: this.query,

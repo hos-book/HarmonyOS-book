@@ -192,4 +192,20 @@ export class ReadingSessionService {
     return Array.from(result.values()).sort((left: ReadingSession, right: ReadingSession): number =>
       right.startedAt - left.startedAt);
   }
+
+  /** 仅标记实际阅听过的章节，不把跳章、下载或预加载当成已读。 */
+  static async readChapterIds(bookId: string): Promise<Set<string>> {
+    const ids = new Set<string>();
+    if (!bookId) return ids;
+    try {
+      const sessions = await ReadingSessionService.list([bookId]);
+      for (const session of sessions) {
+        if (session.start.bookId === bookId && session.start.chapterId) ids.add(session.start.chapterId);
+        if (session.end.bookId === bookId && session.end.chapterId) ids.add(session.end.chapterId);
+      }
+    } catch (error) {
+      DiagnosticLogService.info('session.chapters.failed', error instanceof Error ? error.message : 'unavailable');
+    }
+    return ids;
+  }
 }

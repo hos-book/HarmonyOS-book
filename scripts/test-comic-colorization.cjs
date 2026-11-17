@@ -12,7 +12,7 @@ const files = new Map([[uri.slice(7), new Uint8Array([1, 2, 3]).buffer]]);
 const handles = new Map();
 let next = 0, resources = 0, holds = 0, writers = 0, decodes = 0;
 let member = true, supported = true, fail = false, activeJobs = 0, maxActive = 0;
-let gate, engineCalls = 0, translations = 0, idleReleases = 0, lastLanguage = '';
+let gate, engineCalls = 0, translations = 0, idleReleases = 0, lastLanguage = '', translationFails = false;
 let installedHost, workerPath, decodedPath;
 let foregroundEvents = 0, engineForeground = true, memoryNotifications = 0, preparations = 0, preparationActive;
 let reconciles = 0, afterEngineResult;
@@ -83,7 +83,11 @@ const sdk = {
       resources++; decodes++;
       return {
         getImageInfo: async () => ({ size: { width: 800, height: 1200 } }), getFrameCount: async () => 1,
-        createPixelMap: async () => { resources++; return { release: async () => { resources--; } }; },
+        createPixelMap: async options => {
+          assert.equal(options.desiredSize, undefined, 'translation must retain native pixel dimensions');
+          resources++; return { getImageInfo: async () => ({size:{width:800,height:1200}}),
+            release: async () => { resources--; } };
+        },
         release: async () => { resources--; }
       };
     }
@@ -119,6 +123,7 @@ const { ComicColorizationService: service } = load('ComicColorizationService', {
   './ComicTranslationService': { ComicTranslationService: { async translatePixels(_pixels, width, height, language, active) {
     assert.equal(width, 800); assert.equal(height, 1200);
     translations++; lastLanguage = language;
+    if (translationFails) throw Error('comic_ai_ocr_failed');
     if (!active()) throw Error('cancelled');
     return new Uint8Array([255, 216, 255]);
   } } }
@@ -226,6 +231,11 @@ const waitForEngine = async () => { while (!activeJobs) await new Promise(resolv
   await assert.rejects(service.colorize(context, uri, () => true), /comic_ai_color_failed/);
   assert.equal(await service.colorize(context, uri, () => true), '', 'one failure stops the current batch');
   fail = false; service.resetFailure();
+  translationFails = true;
+  await assert.rejects(service.transform(context, uri, () => true, 'ko-zh'), /ocr_failed/);
+  translationFails = false;
+  const recoveredTranslation = await service.transform(context, importedUri, () => true, 'zh-en');
+  assert.ok(recoveredTranslation.endsWith('.png'), 'a failed translation must not block the next page');
   assert.equal(await service.colorize(context, uri, () => true), colored, 're-enabling permits retry');
   supported = false; service.resetFailure();
   await assert.rejects(service.colorize(context, uri, () => true), /color_unsupported/);

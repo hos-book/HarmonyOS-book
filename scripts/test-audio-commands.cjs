@@ -1089,6 +1089,22 @@ async function check(name, test) {
     assert.equal(f.player.pauses, 1);
     assert.equal(f.state.isPlaying, false);
   });
+  await check('foreground calibration rejects queued background positions and reuses resume preparation', async () => {
+    const f = await fixture('paused');
+    let checks = 0;
+    f.syncActivity.prepareResume = async () => { checks++; };
+    f.service.setForeground(false);
+    f.player.currentTime = 96000;
+    f.service.setForeground(true);
+    assert.equal(f.state.progressMs, 96000);
+    f.player.emit('timeUpdate', 42000);
+    assert.equal(f.state.progressMs, 96000, 'delayed background callbacks cannot rewind the slider');
+    await f.service.play();
+    assert.equal(checks, 1, 'play consumes foreground preparation without another roundtrip');
+    await f.service.seek(12000);
+    f.player.emit('timeUpdate', 12000);
+    assert.equal(f.state.progressMs, 12000, 'explicit backwards seek still works');
+  });
   await check('headset removal pauses; reconnection waits for a session play command', async () => {
     const f = await fixture('playing');
     f.player.emit('audioOutputDeviceChangeWithInfo', { changeReason: 2, devices: [] });

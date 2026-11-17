@@ -84,7 +84,7 @@ export class ComicColorizationService {
     ComicColorizationService.pending++;
     const job = ComicColorizationService.queue.then(async (): Promise<string> => {
       if (!active() || !permitted() || revision !== ComicColorizationService.revision) return '';
-      if (ComicColorizationService.blockedRevision === revision) return '';
+      if (!targetLanguage && ComicColorizationService.blockedRevision === revision) return '';
       dispatchedAt = Date.now();
       ReaderCacheService.configure(context);
       ReaderCacheService.beginComicWrite();
@@ -104,8 +104,8 @@ export class ComicColorizationService {
         } finally { ReaderCacheService.unhold(input); }
       } catch (error) {
         if (active() && permitted() && revision === ComicColorizationService.revision) {
-          // 失败后停掉本轮队列，保留原图，重新开启后允许重试。
-          ComicColorizationService.blockedRevision = revision;
+          // 单页翻译失败只保留该页原图，后续图片继续处理。
+          if (!targetLanguage) ComicColorizationService.blockedRevision = revision;
           throw error instanceof Error ? error : new Error('comic_ai_request_failed');
         }
         return '';
@@ -161,13 +161,13 @@ export class ComicColorizationService {
       }
     }
     const digest = cryptoFramework.createMd('SHA256');
-    const operation = `translate-offline-v2:${targetLanguage}`;
+    const operation = `translate-offline-v3:${targetLanguage}`;
     await digest.update({ data: new util.TextEncoder().encodeInto(
       `${operation}:${inputPath}:${stat.mtime}:${stat.size}::${ComicOfflineTranslationService.MODEL}`) });
     const key = buffer.from((await digest.digest()).data).toString('hex');
     const dir = `${context.cacheDir}/comic_colorization_v1`;
     if (!await fileIo.access(dir)) await fileIo.mkdir(dir);
-    const target = `${dir}/${key}.jpg`;
+    const target = `${dir}/${key}.png`;
     if (await fileIo.access(target)) {
       const cached = fileUri.getUriFromPath(target);
       await ReaderCacheService.record([cached]);
@@ -181,24 +181,23 @@ export class ComicColorizationService {
     try {
       const info = await source.getImageInfo();
       width = info.size.width; height = info.size.height;
-      if (width < 32 || height < 32 || width * height > 16 * 1024 * 1024 ||
-        Math.max(width, height) > 16384 || await source.getFrameCount() !== 1) throw new Error('comic_ai_image_too_large');
-      const scale = Math.min(1, 2048 / Math.max(width, height), Math.sqrt(2 * 1024 * 1024 / (width * height)));
-      const pixels = await source.createPixelMap({ desiredSize: {
-        width: Math.max(1, Math.round(width * scale)), height: Math.max(1, Math.round(height * scale))
-      }, desiredPixelFormat: image.PixelMapFormat.RGBA_8888 });
+      if (width < 32 || height < 32 || width * height > 32 * 1024 * 1024 ||
+        Math.max(width, height) > 32768 || await source.getFrameCount() !== 1) throw new Error('comic_ai_image_too_large');
+      const pixels = await source.createPixelMap({ desiredPixelFormat: image.PixelMapFormat.RGBA_8888 });
       try {
-        translated = await ComicTranslationService.translatePixels(pixels, Math.max(1, Math.round(width * scale)),
-          Math.max(1, Math.round(height * scale)), targetLanguage, active);
+        const decoded = (await pixels.getImageInfo()).size;
+        translated = await ComicTranslationService.translatePixels(pixels, decoded.width,
+          decoded.height, targetLanguage, active);
       } finally { await pixels.release(); }
     } finally { await source.release(); }
     if (!active()) return '';
     const bytes = translated;
-    if (bytes.byteLength === 0 || bytes.byteLength > 8 * 1024 * 1024) throw new Error('comic_ai_invalid_image');
-    // 本地翻译已校验尺寸并输出 JPEG，保持原有翻译缓存格式。
+    if (bytes.byteLength === 0) return uri;
+    if (bytes.byteLength > 20 * 1024 * 1024) throw new Error('comic_ai_invalid_image');
+    // 原尺寸无损输出，不重复缩放或压缩正文图片。
     const encoded = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
     if (!active()) return '';
-    if (encoded.byteLength > 8 * 1024 * 1024) throw new Error('comic_ai_image_too_large');
+    if (encoded.byteLength > 20 * 1024 * 1024) throw new Error('comic_ai_image_too_large');
     const temporary = `${target}.tmp`;
     try {
       const file = await fileIo.open(temporary, fileIo.OpenMode.CREATE | fileIo.OpenMode.WRITE_ONLY | fileIo.OpenMode.TRUNC);

@@ -184,10 +184,29 @@ export class AudioService {
       stage, elapsedMs, generation, cache);
   }
 
+  private foregroundPositionUntil: number = 0;
+  private foregroundResume: Promise<void> | null = null;
+  private foregroundResumeBook: string = '';
+  private foregroundResumeUntil: number = 0;
+
   setForeground(foreground: boolean): void {
+    const becameForeground = foreground && !this.foreground;
     this.foreground = foreground;
     // 熄屏期间 timeUpdate 可能稀疏或延后；首帧前直接校准原生位置。
-    if (foreground) this.capturePlayerPosition();
+    if (foreground) {
+      this.capturePlayerPosition();
+      this.foregroundPositionUntil = Date.now() + 2000;
+      const book = this.state?.currentBook;
+      if (becameForeground && book && !this.state?.isPlaying && !this.state?.isLoading && !this.isApplying) {
+        // 回前台即准备云端续播进度；紧接着的播放复用同一任务，避免再次联网等待。
+        this.foregroundResumeBook = book.id;
+        this.foregroundResumeUntil = Date.now() + 5000;
+        this.foregroundResume = LibrarySyncActivity.prepareResume(book.id);
+      }
+    } else {
+      this.foregroundPositionUntil = 0;
+      this.foregroundResume = null;
+    }
     this.tracePlayback(foreground ? 'foreground' : 'background');
   }
   private resumeAfterSleepChapter: boolean = false;
@@ -511,6 +530,11 @@ export class AudioService {
       // 一些残留的旧位置 timeUpdate；isLoading=true 期间一律不写 progressMs，
       // 避免把进度条来回打回。
       if (this.state.isLoading) return;
+      // 回前台时队列中可能仍有熄屏前的回调；短暂以原生即时位置为准。
+      if (Date.now() <= this.foregroundPositionUntil && this.pendingSeek <= 0 && this.resumeTargetMs <= 0) {
+        const sampled = p.currentTime;
+        if (Number.isFinite(sampled) && sampled >= 0) ms = p.duration > 0 ? Math.min(sampled, p.duration) : sampled;
+      }
       // seek 守卫:续播 seek 尚未生效时,AVPlayer 会先回调接近 0 的旧位置,
       // 若放行会把 progressMs 打回起点(还可能被 5s tick 落盘成错进度)。
       // 位置追上目标附近前忽略这些偏小旧值;到达或超过目标即解除守卫。
@@ -1063,6 +1087,8 @@ export class AudioService {
   }
 
   private async doPlayChapter(book: Book, chapter: Chapter, seekMs: number, forceReload: boolean = false): Promise<void> {
+    this.foregroundPositionUntil = 0;
+    this.foregroundResume = null;
     if (!this.state || !this.context || PlaybackCoordinator.speechActive) return;
     LibrarySyncActivity.remotePlayback.delete(book.id);
     this.stopTick();
@@ -1500,6 +1526,7 @@ export class AudioService {
   }
 
   async seek(ms: number): Promise<void> {
+    this.foregroundPositionUntil = 0;
     if (this.state?.isLive) return;
     if (PlaybackCoordinator.speechActive) return;
     this.sleepPausePending = false;
@@ -2077,6 +2104,7 @@ export class AudioService {
 
   /** 同书+同章节复用:仅 seek + 让它播 */
   private async seekAndPlaySameChapter(seekMs: number): Promise<void> {
+    this.foregroundPositionUntil = 0;
     if (!this.state) return;
     const p = this.player;
     if (!p) return;
@@ -2225,6 +2253,7 @@ export class AudioService {
   /** 系统播控、耳机和卡片共用的播放入口；重复 play 不切换为暂停或重载音源。 */
   async play(): Promise<void> {
     this.tracePlayback('play-request');
+    this.capturePlayerPosition();
     BackgroundTaskService.resumeAfterUserAction();
     if (this.player?.state !== 'playing') this.autoSleepRequested = true;
     this.pauseSource = 'none';
@@ -2242,7 +2271,10 @@ export class AudioService {
     const resumeBook = this.state?.currentBook;
     const resumeGeneration = this.playGen;
     if (resumeBook && !this.state?.isPlaying && !this.state?.isLoading && !this.isApplying) {
-      await LibrarySyncActivity.prepareResume(resumeBook.id);
+      const prepared = this.foregroundResumeBook === resumeBook.id && Date.now() <= this.foregroundResumeUntil
+        ? this.foregroundResume : null;
+      this.foregroundResume = null;
+      await (prepared ?? LibrarySyncActivity.prepareResume(resumeBook.id));
       if (this.pauseRequested || this.playGen !== resumeGeneration || this.state?.currentBook?.id !== resumeBook.id) return;
     }
     if (await this.resumeSyncedProgress()) return;

@@ -6,6 +6,8 @@ const ts = require(path.join(process.env.DEVECO_HOME, 'sdk/default/openharmony/e
 const root = path.resolve(__dirname, '../entry/src/main/ets');
 let resources = 0, ocrReleases = 0, chats = 0, supported = true, cancelled = false, longText = false, decodes = 0, encodes = 0;
 const drawn = [], erased = [], canvasSizes = [];
+const cropCalls = [], packing = [];
+let tileResults = false;
 let member = true;
 const pixel = () => { resources++; return { release: async () => { resources--; } }; };
 const line = (value,x,y,w,h) => ({ value, cornerPoints:[{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}],words:[] });
@@ -14,15 +16,16 @@ const image = {
   PixelMapFormat:{RGBA_8888:1},
   createImageSource: () => { resources++; decodes++; return { getImageInfo:async()=>({size:{width:800,height:600}}),
     createPixelMap:async()=>pixel(),release:async()=>{resources--;} }; },
-  createImagePacker: () => { resources++; encodes++; return {packToData:async()=>new Uint8Array([255,216,255]).buffer,
+  createImagePacker: () => { resources++; encodes++; return {packToData:async(_pixels,options)=>{packing.push(options);return new Uint8Array([137,80,78,71]).buffer;},
     release:async()=>{resources--;} }; }
 };
 class Canvas {
   constructor(w,h,unit) { assert.equal(unit,1);this.width=w;this.height=h;canvasSizes.push(this); }
-  getContext() { return { font:'',drawImage(){},getImageData:()=>({width:800,height:600,data:new Uint8ClampedArray(800*600*4).fill(255)}),
+  getContext() { let crop = null; return { font:'',drawImage(_pixels,...args){if(args.length===8){crop=args;cropCalls.push(args);}},
+    getImageData:()=>({width:1,height:1,data:new Uint8ClampedArray([255,255,255,255])}),
     measureText(text) { const font=Number.parseFloat(this.font);return {width:Array.from(text).length*font*0.7}; },
     save(){},restore(){},beginPath(){},rect(){},clip(){},
-    fillRect(...args){erased.push(args);},fillText(...args){drawn.push(args);},getPixelMap:()=>pixel() }; }
+    fillRect(...args){erased.push(args);},fillText(...args){drawn.push(args);},getPixelMap:()=>Object.assign(pixel(),{crop}) }; }
 }
 function load(file,require) {
   const exports={};
@@ -42,7 +45,16 @@ const {ComicTranslationService:service}=load('service/ComicTranslationService.et
   }}};
   if(name==='@kit.ImageKit')return {image};
   if(name.includes('arkui') || name==='@kit.ArkUI')return {LengthMetricsUnit:{PX:1}};
-  if(name==='@kit.CoreVisionKit')return {textRecognition:{init:async()=>true,recognizeText:async()=>result,
+  if(name==='@kit.CoreVisionKit')return {textRecognition:{init:async()=>true,recognizeText:async(input,options)=>{
+    assert.equal(options.isDirectionDetectionSupported,false,'OCR keeps the source orientation');
+    if (!tileResults) return result;
+    const [left,top,width,height]=input.pixelMap.crop;
+    const lines=[];
+    for(const [value,x,y] of [['Hello',1120,100],['World',100,1800]]) {
+      if(x>=left&&y>=top&&x+100<=left+width&&y+30<=top+height) lines.push(line(value,x-left,y-top,100,30));
+    }
+    return {blocks:[{lines}]};
+  },
     release:async()=>{ocrReleases++;}}};
   if(name.endsWith('ComicAiConfigService')) throw Error('translation must not import the API service');
   return {};
@@ -95,5 +107,16 @@ const {ComicTranslationService:service}=load('service/ComicTranslationService.et
   await assert.rejects(service.translatePixels(borrowed,800,600,'en-zh',()=>false),/cancelled/);
   await borrowed.release();
   assert.equal(resources,0);
+  tileResults=true;
+  const large=pixel();
+  const drawnBefore=drawn.length;
+  await service.translatePixels(large,2400,3600,'en-zh',()=>true);
+  assert.ok(cropCalls.length>1 && cropCalls.every(c=>c[2]<=1280&&c[3]<=1280));
+  assert.equal(drawn.length-drawnBefore,2,'overlapping OCR tiles must not duplicate translations');
+  assert.ok(erased.some(([x,y])=>x===1119&&y===99),'first overlap region returns to source pixel coordinates');
+  assert.ok(erased.some(([x,y])=>x===99&&y===1799),'later rows retain their source offset');
+  assert.ok(packing.every(p=>p.format==='image/png'&&p.quality===100),'translated pages are lossless');
+  await large.release(); tileResults=false;
+  assert.equal(resources,0,'tiled OCR releases every temporary pixel map');
   console.log('comic translation: local OCR, offline-only inference, region grouping, wrapping, rendering bounds, no-text skip and cleanup passed');
 })().catch(error=>{console.error(error);process.exitCode=1;});

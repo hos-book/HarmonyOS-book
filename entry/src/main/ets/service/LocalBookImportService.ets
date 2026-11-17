@@ -452,10 +452,38 @@ export class LocalBookImportService {
         progress(`${book.title} ${Math.floor(offset * 100 / size)}%`);
       }
       if (html) {
-        for (const part of LocalBookCatalog.html(htmlContent, book.title, uri.substring(uri.lastIndexOf('/') + 1))) {
-          await LocalBookImportService.appendText(book, directory, part.title,
-            LocalBookImportService.htmlText(htmlContent.substring(part.start, part.end)), writes);
+        const original = new EpubOriginalStore(directory, writes);
+        const href = 'source.html';
+        await original.capture(0, href, htmlContent, async (relative: string): Promise<ArrayBuffer | undefined> => {
+          // 只读取同目录及子目录的配套资源；文档提供方未授权的资源正常回退。
+          if (relative.startsWith('/') || relative.split('/').includes('..') || /[:\\\u0000-\u001f]/.test(relative)) return undefined;
+          const resource = await fileIo.open(uri.substring(0, uri.lastIndexOf('/') + 1) + relative, fileIo.OpenMode.READ_ONLY);
+          try {
+            const length = (await fileIo.stat(resource.fd)).size;
+            if (length <= 0 || length > EpubOriginalStore.MAX_RESOURCE) return undefined;
+            const bytes = new ArrayBuffer(length);
+            let read = 0;
+            while (read < length) {
+              const chunk = new ArrayBuffer(Math.min(65536, length - read));
+              const count = await fileIo.read(resource.fd, chunk, { offset: read, length: chunk.byteLength });
+              if (count <= 0) return undefined;
+              new Uint8Array(bytes).set(new Uint8Array(chunk, 0, count), read);
+              read += count;
+            }
+            return bytes;
+          } finally { await fileIo.close(resource); }
+        });
+        for (const part of LocalBookCatalog.htmlLayout(htmlContent, book.title, uri.substring(uri.lastIndexOf('/') + 1))) {
+          const content = LocalBookImportService.htmlText(htmlContent.substring(part.start, part.end));
+          const index = book.chapters.length;
+          await LocalBookImportService.appendText(book, directory, part.title, content, writes, true);
+          if (book.chapters.length > index) {
+            const mapping = new EpubOriginalPart(0, href, part.start, part.end);
+            mapping.length = content.trim().length;
+            await original.saveChapter(index, [mapping]);
+          }
         }
+        await original.finish(book.id, book.chapters.length);
       } else {
         await LocalBookImportService.appendText(book, directory, title, section + pending, writes, hasChapterTitle);
       }
@@ -514,7 +542,7 @@ export class LocalBookImportService {
     if (!canIUse('SystemCapability.OfficeService.PDFService.Core')) {
       throw new Error(context.resourceManager.getStringSync($r('app.string.import_pdf_unsupported').id));
     }
-    if (size <= 0 || size > 128 * 1024 * 1024) {
+    if (size <= 0 || size > 1024 * 1024 * 1024) {
       throw new Error(context.resourceManager.getStringSync($r('app.string.import_pdf_limit').id));
     }
     try {

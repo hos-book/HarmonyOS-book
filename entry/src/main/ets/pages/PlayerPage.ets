@@ -4,6 +4,7 @@ import { TextReadingProgressService } from '../service/text/TextReadingProgressS
 import { ChapterSheetActions } from '../components/ChapterSheetActions';
 import { ReaderSettingsPopup } from '../components/ReaderSettingsPopup';
 import { PlaybackWaveIcon } from '../components/PlaybackWaveIcon';
+import { ReadingSessionService } from '../service/ReadingSessionService';
 import { ChapterSegmentGrid } from '../components/ChapterSegmentGrid';
 import { PlaybackLoadingIndicator } from '../components/PlaybackLoadingIndicator';
 import { LocalTextImage } from '../service/text/LocalTextImage';
@@ -1357,7 +1358,18 @@ export struct PlayerPage {
   }
 
   /** 打开章节列表,加载全部章节 */
+  @Local readChapterIds: Set<string> = new Set<string>();
+
+  private refreshReadChapters(): void {
+    const bookId = this.book?.id ?? '';
+    this.readChapterIds = new Set<string>();
+    ReadingSessionService.readChapterIds(bookId).then((ids: Set<string>): void => {
+      if (this.book?.id === bookId) this.readChapterIds = ids;
+    });
+  }
+
   private openChapterList(): void {
+    this.refreshReadChapters();
     if (this.showChapterList) return;
     this.cancelChapterPosition();
     this.chapterListInteracted = false;
@@ -2612,6 +2624,7 @@ export struct PlayerPage {
 
       if (this.chapterGridVisible) {
         ChapterSegmentGrid({
+          readChapterIds: this.readChapterIds,
           book: this.book, topRequest: this.chapterTopRequest, bottomRequest: this.chapterBottomRequest,
           chapters: this.book?.chapters ?? [], currentId: this.playbackChapter()?.id ?? '',
           keyword: this.chapterSearchKeyword, descending: this.chapterDescending,
@@ -2660,7 +2673,8 @@ export struct PlayerPage {
             Column({ space: 2 }) {
               Text(ch.title)
                 .fontSize(AppFont.BodyL)
-                .fontColor(this.isCurrentChapter(ch) ? AppColor.Brand : $r('sys.color.font_primary'))
+                .fontColor(this.isCurrentChapter(ch) ? AppColor.Brand : this.readChapterIds.has(ch.id) ?
+                  $r('sys.color.font_secondary') : $r('sys.color.font_primary'))
                 .fontWeight(this.isCurrentChapter(ch) ? FontWeight.Medium : FontWeight.Normal)
             }
             .alignItems(HorizontalAlign.Start)

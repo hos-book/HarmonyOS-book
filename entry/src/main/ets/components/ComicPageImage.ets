@@ -45,6 +45,7 @@ export struct ComicPageImage {
   @Local coloredWithTranslation: boolean = false;
   @Local colorBusy: boolean = false;
   private colorSerial: number = 0;
+  private colorFailed: boolean = false;
   private colorStartedAt: number = 0;
   private colorReadyAt: number = 0;
   private colorTrace: string = '';
@@ -139,6 +140,7 @@ export struct ComicPageImage {
     this.enhancementSerial++;
     this.colorSerial++;
     this.coloredUrl = '';
+    this.colorFailed = false;
     this.colorBusy = false;
     this.colorReadyAt = 0;
     this.pendingUrl = page.url;
@@ -211,6 +213,7 @@ export struct ComicPageImage {
     this.colorSerial++;
     this.colorBusy = false;
     this.coloredUrl = '';
+    this.colorFailed = false;
     this.colorReadyAt = 0;
     if (this.colorization || this.translation) { this.enhancementSerial++; this.enhancedUrl = ''; }
     this.protectImage();
@@ -235,7 +238,7 @@ export struct ComicPageImage {
   private colorize(): void {
     const translate = this.translation && this.membership.hasAccess;
     if (!this.membership.hasAccess || !this.alive || !this.visible || (!this.colorization && !translate) || !this.colorizationActive ||
-      !this.resolvedUrl || this.coloredUrl || this.colorBusy) return;
+      !this.resolvedUrl || this.coloredUrl || this.colorBusy || this.colorFailed) return;
     const context = this.getUIContext().getHostContext();
     if (!context) return;
     const ticket = ++this.colorSerial;
@@ -257,7 +260,7 @@ export struct ComicPageImage {
       this.coloredUrl = path;
       this.protectImage();
     }).catch((error: Error): void => {
-      if (active()) this.onColorError(error.message);
+      if (active()) { this.colorFailed = true; this.onColorError(error.message); }
     }).finally((): void => { if (ticket === this.colorSerial) this.colorBusy = false; });
   }
 
@@ -331,7 +334,7 @@ export struct ComicPageImage {
     const nativeWidth = this.page.width > 0 ? this.page.width * (this.enhancedUrl ? 4 : 1) : 1536;
     const enlarged = this.decodeScale > 1;
     return Math.max(1, Math.floor(Math.min(this.getUIContext().vp2px(this.imageWidth() / this.crop.width) * this.decodeScale,
-      enlarged ? 4096 : 1536, (enlarged ? 8192 : 4096) / ratio,
+      enlarged ? 4096 : 3072, (enlarged ? 8192 : 4096) / ratio,
       Math.sqrt((enlarged ? 8 : 4) * 1024 * 1024 / ratio), nativeWidth)));
   }
 
@@ -443,7 +446,7 @@ export struct ComicPageImage {
             }
           })
           .onError(() => {
-            if (this.coloredUrl) { this.coloredUrl = ''; this.onColorError('comic_ai_invalid_image'); }
+            if (this.coloredUrl) { this.coloredUrl = ''; this.colorFailed = true; this.onColorError('comic_ai_invalid_image'); }
             else if (this.enhancedUrl) { this.enhancedUrl = ''; this.enhancementFailed = true; }
             else this.failed = true;
           })

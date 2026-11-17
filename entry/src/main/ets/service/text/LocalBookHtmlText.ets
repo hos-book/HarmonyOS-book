@@ -12,7 +12,8 @@ export class LocalBookHtmlText {
     if (text.includes('<')) {
       text = text
         .replace(/<!--[\s\S]*?-->|<(head|script|style)\b[^>]*>[\s\S]*?<\/\1\s*>/gi, '')
-        .replace(/<br\s*\/?>|<\/?(?:p|div|section|article|li|h[1-6])\b[^>]*>/gi, '\n')
+        .replace(/<\/t[dh]\s*>/gi, ' ')
+        .replace(/<br\s*\/?>|<\/?(?:p|div|section|article|li|tr|h[1-6])\b[^>]*>/gi, '\n')
         .replace(/<[^>]+>/g, '');
     }
     // 保留已有实体解码顺序；普通中文章节不需要反复扫描六种实体。

@@ -1487,7 +1487,18 @@ export struct ComicReaderPage {
     .enabled(this.chrome)
   }
 
+  @Local readChapterIds: Set<string> = new Set<string>();
+
+  private refreshReadChapters(): void {
+    const bookId = this.book?.id ?? '';
+    this.readChapterIds = new Set<string>();
+    ReadingSessionService.readChapterIds(bookId).then((ids: Set<string>): void => {
+      if (this.book?.id === bookId) this.readChapterIds = ids;
+    });
+  }
+
   private openChapterSheet(): void {
+    this.refreshReadChapters();
     this.resetChapterSlider();
     if (this.showChapters) return;
     if (!this.book || this.book.chapters.length === 0) return;
@@ -1622,6 +1633,7 @@ export struct ComicReaderPage {
         .margin({ left: AppSpace.Lg, right: AppSpace.Lg, top: 0, bottom: 0 })
       if (this.chapterSegmented) {
         ChapterSegmentGrid({
+          readChapterIds: this.readChapterIds,
           highlightCurrent: true,
           book: this.book ?? null, topRequest: this.chapterTopRequest, bottomRequest: this.chapterBottomRequest,
           chapters: this.book?.chapters ?? [],
@@ -1643,7 +1655,8 @@ export struct ComicReaderPage {
               Column({ space: AppSpace.Xxs }) {
                 Text(chapter.title)
                   .fontSize(AppFont.BodyL)
-                  .fontColor(this.isCurrentChapter(chapter) ? AppColor.Brand : $r('sys.color.font_secondary'))
+                  .fontColor(this.isCurrentChapter(chapter) ? AppColor.Brand : this.readChapterIds.has(chapter.id) ?
+                    $r('sys.color.font_secondary') : $r('sys.color.font_primary'))
                   .fontWeight(this.isCurrentChapter(chapter) ? FontWeight.Medium : FontWeight.Normal)
                   .maxLines(2)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -1799,8 +1812,7 @@ export struct ComicReaderPage {
 
   private colorizationFailed(message: string): void {
     if (!this.alive || (!this.colorization && !this.translation)) return;
-    this.colorization = false;
-    this.translation = false;
+    if (!this.translation) this.colorization = false;
     let text: ResourceStr = $r('app.string.comic_ai_request_failed');
     if (message === 'comic_ai_color_unsupported') text = $r('app.string.comic_ai_color_unsupported');
     else if (message === 'comic_ai_color_failed') text = $r('app.string.comic_ai_color_failed');

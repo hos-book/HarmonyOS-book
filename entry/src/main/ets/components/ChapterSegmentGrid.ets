@@ -37,6 +37,7 @@ export struct ChapterSegmentGrid {
   @Param book: Book | null = null;
   @Param chapters: Chapter[] = [];
   @Param currentId: string = '';
+  @Param readChapterIds: Set<string> = new Set<string>();
   @Param keyword: string = '';
   @Param descending: boolean = false;
   @Param columns: number = 2;
@@ -142,7 +143,9 @@ export struct ChapterSegmentGrid {
             ListItem() {
               Row({ space: 6 }) {
                 Text(chapter.title).layoutWeight(1)
-                .fontSize(AppFont.Body).fontColor(this.highlightCurrent && chapter.id === this.currentId ? AppColor.Brand : $r('sys.color.font_primary'))
+                .fontSize(AppFont.Body).fontColor(this.highlightCurrent && chapter.id === this.currentId ? AppColor.Brand :
+                  chapter.id !== this.currentId && this.readChapterIds.has(chapter.id) ?
+                    $r('sys.color.font_secondary') : $r('sys.color.font_primary'))
                 .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
                 if (chapter.id === this.currentId) {
                   SymbolGlyph($r('sys.symbol.scope')).fontSize(16).fontColor([AppColor.Brand])

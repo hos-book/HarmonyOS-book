@@ -161,4 +161,14 @@ export class LocalBookCatalog {
     }
     return LocalBookCatalog.sections(html, fallback, marks);
   }
+
+  /** 多列表格和分栏中的标题属于同一画布，不能按标题切断兄弟列。 */
+  static htmlLayout(html: string, fallback: string, fileName: string): LocalCatalogSection[] {
+    if (/<table\b|<link\b[^>]*\bstylesheet\b|\b(?:columns|column-count|column-width|grid-template-columns)\s*:|float\s*:\s*(?:left|right)|display\s*:\s*(?:inline-)?(?:grid|flex)\b/i.test(html)) {
+      const section = new LocalCatalogSection();
+      section.title = fallback; section.end = html.length;
+      return [section];
+    }
+    return LocalBookCatalog.html(html, fallback, fileName);
+  }
 }

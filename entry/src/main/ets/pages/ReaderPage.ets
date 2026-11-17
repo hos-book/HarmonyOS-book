@@ -2917,7 +2917,18 @@ export struct ReaderPage {
     this.navStack.pushPathByName('detail', currentBook.id);
   }
 
+  @Local readChapterIds: Set<string> = new Set<string>();
+
+  private refreshReadChapters(): void {
+    const bookId = this.book?.id ?? '';
+    this.readChapterIds = new Set<string>();
+    ReadingSessionService.readChapterIds(bookId).then((ids: Set<string>): void => {
+      if (this.book?.id === bookId) this.readChapterIds = ids;
+    });
+  }
+
   private openChapterSheet(): void {
+    this.refreshReadChapters();
     if (this.showChapterSheet) return;
     this.resetChapterSlider();
     this.fullTextSearch = false;
@@ -3761,6 +3772,7 @@ export struct ReaderPage {
         .margin({ left: AppSpace.Lg, right: AppSpace.Lg, top: 0, bottom: 0 })
       if (this.chapterSegmented) {
         ChapterSegmentGrid({
+          readChapterIds: this.readChapterIds,
           highlightCurrent: false,
           book: this.book, topRequest: this.chapterTopRequest, bottomRequest: this.chapterBottomRequest,
           chapters: this.book?.chapters ?? [],
@@ -3782,7 +3794,8 @@ export struct ReaderPage {
               Column({ space: AppSpace.Xxs }) {
                 Text(chapter.title)
                   .fontSize(AppFont.BodyL)
-                  .fontColor($r('sys.color.font_secondary'))
+                  .fontColor(!this.isCurrentChapter(chapter) && this.readChapterIds.has(chapter.id) ?
+                    $r('sys.color.font_secondary') : $r('sys.color.font_primary'))
                   .fontWeight(FontWeight.Normal)
                   .maxLines(2)
                   .textOverflow({ overflow: TextOverflow.Ellipsis })

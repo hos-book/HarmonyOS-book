@@ -24,7 +24,8 @@ export async function renderPdfPages(path: string, directory: string): Promise<n
         if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
           throw new Error('import_pdf_invalid');
         }
-        const scale = Math.min(2, 3072 / Math.max(width, height), Math.sqrt(4 * 1024 * 1024 / (width * height)));
+        // 按约 288 dpi 重绘矢量文字，逐页限制像素预算，避免先低清栅格化再放大。
+        const scale = Math.min(4, 4096 / Math.max(width, height), Math.sqrt(12 * 1024 * 1024 / (width * height)));
         const targetWidth = Math.max(1, Math.floor(width * scale));
         const targetHeight = Math.max(1, Math.floor(height * scale));
         const matrix = new pdfService.PdfMatrix();
@@ -40,12 +41,18 @@ export async function renderPdfPages(path: string, directory: string): Promise<n
         let bytes: ArrayBuffer;
         try {
           const packer = image.createImagePacker();
-          try { bytes = await packer.packToData(pixels, { format: 'image/jpeg', quality: 92 }); }
+          try {
+            bytes = await packer.packToData(pixels, { format: 'image/png', quality: 100 });
+            // 扫描页可能无法有效无损压缩，保留高质量回退和单图读取上限。
+            if (bytes.byteLength > 20 * 1024 * 1024) {
+              bytes = await packer.packToData(pixels, { format: 'image/jpeg', quality: 98 });
+            }
+          }
           finally { await packer.release(); }
         } finally { await pixels.release(); }
         totalBytes += bytes.byteLength;
         if (bytes.byteLength === 0) throw new Error('import_pdf_invalid');
-        if (bytes.byteLength > 8 * 1024 * 1024 || totalBytes > 512 * 1024 * 1024) {
+        if (bytes.byteLength > 20 * 1024 * 1024 || totalBytes > 6 * 1024 * 1024 * 1024) {
           throw new Error('import_pdf_limit');
         }
         if (await statfs.getFreeSize(directory) < bytes.byteLength + 256 * 1024 * 1024) {

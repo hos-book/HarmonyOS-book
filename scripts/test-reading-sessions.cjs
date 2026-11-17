@@ -64,6 +64,15 @@ function sessions() {
   memory.set('corrupt', '{broken');
   assert.equal((await restarted.list(['book'])).length, 3);
   assert.equal((await restarted.list(['different-book'])).length, 0);
+  assert.deepEqual([...await restarted.readChapterIds('book')].sort(), ['a', 'b']);
+  assert.equal((await restarted.readChapterIds('different-book')).size, 0);
+  book.chapters.push({id:'skipped',title:'未读章',source:{value:'skipped'}},
+    {id:'visited',title:'跳读章',source:{value:'visited'}});
+  service.checkpoint('reading', position(3, 12), true);
+  const read = await service.readChapterIds('book');
+  assert.ok(read.has('visited'), 'an active reading session is reflected immediately');
+  assert.ok(!read.has('skipped'), 'earlier skipped chapters are not inferred as read');
+  service.end('reading'); await service.chain;
   console.log('PASS session start/end, cross-chapter grouping, pause/resume, restart, corrupt record isolation');
 
   service.checkpoint('audio', position(1, 30000), true);

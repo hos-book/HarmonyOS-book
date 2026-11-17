@@ -1,3 +1,4 @@
+import { AppColor } from '../theme/Theme';
 import { OneShotLayoutCallback } from '../utils/OneShotTransition';
 
 /** 原生单次开屏；不创建 WebView，不等待网络或阻塞首页初始化。 */
@@ -7,6 +8,7 @@ export struct StartupSplash {
   @Local glowVisible: boolean = false;
   @Local titleVisible: boolean = false;
   @Local taglineVisible: boolean = false;
+  @Local progressScale: number = 0.02;
   @Local splashOpacity: number = 1;
   @Local viewportHeight: number = 667;
   @Local artworkScale: number = 1;
@@ -34,6 +36,10 @@ export struct StartupSplash {
       if (this.disposed) return;
       this.getUIContext().animateTo({ duration: 180, curve: Curve.EaseOut }, (): void => {
         this.glowVisible = true;
+      });
+      // 与开屏同步填满，用绘制缩放保持进度平滑增长。
+      this.getUIContext().animateTo({ duration: 1050, curve: Curve.Linear }, (): void => {
+        this.progressScale = 1;
       });
       this.later(580, (): void => {
         this.getUIContext().animateTo({ duration: 160, curve: Curve.EaseOut }, (): void => {
@@ -89,6 +95,16 @@ export struct StartupSplash {
       }
       .width('100%')
       .position({ x: 0, y: this.viewportHeight * 0.43 + 101 * this.artworkScale })
+      Stack({ alignContent: Alignment.TopStart }) {
+        Row()
+          .width(120).height(3).borderRadius(2)
+          .backgroundColor(AppColor.Brand)
+          .scale({ x: this.progressScale, y: 1, centerX: 0, centerY: '50%' })
+      }
+      .width(120).height(3).borderRadius(2).clip(true)
+      .backgroundColor($r('app.color.splash_progress_track'))
+      .position({ x: '50%', y: '84%' }).translate({ x: -60 })
+      .opacity(this.glowVisible ? 1 : 0)
     }
     .width('100%').height('100%')
     .backgroundColor($r('app.color.start_window_background'))

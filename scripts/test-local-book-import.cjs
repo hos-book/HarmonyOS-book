@@ -44,8 +44,9 @@ const pdfService = {
         getHeight: () => index === 1 ? 595 : 842,
         getAreaPixelMapWithOptions(matrix, width, height, options) {
           if (index === pdfFailurePage) throw new Error('native render failed');
-          assert.ok(width > 0 && height > 0 && width * height <= 4 * 1024 ** 2);
-          assert.ok(width <= 3072 && height <= 3072);
+          assert.ok(width > 0 && height > 0 && width * height <= 12 * 1024 ** 2);
+          assert.ok(width <= 4096 && height <= 4096);
+          assert.ok(Math.max(width, height) > 3000, 'text is rendered at reading resolution');
           assert.equal(matrix.width, width, 'PDF page must fill the output width, not a scale-sized corner');
           assert.equal(matrix.height, height, 'PDF page must fill the output height');
           assert.equal(matrix.x, 0);
@@ -205,7 +206,8 @@ const image = {
     liveImages++;
     return {
       async packToData(_pixels, options) {
-        assert.equal(options.format, 'image/jpeg');
+        assert.ok(['image/jpeg', 'image/png'].includes(options.format));
+        if (pdfPixels > 0) assert.equal(options.format, 'image/png', 'PDF text uses lossless output');
         return Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]).buffer;
       },
       release: async () => { liveImages--; }
@@ -824,6 +826,15 @@ function load(relative) {
   await assert.rejects(service.importBook(context, pdfFile, 'import_pdf_unsupported', '', '', '', () => {}), /不支持 PDF/);
   assert.equal(pdfLoads, previousLoads, 'unsupported devices never open PDFKit');
   pdfAvailable = true;
+  const pdfSize = service.fileSize;
+  try {
+    service.fileSize = async () => 600 * 1024 ** 2;
+    const largePdf = await service.importBook(context, pdfFile, 'import_pdf_600m', '', '', '', () => {});
+    assert.equal(largePdf.chapters.length, 2, 'a 600 MiB scan passes the file-size gate');
+    service.fileSize = async () => 1024 ** 3 + 1;
+    await assert.rejects(service.importBook(context, pdfFile, 'import_pdf_over_limit', '', '', '', () => {}), /1 GiB/);
+    assert.equal(fs.existsSync(path.join(temp, 'ebooks/import_pdf_over_limit')), false);
+  } finally { service.fileSize = pdfSize; }
   assert.deepEqual(await fsp.readFile(pdfFile.uri), pdfOriginal, 'source document is never modified');
   assert.equal(pdfDocuments, 0); assert.equal(pdfPages, 0); assert.equal(pdfPixels, 0);
   console.log('PASS PDF: ordered page images, landscape, chapters, cover, persistence, deletion, unsupported/password/broken/limit/render failure cleanup');
@@ -886,9 +897,32 @@ function load(relative) {
     const result = await service.importBook(context, file, 'import_' + name, '', '', '', () => {});
     assert.equal(await fsp.readFile(result.chapters[0].source.value, 'utf8'), expected);
   }
+  const columnFile = { uri: path.join(temp, 'columns.html').replaceAll('\\', '/'), name: '双栏单词表', ext: '.html' };
+  const columnHtml = '<html><head><link rel="stylesheet" href="columns.css"/><style>.columns{display:grid;grid-template-columns:1fr 1fr}</style></head>' +
+    '<body><div class="columns"><section><h1>English</h1><p>hello</p></section><section><h1>中文</h1><p>你好</p></section></div>' +
+    '<table><tr><td>first</td><td>第一</td></tr></table></body></html>';
+  await fsp.writeFile(columnFile.uri, columnHtml);
+  await fsp.writeFile(path.join(temp, 'columns.css'), '@font-face{font-family:fixture;src:url("words.woff2")}table{color:black}');
+  await fsp.writeFile(path.join(temp, 'words.woff2'), Buffer.from([1,2,3]));
+  const columnBook = await service.importBook(context, columnFile, 'import_html_columns', '', '', '', () => {});
+  assert.equal(columnBook.chapters.length, 1, 'headings in sibling columns remain in the same document');
+  const columnRoot = Originals.root(context.filesDir, columnBook.id);
+  const columnPart = (await Originals.parts(columnRoot, 0))[0];
+  const renderedColumns = OriginalDocument.build(await fsp.readFile(columnRoot+'/0.html', 'utf8'), columnPart, '', 'fixture');
+  assert.ok(renderedColumns.includes('grid-template-columns:1fr 1fr') && renderedColumns.includes('<table>'));
+  assert.ok(renderedColumns.includes('English') && renderedColumns.includes('中文'));
+  assert.ok(Buffer.from(await Originals.resource(columnRoot, 'columns.css')).toString().includes('font-family:fixture'));
+  assert.deepEqual(Buffer.from(await Originals.resource(columnRoot, 'words.woff2')), Buffer.from([1,2,3]));
+  const columnText = await fsp.readFile(columnBook.chapters[0].source.value, 'utf8');
+  assert.ok(columnText.includes('first 第一'), 'application layout keeps a separator between table cells');
+  console.log('PASS HTML file layout: sibling columns/tables, packaged CSS/fonts and application text fallback');
   file.ext = '.html';
   await fsp.writeFile(file.uri, '<html><head><title>ignore</title></head><body><h1>章节</h1><p>甲&amp;乙</p><script>bad()</script><p>尾声</p></body></html>');
   const html = await service.importBook(context, file, 'import_html', '', '', '', () => {});
+  const htmlTheme = await Originals.theme(context.filesDir, html.id, html.chapters.length);
+  assert.equal(htmlTheme.enabled, true, 'HTML defaults to the file layout');
+  await Originals.select(context.filesDir, htmlTheme, false);
+  assert.equal((await Originals.theme(context.filesDir, html.id, html.chapters.length)).enabled, false);
   assert.equal(await fsp.readFile(html.chapters[0].source.value, 'utf8'), '章节\n\n甲&乙\n\n尾声');
   assert.equal(html.chapters[0].title, '章节');
   const { LocalBookCatalog: catalog } = load('service/text/LocalBookCatalog');

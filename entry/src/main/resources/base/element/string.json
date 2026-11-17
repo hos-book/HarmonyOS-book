@@ -330,7 +330,7 @@
     },
     {
       "name": "import_epub_mode_hint",
-      "value": "适用于本批 EPUB、MOBI、CBA 和 PDF（含 ZIP 内文件）。自动模式识别 EPUB/MOBI 内容，CBA/PDF 默认按漫画导入，也可手动选择电子书或漫画。图片中的文字不会自动转换为可朗读正文。EPUB/CBA 单文件最大 3 GiB，MOBI/PDF 最大 128 MiB；大文件导入需要更多时间和存储空间。"
+      "value": "适用于本批 EPUB、MOBI、CBA 和 PDF（含 ZIP 内文件）。自动模式识别 EPUB/MOBI 内容，CBA/PDF 默认按漫画导入，也可手动选择电子书或漫画。图片中的文字不会自动转换为可朗读正文。EPUB/CBA 单文件最大 3 GiB，MOBI 最大 128 MiB，PDF 最大 1 GiB；大文件导入需要更多时间和存储空间。"
     },
     {
       "name": "comic_switch_text",
@@ -1602,7 +1602,7 @@
     },
     {
       "name": "import_supported_formats",
-      "value": "音频：MP3/M4A/FLAC/WAV/OGG/AAC；电子书和漫画：TXT/EPUB/MOBI/CBA/PDF/HTML/HTM；打包：ZIP。MOBI 支持未加密 MOBI6（未压缩或 PalmDOC 压缩），保留正文图片、提取封面并自动识别漫画，不完全还原原排版。CBA 为 ACE 漫画压缩包，支持 ACE 1/2（含固实压缩），按文件名数字顺序阅读；不支持密码或分卷包。CBA 最大 3 GiB、50000 个文件，单个内容最多 20 MiB、图片最多 32 兆像素，解压总计最多 6 GiB。PDF 保留原版页面，不支持文字重排和朗读；最大 128 MiB、2000 页、图片总计 512 MiB，不支持密码文件。"
+      "value": "音频：MP3/M4A/FLAC/WAV/OGG/AAC；电子书和漫画：TXT/EPUB/MOBI/CBA/PDF/HTML/HTM；打包：ZIP。MOBI 支持未加密 MOBI6（未压缩或 PalmDOC 压缩），保留正文图片、提取封面并自动识别漫画，不完全还原原排版。CBA 为 ACE 漫画压缩包，支持 ACE 1/2（含固实压缩），按文件名数字顺序阅读；不支持密码或分卷包。CBA 最大 3 GiB、50000 个文件，单个内容最多 20 MiB、图片最多 32 兆像素，解压总计最多 6 GiB。PDF 保留原版页面，不支持文字重排和朗读；最大 1 GiB、2000 页、单页图片 20 MiB、图片总计 6 GiB，不支持密码文件。"
     },
     {
       "name": "import_file_filter",
@@ -1626,7 +1626,7 @@
     },
     {
       "name": "import_pdf_limit",
-      "value": "PDF 导入上限为单文件 128 MiB、2000 页，转换图片总计 512 MiB。请拆分文件后重试。"
+      "value": "PDF 导入上限为单文件 1 GiB、2000 页，转换图片总计 6 GiB、单页 20 MiB。请拆分文件后重试。"
     },
     {
       "name": "import_pdf_space",
@@ -2209,6 +2209,10 @@
       "value": "我有点紧张，谢谢你把支持留给简听阅读。借你的名字，也想送你一句轻松的话：在这里，书可以慢慢读，故事可以暂停，没人催你赶往下一章。你的这份心意，我会好好珍惜，也会继续把这个能让人放松片刻的小地方照顾好。愿你往后的紧张，多半来自好事将近的期待；而打开简听阅读的时候，刚好可以松一口气。"
     },
     {
+      "name": "support_thanks_xiaojiong",
+      "value": "小冋，成为会员已是一份信任，你仍愿意给予额外的支持，这份心意尤其珍贵。谢谢你对简听阅读的认可。我会继续认真打磨，让每一次阅读与聆听，都值得你的选择。"
+    },
+    {
       "name": "support_everyone_title",
       "value": "还有正在阅读的你"
     },
@@ -2246,7 +2250,7 @@
     },
     {
       "name": "sponsor_thanks_names",
-      "value": "WT\n子阳\ndefault\n干脆面不用泡\n苏小锋\n张\n李富贵\n最初未来\n潮生万象\n向钱看向厚看\nHAOYUN\n*.\n一飞冲天\nL.\n再见\n柏子\n爱你806\n*城\n我有点紧张"
+      "value": "WT\n子阳\ndefault\n干脆面不用泡\n苏小锋\n张\n李富贵\n最初未来\n潮生万象\n向钱看向厚看\nHAOYUN\n*.\n一飞冲天\nL.\n再见\n柏子\n爱你806\n*城\n我有点紧张\n小冋"
     },
     {
       "name": "sponsor_thanks_hendo",
@@ -8166,11 +8170,11 @@
     },
     {
       "name": "reader_epub_original_theme",
-      "value": "EPUB 原版精排"
+      "value": "使用文件排版"
     },
     {
       "name": "reader_epub_original_hint",
-      "value": "此书专属预设，使用书内字体、背景与样式。选择其他主题可切回应用排版。"
+      "value": "保留 EPUB / HTML 文件自带的字体、背景、分栏和表格样式。选择其他主题可切回应用排版。"
     },
     {
       "name": "reader_epub_original_failed",
