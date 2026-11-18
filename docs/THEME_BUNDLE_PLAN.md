@@ -67,15 +67,7 @@
 
 ## 验证
 
-在 PowerShell 中设置本机 Release IDE：
-
-```powershell
-$env:DEVECO_HOME = 'C:/Program Files/Huawei/DevEco Studio'
-node scripts/test-theme-definitions.cjs
-node scripts/test-theme-preferences.cjs
-```
-
-`test-theme-definitions` 验证现有语义角色、局部预览隔离、未知主题与图标回退、材质缓存失效、固定弹层材质、资源完整性及雾蓝/墨山文字对比度与墨山深浅图片资源。`test-theme-preferences` 验证所有注册主题的保存、恢复推荐值、重启和备份，同时覆盖旧设置迁移、并发队列与失败回滚。两者是模拟平台的逻辑测试，不替代设备渲染。
+项目自有主题回归脚本已移除。验证主题时，检查语义角色、局部预览隔离、未知主题与图标回退、材质缓存失效、资源完整性，以及保存、恢复推荐值、重启和备份；设备渲染按下列待验收项检查。
 
 本次基座与雾蓝接入：API 26 Release SDK 完整 debug HAP 构建通过（未签名），主题逻辑回归通过。工程原路径含中文，Hvigor 拒绝该路径，因此使用英文临时副本及公共构建模板验证；未修改原工程签名配置。此前纸感首版的真机记录不能作为本次重构或雾蓝主题的真机验收结论。
 

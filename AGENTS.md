@@ -132,10 +132,8 @@ Generated dirs (never edit, never commit): `build/`, `.hvigor/`, `oh_modules/`, 
 
 ## Testing
 
-- **App unit tests**: `entry/src/test/*.test.ets` (Hypium framework) — source persistence and management, bulk testing, search history/cache, pagination/themes, playback progress and download policies
-- **Node service regression scripts**: `node scripts/test-*.cjs` (reader progress/preferences/statusbar, reader-playback-sync, audio-commands, local-book-import, stats-persistence, source-web-session, text-content-cache, text-to-speech). Each requires `DEVECO_HOME` pointing to the installed Release IDE (they transpile real `entry/src/main/ets` services with the IDE's bundled TypeScript) and runs against temporary files with simulated platform APIs. `scripts/local-rule-http-fixture.cjs` is a shared fixture helper, not a test.
-- **App device tests**: `entry/src/ohosTest/ets/test/*.test.ets`
-- **Membership function tests**: `cd cloud/membership-offer && npm test` (Vitest); `npm run typecheck` for `tsc --noEmit`. Node >= 22, ESM. Package verification uses `scripts/test-membership-offer-package.py`.
+- 项目自有单元测试、设备测试、Node/Python 回归脚本及专用夹具已按用户要求移除；不要运行已删除的测试入口。文档中既往回归结果为历史验证记录，源码可从 Git 历史检索。
+- 保留 `scripts/verify-release-package.py` 验证发布 APP/HAP 的 SDK 渠道、版本、资源及混淆契约；会员云函数使用 Node >= 22、ESM，可运行 `npm run typecheck` 检查类型。
 - **CI**: no build/test CI exists; the only workflow (`.github/workflows/app-gallery-pages.yml`) publishes `docs/app-gallery/**` to GitHub Pages on push to main. Never rely on CI to catch errors
 - After changing playback/source adapters/download: smoke-test search → detail → chapter → play on device, then verify resume, download and export
 - After changing local rule import/runtime/dispatch: verify no-source empty states, then import → single/bulk test → search → detail → read/play; disabled sources must leave existing favorites resolvable and one failed rule must not stop other sources

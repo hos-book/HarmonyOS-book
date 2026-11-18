@@ -8,12 +8,10 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "devDependencies": {
     "@types/node": "^22.15.32",
-    "typescript": "^5.8.3",
-    "vitest": "^3.2.4"
+    "typescript": "^5.8.3"
   }
 }

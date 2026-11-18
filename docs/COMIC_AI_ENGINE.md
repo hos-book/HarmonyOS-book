@@ -9,7 +9,7 @@ python scripts/prepare-comic-ai.py
 ohpm install --all
 ```
 
-需要 Python 3.11+、Git / GitHub CLI，以及指向正式版 DevEco Studio 的 `DEVECO_HOME`。脚本在项目外临时目录下载固定提交，先用 IDE 内置 Node（需 22.18+）执行上游 `scripts/check.mjs`，再执行本项目 `scripts/test-comic-ai-package.mjs`。新版已包含旧性能和校准补丁，不再重复应用；集成标记记录使用上游实现。脚本补充 `Index.ets` / `Worker.ets` 导出和经过 SHA-256 验证的离线模型资产，再构建并检查 API 20/26、Release SDK、release 模式、双架构原生库和标记。结束清除临时源码，仅保留 HAR、校验记录与许可证。大模型 HAR 和本机记录不加入 Git；匹配固定版本与文件散列时直接复用，强制重建使用 `--force`。旧补丁脚本仅供旧固定版本构建使用。
+需要 Python 3.11+、Git / GitHub CLI，以及指向正式版 DevEco Studio 的 `DEVECO_HOME`。脚本在项目外临时目录下载固定提交，先用 IDE 内置 Node（需 22.18+）执行上游 `scripts/check.mjs`。新版已包含旧性能和校准补丁，不再重复应用；集成标记记录使用上游实现。脚本补充 `Index.ets` / `Worker.ets` 导出和经过 SHA-256 验证的离线模型资产，再构建并检查 API 20/26、Release SDK、release 模式、双架构原生库和标记。结束清除临时源码，仅保留 HAR、校验记录与许可证。大模型 HAR 和本机记录不加入 Git；匹配固定版本与文件散列时直接复用，强制重建使用 `--force`。旧补丁脚本仅供旧固定版本构建使用。
 
 漫画着色的三份固定模型共 176.25 MiB，改为独立 `.jtmodel` 应用专用加密包，不随 HAR 或主包内置。用户在“我的 → 模型管理”导入、替换或删除，无需解压和密码；已有完整落盘模型继续复用。打包工具先验证 AES-256-GCM 分块加密包，再原子移除 HAR 权重，保留引擎字节码、原生库、字典和许可证。发行密钥仅在本机 `signing/model-pack.key`，不进 Git。保护能力、密钥备份和验证边界见 [模型包说明](AI_MODEL_PACKS.md)。
 

@@ -35,7 +35,7 @@ App 接受 AGC 返回的数字或十进制字符串形式的毫秒有效期，�
 
 1. 仓库根目录执行 `python scripts/package-membership-offer.py`，生成 `cloud/membership-offer/dist/membership-offer-agc.zip`。
    原 FunctionGraph 适配包仍单独生成，但当前实际部署采用 AGC 包。
-2. 执行 `python scripts/test-membership-offer-package.py` 验证实际 ZIP 的 callback、环境变量、签名及非法请求处理。
+2. 执行 `npm run typecheck` 检查类型，并在云端验证 ZIP 的 callback、环境变量、签名及非法请求处理。
 3. 更新云函数代码后先云端测试，再发布新版本及其 HTTP 触发器，最后同步 App 的固定版本。
 4. 邀测检查终身优惠展示 60 / 原价 120，进入收银台核对实付 60；实际扣款及退款未在本次执行。
 
@@ -47,4 +47,4 @@ App 接受 AGC 返回的数字或十进制字符串形式的毫秒有效期，�
 - [Node.js 云函数运行协议](https://developer.huawei.com/consumer/cn/doc/doccenter-capabilities/cloudfoundation-develop-function-nodejs)
 - [App 调用云函数](https://developer.huawei.com/consumer/cn/doc/doccenter-capabilities/cloudfoundation-call-function)
 
-在本目录使用 Node 22+ 执行 `npm run typecheck`、`npm test` 验证签名核心。
+在本目录使用 Node 22+ 执行 `npm run typecheck`。项目自有测试文件及测试依赖已移除，云端调用和收银台验证仍按上述流程执行。

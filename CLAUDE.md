@@ -1,5 +1,7 @@
 # 简听阅读
 
+项目自有测试脚本已移除；下文既往回归结果为历史验证记录，当前验证入口见 `AGENTS.md`。
+
 面向 HarmonyOS 6.0 及以上手机（含折叠屏）、平板及鸿蒙电脑的本地优先听书与小说阅读 App。全网榜单展示平台公开元数据；正文及音频由用户导入的书源提供，规则在设备端执行；支持本地音频导入、章节下载、书架、阅听记录、阅读设置、系统媒体控制与桌面播放卡片。App 没有服务器地址配置入口。
 
 本文描述当前代码，页面行为见 [docs/APP_UI.md](docs/APP_UI.md)，开发约束见 [AGENTS.md](AGENTS.md)，会员优惠云函数见 [cloud/membership-offer/README.md](cloud/membership-offer/README.md)。

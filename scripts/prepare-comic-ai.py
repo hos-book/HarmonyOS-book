@@ -255,8 +255,6 @@ def build():
         subprocess.run([str(ide / 'tools/node/node.exe'), 'scripts/check.mjs'],
                        cwd=project, env=env, check=True, timeout=600)
         prepare_exports(project)
-        subprocess.run([str(ide / 'tools/node/node.exe'), str(ROOT / 'scripts/test-comic-ai-package.mjs'), str(project)],
-                       cwd=project, env=env, check=True, timeout=60)
         subprocess.run([str(ide / 'tools/node/node.exe'), str(ide / 'tools/ohpm/bin/pm-cli.js'), 'install', '--all'],
                        cwd=project, env=env, check=True, timeout=180)
         subprocess.run([str(ide / 'tools/node/node.exe'), str(ide / 'tools/hvigor/bin/hvigorw.js'),
