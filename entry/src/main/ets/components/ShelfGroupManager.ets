@@ -5,6 +5,9 @@ import { ListDataSource } from '../utils/ListDataSource';
 @ComponentV2
 export struct ShelfGroupManager {
   @Param groups: string[] = [];
+  @Param showAllGroup: boolean = true;
+  @Param showUngrouped: boolean = true;
+  @Event onVisibility: (ungrouped: boolean, visible: boolean) => Promise<void> = async (): Promise<void> => {};
   @Event onSave: (previous: string, name: string) => Promise<void> = async (): Promise<void> => {};
   @Event onBusy: (busy: boolean) => void = (): void => {};
   @Event onDelete: (group: string) => Promise<void> = async (): Promise<void> => {};
@@ -21,6 +24,28 @@ export struct ShelfGroupManager {
 
   @Monitor('groups')
   private refreshGroups(): void { this.groupData.setItems(this.groups); }
+
+  private async setDefaultVisible(ungrouped: boolean, visible: boolean): Promise<void> {
+    if (this.saving) return;
+    this.saving = true;
+    this.failed = false;
+    this.onBusy(true);
+    try { await this.onVisibility(ungrouped, visible); }
+    catch (_error) { this.failed = true; }
+    finally { this.saving = false; this.onBusy(false); }
+  }
+
+  @LocalBuilder
+  private defaultGroupSwitch(ungrouped: boolean) {
+    Row({ space: 12 }) {
+      Text(ungrouped ? $r('app.string.shelf_group_none') : $r('app.string.shelf_group_all'))
+        .layoutWeight(1).fontColor($r('sys.color.font_primary'))
+      Toggle({ type: ToggleType.Switch, isOn: ungrouped ? this.showUngrouped : this.showAllGroup })
+        .selectedColor(AppColor.Brand).enabled(!this.saving)
+        .onChange((visible: boolean): void => { this.setDefaultVisible(ungrouped, visible); })
+        .accessibilityText(ungrouped ? $r('app.string.shelf_group_none') : $r('app.string.shelf_group_all'))
+    }.width('100%').padding({ left: 8, right: 8 })
+  }
 
   private async reorder(from: number, to: number): Promise<void> {
     if (this.saving || from === to || from < 0 || to < 0 || from >= this.groups.length || to >= this.groups.length) return;
@@ -91,6 +116,8 @@ export struct ShelfGroupManager {
     Column({ space: 16 }) {
       Text($r('app.string.shelf_group_manage')).fontSize(22).fontWeight(FontWeight.Bold)
         .width('100%').fontColor($r('sys.color.font_primary'))
+      this.defaultGroupSwitch(false)
+      this.defaultGroupSwitch(true)
       Text($r('app.string.shelf_group_drag_hint')).fontSize(13).width('100%')
         .fontColor($r('sys.color.font_secondary'))
       List({ space: 8 }) {

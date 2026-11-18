@@ -55,11 +55,8 @@ import { OneShotLayoutCallback, OneShotTransitionIds } from '../utils/OneShotTra
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
 import { WindowUtils } from '../utils/WindowUtils';
 import { BookDataSource } from '../utils/BookDataSource';
-import { ShelfSpineItem, ShelfSpineRow, ShelfSpineLayout, ShelfSpineHint } from '../utils/ShelfSpineLayout';
-import { ShelfBookSpine } from '../components/ShelfBookSpine';
 import { ShelfReaderRouteParams } from '../utils/ShelfReaderTransition';
-import { ReaderHapticService } from '../service/text/ReaderHapticService';
-import { ShelfBatchActions } from '../components/ShelfBatchActions';
+import { ShelfBatchActions, SHELF_BATCH_ACTIONS_HEIGHT } from '../components/ShelfBatchActions';
 import { CoverImage } from '../components/CoverImage';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
 import { ShelfUpdateService, ShelfUpdateReport, BookUpdateInfo } from '../service/ShelfUpdateService';
@@ -75,7 +72,6 @@ const SHELF_SEARCH_ROW_HEIGHT: number = 50;
 const SHELF_CONTENT_GAP: number = 12;
 const SHELF_SEARCH_GEOMETRY_ID: string = 'shelf-search-morph';
 const SHELF_BATCH_ACTIONS_GAP: number = 8;
-const SHELF_BATCH_ACTIONS_HEIGHT: number = 56;
 const SHELF_LAYOUT_ID: string = 'shelf-page-layout';
 
 class ShelfPlayerRoute {
@@ -175,11 +171,14 @@ export struct FavoritePage {
       this.foreground = true;
       if (this.visible && !this.loading) { this.scheduleAutoUpdate(); this.finishShelfScroll(); }
     },
-    onApplicationBackground: (): void => { this.foreground = false; this.cancelAutoUpdate(); }
+    onApplicationBackground: (): void => { this.foreground = false; this.cancelAutoUpdate(); this.lockHiddenShelf(); }
   };
   @Local missingFavoriteCount: number = 0;
-  @Local viewMode: number = 3; // 0=网格，1=列表，2=立式书架，3=书房
+  @Local viewMode: number = 3; // 0=网格，1=列表，3=书房
   @Param collectionGroup: string | undefined = undefined;
+  @Param hiddenShelf: boolean = false;
+  @Local hiddenShelfUnlocked: boolean = true;
+  @Local savingHidden: boolean = false;
   @Param collectionExpanded: boolean = false;
   @Param historyEnabled: boolean = true;
   @Event onRecords: () => void = () => {};
@@ -198,10 +197,6 @@ export struct FavoritePage {
   private historyRefreshPending: boolean = false;
   private textRefreshPending: boolean = false;
   private recentRefreshPending: boolean = false;
-  @Local pulledSpineBookId: string = '';
-  @Local pulledSpineHint: ShelfSpineHint = new ShelfSpineHint();
-  private spineContentWidth: number = 328;
-  private spineDataSource: HomeRecommendationDataSource<ShelfSpineRow> = new HomeRecommendationDataSource<ShelfSpineRow>();
   private viewModeRevision: number = 0;
   private viewModeSaveTask: Promise<void> = Promise.resolve();
   @Local shelfFilter: number = 0; // 0=全部, 1=有声书, 2=电子书, 3=漫画
@@ -255,6 +250,7 @@ export struct FavoritePage {
   @Local showBookEditor: boolean = false;
   @Local editingBook: Book | null = null;
   @Local editingGroupOnly: boolean = false;
+  @Local shelfDisplaySettings: GeneralSettings = GeneralSettings.current;
   @Local shelfGroup: string = '';
   @Local shelfGroups: string[] = [];
   @Local groupMenuVisible: boolean = false;
@@ -288,8 +284,67 @@ export struct FavoritePage {
     (topVp: number, _bottomVp: number): void => { if (this.collectionGroup === undefined) this.topSafeVp = topVp; };
 
   @Computed
+  get shelfBooks(): Book[] {
+    return this.favoriteBooks.filter((book: Book): boolean => this.matchesShelfVisibility(book));
+  }
+
+  private matchesShelfVisibility(book: Book): boolean {
+    return BookPresentation.isHidden(book.id) === this.hiddenShelf && (!this.hiddenShelf || this.hiddenShelfUnlocked);
+  }
+
+  private lockHiddenShelf(): void {
+    if (!this.hiddenShelf || !this.hiddenShelfUnlocked) return;
+    this.hiddenShelfUnlocked = false;
+    this.exitManagement();
+    this.showBookEditor = false;
+    this.editingBook = null;
+    this.showUpdates = false;
+    this.showBatchGroup = false;
+    this.showBatchDelete = false;
+    this.updateShelfData([]);
+  }
+
+  private openHiddenShelf(): void {
+    if (!this.alive || this.loading || this.removingBook || this.savingHidden || this.isManaging || this.navStack.size() > 0) return;
+    this.navStack.pushPathByName('shelfCollection', new ShelfCollectionRoute('', true), (): void => {
+      if (this.alive) this.loadFavorites();
+    }, false);
+  }
+
+  private unlockHiddenShelf(): void {
+    if (!this.hiddenShelf || !this.visible || !this.foreground) return;
+    this.hiddenShelfUnlocked = true;
+    this.updateShelfData(this.filteredBooks(this.favoriteBooks));
+  }
+
+  private async setBooksHidden(bookIds: string[]): Promise<void> {
+    if (this.savingHidden || this.removingBook || (this.hiddenShelf && !this.hiddenShelfUnlocked)) return;
+    const selected = new Set<string>(bookIds);
+    const books = this.shelfBooks.filter((book: Book): boolean => selected.has(book.id));
+    if (books.length === 0) return;
+    const ids = new Set<string>();
+    books.forEach((book: Book): void => {
+      ids.add(book.id);
+      (this.favoriteIdsByBookId.get(book.id) ?? []).forEach((id: string): void => { ids.add(id); });
+    });
+    this.savingHidden = true;
+    try {
+      await PreferenceService.setBookHidden(Array.from(ids), !this.hiddenShelf);
+      this.favoriteBooks = this.favoriteBooks.slice();
+      this.updateShelfData(this.filteredBooks(this.favoriteBooks));
+      this.collectionRecent = this.collectionRecent.filter((item: ShelfRecentBook): boolean => !BookPresentation.isHidden(item.book.id));
+      this.applyUpdateReport(this.updateReport);
+      this.exitManagement();
+      if (this.alive && this.visible) this.getUIContext().getPromptAction().showToast({
+        message: this.hiddenShelf ? $r('app.string.shelf_unhide_done') : $r('app.string.shelf_hide_done') });
+    } catch (_error) {
+      if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
+    } finally { this.savingHidden = false; }
+  }
+
+  @Computed
   get shelfGroupBooks(): Book[] {
-    return this.favoriteBooks.filter((book: Book): boolean => !this.pendingShelfRemovalIds.has(book.id) &&
+    return this.shelfBooks.filter((book: Book): boolean => !this.pendingShelfRemovalIds.has(book.id) &&
       BookPresentation.matchesGroup(book.id, this.shelfGroup));
   }
 
@@ -319,7 +374,27 @@ export struct FavoritePage {
 
   @Computed
   get collectionGroups(): ShelfCollectionGroup[] {
-    return ShelfCollectionData.groups(this.favoriteBooks, this.shelfGroups, this.pendingShelfRemovalIds, this.shelfKeyword);
+    const groups = ShelfCollectionData.groups(this.shelfBooks, this.shelfGroups,
+      this.pendingShelfRemovalIds, this.shelfKeyword).filter((group: ShelfCollectionGroup): boolean =>
+        group.id !== BookPresentation.UNGROUPED || this.shelfDisplaySettings.showUngroupedShelfGroup);
+    return ShelfCollectionData.ordered(groups, this.shelfDisplaySettings.shelfCollectionOrder);
+  }
+
+  private async saveCollectionOrder(groups: string[]): Promise<void> {
+    const current = this.collectionGroups.map((group: ShelfCollectionGroup): string => group.id);
+    if (groups.length !== current.length || new Set(groups).size !== current.length ||
+      groups.some((id: string): boolean => !current.includes(id))) throw new Error('Invalid collection order');
+    const previous = this.shelfDisplaySettings.shelfCollectionOrder;
+    const order = JSON.stringify(groups);
+    // 同步提交宿主展示顺序，磁盘写入在后台完成，失败再恢复。
+    this.shelfDisplaySettings.shelfCollectionOrder = order;
+    try { await PreferenceService.setShelfCollectionOrder(groups); }
+    catch (error) {
+      if (this.shelfDisplaySettings.shelfCollectionOrder === order) {
+        this.shelfDisplaySettings.shelfCollectionOrder = previous;
+      }
+      throw new Error(error instanceof Error ? error.message : String(error));
+    }
   }
 
   private openCollectionGroup(group: string): void {
@@ -346,7 +421,7 @@ export struct FavoritePage {
       if (!this.alive || serial !== this.collectionRecentSerial || !this.historyEnabled) return;
       if (this.shelfScrolling || !this.visible || !this.foreground) { this.recentRefreshPending = true; return; }
       const books = this.favoriteBooks.concat(this.collectionBooks)
-        .filter((book: Book): boolean => !this.pendingShelfRemovalIds.has(book.id) && !this.isMissingCachedBook(book))
+        .filter((book: Book): boolean => !this.pendingShelfRemovalIds.has(book.id) && !this.isMissingCachedBook(book) && !BookPresentation.isHidden(book.id))
         .map((book: Book): Book => BookPresentation.apply(book));
       const recent = ShelfCollectionData.recent(books, records, positions);
       if (!ShelfCollectionData.sameRecent(this.collectionRecent, recent)) this.collectionRecent = recent;
@@ -368,10 +443,13 @@ export struct FavoritePage {
     Row({ space: 8 }) {
       Column({ space: 3 }) {
         Text(this.isManaging ? $r('app.string.shelf_selected_count', this.selectedBookIds.size) :
+          this.hiddenShelf ? $r('app.string.shelf_hidden_title') :
           this.shelfGroup === BookPresentation.UNGROUPED ? $r('app.string.shelf_group_none') :
             this.shelfGroup || $r('app.string.collection_all_books'))
           .fontSize(22).fontWeight(FontWeight.Bold).fontColor(AppTheme.TextPrimary)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .id('shelf-hidden-title')
+          .gesture(LongPressGesture({ repeat: false, duration: 800 }).onAction((): void => this.unlockHiddenShelf()))
         Text($r('app.string.collection_book_count', this.shelfGroupBooks.length))
           .fontSize(11).fontColor(AppTheme.TextSecondary)
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
@@ -400,7 +478,7 @@ export struct FavoritePage {
 
   private openCollectionPicker(): void {
     if (!this.canAddCollectionBooks() || this.loading || this.removingBook || this.isManaging || this.addingCollectionBooks) return;
-    this.collectionPickerBooks = this.favoriteBooks.filter((book: Book): boolean =>
+    this.collectionPickerBooks = this.shelfBooks.filter((book: Book): boolean =>
       !this.pendingShelfRemovalIds.has(book.id) && BookPresentation.matchesGroup(book.id, BookPresentation.UNGROUPED));
     this.showCollectionPicker = true;
   }
@@ -415,7 +493,7 @@ export struct FavoritePage {
         throw new Error('Collection group is no longer available');
       }
       const selected = new Set(bookIds);
-      const ids = this.favoriteBooks.filter((book: Book): boolean => selected.has(book.id) &&
+      const ids = this.shelfBooks.filter((book: Book): boolean => selected.has(book.id) &&
         !this.pendingShelfRemovalIds.has(book.id) && BookPresentation.matchesGroup(book.id, BookPresentation.UNGROUPED) &&
         (this.favoriteIdsByBookId.get(book.id) ?? [book.id]).some((id: string): boolean => favorites.has(id)))
         .map((book: Book): string => book.id);
@@ -524,6 +602,8 @@ export struct FavoritePage {
         // 偏好通常早于首屏书单返回；先同步已加载的分组，不能用初始空数组校验保存值。
         this.shelfGroups = BookPresentation.groups.slice();
         this.shelfGroup = group === BookPresentation.UNGROUPED || this.shelfGroups.includes(group) ? group : '';
+        const visibleGroups = this.visibleGroupOptions();
+        if (!visibleGroups.includes(this.shelfGroup)) this.shelfGroup = visibleGroups[0] ?? '';
         this.updateShelfData(this.filteredBooks(this.favoriteBooks));
       }).catch((): void => {});
       const revision = this.statusFilterRevision;
@@ -562,8 +642,8 @@ export struct FavoritePage {
   @Monitor('visible')
   onVisibleChange(): void {
     if (!this.visible) {
+      this.lockHiddenShelf();
       this.shelfScrolling = false;
-      this.pulledSpineBookId = '';
       this.cancelShelfDissolve();
       this.pressedShelfBookId = '';
       this.statusFilterMenuVisible = false;
@@ -720,7 +800,7 @@ export struct FavoritePage {
     const ids = await PreferenceService.getShelfFavorites();
     if (!this.alive || serial !== this.favoritesLoadSerial) return;
     this.shelfGroups = BookPresentation.groups.slice();
-    if (this.shelfGroup && this.shelfGroup !== BookPresentation.UNGROUPED && !this.shelfGroups.includes(this.shelfGroup)) this.selectShelfGroup('');
+    if (this.shelfGroup && this.shelfGroup !== BookPresentation.UNGROUPED && !this.shelfGroups.includes(this.shelfGroup)) this.selectShelfGroup(this.visibleGroupOptions()[0] ?? '');
     const pinnedIds = new Set(await PreferenceService.getPinnedFavorites());
     const allBooks = await DataService.getBooks(this.context);
     this.collectionBooks = allBooks;
@@ -1002,8 +1082,15 @@ export struct FavoritePage {
   }
 
   private applyUpdateReport(report: ShelfUpdateReport): void {
-    this.updateReport = report;
-    this.updateData.setItems(report.entries);
+    const visible = new ShelfUpdateReport();
+    visible.checkedAt = report.checkedAt;
+    visible.checkedCount = report.checkedCount;
+    visible.failedCount = report.failedCount;
+    visible.entries = report.entries.filter((item: BookUpdateInfo): boolean =>
+      BookPresentation.isHidden(item.bookId) === this.hiddenShelf && (!this.hiddenShelf || this.hiddenShelfUnlocked));
+    visible.updatedCount = visible.entries.length;
+    this.updateReport = visible;
+    this.updateData.setItems(visible.entries);
   }
 
   private async checkOnlineBooks(onlineBooks: Book[]): Promise<ShelfUpdateReport> {
@@ -1201,8 +1288,7 @@ export struct FavoritePage {
 
   private toggleViewMode(): void {
     this.viewModeRevision++;
-    this.pulledSpineBookId = '';
-    const mode: number = (this.viewMode + 1) % 4;
+    const mode: number = this.viewMode === 0 ? 1 : (this.viewMode === 1 ? 3 : 0);
     this.getUIContext().animateTo({ duration: 220, curve: Curve.FastOutSlowIn }, () => {
       this.viewMode = mode;
     });
@@ -1267,7 +1353,7 @@ export struct FavoritePage {
   private filteredBooks(books: Book[]): Book[] {
     const keyword = this.shelfKeyword.trim().toLocaleLowerCase();
     return books.filter((book: Book): boolean => {
-      if (this.pendingShelfRemovalIds.has(book.id)) return false;
+      if (this.pendingShelfRemovalIds.has(book.id) || !this.matchesShelfVisibility(book)) return false;
       if (!BookPresentation.matchesGroup(book.id, this.shelfGroup)) return false;
       if (this.shelfFilter === 1 && (book.contentType === 'text' || book.contentType === 'comic')) return false;
       if (this.shelfFilter === 2 && book.contentType !== 'text') return false;
@@ -1290,6 +1376,20 @@ export struct FavoritePage {
     if (this.removingBook || this.showBatchDelete) return;
     this.groupMenuVisible = false;
     this.statusFilterMenuVisible = !this.statusFilterMenuVisible;
+  }
+
+  private visibleGroupOptions(): string[] {
+    const groups: string[] = [];
+    if (this.shelfDisplaySettings.showAllShelfGroup) groups.push('');
+    if (this.shelfDisplaySettings.showUngroupedShelfGroup) groups.push(BookPresentation.UNGROUPED);
+    return groups.concat(this.shelfGroups);
+  }
+
+  @Monitor('shelfDisplaySettings.showAllShelfGroup', 'shelfDisplaySettings.showUngroupedShelfGroup')
+  private syncDefaultGroupVisibility(): void {
+    if (this.collectionGroup !== undefined) return;
+    const groups = this.visibleGroupOptions();
+    if (!groups.includes(this.shelfGroup)) this.selectShelfGroup(groups[0] ?? '');
   }
 
   private selectShelfGroup(group: string): void {
@@ -1329,6 +1429,12 @@ export struct FavoritePage {
   @Builder
   buildGroupManager() {
     ShelfGroupManager({ groups: this.shelfGroups,
+      showAllGroup: this.shelfDisplaySettings.showAllShelfGroup,
+      showUngrouped: this.shelfDisplaySettings.showUngroupedShelfGroup,
+      onVisibility: async (ungrouped: boolean, visible: boolean): Promise<void> => {
+        await PreferenceService.setDefaultShelfGroupVisible(ungrouped, visible);
+        this.syncDefaultGroupVisibility();
+      },
       onBusy: (busy: boolean): void => { this.savingGroups = busy; },
       onDelete: async (group: string): Promise<void> => { await this.deleteShelfGroup(group); },
       onReorder: async (groups: string[]): Promise<void> => {
@@ -1361,7 +1467,8 @@ export struct FavoritePage {
     const groups = BookPresentation.groups.filter((name: string): boolean => name !== group);
     await PreferenceService.saveBookPresentation(BookPresentation.assignGroup(ids, ''), groups);
     this.shelfGroups = BookPresentation.groups.slice();
-    if (selected) this.selectShelfGroup(BookPresentation.UNGROUPED);
+    if (selected) this.selectShelfGroup(this.shelfDisplaySettings.showUngroupedShelfGroup ?
+      BookPresentation.UNGROUPED : this.visibleGroupOptions()[0] ?? '');
   }
 
   @LocalBuilder
@@ -1388,7 +1495,7 @@ export struct FavoritePage {
         .fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
         .width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
         .onClick((): void => this.openGroupManager())
-    }.width(200).height(Math.min(320, (this.shelfGroups.length + 3) * 48 + 1))
+    }.width(200).height(Math.min(320, (this.visibleGroupOptions().length + 1) * 48 + 1))
       .onTouch(ImmersiveMenu.keepOpen)
   }
 
@@ -1448,32 +1555,11 @@ export struct FavoritePage {
 
   private shelfCoverId(book: Book, list: boolean): string {
     if (this.collectionGroup !== undefined) return 'shelf-collection-' + OneShotTransitionIds.sourceCover(book.id);
-    if (this.viewMode === 2) return 'shelf-spine-' + OneShotTransitionIds.sourceCover(book.id);
     return (list ? 'shelf-list-' : 'shelf-grid-') + OneShotTransitionIds.sourceCover(book.id);
   }
 
   private updateShelfData(books: Book[]): void {
-    this.pulledSpineBookId = '';
     this.bookDataSource.setBooks(books);
-    this.spineDataSource.setItems(ShelfSpineLayout.rows(books, this.spineContentWidth));
-  }
-
-  private updateSpinePull(row: ShelfSpineRow, event: GestureEvent): void {
-    if (!this.visible || this.isManaging || this.removingBook || this.showBookActions || this.resolvingTocId) return;
-    // fingerList 在 API 20 可用；遍历有效触点，不假定第一根手指的 ID 为 0。
-    for (const finger of event.fingerList) {
-      if (finger !== undefined) {
-        const bookId: string = finger.localY >= 0 && finger.localY <= 216
-          ? ShelfSpineLayout.bookAt(row, finger.localX) : '';
-        if (bookId !== this.pulledSpineBookId) {
-          this.pulledSpineHint = ShelfSpineLayout.hint(row, bookId, this.spineContentWidth);
-          this.pulledSpineBookId = bookId;
-          if (bookId) ReaderHapticService.play('weak');
-        }
-        return;
-      }
-    }
-    this.pulledSpineBookId = '';
   }
 
   private handleShelfTouch(bookId: string, event: TouchEvent): void {
@@ -1982,7 +2068,7 @@ export struct FavoritePage {
       preview: MenuPreviewMode.NONE,
       backgroundColor: AppMaterial.SheetBackground,
       backgroundBlurStyle: AppMaterial.SheetBlur,
-      onAppear: (): void => { this.pressedShelfBookId = ''; this.pulledSpineBookId = ''; this.showBookActions = true; },
+      onAppear: (): void => { this.pressedShelfBookId = ''; this.showBookActions = true; },
       onDisappear: (): void => {
         this.showBookActions = false;
         const detailBookId = this.pendingDetailBookId;
@@ -2021,6 +2107,9 @@ export struct FavoritePage {
           if (this.isManaging) this.pendingManagementExit = true;
           else this.enterManagement(book.id);
         })
+      MenuItem({ content: this.hiddenShelf ? $r('app.string.shelf_unhide_book') : $r('app.string.shelf_hide_book') })
+        .enabled(!this.removingBook && !this.savingHidden)
+        .onClick((): void => { this.setBooksHidden([book.id]); })
       MenuItem({ content: $r('app.string.shelf_view_detail') })
         .enabled(!this.removingBook)
         .onClick((): void => { this.pendingDetailBookId = book.id; })
@@ -2056,6 +2145,10 @@ export struct FavoritePage {
       if (this.viewMode === 3) {
         ShelfCollectionView({ groups: this.collectionGroups, recent: this.collectionRecent,
           loading: this.loading, historyEnabled: this.historyEnabled, visible: this.visible,
+          showAllBooks: this.shelfDisplaySettings.showAllShelfGroup, reorderEnabled: !this.shelfKeyword.trim(),
+          onReorder: async (groups: string[]): Promise<void> => {
+            await this.saveCollectionOrder(groups);
+          },
           topInset: this.topSafeVp + MINI_TITLE_BAR_HEIGHT + this.shelfHeaderHeight() + 6,
           bottomInset: this.shelfContentEndOffset(), scroller: this.listScroller,
           onGroup: (group: string): void => this.openCollectionGroup(group),
@@ -2069,8 +2162,9 @@ export struct FavoritePage {
           ListItemGroup({ header: this.buildShelfContentInset() }) {
             ListItem() {
               Column({ space: AppSpace.Md }) {
-                if (this.favoriteBooks.length === this.pendingShelfRemovalIds.size) {
-                  Text($r('app.string.shelf_empty_hint')).fontSize(AppFont.Body)
+                if (this.shelfBooks.length === this.pendingShelfRemovalIds.size) {
+                  Text(this.hiddenShelf ? (this.hiddenShelfUnlocked ? $r('app.string.shelf_hidden_empty') :
+                    $r('app.string.shelf_hidden_locked_hint')) : $r('app.string.shelf_empty_hint')).fontSize(AppFont.Body)
                     .fontColor($r('sys.color.font_secondary'))
                     .textAlign(TextAlign.Center)
                 } else {
@@ -2122,28 +2216,6 @@ export struct FavoritePage {
         .onScrollStop((): void => this.finishShelfScroll())
         .scrollBar(BarState.Off)
         // 内容不足一屏时也提供原生回弹。
-        .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
-        .backgroundColor(Color.Transparent)
-      } else if (this.viewMode === 2) {
-        List({ scroller: this.listScroller }) {
-          ListItemGroup({ header: this.buildShelfContentInset(), space: AppSpace.Md }) {
-            LazyForEach(this.spineDataSource, (row: ShelfSpineRow) => {
-              ListItem() {
-                this.buildSpineRow(row)
-              }.clip(false)
-                .zIndex(row.items.some((item: ShelfSpineItem): boolean => item.book.id === this.pulledSpineBookId) ? 1 : 0)
-            }, (row: ShelfSpineRow): string => row.key)
-          }
-        }
-        .cachedCount(2).enableScrollInteraction(!this.removingBook)
-        .width('100%').height('100%')
-        .padding({ left: AppSpace.Md, right: AppSpace.Md })
-        .contentEndOffset(this.shelfContentEndOffset())
-        .onDidScroll((offset: number, state: ScrollState): void => {
-          this.pulledSpineBookId = '';
-          this.onContentScroll(offset, state);
-        })
-        .scrollBar(BarState.Off)
         .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
         .backgroundColor(Color.Transparent)
       } else {
@@ -2328,11 +2400,6 @@ export struct FavoritePage {
     .onSizeChange((_oldSize: SizeOptions, size: SizeOptions): void => {
       if (typeof size.width === 'number' && size.width > 0) {
         this.bookColumns = AdaptiveLayout.bookColumns(size.width);
-        const width = Math.max(40, size.width - AppSpace.Md * 2);
-        if (Math.abs(width - this.spineContentWidth) > 0.5) {
-          this.spineContentWidth = width;
-          this.updateShelfData(this.filteredBooks(this.favoriteBooks));
-        }
       }
     })
   }
@@ -2461,7 +2528,9 @@ export struct FavoritePage {
       selectedCount: this.selectedBookIds.size,
       totalCount: this.filteredBooks(this.favoriteBooks).length,
       allSelected: this.allVisibleBooksSelected(),
-      busy: this.removingBook,
+      busy: this.removingBook || this.savingHidden,
+      hiddenShelf: this.hiddenShelf,
+      onHide: (): void => { this.setBooksHidden(Array.from(this.selectedBookIds)); },
       onSelectAll: (): void => this.toggleSelectAllBooks(),
       onDelete: (): void => this.confirmBatchDelete(),
       onGroup: (): void => { this.showBatchGroup = true; }
@@ -2538,77 +2607,87 @@ export struct FavoritePage {
     if (this.collectionGroup !== undefined) {
       this.buildCollectionTitleBar()
     } else {
-    Row({ space: 8 }) {
+    Row({ space: 4 }) {
       Text(this.isManaging ? $r('app.string.shelf_selected_count', this.selectedBookIds.size) :
         $r('app.string.shelf_title'))
+        .id('shelf-title')
+        .gesture(LongPressGesture({ repeat: false, duration: 800 }).onAction((): void => this.openHiddenShelf()))
+        .accessibilityDescription($r('app.string.shelf_hidden_open_hint'))
         .fontSize(26).fontWeight(FontWeight.Bold).fontColor($r('sys.color.font_primary'))
         .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-      // 仅收起态按钮与 Search 配对；展开态保留独立收起入口，不占用共享 ID。
-      Stack() {
-        if (!this.showShelfSearch) {
-          ImmersiveCircleButton({
-            useMaterial: false,
-            icon: $r('sys.symbol.magnifyingglass'),
-            label: $r('app.string.shelf_search_expand'),
-            iconColor: this.shelfKeyword.trim().length > 0 ? AppColor.Brand : $r('sys.color.icon_primary'),
-            onPress: (): void => this.toggleShelfSearch()
-          })
-          .geometryTransition(SHELF_SEARCH_GEOMETRY_ID)
-          .transition(TransitionEffect.OPACITY)
-          .enabled(!this.isManaging && !this.removingBook && !this.showBatchDelete && !this.shelfSearchAnimating)
-          .accessibilityText($r('app.string.shelf_search_expand'))
-        } else {
-          ImmersiveCircleButton({
-            useMaterial: false,
-            icon: $r('sys.symbol.magnifyingglass'),
-            label: $r('app.string.shelf_search_collapse'),
-            iconColor: AppColor.Brand,
-            onPress: (): void => this.toggleShelfSearch()
-          })
-          .transition(TransitionEffect.OPACITY)
-          .enabled(!this.isManaging && !this.removingBook && !this.showBatchDelete && !this.shelfSearchAnimating)
-          .accessibilityText($r('app.string.shelf_search_collapse'))
-        }
-      }.id('shelf-search-toggle').width(40).height(40).clip(false)
-      if (this.viewMode !== 3) {
-        ImmersiveCircleButton({ icon: $r('sys.symbol.funnel'), label: $r('app.string.shelf_status_filter'),
-          useMaterial: false,
-          onPress: (): void => this.showStatusFilter() })
-          .enabled(!this.removingBook && !this.showBatchDelete)
-          .bindMenu(this.statusFilterMenuVisible, this.buildStatusFilterMenu, this.statusFilterMenuOptions())
-        if (!this.isManaging) {
-          ImmersiveCircleButton({ icon: $r('sys.symbol.folder'), label: $r('app.string.shelf_group_filter'),
-            useMaterial: false,
-            iconColor: this.shelfGroup ? AppColor.Brand : $r('sys.color.icon_primary'),
-            onPress: (): void => {
-              this.statusFilterMenuVisible = false;
-              this.groupMenuData.setItems(['', BookPresentation.UNGROUPED, ...this.shelfGroups]);
-              this.groupMenuVisible = !this.groupMenuVisible;
-            } })
-            .id('shelf-group-button')
-            .priorityGesture(LongPressGesture({ repeat: false }).onAction((): void => this.openGroupManager()))
+      // 字形的视觉中心略高于行盒，按钮组上移 2vp 与标题对齐。
+      Row({ space: 4 }) {
+        // 仅收起态按钮与 Search 配对；展开态保留独立收起入口，不占用共享 ID。
+        Stack() {
+          if (!this.showShelfSearch) {
+            ImmersiveCircleButton({
+              diameter: 36, iconSize: 22, useMaterial: false,
+              icon: $r('sys.symbol.magnifyingglass'),
+              label: $r('app.string.shelf_search_expand'),
+              iconColor: this.shelfKeyword.trim().length > 0 ? AppColor.Brand : $r('sys.color.icon_primary'),
+              onPress: (): void => this.toggleShelfSearch()
+            })
+            .geometryTransition(SHELF_SEARCH_GEOMETRY_ID)
+            .transition(TransitionEffect.OPACITY)
+            .enabled(!this.isManaging && !this.removingBook && !this.showBatchDelete && !this.shelfSearchAnimating)
+            .accessibilityText($r('app.string.shelf_search_expand'))
+          } else {
+            ImmersiveCircleButton({
+              diameter: 36, iconSize: 22, useMaterial: false,
+              icon: $r('sys.symbol.magnifyingglass'),
+              label: $r('app.string.shelf_search_collapse'),
+              iconColor: AppColor.Brand,
+              onPress: (): void => this.toggleShelfSearch()
+            })
+            .transition(TransitionEffect.OPACITY)
+            .enabled(!this.isManaging && !this.removingBook && !this.showBatchDelete && !this.shelfSearchAnimating)
+            .accessibilityText($r('app.string.shelf_search_collapse'))
+          }
+        }.id('shelf-search-toggle').width(36).height(36).clip(false)
+        if (this.viewMode !== 3) {
+          ImmersiveCircleButton({ icon: $r('sys.symbol.funnel'), label: $r('app.string.shelf_status_filter'),
+            diameter: 36, iconSize: 22, useMaterial: false,
+            onPress: (): void => this.showStatusFilter() })
             .enabled(!this.removingBook && !this.showBatchDelete)
-            .bindMenu(this.groupMenuVisible, this.buildGroupMenu, this.groupMenuOptions())
+            .bindMenu(this.statusFilterMenuVisible, this.buildStatusFilterMenu, this.statusFilterMenuOptions())
+          if (!this.isManaging) {
+            ImmersiveCircleButton({ icon: $r('sys.symbol.folder'), label: $r('app.string.shelf_group_filter'),
+              diameter: 36, iconSize: 22, useMaterial: false,
+              iconColor: this.shelfGroup ? AppColor.Brand : $r('sys.color.icon_primary'),
+              onPress: (): void => {
+                this.statusFilterMenuVisible = false;
+                this.groupMenuData.setItems(this.visibleGroupOptions());
+                this.groupMenuVisible = !this.groupMenuVisible;
+              } })
+              .id('shelf-group-button')
+              .priorityGesture(LongPressGesture({ repeat: false }).onAction((): void => this.openGroupManager()))
+              .enabled(!this.removingBook && !this.showBatchDelete)
+              .bindMenu(this.groupMenuVisible, this.buildGroupMenu, this.groupMenuOptions())
+          }
+        } else {
+          ImmersiveCircleButton({ icon: $r('sys.symbol.folder'), label: $r('app.string.shelf_group_manage'),
+            diameter: 36, iconSize: 22, useMaterial: false, onPress: (): void => this.openGroupManager() })
+            .id('shelf-collection-manage').enabled(!this.isManaging && !this.removingBook && !this.showBatchDelete)
         }
-      } else {
-        ImmersiveCircleButton({ icon: $r('sys.symbol.folder'), label: $r('app.string.shelf_group_manage'),
-          useMaterial: false, onPress: (): void => this.openGroupManager() })
-          .id('shelf-collection-manage').enabled(!this.isManaging && !this.removingBook && !this.showBatchDelete)
-      }
-      ImmersiveCircleButton({ icon: $r('sys.symbol.arrow_clockwise'), label: $r('app.string.shelf_updates_title'),
-        useMaterial: false,
-        onPress: (): void => { this.showUpdates = true; } })
-        .id('shelf-refresh-button').enabled(!this.isManaging && !this.removingBook)
-      ImmersiveCircleButton({
-        useMaterial: false,
-        icon: this.viewMode === 0 ? $r('sys.symbol.list_bullet') :
-          (this.viewMode === 1 ? $r('sys.symbol.bookshelf') : (this.viewMode === 2 ? $r('sys.symbol.folder') : $r('sys.symbol.square_grid_2x2'))),
-        label: this.viewMode === 0 ? $r('app.string.shelf_view_list') :
-          (this.viewMode === 1 ? $r('app.string.shelf_view_spine') : (this.viewMode === 2 ? $r('app.string.shelf_view_collection') : $r('app.string.shelf_view_grid'))),
-        onPress: (): void => this.toggleViewMode()
-      }).id('shelf-view-toggle').enabled(!this.isManaging && !this.removingBook && !this.showBatchDelete)
+        ImmersiveCircleButton({ icon: $r('sys.symbol.doc_text_badge_arrow_up'), label: $r('app.string.profile_local_import'),
+          diameter: 36, iconSize: 22, useMaterial: false, onPress: (): void => { this.navStack.pushPathByName('import', ''); } })
+          .id('shelf-local-import').enabled(!this.isManaging && !this.removingBook)
+        ImmersiveCircleButton({ icon: $r('sys.symbol.arrow_clockwise'), label: $r('app.string.shelf_updates_title'),
+          diameter: 36, iconSize: 22, useMaterial: false,
+          onPress: (): void => { this.showUpdates = true; } })
+          .id('shelf-refresh-button').enabled(!this.isManaging && !this.removingBook)
+        ImmersiveCircleButton({
+          diameter: 36, iconSize: 22, useMaterial: false,
+          icon: this.viewMode === 0 ? $r('sys.symbol.list_bullet') :
+            (this.viewMode === 1 ? $r('sys.symbol.bookshelf') : $r('sys.symbol.square_grid_2x2')),
+          label: this.viewMode === 0 ? $r('app.string.shelf_view_list') :
+            (this.viewMode === 1 ? $r('app.string.shelf_view_collection') : $r('app.string.shelf_view_grid')),
+          onPress: (): void => this.toggleViewMode()
+        }).id('shelf-view-toggle').enabled(!this.isManaging && !this.removingBook && !this.showBatchDelete)
+      }.alignItems(VerticalAlign.Center).translate({ y: -2 }).flexShrink(0)
     }
     .width('100%').height(MINI_TITLE_BAR_HEIGHT)
+    .alignItems(VerticalAlign.Center)
     .padding({ left: AppSpace.Md, right: AppSpace.Md })
     .clip(false)
     .hitTestBehavior(HitTestMode.Transparent)
@@ -2700,99 +2779,6 @@ export struct FavoritePage {
     .clip(false)
     .padding({ left: AppSpace.Md, right: AppSpace.Md, top: 4, bottom: 4 })
     .alignItems(HorizontalAlign.Center)
-  }
-
-  @LocalBuilder
-  buildSpineTitleHint(row: ShelfSpineRow) {
-    // 直接依赖页面 @Local 状态；临时普通对象作为 Builder 参数不会可靠刷新。
-    if (this.pulledSpineBookId && row.items.some((item: ShelfSpineItem): boolean => item.book.id === this.pulledSpineBookId)) {
-      Text(this.pulledSpineHint.title).fontSize(13).minFontScale(1).maxFontScale(1).lineHeight(18)
-        .fontColor(Color.White).fontWeight(FontWeight.Medium).textAlign(TextAlign.Center).maxLines(2)
-        .textOverflow({ overflow: TextOverflow.Ellipsis })
-        .width(this.pulledSpineHint.width).height(this.pulledSpineHint.height)
-        .padding({ left: 10, right: 10, top: 4, bottom: 4 })
-        // 仅文字与下方画布反色混合，不绘制底框，也不创建离屏合成层。
-        .blendMode(BlendMode.DIFFERENCE, BlendApplyType.FAST)
-        .position({ x: this.pulledSpineHint.left, y: this.pulledSpineHint.top }).zIndex(3)
-        .hitTestBehavior(HitTestMode.None).accessibilityLevel('no-hide-descendants')
-        .id('shelf-spine-hover-title')
-    }
-  }
-
-  @LocalBuilder
-  buildSpineRow(row: ShelfSpineRow) {
-    Column() {
-      Stack({ alignContent: Alignment.TopStart }) {
-      Row({ space: 0 }) {
-        ForEach(row.items, (item: ShelfSpineItem) => {
-          Stack() {
-            RecordDissolveEffect({ snapshotId: `${this.shelfCoverId(item.book, false)}-dissolve`,
-              itemHeight: undefined, particleBudget: this.dissolveParticleBudget,
-              lightweight: this.lightweightShelfDelete,
-              active: this.visible && this.dissolvingBookIds.has(item.book.id),
-              content: (): void => this.buildUprightBook(item),
-              onFinished: (): void => this.completeShelfDissolve(item.book.id) })
-          }
-          .width(item.width).height(216).clip(false)
-          .zIndex(this.pulledSpineBookId === item.book.id ? 2 : 0)
-          .onVisibleAreaChange([0], (_visible: boolean, ratio: number): void =>
-            this.markShelfBookVisible(item.book.id, ratio))
-        }, (item: ShelfSpineItem): string => item.book.id)
-      }
-      .width('100%').height(216).alignItems(VerticalAlign.Bottom).clip(false)
-      .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 5 })
-        .onActionStart((event: GestureEvent): void => this.updateSpinePull(row, event))
-        .onActionUpdate((event: GestureEvent): void => this.updateSpinePull(row, event))
-        .onActionEnd((): void => { this.pulledSpineBookId = ''; })
-        .onActionCancel((): void => { this.pulledSpineBookId = ''; }))
-      this.buildSpineTitleHint(row)
-      }.width('100%').height(216).clip(false)
-      // 素色薄层板复用主题资源，深浅模式自动适配；静态色层不增加背景模糊开销。
-      Column() {
-        Row().width('100%').height(2)
-          .linearGradient({ direction: GradientDirection.Bottom,
-            colors: [[AppColor.Divider, 0], [AppTheme.Surface, 1]] })
-        Stack({ alignContent: Alignment.Top }) {
-          Row().width('100%').height('100%')
-            .backgroundColor(AppTheme.Surface)
-          Row().width('100%').height('100%')
-            .linearGradient({ direction: GradientDirection.Bottom,
-              colors: [[AppColor.BrandSoft, 0], [Color.Transparent, 0.7], [AppColor.Divider, 1]] })
-          Row().width('100%').height(0.5).backgroundColor(AppColor.GlassStroke)
-        }.width('100%').height(8)
-      }.width('100%').borderRadius({ bottomLeft: 3, bottomRight: 3 }).clip(true)
-        .shadow({ radius: 3, color: AppColor.Shadow, offsetY: 2 })
-        .hitTestBehavior(HitTestMode.None).accessibilityLevel('no-hide-descendants')
-    }.width('100%').padding({ bottom: 12 }).clip(false)
-  }
-
-  @LocalBuilder
-  buildUprightBook(item: ShelfSpineItem) {
-    Stack() {
-      Stack() {
-        ShelfBookSpine({ cover: item.book.cover,
-          localPlaceholder: item.book.id.startsWith('import_'),
-          spineWidth: item.width, spineHeight: item.height, spineColor: item.color,
-          pulled: this.pulledSpineBookId === item.book.id, managing: this.isManaging,
-          selected: this.selectedBookIds.has(item.book.id), pinned: this.pinnedBookIds.has(item.book.id),
-          coverId: this.shelfCoverId(item.book, false),
-          coverHidden: this.playerTransition.active &&
-            this.playerTransition.sourceNodeId === this.shelfCoverId(item.book, false) })
-          .hitTestBehavior(HitTestMode.None)
-      }
-      .width(item.width).height(216).clip(false).draggable(false)
-      .bindContextMenu(this.bookActions(item.book), ResponseType.LongPress, this.bookMenuOptions())
-      .onClick((): void => {
-        if (!this.showBookActions && !this.resolvingTocId) {
-          this.pulledSpineBookId = '';
-          this.handleBookTap(item.book, this.shelfCoverId(item.book, false));
-        }
-      })
-      .accessibilityGroup(true).accessibilityText(item.book.title + '，' + item.book.author)
-      .accessibilityDescription($r('app.string.shelf_spine_accessibility'))
-    }
-    .width(item.width).height(216).clip(false)
-    .bindContextMenu(this.bookActions(item.book), ResponseType.RightClick, this.bookMenuOptions())
   }
 
   // 基础书脊独立于主题装饰；透明明暗层沿用原封面颜色，不增加图片解码。

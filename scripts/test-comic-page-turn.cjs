@@ -15,7 +15,8 @@ vm.runInNewContext(compile(fs.readFileSync(path.join(root, 'utils/ReaderTapPolic
   { exports: policyExports, TouchType });
 const source = fs.readFileSync(path.join(root, 'pages/ComicReaderPage.ets'), 'utf8');
 function method(name) {
-  const start = source.indexOf(`  private ${name}(`);
+  let start = source.indexOf(`  private ${name}(`);
+  if (start < 0) start = source.indexOf(`  private async ${name}(`);
   assert.ok(start >= 0, name);
   const body = source.indexOf('{', start);
   let depth = 1, end = body + 1;
@@ -30,7 +31,7 @@ let now = 1000;
 const scope = { ...policyExports, TouchType, Date: { now: () => now }, Curve: { EaseInOut: 0 } };
 const handlers = ['onContentTap', 'contentTouch', 'turnPage', 'adjacent', 'canChange',
   'canUseVolumeKeys', 'canTurnWithHardwareKeys', 'syncVolumeKeys', 'handleVolumePageTurn',
-  'handleHardwarePageTurn', 'usesContinuousPages', 'usesJoinedPages'].map(method).join('\n');
+  'handleHardwarePageTurn', 'usesContinuousPages', 'usesJoinedPages', 'turnToAdjacentChapter', 'changeMode'].map(method).join('\n');
 vm.runInNewContext(compile(`class ComicInput { ${handlers} }\nglobalThis.ComicInput = ComicInput;`), scope);
 function reader(mode = 1) {
   const r = new scope.ComicInput();
@@ -39,7 +40,7 @@ function reader(mode = 1) {
     tapTopPercent: 33, tapBottomPercent: 33, generation: 1, restoreTimer: -1,
     touchTracker: new policyExports.ReaderTouchTracker(), chapterIndex: 0,
     book: { chapters: [{}, {}] }, turns: [], chapters: [], toggles: 0, autoPage: { restart() {} },
-    toggleChrome() { this.toggles++; }, scheduleSave() {}, continueScroll() {}, pauseAutoPage() {},
+    toggleChrome() { this.toggles++; }, scheduleSave() {}, continueScroll() {}, pauseAutoPage() {}, playPageTurnHaptic() {},
     loadChapter(index) { this.chapters.push(index); },
     getUIContext() { return { animateTo(options, update) { update(); options.onFinish(); } }; }
   });
@@ -137,7 +138,7 @@ assert.equal(keys.pageIndex, 1, 'late callback does not turn behind toolbar');
 keys.chrome = false; keys.syncVolumeKeys();
 assert.equal(keys.subscribed, true, 'closing toolbar restores volume page turns');
 for (const field of ['busy', 'failed', 'showChapters', 'showSettings', 'showSourceSwitch', 'zoomActive',
-  'sheetPresented', 'chapterSliderDragging', 'chapterSliderConfirming']) {
+  'sheetPresented', 'chapterSliderDragging', 'chapterSliderCommitting']) {
   keys[field] = true; keys.syncVolumeKeys();
   assert.equal(keys.subscribed, false, field);
   const count = keys.turns.length;
@@ -179,9 +180,10 @@ const prefMethods = ['getComicReadingMode', 'setComicReadingMode'].map(name => {
   assert.ok(match, name);
   return match[0];
 }).join('\n');
-let savedMode = 0;
+const savedModes = new Map();
 function preferenceSession() {
-  const context = { store: { getSync: () => savedMode }, save: async (key, value) => { savedMode = value; } };
+  const context = { store: { getSync: (key, fallback) => savedModes.get(key) ?? fallback },
+    save: async (key, value) => { savedModes.set(key, value); } };
   vm.runInNewContext(compile(`class PreferenceService {
     static async ensureStore() { return store; }
     static async saveComicPreference(key, value) { await save(key, value); }
@@ -191,12 +193,36 @@ function preferenceSession() {
 }
 (async () => {
   for (const mode of [0, 1, 2, 3]) {
-    await preferenceSession().setComicReadingMode(mode);
-    assert.equal(await preferenceSession().getComicReadingMode(), mode, 'reading mode survives reopening');
+    await preferenceSession().setComicReadingMode(mode, 'comic-a');
+    assert.equal(await preferenceSession().getComicReadingMode('comic-a'), mode, 'reading mode survives reopening');
   }
-  savedMode = 2;
-  assert.equal(await preferenceSession().getComicReadingMode(), 2, 'legacy manga mode remains enabled');
-  await preferenceSession().setComicReadingMode(99);
-  assert.equal(await preferenceSession().getComicReadingMode(), 0, 'invalid mode falls back to scrolling');
-  console.log('PASS: all comic modes persist, including legacy manga preference');
+  savedModes.set('comic_reading_mode', 2);
+  savedModes.set('comic_reading_mode_book_comic-legacy', 2);
+  assert.equal(await preferenceSession().getComicReadingMode('comic-legacy'), 2, 'existing per-book manga mode remains enabled');
+  assert.equal(await preferenceSession().getComicReadingMode('comic-new'), 0, 'new book ignores the retired global manga mode');
+  await preferenceSession().setComicReadingMode(99, 'comic-a');
+  assert.equal(await preferenceSession().getComicReadingMode('comic-a'), 0, 'invalid mode falls back to scrolling');
+  assert.equal(await preferenceSession().getComicReadingMode('comic-legacy'), 2, 'another book preference is unchanged');
+  console.log('PASS: all comic modes persist per book, new books scroll, existing per-book manga preference remains');
+
+  let finishSave;
+  const pendingSave = new Promise(resolve => { finishSave = resolve; });
+  const writes = [];
+  scope.PreferenceService = { setComicReadingMode: async (mode, bookId) => {
+    writes.push([mode, bookId]);
+    await pendingSave;
+  } };
+  const changing = reader(0);
+  Object.assign(changing, { alive: true, book: { id: 'comic-a' }, modesApplied: [],
+    applyMode(mode) { this.modesApplied.push(mode); this.mode = mode; } });
+  const saving = changing.changeMode(2);
+  changing.book = { id: 'comic-b' };
+  finishSave();
+  await saving;
+  assert.deepEqual(writes, [[2, 'comic-a']], 'save uses the book selected when the action began');
+  assert.deepEqual(changing.modesApplied, [], 'a late save cannot change another book now on screen');
+  await changing.changeMode(1);
+  assert.deepEqual(writes, [[2, 'comic-a'], [1, 'comic-b']]);
+  assert.deepEqual(changing.modesApplied, [1], 'the current book still applies its own saved choice');
+  console.log('PASS: comic mode actions save only the selected book and reject late cross-book UI updates');
 })().catch(error => { console.error(error); process.exitCode = 1; });

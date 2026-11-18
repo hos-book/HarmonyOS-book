@@ -60,6 +60,9 @@ export struct ComicPageImage {
   private pinchY: number = 0;
   private imageWindowY: number = 0;
   private pinchSequence: boolean = false;
+  private holdZoomActive: boolean = false;
+  private holdZoomStart: ComicZoomTransform = new ComicZoomTransform();
+  private holdDecodeScale: number = 1;
   @Local ratio: number = 0;
   @Local failed: boolean = false;
   @Local loaded: boolean = false;
@@ -347,6 +350,7 @@ export struct ComicPageImage {
   }
 
   private resetZoom(): void {
+    this.holdZoomActive = false;
     this.zoomState = new ComicZoomTransform();
     this.decodeScale = 1;
     this.pinchSequence = false;
@@ -354,7 +358,7 @@ export struct ComicPageImage {
   }
 
   private reportZoom(): void {
-    const active = this.pinchSequence || this.zoomState.scale > 1;
+    const active = this.holdZoomActive || this.pinchSequence || this.zoomState.scale > 1;
     if (active === this.zoomLocked) return;
     this.zoomLocked = active;
     this.onZoomChange(this.cacheOwner, active);
@@ -363,6 +367,9 @@ export struct ComicPageImage {
   private zoomTouch(event: TouchEvent): void {
     const touch = event.touches[0] ?? event.changedTouches[0];
     if (touch !== undefined && event.type === TouchType.Down) this.imageWindowY = touch.windowY - touch.y;
+    if (event.type === TouchType.Up || event.type === TouchType.Cancel || event.touches.length > 1) {
+      this.finishHoldZoom();
+    }
     if (event.touches.length > 1) this.pinchSequence = true;
     // 部分设备在 Up 的 touches 中仍包含刚抬起的触点，按 id 排除 changedTouches。
     const remaining = event.type === TouchType.Up ? event.touches.filter((point: TouchObject): boolean =>
@@ -373,13 +380,39 @@ export struct ComicPageImage {
     this.reportZoom();
   }
 
-  private beginPinch(event: GestureEvent): void {
+  private currentZoomGeometry(): ComicZoomTransform {
     const top = this.viewportTop - this.imageWindowY;
     const bottom = top + this.pageHeight;
-    this.gestureStart = this.paged && this.fitsViewport() ? (this.zoomState.scale > 1 ? this.zoomState :
+    return this.paged && this.fitsViewport() ? (this.zoomState.scale > 1 ? this.zoomState :
       ComicZoomTransform.contain(this.imageWidth(), this.imageHeight(), this.pageWidth, this.pageHeight)) :
       this.zoomState.scale > 1 ? this.zoomState.viewport(top, bottom) :
         ComicZoomTransform.fit(this.imageWidth(), this.imageHeight(), top, bottom, this.pageWidth);
+  }
+
+  private beginHoldZoom(event: GestureEvent): void {
+    const finger = event.fingerList[0];
+    if (!this.loaded || this.failed || this.holdZoomActive || this.pinchSequence || finger === undefined) return;
+    this.holdZoomStart = this.zoomState;
+    this.holdDecodeScale = this.decodeScale;
+    this.holdZoomActive = true;
+    // 使用手指在固定图片容器内的坐标，长图和留白分页共用既有可见窗口边界。
+    const geometry = this.currentZoomGeometry();
+    this.zoomState = geometry.zoom(geometry.scale * 2.5, finger.localX, finger.localY);
+    this.decodeScale = this.zoomState.scale;
+    this.reportZoom();
+  }
+
+  private finishHoldZoom(): void {
+    if (!this.holdZoomActive) return;
+    this.holdZoomActive = false;
+    this.zoomState = this.holdZoomStart;
+    this.decodeScale = this.holdDecodeScale;
+    this.reportZoom();
+  }
+
+  private beginPinch(event: GestureEvent): void {
+    this.finishHoldZoom();
+    this.gestureStart = this.currentZoomGeometry();
     this.pinchX = event.pinchCenterX;
     this.pinchY = event.pinchCenterY;
     this.updatePinch(event);
@@ -470,6 +503,10 @@ export struct ComicPageImage {
           .onActionUpdate((event: GestureEvent): void => this.updatePinch(event))
           .onActionEnd((): void => this.finishPinch())
           .onActionCancel((): void => this.finishPinch()),
+        LongPressGesture({ fingers: 1, repeat: false, duration: 400 })
+          .onAction((event: GestureEvent): void => this.beginHoldZoom(event))
+          .onActionEnd((): void => this.finishHoldZoom())
+          .onActionCancel((): void => this.finishHoldZoom()),
         PanGesture({ fingers: 1, direction: PanDirection.All }).tag('comic-image-pan')
           .onActionStart((): void => { this.gestureStart = this.zoomState; })
           .onActionUpdate((event: GestureEvent): void => {

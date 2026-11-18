@@ -511,9 +511,10 @@ export class LightSourceCore {
         tocUrl: book.tocUrl, completed: BookMetadataPolicy.completed(book.status || ''), updateTime: book.updateTime, variables: {...JSON.parse(book.variable || '{}'),bookUrl:book.bookUrl,tocUrl:book.tocUrl,__lightBook:this.snapshot(book),__lightBookType:String(book.type || 0)} });
     });
   }
-  static async toc(localJson: string, url: string, context: string): Promise<string> {
+  static async toc(localJson: string, url: string, context: string, request?: LightSourceRequest): Promise<string> {
     const local = JSON.parse(localJson) as LocalRuleSource;
     const source = this.source(local);
+    LightSourceRequestPolicy.bind(source, request);
     return LightSourceRuntime.run(source, local, async () => {
       const book = this.book(source, url, JSON.parse(context));
       book.tocUrl = url;

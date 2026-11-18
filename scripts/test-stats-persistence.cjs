@@ -112,6 +112,7 @@ function statsPage(service, preference, readingProgress = { getAll: async () => 
       name === '../utils/OneShotTransition' ? { OneShotTransitionCoordinator: { getInstance: () => ({ coverState: {} }) } } :
       name === '../theme/Theme' ? { AppColor: {}, AppTheme: {} } :
       name === '../service/text/TextReadingProgressService' ? { TextReadingProgressService: readingProgress } :
+      name === '../model/BookPresentation' ? { BookPresentation: { edits: [], isHidden: () => false } } :
       name === '../service/PreferenceService' ? { PreferenceService: preference } : {}
   }, { filename: file });
   const page = new module.exports.ReadingStatsPage();

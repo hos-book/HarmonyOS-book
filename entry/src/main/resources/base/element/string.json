@@ -9073,26 +9073,6 @@
     { "name": "offline_tts_voice_male", "value": "Kokoro 中文男声 %s" },
     { "name": "offline_tts_model_name", "value": "Kokoro v1.1 中文 · int8" },
     {
-      "name": "comic_turn_scope",
-      "value": "翻页方式记忆"
-    },
-    {
-      "name": "comic_turn_book_hint",
-      "value": "已为本漫画单独保存翻页方式"
-    },
-    {
-      "name": "comic_turn_default_hint",
-      "value": "当前跟随通用翻页方式，切换后仅为本漫画保存"
-    },
-    {
-      "name": "comic_turn_follow_default",
-      "value": "跟随通用"
-    },
-    {
-      "name": "comic_turn_set_default",
-      "value": "设为通用"
-    },
-    {
       "name": "rule_source_notice_title",
       "value": "书源使用须知"
     },
@@ -9210,6 +9190,19 @@
     {"name":"collection_add_books_confirm","value":"加入当前分组"},
     {"name":"collection_add_books_failed","value":"添加失败，请重试；书籍分组变化后需重新选择"},
     {"name":"collection_select_all","value":"全选"},
-    {"name":"collection_clear_selection","value":"取消全选"}
+    {"name":"collection_clear_selection","value":"取消全选"},
+    {"name":"shelf_hidden_title","value":"隐藏书架"},
+    {"name":"shelf_hidden_open_hint","value":"长按书架标题打开隐藏书架"},
+    {"name":"shelf_hidden_locked_hint","value":"长按标题显示隐藏书籍"},
+    {"name":"shelf_hidden_empty","value":"暂无隐藏书籍，可在普通书架长按书籍移入"},
+    {"name":"shelf_hide_book","value":"移入隐藏书架"},
+    {"name":"shelf_unhide_book","value":"移回普通书架"},
+    {"name":"shelf_hide_action","value":"隐藏"},
+    {"name":"shelf_unhide_action","value":"移回"},
+    {"name":"shelf_hide_done","value":"已隐藏，长按书架标题查看"},
+    {"name":"shelf_unhide_done","value":"已移回普通书架"},
+    {"name":"audio_cache_wifi_only","value":"仅 Wi-Fi 缓存"},
+    {"name":"audio_cache_wifi_only_hint","value":"仅在 WLAN 下预加载与下载音频，移动网络仍可播放"},
+    {"name":"audio_cache_waiting_wifi","value":"等待 WLAN"}
   ]
 }

@@ -36,7 +36,7 @@ class ProfileItem {
 }
 
 const SOURCE_ITEMS: ProfileItem[] = [
-  new ProfileItem($r('sys.symbol.arrow_down_circle'), $r('app.string.profile_local_import'), 'import', '#34C759')
+  new ProfileItem($r('sys.symbol.doc_text_badge_arrow_up'), $r('app.string.profile_local_import'), 'import', '#34C759')
 ];
 
 const CONTENT_ITEMS: ProfileItem[] = [

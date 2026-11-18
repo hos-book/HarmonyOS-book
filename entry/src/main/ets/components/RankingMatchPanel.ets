@@ -203,6 +203,7 @@ export struct RankingMatchPanel {
         }.height(this.compact ? 30 : 36)
       }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).width('100%')
 
+      if (this.searching || this.matchesCount > 0) {
       Row({ space: 6 }) {
         if (this.searching) {
           LoadingProgress().width(14).height(14).color(AppColor.Brand)
@@ -210,7 +211,19 @@ export struct RankingMatchPanel {
         Text(this.status).fontSize(11).fontColor(AppTheme.TextTertiary)
           .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
       }.width('100%')
+      }
 
+      if (!this.searching && this.matchesCount === 0) {
+        Column({ space: 12 }) {
+          Text(this.status).fontSize(13).fontColor(AppTheme.TextSecondary)
+            .textAlign(TextAlign.Center).maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis })
+          Button($r('app.string.ranking_manage_sources'), { buttonStyle: ButtonStyleMode.TEXTUAL })
+            .fontColor(AppTheme.TextPrimary).height(36)
+            .onClick((): void => this.onManageSources())
+        }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
+          // 空态在结果区居中；底部避让外层开始阅读按钮，随卡片可用高度布局。
+          .padding({ left: 8, right: 8, bottom: 68 }).id('ranking-match-empty')
+      } else {
       List({ space: 8 }) {
         LazyForEach(this.matchData, (match: RankingMatch) => {
           ListItem() {
@@ -244,11 +257,6 @@ export struct RankingMatchPanel {
       .width('100%').layoutWeight(1).scrollBar(BarState.Off).cachedCount(4)
       // 避让属于滚动内容，列表继续绘制到悬浮按钮后方。
       .contentEndOffset(68)
-
-      if (!this.searching && this.matchesCount === 0) {
-        Button($r('app.string.ranking_manage_sources'), { buttonStyle: ButtonStyleMode.TEXTUAL })
-          .fontColor(AppTheme.TextPrimary).height(36)
-          .onClick((): void => this.onManageSources())
       }
     }
     .width('100%').height('100%')

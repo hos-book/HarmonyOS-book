@@ -5,15 +5,16 @@ const vm = require('node:vm');
 const ts = require(path.join(process.env.DEVECO_HOME,
   'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 const source = fs.readFileSync(path.join(__dirname, '../entry/src/main/ets/pages/ReadingStatsPage.ets'), 'utf8');
-const start = source.indexOf('  private clearSelection(');
-const end = source.indexOf('  private openDetail(', start);
+const start = source.indexOf('  private canEditRecords(');
+const end = source.indexOf('  private async openDetail(', start);
 assert.ok(start > 0 && end > start);
 const code = ts.transpileModule(`class Page { ${source.slice(start, end)} }`, {
   compilerOptions: { target: ts.ScriptTarget.ES2021 }
 }).outputText;
 const writes = [];
 const Page = vm.runInNewContext(`${code}; Page`, {
-  Set, Array, $r: (...args) => args, AppColor: { BrandDark: 'brand' },
+  Set, Array, setTimeout, clearTimeout, $r: (...args) => args,
+  AppColor: { BrandDark: 'brand' }, AppTheme: { TextPrimary: 'text' },
   DiagnosticLogService: { info() {} },
   StatsService: { removeBookStats: async ids => writes.push(['stats', ...ids]) },
   PreferenceService: { removeHistory: async id => writes.push(['history', id]),
@@ -25,6 +26,10 @@ let dialogs = 0;
 function page() {
   const p = new Page();
   Object.assign(p, { selectedIds: new Set(['book']), records: [{ bookId: 'book', aliasBookIds: ['alias'] }],
+    loadedRecords: [{ bookId: 'book', aliasBookIds: ['alias'] }],
+    recordEditLockReady: true, recordEditLocked: false, savingRecordEditLock: false,
+    scroller: { closeAllSwipeActions: options => options.onFinish() },
+    recordDataSource: { removeRecords() {} },
     recoveryActive: true, deletingRecords: false, selectMode: true,
     getUIContext: () => ({ getHostContext: () => ({}), getPromptAction: () => ({
       showDialog: () => { dialogs++; return new Promise(resolve => { resolveDialog = resolve; }); },
@@ -70,7 +75,7 @@ function page() {
     compilerOptions: { target: ts.ScriptTarget.ES2021 }
   }).outputText;
   let handler;
-  const host = { currentTab: 2, generalSettings: { historyEnabled: true },
+  const host = { currentTab: 2, generalSettings: { historyEnabled: true }, cardStore: { visible: false },
     recordsBackHandler: () => true, onBackHandlerChange: value => { handler = value; } };
   vm.runInNewContext(`(function() { ${routeCode} })`).call(host);
   assert.equal(handler(), true);

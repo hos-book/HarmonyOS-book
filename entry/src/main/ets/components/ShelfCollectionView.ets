@@ -1,5 +1,5 @@
 import { Book } from '../model/Book';
-import { ShelfCollectionGroup, ShelfRecentBook } from '../model/ShelfCollection';
+import { ShelfCollectionData, ShelfCollectionGroup, ShelfRecentBook } from '../model/ShelfCollection';
 import { AppColor, AppTheme } from '../theme/Theme';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
@@ -12,6 +12,8 @@ export struct ShelfCollectionView {
   @Param recent: ShelfRecentBook[] = [];
   @Param loading: boolean = false;
   @Param historyEnabled: boolean = true;
+  @Param showAllBooks: boolean = true;
+  @Param reorderEnabled: boolean = true;
   @Param visible: boolean = true;
   @Param topInset: number = 100;
   @Param bottomInset: number = 100;
@@ -20,18 +22,37 @@ export struct ShelfCollectionView {
   @Event onBook: (book: Book, coverId: string) => void = () => {};
   @Event onRecords: () => void = () => {};
   @Event onRecentTouch: (active: boolean) => void = () => {};
+  @Event onReorder: (groups: string[]) => Promise<void> = async (): Promise<void> => {};
   @Local recentIndex: number = 0;
+  @Local wideRecent: boolean = false;
+  @Local draggingGroupId: string = '';
   private recentBookIds: string = '';
   @Event onScrollStopped: () => void = () => {};
   @Event onContentScroll: (offset: number, state: ScrollState) => void = () => {};
   @Local columns: number = 2;
   @Local now: number = Date.now();
   private data: HomeRecommendationDataSource<ShelfCollectionGroup> = new HomeRecommendationDataSource<ShelfCollectionGroup>();
+  private renderedGroups: ShelfCollectionGroup[] = [];
+  private savedOrder: string[] = [];
+  private pendingOrderSaves: number = 0;
+  private orderSaveTask: Promise<void> = Promise.resolve<void>(undefined);
+  private dragging: boolean = false;
   private clockTimer: number = -1;
+  private dropTimer: number = -1;
+  private dragAppearanceTimer: number = -1;
+  private readonly moveHandler: (from: number, to: number) => void =
+    (from: number, to: number): void => { this.reorder(from, to); };
+  private readonly dragEvents: ItemDragEventHandler = {
+    onLongPress: (index: number): void => this.beginDrag(index),
+    onDragStart: (index: number): void => this.beginDrag(index),
+    onDrop: (_index: number): void => this.finishDrag()
+  };
 
-  aboutToAppear(): void { this.data.setItems(this.groups); this.syncRecentIndex(); this.refreshClock(); }
+  aboutToAppear(): void { this.updateGroups(); this.syncRecentIndex(); this.refreshClock(); }
   aboutToDisappear(): void {
     if (this.clockTimer !== -1) clearTimeout(this.clockTimer);
+    if (this.dropTimer !== -1) clearTimeout(this.dropTimer);
+    if (this.dragAppearanceTimer !== -1) clearTimeout(this.dragAppearanceTimer);
     this.onRecentTouch(false);
   }
 
@@ -43,7 +64,83 @@ export struct ShelfCollectionView {
   }
 
   @Monitor('groups')
-  private updateGroups(): void { this.data.setItems(this.groups); }
+  private updateGroups(): void {
+    // 原生拖拽负责移动占位；期间不能用宿主刷新重载正在拖动的节点。
+    if (this.dragging || this.pendingOrderSaves > 0) return;
+    this.savedOrder = this.groups.map((group: ShelfCollectionGroup): string => group.id);
+    this.renderGroups(this.groups);
+  }
+
+  private renderGroups(groups: ShelfCollectionGroup[]): void {
+    this.renderedGroups = groups.slice();
+    this.data.setItems(this.renderedGroups);
+  }
+
+  private beginDrag(index: number): void {
+    if (this.dropTimer !== -1) clearTimeout(this.dropTimer);
+    this.dropTimer = -1;
+    if (this.dragAppearanceTimer !== -1) clearTimeout(this.dragAppearanceTimer);
+    this.dragging = true;
+    this.onRecentTouch(true);
+    const id = this.renderedGroups[index]?.id ?? '';
+    // 原生 onMove 在长按回调之后强制设置整项阴影；退出该回调后重设外观，保留原生位移和排序。
+    this.dragAppearanceTimer = setTimeout((): void => {
+      this.dragAppearanceTimer = -1;
+      if (this.dragging) this.draggingGroupId = id;
+    }, 0);
+  }
+
+  private finishDrag(): void {
+    this.dragging = false;
+    if (this.dragAppearanceTimer !== -1) clearTimeout(this.dragAppearanceTimer);
+    this.dragAppearanceTimer = -1;
+    this.draggingGroupId = '';
+    this.onRecentTouch(false);
+    if (this.dropTimer !== -1) clearTimeout(this.dropTimer);
+    // onDrop 与 onMove 的分发顺序由框架决定，退出本次回调后再合并延迟的数据刷新。
+    this.dropTimer = setTimeout((): void => {
+      this.dropTimer = -1;
+      if (this.pendingOrderSaves === 0 && !this.dragging) {
+        this.renderGroups(ShelfCollectionData.ordered(this.groups, JSON.stringify(this.savedOrder)));
+      }
+    }, 0);
+  }
+
+  private async reorder(from: number, to: number): Promise<void> {
+    if (!this.reorderEnabled || from === to || from < 0 || to < 0 ||
+      from >= this.renderedGroups.length || to >= this.renderedGroups.length) return;
+    const next = this.renderedGroups.slice();
+    next.splice(to, 0, next.splice(from, 1)[0]);
+    // 先同步更新实际数据源，再串行保存；快速连续拖动也以当前可见顺序为准。
+    this.renderGroups(next);
+    const ids = next.map((group: ShelfCollectionGroup): string => group.id);
+    this.pendingOrderSaves++;
+    const save = this.orderSaveTask.then(async (): Promise<void> => {
+      await this.onReorder(ids);
+      this.savedOrder = ids;
+    });
+    this.orderSaveTask = save.catch((): void => {});
+    try { await save; }
+    catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
+    } finally {
+      this.pendingOrderSaves--;
+      if (this.pendingOrderSaves === 0 && !this.dragging) {
+        // @Param 的同步可能晚于保存完成，使用最近成功顺序恢复，避免落位后跳回旧位置。
+        this.renderGroups(ShelfCollectionData.ordered(this.groups, JSON.stringify(this.savedOrder)));
+      }
+    }
+  }
+
+  private updateWidth(width: number): void {
+    this.columns = width < AdaptiveLayout.MEDIUM_WIDTH ? 2 : Math.max(3, Math.floor(width / 220));
+    const wide = width >= AdaptiveLayout.MEDIUM_WIDTH;
+    if (wide !== this.wideRecent) {
+      this.wideRecent = wide;
+      this.recentIndex = 0;
+      this.onRecentTouch(false);
+    }
+  }
 
   @Monitor('visible')
   private refreshClock(): void {
@@ -111,27 +208,37 @@ export struct ShelfCollectionView {
           }.height(30).onClick((): void => this.onRecords()).id('shelf-collection-all-records')
             .accessibilityGroup(true).accessibilityRole(AccessibilityRoleType.BUTTON)
         }.width('100%').margin({ bottom: 8 })
-        Swiper() {
-          this.recentCard(0)
-          if (this.recent.length > 1) { this.recentCard(1) }
-          if (this.recent.length > 2) { this.recentCard(2) }
-        }.width(this.recent.length > 1 ? 'calc(100% + 20vp)' : '100%').height(86).index(this.recentIndex)
-          .displayCount(1).loop(this.recent.length > 1).autoPlay(false).indicator(false).itemSpace(12)
-          .nextMargin(this.recent.length > 1 ? 32 : 0, true).disableSwipe(this.recent.length < 2)
-          .nestedScroll(SwiperNestedScrollMode.SELF_ONLY).effectMode(EdgeEffect.Spring)
-          .duration(320).curve(Curve.EaseOut)
-          .onChange((index: number): void => { this.recentIndex = index; })
-          .onTouch((event: TouchEvent): void => {
-            if (event.type === TouchType.Down) this.onRecentTouch(true);
-            else if (event.type === TouchType.Up || event.type === TouchType.Cancel) this.onRecentTouch(false);
-          }).id('shelf-collection-recent-swiper')
-        if (this.recent.length > 1) {
-          Row({ space: 5 }) {
-            ForEach([0, 1, 2].slice(0, this.recent.length), (index: number) => {
-              Row().width(index === this.recentIndex ? 14 : 5).height(5).borderRadius(3)
-                .backgroundColor(index === this.recentIndex ? AppColor.Brand : AppColor.Divider)
-            }, (index: number): string => index.toString())
-          }.width('100%').justifyContent(FlexAlign.Center).margin({ top: 8 }).accessibilityLevel('no')
+        if (this.wideRecent) {
+          Row({ space: 12 }) {
+            ForEach(this.recent.slice(0, 3), (item: ShelfRecentBook) => {
+              ShelfCollectionRecentCard({ item: item,
+                onBook: (book: Book, coverId: string): void => this.onBook(book, coverId) })
+                .layoutWeight(1)
+            }, (item: ShelfRecentBook): string => item.book.id)
+          }.width('100%').height(86).id('shelf-collection-recent-row')
+        } else {
+          Swiper() {
+            this.recentCard(0)
+            if (this.recent.length > 1) { this.recentCard(1) }
+            if (this.recent.length > 2) { this.recentCard(2) }
+          }.width(this.recent.length > 1 ? 'calc(100% + 20vp)' : '100%').height(86).index(this.recentIndex)
+            .displayCount(1).loop(this.recent.length > 1).autoPlay(false).indicator(false).itemSpace(12)
+            .nextMargin(this.recent.length > 1 ? 32 : 0, true).disableSwipe(this.recent.length < 2)
+            .nestedScroll(SwiperNestedScrollMode.SELF_ONLY).effectMode(EdgeEffect.Spring)
+            .duration(320).curve(Curve.EaseOut)
+            .onChange((index: number): void => { this.recentIndex = index; })
+            .onTouch((event: TouchEvent): void => {
+              if (event.type === TouchType.Down) this.onRecentTouch(true);
+              else if (event.type === TouchType.Up || event.type === TouchType.Cancel) this.onRecentTouch(false);
+            }).id('shelf-collection-recent-swiper')
+          if (this.recent.length > 1) {
+            Row({ space: 5 }) {
+              ForEach([0, 1, 2].slice(0, this.recent.length), (index: number) => {
+                Row().width(index === this.recentIndex ? 14 : 5).height(5).borderRadius(3)
+                  .backgroundColor(index === this.recentIndex ? AppColor.Brand : AppColor.Divider)
+              }, (index: number): string => index.toString())
+            }.width('100%').justifyContent(FlexAlign.Center).margin({ top: 8 }).accessibilityLevel('no')
+          }
         }
       }
       Row({ space: 6 }) {
@@ -139,8 +246,10 @@ export struct ShelfCollectionView {
           .fontColor(AppTheme.TextPrimary)
         Text(this.groups.length.toString()).fontSize(11).fontColor(AppTheme.TextTertiary)
         Blank()
-        Text($r('app.string.collection_all_books')).fontSize(11).fontColor(AppColor.Brand)
-          .height(32).onClick((): void => this.onGroup('')).id('shelf-collection-all-books')
+        if (this.showAllBooks) {
+          Text($r('app.string.collection_all_books')).fontSize(11).fontColor(AppColor.Brand)
+            .height(32).onClick((): void => this.onGroup('')).id('shelf-collection-all-books')
+        }
       }.width('100%').margin({ top: 12 })
       if (this.loading) {
         LoadingProgress().color(AppColor.Brand).width(28).height(28).margin(24)
@@ -151,23 +260,33 @@ export struct ShelfCollectionView {
   }
 
   build() {
-    List({ scroller: this.scroller }) {
-      ListItemGroup({ header: this.header(), space: 12 }) {
-        LazyForEach(this.data, (group: ShelfCollectionGroup) => {
-          ListItem() {
-            ShelfCollectionFolder({ group: group, onOpen: (id: string): void => this.onGroup(id) })
-          }.clip(false)
-        }, (group: ShelfCollectionGroup): string => JSON.stringify([group.id, group.tint,
-          group.books.map((book: Book): string => book.id + book.title + book.cover)]))
-      }.padding({ left: 20, right: 20 }).clip(false)
+    List({ scroller: this.scroller, space: 12 }) {
+      // 头部独占整行；可排序的 ListItem 必须直接归属 List。
+      ListItemGroup({ header: this.header() }) {}.clip(false)
+      LazyForEach(this.data, (group: ShelfCollectionGroup) => {
+        ListItem() {
+          ShelfCollectionFolder({ group: group, onOpen: (id: string): void => this.onGroup(id) })
+        }.clip(false)
+          .backgroundColor(this.draggingGroupId === group.id ? '#00000000' : Color.Transparent)
+          .borderRadius(this.draggingGroupId === group.id ?
+            { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 } : 0)
+          .shadow({ radius: this.draggingGroupId === group.id ? 0 : 0.01, color: Color.Transparent })
+          .accessibilityDescription($r('app.string.shelf_group_drag_hint'))
+      }, (group: ShelfCollectionGroup): string => JSON.stringify([group.id, group.tint,
+        group.books.map((book: Book): string => book.id + book.title + book.cover)]))
+        .onMove(this.reorderEnabled ? this.moveHandler : undefined, this.dragEvents)
     }.lanes(this.columns, 16).width('100%').height('100%')
+      .padding({ left: 20, right: 20 }).clip(false)
       .contentEndOffset(this.bottomInset).cachedCount(2).scrollBar(BarState.Off)
       .edgeEffect(EdgeEffect.Spring, { alwaysEnabled: true })
       .onDidScroll((offset: number, state: ScrollState): void => this.onContentScroll(offset, state))
       .onScrollStop((): void => this.onScrollStopped())
+      .onTouch((event: TouchEvent): void => {
+        if (event.type === TouchType.Up || event.type === TouchType.Cancel) this.onRecentTouch(false);
+      })
       .onSizeChange((_oldSize: SizeOptions, size: SizeOptions): void => {
         if (typeof size.width === 'number') {
-          this.columns = size.width < AdaptiveLayout.MEDIUM_WIDTH ? 2 : Math.max(3, Math.floor(size.width / 220));
+          this.updateWidth(size.width);
         }
       })
   }

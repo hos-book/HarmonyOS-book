@@ -28,12 +28,14 @@
     ['image', 'size', 'position', 'repeat', 'attachment', 'origin', 'clip', 'color'].forEach(function (name) {
       pagedBackground.style.setProperty('background-' + name, style.getPropertyValue('background-' + name));
     });
+    // The paper was moved outside body; keep the same night filter as the text surface.
+    pagedBackground.style.filter = cfg.dark ? style.filter : '';
     // Transfer, rather than duplicate, translucent paper/gradient layers.
     body.style.setProperty('background', 'transparent', 'important');
     // Horizontal overflow is the upstream column strip; only clip vertically.
     body.style.setProperty('clip-path', 'inset(' + top + 'px -1000000px ' + bottom + 'px -1000000px)', 'important');
   }
-  addEventListener('resize', function () { if (ready) protectPagedBounds(); });
+  addEventListener('resize', function () { if (ready) { mediaBounds(); protectPagedBounds(); } });
   function setViewport(height) {
     document.documentElement.style.setProperty('--hsda-vh', height / 100 + 'px');
     document.documentElement.style.setProperty('--hsda-vmin', Math.min(innerWidth, height) / 100 + 'px');
@@ -79,6 +81,7 @@
         background.style.setProperty('background-' + name, source.getPropertyValue('background-' + name));
       });
       if (source.backgroundColor === 'rgba(0, 0, 0, 0)') background.style.backgroundColor = root.backgroundColor;
+      background.style.filter = cfg.dark ? getComputedStyle(document.body).filter : '';
       fixedBackground.style.setProperty('background', 'transparent', 'important');
       document.documentElement.style.setProperty('background', 'transparent', 'important');
     }
@@ -108,16 +111,29 @@
     }
     viewportWidth = innerWidth; viewportHeight = parent.innerHeight; setViewport(viewportHeight);
   });
+  function mediaBounds() {
+    var style = getComputedStyle(document.body);
+    var side = (parseFloat(style.paddingLeft) || 0) + (parseFloat(style.paddingRight) || 0);
+    var inset = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
+    var columns = Math.max(1, parseInt(style.columnCount, 10) || 1), gap = parseFloat(style.columnGap) || 0;
+    var root = document.documentElement.style;
+    root.setProperty('--hsda-content-width', Math.max(1, (innerWidth - side - (columns - 1) * gap) / columns) + 'px');
+    root.setProperty('--hsda-content-height', 'calc(100vh - ' + inset + 'px)');
+  }
   function originalLayout() {
     var layout = document.getElementById('legado-layout');
     if (layout) layout.textContent = layout.textContent.replaceAll('img,video{object-fit:contain;}', ':where(img,video){object-fit:contain;}');
-    var body = document.body, style = getComputedStyle(body);
-    var inset = (parseFloat(style.paddingTop) || 0) + (parseFloat(style.paddingBottom) || 0);
-    document.documentElement.style.setProperty('--hsda-content-height', 'calc(100vh - ' + inset + 'px)');
+    var body = document.body;
+    mediaBounds();
     var compat = document.createElement('style');
     compat.textContent =
       'html{touch-action:auto!important;}' +
       'body{min-height:100vh;}' +
+      // Book wrappers can be wider than the column; bound the media to the real viewport too.
+      'img,svg,video{min-width:0!important;min-height:0!important;' +
+        'max-width:min(100%,var(--hsda-content-width))!important;' +
+        'max-height:var(--hsda-content-height)!important;}' +
+      'img{image-orientation:from-image!important;}' +
       'body.hsda-media-page{height:100vh!important;column-width:auto!important;column-count:auto!important;' +
         'display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;}' +
       '.hsda-media-root{display:flex!important;align-items:center!important;justify-content:center!important;' +
@@ -246,10 +262,17 @@
     if (forward) window.__legado.next(false); else window.__legado.prev(false);
     current = spot();
   }
-  function color(value, fallback) {
+  function color(value, fallback, night) {
     var channels = (value || '').match(/[\d.]+/g);
     if (!channels || channels.length < 3 || (channels.length > 3 && Number(channels[3]) === 0)) return fallback;
-    return '#' + channels.slice(0, 3).map(function (v) { return Math.round(Number(v)).toString(16).padStart(2, '0'); }).join('');
+    var rgb = channels.slice(0, 3).map(Number);
+    if (night) {
+      // Match upstream's invert(.92) hue-rotate(180deg), including native header/footer colors.
+      var v = rgb.map(function (channel) { return .92 * 255 - .84 * channel; });
+      rgb = [-.574 * v[0] + 1.430 * v[1] + .144 * v[2],
+        .426 * v[0] + .430 * v[1] + .144 * v[2], .426 * v[0] + 1.430 * v[1] - .856 * v[2]];
+    }
+    return '#' + rgb.map(function (v) { return Math.max(0, Math.min(255, Math.round(v))).toString(16).padStart(2, '0'); }).join('');
   }
   function link(href, note) {
     var url;
@@ -298,8 +321,9 @@
       if (cfg.restorePage >= 0) window.__legado.goPage(cfg.restorePage, false);
       ready = true; current = spot(); send(current);
       var body = getComputedStyle(document.body), html = getComputedStyle(document.documentElement);
-      send({ kind: 'appearance', background: color(body.backgroundColor, color(html.backgroundColor, '#ffffff')),
-        foreground: color(body.color, '#303030') });
+      send({ kind: 'appearance', background: color(body.backgroundColor, '', cfg.dark) ||
+        color(html.backgroundColor, cfg.dark ? '#141414' : '#ffffff'),
+        foreground: color(body.color, '#303030', cfg.dark) });
       protectPagedBounds();
       painted(cfg.paint, 'ready');
     },

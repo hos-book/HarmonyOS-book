@@ -66,7 +66,7 @@ export struct ShelfCollectionPage {
         .accessibilityLevel('no')
       Stack({ alignContent: Alignment.Top }) {
         ThemeBackgroundComponent({ scene: ThemeBackgroundScene.Shelf, appScene: AppBackgroundScene.Shelf })
-        FavoritePage({ collectionGroup: this.route.group, collectionExpanded: this.expanded,
+        FavoritePage({ collectionGroup: this.route.group, hiddenShelf: this.route.hidden, collectionExpanded: this.expanded,
           visible: this.active, historyEnabled: GeneralSettings.current.historyEnabled,
           navStack: this.navStack, bottomTabInset: 16,
           onCollectionClose: (): void => this.close(), onCollectionExpand: (): void => this.expand(),

@@ -1,6 +1,7 @@
 import { fileIo, statfs } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import { DownloadPolicy } from './DownloadPolicy';
+import { AudioCacheNetworkPolicy } from './AudioCacheNetworkPolicy';
 
 const MIN_AUDIO_FILE_BYTES = 1024;
 const MIN_FREE_BYTES = 16 * 1024 * 1024;
@@ -18,6 +19,7 @@ export interface AudioDownloadRequest {
 export class AudioDownloadTransport {
   private request: http.HttpRequest | null = null;
   private cancelled: boolean = false;
+  private networkInterrupted: boolean = false;
 
   cancel(): void {
     this.cancelled = true;
@@ -38,16 +40,25 @@ export class AudioDownloadTransport {
     let completed = false;
 
     this.cancelled = false;
+    this.networkInterrupted = false;
+    const network = AudioCacheNetworkPolicy.getInstance();
+    const unsubscribe = network.subscribe((): void => {
+      if (!network.isAllowed()) {
+        this.networkInterrupted = true;
+        this.cancel();
+      }
+    });
     await AudioDownloadTransport.deleteFile(partPath);
     await AudioDownloadTransport.deleteFile(`${options.finalPath}.swap`);
     try {
+      if (!network.canTransfer()) throw new Error(AudioCacheNetworkPolicy.WAITING_WIFI);
       if (DownloadPolicy.isHls(options.url, '')) {
         throw new Error('暂不支持 HLS 音频离线下载');
       }
       AudioDownloadTransport.ensureFreeSpace(options.finalPath, MIN_FREE_BYTES);
       file = await fileIo.open(partPath,
         fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.CREATE | fileIo.OpenMode.TRUNC);
-      if (this.cancelled) throw new Error('下载已取消');
+      if (this.cancelled) throw new Error(this.networkInterrupted ? AudioCacheNetworkPolicy.WAITING_WIFI : '下载已取消');
       this.request = http.createHttp();
       this.request.on('headersReceive', (headers: Object) => {
         responseHeaders = AudioDownloadTransport.toHeaderRecord(headers);
@@ -91,6 +102,7 @@ export class AudioDownloadTransport {
 
       let responseCode = 0;
       try {
+        if (!network.canTransfer()) throw new Error(AudioCacheNetworkPolicy.WAITING_WIFI);
         responseCode = await this.request.requestInStream(options.url, {
           method: http.RequestMethod.GET,
           header: options.headers,
@@ -101,12 +113,12 @@ export class AudioDownloadTransport {
       } catch (err) {
         await writeChain;
         if (writeErrorMessage.length > 0) throw new Error(writeErrorMessage);
-        if (this.cancelled) throw new Error('下载已取消');
+        if (this.cancelled) throw new Error(this.networkInterrupted ? AudioCacheNetworkPolicy.WAITING_WIFI : '下载已取消');
         throw new Error(err instanceof Error ? err.message : String(err));
       }
       await writeChain;
       if (writeErrorMessage.length > 0) throw new Error(writeErrorMessage);
-      if (this.cancelled) throw new Error('下载已取消');
+      if (this.cancelled) throw new Error(this.networkInterrupted ? AudioCacheNetworkPolicy.WAITING_WIFI : '下载已取消');
       if (responseCode !== 200) throw new Error(`下载失败 ${responseCode}`);
 
       const contentType = AudioDownloadTransport.getHeader(responseHeaders, 'content-type');
@@ -146,7 +158,7 @@ export class AudioDownloadTransport {
       if (partSize <= MIN_AUDIO_FILE_BYTES) {
         throw new Error(`音频文件过小 (${partSize} bytes)`);
       }
-      if (this.cancelled) throw new Error('下载已取消');
+      if (this.cancelled) throw new Error(this.networkInterrupted ? AudioCacheNetworkPolicy.WAITING_WIFI : '下载已取消');
       await AudioDownloadTransport.publishFinalFile(partPath, options.finalPath);
       const finalSize = fileIo.statSync(options.finalPath).size;
       if (finalSize !== partSize) {
@@ -155,6 +167,7 @@ export class AudioDownloadTransport {
       completed = true;
       return finalSize;
     } finally {
+      unsubscribe();
       if (file) {
         try { await fileIo.close(file); } catch (_e) { /* ignore */ }
       }

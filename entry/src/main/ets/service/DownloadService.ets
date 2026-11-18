@@ -16,6 +16,8 @@ import { SourceDataService } from './SourceDataService';
 import { DownloadNotificationService, DownloadNotificationSummary } from './DownloadNotificationService';
 import { BackgroundTaskService } from './BackgroundTaskService';
 import { SearchCache } from '../utils/SearchCache';
+import { AudioCacheNetworkPolicy } from './AudioCacheNetworkPolicy';
+import { LightSourceRequest } from './rulesource/light/LightSourceRequestPolicy';
 
 const DOMAIN = 0x0001;
 const TAG = 'DownloadService';
@@ -90,6 +92,44 @@ export class DownloadService {
   private notificationBookIds: Set<string> = new Set();
   private lastNotificationAt: number = 0;
   private resolveFailureStreaks: Map<string, number> = new Map();
+  private activeResolves: Map<string, LightSourceRequest> = new Map();
+  private networkObserving: boolean = false;
+  private networkPolicyTask: Promise<void> = Promise.resolve();
+
+  private observeNetworkPolicy(): void {
+    if (this.networkObserving) return;
+    this.networkObserving = true;
+    AudioCacheNetworkPolicy.getInstance().subscribe((): void => this.scheduleNetworkPolicy());
+  }
+
+  private scheduleNetworkPolicy(): void {
+    const allowed = AudioCacheNetworkPolicy.getInstance().isAllowed();
+    if (!allowed) {
+      for (const request of this.activeResolves.values()) request.cancel();
+      for (const transport of this.activeTransports.values()) transport.cancel();
+    }
+    this.networkPolicyTask = this.networkPolicyTask.then((): Promise<void> => this.applyNetworkPolicy(allowed))
+      .catch((error: Error): void => hilog.warn(DOMAIN, TAG, 'network policy update failed: %{public}s', error.message));
+  }
+
+  private async applyNetworkPolicy(allowed: boolean): Promise<void> {
+    const records = DownloadStore.getBooksSync().slice();
+    if (!allowed) {
+      const pauses: Promise<void>[] = [];
+      for (const record of records) {
+        if (record.status === 'queued' || record.status === 'downloading') pauses.push(this.pauseBook(record.bookId, true));
+      }
+      await Promise.all(pauses);
+      this.stopBackgroundTransferIfIdle();
+      return;
+    }
+    for (const record of records) {
+      if (!AudioCacheNetworkPolicy.getInstance().isAllowed()) return;
+      if (record.waitingForWifi && record.status === 'paused') await this.resumeBook(record.bookId, true);
+    }
+    this.drainResolve();
+    this.drainFile();
+  }
 
   static getInstance(): DownloadService {
     if (!DownloadService.instance) {
@@ -103,6 +143,7 @@ export class DownloadService {
     DownloadNotificationService.setContext(ctx);
     // 仅加载索引，不做全量文件 stat，避免冷启动卡死
     await DownloadStore.init(ctx);
+    this.observeNetworkPolicy();
   }
 
   /**
@@ -112,6 +153,8 @@ export class DownloadService {
   async restoreDownloads(): Promise<void> {
     await DownloadStore.normalizeInterruptedTasks();
     await this.restoreInterruptedDownloads();
+    this.scheduleNetworkPolicy();
+    await this.networkPolicyTask;
   }
 
   /**
@@ -130,6 +173,7 @@ export class DownloadService {
     this.ctx = ctx;
     DownloadStore.setContext(ctx);
     DownloadNotificationService.setContext(ctx);
+    this.observeNetworkPolicy();
   }
 
   async downloadBook(book: Book): Promise<number> {
@@ -157,7 +201,7 @@ export class DownloadService {
     return this.enqueueChapters(book, [chapter]);
   }
 
-  async pauseBook(bookId: string): Promise<void> {
+  async pauseBook(bookId: string, waitingForWifi: boolean = false): Promise<void> {
     this.advanceBookGeneration(bookId);
     this.pausedBooks.add(bookId);
     this.cancelBookTransports(bookId);
@@ -171,6 +215,7 @@ export class DownloadService {
         if (chapter.status === 'resolving' || chapter.status === 'downloading') chapter.status = 'pending';
       }
       record.status = 'paused';
+      record.waitingForWifi = waitingForWifi;
       await DownloadStore.saveBook(record);
       if (record.status !== 'paused') this.pausedBooks.delete(bookId);
       this.emitUpdate(bookId);
@@ -178,12 +223,13 @@ export class DownloadService {
     this.stopBackgroundTransferIfIdle();
   }
 
-  async resumeBook(bookId: string): Promise<void> {
-    await DownloadNotificationService.requestPermission();
+  async resumeBook(bookId: string, automatic: boolean = false): Promise<void> {
+    if (!automatic) await DownloadNotificationService.requestPermission();
     this.pausedBooks.delete(bookId);
     this.deletedBooks.delete(bookId);
     const record = await DownloadStore.getBook(bookId);
     if (!record) return;
+    record.waitingForWifi = false;
     const book = await this.bookFromRecordWithVariables(record);
     const chapters: Chapter[] = [];
     for (const ch of record.chapters) {
@@ -419,6 +465,10 @@ export class DownloadService {
       this.resolveQueue.push(item);
     }
     this.notificationBookIds.add(book.id);
+    if (!AudioCacheNetworkPolicy.getInstance().canTransfer()) {
+      await this.pauseBook(book.id, true);
+      return candidates.length;
+    }
     await this.startBackgroundTransfer();
     this.emitUpdate(book.id);
     this.drainResolve();
@@ -426,6 +476,7 @@ export class DownloadService {
   }
 
   private drainResolve(): void {
+    if (!AudioCacheNetworkPolicy.getInstance().canTransfer()) return;
     while (this.resolveRunningCount < MAX_RESOLVE_CONCURRENT && this.resolveQueue.length > 0) {
       const item = this.resolveQueue.shift()!;
       this.resolveRunningCount++;
@@ -445,6 +496,7 @@ export class DownloadService {
   }
 
   private drainFile(): void {
+    if (!AudioCacheNetworkPolicy.getInstance().canTransfer()) return;
     while (this.fileRunningCount < MAX_FILE_CONCURRENT && this.fileQueue.length > 0) {
       const item = this.fileQueue.shift()!;
       this.fileRunningCount++;
@@ -463,6 +515,10 @@ export class DownloadService {
 
   private async resolveAndQueueFile(item: DownloadQueueItem): Promise<void> {
     if (!this.isItemCurrent(item)) return this.discardStaleItem(item);
+    const request = new LightSourceRequest(0);
+    request.cancelCheck = (): boolean => !this.isItemCurrent(item) || !AudioCacheNetworkPolicy.getInstance().isAllowed();
+    const key = this.itemKey(item);
+    this.activeResolves.set(key, request);
     try {
       await DownloadStore.upsertChapter(item.book, item.chapter, 'resolving', '', '', 0, '',
         (): boolean => this.isItemCurrent(item));
@@ -474,12 +530,16 @@ export class DownloadService {
         await this.markFailed(item, '内容来源不可用');
         return;
       }
-      await BookSourceService.prepareAudioChapter(source, item.book, item.chapter);
+      if (!AudioCacheNetworkPolicy.getInstance().canTransfer()) {
+        await this.pauseBook(item.book.id, true);
+        return;
+      }
+      await BookSourceService.prepareAudioChapter(source, item.book, item.chapter, request);
       if (!this.isItemCurrent(item)) return this.discardStaleItem(item);
       const pageUrl = this.chapterPageUrl(item.chapter);
       const requestInfo = await BookSourceService.resolveAudioRequest(
         source, pageUrl, item.book.variables,
-        ChapterRuleContext.create(item.chapter.title, item.chapter.index - 1, item.chapter.variables));
+        ChapterRuleContext.create(item.chapter.title, item.chapter.index - 1, item.chapter.variables), request);
       if (!this.isItemCurrent(item)) return this.discardStaleItem(item);
       if (!DownloadPolicy.isResolvedAudioUrl(pageUrl, requestInfo.url, requestInfo.resolved)) {
         await this.markFailed(item, '音频地址解析失败');
@@ -498,6 +558,8 @@ export class DownloadService {
       const e = err as Error;
       await this.markFailed(item, e?.message ?? JSON.stringify(err));
       await this.recordResolveFailure(item);
+    } finally {
+      if (this.activeResolves.get(key) === request) this.activeResolves.delete(key);
     }
   }
 
@@ -524,6 +586,10 @@ export class DownloadService {
     let filePath = '';
     try {
       if (!this.isItemCurrent(item)) return this.discardStaleItem(item);
+      if (!AudioCacheNetworkPolicy.getInstance().canTransfer()) {
+        await this.pauseBook(item.book.id, true);
+        return;
+      }
       const record = DownloadStore.getChapterSync(item.book.id, item.chapter);
       const audioUrl = item.requestInfo?.url || record?.audioUrl || item.chapter.source.value;
       filePath = DownloadStore.getAudioFilePath(item.book.id, pageUrl) || '';
@@ -577,6 +643,11 @@ export class DownloadService {
       if (!this.isItemCurrent(item)) {
         if (filePath && this.isItemDeleted(item)) await DownloadStore.deleteFileSafely(filePath);
         return this.discardStaleItem(item);
+      }
+      if (err instanceof Error && err.message === AudioCacheNetworkPolicy.WAITING_WIFI) {
+        await this.pauseBook(item.book.id, true);
+        this.scheduleNetworkPolicy();
+        return;
       }
       const e = err as Error;
       hilog.warn(DOMAIN, TAG, 'downloadFile failed: %{public}s', e?.message ?? JSON.stringify(err));
@@ -777,6 +848,9 @@ export class DownloadService {
 
   private cancelBookTransports(bookId: string): void {
     const prefix = `${bookId}|`;
+    for (const item of this.activeResolves.entries()) {
+      if (item[0].startsWith(prefix)) item[1].cancel();
+    }
     for (const item of this.activeTransports.entries()) {
       if (item[0].startsWith(prefix)) item[1].cancel();
     }
@@ -817,13 +891,13 @@ export class DownloadService {
   }
 
   private async startBackgroundTransfer(): Promise<void> {
-    if (!this.ctx) return;
+    if (!this.ctx || !AudioCacheNetworkPolicy.getInstance().canTransfer()) return;
     await BackgroundTaskService.startDataTransfer(this.ctx);
   }
 
   /** 有活跃下载时确保 dataTransfer 长时任务仍在；系统取消后由 BackgroundTaskService 重申 */
   private ensureBackgroundTransfer(): void {
-    if (!this.ctx) return;
+    if (!this.ctx || !AudioCacheNetworkPolicy.getInstance().canTransfer()) return;
     if (this.resolveQueue.length === 0 && this.fileQueue.length === 0
       && this.resolveRunningCount === 0 && this.fileRunningCount === 0 && this.pendingKeys.size === 0) {
       return;
@@ -837,8 +911,9 @@ export class DownloadService {
   }
 
   private stopBackgroundTransferIfIdle(): void {
-    if (this.resolveQueue.length > 0 || this.fileQueue.length > 0
-      || this.resolveRunningCount > 0 || this.fileRunningCount > 0 || this.pendingKeys.size > 0) return;
+    if (this.resolveRunningCount > 0 || this.fileRunningCount > 0) return;
+    if (AudioCacheNetworkPolicy.getInstance().isAllowed() &&
+      (this.resolveQueue.length > 0 || this.fileQueue.length > 0 || this.pendingKeys.size > 0)) return;
     if (!this.ctx) return;
     BackgroundTaskService.stopDataTransfer(this.ctx).catch((err: Error): void => {
       hilog.warn(DOMAIN, TAG, 'stop background transfer failed: %{public}s',

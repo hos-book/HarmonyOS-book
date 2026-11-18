@@ -16,6 +16,7 @@ function compile(source, context = {}) {
 function method(source, name) {
   let start = source.indexOf(`  private ${name}(`);
   if (start < 0) start = source.indexOf(`  private async ${name}(`);
+  if (start < 0) start = source.indexOf(`  get ${name}(`);
   assert.ok(start >= 0, name);
   return source.slice(start, source.indexOf('\n  }', start) + 4);
 }
@@ -39,6 +40,21 @@ assert.equal(data.groups(books, groups, new Set(['audio']), '').find(item => ite
 assert.equal(data.groups(books, groups, new Set(), '文本').map(item => item.id).join('|'), '阅读');
 assert.equal(data.groups(books, groups, new Set(), '空分组').length, 1);
 assert.equal(data.groups(books, groups, new Set(), '不存在').length, 0);
+const folderIds = items => items.map(item => item.id).join('|');
+const originalFolderIds = folderIds(folders);
+assert.equal(folderIds(data.ordered(folders, JSON.stringify(['听书', '已删除', '听书', '阅读']))),
+  ['听书', '阅读', '空分组', BookPresentation.UNGROUPED].join('|'),
+  'saved duplicates/deleted groups are ignored and newly added folders append in source order');
+assert.equal(folderIds(folders), originalFolderIds, 'applying saved order never mutates the derived folder array');
+assert.equal(folderIds(data.ordered(folders, '[]')), originalFolderIds, 'missing saved order preserves default order');
+for (const stored of ['', '{broken', 'null', '{}', '42', '"阅读"']) {
+  assert.equal(folderIds(data.ordered(folders, stored)), originalFolderIds,
+    `damaged/non-array order safely falls back: ${stored}`);
+}
+assert.equal(folderIds(data.ordered(folders, JSON.stringify([null, 1, {}, ['阅读'], '听书']))),
+  ['听书', '阅读', '空分组', BookPresentation.UNGROUPED].join('|'),
+  'malformed saved array entries cannot replace or duplicate real folders');
+assert.equal(data.ordered([], '["阅读"]').length, 0, 'deleted last folder cannot be recreated by stale order');
 const records = [{ bookId: 'audio', chapterId: 'chapter-a', updatedAt: 100, progressMs: 100, durationMs: 200 },
   { bookId: 'audio', chapterId: 'chapter-a', updatedAt: 300, progressMs: 150, durationMs: 200 }];
 const positions = [{ bookId: 'text', resourceIndex: 2, chapterTitle: '第三章', updatedAt: 250 },
@@ -115,8 +131,108 @@ swipePage.handleTabSwipe({ offsetX: -120, offsetY: 0 });
 assert.equal(switched[0], 2, 'swipes outside recent cards still switch the main tab');
 
 (async () => {
+  const viewSource = read('components/ShelfCollectionView.ets');
+  const { HomeRecommendationDataSource } = compile(read('utils/HomeRecommendationDataSource.ets'));
+  const { CollectionView } = compile(`export class CollectionView {
+    ${method(viewSource, 'updateGroups')} ${method(viewSource, 'renderGroups')}
+    ${method(viewSource, 'beginDrag')} ${method(viewSource, 'finishDrag')}
+    ${method(viewSource, 'reorder')} ${method(viewSource, 'updateWidth')}
+  }`, { AdaptiveLayout, ShelfCollectionData: data, setTimeout, clearTimeout, $r: key => key });
+  const orderSaves = [];
+  const visibleFolders = folders.slice();
+  let renderedFolders = [];
+  let reloads = 0;
+  const pendingOrderSaves = [];
+  let failureToast = 0;
+  const folderSource = new HomeRecommendationDataSource();
+  folderSource.registerDataChangeListener({ onDataReloaded: () => {
+    reloads++;
+    renderedFolders = Array.from({ length: folderSource.totalCount() }, (_, index) => folderSource.getData(index));
+  } });
+  const collectionView = Object.assign(new CollectionView(), {
+    groups: visibleFolders, reorderEnabled: true, wideRecent: false, recentIndex: 2,
+    renderedGroups: [], savedOrder: [], pendingOrderSaves: 0, orderSaveTask: Promise.resolve(),
+    dragging: false, draggingGroupId: '', dropTimer: -1, dragAppearanceTimer: -1,
+    onRecentTouch: () => {}, data: folderSource,
+    getUIContext: () => ({ getPromptAction: () => ({ showToast: () => { failureToast++; } }) }),
+    onReorder: ids => new Promise((resolve, reject) => {
+      orderSaves.push(Array.from(ids));
+      pendingOrderSaves.push({ resolve, reject });
+    })
+  });
+  collectionView.updateGroups();
+  collectionView.updateWidth(599);
+  assert.equal(collectionView.wideRecent, false, 'compact container retains recent carousel');
+  collectionView.updateWidth(600);
+  assert.equal(collectionView.wideRecent, true, 'wide container displays all recent cards in a row');
+  assert.equal(collectionView.recentIndex, 0, 'resizing clears stale carousel position');
+  collectionView.updateWidth(500);
+  assert.equal(collectionView.wideRecent, false, 'folding back restores compact presentation');
+  collectionView.beginDrag(1);
+  assert.equal(collectionView.draggingGroupId, '', 'appearance reset waits until the native long-press callback exits');
+  await new Promise(resolve => setTimeout(resolve, 2));
+  assert.equal(collectionView.draggingGroupId, visibleFolders[1].id, 'native item index maps to the folder data without a header offset');
+  const beforeDragReloads = reloads;
+  collectionView.groups = visibleFolders.slice();
+  collectionView.updateGroups();
+  assert.equal(reloads, beforeDragReloads, 'host refresh cannot reload native drag placeholders');
+  collectionView.finishDrag();
+  assert.equal(collectionView.draggingGroupId, '', 'drop clears the reactive drag appearance');
+  const saveOrder = collectionView.reorder(3, 0);
+  assert.equal(renderedFolders[0].id, BookPresentation.UNGROUPED, 'ungrouped folder can be moved too');
+  assert.equal(visibleFolders[0].id, '阅读', 'optimistic reorder never mutates host params');
+  const saveNext = collectionView.reorder(0, 1);
+  assert.equal(folderIds(renderedFolders), ['阅读', BookPresentation.UNGROUPED, '听书', '空分组'].join('|'),
+    'a rapid second drop uses the current visible order while the first save is pending');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(orderSaves.length, 1, 'preference writes are serialized');
+  pendingOrderSaves.shift().resolve();
+  await saveOrder;
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(orderSaves.length, 2);
+  assert.equal(folderIds(renderedFolders), orderSaves[1].join('|'), 'older save cannot overwrite the latest visible drop');
+  pendingOrderSaves.shift().resolve();
+  await saveNext;
+  assert.equal(folderIds(renderedFolders), orderSaves[1].join('|'),
+    'completed save keeps the accepted order even before @Param has synchronized');
+  collectionView.groups = orderSaves[1].map(id => visibleFolders.find(group => group.id === id));
+  collectionView.updateGroups();
+  collectionView.onReorder = async () => { throw new Error('disk full'); };
+  await collectionView.reorder(0, 2);
+  assert.equal(folderIds(renderedFolders), orderSaves[1].join('|'), 'save failure restores the last committed order');
+  assert.equal(failureToast, 1, 'failed persistence is reported');
+  collectionView.reorderEnabled = false;
+  await collectionView.reorder(0, 2);
+  assert.equal(failureToast, 1, 'search result order cannot overwrite the complete folder order');
+  if (collectionView.dropTimer !== -1) clearTimeout(collectionView.dropTimer);
+  console.log('PASS recent width switching, native drag data refresh isolation, immediate and consecutive folder drops, serialized saves and failed-save rollback');
+
+  let finishHostSave;
+  const { OrderPage } = compile(`export class OrderPage { ${method(source, 'saveCollectionOrder')} }`, {
+    PreferenceService: { setShelfCollectionOrder: () => new Promise((resolve, reject) => {
+      finishHostSave = { resolve, reject };
+    }) }
+  });
+  const settings = { shelfCollectionOrder: '[]' };
+  const host = Object.assign(new OrderPage(), { shelfDisplaySettings: settings });
+  Object.defineProperty(host, 'collectionGroups', { get: () => data.ordered(visibleFolders, settings.shelfCollectionOrder) });
+  const requestedOrder = visibleFolders.map(folder => folder.id).reverse();
+  const hostSave = host.saveCollectionOrder(requestedOrder);
+  assert.equal(settings.shelfCollectionOrder, JSON.stringify(requestedOrder), 'host order updates before disk persistence resolves');
+  finishHostSave.reject(new Error('disk full'));
+  await assert.rejects(hostSave, /disk full/);
+  assert.equal(settings.shelfCollectionOrder, '[]', 'host failure restores the previous preference immediately');
+  const hostSuccess = host.saveCollectionOrder(requestedOrder);
+  finishHostSave.resolve();
+  await hostSuccess;
+  assert.equal(settings.shelfCollectionOrder, JSON.stringify(requestedOrder));
+  await assert.rejects(host.saveCollectionOrder(requestedOrder.slice(1)), /Invalid collection order/);
+  console.log('PASS host order commits before persistence and rolls back on failure');
+
   const saved = [];
-  const { AddPage } = compile(`export class AddPage { ${method(source, 'addCollectionBooks')} }`, {
+  const { AddPage } = compile(`export class AddPage {
+    ${method(source, 'shelfBooks')} ${method(source, 'matchesShelfVisibility')}
+    ${method(source, 'addCollectionBooks')} }`, {
     BookPresentation,
     PreferenceService: {
       getShelfFavorites: async () => ['unread', 'comic', 'audio'],
@@ -126,6 +242,7 @@ assert.equal(switched[0], 2, 'swipes outside recent cards still switch the main 
   BookPresentation.groups = ['阅读', '听书'];
   BookPresentation.edits = [{ bookId: 'audio', group: '听书' }];
   const addPage = Object.assign(new AddPage(), { shelfGroup: '阅读', favoriteBooks: books,
+    hiddenShelf: false, hiddenShelfUnlocked: true,
     favoriteIdsByBookId: new Map(), pendingShelfRemovalIds: new Set(), addingCollectionBooks: false,
     removingBook: false, showCollectionPicker: true, shelfFilter: 2, loadFavorites: async () => {} });
   await addPage.addCollectionBooks(['unread', 'comic', 'audio', 'text']);

@@ -11,6 +11,17 @@ const transfers = [];
 const events = [];
 const backgroundModes = [];
 const backgroundEvents = new Map();
+const cacheNetworkListeners = new Set();
+let cacheNetworkAllowed = true;
+const cacheNetwork = {
+  isAllowed: () => cacheNetworkAllowed,
+  canTransfer: () => cacheNetworkAllowed,
+  subscribe(listener) { cacheNetworkListeners.add(listener); return () => cacheNetworkListeners.delete(listener); }
+};
+function changeCacheNetwork(allowed) {
+  cacheNetworkAllowed = allowed;
+  for (const listener of cacheNetworkListeners) listener();
+}
 class Transfer {
   cancelled = false;
   download(options) {
@@ -52,6 +63,7 @@ const stubs = {
   '@kit.MediaKit': { media: {} },
   'service/PreferenceService': { PreferenceService: {} },
   'service/AudioDownloadTransport': { AudioDownloadTransport: Transfer },
+  'service/AudioCacheNetworkPolicy': { AudioCacheNetworkPolicy: { getInstance: () => cacheNetwork } },
   'service/BookSourceService': { BookSourceService: { invalidateAudioTocs: urls => invalidated.push([...urls]),
     resolveAudioRequest: async () => { throw new Error('Cached files must not resolve source requests'); } } },
   'service/SourceDataService': { SourceDataService: { invalidateLocalSources() {} } },
@@ -244,6 +256,33 @@ function load(name) {
   }
   console.log('PASS next chapter preloading with either TOC order, queue deduplication and serial transfers');
 
+  const wifiCache = await freshCache();
+  wifiCache.setPreloadCount(1);
+  const wifiBook = makeBook('wifi-only');
+  changeCacheNetwork(false);
+  const wifiStart = transfers.length;
+  wifiCache.preloadAudioChapters(wifiBook, 0);
+  await settle();
+  assert.equal(transfers.length, wifiStart, 'mobile or missing WLAN never starts an extra cache transfer');
+  assert.equal(wifiCache.queue.size, 1, 'blocked cache retains its bounded pending window');
+  changeCacheNetwork(true);
+  await settle();
+  assert.equal(transfers.length, wifiStart + 1, 'WLAN recovery starts the waiting chapter');
+  const interruptedWifiTransfer = transfers.at(-1);
+  changeCacheNetwork(false);
+  await settle();
+  assert.equal(interruptedWifiTransfer.cancelled, true, 'leaving WLAN immediately cancels the cache transport');
+  assert.equal(wifiCache.queue.size, 1, 'interrupted cache stays queued for WLAN');
+  assert.equal(wifiCache.preloadFailureAt.size, 0, 'network policy pause is not a source failure');
+  changeCacheNetwork(true);
+  await settle();
+  assert.equal(transfers.length, wifiStart + 2, 'the interrupted chapter resumes after WLAN returns');
+  transfers.at(-1).finish(6000);
+  await settle();
+  assert.equal(wifiCache.isAudioChapterCached(wifiBook, wifiBook.chapters[1]), true);
+  wifiCache.setPreloadCount(0);
+  console.log('PASS WLAN-only cache wait, interrupted-transfer cancellation and automatic recovery');
+
   const stopping = await freshCache();
   const stoppingBook = makeBook('stopping');
   stopping.preloadAudioChapters(stoppingBook, 0);
@@ -307,6 +346,8 @@ function load(name) {
   takeover.suspendPreload(takeoverChapter.id);
   assert.equal(observedRequest.priority, 2, 'Foreground takeover promotes the original pending request');
   assert.equal(observedRequest.isCancelled(), false);
+  changeCacheNetwork(false);
+  assert.equal(observedRequest.isCancelled(), false, 'WLAN-only caching never cancels a resolver already taken by playback');
   assert.equal(await takeover.waitForAudioFile(takeoverBook, takeoverChapter), null);
   assert.equal(takeover.getPendingAudioResolve(takeoverBook, takeoverChapter), pending);
   const beforeTakeover = transfers.length;
@@ -317,6 +358,7 @@ function load(name) {
   assert.equal(takeover.getAudioUrl(takeoverChapter.id), 'https://cdn.invalid/takeover.mp3');
   assert.equal(takeover.getAudioHeaders(takeoverChapter.id).Referer, 'https://source.invalid');
   assert.equal(transfers.length, beforeTakeover, 'Foreground takeover starts no competing full download');
+  changeCacheNetwork(true);
   console.log('PASS in-flight resolve takeover preserves URL/headers and avoids duplicate work');
 
   for (const action of ['clear', 'switch', 'disable']) {

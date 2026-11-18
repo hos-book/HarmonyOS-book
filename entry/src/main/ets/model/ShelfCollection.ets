@@ -5,7 +5,8 @@ import { PlayHistoryItem } from '../service/PreferenceService';
 
 export class ShelfCollectionRoute {
   group: string;
-  constructor(group: string) { this.group = group; }
+  hidden: boolean;
+  constructor(group: string, hidden: boolean = false) { this.group = group; this.hidden = hidden; }
 }
 
 export class ShelfCollectionGroup {
@@ -45,6 +46,22 @@ export class ShelfCollectionData {
     }
     return query ? result.filter((group: ShelfCollectionGroup): boolean =>
       group.books.length > 0 || group.id.toLocaleLowerCase().includes(query)) : result;
+  }
+
+  static ordered(groups: ShelfCollectionGroup[], stored: string): ShelfCollectionGroup[] {
+    let ids: string[] = [];
+    try { ids = JSON.parse(stored); } catch (_error) { return groups; }
+    if (!Array.isArray(ids)) return groups;
+    const result: ShelfCollectionGroup[] = [];
+    const seen = new Set<string>();
+    for (const id of ids) {
+      const group = groups.find((item: ShelfCollectionGroup): boolean => item.id === id);
+      if (group && !seen.has(group.id)) { result.push(group); seen.add(group.id); }
+    }
+    for (const group of groups) {
+      if (!seen.has(group.id)) result.push(group);
+    }
+    return result;
   }
 
   static sameRecent(current: ShelfRecentBook[], next: ShelfRecentBook[]): boolean {

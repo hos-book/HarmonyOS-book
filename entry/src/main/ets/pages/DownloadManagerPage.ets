@@ -22,6 +22,7 @@ struct DownloadBookItem {
   @Param bookId: string = '';
   @Local available: boolean = true;
   @Local status: DownloadBookStatus = 'idle';
+  @Local waitingForWifi: boolean = false;
   @Local downloadedCount: number = 0;
   @Local failedCount: number = 0;
   @Local totalCount: number = 0;
@@ -60,6 +61,7 @@ struct DownloadBookItem {
     const failed = record.chapters.find((item) => item.status === 'failed');
     this.available = true;
     this.status = record.status;
+    this.waitingForWifi = record.waitingForWifi === true;
     this.downloadedCount = record.downloadedCount;
     this.failedCount = record.failedCount;
     this.totalCount = record.chapters.filter((item) => item.status !== 'deleted').length;
@@ -70,6 +72,10 @@ struct DownloadBookItem {
   }
 
   private statusText(): string {
+    if (this.status === 'paused' && this.waitingForWifi) {
+      const waiting = this.getUIContext().getHostContext()?.resourceManager.getStringSync($r('app.string.audio_cache_waiting_wifi').id) ?? '';
+      return `${waiting} · ${this.downloadedCount}/${this.totalCount}`;
+    }
     if (this.status === 'paused') return `已暂停 · ${this.downloadedCount}/${this.totalCount}`;
     if (this.status === 'downloading' || this.status === 'queued') {
       return `下载中 · ${this.downloadedCount}/${this.totalCount} · ${Math.round(this.progressPercent)}%`;
@@ -186,7 +192,7 @@ struct DownloadBookItem {
         .animation({ duration: AppMotion.Slow, curve: AppCurve.Standard })
 
       Row({ space: AppSpace.Sm }) {
-        if (this.status === 'downloading' || this.status === 'queued') {
+        if (this.status === 'downloading' || this.status === 'queued' || this.waitingForWifi) {
           this.buildAction($r('sys.symbol.pause_fill'), '暂停', () => this.pause(record), false)
         } else if (this.status === 'paused' || this.failedCount > 0) {
           this.buildAction($r('sys.symbol.play_fill'), this.failedCount > 0 ? '重试' : '继续',

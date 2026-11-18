@@ -40,11 +40,13 @@ if (!assets.size) {
   wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
   wav.write('data', 36); wav.writeUInt32LE(wav.length - 44, 40); assets.set('audio.wav', wav);
 }
-function chapter(url, content, paged, continuous = false, styles = '') {
+function chapter(url, content, paged, continuous = false, styles = '', preferences = {}) {
   const options = new Options(); options.paged = paged; options.margins.top = 40; options.margins.bottom = 30;
+  Object.assign(options, preferences);
   const injection = Script.injection(options);
   const source = `<html><head><style>body{font:18px/24px serif;background:#eee}p{margin:8px 0}${styles}</style></head><body>${content}</body></html>`;
-  const config = { token: 1, paged, continuous, frame: 1, restorePage: -1, spot: { snippet: '', fraction: 0 } };
+  const config = { token: 1, paged, continuous, dark: options.forceDark,
+    frame: 1, restorePage: -1, spot: { snippet: '', fraction: 0 } };
   pages.set(url, Document.build(source, new Part(0, 'test.xhtml', 0, source.length),
     `window.hsdaEpubConfig=${JSON.stringify(config)};window.messages=[];window.epubHost={report(raw){messages.push(JSON.parse(raw))}};` +
     raw('epub_original.js') + injection.script, 'test', injection.style + (continuous ? 'html{overflow:hidden!important;touch-action:auto;}' : '')));
@@ -53,6 +55,14 @@ chapter('/cover-scroll', cover, false);
 chapter('/cover-paged', cover, true);
 chapter('/image', `<div><img src="${picture}"/></div>`, false);
 chapter('/fill', `<img src="${picture}"/>`, true, false, 'img{object-fit:cover}');
+const exifPicture = 'data:image/jpeg;base64,' + execFileSync('python', ['-c',
+  'from PIL import Image;import io,base64;i=Image.new("RGB",(120,60),"red");i.paste("blue",(60,0,120,60));e=i.getexif();e[274]=6;b=io.BytesIO();i.save(b,format="JPEG",exif=e);print(base64.b64encode(b.getvalue()).decode())'],
+{ windowsHide: true, encoding: 'utf8' }).trim();
+chapter('/oversize-exif', `<p>Packaged oriented illustration</p><div style="width:2000px"><img src="${exifPicture}" ` +
+  'style="width:2000px;height:3000px;min-width:900px;min-height:2000px;image-orientation:none"/></div>', true);
+chapter('/night-spread', Array.from({ length: 80 }, (_, index) =>
+  `<p>Paragraph ${index}. Original typography keeps this location across rotation and night mode.</p>`).join(''),
+  true, false, 'body{background:#fff;color:#000}', { spread: true, forceDark: true });
 chapter('/gallery', gallery, true);
 chapter('/bounds', '<div id="above" style="position:fixed;top:0;left:0;width:100%;height:60px;background:red"></div>' +
   '<div id="below" style="position:fixed;bottom:0;left:0;width:100%;height:50px;background:blue"></div>' +
@@ -231,6 +241,41 @@ async function browserResult(url, temp) {
     value.checks.push('paged header/footer clip positioned content while preserving fixed backgrounds on later pages; internal anchor progress restores');
     return value;
   }
+  async function appearanceAndImages(value) {
+    await command('Emulation.setDeviceMetricsOverride', { width: 900, height: 430, deviceScaleFactor: 1, mobile: true });
+    await command('Page.navigate', { url: url + 'night-spread' });
+    await delay(700);
+    assert.equal(await evaluate('getComputedStyle(document.body).columnCount'), '2', 'file typography uses two columns in landscape');
+    await evaluate('hsdaEpub.turn(true)');
+    const spot = await evaluate('hsdaEpub.spot()');
+    assert.ok(spot.page > 0 && spot.fraction > 0, 'two-column page turn advances actual character position');
+    const appearance = await evaluate('messages.find(m=>m.kind==="appearance")');
+    assert.equal(appearance.background, '#141414', 'host header/footer receives the filtered night paper');
+    assert.equal(appearance.foreground, '#ebebeb', 'host ink receives the filtered night text');
+    const png = await command('Page.captureScreenshot', { format: 'png' });
+    const file = path.join(temp, 'night-spread.png'); fs.writeFileSync(file, Buffer.from(png.data, 'base64'));
+    const colors = JSON.parse(execFileSync('python', ['-c',
+      'from PIL import Image;import json,sys;i=Image.open(sys.argv[1]).convert("RGB");print(json.dumps([i.getpixel((200,20)),i.getpixel((200,i.height-10))]))', file],
+    { windowsHide: true, encoding: 'utf8' }));
+    assert.deepEqual(colors, [[20,20,20], [20,20,20]], 'paper moved outside body remains dark on later pages');
+    await command('Emulation.setDeviceMetricsOverride', { width: 430, height: 900, deviceScaleFactor: 1, mobile: true });
+    await delay(300);
+    assert.notEqual(await evaluate('getComputedStyle(document.body).columnCount'), '2', 'portrait returns to one column');
+    assert.equal(await evaluate('hsdaEpub.spot().snippet'), spot.snippet, 'rotation restores the same confirmed text');
+    await command('Page.navigate', { url: url + 'oversize-exif' });
+    await delay(700);
+    const image = await evaluate(`(() => {var img=document.querySelector('img'),r=img.getBoundingClientRect(),canvas=document.createElement('canvas');
+      canvas.width=6;canvas.height=12;var ctx=canvas.getContext('2d');ctx.drawImage(img,0,0,6,12);
+      return {width:r.width,height:r.height,naturalWidth:img.naturalWidth,naturalHeight:img.naturalHeight,
+        orientation:getComputedStyle(img).imageOrientation,top:Array.from(ctx.getImageData(3,2,1,1).data),bottom:Array.from(ctx.getImageData(3,10,1,1).data)};})()`);
+    assert.ok(image.width <= 390 && image.height <= 830, 'author min/fixed dimensions cannot enlarge media beyond the usable viewport');
+    assert.equal(image.orientation, 'from-image', 'packaged EXIF orientation takes precedence over a file reset');
+    assert.equal(image.naturalWidth, 60); assert.equal(image.naturalHeight, 120);
+    assert.ok(image.top[0] > 200 && image.top[2] < 30 && image.bottom[2] > 200 && image.bottom[0] < 30,
+      'orientation 6 is applied once: source left/right become upright top/bottom');
+    value.checks.push('landscape spread/night backgrounds and ink, rotation character restore, oversized media bounds and EXIF orientation');
+    return value;
+  }
   try {
     const { targetId } = await command('Target.createTarget', { url: 'about:blank' });
     sessionId = (await command('Target.attachToTarget', { targetId, flatten: true })).sessionId;
@@ -241,7 +286,7 @@ async function browserResult(url, temp) {
       if (value.exceptionDetails) throw Error(JSON.stringify(value.exceptionDetails));
       if (value.result.value) {
         const result = JSON.parse(value.result.value);
-        return result.ok ? await protectedBounds(await nativeNested(result)) : result;
+        return result.ok ? await appearanceAndImages(await protectedBounds(await nativeNested(result))) : result;
       }
     }
     throw Error('browser tests must finish');

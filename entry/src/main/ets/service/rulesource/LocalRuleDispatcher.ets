@@ -85,9 +85,10 @@ export class LocalRuleDispatcher {
 
   static async getBookToc(source: LocalRuleSource, tocUrl: string,
     variables: Record<string, string> = {},
-    onBatch?: (items: TocItem[]) => void): Promise<TocItem[]> {
+    onBatch?: (items: TocItem[]) => void, request?: LightSourceRequest): Promise<TocItem[]> {
+    if (request?.isCancelled()) return [];
     LocalRuleDispatcher.requireSource(source);
-    const items = await LightSourceBridge.toc(source, tocUrl, variables);
+    const items = await LightSourceBridge.toc(source, tocUrl, variables, request);
     if (onBatch !== undefined) onBatch(items);
     return items;
   }

@@ -2,6 +2,7 @@ import { fileIo, statfs } from '@kit.CoreFileKit';
 import { http } from '@kit.NetworkKit';
 import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 import { util } from '@kit.ArkTS';
+import { AudioCacheNetworkPolicy } from '../AudioCacheNetworkPolicy';
 
 export class SubtitleFiles {
   static remove(path: string): void {
@@ -40,7 +41,9 @@ export class SubtitleFiles {
 
   /** Bounded streaming write: no entire audio/model in JS memory, no unbounded write queue. */
   static async download(url: string, headers: Record<string, string>, path: string, maxBytes: number,
-    active: () => boolean, progress: (bytes: number) => void): Promise<void> {
+    active: () => boolean, progress: (bytes: number) => void, audioCache: boolean = false): Promise<void> {
+    const network = AudioCacheNetworkPolicy.getInstance();
+    if (audioCache && !network.canTransfer()) throw new Error(AudioCacheNetworkPolicy.WAITING_WIFI);
     const parent = path.substring(0, path.lastIndexOf('/'));
     if (statfs.getFreeSizeSync(parent) < maxBytes + 32 * 1024 * 1024) throw new Error('subtitle_space');
     const client = http.createHttp();
@@ -48,6 +51,9 @@ export class SubtitleFiles {
     let received = 0;
     let failure = '';
     let success = false;
+    const unsubscribe = audioCache ? network.subscribe((): void => {
+      if (!network.isAllowed()) { failure = AudioCacheNetworkPolicy.WAITING_WIFI; client.destroy(); }
+    }) : (): void => {};
     const deadline = Date.now() + 900000;
     const timer = setInterval((): void => {
       if (!active() || Date.now() > deadline) {
@@ -56,6 +62,7 @@ export class SubtitleFiles {
       }
     }, 250);
     try {
+      if (failure) throw new Error(failure);
       client.on('dataReceive', (chunk: ArrayBuffer): void => {
         if (failure) return;
         if (!active() || received + chunk.byteLength > maxBytes) {
@@ -68,12 +75,19 @@ export class SubtitleFiles {
           progress(received);
         } catch (_error) { failure = 'subtitle_file_write'; client.destroy(); }
       });
-      const status = await client.requestInStream(url, { method: http.RequestMethod.GET, header: headers,
-        connectTimeout: 15000, readTimeout: 900000, usingCache: false });
+      let status: number;
+      try {
+        status = await client.requestInStream(url, { method: http.RequestMethod.GET, header: headers,
+          connectTimeout: 15000, readTimeout: 900000, usingCache: false });
+      } catch (error) {
+        if (failure) throw new Error(failure);
+        throw new Error(error instanceof Error ? error.message : 'subtitle_download_failed');
+      }
       if (failure || !active()) throw new Error(failure || 'subtitle_cancelled');
       if (status !== 200 || received < 64) throw new Error('subtitle_download_failed');
       success = true;
     } finally {
+      unsubscribe();
       clearInterval(timer); client.destroy(); fileIo.closeSync(file);
       if (!success) SubtitleFiles.remove(path);
     }

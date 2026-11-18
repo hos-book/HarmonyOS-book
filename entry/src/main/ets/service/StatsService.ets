@@ -495,22 +495,24 @@ export class StatsService {
    * 页面用这个替代分散的 getBookStats/getSummary/getStreakDays/getDailyTotals 多次读盘,
    * 保证 6 个展示值内部一致(不会出现"今日有值但累计/本数/连续为 0"的撕裂)。
    */
-  static async getStatsBundle(heatmapDays: number): Promise<StatsBundle> {
-    return StatsService.buildStatsBundle(await StatsService.getBookStats(), heatmapDays);
+  static async getStatsBundle(heatmapDays: number, excludedBookIds: Set<string> = new Set<string>()): Promise<StatsBundle> {
+    return StatsService.buildStatsBundle(await StatsService.getBookStats(), heatmapDays, excludedBookIds);
   }
 
-  static getCachedStatsBundle(heatmapDays: number): StatsBundle | undefined {
+  static getCachedStatsBundle(heatmapDays: number, excludedBookIds: Set<string> = new Set<string>()): StatsBundle | undefined {
     if (!StatsService.initialized) return undefined;
-    return StatsService.buildStatsBundle(StatsService.normalizeRecords(StatsService.records), heatmapDays);
+    return StatsService.buildStatsBundle(StatsService.normalizeRecords(StatsService.records), heatmapDays, excludedBookIds);
   }
 
-  private static buildStatsBundle(records: BookUsageStats[], heatmapDays: number): StatsBundle {
-    const daily = StatsService.aggregateDaily(records);
+  private static buildStatsBundle(records: BookUsageStats[], heatmapDays: number, excludedBookIds: Set<string>): StatsBundle {
+    // 仅为页面派生展示快照；原始累计、归档时长和备份保持原值。
+    const visibleRecords = records.filter((item: BookUsageStats): boolean => !excludedBookIds.has(item.bookId));
+    const daily = StatsService.aggregateDaily(visibleRecords);
     const map = StatsService.toMap(daily);
     return {
-      records: records.filter((item: BookUsageStats): boolean => !item.archived),
+      records: visibleRecords.filter((item: BookUsageStats): boolean => !item.archived),
       summary: StatsService.computeSummary(map,
-        records.reduce((total: number, record: BookUsageStats): number => total + record.listenSeconds, 0)),
+        visibleRecords.reduce((total: number, record: BookUsageStats): number => total + record.listenSeconds, 0)),
       streak: StatsService.computeStreak(map),
       heatDays: StatsService.computeHeatDays(map, heatmapDays)
     };

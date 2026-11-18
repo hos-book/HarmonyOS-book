@@ -49,6 +49,7 @@ export struct BookEditSheet {
         const edit = new BookPresentationEdit();
         edit.bookId = item.bookId; edit.title = item.title; edit.cover = item.cover;
         edit.group = item.group === name ? '' : item.group;
+        edit.hidden = item.hidden === true;
         return edit;
       });
       const groups = BookPresentation.groups.filter((group: string): boolean => group !== name);
@@ -191,6 +192,7 @@ export struct BookEditSheet {
       edit.title = this.groupOnly ? previous?.title ?? '' : this.title.trim();
       edit.cover = this.groupOnly ? previous?.cover ?? '' : this.cover;
       edit.group = this.groupOnly ? this.group : previous?.group ?? '';
+      edit.hidden = previous?.hidden === true;
       const edits = BookPresentation.edits.filter((item: BookPresentationEdit): boolean => item.bookId !== edit.bookId);
       edits.push(edit);
       await PreferenceService.saveBookPresentation(edits, this.groupOnly ? this.groups : BookPresentation.groups.slice());

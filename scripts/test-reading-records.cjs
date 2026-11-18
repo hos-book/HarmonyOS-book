@@ -5,10 +5,13 @@ const ts = require(path.join(process.env.DEVECO_HOME,
   'sdk/default/openharmony/ets/build-tools/ets-loader/node_modules/typescript'));
 
 (async () => {
-  const h = harness();
+  const h = harness(new Map([
+    ['../PreferenceService', { PreferenceService: { promoteFavorite: async () => {} } }]
+  ]));
   const model = h.load('model/TextReading');
   const progress = h.load('service/text/TextReadingProgressService').TextReadingProgressService;
   const policy = h.load('service/ListeningHistoryPolicy');
+  const presentation = h.load('model/BookPresentation');
   const books = new Map([
     ['novel', { id: 'novel', contentType: 'text', title: 'Read book', author: 'Author', sourceUrl: 'source',
       bookUrl: 'novel', chapterCount: 500, chapters: [] }],
@@ -26,7 +29,7 @@ const ts = require(path.join(process.env.DEVECO_HOME,
   vm.runInNewContext(ts.transpileModule(viewClasses + `\nexport class RecordPage {${methods}}`, {
     compilerOptions: { target: ts.ScriptTarget.ES2021, module: ts.ModuleKind.CommonJS, experimentalDecorators: true }
   }).outputText, {
-    exports: exported, ObservedV2: value => value, Trace: () => {}, LocalBuilder: () => {}, ...policy, ...model,
+    exports: exported, ObservedV2: value => value, Trace: () => {}, LocalBuilder: () => {}, ...policy, ...model, ...presentation,
     TextReadingProgressService: progress,
     StatsService: { removeBookStats: async ids => removedStats.push(...ids) },
     PreferenceService: { getProgress: async () => null, removeHistory: async id => removedHistory.push(id),
@@ -34,10 +37,12 @@ const ts = require(path.join(process.env.DEVECO_HOME,
     DataService: { getBooks: async () => [...books.values()], getBookById: async (_ctx, id) => books.get(id) },
     SearchCache: { get: () => undefined },
     DiagnosticLogService: { info() {} },
+    PlayerDragTransition: { getInstance: () => ({ captureCover: () => undefined }) },
+    AppRadius: { Sm: 8 },
     Curve: { FastOutSlowIn: 0 }
   });
   const page = new exported.RecordPage();
-  Object.assign(page, { onlyUnfavorited: false, selectMode: false,
+  Object.assign(page, { onlyUnfavorited: false, selectMode: false, playerTransition: { active: false },
     navStack: { pushPathByName: (...args) => routes.push(args) },
     getUIContext: () => ({ getHostContext: () => h.context, animateTo: (_options, action) => action() }),
     clearSelection() { this.selectedIds = new Set(); }, loadStats: async () => {} });

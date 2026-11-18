@@ -30,6 +30,7 @@ import {
   EVT_FAVORITES_CHANGED
 } from '../service/PreferenceService';
 import { Book } from '../model/Book';
+import { BookPresentation } from '../model/BookPresentation';
 import { DataService } from '../service/DataService';
 import { DiagnosticLogService } from '../service/DiagnosticLogService';
 import { BookSourceService } from '../service/BookSourceService';
@@ -166,6 +167,9 @@ export struct ReadingStatsPage {
   private dayTimer: number = -1;
   private visibleRefreshTimer: number = -1;
   private pageVisible: boolean = false;
+  private recordVisibilityReady: boolean = false;
+  private loadedRecords: ListenRecordView[] = [];
+  private loadedFavoriteIds: Set<string> = new Set<string>();
   private statsHandler = (_evt: emitter.EventData): void => {
     if (!this.pageVisible || !this.recoveryActive) return;
     if (this.listScrolling) {
@@ -173,11 +177,14 @@ export struct ReadingStatsPage {
       return;
     }
     // 书籍明细可能还在异步加载；已提交的顶部累计不能等它完成才刷新。
-    const cached = StatsService.getCachedStatsBundle(1);
+    const cached = this.recordVisibilityReady ? StatsService.getCachedStatsBundle(1, this.hiddenRecordBookIds()) : undefined;
     if (cached !== undefined) this.applyStatsBundle(cached);
     this.loadStats();
   };
   private favoritesHandler = (_evt: emitter.EventData): void => {
+    this.recordVisibilityReady = true;
+    this.recordLoadGeneration++;
+    this.applyRecordVisibility();
     this.loadStats();
   };
 
@@ -187,7 +194,7 @@ export struct ReadingStatsPage {
     this.recoveryActive = true;
     this.loadRecordEditLock();
     this.recoveryAttempted.clear();
-    const cached = StatsService.getCachedStatsBundle(1);
+    const cached = this.recordVisibilityReady ? StatsService.getCachedStatsBundle(1, this.hiddenRecordBookIds()) : undefined;
     if (cached !== undefined) this.applyStatsBundle(cached);
     this.onScrollerReady(this.scroller);
     emitter.on(EVT_USAGE_STATS_UPDATED, this.statsHandler);
@@ -302,13 +309,15 @@ export struct ReadingStatsPage {
     const ctx = this.getUIContext().getHostContext();
     if (!ctx) { this.loadingStats = false; this.refreshing = false; return; }
     try {
+      await PreferenceService.ensureReady(ctx);
+      this.recordVisibilityReady = true;
       await StatsService.init(ctx);
       const bundle: StatsBundle = await StatsService.getStatsBundle(1);
       if (!this.recoveryActive || !this.pageVisible) return;
       if (this.listScrolling) { this.reloadPending = true; return; }
       // 顶部统计独立于书籍明细；离线或某本书读取失败时仍显示持久化累计值。
-      this.applyStatsBundle(StatsService.getCachedStatsBundle(1) ?? bundle);
-      await PreferenceService.ensureReady(ctx);
+      this.applyStatsBundle(StatsService.getCachedStatsBundle(1, this.hiddenRecordBookIds()) ??
+        await StatsService.getStatsBundle(1, this.hiddenRecordBookIds()));
       let history: PlayHistoryItem[] = [];
       let favoriteIds: Set<string> = new Set();
       let reading: TextReadingPosition[] = [];
@@ -322,15 +331,12 @@ export struct ReadingStatsPage {
       if (!this.recoveryActive || !this.pageVisible) return;
       if (generation !== this.recordLoadGeneration || this.deletingRecords) { this.reloadPending = true; return; }
       if (this.listScrolling) { this.reloadPending = true; return; }
-      this.records = allRecords.filter((item: ListenRecordView): boolean =>
-        this.shouldShowRecord(item, favoriteIds));
-      this.applyContentFilter();
+      this.loadedRecords = allRecords;
+      this.loadedFavoriteIds = favoriteIds;
+      this.applyRecordVisibility();
       this.recoverReadingBooks(ctx, reading).catch((error: Error): void => {
         DiagnosticLogService.info('records.recovery.failed', `${error.message}; ${error.stack ?? ''}`);
       });
-      this.selectedIds = new Set(Array.from(this.selectedIds).filter((id) =>
-        this.records.some((item) => item.bookId === id)));
-      if (this.selectedIds.size === 0) this.selectMode = false;
     } catch (e) {
       if (!this.statsReady) this.statsError = true;
       DiagnosticLogService.info('records.load.failed', `unfavorited=${this.onlyUnfavorited}; ` +
@@ -416,9 +422,39 @@ export struct ReadingStatsPage {
   }
 
   private shouldShowRecord(item: ListenRecordView, favoriteIds: Set<string>): boolean {
+    if (this.isRecordHidden(item)) return false;
     const isFavorite = favoriteIds.has(item.bookId) ||
       item.aliasBookIds.some((aliasBookId: string): boolean => favoriteIds.has(aliasBookId));
     return this.onlyUnfavorited ? !isFavorite : isFavorite;
+  }
+
+  private isRecordHidden(item: ListenRecordView): boolean {
+    return BookPresentation.isHidden(item.bookId) ||
+      item.aliasBookIds.some((bookId: string): boolean => BookPresentation.isHidden(bookId));
+  }
+
+  private hiddenRecordBookIds(): Set<string> {
+    const ids = new Set<string>();
+    for (const edit of BookPresentation.edits) {
+      if (edit.hidden) ids.add(edit.bookId);
+    }
+    for (const item of this.loadedRecords) {
+      if (!this.isRecordHidden(item)) continue;
+      ids.add(item.bookId);
+      for (const id of item.aliasBookIds) ids.add(id);
+    }
+    return ids;
+  }
+
+  private applyRecordVisibility(): void {
+    this.records = this.loadedRecords.filter((item: ListenRecordView): boolean =>
+      this.shouldShowRecord(item, this.loadedFavoriteIds));
+    this.selectedIds = new Set<string>(Array.from(this.selectedIds).filter((id: string): boolean =>
+      this.records.some((item: ListenRecordView): boolean => item.bookId === id)));
+    if (this.selectedIds.size === 0) this.selectMode = false;
+    this.applyContentFilter();
+    const cached = StatsService.getCachedStatsBundle(1, this.hiddenRecordBookIds());
+    if (cached !== undefined) this.applyStatsBundle(cached);
   }
 
   private pageTitle(): Resource {
@@ -690,6 +726,7 @@ export struct ReadingStatsPage {
       if (single && this.recoveryActive && this.pageVisible) await this.animateRecordDelete(single.bookId);
       this.recordDataSource.removeRecords(recordIds);
       this.records = this.records.filter((item: ListenRecordView): boolean => !recordIds.has(item.bookId));
+      this.loadedRecords = this.loadedRecords.filter((item: ListenRecordView): boolean => !recordIds.has(item.bookId));
       this.clearSelection();
     } catch (error) {
       DiagnosticLogService.info('records.delete.failed', String(error));
@@ -747,14 +784,14 @@ export struct ReadingStatsPage {
   }
 
   private async openDetail(item: ListenRecordView): Promise<void> {
-    if (!item.bookId || this.selectMode || this.deletingRecords || this.openingDetail || this.playerTransition.active) return;
+    if (!item.bookId || this.isRecordHidden(item) || this.selectMode || this.deletingRecords || this.openingDetail || this.playerTransition.active) return;
     this.openingDetail = true;
     const bookId = item.bookId;
     const stackSize = this.navStack.size();
     const transition = OneShotTransitionCoordinator.getInstance();
     try {
       await transition.captureAsync(this.getUIContext(), bookId, this.recordCoverId(item), AppRadius.Sm);
-      if (!this.recoveryActive || !this.visible || this.selectMode || this.navStack.size() !== stackSize) {
+      if (!this.recoveryActive || !this.visible || this.isRecordHidden(item) || this.selectMode || this.navStack.size() !== stackSize) {
         transition.discardPending();
         return;
       }
@@ -765,7 +802,7 @@ export struct ReadingStatsPage {
   }
 
   private async resumeRecord(item: ListenRecordView): Promise<void> {
-    if (!item.bookId || this.selectMode || this.deletingRecords || this.openingDetail || this.playerTransition.active) return;
+    if (!item.bookId || this.isRecordHidden(item) || this.selectMode || this.deletingRecords || this.openingDetail || this.playerTransition.active) return;
     if (item.isText) {
       const context = this.getUIContext().getHostContext();
       if (!context) return;
@@ -774,7 +811,7 @@ export struct ReadingStatsPage {
         await TextReadingProgressService.save(context, TextReadingPosition.atChar(item.bookId,
           reading.resourceIndex, reading.domPos, reading.charOffset, reading.pageOffset, reading.chapterTitle));
       }
-      this.navStack.pushPathByName(item.isComic ? 'comicReader' : 'reader', TextReaderRouteParams.of(item.bookId));
+      if (!this.isRecordHidden(item)) this.navStack.pushPathByName(item.isComic ? 'comicReader' : 'reader', TextReaderRouteParams.of(item.bookId));
       return;
     }
     const params: Record<string, Object> = {
@@ -791,6 +828,12 @@ export struct ReadingStatsPage {
 
   private recordCoverId(item: ListenRecordView): string {
     return `record-cover-${this.inTab ? 'tab' : 'page'}-${this.onlyUnfavorited ? 'history' : 'saved'}-${item.bookId}`;
+  }
+
+  private openSessionHistory(item: ListenRecordView): void {
+    if (this.deletingRecords || this.isRecordHidden(item)) return;
+    const params: Record<string, Object> = { 'bookIds': JSON.stringify([item.bookId, ...item.aliasBookIds]) };
+    this.navStack.pushPathByName('sessionHistory', params);
   }
 
   private applyContentFilter(): void {
@@ -834,49 +877,58 @@ export struct ReadingStatsPage {
 
   @LocalBuilder
   buildRecordTitleBar() {
-    Row({ space: AppSpace.Sm }) {
+    Row({ space: 4 }) {
       if (!this.inTab) {
         ImmersiveCircleButton({ icon: $r('sys.symbol.chevron_left'), label: $r('app.string.app_icon_back'),
+          diameter: 36, iconSize: 22, useMaterial: false,
           onPress: (): void => { if (!this.handleBack()) this.navStack.pop(); } })
       }
       Text(this.pageTitle()).fontSize(26).fontWeight(FontWeight.Bold)
         .fontColor(AppTheme.TextPrimary).maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
-      ImmersiveCircleButton({ icon: $r('sys.symbol.funnel'), themeIconRole: ThemeIconRole.Filter,
-        label: $r('app.string.record_content_filter'),
-        iconColor: this.contentFilter > 0 ? AppColor.Brand : AppTheme.IconPrimary,
-        onPress: (): void => { this.contentFilterVisible = !this.contentFilterVisible; } })
-        .bindMenu(this.contentFilterVisible, this.buildContentFilterMenu, this.contentFilterOptions())
-      ImmersiveCircleButton({ icon: $r('sys.symbol.bookmark'), label: $r('app.string.reader_excerpt_title'),
-        onPress: (): void => {
-          this.contentFilterVisible = false;
-          this.navStack.pushPathByName('readingExcerpts', '');
-        } })
-        .flexShrink(0)
-      ImmersiveCircleButton({ icon: $r('sys.symbol.clock'),
-        label: this.onlyUnfavorited ? $r('app.string.record_favorited_back') : $r('app.string.record_unfavorited_title'),
-        onPress: (): void => {
-          this.contentFilterVisible = false;
-          if (this.onlyUnfavorited) this.navStack.pop();
-          else this.navStack.pushPathByName('unfavoriteHistory', null, false);
-        } })
-      ImmersiveCircleButton({ icon: this.recordEditLocked ? $r('sys.symbol.lock') :
-        (this.selectMode ? $r('sys.symbol.checkmark') : $r('sys.symbol.square_and_pencil')),
-        label: this.recordEditLocked ? $r('app.string.record_edit_locked') :
-          (this.selectMode ? $r('app.string.record_edit_done') : $r('app.string.record_edit')),
-        iconColor: this.recordEditLocked || this.selectMode ? AppColor.Brand : AppTheme.IconPrimary,
-        longPressEnabled: !this.selectMode && !this.recordEditLocked,
-        onPress: (): void => this.handleRecordEditPress(),
-        onLongPress: (): void => { this.setRecordEditLocked(true); } })
-        .enabled(this.recordEditLockReady && !this.savingRecordEditLock)
+      // 与书架共用薄磨砂规格和标题的视觉对齐偏移。
+      Row({ space: 4 }) {
+        ImmersiveCircleButton({ icon: $r('sys.symbol.funnel'), themeIconRole: ThemeIconRole.Filter,
+          diameter: 36, iconSize: 22, useMaterial: false,
+          label: $r('app.string.record_content_filter'),
+          iconColor: this.contentFilter > 0 ? AppColor.Brand : AppTheme.IconPrimary,
+          onPress: (): void => { this.contentFilterVisible = !this.contentFilterVisible; } })
+          .bindMenu(this.contentFilterVisible, this.buildContentFilterMenu, this.contentFilterOptions())
+        ImmersiveCircleButton({ icon: $r('sys.symbol.bookmark'), label: $r('app.string.reader_excerpt_title'),
+          diameter: 36, iconSize: 22, useMaterial: false,
+          onPress: (): void => {
+            this.contentFilterVisible = false;
+            this.navStack.pushPathByName('readingExcerpts', '');
+          } })
+          .flexShrink(0)
+        ImmersiveCircleButton({ icon: $r('sys.symbol.clock'),
+          diameter: 36, iconSize: 22, useMaterial: false,
+          label: this.onlyUnfavorited ? $r('app.string.record_favorited_back') : $r('app.string.record_unfavorited_title'),
+          onPress: (): void => {
+            this.contentFilterVisible = false;
+            if (this.onlyUnfavorited) this.navStack.pop();
+            else this.navStack.pushPathByName('unfavoriteHistory', null, false);
+          } })
+        ImmersiveCircleButton({ icon: this.recordEditLocked ? $r('sys.symbol.lock') :
+          (this.selectMode ? $r('sys.symbol.checkmark') : $r('sys.symbol.square_and_pencil')),
+          diameter: 36, iconSize: 22, useMaterial: false,
+          label: this.recordEditLocked ? $r('app.string.record_edit_locked') :
+            (this.selectMode ? $r('app.string.record_edit_done') : $r('app.string.record_edit')),
+          iconColor: this.recordEditLocked || this.selectMode ? AppColor.Brand : AppTheme.IconPrimary,
+          longPressEnabled: !this.selectMode && !this.recordEditLocked,
+          onPress: (): void => this.handleRecordEditPress(),
+          onLongPress: (): void => { this.setRecordEditLocked(true); } })
+          .enabled(this.recordEditLockReady && !this.savingRecordEditLock)
+      }.alignItems(VerticalAlign.Center).translate({ y: -2 }).flexShrink(0)
     }.width('100%').height(MINI_TITLE_BAR_HEIGHT).enabled(!this.deletingRecords)
+      .alignItems(VerticalAlign.Center)
       .padding({ left: AppSpace.Md, right: AppSpace.Md }).clip(false)
   }
 
   private filteredRecords(): ListenRecordView[] {
     return this.records.filter((item: ListenRecordView): boolean =>
-      this.contentFilter === 0 || (this.contentFilter === 1 && !item.isText) ||
-      (this.contentFilter === 2 && item.isText && !item.isComic) || (this.contentFilter === 3 && item.isComic));
+      !this.isRecordHidden(item) && (this.contentFilter === 0 || (this.contentFilter === 1 && !item.isText) ||
+      (this.contentFilter === 2 && item.isText && !item.isComic) || (this.contentFilter === 3 && item.isComic)));
   }
 
   build() {
@@ -1241,11 +1293,7 @@ export struct ReadingStatsPage {
         .backgroundColor($r('app.color.shelf_toolbar_background'))
         .border({ width: 0.5, color: $r('sys.color.comp_divider') })
         .accessibilityText($r('app.string.session_history'))
-        .onClick((): void => {
-          if (this.deletingRecords) return;
-          const params: Record<string, Object> = { 'bookIds': JSON.stringify([item.bookId, ...item.aliasBookIds]) };
-          this.navStack.pushPathByName('sessionHistory', params);
-        })
+        .onClick((): void => this.openSessionHistory(item))
       Button({ type: ButtonType.Circle }) {
         SymbolGlyph(item.isText ? $r('sys.symbol.book') : $r('sys.symbol.play_fill'))
           .fontSize(16).fontColor([AppTheme.TextPrimary])

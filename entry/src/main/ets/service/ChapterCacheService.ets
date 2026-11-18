@@ -11,6 +11,7 @@ import { SourceDataService } from './SourceDataService';
 import { DownloadPolicy } from './DownloadPolicy';
 import { StorageMigrationService } from './StorageMigrationService';
 import { AudioDownloadTransport } from './AudioDownloadTransport';
+import { AudioCacheNetworkPolicy } from './AudioCacheNetworkPolicy';
 import { BackgroundTaskService } from './BackgroundTaskService';
 import { DiagnosticLogService } from './DiagnosticLogService';
 import { LightSourceRequest } from './rulesource/light/LightSourceRequestPolicy';
@@ -102,6 +103,26 @@ export class ChapterCacheService {
   private diskCleanupTask: Promise<void> | null = null;
   private diskCleanupRequested: boolean = false;
   private cacheCleanupTask: Promise<ClearCacheResult> | null = null;
+  private networkObserving: boolean = false;
+  private networkInterruptedTasks: Set<string> = new Set<string>();
+
+  private observeNetworkPolicy(): void {
+    if (this.networkObserving) return;
+    this.networkObserving = true;
+    AudioCacheNetworkPolicy.getInstance().subscribe((): void => {
+      if (AudioCacheNetworkPolicy.getInstance().isAllowed()) {
+        this.drain();
+        return;
+      }
+      for (const chapterId of this.runningTaskGenerations.keys()) this.networkInterruptedTasks.add(chapterId);
+      for (const task of this.audioResolves.values()) {
+        // 已被播放接手的解析属于当前播放，不能因缓存策略中断。
+        if (task.chapter.id !== this.priorityChapterId && task.request.priority < 2) task.request.cancel();
+      }
+      for (const download of this.activeDownloads.values()) download.cancel();
+      this.stopBackgroundTransferIfIdle();
+    });
+  }
 
   setPlayingFile(filePath: string = ''): void {
     this.playingFilePath = filePath;
@@ -297,6 +318,7 @@ export class ChapterCacheService {
 
   setContext(ctx: common.UIAbilityContext): void {
     this.appContext = ctx;
+    this.observeNetworkPolicy();
     this.storageReady = false;
     this.storageMigration = StorageMigrationService.migrateFilesWithPrefix(ctx.cacheDir, ctx.filesDir, 'chap_', true)
       .then((): void => {
@@ -493,7 +515,8 @@ export class ChapterCacheService {
   }
 
   private drain(): void {
-    if (this.cacheCleanupTask !== null || this.preloadSuspended || !this.isPreloadEnabled()) return;
+    if (this.cacheCleanupTask !== null || this.preloadSuspended || !this.isPreloadEnabled() ||
+      !AudioCacheNetworkPolicy.getInstance().canTransfer()) return;
     while (this.runningCount < MAX_CONCURRENT && this.queue.size > 0) {
       const first = this.queue.keys().next();
       if (first.done) return;
@@ -504,12 +527,17 @@ export class ChapterCacheService {
       this.pendingTasks.add(chapterId);
       this.runningTaskGenerations.set(chapterId, this.preloadGen);
       this.runningCount++;
-      this.runQueuedTask(chapterId, task, this.preloadGen).catch((error: Error): void => {
+      const generation = this.preloadGen;
+      this.runQueuedTask(chapterId, task, generation).catch((error: Error): void => {
         hilog.warn(DOMAIN, TAG, 'preload task failed: %{public}s', error.message);
       }).finally((): void => {
         this.pendingTasks.delete(chapterId);
         this.runningTaskGenerations.delete(chapterId);
         this.runningCount--;
+        if (this.networkInterruptedTasks.delete(chapterId) && generation === this.preloadGen &&
+          this.cacheCleanupTask === null && this.isPreloadEnabled() && !this.preloadSuspended) {
+          this.queue.set(chapterId, task);
+        }
         this.drain();
         this.stopBackgroundTransferIfIdle();
       });
@@ -525,12 +553,14 @@ export class ChapterCacheService {
       await BackgroundTaskService.startDataTransfer(context, 'preload');
     }
     if (clearGeneration !== this.clearGen || this.cacheCleanupTask !== null || !this.isPreloadEnabled() ||
+      !AudioCacheNetworkPolicy.getInstance().canTransfer() ||
       (generation !== this.preloadGen && chapterId !== this.priorityChapterId)) return;
     await task();
   }
 
   private stopBackgroundTransferIfIdle(): void {
-    if (!this.transferHeld || this.runningCount > 0 || this.queue.size > 0 || !this.appContext) return;
+    if (!this.transferHeld || this.runningCount > 0 || !this.appContext ||
+      (this.queue.size > 0 && AudioCacheNetworkPolicy.getInstance().isAllowed())) return;
     this.transferHeld = false;
     BackgroundTaskService.stopDataTransfer(this.appContext, 'preload').catch((error: Error): void => {
       hilog.warn(DOMAIN, TAG, 'release preload background task failed: %{public}s', error.message);
@@ -581,7 +611,7 @@ export class ChapterCacheService {
         }, timeoutMs);
       });
       const resolve = async (): Promise<AudioRequestInfo | null> => {
-        await BookSourceService.prepareAudioChapter(source, book, chapter);
+        await BookSourceService.prepareAudioChapter(source, book, chapter, request);
         if (expired || !this.isResolveCurrent(chapter.id, myClearGen, myPreloadGen)) return null;
         return BookSourceService.resolveAudioRequest(source, chapter.originSourceValue || chapter.source.value,
           book.variables, ChapterRuleContext.create(chapter.title, chapter.index - 1, chapter.variables), request);
@@ -609,6 +639,7 @@ export class ChapterCacheService {
 
   private isResolveCurrent(chapterId: string, clearGen: number, preloadGen: number): boolean {
     return this.isPreloadEnabled() && !this.invalidatedResolves.has(chapterId) && clearGen === this.clearGen &&
+      (AudioCacheNetworkPolicy.getInstance().isAllowed() || chapterId === this.priorityChapterId) &&
       (preloadGen === this.preloadGen || chapterId === this.priorityChapterId);
   }
 
@@ -632,6 +663,7 @@ export class ChapterCacheService {
   private async downloadFileStrict(book: Book, chapter: Chapter, audioUrl: string,
     headers: Record<string, string> = {}): Promise<void> {
     if (this.cacheCleanupTask !== null || !this.isPreloadEnabled() ||
+      !AudioCacheNetworkPolicy.getInstance().canTransfer() ||
       (this.preloadSuspended && this.priorityChapterId !== chapter.id)) return;
     // HLS 是播放清单，不能作为完整音频写入 mp3 缓存（包含点播与直播）。
     if (DownloadPolicy.isHls(audioUrl, '')) return;
@@ -646,6 +678,7 @@ export class ChapterCacheService {
     try {
       if (!this.storageReady) await this.storageMigration;
       if (capturedGen !== this.clearGen || !this.isPreloadEnabled() ||
+        !AudioCacheNetworkPolicy.getInstance().canTransfer() ||
         (this.preloadSuspended && this.priorityChapterId !== chapter.id)) return;
       const pageUrl = chapter.originSourceValue || chapter.source.value;
       const filePath = this.audioFilePath(book.id, pageUrl);
@@ -682,7 +715,8 @@ export class ChapterCacheService {
       this.extractDuration(chapter, filePath);
     } catch (err) {
       if (capturedGen === this.clearGen && transport !== null &&
-        this.activeDownloads.get(chapter.id) === transport && this.isPreloadEnabled()) {
+        this.activeDownloads.get(chapter.id) === transport && this.isPreloadEnabled() &&
+        AudioCacheNetworkPolicy.getInstance().isAllowed() && !this.networkInterruptedTasks.has(chapter.id)) {
         this.audioCache.delete(chapter.id);
         this.markPreloadFailure(chapter.id);
       }

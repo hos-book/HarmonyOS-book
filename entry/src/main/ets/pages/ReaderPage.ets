@@ -1915,7 +1915,8 @@ export struct ReaderPage {
   }
 
   private async handleThemeChange(themeId: string): Promise<void> {
-    if (this.epubOriginalTheme !== null && !await this.selectEpubOriginal(false)) return;
+    const keepOriginal = this.epubOriginalEnabled && (themeId === ReaderThemeId.Night || themeId === ReaderThemeId.Black);
+    if (!keepOriginal && this.epubOriginalTheme !== null && !await this.selectEpubOriginal(false)) return;
     this.disableSystemTheme();
     this.themeId = TextReadingSettings.normalizeThemeId(themeId);
     this.backgroundPattern = this.themeId === ReaderThemeId.Custom && this.bgImagePath.length > 0 ?
@@ -3868,6 +3869,7 @@ export struct ReaderPage {
     Stack() {
     EpubOriginalReader({ request: this.epubOriginalRequest, commands: this.epubOriginalCommands,
       paged: this.pageTurnMode !== PageTurnMode.Vertical,
+      spread: this.useReaderColumns(), forceDark: this.palette.isDark,
       paperColor: this.epubOriginalPaper,
       insetTop: this.readerTopInsetVp() + this.readerHeaderHeight() + 8,
       insetBottom: this.readerTextBottomPaddingVp() + this.readerFooterHeight(),

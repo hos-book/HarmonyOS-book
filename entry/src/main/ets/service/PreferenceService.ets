@@ -1,5 +1,6 @@
 import { ComicReaderAppearance } from '../model/ComicReaderAppearance';
 import { GeneralSettings } from '../model/GeneralSettings';
+import { AudioCacheNetworkPolicy } from './AudioCacheNetworkPolicy';
 import { BookPresentation, BookPresentationEdit } from '../model/BookPresentation';
 import lazy { MembershipService } from './MembershipService';
 import { MembershipState } from '../model/MembershipState';
@@ -200,11 +201,33 @@ export class PreferenceService {
     await PreferenceService.saveBookPresentation(BookPresentation.assignGroup(bookIds, group), names);
   }
 
+  static async setBookHidden(bookIds: string[], hidden: boolean): Promise<void> {
+    await PreferenceService.ensureStore();
+    await PreferenceService.saveBookPresentation(BookPresentation.assignHidden(bookIds, hidden), BookPresentation.groups.slice());
+  }
+
+  static async setAudioCacheWifiOnly(enabled: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const previous = store.getSync('audio_cache_wifi_only', false);
+    try { await store.put('audio_cache_wifi_only', enabled); await store.flush(); }
+    catch (_error) { await store.put('audio_cache_wifi_only', previous); throw new Error('Audio cache policy save failed'); }
+    GeneralSettings.current.audioCacheWifiOnly = enabled;
+    AudioCacheNetworkPolicy.getInstance().refresh();
+  }
+
   static async saveBookPresentation(edits: BookPresentationEdit[], groups: string[]): Promise<void> {
     const store = await PreferenceService.ensureStore();
-    await store.put('book_presentation_v1', JSON.stringify(edits));
-    await store.put('shelf_groups_v1', JSON.stringify(groups));
-    await store.flush();
+    const previousEdits = store.getSync('book_presentation_v1', '[]');
+    const previousGroups = store.getSync('shelf_groups_v1', '[]');
+    try {
+      await store.put('book_presentation_v1', JSON.stringify(edits));
+      await store.put('shelf_groups_v1', JSON.stringify(groups));
+      await store.flush();
+    } catch (_error) {
+      await store.put('book_presentation_v1', previousEdits);
+      await store.put('shelf_groups_v1', previousGroups);
+      throw new Error('Book presentation save failed');
+    }
     BookPresentation.edits = edits;
     BookPresentation.groups = groups;
     emitter.emit(EVT_FAVORITES_CHANGED);
@@ -362,30 +385,12 @@ export class PreferenceService {
     await PreferenceService.saveComicPreference('comic_volume_key_page_turn', enabled, false);
   }
 
-  static async getComicReadingMode(bookId: string = ''): Promise<number> {
+  /** 翻页方式仅按书籍保存；未选择的书始终从滚动开始，不继承旧通用值。 */
+  static async getComicReadingMode(bookId: string): Promise<number> {
+    if (!bookId) return 0;
     const store = await PreferenceService.ensureStore();
-    const fallback = store.getSync('comic_reading_mode', 0);
-    const value = bookId ? store.getSync('comic_reading_mode_book_' + bookId, fallback) : fallback;
+    const value = store.getSync('comic_reading_mode_book_' + bookId, 0);
     return value === 1 || value === 2 || value === 3 ? value : 0;
-  }
-
-  static async hasComicReadingMode(bookId: string): Promise<boolean> {
-    const store = await PreferenceService.ensureStore();
-    return bookId.length > 0 && store.hasSync('comic_reading_mode_book_' + bookId);
-  }
-
-  static async resetComicReadingMode(bookId: string): Promise<void> {
-    if (!bookId) return;
-    const store = await PreferenceService.ensureStore();
-    const key = 'comic_reading_mode_book_' + bookId;
-    const previous = store.getSync(key, -1);
-    try {
-      await store.delete(key);
-      await store.flush();
-    } catch (error) {
-      if (previous !== -1) await store.put(key, previous);
-      throw new Error(error instanceof Error ? error.message : 'Comic reading mode reset failed');
-    }
   }
 
   static async getComicImagePreloadCount(): Promise<number> {
@@ -491,8 +496,9 @@ export class PreferenceService {
     await store.flush();
   }
 
-  static async setComicReadingMode(mode: number, bookId: string = ''): Promise<void> {
-    await PreferenceService.saveComicPreference(bookId ? 'comic_reading_mode_book_' + bookId : 'comic_reading_mode',
+  static async setComicReadingMode(mode: number, bookId: string): Promise<void> {
+    if (!bookId) throw new Error('Comic book id is required');
+    await PreferenceService.saveComicPreference('comic_reading_mode_book_' + bookId,
       mode === 1 || mode === 2 || mode === 3 ? mode : 0, 0);
   }
 
@@ -550,6 +556,25 @@ export class PreferenceService {
     await store.flush();
     GeneralSettings.current.historyEnabled = enabled;
     if (!enabled) { ReadingSessionService.end('reading'); ReadingSessionService.end('audio'); ReadingSessionService.end('tts'); }
+  }
+
+  static async setShelfCollectionOrder(groups: string[]): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const order = JSON.stringify(groups);
+    const previous = store.getSync('shelf_collection_order', '[]');
+    try { await store.put('shelf_collection_order', order); await store.flush(); }
+    catch (_error) { await store.put('shelf_collection_order', previous); throw new Error('Collection order save failed'); }
+    GeneralSettings.current.shelfCollectionOrder = order;
+  }
+
+  static async setDefaultShelfGroupVisible(ungrouped: boolean, visible: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const key = ungrouped ? 'show_ungrouped_shelf_group' : 'show_all_shelf_group';
+    const previous = store.getSync(key, true);
+    try { await store.put(key, visible); await store.flush(); }
+    catch (_error) { await store.put(key, previous); throw new Error('Default group visibility save failed'); }
+    if (ungrouped) GeneralSettings.current.showUngroupedShelfGroup = visible;
+    else GeneralSettings.current.showAllShelfGroup = visible;
   }
 
   static async setShowShelfSource(enabled: boolean): Promise<void> {
@@ -638,7 +663,12 @@ export class PreferenceService {
         } catch (_error) { /* 损坏的展示偏好不影响书籍和目录 */ }
         GeneralSettings.current.searchRecommendations = s.getSync('search_recommendations', true) !== false;
         GeneralSettings.current.historyEnabled = s.getSync('history_enabled', true) !== false;
+        GeneralSettings.current.audioCacheWifiOnly = s.getSync('audio_cache_wifi_only', false) === true;
+        const collectionOrder = s.getSync('shelf_collection_order', '[]');
+        GeneralSettings.current.shelfCollectionOrder = typeof collectionOrder === 'string' ? collectionOrder : '[]';
         GeneralSettings.current.showShelfSource = s.getSync('show_shelf_source', true) !== false;
+        GeneralSettings.current.showAllShelfGroup = s.getSync('show_all_shelf_group', true) !== false;
+        GeneralSettings.current.showUngroupedShelfGroup = s.getSync('show_ungrouped_shelf_group', true) !== false;
         GeneralSettings.current.adaptiveHandedness = s.getSync('adaptive_handedness', true) !== false;
         GeneralSettings.current.swipeSwitchTabs = s.getSync('swipe_switch_tabs', true) !== false;
         const selectionMenu = s.getSync('reader_selection_menu', '');
@@ -1297,7 +1327,7 @@ export class PreferenceService {
   static async getShelfViewMode(): Promise<number> {
     const store = await PreferenceService.ensureStore();
     const value = await store.get('shelf_view_mode', 3);
-    return value === 0 || value === 1 || value === 2 || value === 3 ? value : 3;
+    return value === 0 || value === 1 || value === 3 ? value : 3;
   }
 
   static async getRecordEditLocked(): Promise<boolean> {
@@ -1319,7 +1349,7 @@ export class PreferenceService {
 
   static async setShelfViewMode(mode: number): Promise<void> {
     const store = await PreferenceService.ensureStore();
-    await store.put('shelf_view_mode', mode === 1 || mode === 2 || mode === 3 ? mode : 0);
+    await store.put('shelf_view_mode', mode === 2 ? 3 : (mode === 1 || mode === 3 ? mode : 0));
     await store.flush();
   }
 

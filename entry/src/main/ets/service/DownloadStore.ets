@@ -41,6 +41,8 @@ export interface DownloadBookRecord {
   updatedAt: number;
   chapters: DownloadChapterRecord[];
   variables?: Record<string, string>;
+  /** 网络策略暂停可自动恢复，用户主动暂停仍保持暂停。 */
+  waitingForWifi?: boolean;
 }
 
 interface DownloadStoreRead {

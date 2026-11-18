@@ -16,7 +16,9 @@ const end = pageSource.indexOf('\n    })', start);
 assert.ok(start > 0 && end > start);
 const callback = pageSource.slice(start, end).trim().replace(/^onSave: /, '');
 let fail = false;
-const page = { shelfGroup: 'Old', selectShelfGroup(name) { this.shelfGroup = name; } };
+const page = { shelfGroup: 'Old', shelfGroups: [],
+  shelfDisplaySettings: { showAllShelfGroup: true, showUngroupedShelfGroup: true },
+  selectShelfGroup(name) { this.shelfGroup = name; } };
 const code = ts.transpileModule(`const save = ${callback};`, {
   compilerOptions: { target: ts.ScriptTarget.ES2021 }
 }).outputText;
@@ -30,10 +32,16 @@ const save = vm.runInNewContext(`(function() { ${code}; return save; })`, contex
 const deleteStart = pageSource.indexOf('  private async deleteShelfGroup(');
 const deleteEnd = pageSource.indexOf('\n  @LocalBuilder', deleteStart);
 assert.ok(deleteStart > 0 && deleteEnd > deleteStart);
-const deleteCode = ts.transpileModule(`class GroupPage { ${pageSource.slice(deleteStart, deleteEnd)} }`, {
+const visibleStart = pageSource.indexOf('  private visibleGroupOptions(');
+const visibleEnd = pageSource.indexOf('\n  }', visibleStart) + 4;
+assert.ok(visibleStart > 0 && visibleEnd > visibleStart);
+const deleteCode = ts.transpileModule(`class GroupPage {
+  ${pageSource.slice(deleteStart, deleteEnd)} ${pageSource.slice(visibleStart, visibleEnd)} }`, {
   compilerOptions: { target: ts.ScriptTarget.ES2021 }
 }).outputText;
-const remove = vm.runInNewContext(`${deleteCode}; GroupPage.prototype.deleteShelfGroup`, context).bind(page);
+const groupPagePrototype = vm.runInNewContext(`${deleteCode}; GroupPage.prototype`, context);
+const remove = groupPagePrototype.deleteShelfGroup.bind(page);
+page.visibleGroupOptions = groupPagePrototype.visibleGroupOptions.bind(page);
 const reorderStart = pageSource.indexOf('      onReorder: async (groups: string[])');
 const reorderEnd = pageSource.indexOf('\n      onSave:', reorderStart);
 const reorderCode = ts.transpileModule(`const reorder = ${pageSource.slice(reorderStart, reorderEnd).trim()
@@ -80,8 +88,16 @@ const reorder = vm.runInNewContext(`(function() { ${reorderCode}; return reorder
   assert.equal(model.edits[0].title, 'Custom title');
   assert.equal(model.edits[0].cover, 'local-cover');
   assert.equal(page.shelfGroup, model.UNGROUPED);
+  page.shelfDisplaySettings.showUngroupedShelfGroup = false;
+  page.shelfGroup = 'Empty';
   await remove('Empty');
   assert.equal(model.groups.includes('Empty'), false, 'empty groups can also be deleted');
+  assert.equal(page.shelfGroup, '', 'deleting current group falls back to visible all when ungrouped is hidden');
+  await save('', 'HiddenFallback');
+  page.shelfDisplaySettings.showAllShelfGroup = false;
+  page.shelfGroup = 'HiddenFallback';
+  await remove('HiddenFallback');
+  assert.equal(page.shelfGroup, 'Other', 'both default groups hidden falls back to remaining visible named group');
   await remove(model.UNGROUPED);
   assert.equal(model.edits.length, 1);
   console.log('PASS group creation, rename, deletion, metadata preservation, selection, duplicates and failed save');

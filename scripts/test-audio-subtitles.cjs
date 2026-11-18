@@ -35,6 +35,8 @@ let ready = async () => true;
 let modelDownloads = 0;
 let preloadEnabled = false;
 let cachedDuration = 180;
+let audioCacheNetworkAllowed = true;
+let extraAudioDownloads = 0;
 const membership = { hasAccess: true };
 let revokeMembership;
 let deferWorkerExit = false;
@@ -84,9 +86,14 @@ const { AudioSubtitleService } = load('service/subtitle/AudioSubtitleService.ets
     isPreloadEnabled: () => preloadEnabled, getChapterDuration: () => cachedDuration }) } },
   '../DownloadService': { DownloadService: { getInstance: () => ({ getDownloadedFilePath: () => null }) } },
   '../DownloadPolicy': { DownloadPolicy: { isHls: u => u.includes('.m3u8') } },
+  '../AudioCacheNetworkPolicy': { AudioCacheNetworkPolicy: { WAITING_WIFI: 'audio_cache_waiting_wifi',
+    getInstance: () => ({ canTransfer: () => audioCacheNetworkAllowed }) } },
   './SubtitleFiles': { SubtitleFiles: {
     digest: async p => `fingerprint:${p}`, key: async s => crypto.createHash('sha256').update(s).digest('hex'),
-    remove: p => { try { fs.unlinkSync(p); } catch {} }
+    remove: p => { try { fs.unlinkSync(p); } catch {} },
+    download: async (_url, _headers, _path, _maxBytes, _active, _progress, audioCache) => {
+      assert.equal(audioCache, true); extraAudioDownloads++;
+    }
   } },
   './SubtitleModelService': { SubtitleModelService: {
     preparePunctuation: async () => {}, ready: (...a) => ready(...a), directory: () => dir, ensure: async () => { modelDownloads++; }
@@ -129,6 +136,7 @@ function check(name, fn) { fn(); passed++; console.log(`PASS ${name}`); }
   assert.equal(await SubtitleModelService.valid(modelPath, asset, () => true), false);
   check('changed model is rehashed and corruption is rejected', () => assert.equal(digestCalls, 2));
 
+  audioCacheNetworkAllowed = false;
   service.begin(context, { ...book, id: 'first-preview' }, chapter, 180000, 27000); await service.setup;
   const previewHost = hosts.at(-1);
   const previewRequest = previewHost.requests.at(-1);
@@ -149,6 +157,18 @@ function check(name, fn) { fn(); passed++; console.log(`PASS ${name}`); }
   check('full context replaces provisional text without duplication', () => {
     assert.equal(service.state.cues[0].text, '完整上下文字幕');
     assert.ok(!fs.readFileSync(service.cachePath, 'utf8').includes('先显示的字幕'));
+  });
+  service.release();
+  const onlineChapter = { ...chapter, id: 'network-audio', source: { type: 'url', value: 'https://fixture/audio.mp3' } };
+  service.begin(context, { ...book, id: 'network-waiting' }, onlineChapter, 180000, 0);
+  await new Promise(resolve => setImmediate(resolve));
+  check('subtitle keeps local recognition available while extra online audio waits for WLAN', () => {
+    assert.equal(service.state.phase, 'audio'); assert.equal(extraAudioDownloads, 0);
+  });
+  audioCacheNetworkAllowed = true;
+  await service.setup;
+  check('WLAN recovery automatically continues the waiting subtitle audio preparation', () => {
+    assert.equal(service.state.phase, 'recognizing'); assert.equal(extraAudioDownloads, 1);
   });
   service.release();
   service.begin(context, book, chapter, 180000, 25000); await service.setup;

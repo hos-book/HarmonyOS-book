@@ -65,6 +65,7 @@ class EpubOriginalConfig {
   path: string = '';
   token: number = 0;
   paged: boolean = true;
+  dark: boolean = false;
   spot: EpubOriginalSpot = new EpubOriginalSpot();
   restorePage: number = -1;
   paint: number = 0;
@@ -106,6 +107,8 @@ export struct EpubOriginalReader {
   @Param request: EpubOriginalRequest = new EpubOriginalRequest();
   @Param commands: EpubOriginalController = new EpubOriginalController();
   @Param paged: boolean = true;
+  @Param spread: boolean = false;
+  @Param forceDark: boolean = false;
   @Param insetTop: number = 0;
   @Param insetBottom: number = 0;
   @Param insetLeft: number = 20;
@@ -228,10 +231,10 @@ export struct EpubOriginalReader {
   }
 
   private insetKey(): string {
-    return `${this.insetTop}:${this.insetBottom}:${this.insetLeft}:${this.insetRight}`;
+    return `${this.insetTop}:${this.insetBottom}:${this.insetLeft}:${this.insetRight}:${this.spread}:${this.forceDark}`;
   }
 
-  @Monitor('insetTop', 'insetBottom', 'insetLeft', 'insetRight')
+  @Monitor('insetTop', 'insetBottom', 'insetLeft', 'insetRight', 'spread', 'forceDark')
   private insetsChanged(): void {
     this.scheduleLayout();
   }
@@ -306,12 +309,14 @@ export struct EpubOriginalReader {
     const painted = this.waitForPaint();
     const config = new EpubOriginalConfig();
     config.token = ticket; config.paged = this.paged; config.spot = this.spot(offset, end);
+    config.dark = this.forceDark;
     config.path = '/assets/' + EpubOriginalDocument.assetPath(part.href);
     config.paint = this.paintSerial;
     if (restore !== null) { config.spot = restore; config.restorePage = restorePage ? restore.page : -1; }
     this.layoutInsets = this.insetKey();
     const options = new EpubOriginalLayoutOptions();
     options.paged = this.paged;
+    options.spread = this.spread; options.forceDark = this.forceDark;
     options.margins.top = this.insetTop; options.margins.bottom = this.insetBottom;
     options.margins.left = this.insetLeft; options.margins.right = this.insetRight;
     options.target.kind = end ? 'end' : 'spot';
@@ -338,6 +343,7 @@ export struct EpubOriginalReader {
     const source = await fileIo.readText(`${request.root}/${part.spine}.html`);
     const config = new EpubOriginalConfig();
     config.token = ticket; config.paged = false; config.continuous = true; config.frame = frame.id;
+    config.dark = this.forceDark;
     config.path = '/assets/' + EpubOriginalDocument.assetPath(part.href);
     config.spot = EpubOriginalPosition.spot(request.text.substring(part.offset, part.offset + part.length),
       Math.max(0, offset - part.offset));
@@ -345,6 +351,7 @@ export struct EpubOriginalReader {
     if (restore !== null) config.spot = restore;
     const options = new EpubOriginalLayoutOptions();
     options.paged = false;
+    options.forceDark = this.forceDark;
     options.margins.top = this.insetTop; options.margins.bottom = this.insetBottom;
     options.margins.left = this.insetLeft; options.margins.right = this.insetRight;
     options.target.kind = end ? 'end' : 'spot';

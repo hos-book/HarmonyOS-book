@@ -555,6 +555,15 @@ export struct SettingsPage {
     } finally { this.savingGeneral = false; }
   }
 
+  private async setAudioCacheWifiOnly(enabled: boolean): Promise<void> {
+    if (!this.isLoaded || this.savingGeneral || enabled === this.generalSettings.audioCacheWifiOnly) return;
+    this.savingGeneral = true;
+    try { await PreferenceService.setAudioCacheWifiOnly(enabled); }
+    catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
+    } finally { this.savingGeneral = false; }
+  }
+
   private async setMiniPlayerHideMinutes(index: number): Promise<void> {
     const minutes = MINI_PLAYER_HIDE_MINUTES[index];
     if (!this.isLoaded || this.savingGeneral || minutes === undefined ||
@@ -906,6 +915,18 @@ export struct SettingsPage {
     Column() {
       this.buildGroupTitle($r('app.string.settings_cache_group'))
       Column() {
+        Row({ space: AppSpace.Sm }) {
+          Column({ space: 4 }) {
+            Text($r('app.string.audio_cache_wifi_only')).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary)
+            Text($r('app.string.audio_cache_wifi_only_hint')).fontSize(AppFont.Caption)
+              .fontColor(AppTheme.TextSecondary)
+          }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+          Toggle({ type: ToggleType.Switch, isOn: this.generalSettings.audioCacheWifiOnly })
+            .selectedColor(AppColor.Brand).enabled(this.isLoaded && !this.savingGeneral)
+            .onChange((enabled: boolean): void => { this.setAudioCacheWifiOnly(enabled); })
+            .id('settings-audio-cache-wifi-only')
+        }.width('100%').padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
+        this.buildDivider()
         Column({ space: AppSpace.Xs }) {
           Text($r('app.string.settings_preload_custom')).fontSize(AppFont.BodyL)
             .fontColor(AppTheme.TextPrimary).width('100%')

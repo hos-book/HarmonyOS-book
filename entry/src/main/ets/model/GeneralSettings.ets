@@ -3,8 +3,12 @@
 export class GeneralSettings {
   static readonly current: GeneralSettings = new GeneralSettings();
   @Trace historyEnabled: boolean = true;
+  @Trace audioCacheWifiOnly: boolean = false;
+  @Trace shelfCollectionOrder: string = '[]';
   @Trace searchRecommendations: boolean = true;
   @Trace showShelfSource: boolean = true;
+  @Trace showAllShelfGroup: boolean = true;
+  @Trace showUngroupedShelfGroup: boolean = true;
   @Trace adaptiveHandedness: boolean = true;
   @Trace swipeSwitchTabs: boolean = true;
   /** -1 关闭，0 永久显示，正数为暂停后自动隐藏的分钟数。 */

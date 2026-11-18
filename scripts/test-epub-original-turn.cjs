@@ -150,6 +150,14 @@ async function settled(condition) {
   assert.equal(browser.hsdaEpubConfig.spot.fraction, currentFraction);
   assert.equal(browser.hsdaEpubConfig.restorePage, -1, 'new geometry restores characters, not old page indices');
   assert.equal(browser.hsdaEpub.spot().page, 3, 'inset updates must not jump to the original request offset');
+  reader.spread = true; reader.forceDark = true; reader.insetsChanged();
+  await settled(() => !reader.layoutUpdating && reader.layoutInsets === reader.insetKey());
+  assert.equal(browser.hsdaEpubConfig.dark, true, 'night preference reaches the project host adapter');
+  assert.match(reader.document, /"spreadQuery":"\(min-aspect-ratio:/, 'landscape preference enables upstream spread layout');
+  assert.equal(browser.hsdaEpubConfig.spot.fraction, currentFraction, 'spread/night reflow restores the current character');
+  assert.equal(browser.hsdaEpubConfig.restorePage, -1, 'theme and spread changes never reuse stale page numbers');
+  reader.spread = false; reader.forceDark = false; reader.insetsChanged();
+  await settled(() => !reader.layoutUpdating && reader.layoutInsets === reader.insetKey());
 
   const runJavaScript = reader.controller.runJavaScript.bind(reader.controller);
   const reflowSpot = await runJavaScript('JSON.stringify(window.hsdaEpub.spot())');
@@ -262,5 +270,20 @@ async function settled(condition) {
   assert.equal(commands.length, beforeStale, 'late prefetch cannot append to a new reading session');
   continuous.alive = false;
   reader.alive = false; reader.finishPaint(false);
+  const pageSource = fs.readFileSync(path.join(root, 'entry/src/main/ets/pages/ReaderPage.ets'), 'utf8');
+  const themeMethod = pageSource.match(/  private async handleThemeChange\([^]*?\n  }/)[0];
+  const themeScope = { ReaderThemeId: { Night: 'night', Black: 'black', Custom: 'custom' },
+    ReaderPattern: { Image: 'image', None: 'none' }, TextReadingSettings: { normalizeThemeId: id => id } };
+  vm.runInNewContext(ts.transpileModule(`class ThemePage { ${themeMethod} };globalThis.ThemePage=ThemePage;`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2021 }
+  }).outputText, themeScope);
+  const disabled = [];
+  const themePage = Object.assign(new themeScope.ThemePage(), { epubOriginalEnabled: true, epubOriginalTheme: {},
+    selectEpubOriginal: async enabled => { disabled.push(enabled); return true; },
+    disableSystemTheme() {}, refreshPalette() {}, applyReadingSettings() {}, saveReadingSettings() {}, bgImagePath: '' });
+  await themePage.handleThemeChange('night'); await themePage.handleThemeChange('black');
+  assert.equal(disabled.length, 0, 'night/black controls keep file typesetting active');
+  await themePage.handleThemeChange('parchment');
+  assert.deepEqual(disabled, [false], 'other themes still provide the existing exit to application typesetting');
   console.log('EPUB native swipe, preview/commit, cancellation, inset reflow and continuous prefetch/position/session boundaries passed');
 })().catch(error => { console.error(error); process.exitCode = 1; });

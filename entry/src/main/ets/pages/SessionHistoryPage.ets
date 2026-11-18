@@ -8,6 +8,9 @@ import { AppColor } from '../theme/Theme';
 import { AudioService } from '../service/AudioService';
 import { HdsNavDestination, HdsNavDestinationTitleMode } from '@kit.UIDesignKit';
 import { WindowUtils } from '../utils/WindowUtils';
+import { BookPresentation } from '../model/BookPresentation';
+import { PreferenceService, EVT_FAVORITES_CHANGED } from '../service/PreferenceService';
+import { emitter } from '@kit.BasicServicesKit';
 
 class SessionDataSource implements IDataSource {
   items: ReadingSession[] = [];
@@ -40,8 +43,18 @@ export struct SessionHistoryPage {
   private loaded: boolean = false;
   private loadGeneration: number = 0;
   private entryTimer: number = -1;
+  private allEntries: ReadingSession[] = [];
+  private requestedBookIds: string[] = [];
+  private favoritesHandler: (event: emitter.EventData) => void = (_event: emitter.EventData): void => {
+    this.applySessionVisibility();
+  };
 
-  aboutToDisappear(): void { this.stopLoading(); }
+  aboutToAppear(): void { emitter.on(EVT_FAVORITES_CHANGED, this.favoritesHandler); }
+
+  aboutToDisappear(): void {
+    emitter.off(EVT_FAVORITES_CHANGED, this.favoritesHandler);
+    this.stopLoading();
+  }
 
   private onPageShown(): void {
     this.visible = true;
@@ -84,18 +97,34 @@ export struct SessionHistoryPage {
     this.loading = true;
     this.failed = false;
     try {
+      const context = this.getUIContext().getHostContext();
+      if (!context) throw new Error('Missing context');
+      await PreferenceService.ensureReady(context);
       const ids: string[] = JSON.parse(this.bookIds);
+      this.requestedBookIds = ids;
       const entries = await ReadingSessionService.list(ids,
         (): boolean => this.visible && generation === this.loadGeneration);
       if (!this.visible || generation !== this.loadGeneration) return;
-      this.records.update(entries);
-      this.count = entries.length;
+      this.allEntries = entries;
+      this.applySessionVisibility();
       this.loaded = true;
     } catch (_error) {
       if (this.visible && generation === this.loadGeneration) this.failed = true;
     } finally {
       if (this.visible && generation === this.loadGeneration) this.loading = false;
     }
+  }
+
+  private isSessionHidden(entry: ReadingSession): boolean {
+    // 此路由的多个 ID 属于同一本书的 canonical/alias；任一隐藏即隐藏整组会话。
+    return this.requestedBookIds.some((id: string): boolean => BookPresentation.isHidden(id)) ||
+      BookPresentation.isHidden(entry.start.bookId) || BookPresentation.isHidden(entry.end.bookId);
+  }
+
+  private applySessionVisibility(): void {
+    const entries = this.allEntries.filter((entry: ReadingSession): boolean => !this.isSessionHidden(entry));
+    this.records.update(entries);
+    this.count = entries.length;
   }
 
   private time(ms: number): string {
@@ -114,12 +143,13 @@ export struct SessionHistoryPage {
   }
 
   private async jump(entry: ReadingSession, location: SessionLocation): Promise<void> {
-    if (this.jumping) return;
+    if (this.jumping || this.isSessionHidden(entry) || BookPresentation.isHidden(location.bookId)) return;
     this.jumping = true;
     try {
       const context = this.getUIContext().getHostContext();
       if (!context) throw new Error('Missing context');
       const book = await DataService.getBookById(context, location.bookId);
+      if (this.isSessionHidden(entry) || BookPresentation.isHidden(location.bookId)) return;
       if (!book) throw new Error('Book unavailable');
       const index = book.chapters.findIndex((chapter: Chapter): boolean =>
         chapter.id === location.chapterId || (!!location.chapterUrl &&

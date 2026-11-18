@@ -69,6 +69,48 @@ function method(text, name) {
 const compile = code => ts.transpileModule(code, { compilerOptions: {
   module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2021
 } }).outputText;
+// Run the real component's hold lifecycle, including native touch cancellation and pinch takeover.
+const holdScope = { ComicZoomTransform: Transform, TouchType: { Down: 0, Up: 1, Move: 2, Cancel: 3 } };
+vm.runInNewContext(compile(`class HoldImage {
+  ${['currentZoomGeometry', 'beginHoldZoom', 'finishHoldZoom', 'zoomTouch', 'resetZoom', 'reportZoom']
+    .map(name => method(imageSource, name)).join('\n')}
+} globalThis.HoldImage = HoldImage;`), holdScope);
+const hold = new holdScope.HoldImage();
+const zoomChanges = [];
+Object.assign(hold, { loaded: true, failed: false, holdZoomActive: false, pinchSequence: false,
+  zoomState: new Transform(), decodeScale: 1, zoomLocked: false, cacheOwner: 'page-a',
+  paged: false, viewportTop: 0, imageWindowY: -400, pageHeight: 720, pageWidth: 360,
+  imageWidth: () => 360, imageHeight: () => 1440, fitsViewport: () => false,
+  onZoomChange: (owner, active) => zoomChanges.push([owner, active]) });
+const original = hold.zoomState;
+hold.beginHoldZoom({ fingerList: [{ localX: 150, localY: 700 }] });
+assert.equal(hold.zoomState.scale, 2.5);
+close((150 - hold.zoomState.x) / hold.zoomState.width(), 150 / 360);
+close((700 - hold.zoomState.y) / hold.zoomState.height(), 700 / 1440);
+assert.equal(hold.decodeScale, 2.5, 'hold requests the bounded enlarged decode once');
+assert.equal(hold.zoomLocked, true, 'hold blocks reader taps, swipes and scrolling');
+hold.zoomTouch({ type: 1, touches: [{ id: 1 }], changedTouches: [{ id: 1 }] });
+assert.equal(hold.zoomState, original, 'last touch release restores the exact original placement');
+assert.equal(hold.decodeScale, 1);
+assert.equal(hold.zoomLocked, false);
+hold.zoomState = Transform.fit(360, 1440, 400, 1120).zoom(2, 180, 700);
+hold.decodeScale = 2;
+const pinched = hold.zoomState;
+hold.beginHoldZoom({ fingerList: [{ localX: 150, localY: 700 }] });
+assert.equal(hold.zoomState.scale, 4);
+hold.zoomTouch({ type: 3, touches: [], changedTouches: [] });
+assert.equal(hold.zoomState, pinched, 'cancel restores a pre-existing pinch without discarding it');
+assert.equal(hold.decodeScale, 2);
+hold.beginHoldZoom({ fingerList: [{ localX: 150, localY: 700 }] });
+hold.zoomTouch({ type: 0, touches: [{ id: 1 }, { id: 2 }], changedTouches: [{ id: 2 }] });
+assert.equal(hold.holdZoomActive, false, 'second finger ends temporary magnification before pinch');
+assert.equal(hold.zoomState, pinched);
+assert.equal(hold.pinchSequence, true);
+hold.resetZoom();
+assert.equal(hold.holdZoomActive, false);
+assert.equal(hold.zoomLocked, false, 'page/layout changes release every zoom lock');
+assert.deepEqual(zoomChanges[0], ['page-a', true]);
+console.log('PASS comic hold zoom: focal point, release/cancel restoration, bounded decode, pinch takeover and page reset');
 const layoutScope = { exports: {}, ComicZoomTransform: Transform };
 vm.runInNewContext(compile(fs.readFileSync(path.join(root, 'utils/AdaptiveLayout.ets'), 'utf8')), layoutScope);
 layoutScope.AdaptiveLayout = layoutScope.exports.AdaptiveLayout;

@@ -5,6 +5,7 @@ export class BookPresentationEdit {
   title: string = '';
   cover: string = '';
   group: string = '';
+  hidden: boolean = false;
 }
 
 /** 用户展示信息独立于书源元数据，刷新详情和搜索不能覆盖。 */
@@ -29,6 +30,27 @@ export class BookPresentation {
       edit.title = previous?.title ?? '';
       edit.cover = previous?.cover ?? '';
       edit.group = group;
+      edit.hidden = previous?.hidden === true;
+      edits.push(edit);
+    });
+    return edits;
+  }
+
+  static isHidden(bookId: string): boolean {
+    return BookPresentation.get(bookId)?.hidden === true;
+  }
+
+  static assignHidden(bookIds: string[], hidden: boolean): BookPresentationEdit[] {
+    const ids = new Set<string>(bookIds);
+    const edits = BookPresentation.edits.filter((item: BookPresentationEdit): boolean => !ids.has(item.bookId));
+    ids.forEach((id: string): void => {
+      const previous = BookPresentation.get(id);
+      const edit = new BookPresentationEdit();
+      edit.bookId = id;
+      edit.title = previous?.title ?? '';
+      edit.cover = previous?.cover ?? '';
+      edit.group = previous?.group ?? '';
+      edit.hidden = hidden;
       edits.push(edit);
     });
     return edits;

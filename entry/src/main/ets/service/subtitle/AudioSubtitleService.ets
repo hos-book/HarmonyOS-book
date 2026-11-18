@@ -20,6 +20,7 @@ import lazy { MembershipService } from '../MembershipService';
 import { MembershipState } from '../../model/MembershipState';
 import { MembershipFeatureLease } from '../membership/MembershipFeatureLease';
 import { AiModelPackService } from '../AiModelPackService';
+import { AudioCacheNetworkPolicy } from '../AudioCacheNetworkPolicy';
 
 class SubtitleCache {
   version: string = SUBTITLE_MODEL_VERSION;
@@ -230,8 +231,21 @@ export class AudioSubtitleService {
           this.state.phase = 'audio'; this.state.percent = 0;
           temporary = `${context.cacheDir}/subtitle_audio_${generation}.tmp`;
           const headers = AudioService.getInstance().subtitleHeaders(book.id, chapter.id);
-          await SubtitleFiles.download(url, headers, temporary, 256 * 1024 * 1024, active,
-            (_bytes: number): void => {});
+          // 字幕的额外整章音频也遵守缓存网络设置，等待期间正常播放继续。
+          while (active()) {
+            while (active() && !AudioCacheNetworkPolicy.getInstance().canTransfer()) {
+              await new Promise<void>((resolve): void => { setTimeout(resolve, 250); });
+            }
+            if (!active()) return;
+            try {
+              await SubtitleFiles.download(url, headers, temporary, 256 * 1024 * 1024, active,
+                (_bytes: number): void => {}, true);
+              break;
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              if (message !== AudioCacheNetworkPolicy.WAITING_WIFI) throw new Error(message);
+            }
+          }
           path = temporary;
         }
         if (!active()) return;

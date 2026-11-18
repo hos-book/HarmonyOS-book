@@ -26,7 +26,7 @@ function snapshot() {
   };
 }
 
-function harness() {
+function harness(dependencies = new Map()) {
   const base = fs.mkdtempSync(path.join(os.tmpdir(), 'listenbook-cloud-'));
   fixtures.push(base);
   const context = { filesDir: path.join(base, 'files'), cacheDir: path.join(base, 'cache'), cloudFileDir: path.join(base, 'cloud') };
@@ -203,6 +203,7 @@ function harness() {
       setInterval: cb => { const id = ++timerId; intervals.set(id, cb); return id; },
       clearInterval: id => intervals.delete(id),
       require: name => {
+        if (dependencies.has(name)) return dependencies.get(name);
         if (name === './MembershipService') return { MembershipService: { instance: {
           hasCurrentEntitlement: async () => control.member
         } } };

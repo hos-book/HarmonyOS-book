@@ -115,8 +115,10 @@ export class LightSourceBridge {
     const result: BookInfo = JSON.parse(await LightSourceCore.detail(LightSourceBridge.prepare(source), url, JSON.stringify(variables), request));
     return result;
   }
-  static async toc(source: LocalRuleSource, url: string, variables: Record<string, string>): Promise<TocItem[]> {
-    const results: TocItem[] = JSON.parse(await LightSourceCore.toc(LightSourceBridge.prepare(source), url, JSON.stringify(variables)));
+  static async toc(source: LocalRuleSource, url: string, variables: Record<string, string>,
+    request?: LightSourceRequest): Promise<TocItem[]> {
+    if (request?.isCancelled()) return [];
+    const results: TocItem[] = JSON.parse(await LightSourceCore.toc(LightSourceBridge.prepare(source), url, JSON.stringify(variables), request));
     return results;
   }
   static async content(source: LocalRuleSource, url: string, variables: Record<string, string>,

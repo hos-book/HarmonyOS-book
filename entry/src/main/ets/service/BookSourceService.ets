@@ -71,23 +71,29 @@ export class BookSourceService {
   }
 
   /** Reimported rules must use fresh chapter requests while retaining saved chapter identities. */
-  static async prepareAudioChapter(source: BookSource, book: Book, chapter: Chapter): Promise<void> {
+  static async prepareAudioChapter(source: BookSource, book: Book, chapter: Chapter,
+    request?: LightSourceRequest): Promise<void> {
+    if (request?.isCancelled()) throw new Error('缓存任务已取消');
     if (!book.bookUrl) return;
     const localSource = await BookSourceService.resolveLocalSource(source);
+    if (request?.isCancelled()) throw new Error('缓存任务已取消');
     if (localSource === undefined) return;
     const definition = BookSourceService.audioTocDefinition(localSource);
     const revision = BookSourceService.audioTocRevision.get(book.sourceUrl) ?? 0;
     if (book.variables?.['__audioTocDefinition'] === definition &&
       chapter.variables?.['__genericTocFallback'] !== 'true') return;
     const key = `${book.id}:${revision}:${definition}`;
-    let pending = BookSourceService.audioTocRefreshes.get(key);
+    // 后台缓存独立持有可取消请求，不把前台目录任务随网络策略一起取消。
+    let pending = request === undefined ? BookSourceService.audioTocRefreshes.get(key) : undefined;
     if (pending === undefined) {
-      pending = BookSourceService.fetchCurrentAudioToc(localSource, book).finally((): void => {
-        BookSourceService.audioTocRefreshes.delete(key);
-      });
-      BookSourceService.audioTocRefreshes.set(key, pending);
+      pending = BookSourceService.fetchCurrentAudioToc(localSource, book, request);
+      if (request === undefined) {
+        pending = pending.finally((): void => { BookSourceService.audioTocRefreshes.delete(key); });
+        BookSourceService.audioTocRefreshes.set(key, pending);
+      }
     }
     const items = await pending;
+    if (request?.isCancelled()) throw new Error('缓存任务已取消');
     if (revision !== (BookSourceService.audioTocRevision.get(book.sourceUrl) ?? 0)) {
       throw new Error('书源已更新，请重试');
     }
@@ -137,15 +143,17 @@ export class BookSourceService {
     console.info(`[BookSourceService] refreshed chapter requests ${localSource.bookSourceName}: ${items.length}`);
   }
 
-  private static async fetchCurrentAudioToc(source: LocalRuleSource, book: Book): Promise<TocItem[]> {
+  private static async fetchCurrentAudioToc(source: LocalRuleSource, book: Book,
+    request?: LightSourceRequest): Promise<TocItem[]> {
     const variables = BookSourceService.copyVariables(book.variables);
     variables['__audioTocDefinition'] = '';
-    const info = await BookSourceService.getBookInfo(source, book.bookUrl, variables);
+    const info = await BookSourceService.getBookInfo(source, book.bookUrl, variables, request);
+    if (request?.isCancelled()) throw new Error('缓存任务已取消');
     if (info === null) throw new Error('无法刷新当前书源的书籍信息');
     const scoped = BookSourceService.mergeVariables(variables, info.variables);
     // A batch callback makes incomplete or failed catalogs propagate their error.
     return BookSourceService.getBookToc(source, info.tocUrl || book.bookUrl, scoped, book.title,
-      (_items: TocItem[]): void => {});
+      (_items: TocItem[]): void => {}, request);
   }
 
   static pendingAudioBook(bookId: string): Promise<Book> | undefined {
@@ -537,7 +545,8 @@ export class BookSourceService {
 
   static async getBookToc(source: BookSource, tocUrl: string,
     _variables?: Record<string, string>, bookName?: string,
-    onBatch?: (items: TocItem[]) => void): Promise<TocItem[]> {
+    onBatch?: (items: TocItem[]) => void, request?: LightSourceRequest): Promise<TocItem[]> {
+    if (request?.isCancelled()) return [];
     const seen = new Set<string>();
     const unique: TocItem[] = [];
     const append = (batch: TocItem[]): void => {
@@ -552,8 +561,9 @@ export class BookSourceService {
       if (added.length > 0 && onBatch !== undefined) onBatch(added);
     };
     const localSource = await BookSourceService.resolveLocalSource(source);
+    if (request?.isCancelled()) return [];
     const items: TocItem[] = localSource === undefined ? [] : await LocalRuleDispatcher.getBookToc(
-      localSource, tocUrl, BookSourceService.copyVariables(_variables), onBatch === undefined ? undefined : append);
+      localSource, tocUrl, BookSourceService.copyVariables(_variables), onBatch === undefined ? undefined : append, request);
     append(items);
     return unique;
   }
