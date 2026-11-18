@@ -1,16 +1,31 @@
 import { ReaderParagraphComment, ReaderCommentChapter } from '../../model/ReaderComment';
 import { ReaderTextDocument } from '../../model/ReaderTools';
 import { ReaderActionMarker } from '../rulesource/light/upstream/core/book/ReaderActionMarker';
+import { ReaderImageMarker } from '../rulesource/light/upstream/core/book/ReaderImageMarker';
+import { LocalTextImage } from './LocalTextImage';
 import { OnlineTextPaginator } from './OnlineTextPaginator';
 
-/** 沿用轻页标记契约，只提取段评；规范化和替换后仍保持原文坐标。 */
+/** 将轻页插图和段评接入正文；规范化和替换后仍保持原文坐标。 */
 export class ReaderCommentContent {
   static parse(content: string, richContent: string): ReaderCommentChapter {
     const result = new ReaderCommentChapter();
     result.content = OnlineTextPaginator.normalizeContent(content);
     result.commentsLoaded = true;
+    const limited = ReaderActionMarker.limit(richContent);
+    const imagePattern = /\[\[LEGADO_EPUB_IMAGE:[\s\S]*?\]\]/g;
+    const plain = OnlineTextPaginator.normalizeContent(ReaderActionMarker.strip(limited.replace(imagePattern, '')));
+    // 只恢复与当前纯正文一致的富文本，防止旧章节的图片和段评串入新正文。
+    const rich = limited.replace(imagePattern, (marker: string): string => {
+      const info = ReaderImageMarker.parse(marker);
+      if (!LocalTextImage.resolve(info.source)) return '';
+      if (info.width > 0 && info.height > 0) LocalTextImage.rememberSize(info.source, info.width, info.height);
+      return LocalTextImage.token(info.source);
+    });
+    if (limited.includes(ReaderImageMarker.PREFIX) &&
+      plain.replace(/\s/g, '') === result.content.replace(/\s/g, '')) {
+      result.content = OnlineTextPaginator.normalizeContent(ReaderActionMarker.strip(rich));
+    }
     if (!ReaderActionMarker.has(richContent)) return result;
-    const rich = ReaderActionMarker.limit(richContent).replace(/\[\[LEGADO_EPUB_IMAGE:[\s\S]*?\]\]/g, '');
     let token = '\uE100JT_COMMENT';
     while (rich.includes(token)) token += '_';
     const comments: ReaderParagraphComment[] = [];

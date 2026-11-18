@@ -5,20 +5,24 @@ import { AppFont } from '../theme/Theme';
 @ComponentV2
 export struct ReaderStatusIndicator {
   @Param color: ResourceColor = '#6F675E';
+  @Event onVisualChange: () => void = (): void => {};
   @Local batteryLevel: number = -1;
   private batteryTimer: number = -1;
+  private clockMinute: number = -1;
 
   aboutToDisappear(): void {
     this.stopBatteryUpdates();
   }
 
   private refreshBattery(): void {
+    const previous = this.batteryLevel;
     try {
       const level = batteryInfo.batterySOC;
       this.batteryLevel = Number.isFinite(level) && level >= 0 && level <= 100 ? Math.round(level) : -1;
     } catch (_e) {
       this.batteryLevel = -1;
     }
+    if (previous !== this.batteryLevel) this.onVisualChange();
   }
 
   private startBatteryUpdates(): void {
@@ -51,6 +55,13 @@ export struct ReaderStatusIndicator {
       .id('reader-status-battery')
       TextClock()
         .format('HH:mm')
+        .onDateChange((value: number): void => {
+          const minute = Math.floor(value / 60000);
+          if (minute !== this.clockMinute) {
+            this.clockMinute = minute;
+            this.onVisualChange();
+          }
+        })
         .fontSize(AppFont.Caption)
         .fontColor(this.color)
     }

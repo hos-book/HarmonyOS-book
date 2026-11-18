@@ -715,10 +715,10 @@ export class BookSourceService {
       BookSourceService.copyVariables(book.variables), chapterVariables);
     scopedVariables['__bookContentType'] = 'text';
     const result = await LocalRuleDispatcher.resolveContent(localSource, chapterUrl, scopedVariables);
-    if (result.content.trim().length === 0) {
+    const comments = ReaderCommentContent.parse(result.content, result.richContent);
+    if (comments.content.trim().length === 0) {
       throw new TextSourceError('EMPTY_CONTENT', '章节正文为空');
     }
-    const comments = ReaderCommentContent.parse(result.content, result.richContent);
     const value = TextChapterContent.of(result.title || title, comments.content, chapterUrl);
     value.comments = comments.comments;
     value.commentsLoaded = true;

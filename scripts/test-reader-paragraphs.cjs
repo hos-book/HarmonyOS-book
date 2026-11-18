@@ -186,6 +186,22 @@ assert.equal(scrollImage.layoutHeight, 1000, 'continuous mode does not impose a 
 const pair = native.OnlineTextPage.spreads(mixedBody, splitMixed);
 assert.equal(pair[0].columns[1], splitMixed[1]);
 console.log('PASS EPUB mixed text/images, intrinsic size, aspect ratio, overflow, scrolling, columns and stable source offsets');
+localImages.LocalTextImage.setRoot('/files', '/cache');
+const onlineImagePath = '/cache/comic_images/' + 'b'.repeat(64) + '.png';
+localImages.LocalTextImage.rememberSize(onlineImagePath, 640, 360);
+const onlineImageToken = localImages.LocalTextImage.token(onlineImagePath);
+const newsBody = '新闻标题\n\n' + onlineImageToken + '\n\n新闻正文';
+const newsPages = native.OnlineTextPaginator.paginate(newsBody, 300, 200, 18, 1.9);
+const newsImage = newsPages.flatMap(page => page.parts).find(part => part.imageUrl);
+assert.equal(newsImage.imageUrl, 'file://' + onlineImagePath);
+assert.equal(newsImage.imageWidth, 300);
+assert.equal(newsImage.layoutHeight, 168.75);
+assert.equal(newsImage.startOffset, newsBody.indexOf(onlineImageToken));
+const resizedNews = native.OnlineTextPaginator.paginate(newsBody, 600, 400, 22, 1.9);
+assert.equal(resizedNews.flatMap(page => page.parts).find(part => part.imageUrl).imageWidth, 600);
+assert.ok(resizedNews.some(page => page.startOffset <= newsImage.startOffset && page.endOffset > newsImage.startOffset));
+assert.equal(localImages.LocalTextImage.speechContent(newsBody).length, newsBody.length);
+console.log('PASS online news image pagination, aspect ratio, resize and character restoration');
 // Headings are measured separately, consume first-page height and never shift body offsets.
 const headingBody = '“甲乙丙丁戊己庚辛壬癸”';
 for (const [style, align, weight] of [['plain', 0, 3], ['bold', 0, 6], ['center', 2, 6]]) {
@@ -433,6 +449,32 @@ assert.ok(paintedDialogue.includes('甲') && paintedDialogue.includes('乙'),
   'both paragraphs keep dialogue highlighting after pagination');
 assert.ok(!paintedDialogue.includes('叙述'), 'pagination does not extend dialogue color beyond the closing quote');
 console.log('PASS custom speech mark colors, repaint and independent highlight mode');
+// 多行高亮：范围已按行拆分，不应为每个框重复绘制整页。
+const markedPage = new native.OnlineTextPage();
+Object.assign(markedPage, {
+  text: '甲乙丙丁戊己', firstLine: 4, layoutTop: 100, layoutWidth: 100, layoutHeight: 80,
+  lineShifts: [0, 10, 20],
+  lineMetrics: [110, 130, 150].map(baseline => ({ baseline, ascent: 10, descent: 5 }))
+});
+const markedPaints = [];
+markedPage.paragraph = {
+  updateColor() {},
+  getTextLines: () => Array.from({ length: 8 }, (_, index) => ({
+    paint: (_canvas, x, y) => markedPaints.push({ index, x, y })
+  })),
+  getRectsForRange: () => [120, 140].map(top => ({
+    rect: { left: 10, right: 90, top, bottom: top + 15 }, direction: graphicsText.TextDirection.LTR
+  }))
+};
+const markedController = new nodeModule.ReaderParagraphNodeController();
+markedController.update(markedPage, nativeRange, palette, 'color');
+const markedNode = markedController.makeNode({});
+markedNode.onDraw({ canvas: { save() {}, restore() {}, clipRect() {} } });
+assert.deepEqual(markedPaints.map(p => p.index), [4, 5, 6, 5, 6],
+  'three base lines plus the two intersected lines, without repainting unrelated lines');
+assert.deepEqual(markedPaints.slice(3).map(p => p.y), [-90, -80],
+  'range redraw preserves page offset and per-line paragraph spacing');
+console.log('PASS multi-line marks redraw only intersected lines and preserve shifted coordinates');
 controller.update(page, nativeRange, changedPalette, 'color', false, '', '');
 paints.length = 0;
 node.onDraw({ canvas: { save() {}, restore() {}, clipRect() {} } });

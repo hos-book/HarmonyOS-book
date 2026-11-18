@@ -596,6 +596,30 @@ export class PreferenceService {
     GeneralSettings.current.shelfCollectionOrder = order;
   }
 
+  private static collectionSizeSave: Promise<void> = Promise.resolve();
+  private static collectionSizeRevision: number = 0;
+
+  static setShelfCollectionExpanded(expanded: boolean): Promise<void> {
+    const revision = ++PreferenceService.collectionSizeRevision;
+    GeneralSettings.current.shelfCollectionExpanded = expanded;
+    const task = PreferenceService.collectionSizeSave.then(async (): Promise<void> => {
+      const store = await PreferenceService.ensureStore();
+      const previous = store.getSync('shelf_collection_expanded', true) !== false;
+      try {
+        await store.put('shelf_collection_expanded', expanded);
+        await store.flush();
+      } catch (_error) {
+        await store.put('shelf_collection_expanded', previous);
+        if (revision === PreferenceService.collectionSizeRevision) {
+          GeneralSettings.current.shelfCollectionExpanded = previous;
+        }
+        throw new Error('Collection size save failed');
+      }
+    });
+    PreferenceService.collectionSizeSave = task.catch((): void => {});
+    return task;
+  }
+
   static async setDefaultShelfGroupVisible(ungrouped: boolean, visible: boolean): Promise<void> {
     await PreferenceService.setShelfGroupVisible(ungrouped ? BookPresentation.UNGROUPED : '', visible);
   }
@@ -713,6 +737,7 @@ export class PreferenceService {
         GeneralSettings.current.audioCacheWifiOnly = s.getSync('audio_cache_wifi_only', false) === true;
         const collectionOrder = s.getSync('shelf_collection_order', '[]');
         GeneralSettings.current.shelfCollectionOrder = typeof collectionOrder === 'string' ? collectionOrder : '[]';
+        GeneralSettings.current.shelfCollectionExpanded = s.getSync('shelf_collection_expanded', true) !== false;
         GeneralSettings.current.showShelfSource = s.getSync('show_shelf_source', true) !== false;
         GeneralSettings.current.showAllShelfGroup = s.getSync('show_all_shelf_group', true) !== false;
         GeneralSettings.current.showUngroupedShelfGroup = s.getSync('show_ungrouped_shelf_group', true) !== false;

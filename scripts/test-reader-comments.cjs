@@ -18,7 +18,6 @@ function load(relative) {
   vm.runInNewContext(code, { module, exports: module.exports, require(name) {
     if (name === '@kit.ArkGraphics2D') return { text: { RectWidthStyle: { TIGHT: 0 }, RectHeightStyle: { TIGHT: 0 } } };
     if (name.endsWith('/PlatformCompat')) return { PlatformCompat: { supports: () => false } };
-    if (name.endsWith('/LocalTextImage')) return {};
     const file = path.resolve(path.dirname(filename), name);
     return load(fs.existsSync(file + '.ets') ? file + '.ets' : file + '.ts');
   } }, { filename });
@@ -26,6 +25,9 @@ function load(relative) {
   return module.exports;
 }
 const { ReaderActionMarker: markers } = load('service/rulesource/light/upstream/core/book/ReaderActionMarker.ts');
+const { ReaderImageMarker: imageMarkers } = load('service/rulesource/light/upstream/core/book/ReaderImageMarker.ts');
+const { LocalTextImage: images } = load('service/text/LocalTextImage.ets');
+images.setRoot('/files', '/cache');
 const { ReaderCommentContent: content } = load('service/text/ReaderCommentContent.ets');
 const { ReaderTextDocument, ReaderTextStage, ReaderTextEdit } = load('model/ReaderTools.ets');
 const { ReaderCommentLayout: layout } = load('service/text/ReaderCommentLayout.ets');
@@ -49,6 +51,25 @@ assert.equal(content.parse('其他正文', rich).comments.length, 0, 'mismatched
 const malformed = '保留正文' + markers.PREFIX + 'broken\n后续段落';
 assert.equal(content.parse(markers.strip(malformed), malformed).comments.length, 0);
 assert.equal(content.parse('没有评论', '没有评论').commentsLoaded, true);
+const imagePath = '/cache/comic_images/' + 'a'.repeat(64) + '.jpg';
+const imageToken = images.token(imagePath);
+const illustrated = '图前正文\n\n' + imageMarkers.create(imagePath, 640, 360) + '\n\n图后正文' + first;
+const imageResult = content.parse('图前正文\n\n\n\n图后正文', illustrated);
+assert.equal(imageResult.content, '图前正文\n\n' + imageToken + '\n\n图后正文');
+assert.equal(imageResult.comments[0].offset, imageResult.content.length, 'comments retain positions after inserted images');
+assert.equal(images.resolve(imagePath), 'file://' + imagePath);
+assert.equal(images.size(imagePath).width, 640);
+assert.equal(images.speechContent(imageResult.content).length, imageResult.content.length, 'speech preserves image coordinates');
+assert.equal(content.parse('', imageMarkers.create(imagePath)).content, imageToken, 'image-only chapters remain readable');
+assert.equal(content.parse('新闻正文', '新闻正文\n' + imageMarkers.create(imagePath)).content, '新闻正文\n' + imageToken,
+  'illustrated chapters without comments retain images');
+assert.equal(content.parse('其他正文', illustrated).content, '其他正文', 'mismatched rich text cannot insert images');
+for (const invalid of ['/files/secret', '/cache/comic_images/../secret.jpg', '/cache/comic_images/a.jpg',
+  '/other/comic_images/' + 'a'.repeat(64) + '.jpg', 'https://example/image.jpg', 'data:image/png;base64,AAAA']) {
+  assert.equal(images.resolve(invalid), '', 'only bounded downloaded images are admitted');
+  assert.equal(content.parse('正文', '正文' + imageMarkers.create(invalid)).content, '正文');
+}
+console.log('PASS online inline images, image-only chapters, safe cache paths and comment/speech coordinates');
 for (const label of ['段评', '段评0', '段评（0）', '段评 0 条']) {
   assert.equal(content.parse('正文', '正文' + markers.create(label, 'https://comments.example/empty', '段评')).comments.length, 0);
 }

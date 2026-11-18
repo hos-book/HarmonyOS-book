@@ -7,6 +7,9 @@ import { WindowUtils } from '../utils/WindowUtils';
 @ComponentV2
 export struct ShelfGroupManager {
   @Param groups: string[] = [];
+  @Param initialAssignment: string | undefined = undefined;
+  @Event onAssign: (group: string) => Promise<void> = async (): Promise<void> => {};
+  @Local assignment: string | undefined = undefined;
   @Param visibleGroups: string[] = [];
   @Param changingVisibility: boolean = false;
   @Event onVisibility: (group: string, visible: boolean) => Promise<void> = async (): Promise<void> => {};
@@ -26,7 +29,7 @@ export struct ShelfGroupManager {
   private readonly moveHandler: (from: number, to: number) => void =
     (from: number, to: number): void => { this.reorder(from, to); };
 
-  aboutToAppear(): void { this.alive = true; this.refreshGroups(); }
+  aboutToAppear(): void { this.alive = true; this.assignment = this.initialAssignment; this.refreshGroups(); }
   aboutToDisappear(): void { this.alive = false; }
 
   @Monitor('groups')
@@ -89,7 +92,7 @@ export struct ShelfGroupManager {
 
   private canSave(): boolean {
     if (this.saving) return false;
-    if (this.editingGroup === undefined) return true;
+    if (this.editingGroup === undefined) return !this.changingVisibility;
     const name = this.draftName.trim();
     return !this.changingVisibility && name.length > 0 && name !== BookPresentation.UNGROUPED &&
       name !== this.editingGroup && !this.duplicateName();
@@ -98,7 +101,7 @@ export struct ShelfGroupManager {
   private async save(): Promise<void> {
     if (!this.canSave()) return;
     const previous = this.editingGroup;
-    if (previous === undefined) {
+    if (previous === undefined && this.assignment === undefined) {
       this.onClose();
       return;
     }
@@ -106,7 +109,14 @@ export struct ShelfGroupManager {
     this.failed = false;
     this.onBusy(true);
     try {
-      await this.onSave(previous, this.draftName.trim());
+      if (previous === undefined) {
+        if (this.assignment !== undefined) await this.onAssign(this.assignment);
+        this.onClose();
+        return;
+      }
+      const name = this.draftName.trim();
+      await this.onSave(previous, name);
+      if (this.assignment !== undefined && (previous === '' || this.assignment === previous)) this.assignment = name;
       this.editingGroup = undefined;
       this.draftName = '';
       if (previous === '') this.refreshGroups();
@@ -156,6 +166,7 @@ export struct ShelfGroupManager {
       });
       if (result.index !== 1 || !this.alive) return;
       await this.onDelete(group);
+      if (this.assignment === group) this.assignment = BookPresentation.UNGROUPED;
     } catch (_error) {
       if (this.alive) this.failed = true;
     } finally {
@@ -182,7 +193,19 @@ export struct ShelfGroupManager {
         SymbolGlyph($r('sys.symbol.line_3_horizontal')).fontSize(20)
           .fontColor([$r('sys.color.font_tertiary')]).accessibilityText($r('app.string.shelf_group_drag_hint'))
       }
-      Text(this.groupLabel(group)).layoutWeight(1).maxLines(2).fontColor($r('sys.color.font_primary'))
+      if (this.assignment !== undefined && group !== '') {
+        Row({ space: 6 }) {
+          Radio({ value: group, group: 'shelf-book-assignment' }).checked(this.assignment === group)
+            .radioStyle({ checkedBackgroundColor: AppColor.Brand })
+            .onChange((checked: boolean): void => { if (checked) this.assignment = group; })
+          Text(this.groupLabel(group)).layoutWeight(1).maxLines(2).fontColor($r('sys.color.font_primary'))
+        }.layoutWeight(1).constraintSize({ minHeight: 44 })
+          .enabled(!this.saving && this.editingGroup === undefined)
+          .accessibilityText(this.groupLabel(group)).accessibilitySelected(this.assignment === group)
+          .onClick((): void => { this.assignment = group; })
+      } else {
+        Text(this.groupLabel(group)).layoutWeight(1).maxLines(2).fontColor($r('sys.color.font_primary'))
+      }
       if (group !== '' && group !== BookPresentation.UNGROUPED) {
         this.groupAction($r('sys.symbol.square_and_pencil'), $r('app.string.common_edit'), AppColor.Brand,
           false, (): void => this.editGroup(group))
@@ -223,7 +246,7 @@ export struct ShelfGroupManager {
   build() {
     Column({ space: 16 }) {
       Row({ space: 12 }) {
-        Text($r('app.string.shelf_group_manage')).fontSize(22).fontWeight(FontWeight.Bold)
+        Text(this.assignment === undefined ? $r('app.string.shelf_group_manage') : $r('app.string.shelf_group_settings')).fontSize(22).fontWeight(FontWeight.Bold)
           .layoutWeight(1).fontColor($r('sys.color.font_primary'))
         Row({ space: 12 }) {
           ImmersiveCircleButton({ icon: $r('sys.symbol.plus'), label: $r('app.string.common_add'),

@@ -153,6 +153,56 @@ swipePage.handleTabSwipe({ offsetX: -120, offsetY: 0 });
 assert.equal(switched[0], 2, 'swipes outside recent cards still switch the main tab');
 
 (async () => {
+  const preferenceSource = read('service/PreferenceService.ets');
+  const sizeSettings = { shelfCollectionExpanded: true };
+  const { SizePreferences } = compile(`export class SizePreferences {
+    private static collectionSizeSave: Promise<void> = Promise.resolve();
+    private static collectionSizeRevision: number = 0;
+    ${preferenceSource.slice(preferenceSource.indexOf('  static setShelfCollectionExpanded('),
+      preferenceSource.indexOf('\n  static async setDefaultShelfGroupVisible(')).replaceAll('PreferenceService', 'SizePreferences')}
+  }`, { GeneralSettings: { current: sizeSettings } });
+  const sizeValues = new Map();
+  let failSizeSave = false;
+  SizePreferences.ensureStore = async () => ({
+    getSync: (key, fallback) => sizeValues.has(key) ? sizeValues.get(key) : fallback,
+    put: async (key, value) => { sizeValues.set(key, value); },
+    flush: async () => { if (failSizeSave) throw new Error('disk full'); }
+  });
+  const overlaySource = read('pages/ShelfCollectionPage.ets');
+  const initialExpanded = overlaySource.match(/@Local expanded: boolean = (.+);/)[1];
+  const { SizePage } = compile(`export class SizePage {
+    expanded: boolean = ${initialExpanded};
+    ${method(overlaySource, 'expand')}
+  }`, { GeneralSettings: { current: sizeSettings }, PreferenceService: SizePreferences,
+    Curve: { FastOutSlowIn: 0 }, $r: key => key });
+  const newOverlay = () => Object.assign(new SizePage(), { alive: true, closing: false,
+    getUIContext: () => ({ animateTo: (_options, update) => update(),
+      getPromptAction: () => ({ showToast: () => {} }) }) });
+  const overlay = newOverlay();
+  assert.equal(overlay.expanded, true, 'no saved preference retains the existing default');
+  overlay.expand();
+  assert.equal(newOverlay().expanded, false, 'close and reopen immediately restores compact mode');
+  await SizePreferences.collectionSizeSave;
+  const restoreLine = preferenceSource.split('\n').find(line => line.includes('shelfCollectionExpanded = s.getSync'));
+  assert.ok(restoreLine, 'startup loads the persisted preference');
+  const restoreSize = () => vm.runInNewContext(restoreLine, { GeneralSettings: { current: sizeSettings },
+    s: { getSync: (key, fallback) => sizeValues.has(key) ? sizeValues.get(key) : fallback } });
+  sizeSettings.shelfCollectionExpanded = true;
+  restoreSize();
+  assert.equal(newOverlay().expanded, false, 'restart restores the compact preference');
+  overlay.expand(); overlay.expand(); overlay.expand();
+  await SizePreferences.collectionSizeSave;
+  sizeSettings.shelfCollectionExpanded = false;
+  restoreSize();
+  assert.equal(newOverlay().expanded, true, 'rapid switches persist the final full-screen choice');
+  failSizeSave = true;
+  await assert.rejects(SizePreferences.setShelfCollectionExpanded(false), /Collection size save failed/);
+  assert.equal(sizeSettings.shelfCollectionExpanded, true, 'save failure restores the committed preference');
+  failSizeSave = false;
+  await SizePreferences.setShelfCollectionExpanded(false);
+  assert.equal(sizeValues.get('shelf_collection_expanded'), false, 'a failed write does not block later saves');
+  console.log('PASS collection size immediate reopen, restart, rapid switches and failed-save recovery');
+
   const viewSource = read('components/ShelfCollectionView.ets');
   const { HomeRecommendationDataSource } = compile(read('utils/HomeRecommendationDataSource.ets'));
   const { CollectionView } = compile(`export class CollectionView {

@@ -265,9 +265,14 @@ async function checkContinuousInput() {
 async function checkCoverFrameDelivery() {
   for (const forward of [true, false]) {
     const cover = make();
+    cover.nativePagePreview = true;
     const sign = forward ? -1 : 1;
     const starting = cover.beginTurn(forward, false, 300);
-    await flush(); await frame(); await frame(); await starting;
+    cover.handlePanUpdate(pan(sign * 32));
+    await flush();
+    assert.equal(cover.phase, 'dragging', 'native cover must not wait for idle frames after capture and preparation');
+    assert.equal(cover.coverOffset, sign * 32, 'first update includes movement during capture');
+    await starting;
     const queued = frames.length;
     for (const distance of [40, 80, 160, 280, 320]) {
       cover.handlePanUpdate(pan(sign * distance));
@@ -289,6 +294,69 @@ async function checkCoverFrameDelivery() {
     assert.deepEqual(cover.completed, [true]);
   }
   console.log('PASS immediate cover touch/animation delivery in both directions, continuous input and progress handoff');
+}
+async function checkWarmSnapshots() {
+  const warm = make();
+  Object.assign(warm, { nativePagePreview: true, prewarmSnapshot: true, revision: 'page-1' });
+  const before = captures;
+  await warm.prepareWarmSnapshot();
+  const bitmap = warm.warmSnapshot;
+  assert.ok(bitmap);
+  assert.equal(warm.coverSnapshot, bitmap, 'the image is mounted beneath live content while idle');
+  assert.equal(warm.coverRaised, false);
+  const turning = warm.beginTurn(true, false, 300);
+  warm.handlePanUpdate(pan(-160));
+  await turning;
+  assert.equal(captures, before + 1, 'a prepared current page avoids capture on the input path');
+  assert.equal(warm.snapshot, bitmap);
+  assert.equal(warm.coverOffset, -160);
+  assert.equal(warm.coverRaised, true, 'only the active turn raises the prepared image above content');
+  assert.equal(warm.warmSnapshot, null, 'ownership transfers to the active turn');
+  warm.handlePanEnd(pan(-320, -900));
+  await handoff(animations.shift());
+  warm.aboutToDisappear();
+
+  for (const reason of ['revision', 'visual', 'background', 'selection', 'mode']) {
+    const page = make();
+    Object.assign(page, { nativePagePreview: true, prewarmSnapshot: true });
+    await page.prepareWarmSnapshot();
+    const count = releases;
+    if (reason === 'revision') { page.revision = 'new'; page.onReaderChanged(); }
+    if (reason === 'visual') { page.snapshotRevision = 'clock changed'; page.onSnapshotContentChanged(); }
+    if (reason === 'background') page.backgroundHandler();
+    if (reason === 'selection') { page.selectionActive = true; page.onSnapshotContentChanged(); }
+    if (reason === 'mode') { page.mode = mode.Simulation; page.onTurnModeChanged(); }
+    assert.equal(page.warmSnapshot, null, reason);
+    await frame();
+    assert.equal(releases, count + 1, 'unused snapshots release once');
+    page.aboutToDisappear();
+  }
+
+  const pending = make();
+  Object.assign(pending, { nativePagePreview: true, prewarmSnapshot: true });
+  const capturePage = pending.capturePage.bind(pending);
+  let resolve;
+  pending.capturePage = () => new Promise(done => { resolve = done; });
+  pending.warmPending = pending.prepareWarmSnapshot();
+  const starting = pending.beginTurn(true, false, 300);
+  pending.handlePanUpdate(pan(-240));
+  resolve(await capturePage());
+  await starting;
+  assert.equal(pending.coverOffset, -240, 'input during prewarm follows the latest finger position');
+  pending.cancelTurn(); await flush(); await frame();
+  pending.aboutToDisappear();
+
+  const stale = make();
+  Object.assign(stale, { nativePagePreview: true, prewarmSnapshot: true });
+  stale.capturePage = () => new Promise(done => { resolve = done; });
+  const task = stale.prepareWarmSnapshot();
+  stale.snapshotRevision = 'new content';
+  const count = releases;
+  resolve(await capturePage()); await task;
+  assert.equal(stale.warmSnapshot, null, 'late results cannot cache a page with changed content');
+  assert.equal(releases, count + 1);
+  stale.aboutToDisappear();
+  console.log('PASS current-page prewarm reuse, in-flight input, visual/position/lifecycle invalidation and ownership');
 }
 async function checkSpread() {
   for (const forward of [true, false]) {
@@ -453,6 +521,21 @@ async function main() {
   assert.equal(aborted.coverSnapshot, null);
   assert.equal(releases, 3, 'all snapshots released exactly once');
   await checkCoverFrameDelivery();
+  await checkWarmSnapshots();
+  for (const distance of [64, 240]) {
+    const sim = make(); sim.mode = mode.Simulation;
+    const first = await startTap(sim);
+    sim.handlePanStart(pan(20)); sim.handlePanUpdate(pan(distance));
+    assert.equal(sim.pendingTurn.progress, distance / 1600);
+    sim.handlePanEnd(pan(distance));
+    await handoff(first);
+    if (distance === 240) {
+      assert.equal(sim.phase, 'settling');
+      assert.equal(sim.forward, false);
+      await handoff(animations.shift());
+    }
+    assert.deepEqual(sim.completed, distance === 240 ? [true, true] : [true]);
+  }
   await checkContinuousInput();
   await checkContentPan();
   await checkSpread();

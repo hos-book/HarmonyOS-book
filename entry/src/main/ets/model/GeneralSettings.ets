@@ -5,6 +5,7 @@ export class GeneralSettings {
   @Trace historyEnabled: boolean = true;
   @Trace audioCacheWifiOnly: boolean = false;
   @Trace shelfCollectionOrder: string = '[]';
+  @Trace shelfCollectionExpanded: boolean = true;
   @Trace searchRecommendations: boolean = true;
   @Trace showShelfSource: boolean = true;
   @Trace showAllShelfGroup: boolean = true;

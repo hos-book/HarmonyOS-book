@@ -4497,6 +4497,10 @@
       "value": "本章朗读进度"
     },
     {
+      "name": "player_chapter_progress",
+      "value": "本章播放进度"
+    },
+    {
       "name": "tts_previous_segment",
       "value": "上一朗读片段"
     },
@@ -5991,6 +5995,10 @@
     {
       "name": "rule_source_membership_hint",
       "value": "非会员最多 10 个自定义源，会员不限总数；已有源更新不占新名额。"
+    },
+    {
+      "name": "common_save_failed",
+      "value": "保存失败，请重试"
     },
     {
       "name": "rule_source_save_failed",

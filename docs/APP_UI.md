@@ -14,13 +14,17 @@
 
 纯图片分页（可带章节标题）在剩余正文区域垂直居中，小图不放大，图文混排保持原顺序。API 26 的原生行缩进在系统字体导致二次换行后重新校准；有限次校准未收敛时使用兼容排版，不让错误行号给续行增加缩进。
 
+在线书源（含 `sourceFormat: native`）的正文插图复用已有书源图片下载与缓存，按返回顺序参与小说分页、双栏和连续滚动；支持 HTTP 图片和内嵌图片，不再在纯正文接入时丢弃图片标记。图片保持原始比例，朗读跳过图片且保留字符坐标，后续段评仍定位到原段落。更新前已缓存的无图章节需在阅读页刷新正文后补图。插图接入、分页、窗口重排和段评／朗读坐标主机回归已通过；当前无连接设备，实机显示待复核。
+
 应用排版开启章节标题时，章首与目录标题完整匹配的自带标题只在显示层隐藏，统一使用阅读设置中的标题字号、样式、颜色与边距；兼容空白、拆行和全半角冒号差异。保留原文、阅读字符坐标及章内小标题，关闭章节标题后恢复正文原貌；EPUB 原版排版保留书籍自身布局。
 
 漫画翻页方式逐书记忆，切换后仅保存当前漫画；未设置的书默认连续滚动，保留既有单书选择。不再提供“翻页方式记忆／设为通用／跟随通用”卡片，不再读取或写入旧全局翻页值。
 
 ## 轨道控件统一防误触
 
-所有原生 Slider 统一使用 `utils/SliderGestureModifier.ets`（当前 10 个页面/组件文件、22 处），覆盖播放进度、倍速、跳过时长、音量增幅、阅读章节、字体排版、边距/点击区、亮度、自动翻页、色相、蒙层和朗读参数。轨道点击不改变数值；沿控件方向拖动超过取值范围的 4% 后开始调节，减少上下滚动时的轻触和轻微横移误调。纵向亮度条保留纵向反向拖动；各控件继续使用原步进、预览、提交/确认及保存回调，加减按钮继续精细调节。后续新增 Slider 应复用同一修饰器。所有数值调节的减/加按钮统一透明背景，关闭默认按压底色与悬停底色，保留原点击区域、禁用态及符号缩放反馈。
+所有原生 Slider 统一使用 `utils/SliderGestureModifier.ets`，覆盖播放进度、倍速、跳过时长、音量增幅、阅读章节、字体排版、边距/点击区、亮度、自动翻页、色相、蒙层和朗读参数。轨道点击不改变数值；原生滑块沿控件方向拖动超过取值范围的 4% 后开始调节，减少上下滚动时的轻触和轻微横移误调。纵向亮度条保留纵向反向拖动；各控件继续使用原步进、预览、提交/确认及保存回调，加减按钮继续精细调节。后续新增 Slider 应复用同一修饰器。所有数值调节的减/加按钮统一透明背景，关闭默认按压底色与悬停底色，保留原点击区域、禁用态及符号缩放反馈。
+
+播放页有声书及电子书朗读进度共用 `PlayerProgressSlider`：保留直接拖动滑块，另支持在整条轨道按住 300ms 后从落指位置左右拖动。长按轻震反馈，拖动时轨道加粗，目标进度只在下方原有时间／百分比位置更新，不额外显示上方强调文字。松手才提交，短按轨道不跳转；取消、多指、切章、禁用或宽度变化撤销预览。直播继续不显示进度滑块。实现参考已读的 [ArkUI 技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)、[LongPressGesture](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/06-interaction/gesture/ts-basic-gestures-longpressgesture.md)与[手势响应规则](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/18-arkts-rules/arkts-interaction-rules.md)。
 
 依据已读取的在线 [ArkUI 技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)、[ArkTS 语法技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)和 [Slider 指南](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/04-components/basic/ts-basic-components-slider.md)，使用 `SLIDE_ONLY` 和 `minResponsiveDistance`；距离单位与 min/max 相同，故按范围比例计算，二者自 API 12 提供，兼容项目最低 API 20。
 
@@ -721,6 +725,21 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 - 替换净化规则面板支持“导入规则”：选择一个 UTF-8 JSON 文件（最大 1 MiB），预览名称列表后确认作用于当前书（默认）或全部书籍。支持规则数组、单个规则及 `{ "rules": [...] }`，读取 `name/pattern/replacement/isRegex/enabled`（兼容 `isEnabled`）；替换文本可为空，缺省正则/启用均为 true。最多保存 1000 条；重复规则跳过，正则先经有界 QuickJS 批量校验，保存失败整批回滚。仅标题、特定书源、非空 scope/excludeScope 等不能直接迁移的范围显式报错，不静默扩大应用范围；不执行文件脚本。
 - 覆盖翻页复用单张 PixelMap 的 Image 层，点击和松手后统一由显式 Animator 进度更新位移，避免新挂载图层仅收到属性过渡终点而直接跳页；不逐帧重绘整页 Canvas。覆盖模式在手势移动和 Animator 帧回调中直接提交 Image 位移，由 ArkUI 合并状态更新，不再经过第二次 postFrameCallback；松手样本只参与是否翻页的判定，收尾从上一笔已提交的纸面位置接续。仿真模式仍按显示帧合并 Canvas 绘制。覆盖在准备、收尾及异步提交期间接收最近一次点击、按键或滑动；新输入将当前动画收尾缩短为 80ms，等进度与布局提交后接续，保留交接期间的滑动位置和松手状态。等待操作最多一项，取消、离页、后台、模式或窗口变化时清空，旧动画回调不能重复提交；原版 EPUB 提交完成前不准备下一页。应用排版横屏双栏仿真采用页角折叠与斜折线裁剪：中缝书脊与另一侧旧页固定，纸背显示目标内页，文字保持原比例；每帧最多四次正文图片绘制。上下页角与纵向拖动决定折线，横向页角跟随手指，松手从最后实际绘制的位置减速落页，取消还原的布局完成后再移除截图。原中央直线改为 36vp 内的渐变书缝，保留中央凹陷、侧面柔光与上下渐隐，避开页眉、页脚及阅听状态；书缝独立于正文截图，翻动纸背覆盖其上，落平末段平滑恢复。纸背轮廓先绘制不透明底色，再叠加正文和折痕光影，底页不得穿透；取消整页纸边描线，起止帧直接绘制完整截图，避免中缝上下黑线闪烁。单栏保留原柱面卷页。截图及目标布局就绪后开始，取消不提交阅读进度；快划、离页与过期完成回调受同一代次守卫。
 
+- 原生纯文字覆盖模式在静止 80ms 后预热当前页的一张原尺寸截图，并将 Image 挂在正文下方，下一次手势直接接管、升层和位移；已开始的预热与手势共用同一次截图。正文、页码、排版、主题、段评、时钟电量、选区、窗口或前后台状态变化使缓存失效，离页释放；预热失败保留即时截图。前台状态使用 V2 响应式字段，确保返回阅读时重新计算预热条件。异步图片、图片背景及朗读高亮期间使用即时截图，EPUB 原版和仿真模式沿用原链路。预热不提前准备目标页或提交进度。原生正文的对话与朗读高亮按命中行重画，保留裁剪、段间距和跨页偏移，不再对每个高亮矩形重画整页。新增按需 Trace 区间 `ReaderTurn.WarmCapture` 与 `ReaderTurn.Acquire`，区分静止时截图和手势实际等待。
+
+2026-11-18 Mate 80（VYG-AL00）覆盖模式实测：同章纯文字页面，四次慢拖、两次快划并交替反向；坐标 (1050, 1400) ↔ (230, 1400)，速度依次为 900、900、3000、3000、900、900px/s。Trace 使用 app / ace / graphic / animation / multimodalinput 标签；起拖首帧计入开始时间早于 Acquire、结束时间晚于 Acquire 的完整 UI ReceiveVsync 区间。
+
+| 阶段 | 六次采样耗时（ms，按动作顺序） |
+| --- | --- |
+| 修改前，手势内截图 | 52.001 / 58.448 / 44.833 / 32.388 / 40.193 / 61.385 |
+| 仅预热截图，起拖首帧 | 25.41 / 26.20 / 24.75 / 26.34 / 27.67 / 31.94 |
+| 提前挂载 Image，Acquire 等待（复测） | 0.084 / 0.098 / 0.055 / 0.152 / 0.113 / 0.100 |
+| 提前挂载 Image，起拖首帧（同次复测） | 19.82 / 27.85 / 17.69 / 23.26 / 21.65 / 29.90 |
+
+实测主要改善是将截图等待移出输入路径；高亮按行绘制减少冗余，但单独改变时未见整帧耗时明显下降。起拖仍有约 18–30ms 的状态更新、布局和绘制开销，松手 Animator 回调大多约 8.3ms，尚未达到稳定每帧 8.3ms。另复现后台返回后第一划仍需 37.605ms 即时截图：前台状态普通字段未可靠触发预热条件刷新；改为 V2 响应式状态并重新安装后，同样返回前台静止 2 秒再双向翻页，Acquire 为 0.055 / 0.033ms，起拖首帧为 20.36 / 24.46ms。图片页、朗读中及预热未就绪时仍走即时截图，不能套用缓存命中的耗时。
+
+截图预热、失效、迟到结果、进度、资源释放及高亮行位置的定向回归通过；Release SDK 26.0.0.105 Debug HAP 构建、实机覆盖安装和启动成功。实机检查慢拖中间画面、前后翻页、短滑回弹，文字颜色和位置正常，短滑不提交页码。补充状态栏脚本在未改动的 Index 测试环境中因缺少 carWindow 模拟对象失败，未作为本次通过项；独立 ArkTS 快检超时，完整编译通过。性能分段参考已读的 [Trace 指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/arkui-performance-analysis/references/trace-guidance.md)和[动效实现指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/arkui-performance-analysis/references/animation/animation-impl.md)。
+
 2026-11-09：几何与真实组件回归覆盖页角跟手、书脊约束、面积与文字比例、双向纹理、松手接续、取消交接、书缝层级和资源释放。参考并实际运行 [StPageFlip 官方演示](https://nodlik.github.io/StPageFlip/)，阅读其 [FlipCalculation](https://github.com/Nodlik/StPageFlip/blob/master/src/Flip/FlipCalculation.ts) 与 [CanvasRender](https://github.com/Nodlik/StPageFlip/blob/master/src/Render/CanvasRender.ts)；采用页角反射、内外折痕与固定书缝的绘制思路，未引入第三方运行库。实现使用已读取的在线 [lang-syntax](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)、[ArkUI 检索技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)及 [CanvasRenderingContext2D 指南](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/04-components/drawing/ts-canvasrenderingcontext2d.md)，构建诊断参照 [ArkTS 检查技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)。
 
 本轮书缝版本已覆盖安装 HUAWEI Mate 80，并确认横屏双页静止书缝与页眉页脚留白。用户随后反馈双页纸背透字与落页中缝上下黑线，已增加纸背轮廓的独立不透明填充、移除纸边描线，并让起止帧直接绘制完整截图；相关定向回归及 Release SDK 26.0.0.105 增量 Debug 构建通过，HAP 元数据为 Release / API 20–26。ArkTS 快检引用旧 `.ts` 几何定义，实际编译通过。验证期间设备断开，最后两项修复尚待重新连接后安装及实机动态确认；没有平板实机验收结果。
@@ -1167,6 +1186,7 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 
 - 书架顶部文件夹按钮：网格、列表模式点击切换分组、长按打开分组管理；书房模式点击直接打开分组管理；筛选弹层也提供“分组管理”入口。支持创建空分组和重命名自定义分组，重命名保留顺序和启用状态，同步迁移书籍归属并保持当前选中组；空名称、保留名称及重复名称不可保存，保存失败保留输入供重试。
 - 分组管理和书房共用分组顺序。“全部书籍”“未分组”和自定义分组在同一列表中；“全部书籍”固定首位，“未分组”可与自定义分组一起拖动。书房仅显示已启用分组，在书房拖动时保留关闭分组的位置。两处松手保存，失败恢复原顺序，重启保留；拖动不改变归组及当前选中组。
+- 书房分组弹层记住最后选择的全屏／半屏尺寸，右上角按钮和标题拖动使用同一本机偏好；全部书籍、未分组、自定义分组共用，关闭重开及重启后直接恢复，无偏好时沿用全屏。
 - 书房文件夹使用 20 套深浅色配色：“全部书籍”专用深松绿，“未分组”专用暖石灰，自定义组使用 18 套独立配色，超过 18 组后循环；拖动排序和开关分组不改变已有文件夹的颜色。
 - 分组管理底部面板默认全屏，分组行沿用透明样式。标题右侧等距放置新增、保存、关闭按钮。新增在列表末尾插入输入行，编辑将原行切换成输入框，点击顶部对勾保存，失败保留输入。每个分组均有启用开关，提示“至少启用一组”单行显示。点击开关即时更新分组菜单、书房文件夹及当前选择，随后保存，失败时回退。关闭分组保留书籍及原归属；删除最后一个启用的自定义组时恢复“全部书籍”入口。
 

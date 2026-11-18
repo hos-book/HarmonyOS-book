@@ -4,6 +4,7 @@ import { ThemeBackgroundScene } from '../model/AppThemeVisual';
 import { AppBackgroundScene } from '../model/AppBackground';
 import { ShelfCollectionRoute } from '../model/ShelfCollection';
 import { GeneralSettings } from '../model/GeneralSettings';
+import { PreferenceService } from '../service/PreferenceService';
 import { AppTheme } from '../theme/Theme';
 import { OneShotLayoutCallback } from '../utils/OneShotTransition';
 import { WindowUtils } from '../utils/WindowUtils';
@@ -15,7 +16,7 @@ export struct ShelfCollectionPage {
   @Param navStack: NavPathStack = new NavPathStack();
   @Param active: boolean = true;
   @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
-  @Local expanded: boolean = true;
+  @Local expanded: boolean = GeneralSettings.current.shelfCollectionExpanded;
   @Local shown: boolean = false;
   @Local widthVp: number = 400;
   @Local heightVp: number = 800;
@@ -54,8 +55,14 @@ export struct ShelfCollectionPage {
 
   private expand(): void {
     if (this.closing) return;
+    const expanded = !this.expanded;
     this.getUIContext().animateTo({ duration: 380, curve: Curve.FastOutSlowIn }, (): void => {
-      this.expanded = !this.expanded;
+      this.expanded = expanded;
+    });
+    PreferenceService.setShelfCollectionExpanded(expanded).catch((): void => {
+      if (!this.alive) return;
+      this.expanded = GeneralSettings.current.shelfCollectionExpanded;
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.common_save_failed') });
     });
   }
 

@@ -321,6 +321,7 @@ export struct ReaderPage {
   @Local continuousRevision: number = 0;
   @Local onlineTextLoading: boolean = false;
   @Local onlineTextTurnPreview: ReaderOnlineTextTurnPreview | null = null;
+  @Local onlineTextSnapshotRevision: number = 0;
   private onlineTextTurnSerial: number = 0;
   private onlineTextTurnLoading: boolean = false;
   private onlineTextTurnConfirmed: boolean = false;
@@ -383,7 +384,7 @@ export struct ReaderPage {
   private sessionTimer: number = -1;
   private originalProgressTimer: number = -1;
   private originalProgressSavedAt: number = 0;
-  private readingForeground: boolean = true;
+  @Local readingForeground: boolean = true;
   private readingTime: ReadingTimeTracker = new ReadingTimeTracker();
   private foregroundHandler = (): void => {
     this.readingForeground = true;
@@ -2403,6 +2404,25 @@ export struct ReaderPage {
       `${this.readerHeaderHeight()}:${this.readerFooterHeight()}:${this.readerTopInsetVp()}:${this.leftSafeVp}:${this.rightSafeVp}:${this.topSafeVp}:${this.readerBottomInsetVp()}:${this.marginLeft}:${this.marginRight}:${this.marginTop}:${this.marginBottom}:${this.palette.background}:${this.palette.primary}`;
   }
 
+  private pageHasImage(page: OnlineTextPage): boolean {
+    return page.imageUrl.length > 0 || page.parts.some((part: OnlineTextPage): boolean => this.pageHasImage(part)) ||
+      page.columns.some((column: OnlineTextPage): boolean => this.pageHasImage(column));
+  }
+
+  private canPrewarmOnlineTextPage(): boolean {
+    // 异步图片和朗读高亮沿用即时截图，避免把尚未加载的图片或旧高亮带进翻页。
+    return this.readerVisible && this.readingForeground && !this.onlineTextLoading && !this.speechState.active &&
+      !this.readerBarVisible && !this.bgImagePath && !this.currentEpubStyle().image &&
+      !this.pageHasImage(this.currentOnlineTextPageLayout());
+  }
+
+  private onlineTextSnapshotKey(): string {
+    return `${this.onlineTextSnapshotRevision}:${this.currentOnlineTextPageContent()}:${this.cornerText(0)}:${this.cornerText(1)}:` +
+      `${this.cornerText(2)}:${this.cornerText(3)}:${this.dialogueHighlight}:${this.dialogueHighlightColor}:` +
+      `${this.speechMark}:${this.speechMarkColor}:${this.palette.accent}:${this.palette.secondary}:${this.systemNightOverride}:` +
+      JSON.stringify(this.displayComments.get(this.onlineTextChapterIndex()) ?? []);
+  }
+
   private showToast(message: ResourceStr): void {
     try {
       this.getUIContext().getPromptAction().showToast({ message: message });
@@ -3546,7 +3566,10 @@ export struct ReaderPage {
         .textOverflow({ overflow: TextOverflow.Ellipsis })
         .visibility(this.cornerVisible(2) ? Visibility.Visible : Visibility.Hidden)
       if (this.showFooter && this.showReadingStatus) {
-        ReaderStatusIndicator({ color: this.footerStyle.color || (this.epubOriginalEnabled ? this.epubOriginalInk : this.palette.primary) })
+        ReaderStatusIndicator({
+          color: this.footerStyle.color || (this.epubOriginalEnabled ? this.epubOriginalInk : this.palette.primary),
+          onVisualChange: (): void => { this.onlineTextSnapshotRevision++; }
+        })
       }
       Text(this.cornerText(3))
         .fontSize(AppFont.Caption)
@@ -3679,6 +3702,9 @@ export struct ReaderPage {
           keyTurnRequest: this.keyTurnRequest,
           mode: this.pageTurnMode,
           spread: this.useReaderColumns(),
+          nativePagePreview: true,
+          prewarmSnapshot: this.canPrewarmOnlineTextPage(),
+          snapshotRevision: this.onlineTextSnapshotKey(),
           revision: this.onlineTextTurnRevision(),
           paperColor: this.palette.background,
           pageContent: (): void => this.buildOnlineTextPage(),

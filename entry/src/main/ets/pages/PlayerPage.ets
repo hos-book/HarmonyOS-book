@@ -1,4 +1,5 @@
 import { SliderGestureModifier } from '../utils/SliderGestureModifier';
+import { PlayerProgressSlider } from '../components/PlayerProgressSlider';
 import { TextReaderRouteParams, TextReadingPosition, ReaderJumpChapterEvent, EVT_READER_JUMP_CHAPTER } from '../model/TextReading';
 import { TextReadingProgressService } from '../service/text/TextReadingProgressService';
 import { ChapterSheetActions } from '../components/ChapterSheetActions';
@@ -199,6 +200,7 @@ export struct PlayerPage {
   @Local speechState: TextToSpeechState = TextToSpeechService.getInstance().state;
   @Local seeking: boolean = false;
   @Local seekValueMs: number = 0;
+  private seekGeneration: number = 0;
   @Local speechSeeking: boolean = false;
   @Local speechSeekPercent: number = 0;
   private speechSeekChapter: number = -1;
@@ -747,6 +749,24 @@ export struct PlayerPage {
       this.speechSeekChapter === this.speechState.chapterIndex && this.speechSeekBookId === this.speechState.bookId) {
       TextToSpeechService.getInstance().seekProgress(this.speechSeekPercent);
     }
+  }
+
+  private changeAudioProgress(value: number, mode: SliderChangeMode): void {
+    if (!this.canSkipPlayback()) return;
+    const generation = ++this.seekGeneration;
+    this.seekValueMs = value;
+    this.seeking = true;
+    if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
+      AudioService.getInstance().seek(value);
+      setTimeout((): void => {
+        if (!this.isLeaving && generation === this.seekGeneration) this.seeking = false;
+      }, 200);
+    }
+  }
+
+  private cancelAudioProgress(): void {
+    this.seekGeneration++;
+    this.seeking = false;
   }
 
   private openVoiceOptions(): void {
@@ -2246,17 +2266,15 @@ export struct PlayerPage {
   buildProgress() {
     Column({ space: AppSpace.Xxs }) {
       if (this.isSpeechBook()) {
-        Slider({ value: this.speechProgress(), min: 0, max: 100, step: 0.1, style: SliderStyle.OutSet })
-          .attributeModifier(new SliderGestureModifier(0, 100))
-          .selectedColor('#FFFFFF').trackColor('#33FFFFFF').blockColor('#FFFFFF')
-          .blockSize({ width: 18, height: 18 }).trackThickness(6).width('100%').height(24)
-          .enabled(this.canSkipPlayback())
-          .accessibilityText($r('app.string.tts_chapter_progress'))
-          .id('speech-chapter-progress')
-          .onChange((value: number, mode: SliderChangeMode): void => this.changeSpeechProgress(value, mode))
-          .onTouch((event: TouchEvent): void => {
-            if (event.type === TouchType.Cancel) this.speechSeeking = false;
-          })
+        PlayerProgressSlider({
+          value: this.speechProgress(), max: 100, step: 0.1, barHeight: 24,
+          interactive: this.canSkipPlayback(),
+          contentKey: `${this.speechState.bookId}:${this.speechState.chapterIndex}`,
+          progressLabel: $r('app.string.tts_chapter_progress'), sliderId: 'speech-chapter-progress',
+          onChange: (value: number, mode: SliderChangeMode): void => this.changeSpeechProgress(value, mode),
+          onCancel: (): void => { this.speechSeeking = false; },
+          onHold: (): void => this.hapticTick()
+        })
         Row() {
           Text($r('app.string.tts_chapter_progress')).fontSize(AppFont.Caption).fontColor('#FFFFFF')
           Blank()
@@ -2265,31 +2283,17 @@ export struct PlayerPage {
       } else if (this.isLiveBook()) {
         Text($r('app.string.player_live')).fontSize(AppFont.Body).fontColor('#FFFFFF').height(48)
       } else {
-      Slider({
+      PlayerProgressSlider({
         value: this.progressValueMs(),
-        min: 0,
         max: this.sliderMaxMs(),
         step: 1000,
-        style: SliderStyle.OutSet
+        barHeight: this.showAudioSubtitles() ? 24 : 40,
+        interactive: this.canSkipPlayback(),
+        contentKey: `${this.playerState.currentBook?.id ?? ''}:${this.playerState.currentChapter?.id ?? ''}`,
+        onChange: (value: number, mode: SliderChangeMode): void => this.changeAudioProgress(value, mode),
+        onCancel: (): void => this.cancelAudioProgress(),
+        onHold: (): void => this.hapticTick()
       })
-        .attributeModifier(new SliderGestureModifier(0, this.sliderMaxMs()))
-        .selectedColor('#FFFFFF')
-        .trackColor('#33FFFFFF')
-        .blockColor('#FFFFFF')
-        .blockSize({ width: 18, height: 18 })
-        .trackThickness(6)
-        .height(this.showAudioSubtitles() ? 24 : undefined)
-        .enabled(this.audioMatchesBook() && this.playerState.durationMs > 0 && !this.playerState.isLoading)
-        .onChange((value: number, mode: SliderChangeMode) => {
-          if (mode === SliderChangeMode.Begin || mode === SliderChangeMode.Moving) {
-            this.seeking = true;
-            this.seekValueMs = value;
-          } else if (mode === SliderChangeMode.End || mode === SliderChangeMode.Click) {
-            this.seekValueMs = value;
-            AudioService.getInstance().seek(value);
-            setTimeout(() => { this.seeking = false; }, 200);
-          }
-        })
 
       Row() {
         Text(this.formatMs(this.progressValueMs()))

@@ -8,6 +8,8 @@ export class ReaderSelectionRect {
   right: number = 0;
   bottom: number = 0;
   ascent: number = 0;
+  /** 当前分页片段中的行号，保留段间距与跨页偏移的映射。 */
+  lineIndex: number = 0;
   rtl: boolean = false;
 }
 
@@ -48,6 +50,7 @@ export class ReaderSelectionGeometry {
         rect.top = Math.max(0, top + shift);
         rect.bottom = Math.min(page.layoutHeight, bottom + shift);
         rect.ascent = metric.ascent;
+        rect.lineIndex = index;
         rect.rtl = box.direction === graphicsText.TextDirection.RTL;
         if (rect.bottom > rect.top && rect.right > rect.left) result.push(rect);
       }

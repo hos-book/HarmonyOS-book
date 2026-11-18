@@ -95,7 +95,11 @@ class ReaderParagraphFrameNode extends FrameNode {
             box.right, box.bottom);
           canvas.detachBrush();
         }
-        if (mark !== 'underline') this.paintLines(canvas, lines);
+        if (mark !== 'underline') {
+          // 每个范围矩形属于一行；不能为一行高亮重画整页，再依赖裁剪丢弃其他行。
+          lines[page.firstLine + box.lineIndex]?.paint(canvas, 0,
+            -page.layoutTop + (page.lineShifts[box.lineIndex] ?? 0));
+        }
         canvas.restore();
     }
   }

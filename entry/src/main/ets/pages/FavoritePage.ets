@@ -250,7 +250,7 @@ export struct FavoritePage {
   private pendingRemoval: Book | null = null;
   @Local showBookEditor: boolean = false;
   @Local editingBook: Book | null = null;
-  @Local editingGroupOnly: boolean = false;
+  @Local groupTarget: Book | undefined = undefined;
   @Local shelfDisplaySettings: GeneralSettings = GeneralSettings.current;
   @Local shelfGroup: string = '';
   @Local shelfGroups: string[] = [];
@@ -1479,17 +1479,27 @@ export struct FavoritePage {
     return options;
   }
 
-  private openGroupManager(): void {
+  private openGroupManager(book?: Book): void {
     if (!this.alive || this.removingBook || this.showBatchDelete || this.pendingShelfOrder !== undefined) return;
     this.groupMenuVisible = false;
     this.statusFilterMenuVisible = false;
     this.shelfGroups = BookPresentation.groups.slice();
+    this.groupTarget = book;
     this.groupManagerVisible = true;
   }
 
   @LocalBuilder
   buildGroupManager() {
     ShelfGroupManager({ groups: this.shelfGroupOrder,
+      initialAssignment: this.groupTarget ? BookPresentation.get(this.groupTarget.id)?.group || BookPresentation.UNGROUPED : undefined,
+      onAssign: async (group: string): Promise<void> => {
+        const book = this.groupTarget;
+        if (!book || (group !== BookPresentation.UNGROUPED && !BookPresentation.groups.includes(group))) {
+          throw new Error('Invalid book group');
+        }
+        await PreferenceService.setBookGroup([book.id], group === BookPresentation.UNGROUPED ? '' : group);
+        await this.loadFavorites();
+      },
       visibleGroups: this.pendingVisibleGroups ?? this.visibleGroupOptions(),
       changingVisibility: this.pendingVisibleGroups !== undefined,
       onClose: (): void => { this.groupManagerVisible = false; },
@@ -2175,10 +2185,10 @@ export struct FavoritePage {
         .onClick((): void => { this.pendingDetailBookId = book.id; })
       MenuItem({ content: $r('app.string.shelf_group_settings') })
         .enabled(!this.removingBook)
-        .onClick((): void => { this.editingGroupOnly = true; this.editingBook = book; this.showBookEditor = true; })
+        .onClick((): void => this.openGroupManager(book))
       MenuItem({ content: $r('app.string.shelf_edit_title') })
         .enabled(!this.removingBook)
-        .onClick((): void => { this.editingGroupOnly = false; this.editingBook = book; this.showBookEditor = true; })
+        .onClick((): void => { this.editingBook = book; this.showBookEditor = true; })
       if (!this.isManaging) {
       MenuItem({ content: this.pinnedBookIds.has(book.id) ?
         $r('app.string.shelf_unpin') : $r('app.string.shelf_pin') })
@@ -2467,7 +2477,7 @@ export struct FavoritePage {
   @Builder
   buildBookEditor() {
     if (this.editingBook !== null) {
-      BookEditSheet({ book: this.editingBook, groupOnly: this.editingGroupOnly, onSaved: (book: Book): void => {
+      BookEditSheet({ book: this.editingBook, onSaved: (book: Book): void => {
         SearchCache.put(book);
         AudioService.getInstance().updateBookPresentation(book);
         TextToSpeechService.getInstance().updateBookPresentation(book);

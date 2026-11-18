@@ -62,7 +62,7 @@ export class DataService {
 
   /** 由 EntryAbility 启动时注入,用于缓存书文件读写 */
   static setContext(c: common.Context): void {
-    LocalTextImage.setRoot(c.filesDir);
+    LocalTextImage.setRoot(c.filesDir, c.cacheDir);
     DataService.ctx = c;
     if (DataService.migrationPromise === null) {
       DataService.migrationPromise = DataService.migrateLegacyStorage();
