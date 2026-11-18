@@ -10,6 +10,9 @@ export class ShelfCollectionRoute {
 }
 
 export class ShelfCollectionGroup {
+  static readonly CUSTOM_TINT_COUNT: number = 18;
+  static readonly ALL_TINT: number = ShelfCollectionGroup.CUSTOM_TINT_COUNT;
+  static readonly UNGROUPED_TINT: number = ShelfCollectionGroup.ALL_TINT + 1;
   id: string;
   books: Book[] = [];
   tint: number;
@@ -27,25 +30,29 @@ export class ShelfRecentBook {
 
 /** 只派生展示数据，不改写分组、筛选或历史。 */
 export class ShelfCollectionData {
-  static groups(books: Book[], groups: string[], excluded: Set<string>, keyword: string): ShelfCollectionGroup[] {
+  static groups(books: Book[], groups: string[], excluded: Set<string>, keyword: string,
+    includeAll: boolean = false): ShelfCollectionGroup[] {
     const result: ShelfCollectionGroup[] = groups.map((group: string, index: number): ShelfCollectionGroup =>
-      new ShelfCollectionGroup(group, index % 6));
-    result.push(new ShelfCollectionGroup(BookPresentation.UNGROUPED, 4));
+      new ShelfCollectionGroup(group, index % ShelfCollectionGroup.CUSTOM_TINT_COUNT));
+    result.push(new ShelfCollectionGroup(BookPresentation.UNGROUPED, ShelfCollectionGroup.UNGROUPED_TINT));
     const byGroup = new Map<string, ShelfCollectionGroup>();
     for (const group of result) byGroup.set(group.id, group);
     const query = keyword.trim().toLocaleLowerCase();
+    const all = new ShelfCollectionGroup('', ShelfCollectionGroup.ALL_TINT);
     for (const book of books) {
       if (excluded.has(book.id)) continue;
       const assigned = BookPresentation.get(book.id)?.group ?? '';
       const group = byGroup.get(assigned) ?? byGroup.get(BookPresentation.UNGROUPED);
       if (!group) continue;
-      if (query && !group.id.toLocaleLowerCase().includes(query) &&
-        ![book.title, book.author, book.narrator].some((text: string): boolean =>
-          (text || '').toLocaleLowerCase().includes(query))) continue;
+      const matchesBook = !query || [book.title, book.author, book.narrator].some((text: string): boolean =>
+        (text || '').toLocaleLowerCase().includes(query));
+      if (includeAll && matchesBook) all.books.push(book);
+      if (!matchesBook && !group.id.toLocaleLowerCase().includes(query)) continue;
       group.books.push(book);
     }
-    return query ? result.filter((group: ShelfCollectionGroup): boolean =>
+    const filtered = query ? result.filter((group: ShelfCollectionGroup): boolean =>
       group.books.length > 0 || group.id.toLocaleLowerCase().includes(query)) : result;
+    return includeAll ? [all].concat(filtered) : filtered;
   }
 
   static ordered(groups: ShelfCollectionGroup[], stored: string): ShelfCollectionGroup[] {

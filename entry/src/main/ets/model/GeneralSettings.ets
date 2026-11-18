@@ -9,6 +9,12 @@ export class GeneralSettings {
   @Trace showShelfSource: boolean = true;
   @Trace showAllShelfGroup: boolean = true;
   @Trace showUngroupedShelfGroup: boolean = true;
+  @Trace hiddenShelfGroups: string = '[]';
+
+  isShelfGroupVisible(group: string): boolean {
+    const hidden: string[] = JSON.parse(this.hiddenShelfGroups);
+    return !hidden.includes(group);
+  }
   @Trace adaptiveHandedness: boolean = true;
   @Trace swipeSwitchTabs: boolean = true;
   /** -1 关闭，0 永久显示，正数为暂停后自动隐藏的分钟数。 */

@@ -3,9 +3,53 @@ import { BookPresentation } from '../model/BookPresentation';
 import { ShelfCollectionGroup } from '../model/ShelfCollection';
 import { CoverImage } from './CoverImage';
 
+// Custom palette slots first, followed by All Books and Ungrouped.
+const SHELF_FOLDER_PALETTES: Resource[][] = [
+  [$r('app.color.collection_sage_back'), $r('app.color.collection_sage_top'),
+    $r('app.color.collection_sage_front'), $r('app.color.collection_sage_ink')],
+  [$r('app.color.collection_blue_back'), $r('app.color.collection_blue_top'),
+    $r('app.color.collection_blue_front'), $r('app.color.collection_blue_ink')],
+  [$r('app.color.collection_sand_back'), $r('app.color.collection_sand_top'),
+    $r('app.color.collection_sand_front'), $r('app.color.collection_sand_ink')],
+  [$r('app.color.collection_rose_back'), $r('app.color.collection_rose_top'),
+    $r('app.color.collection_rose_front'), $r('app.color.collection_rose_ink')],
+  [$r('app.color.collection_lilac_back'), $r('app.color.collection_lilac_top'),
+    $r('app.color.collection_lilac_front'), $r('app.color.collection_lilac_ink')],
+  [$r('app.color.collection_teal_back'), $r('app.color.collection_teal_top'),
+    $r('app.color.collection_teal_front'), $r('app.color.collection_teal_ink')],
+  [$r('app.color.collection_clay_back'), $r('app.color.collection_clay_top'),
+    $r('app.color.collection_clay_front'), $r('app.color.collection_clay_ink')],
+  [$r('app.color.collection_indigo_back'), $r('app.color.collection_indigo_top'),
+    $r('app.color.collection_indigo_front'), $r('app.color.collection_indigo_ink')],
+  [$r('app.color.collection_olive_back'), $r('app.color.collection_olive_top'),
+    $r('app.color.collection_olive_front'), $r('app.color.collection_olive_ink')],
+  [$r('app.color.collection_mauve_back'), $r('app.color.collection_mauve_top'),
+    $r('app.color.collection_mauve_front'), $r('app.color.collection_mauve_ink')],
+  [$r('app.color.collection_mint_back'), $r('app.color.collection_mint_top'),
+    $r('app.color.collection_mint_front'), $r('app.color.collection_mint_ink')],
+  [$r('app.color.collection_copper_back'), $r('app.color.collection_copper_top'),
+    $r('app.color.collection_copper_front'), $r('app.color.collection_copper_ink')],
+  [$r('app.color.collection_ice_back'), $r('app.color.collection_ice_top'),
+    $r('app.color.collection_ice_front'), $r('app.color.collection_ice_ink')],
+  [$r('app.color.collection_wine_back'), $r('app.color.collection_wine_top'),
+    $r('app.color.collection_wine_front'), $r('app.color.collection_wine_ink')],
+  [$r('app.color.collection_denim_back'), $r('app.color.collection_denim_top'),
+    $r('app.color.collection_denim_front'), $r('app.color.collection_denim_ink')],
+  [$r('app.color.collection_apricot_back'), $r('app.color.collection_apricot_top'),
+    $r('app.color.collection_apricot_front'), $r('app.color.collection_apricot_ink')],
+  [$r('app.color.collection_fern_back'), $r('app.color.collection_fern_top'),
+    $r('app.color.collection_fern_front'), $r('app.color.collection_fern_ink')],
+  [$r('app.color.collection_coral_back'), $r('app.color.collection_coral_top'),
+    $r('app.color.collection_coral_front'), $r('app.color.collection_coral_ink')],
+  [$r('app.color.collection_pine_back'), $r('app.color.collection_pine_top'),
+    $r('app.color.collection_pine_front'), $r('app.color.collection_pine_ink')],
+  [$r('app.color.collection_stone_back'), $r('app.color.collection_stone_top'),
+    $r('app.color.collection_stone_front'), $r('app.color.collection_stone_ink')]
+];
+
 @ComponentV2
 export struct ShelfCollectionFolder {
-  @Param group: ShelfCollectionGroup = new ShelfCollectionGroup('', 0);
+  @Param group: ShelfCollectionGroup = new ShelfCollectionGroup('', ShelfCollectionGroup.ALL_TINT);
   @Event onOpen: (group: string) => void = () => {};
   @Local widthVp: number = 164;
   @Local lifted: boolean = false;
@@ -21,21 +65,7 @@ export struct ShelfCollectionFolder {
   }
 
   private color(part: number): Resource {
-    const palettes: Resource[][] = [
-      [$r('app.color.collection_sage_back'), $r('app.color.collection_sage_top'),
-        $r('app.color.collection_sage_front'), $r('app.color.collection_sage_ink')],
-      [$r('app.color.collection_blue_back'), $r('app.color.collection_blue_top'),
-        $r('app.color.collection_blue_front'), $r('app.color.collection_blue_ink')],
-      [$r('app.color.collection_sand_back'), $r('app.color.collection_sand_top'),
-        $r('app.color.collection_sand_front'), $r('app.color.collection_sand_ink')],
-      [$r('app.color.collection_rose_back'), $r('app.color.collection_rose_top'),
-        $r('app.color.collection_rose_front'), $r('app.color.collection_rose_ink')],
-      [$r('app.color.collection_stone_back'), $r('app.color.collection_stone_top'),
-        $r('app.color.collection_stone_front'), $r('app.color.collection_stone_ink')],
-      [$r('app.color.collection_lilac_back'), $r('app.color.collection_lilac_top'),
-        $r('app.color.collection_lilac_front'), $r('app.color.collection_lilac_ink')]
-    ];
-    return palettes[this.group.tint % palettes.length][part];
+    return SHELF_FOLDER_PALETTES[this.group.tint][part];
   }
 
   private setLifted(value: boolean): void {
@@ -119,7 +149,8 @@ export struct ShelfCollectionFolder {
           .renderGroup(true)
       }.width('100%').height(this.widthVp * 0.74).clip(false).hitTestBehavior(HitTestMode.None)
       Row({ space: 6 }) {
-        Text(this.group.id === BookPresentation.UNGROUPED ? $r('app.string.shelf_group_none') : this.group.id)
+        Text(this.group.id === '' ? $r('app.string.collection_all_books') :
+          this.group.id === BookPresentation.UNGROUPED ? $r('app.string.shelf_group_none') : this.group.id)
           .fontSize(13).fontWeight(FontWeight.Medium).fontColor($r('sys.color.font_primary'))
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).layoutWeight(1)
         Text($r('app.string.collection_book_count', this.group.books.length)).fontSize(11)
@@ -130,7 +161,7 @@ export struct ShelfCollectionFolder {
         .fontSize(10).fontColor($r('sys.color.font_tertiary')).maxLines(1)
         .textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%').margin({ top: 5 })
     }.width('100%').padding({ top: 8, bottom: 4 }).clip(false)
-      .id('shelf-collection-folder-' + this.group.id)
+      .id(this.group.id === '' ? 'shelf-collection-all-books' : 'shelf-collection-folder-' + this.group.id)
       .onSizeChange((_oldSize: SizeOptions, size: SizeOptions): void => {
         if (typeof size.width === 'number' && size.width > 0) this.widthVp = size.width;
       })

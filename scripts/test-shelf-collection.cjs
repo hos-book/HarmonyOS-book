@@ -21,7 +21,29 @@ function method(source, name) {
   return source.slice(start, source.indexOf('\n  }', start) + 4);
 }
 const { BookPresentation } = compile(read('model/BookPresentation.ets'));
-const { ShelfCollectionData: data } = compile(read('model/ShelfCollection.ets'), { BookPresentation });
+const { ShelfCollectionData: data, ShelfCollectionGroup } = compile(read('model/ShelfCollection.ets'), { BookPresentation });
+const paletteNames = Array.from(read('components/ShelfCollectionFolder.ets').matchAll(/'app\.color\.(collection_\w+_back)'/g),
+  match => match[1].slice(0, -5));
+const sampleGroups = Array.from({ length: 19 }, (_, i) => `Palette ${i}`);
+const sampleFolders = data.groups([], sampleGroups, new Set(), '', true);
+assert.equal(paletteNames.length, 20);
+assert.equal(new Set(paletteNames).size, 20);
+assert.equal(new Set(sampleFolders.slice(0, 19).map(group => group.tint)).size, 19, 'all and the first 18 custom groups differ');
+assert.equal(sampleFolders[19].tint, sampleFolders[1].tint, 'custom tints cycle only after 18 groups');
+assert.equal(sampleFolders.at(-1).tint, ShelfCollectionGroup.UNGROUPED_TINT);
+assert.equal(new Set(sampleFolders.map(group => group.tint)).size, 20);
+assert.deepEqual(Array.from(data.ordered(sampleFolders, JSON.stringify([sampleGroups[3], sampleGroups[1]])).slice(0, 2),
+  group => group.tint), [3, 1], 'drag order does not recolor folders');
+for (const mode of ['base', 'dark']) {
+  const file = path.join(__dirname, '../entry/src/main/resources', mode, 'element/color.json');
+  const resources = new Map(JSON.parse(fs.readFileSync(file, 'utf8')).color.map(entry => [entry.name, entry.value]));
+  for (const name of paletteNames) {
+    for (const part of ['back', 'top', 'front', 'ink']) {
+      assert.match(resources.get(`${name}_${part}`) ?? '', /^#(?:[\dA-F]{6}|[\dA-F]{8})$/i, `${mode}: ${name}_${part}`);
+    }
+  }
+  assert.equal(new Set(paletteNames.map(name => resources.get(`${name}_front`))).size, 20, `${mode}: distinct front colors`);
+}
 const audio = { id: 'audio', title: '音频一', author: '', narrator: '', chapterCount: 10,
   chapters: [{ id: 'chapter-a', title: '第一集' }], contentType: 'audio' };
 const text = { id: 'text', title: '文本一', author: '', narrator: '', chapterCount: 20,
@@ -134,7 +156,7 @@ assert.equal(switched[0], 2, 'swipes outside recent cards still switch the main 
   const viewSource = read('components/ShelfCollectionView.ets');
   const { HomeRecommendationDataSource } = compile(read('utils/HomeRecommendationDataSource.ets'));
   const { CollectionView } = compile(`export class CollectionView {
-    ${method(viewSource, 'updateGroups')} ${method(viewSource, 'renderGroups')}
+    ${method(viewSource, 'updateGroups')} ${method(viewSource, 'renderGroups')} ${method(viewSource, 'draggableGroups')}
     ${method(viewSource, 'beginDrag')} ${method(viewSource, 'finishDrag')}
     ${method(viewSource, 'reorder')} ${method(viewSource, 'updateWidth')}
   }`, { AdaptiveLayout, ShelfCollectionData: data, setTimeout, clearTimeout, $r: key => key });
@@ -150,7 +172,7 @@ assert.equal(switched[0], 2, 'swipes outside recent cards still switch the main 
     renderedFolders = Array.from({ length: folderSource.totalCount() }, (_, index) => folderSource.getData(index));
   } });
   const collectionView = Object.assign(new CollectionView(), {
-    groups: visibleFolders, reorderEnabled: true, wideRecent: false, recentIndex: 2,
+    groups: [new ShelfCollectionGroup('', 0), ...visibleFolders], reorderEnabled: true, wideRecent: false, recentIndex: 2,
     renderedGroups: [], savedOrder: [], pendingOrderSaves: 0, orderSaveTask: Promise.resolve(),
     dragging: false, draggingGroupId: '', dropTimer: -1, dragAppearanceTimer: -1,
     onRecentTouch: () => {}, data: folderSource,
@@ -161,6 +183,7 @@ assert.equal(switched[0], 2, 'swipes outside recent cards still switch the main 
     })
   });
   collectionView.updateGroups();
+  assert.equal(renderedFolders.some(group => group.id === ''), false, 'All Books is outside the move data source');
   collectionView.updateWidth(599);
   assert.equal(collectionView.wideRecent, false, 'compact container retains recent carousel');
   collectionView.updateWidth(600);
@@ -208,24 +231,44 @@ assert.equal(switched[0], 2, 'swipes outside recent cards still switch the main 
   console.log('PASS recent width switching, native drag data refresh isolation, immediate and consecutive folder drops, serialized saves and failed-save rollback');
 
   let finishHostSave;
-  const { OrderPage } = compile(`export class OrderPage { ${method(source, 'saveCollectionOrder')} }`, {
-    PreferenceService: { setShelfCollectionOrder: () => new Promise((resolve, reject) => {
-      finishHostSave = { resolve, reject };
+  const settings = { shelfCollectionOrder: '["阅读","关闭分组","听书","空分组","__ungrouped__"]',
+    showAllShelfGroup: true, showUngroupedShelfGroup: true, isShelfGroupVisible: group => group !== '关闭分组' };
+  const { OrderPage } = compile(`export class OrderPage {
+    ${method(source, 'shelfGroupOrder')} ${method(source, 'saveCollectionOrder')} ${method(source, 'saveShelfGroupOrder')}
+    ${method(source, 'visibleGroupOptions')} ${method(source, 'collectionGroups')}
+  }`, {
+    BookPresentation, ShelfCollectionData: data,
+    PreferenceService: { setShelfCollectionOrder: ids => new Promise((resolve, reject) => {
+      finishHostSave = { resolve: () => { settings.shelfCollectionOrder = JSON.stringify(ids); resolve(); }, reject };
     }) }
   });
-  const settings = { shelfCollectionOrder: '[]' };
-  const host = Object.assign(new OrderPage(), { shelfDisplaySettings: settings });
-  Object.defineProperty(host, 'collectionGroups', { get: () => data.ordered(visibleFolders, settings.shelfCollectionOrder) });
+  const previousOrder = settings.shelfCollectionOrder;
+  const host = Object.assign(new OrderPage(), { shelfDisplaySettings: settings, shelfBooks: books,
+    pendingShelfRemovalIds: new Set(), shelfKeyword: '',
+    shelfGroups: ['阅读', '关闭分组', '听书', '空分组'] });
+  assert.equal(host.shelfGroupOrder.join('|'), '|阅读|关闭分组|听书|空分组|__ungrouped__', 'legacy bookroom order keeps All Books first');
   const requestedOrder = visibleFolders.map(folder => folder.id).reverse();
+  const mergedOrder = ['', ...requestedOrder];
+  mergedOrder.splice(2, 0, '关闭分组');
   const hostSave = host.saveCollectionOrder(requestedOrder);
-  assert.equal(settings.shelfCollectionOrder, JSON.stringify(requestedOrder), 'host order updates before disk persistence resolves');
+  assert.equal(host.shelfGroupOrder.join('|'), mergedOrder.join('|'), 'both views see the pending order with disabled slots intact');
+  assert.equal(folderIds(host.collectionGroups), ['', ...requestedOrder].join('|'), 'bookroom follows before flush');
+  assert.equal(settings.shelfCollectionOrder, previousOrder, 'committed preferences do not change before flush');
   finishHostSave.reject(new Error('disk full'));
   await assert.rejects(hostSave, /disk full/);
-  assert.equal(settings.shelfCollectionOrder, '[]', 'host failure restores the previous preference immediately');
+  assert.equal(settings.shelfCollectionOrder, previousOrder, 'host failure restores the previous preference immediately');
+  assert.equal(folderIds(host.collectionGroups), ['','阅读','听书','空分组',BookPresentation.UNGROUPED].join('|'),
+    'failed save also restores bookroom display');
   const hostSuccess = host.saveCollectionOrder(requestedOrder);
   finishHostSave.resolve();
   await hostSuccess;
-  assert.equal(settings.shelfCollectionOrder, JSON.stringify(requestedOrder));
+  assert.equal(settings.shelfCollectionOrder, JSON.stringify(mergedOrder));
+  const managerOrder = ['', '关闭分组', '听书', '空分组', '阅读', BookPresentation.UNGROUPED];
+  const managerSave = host.saveShelfGroupOrder(managerOrder);
+  assert.equal(folderIds(host.collectionGroups), managerOrder.filter(id => id !== '关闭分组').join('|'),
+    'manager order immediately controls the same visible bookroom folders');
+  finishHostSave.resolve();
+  await managerSave;
   await assert.rejects(host.saveCollectionOrder(requestedOrder.slice(1)), /Invalid collection order/);
   console.log('PASS host order commits before persistence and rolls back on failure');
 

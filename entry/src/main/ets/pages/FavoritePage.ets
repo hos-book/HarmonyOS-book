@@ -240,6 +240,7 @@ export struct FavoritePage {
   private pendingGroupRemoval: string = '';
   private pendingSelection: string = '';
   private pendingDetailBookId: string = '';
+  private pendingHiddenBookId: string = '';
   private pendingManagementExit: boolean = false;
   private favoriteIdsByBookId: Map<string, string[]> = new Map();
   private favoritesLoadSerial: number = 0;
@@ -257,6 +258,8 @@ export struct FavoritePage {
   private groupMenuData: HomeRecommendationDataSource<string> = new HomeRecommendationDataSource<string>();
   @Local groupManagerVisible: boolean = false;
   @Local savingGroups: boolean = false;
+  @Local pendingShelfOrder: string | undefined = undefined;
+  @Local pendingVisibleGroups: string[] | undefined = undefined;
   private groupSelectionRevision: number = 0;
   private groupSaveTask: Promise<void> = Promise.resolve();
   private pendingDeleteFiles: boolean = false;
@@ -318,7 +321,8 @@ export struct FavoritePage {
   }
 
   private async setBooksHidden(bookIds: string[]): Promise<void> {
-    if (this.savingHidden || this.removingBook || (this.hiddenShelf && !this.hiddenShelfUnlocked)) return;
+    if (!this.alive || !this.visible || !this.foreground || this.savingHidden || this.removingBook ||
+      (this.hiddenShelf && !this.hiddenShelfUnlocked)) return;
     const selected = new Set<string>(bookIds);
     const books = this.shelfBooks.filter((book: Book): boolean => selected.has(book.id));
     if (books.length === 0) return;
@@ -329,6 +333,17 @@ export struct FavoritePage {
     });
     this.savingHidden = true;
     try {
+      if (!this.hiddenShelf) {
+        const result = await this.getUIContext().getPromptAction().showDialog({
+          title: $r('app.string.shelf_hide_book'),
+          message: $r('app.string.shelf_hide_confirm_message'),
+          buttons: [
+            { text: $r('app.string.common_cancel'), color: $r('sys.color.font_primary') },
+            { text: $r('app.string.shelf_hide_confirm_action'), color: AppColor.Brand }
+          ]
+        }).catch(() => undefined);
+        if (result?.index !== 1 || !this.alive || !this.visible || !this.foreground || this.removingBook) return;
+      }
       await PreferenceService.setBookHidden(Array.from(ids), !this.hiddenShelf);
       this.favoriteBooks = this.favoriteBooks.slice();
       this.updateShelfData(this.filteredBooks(this.favoriteBooks));
@@ -373,28 +388,43 @@ export struct FavoritePage {
   }
 
   @Computed
+  get shelfGroupOrder(): string[] {
+    return BookPresentation.shelfGroupOrder(this.shelfGroups,
+      this.pendingShelfOrder ?? this.shelfDisplaySettings.shelfCollectionOrder);
+  }
+
+  @Computed
   get collectionGroups(): ShelfCollectionGroup[] {
+    const order = BookPresentation.shelfGroupOrder(this.shelfGroups,
+      this.pendingShelfOrder ?? this.shelfDisplaySettings.shelfCollectionOrder);
+    const visibleGroups = this.pendingVisibleGroups ?? this.visibleGroupOptions(order);
     const groups = ShelfCollectionData.groups(this.shelfBooks, this.shelfGroups,
-      this.pendingShelfRemovalIds, this.shelfKeyword).filter((group: ShelfCollectionGroup): boolean =>
-        group.id !== BookPresentation.UNGROUPED || this.shelfDisplaySettings.showUngroupedShelfGroup);
-    return ShelfCollectionData.ordered(groups, this.shelfDisplaySettings.shelfCollectionOrder);
+      this.pendingShelfRemovalIds, this.shelfKeyword, visibleGroups.includes('')).filter((group: ShelfCollectionGroup): boolean =>
+        visibleGroups.includes(group.id));
+    return ShelfCollectionData.ordered(groups, JSON.stringify(visibleGroups));
   }
 
   private async saveCollectionOrder(groups: string[]): Promise<void> {
-    const current = this.collectionGroups.map((group: ShelfCollectionGroup): string => group.id);
+    const current = this.collectionGroups.filter((group: ShelfCollectionGroup): boolean => group.id !== '')
+      .map((group: ShelfCollectionGroup): string => group.id);
     if (groups.length !== current.length || new Set(groups).size !== current.length ||
       groups.some((id: string): boolean => !current.includes(id))) throw new Error('Invalid collection order');
-    const previous = this.shelfDisplaySettings.shelfCollectionOrder;
-    const order = JSON.stringify(groups);
-    // 同步提交宿主展示顺序，磁盘写入在后台完成，失败再恢复。
-    this.shelfDisplaySettings.shelfCollectionOrder = order;
+    const visible = new Set(groups);
+    let index: number = 0;
+    // Only replace slots that the bookroom can drag; disabled groups retain their positions.
+    await this.saveShelfGroupOrder(this.shelfGroupOrder.map((id: string): string =>
+      visible.has(id) ? groups[index++] : id));
+  }
+
+  private async saveShelfGroupOrder(groups: string[]): Promise<void> {
+    const current = this.shelfGroupOrder;
+    if (this.pendingShelfOrder !== undefined || groups[0] !== '' || groups.length !== current.length ||
+      new Set(groups).size !== current.length ||
+      groups.some((id: string): boolean => !current.includes(id))) throw new Error('Invalid shelf group order');
+    // Both views render the pending order; the service publishes the saved order only after flush.
+    this.pendingShelfOrder = JSON.stringify(groups);
     try { await PreferenceService.setShelfCollectionOrder(groups); }
-    catch (error) {
-      if (this.shelfDisplaySettings.shelfCollectionOrder === order) {
-        this.shelfDisplaySettings.shelfCollectionOrder = previous;
-      }
-      throw new Error(error instanceof Error ? error.message : String(error));
-    }
+    finally { this.pendingShelfOrder = undefined; }
   }
 
   private openCollectionGroup(group: string): void {
@@ -642,7 +672,7 @@ export struct FavoritePage {
   @Monitor('visible')
   onVisibleChange(): void {
     if (!this.visible) {
-      this.lockHiddenShelf();
+      // A book destination covers this shelf without ending its session; app backgrounding still locks it.
       this.shelfScrolling = false;
       this.cancelShelfDissolve();
       this.pressedShelfBookId = '';
@@ -1378,21 +1408,49 @@ export struct FavoritePage {
     this.statusFilterMenuVisible = !this.statusFilterMenuVisible;
   }
 
-  private visibleGroupOptions(): string[] {
-    const groups: string[] = [];
-    if (this.shelfDisplaySettings.showAllShelfGroup) groups.push('');
-    if (this.shelfDisplaySettings.showUngroupedShelfGroup) groups.push(BookPresentation.UNGROUPED);
-    return groups.concat(this.shelfGroups);
+  private visibleGroupOptions(order: string[] = this.shelfGroupOrder): string[] {
+    return order.filter((group: string): boolean => group === '' ?
+      this.shelfDisplaySettings.showAllShelfGroup : group === BookPresentation.UNGROUPED ?
+        this.shelfDisplaySettings.showUngroupedShelfGroup : this.shelfDisplaySettings.isShelfGroupVisible(group));
   }
 
-  @Monitor('shelfDisplaySettings.showAllShelfGroup', 'shelfDisplaySettings.showUngroupedShelfGroup')
+  private async setGroupVisibility(group: string, visible: boolean): Promise<void> {
+    if (this.pendingVisibleGroups !== undefined) return;
+    const current = this.visibleGroupOptions();
+    if (current.includes(group) === visible) return;
+    if (!visible && current.length <= 1) throw new Error('Last visible shelf group');
+    const next = this.shelfGroupOrder.filter((name: string): boolean => name === group ? visible : current.includes(name));
+    this.pendingVisibleGroups = next;
+    this.groupMenuData.setItems(next);
+    const previousSelection = this.shelfGroup;
+    if (!next.includes(previousSelection)) this.selectShelfGroup(next[0], false);
+    const revision = this.groupSelectionRevision;
+    try {
+      await PreferenceService.setShelfGroupVisible(group, visible);
+      if (this.groupSelectionRevision === revision && this.shelfGroup !== previousSelection) {
+        this.persistShelfGroup(this.shelfGroup);
+      }
+    } catch (error) {
+      if (this.groupSelectionRevision === revision && this.shelfGroup !== previousSelection) {
+        this.selectShelfGroup(previousSelection, false);
+      }
+      throw new Error(String(error));
+    } finally {
+      this.pendingVisibleGroups = undefined;
+      this.syncDefaultGroupVisibility();
+    }
+  }
+
+  @Monitor('shelfDisplaySettings.showAllShelfGroup', 'shelfDisplaySettings.showUngroupedShelfGroup',
+    'shelfDisplaySettings.hiddenShelfGroups')
   private syncDefaultGroupVisibility(): void {
     if (this.collectionGroup !== undefined) return;
-    const groups = this.visibleGroupOptions();
+    const groups = this.pendingVisibleGroups ?? this.visibleGroupOptions();
+    this.groupMenuData.setItems(groups);
     if (!groups.includes(this.shelfGroup)) this.selectShelfGroup(groups[0] ?? '');
   }
 
-  private selectShelfGroup(group: string): void {
+  private selectShelfGroup(group: string, persist: boolean = true): void {
     this.groupMenuVisible = false;
     if (!this.alive || this.removingBook || this.showBatchDelete) return;
     this.groupSelectionRevision++;
@@ -1400,7 +1458,10 @@ export struct FavoritePage {
     this.selectedBookIds = new Set();
     this.updateShelfData(this.filteredBooks(this.favoriteBooks));
     this.listScroller.scrollToIndex(0);
-    if (this.collectionGroup !== undefined) return;
+    if (persist && this.collectionGroup === undefined) this.persistShelfGroup(group);
+  }
+
+  private persistShelfGroup(group: string): void {
     this.groupSaveTask = this.groupSaveTask.then((): Promise<void> =>
       PreferenceService.setShelfGroup(group)).catch((): void => {
         if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.shelf_filter_save_failed') });
@@ -1419,30 +1480,26 @@ export struct FavoritePage {
   }
 
   private openGroupManager(): void {
-    if (!this.alive || this.removingBook || this.showBatchDelete) return;
+    if (!this.alive || this.removingBook || this.showBatchDelete || this.pendingShelfOrder !== undefined) return;
     this.groupMenuVisible = false;
     this.statusFilterMenuVisible = false;
     this.shelfGroups = BookPresentation.groups.slice();
     this.groupManagerVisible = true;
   }
 
-  @Builder
+  @LocalBuilder
   buildGroupManager() {
-    ShelfGroupManager({ groups: this.shelfGroups,
-      showAllGroup: this.shelfDisplaySettings.showAllShelfGroup,
-      showUngrouped: this.shelfDisplaySettings.showUngroupedShelfGroup,
-      onVisibility: async (ungrouped: boolean, visible: boolean): Promise<void> => {
-        await PreferenceService.setDefaultShelfGroupVisible(ungrouped, visible);
-        this.syncDefaultGroupVisibility();
+    ShelfGroupManager({ groups: this.shelfGroupOrder,
+      visibleGroups: this.pendingVisibleGroups ?? this.visibleGroupOptions(),
+      changingVisibility: this.pendingVisibleGroups !== undefined,
+      onClose: (): void => { this.groupManagerVisible = false; },
+      onVisibility: async (group: string, visible: boolean): Promise<void> => {
+        await this.setGroupVisibility(group, visible);
       },
       onBusy: (busy: boolean): void => { this.savingGroups = busy; },
       onDelete: async (group: string): Promise<void> => { await this.deleteShelfGroup(group); },
       onReorder: async (groups: string[]): Promise<void> => {
-        const current = BookPresentation.groups;
-        if (groups.length !== current.length || new Set(groups).size !== current.length ||
-          groups.some((group: string): boolean => !current.includes(group))) throw new Error('Invalid group order');
-        await PreferenceService.saveBookPresentation(BookPresentation.edits.slice(), groups);
-        this.shelfGroups = BookPresentation.groups.slice();
+        await this.saveShelfGroupOrder(groups);
       },
       onSave: async (previous: string, name: string): Promise<void> => {
         if (!name || name === BookPresentation.UNGROUPED || BookPresentation.groups.includes(name) ||
@@ -1468,7 +1525,7 @@ export struct FavoritePage {
     await PreferenceService.saveBookPresentation(BookPresentation.assignGroup(ids, ''), groups);
     this.shelfGroups = BookPresentation.groups.slice();
     if (selected) this.selectShelfGroup(this.shelfDisplaySettings.showUngroupedShelfGroup ?
-      BookPresentation.UNGROUPED : this.visibleGroupOptions()[0] ?? '');
+      BookPresentation.UNGROUPED : this.shelfDisplaySettings.showAllShelfGroup ? '' : this.visibleGroupOptions()[0] ?? '');
   }
 
   @LocalBuilder
@@ -1495,7 +1552,7 @@ export struct FavoritePage {
         .fontSize(AppFont.Body).fontColor($r('sys.color.font_primary'))
         .width('100%').height(48).padding({ left: AppSpace.Sm, right: AppSpace.Sm })
         .onClick((): void => this.openGroupManager())
-    }.width(200).height(Math.min(320, (this.visibleGroupOptions().length + 1) * 48 + 1))
+    }.width(200).height(Math.min(320, ((this.pendingVisibleGroups ?? this.visibleGroupOptions()).length + 1) * 48 + 1))
       .onTouch(ImmersiveMenu.keepOpen)
   }
 
@@ -2079,6 +2136,9 @@ export struct FavoritePage {
         const pinBookId = this.pendingPinBookId;
         this.pendingPinBookId = '';
         if (pinBookId.length > 0) this.toggleBookPinned(pinBookId);
+        const hiddenBookId = this.pendingHiddenBookId;
+        this.pendingHiddenBookId = '';
+        if (hiddenBookId.length > 0) this.setBooksHidden([hiddenBookId]);
         const selectedId = this.pendingSelection;
         this.pendingSelection = '';
         if (selectedId.length > 0) this.enterManagement(selectedId);
@@ -2109,7 +2169,7 @@ export struct FavoritePage {
         })
       MenuItem({ content: this.hiddenShelf ? $r('app.string.shelf_unhide_book') : $r('app.string.shelf_hide_book') })
         .enabled(!this.removingBook && !this.savingHidden)
-        .onClick((): void => { this.setBooksHidden([book.id]); })
+        .onClick((): void => { this.pendingHiddenBookId = book.id; })
       MenuItem({ content: $r('app.string.shelf_view_detail') })
         .enabled(!this.removingBook)
         .onClick((): void => { this.pendingDetailBookId = book.id; })
@@ -2145,7 +2205,7 @@ export struct FavoritePage {
       if (this.viewMode === 3) {
         ShelfCollectionView({ groups: this.collectionGroups, recent: this.collectionRecent,
           loading: this.loading, historyEnabled: this.historyEnabled, visible: this.visible,
-          showAllBooks: this.shelfDisplaySettings.showAllShelfGroup, reorderEnabled: !this.shelfKeyword.trim(),
+          reorderEnabled: !this.shelfKeyword.trim(),
           onReorder: async (groups: string[]): Promise<void> => {
             await this.saveCollectionOrder(groups);
           },
@@ -2350,7 +2410,7 @@ export struct FavoritePage {
         })
       Column().width(0).height(0)
         .bindSheet($$this.groupManagerVisible, this.buildGroupManager(), {
-          height: '65%', detents: ['65%', '45%', SheetSize.LARGE], preferType: SheetType.BOTTOM, dragBar: true, showClose: true, backgroundColor: AppMaterial.SheetBackground,
+          height: '100%', detents: ['100%'], preferType: SheetType.BOTTOM, dragBar: false, showClose: false, backgroundColor: AppMaterial.SheetBackground,
           blurStyle: AppMaterial.SheetBlur,
           systemMaterial: PlatformCompat.immersiveMaterial ? AppMaterial.Sheet : undefined,
           onWillDismiss: (action: DismissSheetAction): void => { if (!this.savingGroups) action.dismiss(); }
@@ -2656,7 +2716,7 @@ export struct FavoritePage {
               iconColor: this.shelfGroup ? AppColor.Brand : $r('sys.color.icon_primary'),
               onPress: (): void => {
                 this.statusFilterMenuVisible = false;
-                this.groupMenuData.setItems(this.visibleGroupOptions());
+                this.groupMenuData.setItems(this.pendingVisibleGroups ?? this.visibleGroupOptions());
                 this.groupMenuVisible = !this.groupMenuVisible;
               } })
               .id('shelf-group-button')

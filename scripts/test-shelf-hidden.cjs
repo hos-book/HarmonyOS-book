@@ -23,6 +23,7 @@ const presentation = compile(read('model/BookPresentation.ets'));
 const { BookPresentation: model, BookPresentationEdit: Edit } = presentation;
 const { ShelfCollectionData, ShelfCollectionRoute } = compile(read('model/ShelfCollection.ets'), { BookPresentation: model });
 const preferenceSource = read('service/PreferenceService.ets');
+const { GeneralSettings } = compile(read('model/GeneralSettings.ets').replace(/@ObservedV2\s*/g, '').replace(/@Trace\s*/g, ''));
 const values = new Map();
 let events = 0;
 let flushes = 0;
@@ -38,7 +39,7 @@ const { PreferenceService } = compile(`export class PreferenceService {
   ${member(preferenceSource, 'setBookHidden', ['static async '])}
   ${member(preferenceSource, 'setBookGroup', ['static async '])}
   ${member(preferenceSource, 'saveBookPresentation', ['static async '])}
-}`, { BookPresentation: model, store, emitter: { emit: () => { events++; } }, EVT_FAVORITES_CHANGED: 'favorites' });
+}`, { BookPresentation: model, GeneralSettings, store, emitter: { emit: () => { events++; } }, EVT_FAVORITES_CHANGED: 'favorites' });
 class Report {
   checkedAt = 0;
   checkedCount = 0;
@@ -48,7 +49,7 @@ class Report {
 }
 const source = read('pages/FavoritePage.ets');
 const names = ['shelfBooks', 'matchesShelfVisibility', 'lockHiddenShelf', 'openHiddenShelf', 'unlockHiddenShelf',
-  'setBooksHidden', 'shelfGroupBooks', 'collectionGroups', 'filteredBooks', 'refreshCollectionRecent',
+  'setBooksHidden', 'shelfGroupBooks', 'shelfGroupOrder', 'collectionGroups', 'visibleGroupOptions', 'filteredBooks', 'refreshCollectionRecent',
   'canAddCollectionBooks', 'openCollectionPicker', 'addCollectionBooks', 'applyUpdateReport', 'exitManagement',
   'onVisibleChange'];
 const applicationStart = source.indexOf('  private applicationState:');
@@ -58,7 +59,8 @@ const { Shelf } = compile(`export class Shelf {
   ${applicationState}
   ${names.map(name => member(source, name)).join('\n')}
 }`, { BookPresentation: model, PreferenceService, ShelfCollectionData, ShelfCollectionRoute,
-  ShelfUpdateReport: Report, TextReadingProgressService: { getAll: async () => positions }, $r: key => key });
+  ShelfUpdateReport: Report, TextReadingProgressService: { getAll: async () => positions },
+  AppColor: { Brand: '#00aa00' }, $r: key => key });
 const books = [
   { id: 'audio', title: '普通听书', author: '', narrator: '', contentType: 'audio', chapterCount: 10 },
   { id: 'text', title: '普通小说', author: '', narrator: '', contentType: 'text', completed: false, chapterCount: 10 },
@@ -88,17 +90,21 @@ function shelf(hidden = false) {
     favoriteBooks: books.slice(), hiddenShelf: hidden, hiddenShelfUnlocked: true, shelfFilter: 0,
     shelfStatusFilter: 0, shelfKeyword: '', shelfGroup: '', shelfGroups: model.groups.slice(),
     pendingShelfRemovalIds: new Set(), favoriteIdsByBookId: new Map([['secret', ['legacy-secret']], ['audio', ['legacy-audio']]]),
-    shelfDisplaySettings: { showUngroupedShelfGroup: true, shelfCollectionOrder: '[]' },
+    shelfDisplaySettings: GeneralSettings.current,
     alive: true, visible: true, foreground: true, loading: false, isManaging: false, removingBook: false,
     savingHidden: false, selectedBookIds: new Set(), showBatchDelete: false, showBookEditor: false,
     showUpdates: false, showBatchGroup: false, addingCollectionBooks: false, showCollectionPicker: false,
     context: {}, viewMode: hidden ? 0 : 3, collectionGroup: hidden ? '' : undefined,
     historyEnabled: true, shelfScrolling: false, collectionRecentSerial: 0, collectionRecent: [],
-    collectionBooks: [], updateReport: new Report(), displayed: [], toasts: [], reloads: 0, updates: [],
+    collectionBooks: [], updateReport: new Report(), displayed: [], toasts: [], dialogs: [], reloads: 0, updates: [],
     updateShelfData(items) { this.displayed = Array.from(items); },
     updateData: { setItems(items) { result.updates = items; } },
     loadFavorites: async () => { result.reloads++; }, isMissingCachedBook: () => false,
-    getUIContext: () => ({ getPromptAction: () => ({ showToast: options => result.toasts.push(options.message) }) }),
+    confirmHidden: async () => ({ index: 1 }),
+    getUIContext: () => ({ getPromptAction: () => ({
+      showToast: options => result.toasts.push(options.message),
+      showDialog: options => { result.dialogs.push(options); return result.confirmHidden(); }
+    }) }),
     cancelAutoUpdate() {}, scheduleAutoUpdate() {}, finishShelfScroll() {}, cancelShelfDissolve() {},
     syncShelfSourceVisibility() {}, scheduleInitialLoad() {},
     navStack: { size: () => 0, pushPathByName: (...args) => result.routes.push(args) }, routes: []
@@ -163,7 +169,8 @@ async function run() {
   ordinary.shelfFilter = 3;
   assert.equal(ids(ordinary.filteredBooks(books)), 'comic');
   ordinary.shelfFilter = 0;
-  assert.equal(ids(ordinary.collectionGroups.flatMap(group => group.books)), 'audio|text|comic');
+  assert.equal(ids(ordinary.collectionGroups.find(group => group.id === '').books), 'audio|text|comic');
+  assert.equal(ids(ordinary.collectionGroups.filter(group => group.id !== '').flatMap(group => group.books)), 'audio|text|comic');
   await ordinary.refreshCollectionRecent([]);
   assert.equal(ids(ordinary.collectionRecent.map(item => item.book)), 'text', 'recent cards skip hidden newer history');
   ordinary.collectionGroup = '阅读'; ordinary.shelfGroup = '阅读';
@@ -197,15 +204,46 @@ async function run() {
   assert.equal(ids(concealed.displayed), 'secret|secret-free');
   concealed.visible = false;
   concealed.onVisibleChange();
-  assert.equal(concealed.displayed.length, 0, 'leaving the page also locks hidden content');
+  assert.equal(concealed.hiddenShelfUnlocked, true, 'opening a book only covers the hidden shelf');
+  concealed.visible = true;
+  concealed.onVisibleChange();
+  assert.equal(ids(concealed.displayed), 'secret|secret-free', 'return opens the same populated panel');
+  concealed.visible = false;
+  concealed.onVisibleChange();
+  concealed.applicationState.onApplicationBackground();
+  concealed.applicationState.onApplicationForeground();
+  concealed.visible = true;
+  concealed.onVisibleChange();
+  assert.equal(concealed.displayed.length, 0, 'backgrounding while reading still locks the shelf');
   assert.equal(concealed.hiddenShelfUnlocked, false);
-  console.log('PASS normal/hidden search, groups, media filters, recent/picker isolation and background/page lock');
+  console.log('PASS normal/hidden isolation, book return, and background lock');
 
   reset();
   const main = shelf();
   main.collectionRecent = [{ book: books[0] }];
   main.selectedBookIds = new Set(['audio']); main.isManaging = true;
   const favoritesBefore = values.get('favorite_book_ids');
+  const beforeConfirmation = flushes;
+  main.confirmHidden = async () => ({ index: 0 });
+  await main.setBooksHidden(['audio']);
+  assert.equal(main.dialogs[0].title, 'app.string.shelf_hide_book');
+  assert.equal(main.dialogs[0].message, 'app.string.shelf_hide_confirm_message');
+  assert.equal(flushes, beforeConfirmation, 'cancel does not persist');
+  assert.equal(ids(main.displayed), 'audio|text|comic');
+  assert.equal(main.isManaging, true);
+  assert.deepEqual(Array.from(main.selectedBookIds), ['audio']);
+  const batch = shelf();
+  let confirmBatch;
+  batch.confirmHidden = () => new Promise(resolve => { confirmBatch = resolve; });
+  const batchMove = batch.setBooksHidden(['text', 'comic']);
+  await batch.setBooksHidden(['audio']);
+  assert.equal(batch.dialogs.length, 1, 'batch and duplicate taps share one pending confirmation');
+  assert.equal(flushes, beforeConfirmation, 'no book moves before confirmation');
+  confirmBatch({ index: 1 });
+  await batchMove;
+  assert.equal(ids(batch.displayed), 'audio');
+  reset();
+  main.confirmHidden = async () => ({ index: 1 });
   await main.setBooksHidden(['audio']);
   assert.equal(model.isHidden('audio'), true);
   assert.equal(model.isHidden('legacy-audio'), true, 'canonical and stored alias IDs share the hidden state');
@@ -216,6 +254,7 @@ async function run() {
   assert.equal(values.get('play_history'), 'existing history');
   const restore = shelf(true);
   await restore.setBooksHidden(['audio']);
+  assert.equal(restore.dialogs.length, 0, 'moving back does not require confirmation');
   assert.equal(model.isHidden('audio'), false);
   assert.equal(model.isHidden('legacy-audio'), false);
   assert.equal(model.get('audio').group, '听书');

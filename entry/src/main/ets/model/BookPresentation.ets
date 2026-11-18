@@ -14,6 +14,15 @@ export class BookPresentation {
   static edits: BookPresentationEdit[] = [];
   static groups: string[] = [];
 
+  static shelfGroupOrder(groups: string[], stored: string): string[] {
+    const defaults = [''].concat(groups, BookPresentation.UNGROUPED);
+    let saved: string[] = [];
+    try { saved = JSON.parse(stored); } catch (_error) { return defaults; }
+    if (!Array.isArray(saved)) return defaults;
+    const candidates = [''].concat(saved, defaults);
+    return Array.from(new Set(candidates.filter((id: string): boolean => defaults.includes(id))));
+  }
+
   static matchesGroup(bookId: string, filter: string): boolean {
     if (!filter) return true;
     const group = BookPresentation.get(bookId)?.group ?? '';

@@ -6885,6 +6885,10 @@
       "value": "长按分组拖动排序，松开后自动保存"
     },
     {
+      "name": "shelf_group_keep_one",
+      "value": "至少启用一组"
+    },
+    {
       "name": "reader_more",
       "value": "阅读菜单"
     },
@@ -9196,6 +9200,8 @@
     {"name":"shelf_hidden_locked_hint","value":"长按标题显示隐藏书籍"},
     {"name":"shelf_hidden_empty","value":"暂无隐藏书籍，可在普通书架长按书籍移入"},
     {"name":"shelf_hide_book","value":"移入隐藏书架"},
+    {"name":"shelf_hide_confirm_message","value":"移入后，书籍仅在长按「书架」标题打开的隐藏书架中显示。"},
+    {"name":"shelf_hide_confirm_action","value":"移入"},
     {"name":"shelf_unhide_book","value":"移回普通书架"},
     {"name":"shelf_hide_action","value":"隐藏"},
     {"name":"shelf_unhide_action","value":"移回"},

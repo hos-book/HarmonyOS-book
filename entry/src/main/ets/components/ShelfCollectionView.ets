@@ -12,7 +12,6 @@ export struct ShelfCollectionView {
   @Param recent: ShelfRecentBook[] = [];
   @Param loading: boolean = false;
   @Param historyEnabled: boolean = true;
-  @Param showAllBooks: boolean = true;
   @Param reorderEnabled: boolean = true;
   @Param visible: boolean = true;
   @Param topInset: number = 100;
@@ -67,8 +66,13 @@ export struct ShelfCollectionView {
   private updateGroups(): void {
     // 原生拖拽负责移动占位；期间不能用宿主刷新重载正在拖动的节点。
     if (this.dragging || this.pendingOrderSaves > 0) return;
-    this.savedOrder = this.groups.map((group: ShelfCollectionGroup): string => group.id);
-    this.renderGroups(this.groups);
+    const folders = this.draggableGroups();
+    this.savedOrder = folders.map((group: ShelfCollectionGroup): string => group.id);
+    this.renderGroups(folders);
+  }
+
+  private draggableGroups(): ShelfCollectionGroup[] {
+    return this.groups.filter((group: ShelfCollectionGroup): boolean => group.id !== '');
   }
 
   private renderGroups(groups: ShelfCollectionGroup[]): void {
@@ -101,7 +105,7 @@ export struct ShelfCollectionView {
     this.dropTimer = setTimeout((): void => {
       this.dropTimer = -1;
       if (this.pendingOrderSaves === 0 && !this.dragging) {
-        this.renderGroups(ShelfCollectionData.ordered(this.groups, JSON.stringify(this.savedOrder)));
+        this.renderGroups(ShelfCollectionData.ordered(this.draggableGroups(), JSON.stringify(this.savedOrder)));
       }
     }, 0);
   }
@@ -127,7 +131,7 @@ export struct ShelfCollectionView {
       this.pendingOrderSaves--;
       if (this.pendingOrderSaves === 0 && !this.dragging) {
         // @Param 的同步可能晚于保存完成，使用最近成功顺序恢复，避免落位后跳回旧位置。
-        this.renderGroups(ShelfCollectionData.ordered(this.groups, JSON.stringify(this.savedOrder)));
+        this.renderGroups(ShelfCollectionData.ordered(this.draggableGroups(), JSON.stringify(this.savedOrder)));
       }
     }
   }
@@ -245,11 +249,6 @@ export struct ShelfCollectionView {
         Text($r('app.string.collection_groups')).fontSize(16).fontWeight(FontWeight.Medium)
           .fontColor(AppTheme.TextPrimary)
         Text(this.groups.length.toString()).fontSize(11).fontColor(AppTheme.TextTertiary)
-        Blank()
-        if (this.showAllBooks) {
-          Text($r('app.string.collection_all_books')).fontSize(11).fontColor(AppColor.Brand)
-            .height(32).onClick((): void => this.onGroup('')).id('shelf-collection-all-books')
-        }
       }.width('100%').margin({ top: 12 })
       if (this.loading) {
         LoadingProgress().color(AppColor.Brand).width(28).height(28).margin(24)
@@ -263,6 +262,11 @@ export struct ShelfCollectionView {
     List({ scroller: this.scroller, space: 12 }) {
       // 头部独占整行；可排序的 ListItem 必须直接归属 List。
       ListItemGroup({ header: this.header() }) {}.clip(false)
+      if (this.groups[0]?.id === '') {
+        ListItem() {
+          ShelfCollectionFolder({ group: this.groups[0], onOpen: (id: string): void => this.onGroup(id) })
+        }.clip(false)
+      }
       LazyForEach(this.data, (group: ShelfCollectionGroup) => {
         ListItem() {
           ShelfCollectionFolder({ group: group, onOpen: (id: string): void => this.onGroup(id) })
@@ -272,8 +276,8 @@ export struct ShelfCollectionView {
             { topLeft: 0, topRight: 0, bottomLeft: 0, bottomRight: 0 } : 0)
           .shadow({ radius: this.draggingGroupId === group.id ? 0 : 0.01, color: Color.Transparent })
           .accessibilityDescription($r('app.string.shelf_group_drag_hint'))
-      }, (group: ShelfCollectionGroup): string => JSON.stringify([group.id, group.tint,
-        group.books.map((book: Book): string => book.id + book.title + book.cover)]))
+      }, (group: ShelfCollectionGroup): string => JSON.stringify([group.id, group.tint, group.books.length,
+        group.books.slice(0, 3).map((book: Book): string => book.id + book.title + book.cover)]))
         .onMove(this.reorderEnabled ? this.moveHandler : undefined, this.dragEvents)
     }.lanes(this.columns, 16).width('100%').height('100%')
       .padding({ left: 20, right: 20 }).clip(false)

@@ -219,17 +219,46 @@ export class PreferenceService {
     const store = await PreferenceService.ensureStore();
     const previousEdits = store.getSync('book_presentation_v1', '[]');
     const previousGroups = store.getSync('shelf_groups_v1', '[]');
+    const settings = GeneralSettings.current;
+    const previousHidden = settings.hiddenShelfGroups;
+    const previousAll = settings.showAllShelfGroup;
+    const removed = BookPresentation.groups.filter((name: string): boolean => !groups.includes(name));
+    const added = groups.filter((name: string): boolean => !BookPresentation.groups.includes(name));
+    const previousOrder = store.getSync('shelf_collection_order', '[]');
+    let nextOrder: string | undefined = undefined;
+    if (removed.length > 0 || added.length > 0) {
+      const order = BookPresentation.shelfGroupOrder(BookPresentation.groups,
+        typeof previousOrder === 'string' ? previousOrder : '[]');
+      const renamed = order.map((name: string): string =>
+        removed.length === 1 && added.length === 1 && name === removed[0] ? added[0] : name);
+      nextOrder = JSON.stringify(BookPresentation.shelfGroupOrder(groups, JSON.stringify(renamed)));
+    }
+    const hidden: string[] = JSON.parse(previousHidden);
+    const nextHidden = hidden.map((name: string): string =>
+      removed.length === 1 && added.length === 1 && name === removed[0] ? added[0] : name)
+      .filter((name: string): boolean => groups.includes(name));
+    const showAll = previousAll || (!settings.showUngroupedShelfGroup &&
+      !groups.some((name: string): boolean => !nextHidden.includes(name)));
     try {
       await store.put('book_presentation_v1', JSON.stringify(edits));
       await store.put('shelf_groups_v1', JSON.stringify(groups));
+      await store.put('hidden_shelf_groups', JSON.stringify(nextHidden));
+      await store.put('show_all_shelf_group', showAll);
+      if (nextOrder !== undefined) await store.put('shelf_collection_order', nextOrder);
       await store.flush();
     } catch (_error) {
       await store.put('book_presentation_v1', previousEdits);
       await store.put('shelf_groups_v1', previousGroups);
+      await store.put('hidden_shelf_groups', previousHidden);
+      await store.put('show_all_shelf_group', previousAll);
+      if (nextOrder !== undefined) await store.put('shelf_collection_order', previousOrder);
       throw new Error('Book presentation save failed');
     }
     BookPresentation.edits = edits;
     BookPresentation.groups = groups;
+    settings.hiddenShelfGroups = JSON.stringify(nextHidden);
+    if (nextOrder !== undefined) settings.shelfCollectionOrder = nextOrder;
+    settings.showAllShelfGroup = showAll;
     emitter.emit(EVT_FAVORITES_CHANGED);
   }
 
@@ -568,13 +597,31 @@ export class PreferenceService {
   }
 
   static async setDefaultShelfGroupVisible(ungrouped: boolean, visible: boolean): Promise<void> {
+    await PreferenceService.setShelfGroupVisible(ungrouped ? BookPresentation.UNGROUPED : '', visible);
+  }
+
+  static async setShelfGroupVisible(group: string, visible: boolean): Promise<void> {
     const store = await PreferenceService.ensureStore();
-    const key = ungrouped ? 'show_ungrouped_shelf_group' : 'show_all_shelf_group';
-    const previous = store.getSync(key, true);
-    try { await store.put(key, visible); await store.flush(); }
+    const settings = GeneralSettings.current;
+    if (group && group !== BookPresentation.UNGROUPED && !BookPresentation.groups.includes(group)) {
+      throw new Error('Invalid shelf group');
+    }
+    const enabled = (settings.showAllShelfGroup ? [''] : [])
+      .concat(settings.showUngroupedShelfGroup ? [BookPresentation.UNGROUPED] : [])
+      .concat(BookPresentation.groups.filter((name: string): boolean => settings.isShelfGroupVisible(name)));
+    if (!visible && enabled.includes(group) && enabled.length <= 1) throw new Error('Last visible shelf group');
+    const hidden: string[] = JSON.parse(settings.hiddenShelfGroups);
+    const nextHidden = JSON.stringify(visible ? hidden.filter((name: string): boolean => name !== group) :
+      hidden.includes(group) ? hidden : hidden.concat(group));
+    const key = group === '' ? 'show_all_shelf_group' : group === BookPresentation.UNGROUPED ?
+      'show_ungrouped_shelf_group' : 'hidden_shelf_groups';
+    const previous = store.getSync(key, group === '' || group === BookPresentation.UNGROUPED ? true : '[]');
+    const value = group === '' || group === BookPresentation.UNGROUPED ? visible : nextHidden;
+    try { await store.put(key, value); await store.flush(); }
     catch (_error) { await store.put(key, previous); throw new Error('Default group visibility save failed'); }
-    if (ungrouped) GeneralSettings.current.showUngroupedShelfGroup = visible;
-    else GeneralSettings.current.showAllShelfGroup = visible;
+    if (group === '') settings.showAllShelfGroup = visible;
+    else if (group === BookPresentation.UNGROUPED) settings.showUngroupedShelfGroup = visible;
+    else settings.hiddenShelfGroups = nextHidden;
   }
 
   static async setShowShelfSource(enabled: boolean): Promise<void> {
@@ -669,6 +716,19 @@ export class PreferenceService {
         GeneralSettings.current.showShelfSource = s.getSync('show_shelf_source', true) !== false;
         GeneralSettings.current.showAllShelfGroup = s.getSync('show_all_shelf_group', true) !== false;
         GeneralSettings.current.showUngroupedShelfGroup = s.getSync('show_ungrouped_shelf_group', true) !== false;
+        const hiddenGroups = s.getSync('hidden_shelf_groups', '[]');
+        if (typeof hiddenGroups === 'string') {
+          try {
+            const parsed: string[] = JSON.parse(hiddenGroups);
+            if (Array.isArray(parsed) && parsed.every((name: string): boolean => typeof name === 'string')) {
+              GeneralSettings.current.hiddenShelfGroups = JSON.stringify(parsed);
+            }
+          } catch (_error) { GeneralSettings.current.hiddenShelfGroups = '[]'; }
+        }
+        if (!GeneralSettings.current.showAllShelfGroup && !GeneralSettings.current.showUngroupedShelfGroup &&
+          !BookPresentation.groups.some((name: string): boolean => GeneralSettings.current.isShelfGroupVisible(name))) {
+          GeneralSettings.current.showAllShelfGroup = true;
+        }
         GeneralSettings.current.adaptiveHandedness = s.getSync('adaptive_handedness', true) !== false;
         GeneralSettings.current.swipeSwitchTabs = s.getSync('swipe_switch_tabs', true) !== false;
         const selectionMenu = s.getSync('reader_selection_menu', '');
