@@ -16,7 +16,18 @@
 - 使用 Release SDK 26.0.0.105 与现有发布签名构建 APP；验包确认版本 1.1.13 / 1023001、release 模式、debug=false、最低 API 20、目标 API 26，资源及混淆导出检查通过。
 - 阅读翻页、在线插图与段评、正文分页、书房及分组管理五组定向主机回归通过。
 - 构建 MCP 的 OHPM 批处理递归失败，改用同一 Release IDE 的 Node/Hvigor CLI 完成构建。本次未新增设备验收；已有覆盖翻页实机记录见 `docs/APP_UI.md`。
-- AGC 提交结果在完成后补充。
+- 修改的 ETS 独立检查完成，未阻断 Release 编译；保留现有兼容性、异常处理和样式类警告。
+
+## AGC 提交记录
+
+- 代码提交：`f6b9e21`，已通过 SSH 推送至 GitHub。
+- 2026-11-18 邀请测试提交成功，版本 ID：`2086391563394513728`，软件包 ID：`2086393541889647872`。
+- 全部测试组已绑定：简听外部体验（239 人）、内测组（2 人）；开启发送测试通知，关闭上架自检。测试开始时间为提交当日 16:16:22，结束时间为 2026-12-18 23:59:59（北京时间），未设置延后开始；外部组开放以 AGC 审核为准。
+- [邀请测试链接](https://appgallery.huawei.com/apptest/join/772f49c237fd3ac5751ddd9696af3e75)。
+- 正式版本提交成功，版本 ID：`2086393427217376512`，软件包 ID：`2086394443086199616`。提交后回读状态码为 12；全网发布、未设置定时发布时间，审核通过后立即发布。
+- 两个版本查询均返回“self detect task is not exist”，未生成自检任务。测试通知已配置开启，实际送达由 AGC 执行。
+- 签名 APP、混淆映射及提交回执归档于 `artifacts/releases/1.1.13-1023001/`。
+- 发布操作依据本轮读取的 [在线 AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)、[测试版本更新接口](https://developer.huawei.com/consumer/cn/doc/doccenter-connect-api/agc-help-test-api-modify-test-version-0000002271160657)及[正式提交接口](https://developer.huawei.com/consumer/cn/doc/App/agc-help-publish-api-app-submit-0000002271160585)。官方 CLI 的正式提交缺少 `appId` Query 参数，已在任务临时副本按接口规范补齐后提交，未修改项目配置。
 
 ## 正式版更新说明
 
