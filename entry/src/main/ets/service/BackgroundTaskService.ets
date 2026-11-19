@@ -17,9 +17,11 @@ export class BackgroundTaskService {
   private static context: common.UIAbilityContext | null = null;
   private static listenersBound: boolean = false;
   private static systemBlocked: boolean = false;
+  private static speechTaskIdle: boolean = false;
   private static taskRegistered: boolean = false;
   private static starting: boolean = false;
   private static suspended: boolean = false;
+  private static suspensionReason: number = -1;
   private static taskId: number = -1;
   private static endedTaskId: number = -1;
   private static taskGeneration: number = 0;
@@ -39,37 +41,56 @@ export class BackgroundTaskService {
     BackgroundTaskService.endedTaskId = info.id;
     DiagnosticLogService.info('background.cancel', `id=${info.id}; reason=${reason}; detail=${detail}; modes=${BackgroundTaskService.modeSnapshot()}; owners=${Array.from(BackgroundTaskService.audioOwners).join(',')}`);
     BackgroundTaskService.systemBlocked = true;
+    BackgroundTaskService.speechTaskIdle = PlatformCompat.supports(26) && detail >= 0
+      ? reason === backgroundTaskManager.ContinuousTaskCancelReason.SYSTEM_CANCEL &&
+        detail === backgroundTaskManager.ContinuousTaskDetailedCancelReason.SYSTEM_CANCEL_AUDIO_PLAYBACK_NOT_RUNNING
+      : reason === backgroundTaskManager.ContinuousTaskCancelReason.SYSTEM_CANCEL_AUDIO_PLAYBACK_NOT_RUNNING;
     for (const listener of BackgroundTaskService.interruptionListeners) listener();
   };
 
   private static readonly onSuspend = (info: backgroundTaskManager.ContinuousTaskSuspendInfo): void => {
     if (!BackgroundTaskService.matchesTask(info.continuousTaskId)) return;
-    const reason = info?.suspendReason ?? -1;
+    if (info.suspendState === false) {
+      BackgroundTaskService.activateTask(info.continuousTaskId);
+      return;
+    }
+    const legacyReason: number = info.suspendReason ?? -1;
+    const detailReason: number = PlatformCompat.supports(26) ? (info.suspendMessage?.reason ?? -1) : -1;
+    const reason: number = legacyReason >= 0 ? legacyReason : detailReason;
     hilog.warn(DOMAIN, TAG, 'continuousTaskSuspend id=%{public}d reason=%{public}d modes=%{public}s',
       info?.continuousTaskId ?? -1, reason, BackgroundTaskService.modeSnapshot());
     // 尊重系统挂起，等待 active 回调或用户重新发起任务。
     BackgroundTaskService.running = false;
     BackgroundTaskService.taskRegistered = true;
     BackgroundTaskService.suspended = true;
+    BackgroundTaskService.suspensionReason = reason;
     BackgroundTaskService.taskId = info.continuousTaskId;
     BackgroundTaskService.taskGeneration++;
-    DiagnosticLogService.info('background.suspend', `id=${info.continuousTaskId}; reason=${reason}; modes=${BackgroundTaskService.modeSnapshot()}`);
+    DiagnosticLogService.info('background.suspend', `id=${info.continuousTaskId}; reason=${reason}; legacy=${legacyReason}; detail=${detailReason}; state=${info.suspendState}; modes=${BackgroundTaskService.modeSnapshot()}`);
     BackgroundTaskService.systemBlocked = true;
+    BackgroundTaskService.speechTaskIdle =
+      reason === backgroundTaskManager.ContinuousTaskSuspendReason.SYSTEM_SUSPEND_AUDIO_PLAYBACK_NOT_RUNNING;
     for (const listener of BackgroundTaskService.interruptionListeners) listener();
   };
 
   private static readonly onActive = (info: backgroundTaskManager.ContinuousTaskActiveInfo): void => {
+    BackgroundTaskService.activateTask(info.id);
+  };
+
+  private static activateTask(id: number): void {
     if (!BackgroundTaskService.taskRegistered || !BackgroundTaskService.suspended ||
-      !BackgroundTaskService.matchesTask(info.id)) return;
+      !BackgroundTaskService.matchesTask(id)) return;
     hilog.info(DOMAIN, TAG, 'continuousTaskActive id=%{public}d modes=%{public}s',
-      info?.id ?? -1, BackgroundTaskService.modeSnapshot());
+      id, BackgroundTaskService.modeSnapshot());
     if (BackgroundTaskService.requestedModes.size > 0) {
       BackgroundTaskService.running = true;
       BackgroundTaskService.suspended = false;
+      BackgroundTaskService.suspensionReason = -1;
       BackgroundTaskService.systemBlocked = false;
-      DiagnosticLogService.info('background.active', `id=${info.id}; modes=${BackgroundTaskService.modeSnapshot()}`);
+      BackgroundTaskService.speechTaskIdle = false;
+      DiagnosticLogService.info('background.active', `id=${id}; modes=${BackgroundTaskService.modeSnapshot()}`);
     }
-  };
+  }
 
   private static audioOwners: Set<string> = new Set();
   private static transferOwners: Set<string> = new Set();
@@ -77,6 +98,24 @@ export class BackgroundTaskService {
   static startSpeech(context: common.UIAbilityContext): Promise<void> {
     BackgroundTaskService.audioOwners.add('speech');
     return BackgroundTaskService.setMode(context, AUDIO_MODE, true);
+  }
+
+  /** 仅由保留续播意图且已重新获得焦点的 TTS 调用，重新申请仍由系统裁决。 */
+  static async recoverSpeechPlayback(context: common.UIAbilityContext): Promise<boolean> {
+    if (BackgroundTaskService.systemBlocked) {
+      // 部分实机挂起回调未提供原因（日志为 -1），不能将未知挂起等同于用户取消。
+      // 仅对仍登记的挂起任务尝试一次；明确的其他挂起原因、取消及主动停止不解锁。
+      const unknownSuspension: boolean = BackgroundTaskService.taskRegistered &&
+        BackgroundTaskService.suspended && BackgroundTaskService.suspensionReason < 0;
+      if ((!BackgroundTaskService.speechTaskIdle && !unknownSuspension) ||
+        !BackgroundTaskService.audioOwners.has('speech')) return false;
+      DiagnosticLogService.info('background.speech.recover',
+        `id=${BackgroundTaskService.taskId}; reason=${BackgroundTaskService.suspensionReason}; unknown=${unknownSuspension}`);
+      BackgroundTaskService.systemBlocked = false;
+      BackgroundTaskService.speechTaskIdle = false;
+    }
+    await BackgroundTaskService.startSpeech(context);
+    return BackgroundTaskService.isAudioPlaybackRunning();
   }
 
   static stopSpeech(context: common.UIAbilityContext): Promise<void> {
@@ -118,6 +157,11 @@ export class BackgroundTaskService {
 
   static isRunning(): boolean {
     return BackgroundTaskService.running;
+  }
+
+  /** 以系统已申请成功的模式为准，requestedModes 只表示业务意图。 */
+  static isAudioPlaybackRunning(): boolean {
+    return BackgroundTaskService.running && BackgroundTaskService.appliedModes.split(',').includes(AUDIO_MODE);
   }
 
   /** 只由用户明确的播放操作解除系统取消后的本地阻挡；自动预取不得自行解锁。 */
@@ -196,6 +240,7 @@ export class BackgroundTaskService {
     BackgroundTaskService.taskId = -1;
     BackgroundTaskService.taskRegistered = false;
     BackgroundTaskService.suspended = false;
+    BackgroundTaskService.suspensionReason = -1;
     BackgroundTaskService.running = false;
     BackgroundTaskService.appliedModes = '';
     BackgroundTaskService.taskGeneration++;

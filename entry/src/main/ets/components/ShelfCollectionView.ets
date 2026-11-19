@@ -4,7 +4,7 @@ import { AppColor, AppTheme } from '../theme/Theme';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { ShelfCollectionFolder } from './ShelfCollectionFolder';
-import { ShelfCollectionRecentCard } from './ShelfCollectionRecentCard';
+import { ShelfCollectionRecentCard, SHELF_RECENT_CARD_HEIGHT } from './ShelfCollectionRecentCard';
 
 @ComponentV2
 export struct ShelfCollectionView {
@@ -219,13 +219,13 @@ export struct ShelfCollectionView {
                 onBook: (book: Book, coverId: string): void => this.onBook(book, coverId) })
                 .layoutWeight(1)
             }, (item: ShelfRecentBook): string => item.book.id)
-          }.width('100%').height(86).id('shelf-collection-recent-row')
+          }.width('100%').height(SHELF_RECENT_CARD_HEIGHT).id('shelf-collection-recent-row')
         } else {
           Swiper() {
             this.recentCard(0)
             if (this.recent.length > 1) { this.recentCard(1) }
             if (this.recent.length > 2) { this.recentCard(2) }
-          }.width(this.recent.length > 1 ? 'calc(100% + 20vp)' : '100%').height(86).index(this.recentIndex)
+          }.width(this.recent.length > 1 ? 'calc(100% + 20vp)' : '100%').height(SHELF_RECENT_CARD_HEIGHT).index(this.recentIndex)
             .displayCount(1).loop(this.recent.length > 1).autoPlay(false).indicator(false).itemSpace(12)
             .nextMargin(this.recent.length > 1 ? 32 : 0, true).disableSwipe(this.recent.length < 2)
             .nestedScroll(SwiperNestedScrollMode.SELF_ONLY).effectMode(EdgeEffect.Spring)

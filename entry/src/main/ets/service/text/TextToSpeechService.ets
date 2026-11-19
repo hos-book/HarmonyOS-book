@@ -89,7 +89,7 @@ export class TextToSpeechService {
   private httpOutput: HttpTtsAudioOutput = new HttpTtsAudioOutput(
     (event: audio.InterruptEvent): void => AudioFocusService.getInstance().handleInterrupt('speech', event),
     (): void => this.pause(),
-    (): Promise<boolean> => AudioFocusService.getInstance().ensureActive('speech'));
+    (): Promise<boolean> => this.prepareAudioOutput());
   private pcm: SpeechPcmBuffer = new SpeechPcmBuffer();
   private pcmPlaybackId: string = '';
   private lastAudioLogAt: number = 0;
@@ -697,6 +697,7 @@ export class TextToSpeechService {
       this.book.id !== bookId || !Number.isInteger(chapterIndex) || chapterIndex < 0 ||
       chapterIndex >= this.book.chapters.length || !Number.isFinite(rawOffset)) return;
     AudioFocusService.getInstance().cancelRecovery('speech');
+    if (this.focusPaused && this.context !== null) BackgroundTaskService.stopSpeech(this.context);
     this.focusPaused = false;
     this.generation++;
     this.clearHttpPrefetch();
@@ -722,13 +723,18 @@ export class TextToSpeechService {
   }
 
   async resume(checkCloud: boolean = true): Promise<void> {
-    if (this.state.playing || this.state.loading || this.book === null) return;
+    await this.resumePlayback(checkCloud, false);
+  }
+
+  private async resumePlayback(checkCloud: boolean, fromFocus: boolean): Promise<void> {
+    const context = this.context;
+    if (this.state.playing || this.state.loading || this.book === null || context === null) return;
     const resumeBook = this.book;
     const resumeTicket = ++this.generation;
     if (checkCloud) await LibrarySyncActivity.prepareResume(resumeBook.id);
     if (resumeTicket !== this.generation || this.book !== resumeBook || this.state.playing || this.state.loading) return;
-    if (LibrarySyncActivity.remoteText.has(resumeBook.id) && this.context !== null) {
-      const remote = await TextReadingProgressService.get(this.context, resumeBook.id);
+    if (!fromFocus && LibrarySyncActivity.remoteText.has(resumeBook.id)) {
+      const remote = await TextReadingProgressService.get(context, resumeBook.id);
       if (resumeTicket !== this.generation || this.book !== resumeBook) return;
       if (remote !== null) {
         const titleIndex = resumeBook.chapters.findIndex((chapter): boolean => chapter.title === remote.chapterTitle);
@@ -738,6 +744,7 @@ export class TextToSpeechService {
       }
       LibrarySyncActivity.remoteText.delete(resumeBook.id);
     }
+    const wasFocusPaused = this.focusPaused;
     this.focusPaused = false;
     AudioFocusService.getInstance().cancelRecovery('speech');
     const ticket = ++this.generation;
@@ -748,6 +755,19 @@ export class TextToSpeechService {
     try {
       await this.preparePlayback(ticket);
       if (!this.valid(ticket)) return;
+      if (wasFocusPaused) {
+        // 在线合成也需要在锁屏时继续运行，不能等重新出声才申请后台资格。
+        if (!fromFocus) BackgroundTaskService.resumeAfterUserAction();
+        const ready = await BackgroundTaskService.recoverSpeechPlayback(context);
+        if (!this.valid(ticket)) return;
+        DiagnosticLogService.info('tts.focus.resume', `foreground=${this.foreground}; offset=${this.state.charOffset}; bg=${ready}`);
+        if (!ready && (fromFocus || !this.foreground)) {
+          this.pause();
+          this.state.error = this.message($r('app.string.player_background_interrupted'));
+          this.notify();
+          return;
+        }
+      }
       if (this.segments.length === 0) {
         await this.loadChapter(this.state.chapterIndex, this.currentRawOffset(), ticket);
       } else {
@@ -764,7 +784,7 @@ export class TextToSpeechService {
     this.focusPaused = forFocus;
     if (!forFocus) this.releaseFocus();
     this.state.charOffset = Math.max(this.state.charOffset, this.state.playbackOffset);
-    DiagnosticLogService.info('tts.pause', `foreground=${this.foreground}; offset=${this.state.charOffset}; bg=${BackgroundTaskService.isRunning()}`);
+    DiagnosticLogService.info('tts.pause', `foreground=${this.foreground}; focus=${forFocus}; offset=${this.state.charOffset}; bg=${BackgroundTaskService.isRunning()}`);
     this.recordSpokenTime();
     this.generation++;
     this.roles.cancel();
@@ -782,7 +802,8 @@ export class TextToSpeechService {
     this.savePosition(true);
     this.syncSession();
     ReadingSessionService.end('tts');
-    if (this.context !== null) BackgroundTaskService.stopSpeech(this.context);
+    // 焦点暂停仍有续播意图；让系统管理长时任务的挂起，主动暂停才立即释放。
+    if (!forFocus && this.context !== null) BackgroundTaskService.stopSpeech(this.context);
     this.notify();
   }
 
@@ -833,6 +854,16 @@ export class TextToSpeechService {
     if (!this.state.customTtsId) await this.ensureEngine(ticket);
     if (!this.valid(ticket)) return;
     await this.acquireFocus(ticket);
+  }
+
+  private async prepareAudioOutput(): Promise<boolean> {
+    const ticket = this.generation;
+    if (!await AudioFocusService.getInstance().ensureActive('speech') || !this.valid(ticket)) return false;
+    if (this.foreground || BackgroundTaskService.isAudioPlaybackRunning()) return true;
+    const context = this.context;
+    if (context === null) return false;
+    await BackgroundTaskService.startSpeech(context);
+    return this.valid(ticket) && BackgroundTaskService.isAudioPlaybackRunning();
   }
 
   private ensureEngine(ticket: number): Promise<void> {
@@ -1505,7 +1536,8 @@ export class TextToSpeechService {
     this.pendingListenMs -= seconds * 1000;
     const book = this.book;
     StatsService.addListenSeconds(seconds, { bookId: book.id, title: book.title, author: book.author,
-      cover: book.cover, sourceUrl: book.sourceUrl, bookUrl: book.bookUrl }, Date.now())
+      cover: book.cover, sourceUrl: book.sourceUrl, bookUrl: book.bookUrl,
+      contentType: book.contentType === 'comic' ? 'comic' : 'text' }, Date.now())
       .catch((error: Error): void => this.report(error));
   }
 
@@ -1711,8 +1743,7 @@ export class TextToSpeechService {
         if (this.state.playing || this.state.loading) this.pause(true);
       }, async (): Promise<void> => {
         if (!this.focusPaused || !PlaybackCoordinator.speechActive) return;
-        this.focusPaused = false;
-        await this.resume(false);
+        await this.resumePlayback(false, true);
       });
     });
     this.focusChain = task;

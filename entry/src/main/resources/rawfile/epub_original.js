@@ -6,6 +6,31 @@
   var contentTouch = null;
   var flowing = false, viewportWidth = innerWidth, viewportHeight = innerHeight;
   var pagedBackground = null, originalBackground = '', originalBackgroundPriority = '';
+  var headingLines = [];
+  function protectHeadingLines() {
+    // A body line-height in em/px is inherited as a fixed length. Enlarged headings
+    // can then overlap when wrapped, or lose their top strokes at the page boundary.
+    // Restore author styles first so responsive rules can take effect on every reflow.
+    headingLines.forEach(function (entry) {
+      if (entry.value) entry.element.style.setProperty('line-height', entry.value, entry.priority);
+      else entry.element.style.removeProperty('line-height');
+    });
+    headingLines = [];
+    // EPUBs also use ordinary div/p blocks for titles, including the book's TOC.
+    document.querySelectorAll('h1,h2,h3,h4,h5,h6,[role="heading"],div,p').forEach(function (element) {
+      var style = getComputedStyle(element), parentStyle = getComputedStyle(element.parentElement);
+      if (style.display === 'none' || style.display === 'inline' || style.cssFloat !== 'none') return;
+      var size = parseFloat(style.fontSize), line = parseFloat(style.lineHeight);
+      var parentLine = parseFloat(parentStyle.lineHeight);
+      if (line >= size || !Number.isFinite(line) || size <= parseFloat(parentStyle.fontSize) ||
+          !Number.isFinite(parentLine) || Math.abs(line - parentLine) > 0.5) return;
+      headingLines.push({ element: element, value: element.style.getPropertyValue('line-height'),
+        priority: element.style.getPropertyPriority('line-height') });
+    });
+    // Keep normal line heights and author-defined heading spacing; use the font's
+    // own metrics only for the inherited, undersized heading lines found above.
+    headingLines.forEach(function (entry) { entry.element.style.setProperty('line-height', 'normal'); });
+  }
   function protectPagedBounds() {
     if (!cfg.paged) return;
     var body = document.body;
@@ -35,7 +60,9 @@
     // Horizontal overflow is the upstream column strip; only clip vertically.
     body.style.setProperty('clip-path', 'inset(' + top + 'px -1000000px ' + bottom + 'px -1000000px)', 'important');
   }
-  addEventListener('resize', function () { if (ready) { mediaBounds(); protectPagedBounds(); } });
+  addEventListener('resize', function () {
+    if (ready) { protectHeadingLines(); mediaBounds(); protectPagedBounds(); }
+  });
   function setViewport(height) {
     document.documentElement.style.setProperty('--hsda-vh', height / 100 + 'px');
     document.documentElement.style.setProperty('--hsda-vmin', Math.min(innerWidth, height) / 100 + 'px');
@@ -124,6 +151,22 @@
     var layout = document.getElementById('legado-layout');
     if (layout) layout.textContent = layout.textContent.replaceAll('img,video{object-fit:contain;}', ':where(img,video){object-fit:contain;}');
     var body = document.body;
+    // 原书根节点的 inline !important 会压过阅读器样式表，导致固定尺寸、单栏或滤镜失效。
+    // 只接管视口几何与夜间滤镜，正文的字体、颜色、旋转和背景仍沿用原书。
+    if (layout && layout.sheet) Array.from(layout.sheet.cssRules).forEach(function (rule) {
+      if (!rule.style || !/^(html|body)$/.test(rule.selectorText)) return;
+      var target = rule.selectorText === 'html' ? document.documentElement : body;
+      ['box-sizing','height','width','max-width','min-height','margin','padding','overflow',
+        'column-width','column-gap','column-fill','touch-action','filter'].forEach(function (name) {
+        var value = rule.style.getPropertyValue(name);
+        if (value) target.style.setProperty(name, value, 'important');
+      });
+    });
+    if (cfg.paged) {
+      body.style.setProperty('column-count', cfg.spread ? '2' : '1', 'important');
+      if (cfg.spread) body.style.setProperty('column-width', 'auto', 'important');
+    }
+    protectHeadingLines();
     mediaBounds();
     var compat = document.createElement('style');
     compat.textContent =
@@ -134,6 +177,7 @@
         'max-width:min(100%,var(--hsda-content-width))!important;' +
         'max-height:var(--hsda-content-height)!important;}' +
       'img{image-orientation:from-image!important;}' +
+      'img,video{object-fit:contain!important;}' +
       'body.hsda-media-page{height:100vh!important;column-width:auto!important;column-count:auto!important;' +
         'display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;}' +
       '.hsda-media-root{display:flex!important;align-items:center!important;justify-content:center!important;' +

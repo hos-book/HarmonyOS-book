@@ -1,4 +1,4 @@
-import { CoverImage } from './CoverImage';
+import { PhysicalBookCover, PHYSICAL_BOOK_COVER_RADIUS } from './PhysicalBookCover';
 import { ShelfReaderOpenState } from '../utils/ShelfReaderTransition';
 
 @ComponentV2
@@ -16,17 +16,10 @@ export struct ShelfReaderOpenSurface {
   @Builder
   openingCover() {
     Stack({ alignContent: Alignment.Start }) {
-      if (this.motion.cover && !this.motion.cover.startsWith('http') &&
-        !this.motion.cover.startsWith('file://') && !this.motion.cover.startsWith('/data/')) {
-        Image($rawfile(this.motion.cover)).width('100%').height('100%')
-          .objectFit(ImageFit.Cover).draggable(false)
-      } else {
-        CoverImage({ url: this.motion.cover, title: this.motion.title, author: this.motion.author,
-          localPlaceholder: this.motion.localPlaceholder,
-          imgWidth: '100%', imgHeight: '100%', useFixedHeight: true, radius: 0,
-          themedDecoration: false, themeBundleId: 'default', eagerLoad: true })
-      }
-    }.width('100%').height('100%').borderRadius(2).clip(true)
+      PhysicalBookCover({ url: this.motion.cover, title: this.motion.title, author: this.motion.author,
+        localPlaceholder: this.motion.localPlaceholder, imgWidth: '100%', imgHeight: '100%',
+        useFixedHeight: true, eagerLoad: true })
+    }.width('100%').height('100%').borderRadius(PHYSICAL_BOOK_COVER_RADIUS).clip(true)
       .renderGroup(true)
       .rotate({ x: 0, y: 1, z: 0, angle: this.motion.coverAngle,
         centerX: '0%', centerY: '50%', perspective: 1800 })

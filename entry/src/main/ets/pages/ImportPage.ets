@@ -655,7 +655,7 @@ export struct ImportPage {
       if (this.pickedFiles.length > 0) {
         if (this.usesSharedBookInfo()) { this.buildCoverSection() }
         if (this.pickedFiles.some((file: PickedFile): boolean =>
-          file.ext === '.epub' || file.ext === '.mobi' || file.ext === '.cba' ||
+          file.ext === '.epub' || (file.ext === '.mobi' || file.ext === '.azw3') || file.ext === '.cba' ||
           file.ext === '.pdf' || file.ext === '.zip')) {
           this.buildEpubModeSection()
         }

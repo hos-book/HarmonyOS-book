@@ -11,6 +11,8 @@ const SNAPSHOT_FILE = 'listening_stats_v3.json';
 
 export const EVT_USAGE_STATS_UPDATED = 'app.usageStats.updated';
 
+export type UsageContentType = 'audio' | 'text' | 'comic';
+
 export interface BookUsageInput {
   bookId: string;
   title: string;
@@ -18,6 +20,7 @@ export interface BookUsageInput {
   cover?: string;
   sourceUrl?: string;
   bookUrl?: string;
+  contentType?: UsageContentType;
 }
 
 export interface BookUsageDay {
@@ -36,6 +39,7 @@ export interface BookUsageStats {
   days: BookUsageDay[];
   sourceUrl?: string;
   bookUrl?: string;
+  contentType?: UsageContentType;
 }
 
 export interface DailyUsageStats {
@@ -60,12 +64,23 @@ export interface HeatPoint {
   seconds: number;
 }
 
+/** 每日按书籍类型汇总，未能识别的旧记录保留原值，不猜测分摊。 */
+@ObservedV2
+export class ActivityDay {
+  day: string = '';
+  @Trace comicSeconds: number = 0;
+  @Trace readingSeconds: number = 0;
+  @Trace audioSeconds: number = 0;
+  @Trace unclassifiedSeconds: number = 0;
+}
+
 /** 从同一份已恢复的缓存计算全部指标，避免并发写入造成展示值不一致 */
 export interface StatsBundle {
   records: BookUsageStats[];
   summary: UsageStatsSummary;
   streak: number;
   heatDays: HeatPoint[];
+  activityDays: ActivityDay[];
 }
 
 class StatsDiskSnapshot {
@@ -161,7 +176,7 @@ export class StatsService {
     const recordedAt = endedAt !== undefined && Number.isFinite(endedAt) ? endedAt : Date.now();
     const input: BookUsageInput = {
       bookId: book.bookId, title: book.title, author: book.author, cover: book.cover,
-      sourceUrl: book.sourceUrl, bookUrl: book.bookUrl
+      sourceUrl: book.sourceUrl, bookUrl: book.bookUrl, contentType: book.contentType
     };
     await StatsService.enqueue(async (): Promise<void> => {
       await StatsService.ensureReady();
@@ -190,6 +205,7 @@ export class StatsService {
     rec.updatedAt = recordedAt;
     if (book.sourceUrl) rec.sourceUrl = book.sourceUrl;
     if (book.bookUrl) rec.bookUrl = book.bookUrl;
+    if (book.contentType) rec.contentType = book.contentType;
     let remaining = delta;
     let intervalEnd = recordedAt;
     while (remaining > 0) {
@@ -291,7 +307,8 @@ export class StatsService {
         listenSeconds: Math.max(StatsService.safeSeconds(item.listenSeconds), lifetime),
         updatedAt: item.updatedAt || 0, days: StatsService.trimDays(days),
         sourceUrl: item.sourceUrl || '', bookUrl: item.bookUrl || '',
-        archived: item.archived === true
+        archived: item.archived === true,
+        contentType: StatsService.validContentType(item.contentType)
       };
     }).sort((left: BookUsageStats, right: BookUsageStats): number => right.updatedAt - left.updatedAt);
   }
@@ -406,6 +423,7 @@ export class StatsService {
         current.listenSeconds = Math.max(current.listenSeconds, incoming.listenSeconds,
           current.days.reduce((total: number, day: BookUsageDay): number => total + day.listenSeconds, 0));
         current.updatedAt = Math.max(current.updatedAt, incoming.updatedAt);
+        if (!current.contentType) current.contentType = incoming.contentType;
       }
       await StatsService.commitRecords(StatsService.normalizeRecords(merged));
       emitter.emit(EVT_USAGE_STATS_UPDATED, { data: { historical: true, restored: true } });
@@ -495,16 +513,25 @@ export class StatsService {
    * 页面用这个替代分散的 getBookStats/getSummary/getStreakDays/getDailyTotals 多次读盘,
    * 保证 6 个展示值内部一致(不会出现"今日有值但累计/本数/连续为 0"的撕裂)。
    */
-  static async getStatsBundle(heatmapDays: number, excludedBookIds: Set<string> = new Set<string>()): Promise<StatsBundle> {
-    return StatsService.buildStatsBundle(await StatsService.getBookStats(), heatmapDays, excludedBookIds);
+  static async getStatsBundle(heatmapDays: number, excludedBookIds: Set<string> = new Set<string>(),
+    contentTypes: Map<string, UsageContentType> = new Map<string, UsageContentType>()): Promise<StatsBundle> {
+    return StatsService.buildStatsBundle(await StatsService.getBookStats(), heatmapDays, excludedBookIds, contentTypes);
   }
 
-  static getCachedStatsBundle(heatmapDays: number, excludedBookIds: Set<string> = new Set<string>()): StatsBundle | undefined {
+  static getCachedStatsBundle(heatmapDays: number, excludedBookIds: Set<string> = new Set<string>(),
+    contentTypes: Map<string, UsageContentType> = new Map<string, UsageContentType>()): StatsBundle | undefined {
     if (!StatsService.initialized) return undefined;
-    return StatsService.buildStatsBundle(StatsService.normalizeRecords(StatsService.records), heatmapDays, excludedBookIds);
+    return StatsService.buildStatsBundle(StatsService.normalizeRecords(StatsService.records), heatmapDays, excludedBookIds, contentTypes);
   }
 
-  private static buildStatsBundle(records: BookUsageStats[], heatmapDays: number, excludedBookIds: Set<string>): StatsBundle {
+  /** 已读取的只读快照可重复派生筛选统计，避免同一次页面刷新反复复制、排序全部每日记录。 */
+  static summarizeBookStats(records: BookUsageStats[], days: number, excludedBookIds: Set<string>,
+    contentTypes: Map<string, UsageContentType>): StatsBundle {
+    return StatsService.buildStatsBundle(records, days, excludedBookIds, contentTypes);
+  }
+
+  private static buildStatsBundle(records: BookUsageStats[], heatmapDays: number, excludedBookIds: Set<string>,
+    contentTypes: Map<string, UsageContentType>): StatsBundle {
     // 仅为页面派生展示快照；原始累计、归档时长和备份保持原值。
     const visibleRecords = records.filter((item: BookUsageStats): boolean => !excludedBookIds.has(item.bookId));
     const daily = StatsService.aggregateDaily(visibleRecords);
@@ -514,8 +541,47 @@ export class StatsService {
       summary: StatsService.computeSummary(map,
         visibleRecords.reduce((total: number, record: BookUsageStats): number => total + record.listenSeconds, 0)),
       streak: StatsService.computeStreak(map),
-      heatDays: StatsService.computeHeatDays(map, heatmapDays)
+      heatDays: StatsService.computeHeatDays(map, heatmapDays),
+      activityDays: StatsService.computeActivityDays(visibleRecords, contentTypes)
     };
+  }
+
+  private static validContentType(value: UsageContentType | undefined): UsageContentType | undefined {
+    return value === 'audio' || value === 'text' || value === 'comic' ? value : undefined;
+  }
+
+  private static activityType(record: BookUsageStats, contentTypes: Map<string, UsageContentType>): UsageContentType | undefined {
+    const saved = record.contentType ?? contentTypes.get(record.bookId);
+    if (saved !== undefined) return saved;
+    if (record.bookId.startsWith('search_comic_') || record.bookId.startsWith('home_comic_')) return 'comic';
+    if (record.bookId.startsWith('search_text_') || record.bookId.startsWith('home_text_')) return 'text';
+    if (record.bookId.startsWith('search_audio_') || record.bookId.startsWith('home_audio_')) return 'audio';
+    return undefined;
+  }
+
+  private static computeActivityDays(records: BookUsageStats[], contentTypes: Map<string, UsageContentType>): ActivityDay[] {
+    const days: ActivityDay[] = [];
+    const map = new Map<string, ActivityDay>();
+    const today = new Date();
+    for (let offset = 6; offset >= 0; offset--) {
+      const item = new ActivityDay();
+      item.day = StatsService.formatDay(StatsService.addDays(today, -offset));
+      days.push(item);
+      map.set(item.day, item);
+    }
+    for (const record of records) {
+      const type = StatsService.activityType(record, contentTypes);
+      for (const day of record.days) {
+        const item = map.get(day.day);
+        if (item === undefined) continue;
+        const seconds = StatsService.safeSeconds(day.listenSeconds);
+        if (type === 'comic') item.comicSeconds += seconds;
+        else if (type === 'text') item.readingSeconds += seconds;
+        else if (type === 'audio') item.audioSeconds += seconds;
+        else item.unclassifiedSeconds += seconds;
+      }
+    }
+    return days;
   }
 
   private static computeSummary(map: Map<string, DailyUsageStats>, totalSeconds: number): UsageStatsSummary {

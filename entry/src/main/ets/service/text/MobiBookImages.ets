@@ -23,8 +23,10 @@ export class MobiBookImages {
     while (tag !== null) {
       output += html.substring(start, tag.index);
       const attribute = /\srecindex\s*=\s*(?:"(\d+)"|'(\d+)'|(\d+)(?=[\s/>]))/i.exec(tag[0]);
-      if (attribute === null) throw new Error('import_mobi_image_missing');
-      const index = Number(attribute[1] || attribute[2] || attribute[3]);
+      const embedded = /\s(?:src|(?:xlink:)?href)\s*=\s*["']kindle:embed:([0-9a-v]+)(?:\?[^"']*)?["']/i.exec(tag[0]);
+      if (attribute === null && embedded === null) throw new Error('import_mobi_image_missing');
+      const index = attribute !== null ? Number(attribute[1] || attribute[2] || attribute[3]) :
+        parseInt(embedded?.[1] ?? '', 32);
       let path = this.saved.get(index) ?? '';
       if (!path) {
         const bytes = await MobiBookParser.readImage(fd, info, index);

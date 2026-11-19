@@ -20,7 +20,8 @@ export class ReadingTimeTracker {
       this.since += seconds * 1000;
       if (seconds > 0) {
         const input: BookUsageInput = { bookId: previous.id, title: previous.title, author: previous.author,
-          cover: previous.cover, sourceUrl: previous.sourceUrl, bookUrl: previous.bookUrl };
+          cover: previous.cover, sourceUrl: previous.sourceUrl, bookUrl: previous.bookUrl,
+          contentType: previous.contentType === 'comic' ? 'comic' : 'text' };
         StatsService.addListenSeconds(seconds, input, now).catch((): void => {});
       }
     }

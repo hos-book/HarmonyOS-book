@@ -67,6 +67,7 @@ const PRELOAD_OPTIONS: PreloadOption[] = [
 const ROW_INDENT: number = AppSpace.Md;
 const SEARCH_CONCURRENCY_OPTIONS: number[] = [3, 6, 9, 12];
 const MINI_PLAYER_HIDE_MINUTES: number[] = [-1, 0, 1, 5, 10, 20];
+const AUDIO_FOCUS_MODES: number[] = [0, 2, 1];
 
 enum SettingsCacheKind { Text, Comic, Audio }
 
@@ -849,13 +850,15 @@ export struct SettingsPage {
               SettingsHintButton({
                 title: $r('app.string.settings_audio_focus_title'),
                 message: this.focusMode === 1 ? $r('app.string.settings_audio_focus_mix_desc') :
+                  this.focusMode === 2 ? $r('app.string.settings_audio_focus_duck_desc') :
                   $r('app.string.settings_audio_focus_resume_desc')
               })
             }.layoutWeight(1).alignItems(VerticalAlign.Center)
             ImmersiveOptionTabs({
-              labels: [$r('app.string.settings_audio_focus_resume'), $r('app.string.settings_audio_focus_mix')],
-              selected: this.focusMode,
-              onSelect: (index: number): void => { this.setFocusMode(index); }
+              labels: [$r('app.string.settings_audio_focus_resume'), $r('app.string.settings_audio_focus_duck'),
+                $r('app.string.settings_audio_focus_mix')],
+              selected: Math.max(0, AUDIO_FOCUS_MODES.indexOf(this.focusMode)),
+              onSelect: (index: number): void => { this.setFocusMode(AUDIO_FOCUS_MODES[index] ?? 0); }
             }).enabled(this.isLoaded && !this.isSavingFocusMode)
           }.width('100%')
         }.width('100%')

@@ -1,5 +1,5 @@
 import { HdsTabs } from '@kit.UIDesignKit';
-import { AppColor, AppTheme } from '../theme/Theme';
+import { AppColor, AppTheme, AppMaterial } from '../theme/Theme';
 import { HdsCompat } from '../utils/HdsCompat';
 import { PlatformCompat } from '../utils/PlatformCompat';
 
@@ -16,13 +16,15 @@ class ImmersiveSummaryClip implements AttributeModifier<CommonAttribute> {
   }
 }
 
-/** 与顶部圆形按钮共用 HDS 浮动栏材质，仅展示统计，不接管触摸。 */
+/** API 26 直接绘制无阴影沉浸材质；旧设备保留 HDS 浮动栏和磨砂回退。 */
 @ComponentV2
 export struct ImmersiveSummaryTag {
   @Param icon: Resource = $r('sys.symbol.clock');
   @Param label: ResourceStr = '';
   @Param value: ResourceStr = '';
-  private contentWidth(): number {
+  @Param neutralText: boolean = false;
+  @Computed
+  private get measuredWidth(): number {
     const ui = this.getUIContext();
     const measure = ui.getMeasureUtils();
     const labelWidth = measure.measureText({ textContent: this.label, fontSize: 12 });
@@ -31,7 +33,8 @@ export struct ImmersiveSummaryTag {
     return Math.ceil(ui.px2vp(labelWidth + spaceWidth + valueWidth)) + 36;
   }
 
-  private contentHeight(): number {
+  @Computed
+  private get measuredHeight(): number {
     const ui = this.getUIContext();
     const size = ui.getMeasureUtils().measureTextSize({ textContent: this.value, fontSize: 12,
       fontWeight: FontWeight.Medium, maxLines: 1 });
@@ -45,42 +48,47 @@ export struct ImmersiveSummaryTag {
 
   build() {
     Stack() {
-      if (HdsCompat.materialSupported) {
+      if (PlatformCompat.immersiveMaterial) {
+        Row().width('100%').height('100%')
+          .attributeModifier(AppMaterial.modifier(AppMaterial.SurfaceClean))
+          .border({ width: 0.5, color: AppColor.GlassStroke, radius: this.measuredHeight / 2 })
+          .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
+      } else if (HdsCompat.materialSupported) {
         HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
-          TabContent() { Column() }.height(this.contentHeight()).tabBar(this.backdrop())
+          TabContent() { Column() }.height(this.measuredHeight).tabBar(this.backdrop())
         }
-        .barMode(BarMode.Fixed).barHeight(this.contentHeight()).barOverlap(true)
+        .barMode(BarMode.Fixed).barHeight(this.measuredHeight).barOverlap(true)
         .barFloatingStyle({
-          barWidth: { smallWidth: this.contentWidth(),
-            mediumWidth: this.contentWidth(),
-            largeWidth: this.contentWidth() },
+          barWidth: { smallWidth: this.measuredWidth,
+            mediumWidth: this.measuredWidth,
+            largeWidth: this.measuredWidth },
           systemMaterialEffect: HdsCompat.material,
           barSideMargin: 0, barBottomMargin: 0,
-          gradientMask: { maskColor: '#00000000', maskHeight: this.contentHeight() },
+          gradientMask: { maskColor: '#00000000', maskHeight: this.measuredHeight },
           adaptToHandedness: false, thermoCtrl: true, barOpacity: 1
         })
         .scrollable(false).onContentWillChange((): boolean => false)
-        .width(this.contentWidth()).height(this.contentHeight())
+        .width(this.measuredWidth).height(this.measuredHeight)
         .hitTestBehavior(HitTestMode.None).accessibilityLevel('no-hide-descendants')
       } else {
         Row().width('100%').height('100%')
           .backgroundColor($r('sys.color.comp_background_primary'))
           .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
-          .border({ width: 0.5, color: $r('sys.color.comp_divider'), radius: this.contentHeight() / 2 })
-          .borderRadius(this.contentHeight() / 2)
+          .border({ width: 0.5, color: $r('sys.color.comp_divider'), radius: this.measuredHeight / 2 })
+          .borderRadius(this.measuredHeight / 2)
           .clip(true)
           .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
       }
       Row({ space: 4 }) {
         SymbolGlyph(this.icon).fontSize(12).fontColor([AppColor.Brand])
         Text() {
-          Span(this.label).fontColor(AppTheme.TextSecondary)
+          Span(this.label).fontColor(this.neutralText ? $r('sys.color.font_secondary') : AppTheme.TextSecondary)
           Span(' ')
-          Span(this.value).fontSize(12).fontColor(AppTheme.TextPrimary).fontWeight(FontWeight.Medium)
+          Span(this.value).fontSize(12).fontColor(this.neutralText ? $r('sys.color.font_primary') : AppTheme.TextPrimary).fontWeight(FontWeight.Medium)
         }.fontSize(12).maxLines(1)
       }.width('100%').padding({ left: 10, right: 10 })
-    }.width(this.contentWidth()).height(this.contentHeight())
-      .attributeModifier(new ImmersiveSummaryClip(this.contentHeight() / 2))
+    }.width(this.measuredWidth).height(this.measuredHeight)
+      .attributeModifier(new ImmersiveSummaryClip(this.measuredHeight / 2))
       .hitTestBehavior(HitTestMode.None)
   }
 }

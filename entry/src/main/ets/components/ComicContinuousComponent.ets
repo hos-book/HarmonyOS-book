@@ -72,9 +72,16 @@ export struct ComicContinuousComponent {
   private awaitingImage: boolean = false;
   private imageReady: Map<string, boolean> = new Map();
   private restoreSerial: number = 0;
+  private positionReportedAt: number = 0;
+  private positionTimer: number = -1;
 
   aboutToAppear(): void { this.disposed = false; this.reset(); this.syncAutoScroll(); }
-  aboutToDisappear(): void { this.autoScroll.stop(); this.reportPosition(); this.disposed = true; this.serial++; }
+  aboutToDisappear(): void {
+    this.autoScroll.stop();
+    if (this.positionTimer >= 0) clearTimeout(this.positionTimer);
+    this.positionTimer = -1;
+    this.reportPosition(true); this.disposed = true; this.serial++;
+  }
 
   @Monitor('autoScrollReady')
   private syncAutoScroll(): void {
@@ -263,8 +270,19 @@ export struct ComicContinuousComponent {
     }
   }
 
-  private reportPosition(): void {
+  private reportPosition(flush: boolean = false): void {
     if (this.restoring || this.disposed || this.awaitingImage) return;
+    // List 的滚动与惯性由原生管线驱动；不要每帧刷新父页面和重置落盘定时器。
+    const remaining = 160 - (Date.now() - this.positionReportedAt);
+    if (!flush && remaining > 0) {
+      if (this.positionTimer < 0) this.positionTimer = setTimeout((): void => {
+        this.positionTimer = -1; this.reportPosition(true);
+      }, remaining);
+      return;
+    }
+    if (this.positionTimer >= 0) clearTimeout(this.positionTimer);
+    this.positionTimer = -1;
+    this.positionReportedAt = Date.now();
     try {
       // 章尾不足一屏时 List 会向前夹紧，实际首图可能早于请求恢复的图片。
       const index = this.scroller.getItemIndex(this.pageWidth / 2, 1);
@@ -379,6 +397,7 @@ export struct ComicContinuousComponent {
         .edgeEffect(EdgeEffect.None).maintainVisibleContentPosition(true)
         .onScrollIndex((first: number, last: number): void => this.visibleChanged(first, last))
         .onDidScroll(this.autoScrollReady ? undefined : (): void => this.reportPosition())
+        .onScrollStop((): void => this.reportPosition(true))
         .onTouch((event: TouchEvent): void => {
           if (event.type === TouchType.Down) {
             this.turnFeedbackPending = !this.paged && !this.restoring && !this.autoPageRunning;

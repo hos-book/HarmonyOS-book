@@ -3,7 +3,9 @@ import { ShelfRecentBook } from '../model/ShelfCollection';
 import { AppColor, AppTheme } from '../theme/Theme';
 import { OneShotTransitionIds } from '../utils/OneShotTransition';
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
-import { CoverImage } from './CoverImage';
+import { PhysicalBookCover } from './PhysicalBookCover';
+
+export const SHELF_RECENT_CARD_HEIGHT: number = 88;
 
 @ComponentV2
 export struct ShelfCollectionRecentCard {
@@ -15,10 +17,10 @@ export struct ShelfCollectionRecentCard {
 
   build() {
     Row({ space: 12 }) {
-      CoverImage({ url: this.item.book.cover, title: this.item.book.title, author: this.item.book.author,
-        localPlaceholder: this.item.book.id.startsWith('import_'), themedDecoration: false, themeBundleId: 'default',
+      PhysicalBookCover({ url: this.item.book.cover, title: this.item.book.title, author: this.item.book.author,
+        localPlaceholder: this.item.book.id.startsWith('import_'),
         // 最近阅听最多三张，侧边预览也主动恢复磁盘缓存，不等待 Swiper 可见性回调。
-        eagerLoad: true, imgWidth: 44, imgHeight: 62, useFixedHeight: true, radius: 4 })
+        eagerLoad: true, imgWidth: 44 })
         .id(this.recentCoverId(this.item.book))
         .opacity(this.playerTransition.active && this.playerTransition.sourceNodeId === this.recentCoverId(this.item.book) ? 0 : 1)
         .hitTestBehavior(HitTestMode.None)
@@ -43,7 +45,7 @@ export struct ShelfCollectionRecentCard {
           .fontSize(15).fontColor([AppColor.Brand])
       }.width(32).height(32).borderRadius(16).backgroundColor(AppColor.BrandSoft)
         .hitTestBehavior(HitTestMode.None)
-    }.width('100%').height(86).padding(12).borderRadius(16)
+    }.width('100%').height(SHELF_RECENT_CARD_HEIGHT).padding(12).borderRadius(16)
       .backgroundColor(Color.Transparent)
       .backgroundEffect({ radius: 12, saturation: 1, brightness: 1,
         color: $r('app.color.collection_recent_glass') })

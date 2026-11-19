@@ -268,6 +268,10 @@
     {"name":"collection_recent_edge","value":"#30FFFFFF"},
     {"name":"collection_sun","value":"#B8BA87"},
     {"name":"collection_sun_halo","value":"#596F7048"},
-    {"name":"collection_sun_halo_clear","value":"#006F7048"}
+    {"name":"collection_sun_halo_clear","value":"#006F7048"},
+    {"name":"record_chart_selected","value":"#12FFFFFF"},
+    {"name":"record_chart_comic","value":"#AE98BD"},
+    {"name":"record_chart_reading","value":"#93ACBB"},
+    {"name":"record_chart_audio","value":"#C6AC88"}
   ]
 }

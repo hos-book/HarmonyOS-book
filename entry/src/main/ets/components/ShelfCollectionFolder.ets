@@ -1,7 +1,7 @@
 import { Book } from '../model/Book';
 import { BookPresentation } from '../model/BookPresentation';
 import { ShelfCollectionGroup } from '../model/ShelfCollection';
-import { CoverImage } from './CoverImage';
+import { PhysicalBookCover, PHYSICAL_BOOK_COVER_RATIO } from './PhysicalBookCover';
 
 // Custom palette slots first, followed by All Books and Ungrouped.
 const SHELF_FOLDER_PALETTES: Resource[][] = [
@@ -105,16 +105,16 @@ export struct ShelfCollectionFolder {
   private cover(book: Book, index: number) {
     // 缓存边界保留透明像素，让旋转时的纹理采样平滑过渡；旧 API 同样生效。
     Stack({ alignContent: Alignment.Center }) {
-      CoverImage({ url: book.cover, title: book.title, author: book.author, themeBundleId: 'default',
-        localPlaceholder: book.id.startsWith('import_'), themedDecoration: false, compositeEdges: true,
-        antialiasEdges: true, interpolationQuality: ImageInterpolation.High,
-        imgWidth: this.coverWidth(), imgHeight: this.coverWidth() / 0.68, useFixedHeight: true, radius: 4 })
-    }.width(this.coverWidth() + 2).height(this.coverWidth() / 0.68 + 2).padding(1)
+      PhysicalBookCover({ url: book.cover, title: book.title, author: book.author,
+        localPlaceholder: book.id.startsWith('import_'), antialiasEdges: true,
+        interpolationQuality: ImageInterpolation.High, imgWidth: this.coverWidth() })
+    }.width(this.coverWidth() + 8).height(this.coverWidth() / PHYSICAL_BOOK_COVER_RATIO + 8).padding(4)
       .renderGroup(true)
       .rotate({ angle: index === 0 ? (this.lifted ? -16 : -12) :
         (index === 1 ? -2 : (this.lifted ? 16 : 12)) })
-      .position({ x: this.coverLeft(index) - 1,
-        y: Math.max(8, this.widthVp * 0.74 - 23 - this.coverWidth() / 0.68) + (index === 1 ? -10 : 1) - 1 })
+      .position({ x: this.coverLeft(index) - 4,
+        y: Math.max(8, this.widthVp * 0.74 - 23 - this.coverWidth() / PHYSICAL_BOOK_COVER_RATIO) +
+          (index === 1 ? -10 : 1) - 4 })
       .translate({ y: this.lifted ? -9 : 0 })
       .zIndex(index + 1)
       .hitTestBehavior(HitTestMode.None)

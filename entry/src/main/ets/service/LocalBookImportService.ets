@@ -200,7 +200,7 @@ export class LocalBookImportService {
   static async preview(context: common.Context, file: LocalImportFile): Promise<LocalBookPreview> {
     const result = new LocalBookPreview();
     result.title = file.name;
-    if (file.ext === '.mobi') {
+    if ((file.ext === '.mobi' || file.ext === '.azw3')) {
       result.directory = `${context.cacheDir}/book_preview_${Date.now()}_${Math.floor(Math.random() * 1000000)}`;
       await fileIo.mkdir(result.directory, true);
       try {
@@ -657,7 +657,7 @@ export class LocalBookImportService {
       } else if (file.ext === '.pdf') {
         await LocalBookImportService.importPdf(context, book, directory, file, size, report, writes);
         if (epubMode === 'text') book.contentType = 'text';
-      } else if (file.ext === '.mobi') {
+      } else if ((file.ext === '.mobi' || file.ext === '.azw3')) {
         await LocalBookImportService.importMobi(context, book, directory, file, title, author, report, writes,
           epubMode, epubStats.profile);
       } else if (file.ext === '.epub') {
@@ -781,7 +781,7 @@ export class LocalBookImportService {
       }
       stage = 'write';
       await writes.finish();
-      if ((file.ext === '.epub' || file.ext === '.mobi') && (epubMode === 'comic' ||
+      if ((file.ext === '.epub' || (file.ext === '.mobi' || file.ext === '.azw3')) && (epubMode === 'comic' ||
         (epubMode === 'auto' && epubStats.profile.isComic()))) {
         if (epubStats.imageFailures > 0) {
           throw new Error(context.resourceManager.getStringSync($r('app.string.import_epub_images_failed').id,

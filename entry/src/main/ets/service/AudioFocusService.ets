@@ -25,6 +25,7 @@ export class AudioFocusService {
     if (hint === audio.AudioSessionStateChangeHint.AUDIO_SESSION_STATE_CHANGE_HINT_PAUSE) this.interrupt(false);
     else if (hint === audio.AudioSessionStateChangeHint.AUDIO_SESSION_STATE_CHANGE_HINT_STOP) this.interrupt(true);
     else if (hint === audio.AudioSessionStateChangeHint.AUDIO_SESSION_STATE_CHANGE_HINT_RESUME) this.restore(true);
+    // 压低音量模式保留音频流，由系统执行 DUCK/UNDUCK，不取消朗读队列。
     else if (hint === audio.AudioSessionStateChangeHint.AUDIO_SESSION_STATE_CHANGE_HINT_DUCK && this.mode === 0) {
       this.interrupt(false, true);
     } else if (hint === audio.AudioSessionStateChangeHint.AUDIO_SESSION_STATE_CHANGE_HINT_UNDUCK && this.waitingForUnduck) {
@@ -61,6 +62,7 @@ export class AudioFocusService {
       }
       await this.session.activateAudioSession({ concurrencyMode: mode === 1
         ? audio.AudioConcurrencyMode.CONCURRENCY_MIX_WITH_OTHERS
+        : mode === 2 ? audio.AudioConcurrencyMode.CONCURRENCY_DEFAULT
         : audio.AudioConcurrencyMode.CONCURRENCY_PAUSE_OTHERS });
     });
     this.chain = task;

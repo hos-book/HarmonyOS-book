@@ -86,6 +86,8 @@ export struct ReaderPageTurnComponent {
   @Param mode: string = PageTurnMode.Cover;
   @Param spread: boolean = false;
   @Param nativePagePreview: boolean = false;
+  @Param stableSurface: boolean = false;
+  private stableTurn: boolean = false;
   @Param prewarmSnapshot: boolean = false;
   @Param snapshotRevision: string = '';
   @Param revision: string = '';
@@ -272,7 +274,7 @@ export struct ReaderPageTurnComponent {
     this.targetImage = null;
     const target = this.targetSnapshot;
     this.targetSnapshot = null;
-    if (target !== null) target.release().catch((): void => {});
+    if (target !== null) this.releaseBitmapAfterFrame(target);
     const bitmap = this.snapshot;
     this.snapshot = null;
     // Image 节点先提交移除，再释放其 PixelMap。
@@ -314,6 +316,7 @@ export struct ReaderPageTurnComponent {
   private async finishTurn(commit: boolean, ticket: number): Promise<void> {
     if (ticket !== this.serial || this.phase === 'completing') return;
     this.phase = 'completing';
+    if (this.stableTurn) this.coverSnapshot = commit ? this.targetSnapshot ?? this.snapshot : this.snapshot;
     const trace = PerformanceTrace.begin('ReaderTurn.Commit');
     try { await this.onComplete(commit); }
     catch (e) {
@@ -326,6 +329,7 @@ export struct ReaderPageTurnComponent {
       if (ticket === this.serial) {
         // 仿真取消时底层仍是预览页，等还原/提交完成布局后再撤去纸面，避免闪出另一页。
         if (this.mode === PageTurnMode.Simulation && this.canvasReady) await this.pageFrame(100);
+        if (this.stableTurn) await this.pageFrame(100);
         this.drawRestingSpine();
         this.releaseSnapshot();
         // 先提交父页面的位置及截图移除，避免截到旧页或被迟到的 revision 撤销。
@@ -384,6 +388,7 @@ export struct ReaderPageTurnComponent {
     if (this.phase !== 'idle' || !this.canvasReady || this.pageWidth <= 0) return;
     const ticket = ++this.serial;
     this.phase = 'preparing';
+    this.stableTurn = this.stableSurface && this.mode === PageTurnMode.Simulation;
     this.forward = forward;
     this.progress = input !== null ? input.progress : 0;
     this.renderedProgress = 0;
@@ -409,12 +414,13 @@ export struct ReaderPageTurnComponent {
         return;
       }
       this.snapshot = bitmap;
-      if (this.mode === PageTurnMode.Cover) {
+      if (this.mode === PageTurnMode.Cover || this.stableTurn) {
         this.coverOffset = 0;
         this.coverSnapshot = bitmap;
         this.coverRaised = true;
         this.canvas.clearRect(0, 0, this.pageWidth, this.pageHeight);
-      } else this.snapshotImage = new ImageBitmap(bitmap);
+      }
+      if (this.mode !== PageTurnMode.Cover) this.snapshotImage = new ImageBitmap(bitmap);
       // 先用原页覆盖，再异步准备底层目标页，避免等待正文时提前跳页。
       this.drawFrame(0);
       // 原生正文预览与同步加载的截图由同一棵 ArkUI 树提交；Web 和 Canvas 仍需等各自的绘制交接。
@@ -429,12 +435,13 @@ export struct ReaderPageTurnComponent {
       }
       if (!nativeCover) await this.pageFrame();
       if (ticket !== this.serial) return;
-      if (this.spread && this.mode === PageTurnMode.Simulation) {
+      if (this.stableTurn || (this.spread && this.mode === PageTurnMode.Simulation)) {
         // 布局 onIdle 不代表原生正文节点已提交绘制；必须等待渲染完成才缓存纸背。
         const target = await this.capturePage();
         if (ticket !== this.serial) { target.release().catch((): void => {}); return; }
         this.targetSnapshot = target;
         this.targetImage = new ImageBitmap(target);
+        if (this.stableTurn) this.coverSnapshot = target;
       }
       this.phase = 'dragging';
       // 快划可能在截图/目标页准备期间已结束，从已显示的纸面接续，不跳过卷起阶段。

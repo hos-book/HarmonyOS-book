@@ -330,7 +330,7 @@
     },
     {
       "name": "import_epub_mode_hint",
-      "value": "适用于本批 EPUB、MOBI、CBA 和 PDF（含 ZIP 内文件）。自动模式识别 EPUB/MOBI 内容，CBA/PDF 默认按漫画导入，也可手动选择电子书或漫画。图片中的文字不会自动转换为可朗读正文。EPUB/CBA 单文件最大 3 GiB，MOBI 最大 128 MiB，PDF 最大 1 GiB；大文件导入需要更多时间和存储空间。"
+      "value": "适用于本批 EPUB、MOBI/AZW3、CBA 和 PDF（含 ZIP 内文件）。自动模式识别 EPUB/MOBI/AZW3 内容，CBA/PDF 默认按漫画导入，也可手动选择电子书或漫画。图片中的文字不会自动转换为可朗读正文。EPUB/CBA 单文件最大 3 GiB，MOBI/AZW3 最大 128 MiB，PDF 最大 1 GiB；大文件导入需要更多时间和存储空间。"
     },
     {
       "name": "comic_switch_text",
@@ -1602,11 +1602,11 @@
     },
     {
       "name": "import_supported_formats",
-      "value": "音频：MP3/M4A/FLAC/WAV/OGG/AAC；电子书和漫画：TXT/EPUB/MOBI/CBA/PDF/HTML/HTM；打包：ZIP。MOBI 支持未加密 MOBI6（未压缩或 PalmDOC 压缩），保留正文图片、提取封面并自动识别漫画，不完全还原原排版。CBA 为 ACE 漫画压缩包，支持 ACE 1/2（含固实压缩），按文件名数字顺序阅读；不支持密码或分卷包。CBA 最大 3 GiB、50000 个文件，单个内容最多 20 MiB、图片最多 32 兆像素，解压总计最多 6 GiB。PDF 保留原版页面，不支持文字重排和朗读；最大 1 GiB、2000 页、单页图片 20 MiB、图片总计 6 GiB，不支持密码文件。"
+      "value": "音频：MP3/M4A/FLAC/WAV/OGG/AAC；电子书和漫画：TXT/EPUB/MOBI/AZW3/CBA/PDF/HTML/HTM；打包：ZIP。MOBI/AZW3 支持未加密 MOBI6 和 KF8（未压缩或 PalmDOC 压缩），保留正文图片、提取封面并自动识别漫画，不完全还原原排版。CBA 为 ACE 漫画压缩包，支持 ACE 1/2（含固实压缩），按文件名数字顺序阅读；不支持密码或分卷包。CBA 最大 3 GiB、50000 个文件，单个内容最多 20 MiB、图片最多 32 兆像素，解压总计最多 6 GiB。PDF 保留原版页面，不支持文字重排和朗读；最大 1 GiB、2000 页、单页图片 20 MiB、图片总计 6 GiB，不支持密码文件。"
     },
     {
       "name": "import_file_filter",
-      "value": "音频、电子书、漫画、ZIP|.mp3,.m4a,.flac,.wav,.ogg,.aac,.txt,.epub,.mobi,.cba,.pdf,.html,.htm,.zip"
+      "value": "音频、电子书、漫画、ZIP|.mp3,.m4a,.flac,.wav,.ogg,.aac,.txt,.epub,.mobi,.azw3,.cba,.pdf,.html,.htm,.zip"
     },
     {
       "name": "import_external_failed",
@@ -1650,43 +1650,43 @@
     },
     {
       "name": "import_mobi_invalid",
-      "value": "MOBI 文件损坏或正文不完整，请重新获取文件或转换为 EPUB"
+      "value": "MOBI/AZW3 文件损坏或正文不完整，请重新获取文件或转换为 EPUB"
     },
     {
       "name": "import_mobi_size",
-      "value": "MOBI 文件不能超过 128 MiB，解压正文不能超过 32 MiB"
+      "value": "MOBI/AZW3 文件不能超过 128 MiB，解压正文不能超过 32 MiB"
     },
     {
       "name": "import_mobi_encrypted",
-      "value": "暂不支持加密的 MOBI，请使用未加密电子书"
+      "value": "暂不支持加密的 MOBI/AZW3，请使用未加密电子书"
     },
     {
       "name": "import_mobi_kf8",
-      "value": "暂不支持纯 KF8/AZW3 格式，请先转换为 EPUB 再导入"
+      "value": "暂不支持此 Kindle 格式版本，请先转换为 EPUB 再导入"
     },
     {
       "name": "import_mobi_compression",
-      "value": "暂不支持此 MOBI 压缩方式（如 HUFF/CDIC），请先转换为 EPUB 再导入"
+      "value": "暂不支持此 MOBI/AZW3 压缩方式（如 HUFF/CDIC），请先转换为 EPUB 再导入"
     },
     {
       "name": "import_mobi_encoding",
-      "value": "暂不支持此 MOBI 字符编码，请先转换为 UTF-8 EPUB 再导入"
+      "value": "暂不支持此 MOBI/AZW3 字符编码，请先转换为 UTF-8 EPUB 再导入"
     },
     {
       "name": "import_mobi_image_missing",
-      "value": "MOBI 正文图片缺失、损坏或引用无效，已取消导入，避免保存缺页书籍"
+      "value": "MOBI/AZW3 正文图片缺失、损坏或引用无效，已取消导入，避免保存缺页书籍"
     },
     {
       "name": "import_mobi_image_limit",
-      "value": "MOBI 图片超过限制：单张最多 20 MiB、32 兆像素，全书图片最多 6 GiB"
+      "value": "MOBI/AZW3 图片超过限制：单张最多 20 MiB、32 兆像素，全书图片最多 6 GiB"
     },
     {
       "name": "import_mobi_image_space",
-      "value": "存储空间不足，无法保存 MOBI 正文图片，请清理空间后重试"
+      "value": "存储空间不足，无法保存 MOBI/AZW3 正文图片，请清理空间后重试"
     },
     {
       "name": "import_mobi_image_write",
-      "value": "MOBI 图片保存失败，请检查存储空间后重试"
+      "value": "MOBI/AZW3 图片保存失败，请检查存储空间后重试"
     },
     {
       "name": "import_cba_invalid",
@@ -3550,7 +3550,7 @@
     },
     {
       "name": "guide_import_files_desc",
-      "value": "音频支持 MP3、M4A、FLAC、WAV、OGG、AAC；电子书和漫画支持 TXT、EPUB、MOBI、CBA、PDF、HTML/HTM，也可选择 ZIP 压缩包。点击「选择文件」旁的说明图标，可查看格式与大小限制。"
+      "value": "音频支持 MP3、M4A、FLAC、WAV、OGG、AAC；电子书和漫画支持 TXT、EPUB、MOBI/AZW3、CBA、PDF、HTML/HTM，也可选择 ZIP 压缩包。点击「选择文件」旁的说明图标，可查看格式与大小限制。"
     },
     {
       "name": "guide_import_save_action",
@@ -3566,7 +3566,7 @@
     },
     {
       "name": "guide_import_formats_desc",
-      "value": "TXT 等文字电子书可调整字体和排版；EPUB/MOBI 支持文字及内嵌图片，可自动识别漫画，不完全还原原书排版。MOBI 支持未加密 MOBI6，纯 KF8/AZW3、加密或不支持的压缩格式会提示无法导入。CBA 支持 ACE 1/2 漫画压缩包，按文件名自然排序。PDF 保留页面版式；漫画图片与 PDF 页面不能重排文字或朗读。"
+      "value": "TXT 等文字电子书可调整字体和排版；EPUB/MOBI/AZW3 支持文字及内嵌图片，可自动识别漫画，不完全还原原书排版。MOBI/AZW3 支持未加密 MOBI6 和 KF8，保留正文和内嵌图片；加密或 HUFF/CDIC 压缩文件会明确提示。CBA 支持 ACE 1/2 漫画压缩包，按文件名自然排序。PDF 保留页面版式；漫画图片与 PDF 页面不能重排文字或朗读。"
     },
     {
       "name": "guide_group_download",
@@ -7205,6 +7205,14 @@
       "value": "本章下载已删除"
     },
     {
+      "name": "player_background_interrupted",
+      "value": "后台播放已被系统中断，请点击播放继续"
+    },
+    {
+      "name": "player_buffer_timeout",
+      "value": "音频缓冲超时，请检查网络后重试"
+    },
+    {
       "name": "player_play_failed",
       "value": "这次没能播放，点一下重试"
     },
@@ -7271,6 +7279,14 @@
     {
       "name": "settings_audio_focus_mix",
       "value": "共存播放"
+    },
+    {
+      "name": "settings_audio_focus_duck",
+      "value": "暂时压低音量"
+    },
+    {
+      "name": "settings_audio_focus_duck_desc",
+      "value": "收到系统降低音量提示时，有声书与电子书朗读继续播放，提示结束后恢复音量；来电等要求暂停的中断仍遵循系统规则"
     },
     {
       "name": "settings_audio_focus_resume_desc",
@@ -9217,6 +9233,24 @@
     {"name":"shelf_unhide_done","value":"已移回普通书架"},
     {"name":"audio_cache_wifi_only","value":"仅 Wi-Fi 缓存"},
     {"name":"audio_cache_wifi_only_hint","value":"仅在 WLAN 下预加载与下载音频，移动网络仍可播放"},
-    {"name":"audio_cache_waiting_wifi","value":"等待 WLAN"}
+    {"name":"audio_cache_waiting_wifi","value":"等待 WLAN"},
+    {"name": "record_progress_percent", "value": "%d%"},
+    {"name": "record_history_heading", "value": "阅听足迹"},
+    {"name": "record_date_today", "value": "今天"},
+    {"name": "record_date_yesterday", "value": "昨天"},
+    {"name": "record_date_unknown", "value": "更早记录"},
+    {"name": "record_date_full", "value": "%d年%d月%d日"},
+    {"name": "record_filter_empty", "value": "还没有此类阅听记录"},
+    {"name": "record_filter_hint", "value": "可以切换其他类型，找找上次读听的书。"},
+    {"name":"record_chart_title","value":"近七日阅听"},
+    {"name":"record_chart_reading","value":"阅读"},
+    {"name":"record_chart_day","value":"%d日"},
+    {"name":"record_chart_minutes","value":"%d分"},
+    {"name":"record_chart_under_minute","value":"不足1分"},
+    {"name":"record_chart_expand","value":"展开近七日阅听"},
+    {"name":"record_chart_collapse","value":"收起近七日阅听"},
+    {"name":"record_chart_day_accessibility","value":"%s，点击查看当天时长，再点一次查看七日合计"},
+    {"name":"record_chart_reset","value":"显示近七日合计"},
+    {"name":"record_chart_selected_title","value":"%s阅听"}
   ]
 }

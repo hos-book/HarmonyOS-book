@@ -1220,7 +1220,7 @@ export struct ReaderPage {
     const height = this.readerViewportHeightVp > 0 ? this.readerViewportHeightVp : WindowUtils.getWindowHeightVp();
     return this.pageTurnMode !== PageTurnMode.Vertical && width > height &&
       width - 2 * (Math.max(this.marginLeft, this.marginRight) + Math.max(this.leftSafeVp, this.rightSafeVp)) >=
-        640 + READER_COLUMN_GAP;
+        480 + READER_COLUMN_GAP;
   }
 
   private paginateOnlineTextContent(content: string, chapterIndex: number = this.currentResourceIndex): OnlineTextPage[] {
@@ -2144,8 +2144,10 @@ export struct ReaderPage {
       }
       if (this.leaving || ticket !== this.onlineTextTurnSerial) return false;
       preview.pageIndex = target.openLastPage ? Math.max(0, preview.pages.length - 1) : target.pageIndex;
+      const imagesReady = this.waitForTextPageImages(preview.pages[preview.pageIndex], `${preview.chapterIndex}:${preview.pageIndex}`);
       this.onlineTextTurnPreview = preview;
-      return true;
+      // 本地 PDF/插图的解码完成后才允许截图；在线纯文字无图片时立即继续。
+      return await imagesReady && !this.leaving && ticket === this.onlineTextTurnSerial;
     } catch (e) {
       if (!this.leaving && ticket === this.onlineTextTurnSerial) {
         this.stopAutoPage();
@@ -2162,6 +2164,8 @@ export struct ReaderPage {
   }
 
   private completeOnlineTextTurn(commit: boolean): void {
+    for (const resolve of this.textImageWaiters.values()) resolve(false);
+    this.textImageWaiters.clear();
     const preview = this.onlineTextTurnPreview;
     this.onlineTextTurnConfirmed = false;
     this.onlineTextTurnSerial++;
@@ -2407,6 +2411,34 @@ export struct ReaderPage {
   private pageHasImage(page: OnlineTextPage): boolean {
     return page.imageUrl.length > 0 || page.parts.some((part: OnlineTextPage): boolean => this.pageHasImage(part)) ||
       page.columns.some((column: OnlineTextPage): boolean => this.pageHasImage(column));
+  }
+
+  private textImageWaiters: Map<string, (ready: boolean) => void> = new Map();
+
+  private waitForTextPageImages(page: OnlineTextPage, prefix: string): Promise<boolean> {
+    const keys: string[] = [];
+    this.collectTextPageImages(page, prefix, keys);
+    if (keys.length === 0) return Promise.resolve(true);
+    return Promise.all(keys.map((key: string): Promise<boolean> => new Promise<boolean>((resolve): void => {
+      const timer = setTimeout((): void => {
+        if (this.textImageWaiters.get(key) === finish) this.textImageWaiters.delete(key);
+        resolve(false);
+      }, 12000);
+      const finish = (ready: boolean): void => { clearTimeout(timer); resolve(ready); };
+      this.textImageWaiters.set(key, finish);
+    }))).then((results: boolean[]): boolean => results.every((ready: boolean): boolean => ready));
+  }
+
+  private collectTextPageImages(page: OnlineTextPage, prefix: string, keys: string[]): void {
+    if (page.imageUrl) keys.push(`${prefix}:${page.startOffset}:${page.imageUrl}`);
+    for (const part of page.parts) this.collectTextPageImages(part, prefix, keys);
+    for (const column of page.columns) this.collectTextPageImages(column, prefix, keys);
+  }
+
+  private textPageImageReady(key: string, ready: boolean): void {
+    const resolve = this.textImageWaiters.get(key);
+    this.textImageWaiters.delete(key);
+    resolve?.(ready);
   }
 
   private canPrewarmOnlineTextPage(): boolean {
@@ -3507,6 +3539,8 @@ export struct ReaderPage {
         onSelectionChange: (active: boolean): void => { this.selectingText = active; },
         selectionRevision: this.textSelectionRevision,
         page: this.currentOnlineTextColumn(column), text: this.currentOnlineTextColumn(column).text,
+        imagePageKey: `${this.onlineTextChapterIndex()}:${this.onlineTextTurnPreview?.pageIndex ?? this.onlineTextPageIndex}`,
+        onImageReady: (key: string, ready: boolean): void => this.textPageImageReady(key, ready),
         source: (this.onlineTextTurnPreview?.content ?? this.onlineTextContent).substring(this.currentOnlineTextColumn(column).startOffset, this.currentOnlineTextColumn(column).endOffset),
         sourceStart: this.currentOnlineTextColumn(column).startOffset, state: this.speechState,
         highlightEnabled: this.speechState.bookId === this.bookId && this.speechState.chapterIndex === this.onlineTextChapterIndex(),
@@ -3703,6 +3737,7 @@ export struct ReaderPage {
           mode: this.pageTurnMode,
           spread: this.useReaderColumns(),
           nativePagePreview: true,
+          stableSurface: this.pageHasImage(this.currentOnlineTextPageLayout()),
           prewarmSnapshot: this.canPrewarmOnlineTextPage(),
           snapshotRevision: this.onlineTextSnapshotKey(),
           revision: this.onlineTextTurnRevision(),
@@ -3896,6 +3931,7 @@ export struct ReaderPage {
     EpubOriginalReader({ request: this.epubOriginalRequest, commands: this.epubOriginalCommands,
       paged: this.pageTurnMode !== PageTurnMode.Vertical,
       spread: this.useReaderColumns(), forceDark: this.palette.isDark,
+      viewportWidth: this.readerViewportWidthVp, viewportHeight: this.readerViewportHeightVp,
       paperColor: this.epubOriginalPaper,
       insetTop: this.readerTopInsetVp() + this.readerHeaderHeight() + 8,
       insetBottom: this.readerTextBottomPaddingVp() + this.readerFooterHeight(),
@@ -3944,6 +3980,8 @@ export struct ReaderPage {
         safeLeft: this.leftSafeVp, safeRight: this.rightSafeVp,
         safeTop: this.readerTopInsetVp() + this.readerHeaderHeight(), safeBottom: this.bottomSafeVp,
         keyTurnRequest: this.keyTurnRequest, mode: this.pageTurnMode,
+        spread: this.useReaderColumns(), footerHeight: this.readerFooterHeight(),
+        stableSurface: true,
         paperColor: this.epubOriginalPaper, pageContent: (): void => this.buildOriginalPage(),
         onPrepare: (forward: boolean): Promise<boolean> => this.prepareOriginalTurn(forward),
         onTurnFeedback: (): void => this.playPageTurnHaptic(),

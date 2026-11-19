@@ -19,6 +19,8 @@ export struct ReaderSpeechText {
   @Param comments: ReaderParagraphComment[] = [];
   @Event onComment: (comment: ReaderParagraphComment) => void = () => {};
   @Param page: OnlineTextPage = new OnlineTextPage();
+  @Param imagePageKey: string = '';
+  @Event onImageReady: (key: string, ready: boolean) => void = () => {};
   @Param text: string = '';
   @Param source: string = '';
   @Param state: TextToSpeechState = new TextToSpeechState();
@@ -58,7 +60,7 @@ export struct ReaderSpeechText {
           ReaderTextFragment({
             comments: this.comments, onComment: this.onComment,
             letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight && !part.isHeading, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
-            page: part, text: part.text,
+            page: part, text: part.text, imagePageKey: this.imagePageKey, onImageReady: this.onImageReady,
             source: this.source.substring(part.startOffset - this.sourceStart, part.endOffset - this.sourceStart),
             sourceStart: part.startOffset, state: this.state, highlightEnabled: this.highlightEnabled && !part.isHeading,
             selectionEnabled: this.selectionEnabled && !part.isHeading, selectionRevision: this.selectionRevision,
@@ -74,6 +76,7 @@ export struct ReaderSpeechText {
           comments: this.comments, onComment: this.onComment,
           letterSpacing: this.letterSpacing, dialogueHighlight: this.dialogueHighlight && !this.page.isHeading, dialogueHighlightColor: this.dialogueHighlightColor, speechMark: this.speechMark, speechMarkColor: this.speechMarkColor,
           page: this.page, text: this.text, source: this.source, sourceStart: this.sourceStart,
+          imagePageKey: this.imagePageKey, onImageReady: this.onImageReady,
           state: this.state, highlightEnabled: this.highlightEnabled && !this.page.isHeading, selectionEnabled: this.selectionEnabled && !this.page.isHeading,
           selectionRevision: this.selectionRevision,
           onSelectionChange: this.onSelectionChange, onReadFrom: this.onReadFrom, onAi: this.onAi, onExcerpt: this.onExcerpt,
@@ -93,6 +96,8 @@ struct ReaderTextFragment {
   @Param comments: ReaderParagraphComment[] = [];
   @Event onComment: (comment: ReaderParagraphComment) => void = () => {};
   @Param page: OnlineTextPage = new OnlineTextPage();
+  @Param imagePageKey: string = '';
+  @Event onImageReady: (key: string, ready: boolean) => void = () => {};
   private paragraphNode: ReaderParagraphNodeController = new ReaderParagraphNodeController();
   private selectionDragX: number = 0;
   private selectionDragY: number = 0;
@@ -286,9 +291,13 @@ struct ReaderTextFragment {
 
   build() {
     if (this.page.imageUrl) {
-      Image(this.page.imageUrl).width(this.getUIContext().px2vp(this.page.imageWidth))
-        .height(this.getUIContext().px2vp(this.page.layoutHeight))
-        .objectFit(ImageFit.Contain).draggable(false)
+      ForEach([`${this.imagePageKey}:${this.page.startOffset}:${this.page.imageUrl}`], (key: string) => {
+        Image(this.page.imageUrl).width(this.getUIContext().px2vp(this.page.imageWidth))
+          .height(this.getUIContext().px2vp(this.page.layoutHeight))
+          .objectFit(ImageFit.Contain).draggable(false)
+          .onComplete((event): void => { if (event?.loadingStatus === 1) this.onImageReady(key, true); })
+          .onError((): void => this.onImageReady(key, false))
+      }, (key: string): string => key)
     } else if (this.page.paragraph !== null) {
       Stack({ alignContent: Alignment.TopStart }) {
       NodeContainer(this.paragraphNode)

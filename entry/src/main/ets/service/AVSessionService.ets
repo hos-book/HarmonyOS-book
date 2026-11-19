@@ -74,6 +74,7 @@ export class AVSessionService {
   };
   private static instance: AVSessionService | null = null;
   private session: avSession.AVSession | null = null;
+  private sessionActive: boolean = false;
   private context: common.UIAbilityContext | null = null;
   private coverCache: Map<string, image.PixelMap> = new Map();
   private coverLoads: Map<string, Promise<image.PixelMap | null>> = new Map<string, Promise<image.PixelMap | null>>();
@@ -181,11 +182,19 @@ export class AVSessionService {
     return this.initPromise;
   }
 
+  /** 有声书起播必须确认会话已激活；普通元数据调用仍沿用 init 的非阻塞失败语义。 */
+  async ensurePlaybackReady(context: common.UIAbilityContext): Promise<boolean> {
+    await this.init(context);
+    if (this.session && !this.sessionActive) await this.reactivate();
+    return this.session !== null && this.sessionActive;
+  }
+
   private async doInit(context: common.UIAbilityContext): Promise<void> {
     try {
       this.session = await avSession.createAVSession(context, 'ListenBook', 'audio');
       this.registerCommands();
       await this.session.activate();
+      this.sessionActive = true;
       this.configureMediaCenter();
       this.configureUrlCasting();
       await this.setupLaunchAbility(context);
@@ -194,6 +203,14 @@ export class AVSessionService {
       const e = err as Error;
       hilog.error(DOMAIN, TAG, 'AVSession init failed: %{public}s',
         e?.message ?? JSON.stringify(err));
+      // 激活失败的半成品不能被下一次 init 当成有效会话复用。
+      if (!this.sessionActive) {
+        const failedSession = this.session;
+        this.session = null;
+        if (failedSession) {
+          try { await failedSession.destroy(); } catch (_error) { /* already unavailable */ }
+        }
+      }
       this.initPromise = null;
     }
   }
@@ -637,7 +654,8 @@ export class AVSessionService {
   }
 
   async updatePlaybackState(isPlaying: boolean, progressMs: number, speed: number,
-    durationMs: number, isFavorite: boolean = false, speech: boolean = false): Promise<void> {
+    durationMs: number, isFavorite: boolean = false, speech: boolean = false,
+    buffering: boolean = false): Promise<void> {
     if (speech !== PlaybackCoordinator.speechActive) return;
     if (!await this.ensureReady() || !this.session) return;
     if (speech !== PlaybackCoordinator.speechActive) return;
@@ -645,11 +663,11 @@ export class AVSessionService {
     this.currentDurationMs = durationMs;
     let state: avSession.PlaybackState = avSession.PlaybackState.PLAYBACK_STATE_PAUSE;
     if (isPlaying) {
-      state = avSession.PlaybackState.PLAYBACK_STATE_PLAY;
+      state = buffering ? avSession.PlaybackState.PLAYBACK_STATE_BUFFERING : avSession.PlaybackState.PLAYBACK_STATE_PLAY;
     }
     const playbackState: avSession.AVPlaybackState = {
       state: state,
-      speed: speed,
+      speed: isPlaying && buffering ? 0 : speed,
       position: {
         elapsedTime: progressMs,
         updateTime: Date.now()
@@ -845,6 +863,7 @@ export class AVSessionService {
     if (!this.session) return;
     try {
       await this.session.deactivate();
+      this.sessionActive = false;
     } catch (err) {
       const e = err as Error;
       hilog.error(DOMAIN, TAG, 'deactivate failed: %{public}s',
@@ -857,6 +876,7 @@ export class AVSessionService {
     if (!this.session) return;
     try {
       await this.session.activate();
+      this.sessionActive = true;
     } catch (err) {
       const e = err as Error;
       hilog.error(DOMAIN, TAG, 'reactivate failed: %{public}s',
@@ -877,6 +897,7 @@ export class AVSessionService {
     this.coverLoads.clear();
     const session = this.session;
     this.session = null;
+    this.sessionActive = false;
     if (session) {
       if (PlatformCompat.supports(23) && this.desktopLyric.supported) {
         try { session.offDesktopLyricVisibilityChanged(this.lyricVisibilityChanged); } catch (_e) {}

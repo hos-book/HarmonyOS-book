@@ -46,6 +46,8 @@ export struct CoverImage {
   @Param title: string = '';
   @Param author: string = '';
   @Param localPlaceholder: boolean = false;
+  /** 氛围背景只允许真实封面；普通书封继续保留占位。 */
+  @Param showPlaceholder: boolean = true;
   @Param imgWidth: Length = '100%';
   @Param imgHeight: Length = 0;
   @Param useFixedHeight: boolean = false;
@@ -299,13 +301,15 @@ export struct CoverImage {
 
   build() {
     Stack() {
-      if (this.localPlaceholder && !this.url) {
-        LocalBookCover({ title: this.title, author: this.author, imgWidth: this.displayWidth(),
-          imgHeight: this.imgHeight, useFixedHeight: this.useFixedHeight,
-          aspectRatioValue: this.displayRatio(), radius: this.radius,
-          themedDecoration: false, themeBundleId: this.themeBundleId })
-      } else {
-        this.placeholderImage()
+      if (this.showPlaceholder) {
+        if (this.localPlaceholder && !this.url) {
+          LocalBookCover({ title: this.title, author: this.author, imgWidth: this.displayWidth(),
+            imgHeight: this.imgHeight, useFixedHeight: this.useFixedHeight,
+            aspectRatioValue: this.displayRatio(), radius: this.radius,
+            themedDecoration: false, themeBundleId: this.themeBundleId })
+        } else {
+          this.placeholderImage()
+        }
       }
       if (this.url.startsWith('http') && this.resolvedUrl && this.showImage && !this.giveUp) {
         this.networkImage(this.url)

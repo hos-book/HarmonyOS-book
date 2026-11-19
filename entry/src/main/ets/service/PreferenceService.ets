@@ -27,6 +27,7 @@ const STORE_NAME = 'listenbook_prefs';
 const KEY_FAVORITES = 'favorite_book_ids';
 const KEY_PINNED_FAVORITES = 'pinned_favorite_book_ids';
 const KEY_SHELF_STATUS_FILTER = 'shelf_status_filter';
+const KEY_RECORD_HEATMAP_EXPANDED = 'record_heatmap_expanded';
 const KEY_HISTORY = 'play_history';
 const KEY_LAST_PLAYED = 'last_played';
 const KEY_COLOR_MODE = 'color_mode';
@@ -1420,6 +1421,31 @@ export class PreferenceService {
     return await store.get('record_edit_locked', false) === true;
   }
 
+  private static recordHeatmapSave: Promise<void> = Promise.resolve();
+
+  /** 本机界面偏好，独立于阅听数据；未保存时默认展开。 */
+  static async getRecordHeatmapExpanded(): Promise<boolean> {
+    await PreferenceService.recordHeatmapSave;
+    const store = await PreferenceService.ensureStore();
+    return await store.get(KEY_RECORD_HEATMAP_EXPANDED, true) !== false;
+  }
+
+  static setRecordHeatmapExpanded(expanded: boolean): Promise<void> {
+    const task = PreferenceService.recordHeatmapSave.then(async (): Promise<void> => {
+      const store = await PreferenceService.ensureStore();
+      const previous = store.getSync(KEY_RECORD_HEATMAP_EXPANDED, true) !== false;
+      try {
+        await store.put(KEY_RECORD_HEATMAP_EXPANDED, expanded);
+        await store.flush();
+      } catch (error) {
+        await store.put(KEY_RECORD_HEATMAP_EXPANDED, previous);
+        throw new Error(`Failed to save record heatmap expansion: ${String(error)}`);
+      }
+    });
+    PreferenceService.recordHeatmapSave = task.catch((): void => {});
+    return task;
+  }
+
   static async setRecordEditLocked(locked: boolean): Promise<void> {
     const store = await PreferenceService.ensureStore();
     const previous = await store.get('record_edit_locked', false);
@@ -1498,16 +1524,17 @@ export class PreferenceService {
     }
   }
 
-  /** 0=打断后自动恢复，1=共存播放。旧的共享/独立焦点不代表用户选择过混音。 */
+  /** 0=打断后自动恢复，1=共存播放，2=暂时压低音量。保留旧保存值含义。 */
   static async getAudioFocusMode(): Promise<number> {
     const store = await PreferenceService.ensureStore();
-    return await store.get(KEY_AUDIO_FOCUS_MODE, 0) === 1 ? 1 : 0;
+    const mode = await store.get(KEY_AUDIO_FOCUS_MODE, 0);
+    return mode === 1 || mode === 2 ? mode : 0;
   }
 
   static async setAudioFocusMode(mode: number): Promise<void> {
     const store = await PreferenceService.ensureStore();
     const previous = await store.get(KEY_AUDIO_FOCUS_MODE, 0);
-    await store.put(KEY_AUDIO_FOCUS_MODE, mode === 1 ? 1 : 0);
+    await store.put(KEY_AUDIO_FOCUS_MODE, mode === 1 || mode === 2 ? mode : 0);
     try { await store.flush(); }
     catch (error) {
       await store.put(KEY_AUDIO_FOCUS_MODE, previous);
@@ -2262,7 +2289,8 @@ export class PreferenceService {
     await s.put(KEY_AUTO_PLAY_ON_LAUNCH, snapshot.autoPlayOnLaunch === true);
     await s.put(KEY_AUDIO_INTERRUPT_MODE, snapshot.audioInterruptMode);
     await s.put(KEY_AUDIO_AUTO_RESUME, snapshot.audioAutoResume);
-    await s.put(KEY_AUDIO_FOCUS_MODE, snapshot.audioFocusMode === 1 ? 1 : 0);
+    await s.put(KEY_AUDIO_FOCUS_MODE,
+      snapshot.audioFocusMode === 1 || snapshot.audioFocusMode === 2 ? snapshot.audioFocusMode : 0);
     await s.put(KEY_DEFAULT_PLAYBACK_SPEED,
       PreferenceService.normalizeDefaultPlaybackSpeed(snapshot.defaultPlaybackSpeed));
     await s.put(KEY_HOME_GRID_COLUMNS, snapshot.homeGridColumns);

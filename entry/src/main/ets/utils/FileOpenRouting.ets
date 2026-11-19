@@ -13,7 +13,7 @@ export class LocalImportRouteParams {
 
 /** Route only supported local files. Preserve the original granted URI for all reads. */
 export class FileOpenRouting {
-  static readonly TEXT_EXTS: string[] = ['.txt', '.epub', '.mobi', '.html', '.htm', '.pdf', '.cba'];
+  static readonly TEXT_EXTS: string[] = ['.txt', '.epub', '.mobi', '.azw3', '.html', '.htm', '.pdf', '.cba'];
 
   static fileName(uri: string): string {
     try {
@@ -41,6 +41,9 @@ export class FileOpenRouting {
       case 'application/pdf': return '.pdf';
       case 'com.amazon.mobi':
       case 'application/x-mobipocket-ebook': return '.mobi';
+      case 'com.amazon.azw3':
+      case 'application/vnd.amazon.mobi8-ebook':
+      case 'application/x-mobi8-ebook': return '.azw3';
       case 'application/x-cba':
       case 'application/x-ace-compressed': return '.cba';
       case 'general.html':

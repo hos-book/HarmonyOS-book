@@ -66,6 +66,7 @@ class EpubOriginalConfig {
   token: number = 0;
   paged: boolean = true;
   dark: boolean = false;
+  spread: boolean = false;
   spot: EpubOriginalSpot = new EpubOriginalSpot();
   restorePage: number = -1;
   paint: number = 0;
@@ -109,6 +110,8 @@ export struct EpubOriginalReader {
   @Param paged: boolean = true;
   @Param spread: boolean = false;
   @Param forceDark: boolean = false;
+  @Param viewportWidth: number = 0;
+  @Param viewportHeight: number = 0;
   @Param insetTop: number = 0;
   @Param insetBottom: number = 0;
   @Param insetLeft: number = 20;
@@ -231,10 +234,10 @@ export struct EpubOriginalReader {
   }
 
   private insetKey(): string {
-    return `${this.insetTop}:${this.insetBottom}:${this.insetLeft}:${this.insetRight}:${this.spread}:${this.forceDark}`;
+    return `${this.viewportWidth}:${this.viewportHeight}:${this.insetTop}:${this.insetBottom}:${this.insetLeft}:${this.insetRight}:${this.spread}:${this.forceDark}`;
   }
 
-  @Monitor('insetTop', 'insetBottom', 'insetLeft', 'insetRight', 'spread', 'forceDark')
+  @Monitor('viewportWidth', 'viewportHeight', 'insetTop', 'insetBottom', 'insetLeft', 'insetRight', 'spread', 'forceDark')
   private insetsChanged(): void {
     this.scheduleLayout();
   }
@@ -309,7 +312,7 @@ export struct EpubOriginalReader {
     const painted = this.waitForPaint();
     const config = new EpubOriginalConfig();
     config.token = ticket; config.paged = this.paged; config.spot = this.spot(offset, end);
-    config.dark = this.forceDark;
+    config.dark = this.forceDark; config.spread = this.spread;
     config.path = '/assets/' + EpubOriginalDocument.assetPath(part.href);
     config.paint = this.paintSerial;
     if (restore !== null) { config.spot = restore; config.restorePage = restorePage ? restore.page : -1; }

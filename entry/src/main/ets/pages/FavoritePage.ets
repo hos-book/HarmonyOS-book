@@ -1,3 +1,4 @@
+import { ContentTypeColor } from '../theme/ContentTypeColor';
 import { ShelfCollectionView } from '../components/ShelfCollectionView';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { ShelfCollectionBookPicker } from '../components/ShelfCollectionBookPicker';
@@ -57,14 +58,14 @@ import { WindowUtils } from '../utils/WindowUtils';
 import { BookDataSource } from '../utils/BookDataSource';
 import { ShelfReaderRouteParams } from '../utils/ShelfReaderTransition';
 import { ShelfBatchActions, SHELF_BATCH_ACTIONS_HEIGHT } from '../components/ShelfBatchActions';
-import { CoverImage } from '../components/CoverImage';
+import { PhysicalBookCover, PHYSICAL_BOOK_COVER_RATIO, PHYSICAL_BOOK_COVER_RADIUS } from '../components/PhysicalBookCover';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
 import { ShelfUpdateService, ShelfUpdateReport, BookUpdateInfo } from '../service/ShelfUpdateService';
 import { DownloadService } from '../service/DownloadService';
 import { TextReadingPosition } from '../model/TextReading';
 import { TextReadingProgressService, EVT_TEXT_READING_PROGRESS_CHANGED } from '../service/text/TextReadingProgressService';
 
-const BOOKSHELF_COVER_RATIO: number = 0.75;
+const BOOKSHELF_COVER_RATIO: number = PHYSICAL_BOOK_COVER_RATIO;
 const MINI_TITLE_BAR_HEIGHT: number = 56;
 const SHELF_FILTER_TOP_OFFSET: number = MINI_TITLE_BAR_HEIGHT;
 const SHELF_FILTER_ROW_HEIGHT: number = 48;
@@ -1663,7 +1664,7 @@ export struct FavoritePage {
     const transition = PlayerDragTransition.getInstance();
     if (transition.state.active) return;
     // 在真正跳转时测量，异步目录加载期间封面可能已滚动或重排。
-    const origin = transition.captureCover(this.getUIContext(), coverNodeId, 5);
+    const origin = transition.captureCover(this.getUIContext(), coverNodeId, PHYSICAL_BOOK_COVER_RADIUS);
     if (origin !== undefined) transition.beginTap(origin, this.collectionGroup === undefined ? '' : 'shelfCollection');
     const params = new ShelfPlayerRoute();
     params.bookId = bookId;
@@ -2517,8 +2518,7 @@ export struct FavoritePage {
           LazyForEach(this.updateData, (item: BookUpdateInfo) => {
             ListItem() {
               Row({ space: 14 }) {
-                CoverImage({ url: item.cover, imgWidth: 52, imgHeight: 70, useFixedHeight: true,
-                  radius: 8, themedDecoration: false, themeBundleId: 'default' })
+                PhysicalBookCover({ url: item.cover, title: item.title, imgWidth: 52 })
                 Column({ space: 7 }) {
                   Text(item.title).fontSize(16).fontWeight(FontWeight.Medium)
                     .fontColor($r('sys.color.font_primary')).maxLines(2)
@@ -2851,26 +2851,36 @@ export struct FavoritePage {
     .alignItems(HorizontalAlign.Center)
   }
 
-  // 基础书脊独立于主题装饰；透明明暗层沿用原封面颜色，不增加图片解码。
   @Builder
-  buildBookSpine() {
-    Row()
-      .width('14%')
-      .height('100%')
-      .linearGradient({
-        direction: GradientDirection.Right,
-        colors: [
-          ['#66000000', 0],
-          ['#16000000', 0.18],
-          ['#38FFFFFF', 0.36],
-          ['#10FFFFFF', 0.5],
-          ['#30000000', 0.6],
-          ['#08000000', 0.78],
-          ['#00000000', 1]
-        ]
-      })
-      .hitTestBehavior(HitTestMode.None)
-      .accessibilityLevel('no')
+  buildMissingBookCover() {
+    Stack() {
+      Column().width('100%').height('100%').backgroundColor('#FFE8D6D6')
+      SymbolGlyph($r('sys.symbol.exclamationmark_circle')).fontSize(34).fontColor(['#B3261E'])
+      Text('缓存缺失').fontSize(AppFont.Caption).fontColor('#B3261E')
+        .fontWeight(FontWeight.Medium).margin({ top: 48 })
+    }.width('100%').height('100%')
+  }
+
+  @LocalBuilder
+  buildTileCoverOverlay(book: Book) {
+    if (this.isMissingCachedBook(book)) this.buildMissingBookCover()
+    this.buildBookPressFeedback(book)
+    this.buildTypeBadge(false, book.contentType ?? 'audio')
+    this.buildSourceBadge(book)
+    this.buildPinnedBadge(book)
+    if (this.isManaging) {
+      Row() {
+        this.buildSelectionMark(book)
+        Blank()
+      }.width('100%').padding(6)
+    }
+  }
+
+  @LocalBuilder
+  buildListCoverOverlay(book: Book) {
+    this.buildBookPressFeedback(book)
+    this.buildTypeBadge(true, book.contentType ?? 'audio')
+    this.buildSourceBadge(book)
   }
 
   @Builder
@@ -2878,77 +2888,17 @@ export struct FavoritePage {
     Stack() {
     Column({ space: AppSpace.Xs }) {
       Stack({ alignContent: Alignment.TopStart }) {
-        if (this.isMissingCachedBook(book)) {
-          Stack() {
-            Column()
-              .width('100%')
-              .height('100%')
-              .backgroundColor('#FFE8D6D6')
-            SymbolGlyph($r('sys.symbol.exclamationmark_circle'))
-              .fontSize(34)
-              .fontColor(['#B3261E'])
-            Text('缓存缺失')
-              .fontSize(AppFont.Caption)
-              .fontColor('#B3261E')
-              .fontWeight(FontWeight.Medium)
-              .margin({ top: 48 })
-          }
-          .width('100%')
-          .aspectRatio(BOOKSHELF_COVER_RATIO)
-          .borderRadius(0)
-          .clip(true)
-        } else if (book.cover && book.cover.startsWith('http')) {
-          CoverImage({ url: book.cover, imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO,
-            radius: 0, themedDecoration: false, themeBundleId: 'default' })
-            .hitTestBehavior(HitTestMode.Transparent)
-        } else if (book.cover && (book.cover.startsWith('/data/') || book.cover.startsWith('file://'))) {
-          Image('file://' + book.cover.replace(/^file:\/\//, ''))
-            .width('100%')
-            .aspectRatio(BOOKSHELF_COVER_RATIO)
-            .borderRadius(0)
-            .objectFit(ImageFit.Cover)
-            .autoResize(true)
-            .interpolation(ImageInterpolation.Medium)
-            .draggable(false)
-            .hitTestBehavior(HitTestMode.Transparent)
-        } else if (book.cover) {
-          Image($rawfile(book.cover))
-            .width('100%')
-            .aspectRatio(BOOKSHELF_COVER_RATIO)
-            .borderRadius(0)
-            .objectFit(ImageFit.Cover)
-            .autoResize(true)
-            .interpolation(ImageInterpolation.Medium)
-            .draggable(false)
-            .hitTestBehavior(HitTestMode.Transparent)
-        } else {
-          CoverImage({ title: book.title, author: book.author, localPlaceholder: book.id.startsWith('import_'),
-            imgWidth: '100%', aspectRatioValue: BOOKSHELF_COVER_RATIO, radius: 0, themedDecoration: false, themeBundleId: 'default' })
-        }
-        this.buildBookSpine()
-        this.buildBookPressFeedback(book)
-        this.buildTypeBadge(false, book.contentType ?? 'audio')
-        this.buildSourceBadge(book)
-        this.buildPinnedBadge(book)
-        if (this.isManaging) {
-          Row() {
-            this.buildSelectionMark(book)
-            Blank()
-          }.width('100%').padding(6)
-        }
-      }
-      .width('100%')
-      .aspectRatio(BOOKSHELF_COVER_RATIO)
-      .borderRadius({ topLeft: 3, bottomLeft: 3, topRight: 5, bottomRight: 5 })
-      .clip(true)
-      .border({ width: this.isManaging && this.selectedBookIds.has(book.id) ? 2 : 0,
-        color: AppColor.Brand, radius: { topLeft: 3, bottomLeft: 3, topRight: 5, bottomRight: 5 } })
-      .shadow({ radius: 6, color: '#26000000', offsetX: 2, offsetY: 3 })
-      .id(this.shelfCoverId(book, false))
-      .opacity(this.playerTransition.active &&
-        this.playerTransition.sourceNodeId === this.shelfCoverId(book, false) ? 0 : 1)
-      // 展示子树不参与触摸命中，封面/占位图的原生长按不能抢走书卡菜单。
-      .hitTestBehavior(HitTestMode.None)
+        PhysicalBookCover({ url: book.cover, title: book.title, author: book.author,
+          localPlaceholder: book.id.startsWith('import_'), showImage: !this.isMissingCachedBook(book),
+          overlayContent: (): void => this.buildTileCoverOverlay(book) })
+      }.width('100%').aspectRatio(BOOKSHELF_COVER_RATIO)
+        .border({ width: this.isManaging && this.selectedBookIds.has(book.id) ? 2 : 0,
+          color: AppColor.Brand, radius: PHYSICAL_BOOK_COVER_RADIUS })
+        .id(this.shelfCoverId(book, false))
+        .opacity(this.playerTransition.active &&
+          this.playerTransition.sourceNodeId === this.shelfCoverId(book, false) ? 0 : 1)
+        // 封面只展示，长按与右键菜单由外层书卡处理。
+        .hitTestBehavior(HitTestMode.None)
 
       Text(book.title)
         .fontSize(AppFont.Body)
@@ -3030,7 +2980,7 @@ export struct FavoritePage {
         top: small ? 2 : 3,
         bottom: small ? 2 : 3
       })
-      .backgroundColor(contentType === 'comic' ? '#CC8E5BB7' : contentType !== 'audio' ? '#CC4E7FA8' : '#CCFF8800')
+      .backgroundColor(ContentTypeColor.of(contentType))
       .borderRadius(AppRadius.Sm)
     }
     .width('100%')
@@ -3044,44 +2994,12 @@ export struct FavoritePage {
     Stack() {
       Column({ space: AppSpace.Sm }) {
         Row({ space: AppSpace.Sm }) {
-          Stack({ alignContent: Alignment.TopStart }) {
-            if (book.cover && book.cover.startsWith('http')) {
-              CoverImage({ url: book.cover, imgWidth: 80, imgHeight: 112, useFixedHeight: true,
-                radius: 0, themedDecoration: false, themeBundleId: 'default' })
-                .hitTestBehavior(HitTestMode.Transparent)
-            } else if (book.cover && (book.cover.startsWith('/data/') || book.cover.startsWith('file://'))) {
-              Image('file://' + book.cover.replace(/^file:\/\//, ''))
-                .width(80)
-                .height(112)
-                .borderRadius(0)
-                .objectFit(ImageFit.Cover)
-                .autoResize(true)
-                .interpolation(ImageInterpolation.Medium)
-                .draggable(false)
-                .hitTestBehavior(HitTestMode.Transparent)
-            } else if (book.cover) {
-              Image($rawfile(book.cover)).width(80).height(112).borderRadius(0)
-                .objectFit(ImageFit.Cover).autoResize(true).interpolation(ImageInterpolation.Medium)
-                .draggable(false).hitTestBehavior(HitTestMode.Transparent)
-            } else {
-              CoverImage({ title: book.title, author: book.author, localPlaceholder: book.id.startsWith('import_'),
-                imgWidth: 80, imgHeight: 112, useFixedHeight: true, radius: 0, themedDecoration: false, themeBundleId: 'default' })
-            }
-            this.buildBookSpine()
-            this.buildBookPressFeedback(book)
-            this.buildTypeBadge(true, book.contentType ?? 'audio')
-            this.buildSourceBadge(book)
-          }
-          .width(80)
-          .height(112)
-          .flexShrink(0)
-          .borderRadius({ topLeft: 3, bottomLeft: 3, topRight: 5, bottomRight: 5 })
-          .clip(true)
-          .shadow({ radius: 5, color: '#26000000', offsetX: 2, offsetY: 2 })
-          .id(this.shelfCoverId(book, true))
-          .opacity(this.playerTransition.active &&
-            this.playerTransition.sourceNodeId === this.shelfCoverId(book, true) ? 0 : 1)
-          .hitTestBehavior(HitTestMode.None)
+          PhysicalBookCover({ url: book.cover, title: book.title, author: book.author,
+            localPlaceholder: book.id.startsWith('import_'), imgWidth: 80,
+            overlayContent: (): void => this.buildListCoverOverlay(book) })
+            .flexShrink(0).id(this.shelfCoverId(book, true))
+            .opacity(this.playerTransition.active &&
+              this.playerTransition.sourceNodeId === this.shelfCoverId(book, true) ? 0 : 1)
 
           Column({ space: 6 }) {
             Row({ space: 6 }) {

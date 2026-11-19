@@ -2,7 +2,7 @@ import { Book } from '../model/Book';
 import { AppColor, AppTheme } from '../theme/Theme';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
 import { WindowUtils } from '../utils/WindowUtils';
-import { CoverImage } from './CoverImage';
+import { PhysicalBookCover } from './PhysicalBookCover';
 import { ImmersiveCircleButton } from './ImmersiveCircleButton';
 
 /** 只选择未分组书籍；持久化由书架已有流程完成。 */
@@ -115,9 +115,8 @@ export struct ShelfCollectionBookPicker {
         LazyForEach(this.data, (book: Book) => {
           ListItem() {
             Row({ space: 12 }) {
-              CoverImage({ url: book.cover, title: book.title, author: book.author,
-                localPlaceholder: book.id.startsWith('import_'), themedDecoration: false, themeBundleId: 'default',
-                imgWidth: 38, imgHeight: 54, useFixedHeight: true, radius: 4 }).hitTestBehavior(HitTestMode.None)
+              PhysicalBookCover({ url: book.cover, title: book.title, author: book.author,
+                localPlaceholder: book.id.startsWith('import_'), imgWidth: 38 })
               Column({ space: 6 }) {
                 Text(book.title).fontSize(14).fontWeight(FontWeight.Medium).fontColor(AppTheme.TextPrimary)
                   .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')

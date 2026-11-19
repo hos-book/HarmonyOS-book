@@ -36,6 +36,7 @@ const DOMAIN = 0xFF00;
 const TAG = 'ListenBook_Audio';
 const AUDIO_RESOLVE_TIMEOUT_MS = 15000;
 const PRELOAD_STABLE_PLAYBACK_MS = 8000;
+const PLAYBACK_BUFFER_TIMEOUT_MS = 30000;
 
 /** 播放历史落盘后广播的事件名,书架等页面订阅以实时刷新进度文案 */
 export const EVT_HISTORY_UPDATED = 'app.history.updated';
@@ -160,6 +161,57 @@ export class AudioService {
   private playerStartPromise: Promise<void> | null = null;
   private playerStartTarget: media.AVPlayer | null = null;
   private playerStartGeneration: number = -1;
+  private playbackBuffering: boolean = false;
+  private playbackBufferTimer: number = -1;
+  private preloadAfterPause: boolean = true;
+
+  private readonly onBackgroundInterrupted = (): void => {
+    if (PlaybackCoordinator.speechActive || !this.state ||
+      (!this.state.isPlaying && !this.state.isLoading && !this.isApplying && this.player?.state !== 'playing')) return;
+    // 前台切章暂时没有音频流，旧任务可被系统挂起；新音源 prepared 后须重新申请，不能误停选章。
+    if (this.foreground && (this.state.isLoading || this.isApplying) && this.player?.state !== 'playing') {
+      this.tracePlayback('background-interrupted:chapter-loading');
+      if (this.context) BackgroundTaskService.stop(this.context);
+      return;
+    }
+    this.tracePlayback('background-interrupted');
+    this.state.isLoading = false;
+    this.pause('background-interrupted', false);
+    this.emitCurrentPlayFailed($r('app.string.player_background_interrupted'));
+  };
+
+  private cancelPlaybackBufferRecovery(): void {
+    if (this.playbackBufferTimer >= 0) clearTimeout(this.playbackBufferTimer);
+    this.playbackBufferTimer = -1;
+  }
+
+  private schedulePlaybackBufferRecovery(player: media.AVPlayer): void {
+    if (this.playbackBufferTimer >= 0 || !this.state?.isPlaying || this.state.isLive ||
+      this.pauseRequested || this.sleepPausePending || this.pausedByFocus || player.state !== 'playing') return;
+    const generation = this.playGen;
+    this.playbackBufferTimer = setTimeout((): void => {
+      this.playbackBufferTimer = -1;
+      if (this.player !== player || generation !== this.playGen || !this.playbackBuffering ||
+        !this.state?.isPlaying || this.state.isLive || this.pauseRequested || this.sleepPausePending ||
+        this.pausedByFocus || PlaybackCoordinator.speechActive) return;
+      const book = this.state.currentBook;
+      const chapter = this.state.currentChapter;
+      if (!book || !chapter) return;
+      if (!this.canAutoRetryLoad(chapter.id)) {
+        this.pause('buffer-timeout', false);
+        this.emitCurrentPlayFailed($r('app.string.player_buffer_timeout'));
+        return;
+      }
+      this.autoRetryChapterId = chapter.id;
+      this.capturePlayerPosition();
+      const resumeMs = this.state.progressMs;
+      this.tracePlayback('retry:buffer-timeout');
+      this.detachPlayer(player);
+      this.playChapterAndSeek(book, chapter, resumeMs, true, true).catch((error: Error): void => {
+        hilog.warn(DOMAIN, TAG, 'Buffer recovery failed: %{public}s', error.message);
+      });
+    }, PLAYBACK_BUFFER_TIMEOUT_MS);
+  }
 
   /** 只记录状态和位置，不记录书名、音频地址或请求凭据。 */
   private tracePlayback(event: string): void {
@@ -300,6 +352,7 @@ export class AudioService {
   bind(state: PlayerState, context: common.UIAbilityContext): void {
     this.state = state;
     this.context = context;
+    BackgroundTaskService.subscribeInterruption(this.onBackgroundInterrupted);
     this.loadLoudnessPreferences();
     this.loadSleepPreferences();
     this.initAVSession();
@@ -367,7 +420,9 @@ export class AudioService {
         this.state.progressMs,
         this.state.speed,
         this.state.durationMs,
-        isFav
+        isFav,
+        false,
+        this.playbackBuffering
       );
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'updatePlaybackState failed: %{public}s',
@@ -400,6 +455,7 @@ export class AudioService {
         this.tracePlaybackDuration(`state:${newState}`, this.playbackLoadStartedAt, this.playGen);
       }
       if (newState !== 'playing') {
+        this.cancelPlaybackBufferRecovery();
         this.cancelPreloadStart();
         this.stopTick();
       }
@@ -488,20 +544,18 @@ export class AudioService {
         this.startAutoSleepIfNeeded();
         // 真正开始出声,清掉 loading 标记
         this.state.isLoading = false;
-        this.startTick();
+        if (!this.playbackBuffering) this.startTick();
+        else this.schedulePlaybackBufferRecovery(p);
         this.recordSession();
         if (this.state.currentBook && this.state.currentChapter) {
           this.triggerPreload(this.state.currentBook, this.state.currentChapter);
         }
         this.syncPlaybackState();
         PlaybackStore.getInstance().setPlaying(true);
-        if (this.context) {
-          BackgroundTaskService.start(this.context);
-        }
       } else if (newState === 'paused') {
         this.state.isPlaying = false;
         this.capturePlayerPosition();
-        if (this.state.currentBook && this.state.currentChapter) {
+        if (this.preloadAfterPause && this.state.currentBook && this.state.currentChapter) {
           this.triggerPreload(this.state.currentBook, this.state.currentChapter, true);
         }
         this.stopTick();
@@ -614,12 +668,23 @@ export class AudioService {
     });
     p.on('bufferingUpdate', (type: media.BufferingInfoType, value: number): void => {
       if (this.player !== p || this.playerSourceGeneration !== this.playGen) return;
-      if (type === media.BufferingInfoType.BUFFERING_START) {
+      if (type === media.BufferingInfoType.BUFFERING_START && !this.pauseRequested &&
+        !this.sleepPausePending && !this.pausedByFocus) {
+        this.playbackBuffering = true;
+        this.capturePlayerPosition();
         this.cancelPreloadStart();
         this.stopTick();
+        this.syncPlaybackState();
+        this.schedulePlaybackBufferRecovery(p);
       } else if (type === media.BufferingInfoType.BUFFERING_END && p.state === 'playing' &&
-        this.state?.isPlaying && !this.pauseRequested && !PlaybackCoordinator.speechActive) {
+        this.state?.isPlaying && !this.pauseRequested && !this.sleepPausePending && !this.pausedByFocus &&
+        !PlaybackCoordinator.speechActive) {
         this.startTick();
+      }
+      if (type === media.BufferingInfoType.BUFFERING_END) {
+        this.playbackBuffering = false;
+        this.cancelPlaybackBufferRecovery();
+        this.syncPlaybackState();
       }
       if (!this.state?.isLive) {
         if (type === media.BufferingInfoType.BUFFERING_START &&
@@ -663,7 +728,9 @@ export class AudioService {
     if (this.playerStartPromise && this.playerStartTarget === player && this.playerStartGeneration === generation) {
       return this.playerStartPromise;
     }
-    const task: Promise<void> = this.startPlayerWithBackground(player, generation).finally((): void => {
+    const task: Promise<void> = this.startPlayerWithBackground(player, generation).catch((error: BusinessError): void => {
+      this.handlePlayerOperationFailure(player, generation, 'play', error);
+    }).finally((): void => {
       if (this.playerStartPromise === task) {
         this.playerStartPromise = null;
         this.playerStartTarget = null;
@@ -685,12 +752,14 @@ export class AudioService {
       return;
     }
     const sessionStartedAt = Date.now();
-    try { await AVSessionService.getInstance().init(context); }
+    let sessionReady: boolean = false;
+    try { sessionReady = await AVSessionService.getInstance().ensurePlaybackReady(context); }
     finally { this.tracePlaybackDuration('avsession-ready', sessionStartedAt, generation); }
     if (!this.canStartPlayer(player, generation)) {
       this.finishCancelledPlayerStart(player, generation);
       return;
     }
+    if (!sessionReady) throw new Error('AVSession is not active');
     const backgroundStartedAt = Date.now();
     try { await BackgroundTaskService.start(context); }
     finally { this.tracePlaybackDuration('background-ready', backgroundStartedAt, generation); }
@@ -698,13 +767,12 @@ export class AudioService {
       this.finishCancelledPlayerStart(player, generation);
       return;
     }
+    if (!BackgroundTaskService.isAudioPlaybackRunning()) throw new Error('Audio background task is not running');
     // 被系统静音/冻结后播放器可能仍为 playing，用户再次播放也必须补申请后台任务。
     if (player.state === 'playing') return;
     const playStartedAt = Date.now();
     try {
       await player.play();
-    } catch (error) {
-      this.handlePlayerOperationFailure(player, generation, 'play', error);
     } finally {
       this.tracePlaybackDuration('player-play', playStartedAt, generation);
     }
@@ -735,10 +803,8 @@ export class AudioService {
     this.tracePlayback(`operation-failed:${operation}:code=${error.code ?? -1}`);
     this.state.isPlaying = false;
     this.state.isLoading = false;
-    this.stopTick();
-    PlaybackStore.getInstance().setPlaying(false);
-    this.syncPlaybackState();
-    this.stopBackgroundIfIdle();
+    this.pause('playback-unavailable', false);
+    this.emitCurrentPlayFailed($r('app.string.player_play_failed'));
   }
 
   private handleInterrupt(event: audio.InterruptEvent): void {
@@ -749,6 +815,7 @@ export class AudioService {
 
   private pauseForFocus(): void {
     this.cancelLiveRecovery();
+    this.cancelPlaybackBufferRecovery();
     this.pausedByFocus = true;
     this.capturePlayerPosition();
     if (this.state) {
@@ -787,7 +854,7 @@ export class AudioService {
     if (this.usageBook?.bookId !== book.id) this.pendingUsageMs = 0;
     this.usageBook = {
       bookId: book.id, title: book.title, author: book.author || book.narrator || '',
-      cover: book.cover || '', sourceUrl: book.sourceUrl || '', bookUrl: book.bookUrl || ''
+      cover: book.cover || '', sourceUrl: book.sourceUrl || '', bookUrl: book.bookUrl || '', contentType: 'audio'
     };
     this.usageSince = systemDateTime.getUptime(systemDateTime.TimeType.STARTUP);
     this.timer = setInterval(() => {
@@ -922,7 +989,8 @@ export class AudioService {
    * - released:player 已不可用,丢弃引用,下次 ensurePlayer 会重建
    * - error / stopped:reset 一次回到干净 idle
    * - idle:已经是干净状态,留给后续 toggle 走 resumeFromState 路径
-   * - 其他(playing/paused/prepared/initialized):说明 player 还活着,不动
+    * - playing:补查音频后台任务，资格丢失时同步暂停
+    * - paused/prepared/initialized:保留状态
    *
    * 不在这里主动起播——避免应用刚回前台就抢焦点打断别的 App。
    */
@@ -930,6 +998,11 @@ export class AudioService {
     const p = this.player;
     if (!p) return;
     const s = p.state;
+    if (s === 'playing' && this.state?.isPlaying && !this.state.isLoading && !this.isApplying &&
+      !this.playerStartPromise && !BackgroundTaskService.isAudioPlaybackRunning()) {
+      this.onBackgroundInterrupted();
+      return;
+    }
     if (s === 'released') {
       this.player = null;
       return;
@@ -1097,6 +1170,8 @@ export class AudioService {
     this.cancelPreloadStart();
     this.playbackLoadStartedAt = Date.now();
     this.preloadBuffering = false;
+    this.playbackBuffering = false;
+    this.cancelPlaybackBufferRecovery();
     this.cancelLiveRecovery();
     const oldWasLive = this.liveSource || this.state.isLive;
     this.liveSource = false;
@@ -1423,6 +1498,12 @@ export class AudioService {
     emitter.emit(EVT_AUDIO_PLAY_FAILED, {
       data: { bookId, chapterId, message } as AudioPlayFailedPayload
     });
+  }
+
+  private emitCurrentPlayFailed(message: Resource): void {
+    if (!this.context || !this.state?.currentBook || !this.state.currentChapter) return;
+    this.emitPlayFailed(this.state.currentBook.id, this.state.currentChapter.id,
+      this.context.resourceManager.getStringSync(message.id));
   }
 
   /**
@@ -1808,6 +1889,7 @@ export class AudioService {
   private prepareSleepForPlayback(book: Book, chapter: Chapter, automatic: boolean): void {
     if (!this.state) return;
     if (!automatic) {
+      this.preloadAfterPause = true;
       this.pauseRequested = false;
       this.pauseSource = 'none';
       BackgroundTaskService.resumeAfterUserAction();
@@ -1865,6 +1947,7 @@ export class AudioService {
   private finishSleep(atChapterEnd: boolean): void {
     this.tracePlayback(`sleep-stop:chapterEnd=${atChapterEnd}`);
     this.cancelSleepTimer();
+    this.cancelPlaybackBufferRecovery();
     this.sleepPausePending = true;
     AudioFocusService.getInstance().release('audio');
     this.resumeAfterSleepChapter = atChapterEnd;
@@ -1902,6 +1985,8 @@ export class AudioService {
   }
 
   async release(): Promise<void> {
+    BackgroundTaskService.unsubscribeInterruption(this.onBackgroundInterrupted);
+    this.cancelPlaybackBufferRecovery();
     this.playGen++;
     this.cancelPreloadStart();
     this.playerSourceGeneration = -1;
@@ -1957,6 +2042,7 @@ export class AudioService {
     this.stopTick();
     this.cancelSleepTimer();
     this.cancelFocusRecovery();
+    this.cancelPlaybackBufferRecovery();
   }
 
   unfreezePersist(): void {
@@ -2097,6 +2183,7 @@ export class AudioService {
   private beginChapterLoading(): void {
     if (!this.state) return;
     this.cancelLiveRecovery();
+    this.cancelPlaybackBufferRecovery();
     this.state.isLive = false;
     this.state.isLoading = true;
     this.state.isPlaying = false;
@@ -2223,11 +2310,16 @@ export class AudioService {
   }
 
   /** 系统播控、耳机和卡片共用的暂停入口，重复指令保持暂停。 */
-  async pause(source: string = 'user'): Promise<void> {
-    if (this.state?.currentBook && this.state.currentChapter) {
+  async pause(source: string = 'user', continuePreload: boolean = true): Promise<void> {
+    this.preloadAfterPause = continuePreload;
+    if (!continuePreload) {
+      this.cancelPreloadStart();
+      ChapterCacheService.getInstance().suspendPreload();
+    } else if (this.state?.currentBook && this.state.currentChapter) {
       this.triggerPreload(this.state.currentBook, this.state.currentChapter, true);
     }
     this.cancelLiveRecovery();
+    this.cancelPlaybackBufferRecovery();
     this.pauseSource = source;
     this.tracePlayback('pause-request');
     this.pauseRequested = true;
@@ -2252,6 +2344,7 @@ export class AudioService {
 
   /** 系统播控、耳机和卡片共用的播放入口；重复 play 不切换为暂停或重载音源。 */
   async play(): Promise<void> {
+    this.preloadAfterPause = true;
     this.tracePlayback('play-request');
     this.capturePlayerPosition();
     BackgroundTaskService.resumeAfterUserAction();
