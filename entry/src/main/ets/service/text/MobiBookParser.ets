@@ -2,6 +2,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { util } from '@kit.ArkTS';
 import { BookCoverImageService } from './BookCoverImageService';
 import { Kf8BookText } from './Kf8BookText';
+import { MobiHuffDecoder } from './MobiHuffDecoder';
 
 export class MobiBookInfo {
   title: string = '';
@@ -17,7 +18,13 @@ export class MobiBookInfo {
   kf8: boolean = false;
 }
 
-/** MOBI6/PalmDOC: bounded record reads; hybrid MOBI uses its legacy rendition. */
+class MobiTextLayout {
+  bodyLength: number;
+  totalLength: number;
+  constructor(length: number) { this.bodyLength = length; this.totalLength = length; }
+}
+
+/** Bounded MOBI6/KF8 reads; hybrid MOBI uses its legacy rendition. */
 export class MobiBookParser {
   static readonly MAX_FILE_BYTES: number = 128 * 1024 * 1024;
   static readonly MAX_TEXT_BYTES: number = 32 * 1024 * 1024;
@@ -196,6 +203,33 @@ export class MobiBookParser {
     return output.subarray(0, written);
   }
 
+  private static async textLayout(header: Uint8Array, info: MobiBookInfo,
+    load: (index: number) => Promise<Uint8Array>): Promise<MobiTextLayout> {
+    const layout = new MobiTextLayout(info.textLength);
+    if (!info.kf8) return layout;
+    const record = MobiBookParser.u32(header, 192);
+    if (record === 0 || record === 0xFFFFFFFF) {
+      if (MobiBookParser.u32(header, 196) > 1) throw MobiBookParser.invalid();
+      return layout;
+    }
+    const table = await load(record);
+    if (!MobiBookParser.signature(table, 0, 'FDST')) throw MobiBookParser.invalid();
+    const start = MobiBookParser.u32(table, 4);
+    const count = MobiBookParser.u32(table, 8);
+    if (start < 12 || count < 1 || count > (table.length - start) / 8) throw MobiBookParser.invalid();
+    let previous = 0;
+    for (let index = 0; index < count; index++) {
+      const from = MobiBookParser.u32(table, start + index * 8);
+      const end = MobiBookParser.u32(table, start + index * 8 + 4);
+      if (from !== previous || end < from || (index === 0 && end === 0)) throw MobiBookParser.invalid();
+      if (end > MobiBookParser.MAX_TEXT_BYTES) throw new Error('import_mobi_size');
+      if (index === 0) layout.bodyLength = end;
+      previous = end;
+    }
+    layout.totalLength = previous;
+    return layout;
+  }
+
   static async read(uri: string,
     consume?: (text: string, info: MobiBookInfo, percent: number) => Promise<void>,
     coverDirectory: string = ''): Promise<MobiBookInfo> {
@@ -229,7 +263,7 @@ export class MobiBookParser {
       if (version > 8) throw new Error('import_mobi_kf8');
       if (version === 8 && headerLength < 240) throw MobiBookParser.invalid();
       const compression = MobiBookParser.u16(header, 0);
-      if (compression !== 1 && compression !== 2) throw new Error('import_mobi_compression');
+      if (compression !== 1 && compression !== 2 && compression !== 17480) throw new Error('import_mobi_compression');
       const codepage = MobiBookParser.u32(header, 28);
       if (codepage !== 65001 && codepage !== 1252) throw new Error('import_mobi_encoding');
       const encoding = codepage === 65001 ? 'utf-8' : 'windows-1252';
@@ -248,31 +282,39 @@ export class MobiBookParser {
           offsets, records, info, coverDirectory);
       }
       if (consume === undefined) return info;
+      const load = async (index: number): Promise<Uint8Array> => {
+        if (!Number.isInteger(index) || index <= records || index + 1 >= offsets.length) throw MobiBookParser.invalid();
+        return MobiBookParser.readBytes(file.fd, offsets[index], offsets[index + 1] - offsets[index]);
+      };
+      const layout = await MobiBookParser.textLayout(header, info, load);
+      if (layout.totalLength > records * recordSize) throw MobiBookParser.invalid();
+      const huff = compression === 17480 ? await MobiHuffDecoder.create(MobiBookParser.u32(header, 112),
+        MobiBookParser.u32(header, 116), recordSize, load) : null;
       const flags = version >= 5 && headerLength >= 228 ? MobiBookParser.u16(header, 242) : 0;
       const decoder = util.TextDecoder.create(encoding);
-      const kf8Text = info.kf8 ? new Uint8Array(info.textLength) : new Uint8Array(0);
+      const kf8Text = info.kf8 ? new Uint8Array(layout.bodyLength) : new Uint8Array(0);
       let decoded = 0;
       for (let index = 1; index <= records; index++) {
         const raw = await MobiBookParser.readBytes(file.fd, offsets[index], offsets[index + 1] - offsets[index]);
         const packed = MobiBookParser.textRecord(raw, flags);
-        const bytes = compression === 2 ? MobiBookParser.unpack(packed, recordSize) : packed;
+        const bytes = huff !== null ? huff.unpack(packed) :
+          compression === 2 ? MobiBookParser.unpack(packed, recordSize) : packed;
         if (bytes.length > recordSize) throw MobiBookParser.invalid();
-        // PalmDOC textLength excludes possible padding at the end of the last record.
-        const remaining = info.textLength - decoded;
+        // KF8 records contain the main HTML flow followed by CSS/SVG flows.
+        // Validate the full FDST extent, retaining only the body for text reconstruction.
+        const remaining = layout.totalLength - decoded;
         if (remaining <= 0 || (index < records && bytes.length > remaining)) throw MobiBookParser.invalid();
         const actual = bytes.subarray(0, Math.min(bytes.length, remaining));
-        if (info.kf8) kf8Text.set(actual, decoded);
+        if (info.kf8 && decoded < kf8Text.length) {
+          kf8Text.set(actual.subarray(0, Math.min(actual.length, kf8Text.length - decoded)), decoded);
+        }
         decoded += actual.length;
         if (!info.kf8) await consume(decoder.decodeToString(actual, { stream: index < records }), info,
           Math.floor(index * 100 / records));
       }
-      if (decoded !== info.textLength) throw MobiBookParser.invalid();
+      if (decoded !== layout.totalLength) throw MobiBookParser.invalid();
       if (info.kf8) {
-        const sections = await Kf8BookText.sections(header, kf8Text, encoding,
-          async (index: number): Promise<Uint8Array> => {
-            if (!Number.isInteger(index) || index <= records || index + 1 >= offsets.length) throw MobiBookParser.invalid();
-            return MobiBookParser.readBytes(file.fd, offsets[index], offsets[index + 1] - offsets[index]);
-          });
+        const sections = await Kf8BookText.sections(header, kf8Text, encoding, load);
         for (let index = 0; index < sections.length; index++) {
           await consume(sections[index] + '\n<mbp:pagebreak/>\n', info, Math.floor((index + 1) * 100 / sections.length));
         }

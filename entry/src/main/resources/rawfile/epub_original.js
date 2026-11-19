@@ -3,10 +3,40 @@
   'use strict';
   var cfg = window.hsdaEpubConfig, ready = false, previewing = false;
   var anchor = cfg.spot, current = cfg.spot, restoration = cfg.spot;
-  var contentTouch = null;
+  var contentTouch = null, applyingLayout = false;
+  // 分页视口由宿主合并尺寸/安全区变化后统一重排，避免系统 resize 与翻页抢位置。
+  addEventListener('resize', function (event) {
+    if (cfg.paged && !applyingLayout) event.stopImmediatePropagation();
+  });
   var flowing = false, viewportWidth = innerWidth, viewportHeight = innerHeight;
   var pagedBackground = null, originalBackground = '', originalBackgroundPriority = '';
   var headingLines = [];
+  var pagedWrappers = [];
+  function protectPagedFlow() {
+    if (!cfg.paged) return;
+    pagedWrappers.forEach(function (entry) {
+      ['overflow-x', 'overflow-y'].forEach(function (name, index) {
+        if (entry.values[index]) entry.element.style.setProperty(name, entry.values[index], entry.priorities[index]);
+        else entry.element.style.removeProperty(name);
+      });
+    });
+    pagedWrappers = [];
+    var bodyStyle = getComputedStyle(document.body);
+    var height = innerHeight - (parseFloat(bodyStyle.paddingTop) || 0) - (parseFloat(bodyStyle.paddingBottom) || 0);
+    // 部分导出书用 overflow:hidden 包住整章。多栏将它视为不可拆分块，
+    // 文本溢出首栏却仍计为一页；只放开高于一页的正文容器，保留画廊和局部裁剪。
+    document.querySelectorAll('div,section,article,main').forEach(function (element) {
+      if (!element.querySelector('p') || element.closest('.hsda-gallery,.legado-gallery,audio,video,svg')) return;
+      var style = getComputedStyle(element);
+      if (!/^(hidden|clip)$/.test(style.overflowY) || /^(auto|scroll)$/.test(style.overflowX) ||
+          !/^(block|flow-root)$/.test(style.display) || /^(absolute|fixed|sticky)$/.test(style.position) ||
+          element.getBoundingClientRect().height <= height + 1) return;
+      pagedWrappers.push({ element: element,
+        values: ['overflow-x', 'overflow-y'].map(function (name) { return element.style.getPropertyValue(name); }),
+        priorities: ['overflow-x', 'overflow-y'].map(function (name) { return element.style.getPropertyPriority(name); }) });
+    });
+    pagedWrappers.forEach(function (entry) { entry.element.style.setProperty('overflow', 'visible', 'important'); });
+  }
   function protectHeadingLines() {
     // A body line-height in em/px is inherited as a fixed length. Enlarged headings
     // can then overlap when wrapped, or lose their top strokes at the page boundary.
@@ -58,10 +88,11 @@
     // Transfer, rather than duplicate, translucent paper/gradient layers.
     body.style.setProperty('background', 'transparent', 'important');
     // Horizontal overflow is the upstream column strip; only clip vertically.
-    body.style.setProperty('clip-path', 'inset(' + top + 'px -1000000px ' + bottom + 'px -1000000px)', 'important');
+    var extent = Math.max(innerWidth, body.scrollWidth, document.documentElement.scrollWidth);
+    body.style.setProperty('clip-path', 'inset(' + top + 'px -' + extent + 'px ' + bottom + 'px -' + extent + 'px)', 'important');
   }
   addEventListener('resize', function () {
-    if (ready) { protectHeadingLines(); mediaBounds(); protectPagedBounds(); }
+    if (ready) { protectHeadingLines(); protectPagedFlow(); mediaBounds(); protectPagedBounds(); }
   });
   function setViewport(height) {
     document.documentElement.style.setProperty('--hsda-vh', height / 100 + 'px');
@@ -147,7 +178,7 @@
     root.setProperty('--hsda-content-width', Math.max(1, (innerWidth - side - (columns - 1) * gap) / columns) + 'px');
     root.setProperty('--hsda-content-height', 'calc(100vh - ' + inset + 'px)');
   }
-  function originalLayout() {
+  function applyGeometry() {
     var layout = document.getElementById('legado-layout');
     if (layout) layout.textContent = layout.textContent.replaceAll('img,video{object-fit:contain;}', ':where(img,video){object-fit:contain;}');
     var body = document.body;
@@ -167,7 +198,12 @@
       if (cfg.spread) body.style.setProperty('column-width', 'auto', 'important');
     }
     protectHeadingLines();
+    protectPagedFlow();
     mediaBounds();
+  }
+  function originalLayout() {
+    var body = document.body;
+    applyGeometry();
     var compat = document.createElement('style');
     compat.textContent =
       'html{touch-action:auto!important;}' +
@@ -273,15 +309,31 @@
     return value;
   }
   function painted(id, kind) {
-    var announced = false;
+    var announced = false, timer;
     function announce() {
       if (announced) return;
-      announced = true;
+      announced = true; clearTimeout(timer);
       current = spot();
-      send({ kind: kind || 'painted', paint: id });
+      send({ kind: kind || 'painted', paint: id, page: current.page, count: current.count });
     }
     requestAnimationFrame(function () { requestAnimationFrame(announce); });
-    setTimeout(announce, 180);
+    // 与轻页一致：Web 被截图层覆盖时 rAF 可能节流，仍须结束桥等待；宿主随后等待截图渲染完成。
+    timer = setTimeout(announce, 150);
+  }
+  function relayout(style, spread, dark, top, bottom, id) {
+    var target = current;
+    cfg.spread = spread; cfg.dark = dark;
+    var layout = document.getElementById('legado-layout');
+    if (layout) layout.textContent = style;
+    // 旧夜间滤镜为宿主 inline 写入，退出夜间时必须一并移除。
+    document.body.style.removeProperty('filter');
+    applyGeometry();
+    anchor = target; current = target;
+    window.__legado.configureLayout(top, bottom, spread, dark);
+    applyingLayout = true;
+    try { dispatchEvent(new Event('resize')); } finally { applyingLayout = false; }
+    protectPagedBounds();
+    painted(id);
   }
   function preview(forward, id) {
     previewing = true; anchor = null;
@@ -436,7 +488,7 @@
   }, { passive: true });
   window.hsdaEpub = {
     spot: spot, seek: seek, turn: turn, preview: preview, restore: restore, linkAt: linkAt,
-    beginPan: beginPan,
+    beginPan: beginPan, relayout: relayout,
     prepareFlow: prepareFlow, setViewport: setViewport,
     mediaTarget: function (element) { return !!(element && element.closest && element.closest('audio,video')); },
     pauseMedia: function () { document.querySelectorAll('audio,video').forEach(function (media) { media.pause(); }); },

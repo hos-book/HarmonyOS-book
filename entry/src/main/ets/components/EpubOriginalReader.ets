@@ -25,6 +25,7 @@ export class EpubOriginalRequest {
 
 export class EpubOriginalController {
   capture: () => Promise<void> = async (): Promise<void> => {};
+  activeChanged: (active: boolean) => void = (): void => {};
   turn: (forward: boolean) => void = (_forward: boolean): void => {};
   seek: (offset: number) => void = (_offset: number): void => {};
   prepare: (forward: boolean) => Promise<boolean> = async (_forward: boolean): Promise<boolean> => false;
@@ -122,6 +123,7 @@ export struct EpubOriginalReader {
   @Param tapRightPercent: number = 33;
   @Param tapTopPercent: number = 33;
   @Param tapBottomPercent: number = 33;
+  @Event onPreview: (chapter: number, page: number, count: number) => void = () => {};
   @Event onPosition: (chapter: number, offset: number, page: number, count: number) => void = () => {};
   @Event onChapterEdge: (forward: boolean) => void = () => {};
   @Event onCenterTap: () => void = () => {};
@@ -166,6 +168,7 @@ export struct EpubOriginalReader {
   private paintResolve: ((ready: boolean) => void) | null = null;
   private paintTimeout: number = -1;
   private paintSerial: number = 0;
+  private turnActive: boolean = false;
   private selectionText: string = '';
   private selectionFrame: number = 0;
   private selectionSerial: number = -1;
@@ -180,6 +183,10 @@ export struct EpubOriginalReader {
     emitter.on('app.reader.background', this.backgroundHandler);
     this.bridge.receive = (value: string): void => this.message(value);
     this.commands.capture = async (): Promise<void> => this.capture();
+    this.commands.activeChanged = (active: boolean): void => {
+      this.turnActive = active;
+      if (!active) this.scheduleLayout();
+    };
     this.commands.turn = (forward: boolean): void => this.turn(forward);
     this.commands.seek = (offset: number): void => { this.seek(offset); };
     this.commands.prepare = (forward: boolean): Promise<boolean> => this.prepare(forward);
@@ -197,6 +204,7 @@ export struct EpubOriginalReader {
     if (this.layoutTimer >= 0) clearTimeout(this.layoutTimer);
     this.layoutTimer = -1;
     this.commands.capture = async (): Promise<void> => {};
+    this.commands.activeChanged = (): void => {};
     this.commands.turn = (_forward: boolean): void => {};
     this.commands.seek = (_offset: number): void => {};
     this.commands.prepare = async (_forward: boolean): Promise<boolean> => false;
@@ -234,7 +242,7 @@ export struct EpubOriginalReader {
   }
 
   private insetKey(): string {
-    return `${this.viewportWidth}:${this.viewportHeight}:${this.insetTop}:${this.insetBottom}:${this.insetLeft}:${this.insetRight}:${this.spread}:${this.forceDark}`;
+    return `${Math.round(this.viewportWidth)}:${Math.round(this.viewportHeight)}:${this.insetTop}:${this.insetBottom}:${this.insetLeft}:${this.insetRight}:${this.spread}:${this.forceDark}`;
   }
 
   @Monitor('viewportWidth', 'viewportHeight', 'insetTop', 'insetBottom', 'insetLeft', 'insetRight', 'spread', 'forceDark')
@@ -248,11 +256,11 @@ export struct EpubOriginalReader {
     this.layoutTimer = setTimeout((): void => {
       this.layoutTimer = -1;
       this.refreshLayout().catch((error: Error): void => this.fail(error.message));
-    }, 50);
+    }, 160);
   }
 
   private async refreshLayout(): Promise<void> {
-    if (!this.alive || this.loading || this.layoutUpdating || this.checkpoint !== null || this.completing ||
+    if (!this.alive || this.loading || this.turnActive || this.layoutUpdating || this.checkpoint !== null || this.completing ||
       !this.parts.length || this.layoutInsets === this.insetKey()) return;
     this.layoutUpdating = true;
     const ticket = this.serial;
@@ -268,8 +276,22 @@ export struct EpubOriginalReader {
         if (!this.selectContinuousFrame(message.frame)) return;
       }
       // 重排按当前字符恢复，不能回到初次打开章节的位置或沿用旧版面页码。
-      this.reportPosition(spot);
-      await this.loadPart(this.partIndex, 0, false, spot, false);
+      if (!this.paged) {
+        this.reportPosition(spot);
+        await this.loadPart(this.partIndex, 0, false, spot, false);
+        return;
+      }
+      const options = new EpubOriginalLayoutOptions();
+      options.paged = true; options.spread = this.spread; options.forceDark = this.forceDark;
+      options.margins.top = this.insetTop; options.margins.bottom = this.insetBottom;
+      options.margins.left = this.insetLeft; options.margins.right = this.insetRight;
+      this.layoutInsets = this.insetKey();
+      const painted = this.waitForPaint(800);
+      await this.controller.runJavaScript('window.hsdaEpub.relayout(' +
+        JSON.stringify(EpubOriginalScript.style(options)) + ',' + this.spread + ',' + this.forceDark + ',' +
+        this.insetTop + ',' + this.insetBottom + ',' + this.paintSerial + ')');
+      if (!await painted) throw new Error('Page layout timed out');
+      this.reportPosition(await this.readSpot());
     } finally {
       this.layoutUpdating = false;
       this.scheduleLayout();
@@ -434,12 +456,12 @@ export struct EpubOriginalReader {
     return true;
   }
 
-  private waitForPaint(): Promise<boolean> {
+  private waitForPaint(timeout: number = 12000): Promise<boolean> {
     this.finishPaint(false);
     this.paintSerial++;
     return new Promise<boolean>((resolve: (ready: boolean) => void): void => {
       this.paintResolve = resolve;
-      this.paintTimeout = setTimeout((): void => this.finishPaint(false), 12000);
+      this.paintTimeout = setTimeout((): void => this.finishPaint(false), timeout);
     });
   }
 
@@ -477,7 +499,7 @@ export struct EpubOriginalReader {
       if (!this.alive || this.completing || this.checkpoint !== checkpoint || ticket !== this.serial) return false;
       const edge = forward ? checkpoint.spot.page >= checkpoint.spot.count - 1 : checkpoint.spot.page === 0;
       if (!edge) {
-        const painted = this.waitForPaint();
+        const painted = this.waitForPaint(800);
         await this.controller.runJavaScript(`window.hsdaEpub.preview(${forward},${this.paintSerial})`);
         return await painted;
       }
@@ -510,7 +532,7 @@ export struct EpubOriginalReader {
           this.active = checkpoint.request; this.parts = checkpoint.parts;
           await this.loadPart(checkpoint.index, 0, false, checkpoint.spot);
         } else {
-          const painted = this.waitForPaint();
+          const painted = this.waitForPaint(800);
           await this.controller.runJavaScript(`window.hsdaEpub.restore(${JSON.stringify(checkpoint.spot)},${this.paintSerial})`);
           await painted;
         }
@@ -523,7 +545,7 @@ export struct EpubOriginalReader {
       if (commit) this.onChapter(this.active);
       this.reportPosition(spot);
     } catch (_error) { this.fail(); }
-    finally { this.completing = false; this.scheduleLayout(); }
+    finally { this.checkpoint = null; this.completing = false; this.scheduleLayout(); }
   }
 
   private fail(reason: string = 'Original page operation failed'): void {
@@ -561,10 +583,16 @@ export struct EpubOriginalReader {
       }
       if (message.kind === 'ready') {
         this.loading = false; clearTimeout(this.timeout); this.timeout = -1;
-        if (message.paint === this.paintSerial) this.finishPaint(true);
+        if (message.paint === this.paintSerial) {
+          this.onPreview(this.active.chapter, message.page, message.count);
+          this.finishPaint(true);
+        }
         this.scheduleLayout();
       }
-      else if (message.kind === 'painted' && message.paint === this.paintSerial) this.finishPaint(true);
+      else if (message.kind === 'painted' && message.paint === this.paintSerial) {
+        this.onPreview(this.active.chapter, message.page, message.count);
+        this.finishPaint(true);
+      }
       else if (message.kind === 'selection') {
         if (message.selected === true && typeof message.selectionText === 'string' && message.selectionText.length <= 20001) {
           if (!this.paged && !this.frames.some((item: EpubOriginalFrame): boolean => item.id === message.frame)) return;

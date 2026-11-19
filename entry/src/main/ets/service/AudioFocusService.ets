@@ -1,10 +1,9 @@
 import { audio } from '@kit.AudioKit';
 import { PlatformCompat } from '../utils/PlatformCompat';
-import { PreferenceService } from './PreferenceService';
 import { DiagnosticLogService } from './DiagnosticLogService';
 import { ExternalMediaWatcher } from './ExternalMediaWatcher';
 
-/** 有声书与两种 TTS 共用一个应用级音频会话；只恢复被系统打断的播放。 */
+/** 有声书与 TTS 共用系统默认媒体会话；只恢复被系统打断的播放。 */
 export class AudioFocusService {
   private static instance: AudioFocusService = new AudioFocusService();
   private session: audio.AudioSessionManager | null = null;
@@ -12,8 +11,6 @@ export class AudioFocusService {
   private generation: number = 0;
   private interruptionVersion: number = 0;
   private waitingForSystem: boolean = false;
-  private waitingForUnduck: boolean = false;
-  private mode: number = 0;
   private waiting: boolean = false;
   private chain: Promise<void> = Promise.resolve();
   private pausePlayback: (() => void) | null = null;
@@ -21,16 +18,11 @@ export class AudioFocusService {
   private watcher: ExternalMediaWatcher = new ExternalMediaWatcher();
   private readonly onState = (event: audio.AudioSessionStateChangedEvent): void => {
     const hint = event.stateChangeHint;
-    DiagnosticLogService.info('audio.focus', `owner=${this.owner}; hint=${hint}; waiting=${this.waiting}; mode=${this.mode}`);
+    DiagnosticLogService.info('audio.focus', `owner=${this.owner}; hint=${hint}; waiting=${this.waiting}; policy=system`);
     if (hint === audio.AudioSessionStateChangeHint.AUDIO_SESSION_STATE_CHANGE_HINT_PAUSE) this.interrupt(false);
     else if (hint === audio.AudioSessionStateChangeHint.AUDIO_SESSION_STATE_CHANGE_HINT_STOP) this.interrupt(true);
     else if (hint === audio.AudioSessionStateChangeHint.AUDIO_SESSION_STATE_CHANGE_HINT_RESUME) this.restore(true);
-    // 压低音量模式保留音频流，由系统执行 DUCK/UNDUCK，不取消朗读队列。
-    else if (hint === audio.AudioSessionStateChangeHint.AUDIO_SESSION_STATE_CHANGE_HINT_DUCK && this.mode === 0) {
-      this.interrupt(false, true);
-    } else if (hint === audio.AudioSessionStateChangeHint.AUDIO_SESSION_STATE_CHANGE_HINT_UNDUCK && this.waitingForUnduck) {
-      this.restore();
-    }
+    // DUCK/UNDUCK 由系统调整音量；不暂停播放、不取消合成，也不解除另一次暂停。
     else if (hint === audio.AudioSessionStateChangeHint.AUDIO_SESSION_STATE_CHANGE_HINT_TIME_OUT_STOP) {
       // 无流超时不是抢占；已有恢复意图继续等待外部音频结束。
       if (this.waiting) this.watchForEnd();
@@ -47,23 +39,17 @@ export class AudioFocusService {
     this.waiting = false;
     this.watcher.disarm();
     const task = this.chain.catch((): void => {}).then(async (): Promise<void> => {
-      const mode: number = await PreferenceService.getAudioFocusMode();
       if (ticket !== this.generation || this.owner !== owner || this.waiting) return;
-      this.mode = mode;
       if (this.session === null) {
         this.session = audio.getAudioManager().getSessionManager();
         this.session.on('audioSessionStateChanged', this.onState);
       }
       this.session.setAudioSessionScene(audio.AudioSessionScene.AUDIO_SESSION_SCENE_MEDIA);
       if (PlatformCompat.supports(26)) {
-        this.session.setAudioSessionBehavior(mode === 0
-          ? audio.AudioSessionBehaviorFlags.PAUSE_WHEN_INTERRUPTED
-          : audio.AudioSessionBehaviorFlags.DEFAULT_BEHAVIOR);
+        // 将可恢复的抢占交由系统发送 PAUSE/RESUME，避免应用自行推断恢复时机。
+        this.session.setAudioSessionBehavior(audio.AudioSessionBehaviorFlags.PAUSE_WHEN_INTERRUPTED);
       }
-      await this.session.activateAudioSession({ concurrencyMode: mode === 1
-        ? audio.AudioConcurrencyMode.CONCURRENCY_MIX_WITH_OTHERS
-        : mode === 2 ? audio.AudioConcurrencyMode.CONCURRENCY_DEFAULT
-        : audio.AudioConcurrencyMode.CONCURRENCY_PAUSE_OTHERS });
+      await this.session.activateAudioSession({ concurrencyMode: audio.AudioConcurrencyMode.CONCURRENCY_DEFAULT });
     });
     this.chain = task;
     return task;
@@ -106,33 +92,13 @@ export class AudioFocusService {
     if (event.hintType === audio.InterruptHint.INTERRUPT_HINT_PAUSE) this.interrupt(false);
     else if (event.hintType === audio.InterruptHint.INTERRUPT_HINT_STOP) this.interrupt(true);
     else if (event.hintType === audio.InterruptHint.INTERRUPT_HINT_RESUME) this.restore(true);
-    else if (event.hintType === audio.InterruptHint.INTERRUPT_HINT_DUCK && this.mode === 0) this.interrupt(false, true);
-    else if (event.hintType === audio.InterruptHint.INTERRUPT_HINT_UNDUCK && this.waitingForUnduck) this.restore();
+    // 播放器与会话回调使用同一策略；系统压低音量不改变播放或恢复意图。
   }
 
-  async setMode(mode: number): Promise<void> {
-    const previous: number = await PreferenceService.getAudioFocusMode();
-    await PreferenceService.setAudioFocusMode(mode);
-    this.mode = mode;
-    const owner = this.owner;
-    const pausePlayback = this.pausePlayback;
-    const resumePlayback = this.resumePlayback;
-    // 等待中只更新偏好，不因设置操作抢回焦点。
-    if (!owner || this.waiting || pausePlayback === null || resumePlayback === null) return;
-    try { await this.acquire(owner, pausePlayback, resumePlayback); }
-    catch (error) {
-      await PreferenceService.setAudioFocusMode(previous);
-      this.mode = previous;
-      const failure: Error = error;
-      throw failure;
-    }
-  }
-
-  private interrupt(permanent: boolean, duck: boolean = false): void {
+  private interrupt(permanent: boolean): void {
     if (!this.owner) return;
     this.interruptionVersion++;
     this.waitingForSystem = !permanent;
-    this.waitingForUnduck = duck;
     const first = !this.waiting;
     this.waiting = true;
     this.watcher.disarm();
@@ -141,6 +107,8 @@ export class AudioFocusService {
   }
 
   private watchForEnd(): void {
+    // API 26 由系统决定恢复；活动流查询仅兼容缺少暂停行为标志的旧系统。
+    if (PlatformCompat.supports(26)) return;
     const ticket = this.generation;
     const interruption = this.interruptionVersion;
     this.watcher.arm((): void => {

@@ -354,6 +354,9 @@ export struct ReaderSettingsSheet {
   @Event onTapRegionsChange: (value: string) => void = () => {};
   @Param volumeKeyPageTurn: boolean = false;
   @Event onVolumeKeyPageTurnChange: (enabled: boolean) => void = () => {};
+  @Param smartKeyPageTurn: boolean = false;
+  @Param smartKeySupported: boolean = false;
+  @Event onSmartKeyPageTurnChange: (enabled: boolean) => void = () => {};
   @Param pageTurnMode: string = PageTurnMode.Cover;
   @Param pageTurnHaptic: string = 'none';
   @Event onPageTurnHapticChange: (value: string) => void = () => {};
@@ -954,6 +957,15 @@ export struct ReaderSettingsSheet {
               Toggle({ type: ToggleType.Switch, isOn: this.volumeKeyPageTurn })
                 .selectedColor(AppColor.Brand)
                 .onChange((enabled: boolean): void => this.onVolumeKeyPageTurnChange(enabled))
+            }
+            if (this.smartKeySupported) {
+              ReaderSettingCard({ compact: true, title: $r('app.string.reader_smart_key_turn'), inline: true,
+                description: $r('app.string.reader_smart_key_hint') }) {
+                Toggle({ type: ToggleType.Switch, isOn: this.smartKeyPageTurn })
+                  .selectedColor(AppColor.Brand)
+                  .onChange((enabled: boolean): void => this.onSmartKeyPageTurnChange(enabled))
+                  .id('reader-smart-key-toggle')
+              }
             }
             this.buildTapRegionsSection()
             ReaderAutoPageSettings({ compact: true, seconds: this.autoPageSeconds, running: this.autoPageRunning, paused: this.autoPagePaused,

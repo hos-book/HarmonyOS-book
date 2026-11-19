@@ -16,7 +16,7 @@
 
 `LightSourceCore.toc` 在章节上下文记录下一条非分卷章节地址，正文调用传入上游 `nextChapterUrl`，防止“下一页”指向下一章时把后续章节拼进本章。旧目录没有该字段时继续原有行为，不强制清缓存。新增回归验证同章分页正常合并、遇下一章不发请求，以及 Rhino 分支完成值和函数外返回。
 
-EPUB 核心按同一应用提交更新；新增同版 `ReaderNightImage.ts`、`EpubOriginalFont.ts` 和仅含两个布局常量的 `EpubDuokanExtensions.ts`，原始与生成散列均记录在 `epub-upstream.json`。同步脚本保留现有翻页、字符定位及最多 5 文档连续窗口；`host-gallery-and-media-ownership-v1` 明确由简听处理画廊原生滚动和媒体控件，避免上游新增处理器重复接管。导入、存储、原生页面与安全边界继续沿用项目实现。AI HAR 新增等长繁转简、简转台湾繁体接口，本轮未更换漫画模型。
+EPUB 核心按同一应用提交更新；新增同版 `ReaderNightImage.ts`、`EpubOriginalFont.ts` 和仅含两个布局常量的 `EpubDuokanExtensions.ts`，原始与生成散列均记录在 `epub-upstream.json`。同步脚本保留现有翻页、字符定位及最多 5 文档连续窗口；`host-gallery-and-media-ownership-v1` 明确由简听处理画廊原生滚动和媒体控件，避免上游新增处理器重复接管。`host-in-place-layout-v1` 为原版分页暴露边距、双栏与深色配置更新入口，宿主复用上游 resize 字符恢复，在现有 DOM 重排；上游提交保持不变。导入、存储、原生页面与安全边界继续沿用项目实现。AI HAR 新增等长繁转简、简转台湾繁体接口，本轮未更换漫画模型。
 
 已通过：95 文件同步检查、EPUB 同步检查、书源核心、图片脚本、文件导入、网页等待、EPUB 原生翻页/媒体/连续窗口回归，以及 AI 上游完整检查、宿主包回归和 Release HAR 构建。EPUB 媒体与连续窗口回归使用真实桌面 Chromium，不能替代设备验证。
 

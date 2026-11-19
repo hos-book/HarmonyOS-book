@@ -10,10 +10,11 @@
     "host-continuous-scroll-v2",
     "visible-text-index-v1",
     "host-media-controls-v1",
-    "host-gallery-and-media-ownership-v1"
+    "host-gallery-and-media-ownership-v1",
+    "host-in-place-layout-v1"
   ],
   "upstreamSha256": "894c86ab09cace1cfd982e88a8d78dadb5f9c2c787313f21a95e780ebc684e87",
-  "sha256": "3192c85abc67ce07f7d61bff0d48d90f74c70ed017a39aecab695c53e6226878",
+  "sha256": "48cd15ba7a6f4792fc31046902c2d19560bece6330a89d31228058535816e0e2",
   "files": [
     {
       "upstreamPath": "entry/src/main/ets/core/reader/ReaderNightImage.ts",

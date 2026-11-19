@@ -13,11 +13,11 @@
 
 ## 安装包
 
-当前发布构建版本 `0.1.74` / `1000074`，包名 `com.huan.listenbook`，最低 HarmonyOS 6.0 / API 20，目标 API 26。沿用原包名与发布签名，关闭开发者临时 VIP，按正常会员权益校验。本次修复漫画超分错位与色块、评分换算和特殊符号朗读中断，新增双指缩放、整图适屏、拼接分页与页间重叠调节，并优化搜索、书架和缓存体验。
+当前发布构建版本 `1.1.15` / `1025001`，包名 `com.huan.listenbook`，最低 HarmonyOS 6.0 / API 20，目标 API 26。邀请测试与正式版本共用发布签名 APP，沿用现有会员权益配置。
 
-- `JianTing-v0.1.27.hap`：开发签名 HAP，用于获授权设备安装和 GitHub 分发；对应 SHA-256 文件与本机安装包位于 `artifacts/releases/v0.1.27/`。
-- `JianTing-v0.1.74-AppGallery-signed.app`：本次正式签名 APP 与校验文件位于 `artifacts/releases/v0.1.74/`，用于正式发布及内部邀请测试；邀测设置为即刻生效、关闭自检、仅内部“内测组”。具体上传、提交结果以该目录的 `release-status.md` 为准，生成包不代表已提交平台。
-- 最新 HAP 通过 [GitHub Releases](https://github.com/end-web/HarmonyOS-book/releases/latest) 分发。
+- 发布包：`artifacts/releases/1.1.15-1025001/Jianting-1.1.15-1025001-release.app`。
+- 同目录保存混淆映射、验包结果，以及邀测和正式版更新说明。
+- 邀测覆盖全部现有测试组，开启测试通知，关闭上架自检及自检报告通知，选择即刻生效；正式版设置审核通过后立即上架。实际提交回执见 [版本记录](../RELEASE_NOTES.md)。
 
 ## 平台同步
 

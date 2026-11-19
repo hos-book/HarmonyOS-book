@@ -110,6 +110,7 @@ export struct ComicReaderPage {
   @Local pageTurnHaptic: string = 'none';
   @Local volumeKeyPageTurn: boolean = false;
   @Local smartKeyPageTurn: boolean = false;
+  @Local smartKeySupported: boolean = false;
   @Local keyTurnRequest: number = 0;
   @Local autoPageRunning: boolean = false;
   @Local autoPagePaused: boolean = false;
@@ -365,6 +366,8 @@ export struct ComicReaderPage {
       const appearance = await PreferenceService.getComicAppearance();
       const pageOverlap = await PreferenceService.getComicPageOverlap();
       const volumeKeyPageTurn = await PreferenceService.getComicVolumeKeyPageTurn();
+      const smartKeyPageTurn = await PreferenceService.getComicSmartKeyPageTurn();
+      const smartKeySupported = await ReaderSmartKeyService.detectSupport();
       const pageTurnHaptic = await PreferenceService.getComicPageTurnHaptic();
       const showBrightnessBar = await PreferenceService.getComicBrightnessBar();
       const brightness = await PreferenceService.getComicBrightness();
@@ -378,8 +381,8 @@ export struct ComicReaderPage {
       this.showChapterBar = showChapterBar;
       this.volumeKeyPageTurn = volumeKeyPageTurn;
       this.pageTurnHaptic = pageTurnHaptic;
-      // 智控键入口暂时隐藏，旧配置也不再启用事件订阅。
-      this.smartKeyPageTurn = false;
+      this.smartKeyPageTurn = smartKeyPageTurn;
+      this.smartKeySupported = smartKeySupported;
       this.showBrightnessBar = showBrightnessBar;
       this.readingBrightness = brightness;
       this.brightnessControl.configure(brightness);
@@ -842,11 +845,11 @@ export struct ComicReaderPage {
       !this.showSourceSwitch && !this.zoomActive && !this.sheetPresented && !this.chapterSliderDragging && !this.chapterSliderCommitting;
   }
 
-  @Monitor('volumeKeyPageTurn', 'smartKeyPageTurn', 'readerVisible', 'chrome', 'busy', 'failed', 'pageCount', 'showChapters',
+  @Monitor('volumeKeyPageTurn', 'smartKeyPageTurn', 'smartKeySupported', 'readerVisible', 'chrome', 'busy', 'failed', 'pageCount', 'showChapters',
     'showSettings', 'showSourceSwitch', 'zoomActive', 'sheetPresented', 'chapterSliderDragging', 'chapterSliderCommitting')
   private syncVolumeKeys(): void {
     this.volumeKeys.setEnabled(this.canUseVolumeKeys(), (forward: boolean): void => this.handleVolumePageTurn(forward));
-    this.smartKeys.setEnabled(this.smartKeyPageTurn && this.canTurnWithHardwareKeys(), (forward: boolean): void => {
+    this.smartKeys.setEnabled(this.smartKeySupported && this.smartKeyPageTurn && this.canTurnWithHardwareKeys(), (forward: boolean): void => {
       if (this.smartKeyPageTurn) this.handleHardwarePageTurn(forward);
     });
   }
@@ -1740,6 +1743,17 @@ export struct ComicReaderPage {
     } finally { this.settingsSaving = false; }
   }
 
+  private async setSmartKeyPageTurn(enabled: boolean): Promise<void> {
+    if (this.settingsSaving) return;
+    this.settingsSaving = true;
+    try {
+      await PreferenceService.setComicSmartKeyPageTurn(enabled);
+      if (this.alive) { this.smartKeyPageTurn = enabled; this.syncVolumeKeys(); }
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    } finally { this.settingsSaving = false; }
+  }
+
   private async setVolumeKeyPageTurn(enabled: boolean): Promise<void> {
     if (this.settingsSaving) return;
     this.settingsSaving = true;
@@ -1997,6 +2011,15 @@ export struct ComicReaderPage {
         Toggle({ type: ToggleType.Switch, isOn: this.volumeKeyPageTurn }).selectedColor(AppColor.Brand)
           .enabled(!this.settingsSaving)
           .onChange((enabled: boolean): void => { this.setVolumeKeyPageTurn(enabled); })
+      }
+      if (this.smartKeySupported) {
+        ReaderSettingCard({ compact: true, title: $r('app.string.reader_smart_key_turn'), inline: true,
+          description: $r('app.string.reader_smart_key_hint') }) {
+          Toggle({ type: ToggleType.Switch, isOn: this.smartKeyPageTurn }).selectedColor(AppColor.Brand)
+            .enabled(!this.settingsSaving)
+            .onChange((enabled: boolean): void => { this.setSmartKeyPageTurn(enabled); })
+            .id('comic-smart-key-toggle')
+        }
       }
       ReaderAutoPageSettings({ compact: true, seconds: this.autoPageSeconds, running: this.autoPageRunning, paused: this.autoPagePaused,
         scrolling: this.mode === 0, comic: true, speed: this.autoScrollSpeed,

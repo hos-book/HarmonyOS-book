@@ -1524,7 +1524,7 @@ export class PreferenceService {
     }
   }
 
-  /** 0=打断后自动恢复，1=共存播放，2=暂时压低音量。保留旧保存值含义。 */
+  /** 仅保留旧备份字段：0=自动恢复，1=共存，2=压低音量；播放不再读取此偏好。 */
   static async getAudioFocusMode(): Promise<number> {
     const store = await PreferenceService.ensureStore();
     const mode = await store.get(KEY_AUDIO_FOCUS_MODE, 0);
@@ -1543,7 +1543,7 @@ export class PreferenceService {
     }
   }
 
-  /** 仅供旧备份兼容；当前播放策略使用 getAudioFocusMode。 */
+  /** 仅供旧备份兼容；当前播放统一使用系统策略。 */
   static async getAudioInterruptMode(): Promise<number> {
     const s = await PreferenceService.ensureStore();
     return await s.get(KEY_AUDIO_INTERRUPT_MODE, 0) as number;

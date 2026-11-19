@@ -1666,7 +1666,7 @@
     },
     {
       "name": "import_mobi_compression",
-      "value": "暂不支持此 MOBI/AZW3 压缩方式（如 HUFF/CDIC），请先转换为 EPUB 再导入"
+      "value": "暂不支持此 MOBI/AZW3 压缩方式，请先转换为 EPUB 再导入"
     },
     {
       "name": "import_mobi_encoding",
@@ -7267,34 +7267,6 @@
     {
       "name": "settings_ebook_cache_cleared",
       "value": "电子书缓存清理好啦"
-    },
-    {
-      "name": "settings_audio_focus_title",
-      "value": "音频播放方式"
-    },
-    {
-      "name": "settings_audio_focus_resume",
-      "value": "自动恢复"
-    },
-    {
-      "name": "settings_audio_focus_mix",
-      "value": "共存播放"
-    },
-    {
-      "name": "settings_audio_focus_duck",
-      "value": "暂时压低音量"
-    },
-    {
-      "name": "settings_audio_focus_duck_desc",
-      "value": "收到系统降低音量提示时，有声书与电子书朗读继续播放，提示结束后恢复音量；来电等要求暂停的中断仍遵循系统规则"
-    },
-    {
-      "name": "settings_audio_focus_resume_desc",
-      "value": "有声书与电子书朗读被其他音频打断后，从原位置继续播放"
-    },
-    {
-      "name": "settings_audio_focus_mix_desc",
-      "value": "有声书与电子书朗读可与其他应用的音频同时播放，来电等中断仍遵循系统规则"
     },
     {
       "name": "reader_theme_name",

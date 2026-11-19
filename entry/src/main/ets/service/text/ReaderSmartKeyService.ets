@@ -5,6 +5,7 @@ import { ReaderVolumeKeyService } from './ReaderVolumeKeyService';
 
 /** API 26 智控键滑动；旧系统或无相应硬件时继续使用触摸/原有翻页方式。 */
 export class ReaderSmartKeyService {
+  private static detection: Promise<boolean> | null = null;
   private keys: ReaderVolumeKeyService | null = null;
   private enabled: boolean = false;
   private generation: number = 0;
@@ -22,14 +23,22 @@ export class ReaderSmartKeyService {
     });
   }
 
-  private async subscribe(ticket: number): Promise<void> {
+  /** 页面入口和事件订阅共用设备检测结果，旧偏好不能绕过支持检查。 */
+  static detectSupport(): Promise<boolean> {
+    if (!ReaderSmartKeyService.detection) {
+      ReaderSmartKeyService.detection = ReaderSmartKeyService.querySupport();
+    }
+    return ReaderSmartKeyService.detection;
+  }
+
+  private static async querySupport(): Promise<boolean> {
+    if (!PlatformCompat.supports(26)) return false;
     const codes: KeyCode[] = [KeyCode.KEYCODE_FINGERPRINT_SLIDE_UP, KeyCode.KEYCODE_FINGERPRINT_SLIDE_DOWN];
     let up = false;
     let down = false;
     try {
       const devices = await inputDevice.getDeviceList();
       for (const id of devices) {
-        if (!this.enabled || ticket !== this.generation) return;
         try {
           const supported = await inputDevice.supportKeys(id, codes);
           up = up || supported[0] === true;
@@ -40,19 +49,27 @@ export class ReaderSmartKeyService {
     } catch (error) {
       hilog.warn(0, 'ReaderSmartKey', 'device probe failed: %{public}s', String(error));
     }
-    if (!this.enabled || ticket !== this.generation) return;
-    // supportKeys 查询物理设备键表，不将未上报的合成滑动键当成订阅失败。
-    // API 26 的 keyPressed 才负责优先消费智控键并拦截系统下拉动作。
     hilog.info(0, 'ReaderSmartKey', 'probe up=%{public}s down=%{public}s', String(up), String(down));
+    return up || down;
+  }
+
+  private async subscribe(ticket: number): Promise<void> {
+    const supported = await ReaderSmartKeyService.detectSupport();
+    if (!this.enabled || ticket !== this.generation) return;
+    if (!supported) { this.dispose(); return; }
+    const codes: KeyCode[] = [KeyCode.KEYCODE_FINGERPRINT_SLIDE_UP, KeyCode.KEYCODE_FINGERPRINT_SLIDE_DOWN];
     this.keys = new ReaderVolumeKeyService(codes[0], codes[1]);
     const subscribed = this.keys.setEnabled(true, (forward: boolean): void => {
-      if (this.enabled && ticket === this.generation) this.onTurn(forward);
+      if (this.enabled && ticket === this.generation) {
+        hilog.info(0, 'ReaderSmartKey', 'slide %{public}s', forward ? 'down' : 'up');
+        this.onTurn(forward);
+      }
     });
     if (!subscribed) {
       this.dispose();
       return;
     }
-    hilog.info(0, 'ReaderSmartKey', 'system key interception active');
+    hilog.info(0, 'ReaderSmartKey', 'slide key subscription registered');
   }
 
   dispose(): void {

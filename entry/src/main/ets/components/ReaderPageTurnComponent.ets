@@ -1,4 +1,5 @@
 import { ReaderTapPolicy, ReaderTouchTracker } from '../utils/ReaderTapPolicy';
+import { util } from '@kit.ArkTS';
 import { emitter } from '@kit.BasicServicesKit';
 import { AnimatorResult, FrameCallback } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
@@ -94,6 +95,7 @@ export struct ReaderPageTurnComponent {
   @Param paperColor: string = '#F5F2EA';
   @BuilderParam pageContent: () => void = this.emptyPage;
   @Event onPrepare: (forward: boolean) => Promise<boolean> = async (_forward: boolean): Promise<boolean> => false;
+  @Event onActiveChanged: (active: boolean) => void = (): void => {};
   @Event onTurnFeedback: (forward: boolean) => void = (): void => {};
   @Event onConfirm: () => void = (): void => {};
   @Event onComplete: (commit: boolean) => void | Promise<void> = (_commit: boolean): void => {};
@@ -108,7 +110,8 @@ export struct ReaderPageTurnComponent {
   @Local coverOffset: number = 0;
   @Local coverRaised: boolean = false;
   private animator: AnimatorResult | null = null;
-  private snapshotId: string = `reader-turn-${this.getUniqueId()}`;
+  private snapshotId: string = `reader-turn-${util.generateRandomUUID()}`;
+  private settleTimer: number = -1;
   private canvasReady: boolean = false;
   private pageWidth: number = 0;
   private pageHeight: number = 0;
@@ -192,8 +195,8 @@ export struct ReaderPageTurnComponent {
   }
 
   private canWarmSnapshot(): boolean {
-    return this.foreground && this.canvasReady && this.nativePagePreview && this.prewarmSnapshot &&
-      this.mode === PageTurnMode.Cover && !this.selectionActive && this.pageWidth > 0 && this.pageHeight > 0;
+    return this.foreground && this.canvasReady && this.prewarmSnapshot &&
+      (this.mode === PageTurnMode.Cover || this.mode === PageTurnMode.Simulation) && !this.selectionActive && this.pageWidth > 0 && this.pageHeight > 0;
   }
 
   private snapshotKey(): string {
@@ -221,7 +224,7 @@ export struct ReaderPageTurnComponent {
       this.warmTimer = -1;
       if (!this.canWarmSnapshot() || this.phase !== 'idle') return;
       this.warmPending = this.prepareWarmSnapshot();
-    }, 80);
+    }, 300);
   }
 
   private async prepareWarmSnapshot(): Promise<void> {
@@ -236,7 +239,7 @@ export struct ReaderPageTurnComponent {
         this.warmSnapshot = bitmap;
         this.warmKey = key;
         // 静止时就在正文下方挂载 Image，首次拖动只换层级和位移。
-        this.coverSnapshot = bitmap;
+        if (this.mode === PageTurnMode.Cover) this.coverSnapshot = bitmap;
       }
     } catch (_error) { /* 预热失败时由本次翻页正常截图。 */ }
     finally {
@@ -268,24 +271,25 @@ export struct ReaderPageTurnComponent {
     this.coverSnapshot = null;
     this.coverOffset = 0;
     this.coverRaised = false;
-    this.snapshotImage?.close();
+    const sourceImage = this.snapshotImage;
     this.snapshotImage = null;
-    this.targetImage?.close();
+    const destinationImage = this.targetImage;
     this.targetImage = null;
     const target = this.targetSnapshot;
     this.targetSnapshot = null;
-    if (target !== null) this.releaseBitmapAfterFrame(target);
+    if (target !== null) this.releaseBitmapAfterFrame(target, destinationImage);
     const bitmap = this.snapshot;
     this.snapshot = null;
     // Image 节点先提交移除，再释放其 PixelMap。
-    if (bitmap !== null) this.releaseBitmapAfterFrame(bitmap);
+    if (bitmap !== null) this.releaseBitmapAfterFrame(bitmap, sourceImage);
   }
 
-  private releaseBitmapAfterFrame(bitmap: image.PixelMap): void {
+  private releaseBitmapAfterFrame(bitmap: image.PixelMap, texture: ImageBitmap | null = null): void {
     let released = false;
     const release = (): void => {
       if (released) return;
       released = true;
+      texture?.close();
       bitmap.release().catch((): void => {});
     };
     // 退后台或组件卸载后可能没有下一显示帧，超时也要释放截图。
@@ -297,6 +301,8 @@ export struct ReaderPageTurnComponent {
 
   private cancelTurn(commit: boolean = false): void {
     this.clearWarmSnapshot();
+    if (this.settleTimer >= 0) clearTimeout(this.settleTimer);
+    this.settleTimer = -1;
     this.cancelContentPan();
     this.pendingTurn = null;
     if (this.phase === 'completing') return;
@@ -316,7 +322,10 @@ export struct ReaderPageTurnComponent {
   private async finishTurn(commit: boolean, ticket: number): Promise<void> {
     if (ticket !== this.serial || this.phase === 'completing') return;
     this.phase = 'completing';
-    if (this.stableTurn) this.coverSnapshot = commit ? this.targetSnapshot ?? this.snapshot : this.snapshot;
+    if (this.settleTimer >= 0) clearTimeout(this.settleTimer);
+    this.settleTimer = -1;
+    // 仿真全程只使用 Canvas 纸面，避免 Canvas 撤去后露出仍持有旧图的 Image。
+    if (this.mode === PageTurnMode.Simulation) this.drawFrame(commit ? 1 : 0);
     const trace = PerformanceTrace.begin('ReaderTurn.Commit');
     try { await this.onComplete(commit); }
     catch (e) {
@@ -329,13 +338,25 @@ export struct ReaderPageTurnComponent {
       if (ticket === this.serial) {
         // 仿真取消时底层仍是预览页，等还原/提交完成布局后再撤去纸面，避免闪出另一页。
         if (this.mode === PageTurnMode.Simulation && this.canvasReady) await this.pageFrame(100);
-        if (this.stableTurn) await this.pageFrame(100);
+        if (ticket !== this.serial) return;
+        // 目标页已与正文交接；复用为下一次翻页起点。
+        if (commit && this.targetSnapshot !== null && this.canWarmSnapshot()) {
+          this.clearWarmSnapshot();
+          this.warmSnapshot = this.targetSnapshot;
+          this.warmKey = this.snapshotKey();
+          this.targetSnapshot = null;
+          const texture = this.targetImage;
+          this.targetImage = null;
+          // 最后一个 Canvas 帧仍可能引用纹理，交给渲染线程消费后再关闭。
+          setTimeout((): void => texture?.close(), 100);
+        }
         this.drawRestingSpine();
         this.releaseSnapshot();
         // 先提交父页面的位置及截图移除，避免截到旧页或被迟到的 revision 撤销。
         if (this.mode === PageTurnMode.Cover && this.canvasReady) await this.pageFrame(100);
         if (ticket === this.serial) {
           this.phase = 'idle';
+          this.onActiveChanged(false);
           this.startPendingTurn();
           this.scheduleWarmSnapshot();
         }
@@ -352,7 +373,7 @@ export struct ReaderPageTurnComponent {
     if (!this.canQueueTurn(tap) || this.phase === 'dragging' ||
       (this.phase === 'preparing' && !this.released)) return false;
     this.pendingTurn = new ReaderTurnInput(forward, tap, anchorY);
-    if (this.mode === PageTurnMode.Cover && this.phase === 'settling' && !this.settleAccelerated) {
+    if (this.canQueueTurn(tap) && this.phase === 'settling' && !this.settleAccelerated) {
       const running = this.animator;
       this.animator = null;
       if (running !== null) running.cancel();
@@ -369,9 +390,8 @@ export struct ReaderPageTurnComponent {
     this.beginTurn(input.forward, input.tap, input.anchorY, input);
   }
 
-  private canQueueTurn(tap: boolean): boolean {
-    return this.mode === PageTurnMode.Cover ||
-      (this.mode === PageTurnMode.Simulation && !tap && !this.ignoreChildGestures);
+  private canQueueTurn(_tap: boolean): boolean {
+    return this.mode === PageTurnMode.Cover || this.mode === PageTurnMode.Simulation;
   }
 
   private panTravel(size: number): number {
@@ -388,7 +408,8 @@ export struct ReaderPageTurnComponent {
     if (this.phase !== 'idle' || !this.canvasReady || this.pageWidth <= 0) return;
     const ticket = ++this.serial;
     this.phase = 'preparing';
-    this.stableTurn = this.stableSurface && this.mode === PageTurnMode.Simulation;
+    this.onActiveChanged(true);
+    this.stableTurn = this.mode === PageTurnMode.Simulation;
     this.forward = forward;
     this.progress = input !== null ? input.progress : 0;
     this.renderedProgress = 0;
@@ -399,6 +420,8 @@ export struct ReaderPageTurnComponent {
     this.released = input !== null ? input.released : tap;
     this.commitOnRelease = input !== null ? input.commit : tap;
     this.feedbackOnConfirm = !tap;
+    let prepareStarted = false;
+    let pagePrepared = false;
     // 点击反馈先于截图、跨章加载和动画；拖动则等确认翻页再反馈。
     if (tap) this.onTurnFeedback(forward);
     try {
@@ -414,7 +437,7 @@ export struct ReaderPageTurnComponent {
         return;
       }
       this.snapshot = bitmap;
-      if (this.mode === PageTurnMode.Cover || this.stableTurn) {
+      if (this.mode === PageTurnMode.Cover) {
         this.coverOffset = 0;
         this.coverSnapshot = bitmap;
         this.coverRaised = true;
@@ -427,7 +450,9 @@ export struct ReaderPageTurnComponent {
       const nativeCover = this.nativePagePreview && this.mode === PageTurnMode.Cover;
       if (!nativeCover) await this.pageFrame();
       if (ticket !== this.serial) return;
+      prepareStarted = true;
       const prepared = await this.preparePage(forward);
+      pagePrepared = prepared;
       if (ticket !== this.serial) return;
       if (!prepared) {
         this.cancelTurn();
@@ -437,11 +462,10 @@ export struct ReaderPageTurnComponent {
       if (ticket !== this.serial) return;
       if (this.stableTurn || (this.spread && this.mode === PageTurnMode.Simulation)) {
         // 布局 onIdle 不代表原生正文节点已提交绘制；必须等待渲染完成才缓存纸背。
-        const target = await this.capturePage();
+        const target = await this.captureFreshPage(bitmap, ticket);
         if (ticket !== this.serial) { target.release().catch((): void => {}); return; }
         this.targetSnapshot = target;
         this.targetImage = new ImageBitmap(target);
-        if (this.stableTurn) this.coverSnapshot = target;
       }
       this.phase = 'dragging';
       // 快划可能在截图/目标页准备期间已结束，从已显示的纸面接续，不跳过卷起阶段。
@@ -451,7 +475,11 @@ export struct ReaderPageTurnComponent {
       if (ticket === this.serial) {
         hilog.warn(0, 'ReaderPageTurn', 'page capture/animation failed: %{public}s',
           e instanceof Error ? e.message : String(e));
-        this.cancelTurn();
+        // 截图失败只跳过动画，已准备的目标页仍可交接。
+        if (!prepareStarted) {
+          try { pagePrepared = await this.preparePage(forward); } catch (_error) {}
+        }
+        if (ticket === this.serial) await this.finishTurn(pagePrepared, ticket);
       }
     }
   }
@@ -459,9 +487,68 @@ export struct ReaderPageTurnComponent {
   private async capturePage(traceName: string = 'ReaderTurn.Capture'): Promise<image.PixelMap> {
     const trace = PerformanceTrace.begin(traceName);
     try {
-      return await this.getUIContext().getComponentSnapshot().get(this.snapshotId,
-        { waitUntilRenderFinished: true });
+      return await new Promise<image.PixelMap>((resolve, reject): void => {
+        let settled = false;
+        const timer = setTimeout((): void => {
+          settled = true; reject(new Error('Reader snapshot timed out'));
+        }, 800);
+        this.getUIContext().getComponentSnapshot().get(this.snapshotId,
+          { waitUntilRenderFinished: true }).then((bitmap: image.PixelMap): void => {
+          if (settled) { bitmap.release().catch((): void => {}); return; }
+          settled = true; clearTimeout(timer); resolve(bitmap);
+        }).catch((error: Error): void => {
+          if (settled) return;
+          settled = true; clearTimeout(timer); reject(error);
+        });
+      });
     } finally { PerformanceTrace.end(traceName, trace); }
+  }
+
+  /** 只比较正文窄条，避免页码已更新却把上一帧正文误认成目标页。 */
+  private async sampleBody(bitmap: image.PixelMap): Promise<Uint8Array[]> {
+    const info = bitmap.getImageInfoSync();
+    const width = info.size.width;
+    const height = info.size.height;
+    const stripe = Math.min(2, width);
+    const top = Math.floor(height * 0.18);
+    const rows = Math.max(1, Math.floor(height * 0.64));
+    const areas: image.PositionArea[] = [0.12, 0.27, 0.42, 0.57, 0.72, 0.87].map((fraction: number): image.PositionArea => {
+      const area: image.PositionArea = {
+        pixels: new ArrayBuffer(stripe * rows * 4), offset: 0, stride: stripe * 4,
+        region: { size: { width: stripe, height: rows }, x: Math.min(width - stripe, Math.floor(width * fraction)), y: top }
+      };
+      return area;
+    });
+    await Promise.all(areas.map((area: image.PositionArea): Promise<void> => bitmap.readPixels(area)));
+    return areas.map((area: image.PositionArea): Uint8Array => new Uint8Array(area.pixels));
+  }
+
+  private sameBody(left: Uint8Array[], right: Uint8Array[]): boolean {
+    if (left.length !== right.length) return false;
+    for (let stripe = 0; stripe < left.length; stripe++) {
+      if (left[stripe].length !== right[stripe].length) return false;
+      for (let index = 0; index < left[stripe].length; index++) {
+        if (left[stripe][index] !== right[stripe][index]) return false;
+      }
+    }
+    return true;
+  }
+
+  private async captureFreshPage(front: image.PixelMap, ticket: number): Promise<image.PixelMap> {
+    let source: Uint8Array[] = [];
+    try { source = await this.sampleBody(front); } catch (_error) {}
+    for (let attempt = 0; attempt <= 2; attempt++) {
+      const target = await this.capturePage();
+      if (ticket !== this.serial || source.length === 0) return target;
+      let same = false;
+      try { same = this.sameBody(source, await this.sampleBody(target)); } catch (_error) {}
+      if (!same) return target;
+      target.release().catch((): void => {});
+      hilog.info(0, 'ReaderPageTurn', 'stale target frame, retry %{public}d', attempt);
+      if (attempt < 2) await new Promise<void>((resolve): void => { setTimeout(resolve, 50); });
+    }
+    // 两页确实相同或 Web 未提交新帧时直接交接，不能让旧文字再动画一次后闪换。
+    throw new Error('Target page still matches previous frame');
   }
 
   private async preparePage(forward: boolean): Promise<boolean> {
@@ -470,7 +557,7 @@ export struct ReaderPageTurnComponent {
     finally { PerformanceTrace.end('ReaderTurn.Prepare', trace); }
   }
 
-  private async pageFrame(timeout: number = 0): Promise<void> {
+  private async pageFrame(timeout: number = 32): Promise<void> {
     const trace = PerformanceTrace.begin('ReaderTurn.Layout');
     try {
       await new Promise<void>((resolve): void => {
@@ -635,7 +722,7 @@ export struct ReaderPageTurnComponent {
 
   private async handleTap(x: number, y: number): Promise<void> {
     if (this.selectionActive || this.touchBlocked || !this.tapTracker.canTap() ||
-      (this.phase !== 'idle' && this.mode !== PageTurnMode.Cover)) return;
+      (this.phase !== 'idle' && !this.canQueueTurn(true))) return;
     // 动画中的 Web 已是目标页；此时不能把截图上的点击命中到底层链接。
     if (this.ignoreChildGestures && this.phase === 'idle') {
       const ticket = this.serial;
@@ -659,7 +746,7 @@ export struct ReaderPageTurnComponent {
       this.finishTurn(commit, this.serial);
       return;
     }
-    this.animateSettle(commit, this.mode === PageTurnMode.Cover && this.pendingTurn !== null);
+    this.animateSettle(commit, this.canQueueTurn(true) && this.pendingTurn !== null);
   }
 
   private animateSettle(commit: boolean, accelerated: boolean): void {
@@ -667,7 +754,6 @@ export struct ReaderPageTurnComponent {
     const end = commit ? 1 : 0;
     const simulation = this.mode === PageTurnMode.Simulation;
     if (simulation || this.mode === PageTurnMode.Cover) this.progress = this.renderedProgress;
-    const heldSpread = simulation && this.spread && this.progress > 0.001;
     if (simulation) this.verticalDrag = this.renderedVertical;
     this.releaseVertical = this.verticalDrag;
     this.settleStart = this.progress;
@@ -675,14 +761,15 @@ export struct ReaderPageTurnComponent {
     this.settleAccelerated = accelerated;
     // 点击与松手都由显式进度驱动，避免新挂载的 V2 截图层只收到属性过渡终点。
     // 覆盖模式仍只平移同一张 Image，不逐帧清空、重画 Canvas。
+    const duration = simulation ? (accelerated ? 90 :
+      Math.max(100, Math.round((commit ? 280 : 180) * Math.sqrt(Math.abs(end - this.progress))))) :
+      this.mode === PageTurnMode.Cover ?
+        (accelerated ? 80 : Math.max(90, Math.round(280 * Math.abs(end - this.progress)))) :
+        Math.max(140, Math.round(380 * Math.abs(end - this.progress)));
+    if (this.settleTimer >= 0) clearTimeout(this.settleTimer);
     const animation = this.getUIContext().createAnimator({
-      duration: heldSpread ? Math.max(160, Math.round((commit ? 420 : 300) * Math.sqrt(Math.abs(end - this.progress)))) :
-        simulation ? (commit ? Math.max(300, Math.round((this.spread ? 600 : 520) * Math.sqrt(1 - this.progress))) :
-        Math.max(180, Math.round(320 * Math.sqrt(this.progress)))) :
-        this.mode === PageTurnMode.Cover ?
-          (accelerated ? 80 : Math.max(90, Math.round(280 * Math.abs(end - this.progress)))) :
-          Math.max(140, Math.round(380 * Math.abs(end - this.progress))),
-      easing: simulation && commit && !heldSpread ? 'ease-in-out' : 'ease-out',
+      duration: duration,
+      easing: 'ease-out',
       delay: 0, fill: 'forwards', direction: 'normal',
       iterations: 1, begin: this.progress, end: end
     });
@@ -693,16 +780,17 @@ export struct ReaderPageTurnComponent {
       const remaining = Math.abs(end - this.settleStart);
       this.verticalDrag = this.releaseVertical * (remaining > 0.001 ? Math.abs(end - value) / remaining : 0);
       // Animator 已按显示帧回调，覆盖层直接提交位移，避免二次排帧造成滞后。
-      if (this.mode === PageTurnMode.Cover) this.drawFrame(value);
-      else this.scheduleFrame();
+      this.drawFrame(value);
     };
-    animation.onFinish = (): void => {
+    const finish = (): void => {
       if (ticket !== this.serial || this.animator !== animation) return;
       this.animator = null;
       this.progress = end;
       this.drawFrame(end);
       this.finishTurn(commit, ticket);
     };
+    animation.onFinish = finish;
+    this.settleTimer = setTimeout(finish, duration + 120);
     animation.play();
   }
 
@@ -747,6 +835,13 @@ export struct ReaderPageTurnComponent {
     }
     ctx.globalAlpha = 1;
     ctx.clearRect(0, 0, w, h);
+    // Web/图片底层的提交时序独立于 ArkUI，目标截图同时作为卷页背后的稳定纸面。
+    // 双页由 drawSpread 完整绘制；单页也不能在落页终点突然露出旧正文。
+    if (this.mode === PageTurnMode.Simulation && !this.spread && this.targetImage !== null && p > 0) {
+      ctx.fillStyle = this.paperColor;
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(this.targetImage, 0, 0, w, h);
+    }
     ctx.save();
     if (this.mode === PageTurnMode.Vertical) {
       ctx.translate(0, (this.forward ? -1 : 1) * h * p);

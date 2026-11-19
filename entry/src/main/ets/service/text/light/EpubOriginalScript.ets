@@ -1494,6 +1494,8 @@ export class EpubOriginalScript {
       s.count = paged ? count : screenCount();
       s.page = paged ? page : Math.min(s.count - 1, Math.round(window.scrollY / screenStep()));
       return s;
+    }, configureLayout: function (top, bottom, spread, dark) {
+      cfg.top = top; cfg.bottom = bottom; cfg.spreadQuery = spread ? 'all' : ''; cfg.dark = dark;
     }, step: step, show: show, speechInfo: speechInfo, ttsMark: ttsMark, ttsClear: ttsClear,
     media: media, pauseVideos: pauseVideos, marks: marks, annoRect: annoRect, selection: selection };
   var begin = function () {

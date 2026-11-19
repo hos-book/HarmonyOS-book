@@ -15,7 +15,6 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AppTheme, AppRadius, AppSpace, AppFont, AppColor } from '../theme/Theme';
 import { PreferenceService } from '../service/PreferenceService';
 import { AudioService } from '../service/AudioService';
-import { AudioFocusService } from '../service/AudioFocusService';
 import { ChapterCacheService } from '../service/ChapterCacheService';
 import { WidgetUpdater } from '../service/WidgetUpdater';
 import { WindowUtils } from '../utils/WindowUtils';
@@ -67,7 +66,6 @@ const PRELOAD_OPTIONS: PreloadOption[] = [
 const ROW_INDENT: number = AppSpace.Md;
 const SEARCH_CONCURRENCY_OPTIONS: number[] = [3, 6, 9, 12];
 const MINI_PLAYER_HIDE_MINUTES: number[] = [-1, 0, 1, 5, 10, 20];
-const AUDIO_FOCUS_MODES: number[] = [0, 2, 1];
 
 enum SettingsCacheKind { Text, Comic, Audio }
 
@@ -83,8 +81,6 @@ export struct SettingsPage {
   @Local defaultTab: number = 0;
   @Local autoPlayOnLaunch: boolean = false;
   @Local isSavingAutoPlayOnLaunch: boolean = false;
-  @Local focusMode: number = 0;
-  @Local isSavingFocusMode: boolean = false;
   @Local defaultPlaybackSpeed: number = 1;
   @Local defaultPlaybackSpeedDraft: number = 1;
   @Local isSavingDefaultPlaybackSpeed: boolean = false;
@@ -169,7 +165,6 @@ export struct SettingsPage {
       const defaultTab = await PreferenceService.getDefaultTab();
       const autoPlay = await PreferenceService.getAutoPlayOnLaunch();
       const coverResolution = await PreferenceService.getCoverSuperResolution();
-      const focusMode = await PreferenceService.getAudioFocusMode();
       const defaultPlaybackSpeed = await PreferenceService.getDefaultPlaybackSpeed();
       const preloadCount = await PreferenceService.getPreloadChapters();
       if (!this.alive || serial !== this.preferencesLoadSerial) return;
@@ -178,7 +173,6 @@ export struct SettingsPage {
       this.defaultTab = defaultTab;
       this.autoPlayOnLaunch = autoPlay;
       this.coverSuperResolution = coverResolution && this.membership.hasAccess;
-      this.focusMode = focusMode;
       this.defaultPlaybackSpeed = defaultPlaybackSpeed;
       this.defaultPlaybackSpeedDraft = defaultPlaybackSpeed;
       this.preloadCount = preloadCount;
@@ -246,22 +240,6 @@ export struct SettingsPage {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
     } finally {
       this.isSavingAutoPlayOnLaunch = false;
-    }
-  }
-
-  private async setFocusMode(mode: number): Promise<void> {
-    if (!this.isLoaded || this.isSavingFocusMode || this.focusMode === mode) return;
-    const previous = this.focusMode;
-    this.isSavingFocusMode = true;
-    this.focusMode = mode;
-    try {
-      await AudioFocusService.getInstance().setMode(mode);
-    } catch (error) {
-      this.focusMode = previous;
-      hilog.warn(0xFF00, 'SettingsPage', 'Save audio focus failed: %{public}s', String(error));
-      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
-    } finally {
-      this.isSavingFocusMode = false;
     }
   }
 
@@ -839,30 +817,6 @@ export struct SettingsPage {
         }.width('100%')
           .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
           .enabled(this.isLoaded && !this.isSavingDefaultPlaybackSpeed)
-
-        this.buildDivider()
-
-        Column({ space: AppSpace.Xs }) {
-          Row({ space: AppSpace.Sm }) {
-            Row({ space: 2 }) {
-              Text($r('app.string.settings_audio_focus_title'))
-                .fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).flexShrink(1)
-              SettingsHintButton({
-                title: $r('app.string.settings_audio_focus_title'),
-                message: this.focusMode === 1 ? $r('app.string.settings_audio_focus_mix_desc') :
-                  this.focusMode === 2 ? $r('app.string.settings_audio_focus_duck_desc') :
-                  $r('app.string.settings_audio_focus_resume_desc')
-              })
-            }.layoutWeight(1).alignItems(VerticalAlign.Center)
-            ImmersiveOptionTabs({
-              labels: [$r('app.string.settings_audio_focus_resume'), $r('app.string.settings_audio_focus_duck'),
-                $r('app.string.settings_audio_focus_mix')],
-              selected: Math.max(0, AUDIO_FOCUS_MODES.indexOf(this.focusMode)),
-              onSelect: (index: number): void => { this.setFocusMode(AUDIO_FOCUS_MODES[index] ?? 0); }
-            }).enabled(this.isLoaded && !this.isSavingFocusMode)
-          }.width('100%')
-        }.width('100%')
-          .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
 
         this.buildDivider()
 
