@@ -165,7 +165,7 @@ export struct FavoritePage {
   @Local updateReport: ShelfUpdateReport = new ShelfUpdateReport();
   private updateData: HomeRecommendationDataSource<BookUpdateInfo> = new HomeRecommendationDataSource<BookUpdateInfo>();
   private alive: boolean = false;
-  private foreground: boolean = true;
+  @Local foreground: boolean = true;
   private pendingUpdateBookId: string = '';
   private applicationState: ApplicationStateChangeCallback = {
     onApplicationForeground: (): void => {
@@ -198,6 +198,7 @@ export struct FavoritePage {
   private historyRefreshPending: boolean = false;
   private textRefreshPending: boolean = false;
   private recentRefreshPending: boolean = false;
+  private favoritesRefreshPending: boolean = false;
   private viewModeRevision: number = 0;
   private viewModeSaveTask: Promise<void> = Promise.resolve();
   @Local shelfFilter: number = 0; // 0=全部, 1=有声书, 2=电子书, 3=漫画
@@ -212,6 +213,9 @@ export struct FavoritePage {
   @Local topSafeVp: number = WindowUtils.getStatusBarHeightVp();
   @Local textProgressMap: Map<string, TextReadingPosition> = new Map();
   @Param visible: boolean = false;
+  @Param active: boolean = true;
+  @Computed
+  private get shelfActive(): boolean { return this.visible && this.active && this.foreground; }
   @Param bottomTabInset: number = 0;
   @Param miniPlayerVisible: boolean = false;
   @Local batchActionsBottom: number = -1;
@@ -443,14 +447,14 @@ export struct FavoritePage {
 
   private async refreshCollectionRecent(history?: PlayHistoryItem[]): Promise<void> {
     if (!this.context || this.viewMode !== 3 || !this.historyEnabled || this.collectionGroup !== undefined) return;
-    if (this.shelfScrolling || !this.visible || !this.foreground) { this.recentRefreshPending = true; return; }
+    if (this.shelfScrolling || !this.shelfActive) { this.recentRefreshPending = true; return; }
     this.recentRefreshPending = false;
     const serial = ++this.collectionRecentSerial;
     try {
       const records = history ?? await PreferenceService.getHistory();
       const positions = await TextReadingProgressService.getAll(this.context, true);
       if (!this.alive || serial !== this.collectionRecentSerial || !this.historyEnabled) return;
-      if (this.shelfScrolling || !this.visible || !this.foreground) { this.recentRefreshPending = true; return; }
+      if (this.shelfScrolling || !this.shelfActive) { this.recentRefreshPending = true; return; }
       const books = this.favoriteBooks.concat(this.collectionBooks)
         .filter((book: Book): boolean => !this.pendingShelfRemovalIds.has(book.id) && !this.isMissingCachedBook(book) && !BookPresentation.isHidden(book.id))
         .map((book: Book): Book => BookPresentation.apply(book));
@@ -670,7 +674,7 @@ export struct FavoritePage {
     this.textProgressLoadSerial++;
   }
 
-  @Monitor('visible')
+  @Monitor('visible', 'active', 'foreground')
   onVisibleChange(): void {
     if (!this.visible) {
       // A book destination covers this shelf without ending its session; app backgrounding still locks it.
@@ -680,14 +684,18 @@ export struct FavoritePage {
       this.statusFilterMenuVisible = false;
       this.groupMenuVisible = false;
     }
-    if (this.visible) {
+    if (this.shelfActive) {
       this.syncShelfSourceVisibility();
-      if (this.loading) this.scheduleInitialLoad();
+      if (this.loading || this.favoritesRefreshPending) this.scheduleInitialLoad();
       else { this.scheduleAutoUpdate(); this.finishShelfScroll(); }
-    } else if (!this.removingBook) {
+    } else if (!this.visible && !this.removingBook) {
       this.exitManagement();
     }
-    if (!this.visible) this.cancelAutoUpdate();
+    if (!this.shelfActive) {
+      this.cancelAutoUpdate();
+      if (this.initialLoadTimer !== -1) clearTimeout(this.initialLoadTimer);
+      this.initialLoadTimer = -1;
+    }
   }
 
   @Monitor('isManaging', 'visible', 'bottomTabInset', 'miniPlayerVisible')
@@ -745,16 +753,19 @@ export struct FavoritePage {
     if (Math.abs(bottom - this.batchActionsBottom) > 0.5) this.batchActionsBottom = bottom;
   }
 
-  /** Appear 与 visible 监控共用入口；下个任务加载缓存，不再额外等待切页动画。 */
+  /** 预加载只准备页面节点；主 Tab 原生转场完成后才读取、整理书单。 */
   private scheduleInitialLoad(): void {
-    if (!this.alive || this.initialLoadTimer !== -1 || this.initialLoadRunning) return;
+    if (!this.alive || !this.shelfActive || this.initialLoadTimer !== -1 || this.initialLoadRunning) return;
     this.initialLoadTimer = setTimeout((): void => {
       this.initialLoadTimer = -1;
-      if (!this.alive || !this.loading) return;
+      if (!this.alive || !this.shelfActive || (!this.loading && !this.favoritesRefreshPending)) return;
       this.initialLoadRunning = true;
       this.loadFavorites().catch((): void => {
         // 保留 loading，下一次进入书架可重试，不提交空书单。
-      }).finally((): void => { this.initialLoadRunning = false; });
+      }).finally((): void => {
+        this.initialLoadRunning = false;
+        if (this.favoritesRefreshPending) this.scheduleInitialLoad();
+      });
     }, 0);
   }
 
@@ -766,12 +777,12 @@ export struct FavoritePage {
   private scheduleAutoUpdate(): void {
     this.cancelAutoUpdate();
     if (this.collectionGroup !== undefined) return;
-    if (!this.alive || !this.visible || !this.foreground || this.loading || this.checkingUpdates ||
+    if (!this.alive || !this.shelfActive || this.loading || this.checkingUpdates ||
       this.removingBook || this.pendingShelfRemovalIds.size > 0 ||
       !ShelfUpdateService.shouldAutoCheck()) return;
     this.autoUpdateTimer = setTimeout((): void => {
       this.autoUpdateTimer = -1;
-      if (this.alive && this.visible && this.foreground) this.refreshOnlineBooks(true);
+      if (this.alive && this.shelfActive) this.refreshOnlineBooks(true);
     }, 400);
   }
 
@@ -789,7 +800,7 @@ export struct FavoritePage {
 
   private finishShelfScroll(): void {
     this.shelfScrolling = false;
-    if (!this.alive || !this.visible || !this.foreground) return;
+    if (!this.alive || !this.shelfActive) return;
     if (this.textRefreshPending) this.refreshTextProgress();
     if (this.historyRefreshPending) this.onHistoryUpdated({});
     else if (this.recentRefreshPending) this.refreshCollectionRecent();
@@ -798,7 +809,7 @@ export struct FavoritePage {
   /** 收到播放进度更新事件:只重算历史相关 map,不重拉书清单,避免列表抖动 */
   private async onHistoryUpdated(_e: emitter.EventData): Promise<void> {
     if (!this.context) return;
-    if (this.shelfScrolling || !this.visible || !this.foreground) { this.historyRefreshPending = true; return; }
+    if (this.shelfScrolling || !this.shelfActive) { this.historyRefreshPending = true; return; }
     this.historyRefreshPending = false;
     const history = await PreferenceService.getHistory();
     const map: Record<string, PlayHistoryItem> = {};
@@ -808,7 +819,7 @@ export struct FavoritePage {
       }
     }
     if (!this.alive) return;
-    if (this.shelfScrolling || !this.visible || !this.foreground) { this.historyRefreshPending = true; return; }
+    if (this.shelfScrolling || !this.shelfActive) { this.historyRefreshPending = true; return; }
     // 总览只需要最近卡片，点击时复用章节解析，不逐本读取收藏进度。
     if (this.viewMode === 3) {
       this.historyMap = map;
@@ -817,23 +828,27 @@ export struct FavoritePage {
     }
     const idxMap = await this.buildChapterIndexMap(this.favoriteBooks, map);
     if (!this.alive) return;
-    if (this.shelfScrolling || !this.visible || !this.foreground) { this.historyRefreshPending = true; return; }
+    if (this.shelfScrolling || !this.shelfActive) { this.historyRefreshPending = true; return; }
     this.historyMap = map;
     this.chapterIdxMap = idxMap;
     await this.refreshCollectionRecent(history);
   }
 
   async loadFavorites(): Promise<void> {
-    if (!this.context) return;
+    if (!this.context || !this.alive) return;
+    if (!this.shelfActive) { this.favoritesRefreshPending = true; return; }
+    this.favoritesRefreshPending = false;
     if (this.initialLoadTimer !== -1) clearTimeout(this.initialLoadTimer);
     this.initialLoadTimer = -1;
     const serial = ++this.favoritesLoadSerial;
     const ids = await PreferenceService.getShelfFavorites();
-    if (!this.alive || serial !== this.favoritesLoadSerial) return;
+    if (!this.canContinueFavoritesLoad(serial)) return;
     this.shelfGroups = BookPresentation.groups.slice();
     if (this.shelfGroup && this.shelfGroup !== BookPresentation.UNGROUPED && !this.shelfGroups.includes(this.shelfGroup)) this.selectShelfGroup(this.visibleGroupOptions()[0] ?? '');
     const pinnedIds = new Set(await PreferenceService.getPinnedFavorites());
+    if (!this.canContinueFavoritesLoad(serial)) return;
     const allBooks = await DataService.getBooks(this.context);
+    if (!this.canContinueFavoritesLoad(serial)) return;
     this.collectionBooks = allBooks;
     const byId = new Map<string, Book>();
     for (const book of allBooks) {
@@ -843,6 +858,7 @@ export struct FavoritePage {
     }
 
     const history = await PreferenceService.getHistory();
+    if (!this.canContinueFavoritesLoad(serial)) return;
     const map: Record<string, PlayHistoryItem> = {};
     for (const item of history) {
       if (!map[item.bookId]) {
@@ -851,6 +867,7 @@ export struct FavoritePage {
     }
 
     const lastPlayed = await PreferenceService.getLastPlayed();
+    if (!this.canContinueFavoritesLoad(serial)) return;
     const books: Book[] = [];
     const aliases: Map<string, string[]> = new Map();
     let missingCount = 0;
@@ -862,6 +879,7 @@ export struct FavoritePage {
         continue;
       }
       const progress = await PreferenceService.getProgress(id);
+      if (!this.canContinueFavoritesLoad(serial)) return;
       const chapterTitle = map[id]?.chapterTitle ?? progress?.chapterTitle ??
         (lastPlayed?.bookId === id ? (lastPlayed.chapterTitle ?? '') : '');
       const chapterId = map[id]?.chapterId ?? progress?.chapterId ??
@@ -885,7 +903,7 @@ export struct FavoritePage {
     let scanStartedAt: number = Date.now();
     let scannedChapters: number = 0;
     for (const b of books) {
-      if (serial !== this.favoritesLoadSerial || !this.alive) return;
+      if (!this.canContinueFavoritesLoad(serial)) return;
       if (this.isMissingCachedBook(b)) continue;
       if (b.chapters && b.chapters.length > 0) {
         const seen = new Set<string>();
@@ -894,7 +912,7 @@ export struct FavoritePage {
           // await 已完成的 Promise 不会让出 UI 帧；大目录按时间预算分段扫描。
           if (++scannedChapters % 256 === 0 && Date.now() - scanStartedAt >= 8) {
             await new Promise<void>((resolve): void => { setTimeout(resolve, 0); });
-            if (serial !== this.favoritesLoadSerial || !this.alive) return;
+            if (!this.canContinueFavoritesLoad(serial)) return;
             scanStartedAt = Date.now();
           }
           // 去重键用章节页 URL(唯一且稳定):originSourceValue 不会被播放期解析覆盖。
@@ -919,7 +937,7 @@ export struct FavoritePage {
 
     // 预算每本书的最新章节序号，避免 build / click 反复解析，也兼容章节 ID 已变化的旧进度。
     const idxMap = await this.buildChapterIndexMap(books, map);
-    if (serial !== this.favoritesLoadSerial) return;
+    if (!this.canContinueFavoritesLoad(serial)) return;
     this.missingFavoriteCount = missingCount;
     this.pinnedBookIds = new Set(books.filter((book: Book): boolean =>
       (aliases.get(book.id) ?? [book.id]).some((id: string): boolean => pinnedIds.has(id)))
@@ -927,7 +945,7 @@ export struct FavoritePage {
     this.favoriteIdsByBookId = aliases;
     this.favoriteBooks = books;
     await this.refreshTextProgress();
-    if (serial !== this.favoritesLoadSerial) return;
+    if (!this.canContinueFavoritesLoad(serial)) return;
     this.updateShelfData(this.filteredBooks(books));
     const visibleIds = new Set(this.filteredBooks(books).map((book: Book): string => book.id));
     this.selectedBookIds = new Set(Array.from(this.selectedBookIds).filter((id: string): boolean => visibleIds.has(id)));
@@ -938,6 +956,13 @@ export struct FavoritePage {
     this.scheduleAutoUpdate();
   }
 
+  private canContinueFavoritesLoad(serial: number): boolean {
+    if (!this.alive || serial !== this.favoritesLoadSerial) return false;
+    if (this.shelfActive) return true;
+    this.favoritesRefreshPending = true;
+    return false;
+  }
+
   /** 阅读器覆盖书架时 Tab 不变；由保存事件更新进度，避免重新加载书单。 */
   private sourceNamesRevision: number = -1;
 
@@ -946,7 +971,7 @@ export struct FavoritePage {
     const names: Map<string, string> = revision === this.sourceNamesRevision ? new Map(this.sourceNames) : new Map();
     const urls = Array.from(new Set(books.map((book: Book): string => book.sourceUrl).filter((url: string): boolean => !!url)));
     for (const url of urls) {
-      if (serial !== this.favoritesLoadSerial || !this.alive) return;
+      if (!this.canContinueFavoritesLoad(serial)) return;
       if (names.has(url)) continue;
       try {
         const source = await SourceDataService.getSourceByUrl(url);
@@ -954,7 +979,7 @@ export struct FavoritePage {
       } catch (_error) {}
       await new Promise<void>((resolve): void => { setTimeout(resolve, 0); });
     }
-    if (serial === this.favoritesLoadSerial && this.alive && revision === SourceDataService.getInvalidationCounter()) {
+    if (this.canContinueFavoritesLoad(serial) && revision === SourceDataService.getInvalidationCounter()) {
       this.sourceNames = names;
       this.sourceNamesRevision = revision;
     }
@@ -963,7 +988,7 @@ export struct FavoritePage {
   private async refreshTextProgress(): Promise<void> {
     const context = this.context;
     if (context === null) return;
-    if (!this.loading && (this.shelfScrolling || !this.visible || !this.foreground)) {
+    if (!this.loading && (this.shelfScrolling || !this.shelfActive)) {
       this.textRefreshPending = true; return;
     }
     this.textRefreshPending = false;
@@ -976,7 +1001,7 @@ export struct FavoritePage {
         if (position) textProgress.set(book.id, position);
       }
       if (!this.alive) return;
-      if (this.shelfScrolling) { this.textRefreshPending = true; return; }
+      if (this.shelfScrolling || !this.shelfActive) { this.textRefreshPending = true; return; }
       if (serial === this.textProgressLoadSerial) {
         this.textProgressMap = textProgress;
         if (!this.loading) await this.refreshCollectionRecent();
@@ -2215,7 +2240,7 @@ export struct FavoritePage {
     Column() {
       if (this.viewMode === 3) {
         ShelfCollectionView({ groups: this.collectionGroups, recent: this.collectionRecent,
-          loading: this.loading, historyEnabled: this.historyEnabled, visible: this.visible,
+          loading: this.loading, historyEnabled: this.historyEnabled, visible: this.shelfActive,
           reorderEnabled: !this.shelfKeyword.trim(),
           onReorder: async (groups: string[]): Promise<void> => {
             await this.saveCollectionOrder(groups);

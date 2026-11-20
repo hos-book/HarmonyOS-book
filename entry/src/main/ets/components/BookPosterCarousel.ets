@@ -8,14 +8,15 @@ export const BOOK_POSTER_DECK_HEIGHT: number = 208;
 export const BOOK_POSTER_COVER_WIDTH: number = 120;
 
 /** 仅用于轮播展示，真实书源身份和详情路由仍由调用方保留。 */
+@ObservedV2
 export class BookPosterItem {
   id: string;
-  title: string;
-  author: string;
-  intro: string;
-  coverUrl: string;
-  aspectRatio: number;
-  rating: number;
+  @Trace title: string;
+  @Trace author: string;
+  @Trace intro: string;
+  @Trace coverUrl: string;
+  @Trace aspectRatio: number;
+  @Trace rating: number;
 
   constructor(id: string, title: string, author: string, intro: string, coverUrl: string, aspectRatio: number,
     rating: number = 0) {
@@ -71,6 +72,7 @@ struct BookPosterIntroduction {
 @ComponentV2
 export struct BookPosterCarousel {
   @Param items: BookPosterItem[] = [];
+  @Local deckItems: BookPosterItem[] = [];
   @Param autoPlay: boolean = false;
   @Param openCover: boolean = false;
   @Param hiddenId: string = '';
@@ -104,11 +106,29 @@ export struct BookPosterCarousel {
   private revision: number = 0;
   private timer: number = -1;
 
-  aboutToAppear(): void { this.alive = true; this.schedule(); }
+  aboutToAppear(): void { this.alive = true; this.resetDeck(); }
   aboutToDisappear(): void { this.alive = false; this.revision++; this.stopTimer(); }
 
   @Monitor('items')
   resetDeck(): void {
+    if (this.items.length === this.deckItems.length && this.items.every(
+      (item: BookPosterItem, index: number): boolean => item.id === this.deckItems[index].id)) {
+      // 补封面/评分不换牌、不重启动画；稳定对象仅刷新真正变化的文字和图片。
+      for (let index: number = 0; index < this.items.length; index++) {
+        const source = this.items[index];
+        const target = this.deckItems[index];
+        target.title = source.title;
+        target.author = source.author;
+        target.intro = source.intro;
+        target.coverUrl = source.coverUrl;
+        target.aspectRatio = source.aspectRatio;
+        target.rating = source.rating;
+      }
+      this.onCoverChange(this.deckItems[this.current]?.coverUrl ?? '');
+      return;
+    }
+    this.deckItems = this.items.map((item: BookPosterItem): BookPosterItem => new BookPosterItem(
+      item.id, item.title, item.author, item.intro, item.coverUrl, item.aspectRatio, item.rating));
     this.revision++;
     this.current = 0;
     this.dragX = 0;
@@ -263,9 +283,11 @@ export struct BookPosterCarousel {
     const current: BookPosterItem | undefined = this.items[this.current];
     const hidden: boolean = current !== undefined &&
       (current.id === this.hiddenId || this.coverNodeId(current) === this.hiddenId);
+    const opacity: number = hidden ? 0 : 1;
+    if (this.introOpacity === opacity) return;
     this.getUIContext().animateTo({ duration: hidden ? AppMotion.Fast : AppMotion.Base,
       curve: hidden ? AppCurve.Accelerate : AppCurve.Decelerate }, (): void => {
-      this.introOpacity = hidden ? 0 : 1;
+      this.introOpacity = opacity;
     });
   }
 
@@ -273,12 +295,12 @@ export struct BookPosterCarousel {
     Column() {
       Row({ space: 16 }) {
         if (this.items[this.current] !== undefined) {
-          BookPosterIntroduction({ item: this.items[this.current],
+          BookPosterIntroduction({ item: this.deckItems[this.current],
             onChoose: (): void => this.choose() }).layoutWeight(1)
             .opacity(this.introOpacity)
         }
         Stack({ alignContent: Alignment.Center }) {
-          ForEach(this.items, (item: BookPosterItem, index: number) => {
+          ForEach(this.deckItems, (item: BookPosterItem, index: number) => {
             Column() {
               Stack({ alignContent: Alignment.BottomEnd }) {
               CoverImage({ url: item.coverUrl, title: AppTheme.IllustratedPlaceholders ? item.title : '', author: item.author,

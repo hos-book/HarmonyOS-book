@@ -1852,10 +1852,10 @@ export class NativeSourceRunner {
     return books;
   }
 
-  /** Batch pure JS field expressions so a page does not serialize the full response once per field. */
+  /** Batch isolated field expressions so a page does not serialize the full response once per field. */
   private async readScriptFields(fields: Record<string, NativeValue>, scope: NativeScope,
     items: NativeValue[] | null, offset: number, prefix: string): Promise<Record<string, NativeValue>[]> {
-    if (!this.definition.js || !this.host.evaluateExpression) return [];
+    if (!this.host.evaluateExpression) return [];
     const pairs: string[] = [];
     for (const name of BOOK_FIELD_NAMES) {
       const rule = fields[name];
@@ -1940,11 +1940,11 @@ export class NativeSourceRunner {
   }
 
   private async expression(text: string, scope: NativeScope, template: boolean = false): Promise<NativeValue> {
-    if (this.definition.js && this.host.evaluateExpression && this.expr.requiresScript(text, template)) {
-      return this.host.evaluateExpression(this.definition.js, this.definition.lib || '', text, scope.snapshot(),
+    if (this.host.evaluateExpression && this.expr.requiresScript(text, template)) {
+      return this.host.evaluateExpression(this.definition.js || '', this.definition.lib || '', text, scope.snapshot(),
         template, this.cancelled);
     }
-    // 表达式不送后台：求值本身很快，送过去却要把整个作用域（含整页正文、登录信息）序列化一遍。
+    // 小型纯表达式直接求值；含函数库循环或 JS 调用时复用上面的有界后台宿主。
     return template ? this.expr.render(text, scope) : this.expr.evaluate(text, scope);
   }
 

@@ -300,6 +300,14 @@ struct HomeLoadingSkeleton {
 @ComponentV2
 export struct HomePage {
   @Param visible: boolean = true;
+  @Param active: boolean = true;
+  private homeAlive: boolean = false;
+  private sourceReloadPending: boolean = false;
+  private pendingHomeContent: HomeSourceContent | undefined = undefined;
+  private pendingHomePreserve: boolean = false;
+
+  @Computed
+  get homeActive(): boolean { return this.visible && this.active; }
   @Local appBackgrounds: AppBackgroundService = AppBackgroundService.instance;
   @Param bottomTabInset: number = 0;
   @Param miniPlayerVisible: boolean = false;
@@ -424,6 +432,7 @@ export struct HomePage {
   };
 
   aboutToAppear(): void {
+    this.homeAlive = true;
     this.statusBarColorListener();
     WindowUtils.addReaderColorListener(this.statusBarColorListener);
     WindowUtils.addSafeAreaListener(this.safeAreaChangeHandler);
@@ -439,7 +448,8 @@ export struct HomePage {
     emitter.on(EVT_HOME_SOURCE_CHANGED, this.sourceChangedHandler);
     emitter.on(EVT_FAVORITES_CHANGED, this.favoritesChangedHandler);
     this.loadFavorites();
-    this.loadHomeBlocks();
+    if (this.homeActive) this.loadHomeBlocks();
+    else this.sourceReloadPending = true;
     PreferenceService.getHomeSourceMenuColumns().then((columns: number): void => {
       this.homeSourceMenuColumns = columns;
     }).catch((): void => {
@@ -450,6 +460,8 @@ export struct HomePage {
   }
 
   aboutToDisappear(): void {
+    this.homeAlive = false;
+    this.pendingHomeContent = undefined;
     WindowUtils.removeReaderColorListener(this.statusBarColorListener);
     WindowUtils.removeSafeAreaListener(this.safeAreaChangeHandler);
     this.onBackHandlerChange(undefined);
@@ -494,6 +506,13 @@ export struct HomePage {
   }
 
   private reloadSource(): void {
+    if (!this.homeActive) {
+      this.sourceReloadPending = true;
+      this.pendingHomeContent = undefined;
+      this.homeGen++;
+      return;
+    }
+    this.sourceReloadPending = false;
     this.homeFilterMenuVisible = false;
     this.cancelContentEntrance();
     this.cancelCarouselAnimation();
@@ -507,6 +526,39 @@ export struct HomePage {
     this.scrollContentToTop();
     this.revealCategoryTab(-1);
     this.loadHomeBlocks();
+  }
+
+  @Monitor('visible', 'active')
+  private onHomeActivityChanged(): void {
+    if (!this.homeAlive || !this.homeActive) return;
+    if (this.sourceReloadPending || this.lastSourceRevision !== SourceDataService.getInvalidationCounter()) {
+      this.reloadSource();
+    } else if (this.pendingHomeContent !== undefined) {
+      const content = this.pendingHomeContent;
+      this.pendingHomeContent = undefined;
+      this.applyHomeContent(content, this.pendingHomePreserve);
+    }
+  }
+
+  private applyHomeContent(content: HomeSourceContent, preserveContent: boolean): void {
+    if (!this.homeActive) {
+      // 已在途的有界发现请求可以完成缓存，离屏期间不反复构建推荐书单。
+      this.pendingHomeContent = content;
+      this.pendingHomePreserve = preserveContent;
+      return;
+    }
+    this.updateHomeChannels(content.channels);
+    this.updateHomeFilters(content.filters);
+    this.selectedHomeChannel = content.channel;
+    this.homeError = HomeSourceService.isSupportedChannel(content.channel) ? '' :
+      $r('app.string.home_channel_unsupported');
+    if (this.homeCategories !== content.categories) this.updateHomeCategories(content.categories);
+    if (content.blocks.length > 0 || !preserveContent) this.updateHomeBlocks(content.blocks);
+    this.moreRecommendationsLoading = content.moreLoading;
+    this.moreRecommendationsFailed = content.moreFailed;
+    if (content.moreRecommendations.length > 0 || !preserveContent) {
+      this.updateMoreRecommendations(content.moreRecommendations);
+    }
   }
 
   private async selectHomeSource(index: number): Promise<void> {
@@ -576,6 +628,7 @@ export struct HomePage {
   private async loadHomeBlocks(preserveContent: boolean = false, forceRefresh: boolean = false,
     channelOverride?: string): Promise<void> {
     const generation = ++this.homeGen;
+    this.pendingHomeContent = undefined;
     this.loadingHome = true;
     this.categoryLoading = false;
     this.homeError = '';
@@ -626,33 +679,19 @@ export struct HomePage {
       const content = await HomeSourceService.loadHome(source, forceRefresh,
         (partial: HomeSourceContent): void => {
           if (generation !== this.homeGen) return;
-          this.updateHomeChannels(partial.channels);
-          this.updateHomeFilters(partial.filters);
-          this.selectedHomeChannel = partial.channel;
-          this.homeError = HomeSourceService.isSupportedChannel(partial.channel) ? '' :
-            $r('app.string.home_channel_unsupported');
-          if (this.homeCategories !== partial.categories) this.updateHomeCategories(partial.categories);
           // 刷新时保留现有书单；首次加载则哪个分类先完成就先展示。
-          if (partial.blocks.length > 0 && this.homeBlocks !== partial.blocks) this.updateHomeBlocks(partial.blocks);
-          this.moreRecommendationsLoading = partial.moreLoading;
-          this.moreRecommendationsFailed = partial.moreFailed;
-          if (partial.moreRecommendations.length > 0 || !preserveContent) {
-            this.updateMoreRecommendations(partial.moreRecommendations);
-          }
+          this.applyHomeContent(partial, preserveContent);
         }, channel);
       if (generation !== this.homeGen) return;
       const blocks = content.blocks;
-      this.updateHomeBlocks(blocks);
-      this.updateMoreRecommendations(content.moreRecommendations);
-      this.moreRecommendationsLoading = false;
-      this.moreRecommendationsFailed = content.moreFailed;
+      this.applyHomeContent(content, false);
       const covers: string[] = [];
       for (const block of blocks) {
         for (const book of block.books) {
           if (book.coverUrl.startsWith('http')) covers.push(book.coverUrl);
         }
       }
-      CoverPrefetcher.prefetchMany(covers, 12);
+      if (this.homeActive) CoverPrefetcher.prefetchMany(covers, 12);
     } catch (error) {
       if (generation !== this.homeGen) return;
       // 已选源的频道请求失败时留在当前页，保留频道切换与重试入口。
@@ -1116,7 +1155,8 @@ export struct HomePage {
   }
 
   private updateMoreRecommendations(books: SearchResult[]): void {
-    if (this.moreRecommendations === books) return;
+    if (this.moreRecommendations === books || (books.length === this.moreRecommendations.length &&
+      books.every((book: SearchResult, index: number): boolean => book === this.moreRecommendations[index]))) return;
     this.moreRecommendations = books;
     this.rebuildMoreRecommendationRows();
   }
@@ -1126,15 +1166,19 @@ export struct HomePage {
     const columns: number = this.contentWidth >= AdaptiveLayout.MEDIUM_WIDTH ? 2 : 1;
     if (columns === this.moreRecommendationColumns) return;
     this.moreRecommendationColumns = columns;
-    this.rebuildMoreRecommendationRows();
+    this.rebuildMoreRecommendationRows(true);
   }
 
-  private rebuildMoreRecommendationRows(): void {
+  private rebuildMoreRecommendationRows(regroup: boolean = false): void {
     const rows: SearchResult[][] = [];
     for (let index: number = 0; index < this.moreRecommendations.length; index += this.moreRecommendationColumns) {
-      rows.push(this.moreRecommendations.slice(index, index + this.moreRecommendationColumns));
+      const row = this.moreRecommendations.slice(index, index + this.moreRecommendationColumns);
+      const previous = this.moreRecommendationDataSource.getData(rows.length);
+      rows.push(previous !== undefined && row.length === previous.length &&
+        row.every((book: SearchResult, column: number): boolean => book === previous[column]) ? previous : row);
     }
-    this.moreRecommendationDataSource.setItems(rows);
+    if (regroup) this.moreRecommendationDataSource.setItems(rows);
+    else this.moreRecommendationDataSource.updateItems(rows);
   }
 
   private moreRecommendationRowKey(books: SearchResult[]): string {
@@ -1668,7 +1712,7 @@ export struct HomePage {
       if (!this.homeResolved) {
         LoadingProgress().width(28).height(28).color(AppColor.Brand)
       } else if (this.rankingMode) {
-        RankingHomePage({ visible: this.visible, bottomTabInset: this.bottomTabInset,
+        RankingHomePage({ visible: this.visible, active: this.homeActive, bottomTabInset: this.bottomTabInset,
           customBackground: this.hasAppBackground(),
           headerBuilder: (): void => this.buildSearchTitleBar(), onBookTap: this.onRankingBookTap,
           onOpenReader: this.onOpenReader, onOpenHistory: this.onOpenHistory, onHistoryJump: this.onHistoryJump,
@@ -1701,7 +1745,7 @@ export struct HomePage {
       Stack({ alignContent: Alignment.TopStart }) {
         if (AppTheme.ShowCoverBackdrop && !this.hasAppBackground()) {
           RankingPosterBackground({ cover: this.carouselCover,
-            suspended: !this.visible || this.openingCarouselBook || this.coverState.detailBookId.length > 0,
+            suspended: !this.homeActive || this.openingCarouselBook || this.coverState.detailBookId.length > 0,
             imageHeight: this.contentHeight + this.topSafeVp + this.bottomSafeVp })
         }
       }
@@ -2265,7 +2309,7 @@ export struct HomePage {
             } else {
               HomeCoverCarousel({
                 books: this.carouselBooks,
-                active: this.visible && this.selectedCategoryIndex === -1 && !this.carouselTransitioning &&
+                active: this.homeActive && this.selectedCategoryIndex === -1 && !this.carouselTransitioning &&
                   !this.isSearchCollapsed && !this.openingCarouselBook,
                 onCoverChange: (cover: string): void => { this.carouselCover = cover; },
                 onBookTap: (book: SearchResult, nodeId: string, radius: number): void => {

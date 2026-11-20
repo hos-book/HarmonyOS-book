@@ -18,6 +18,7 @@ export class GeneralSettings {
   }
   @Trace adaptiveHandedness: boolean = true;
   @Trace swipeSwitchTabs: boolean = true;
+  @Trace rankingScrollFeedback: boolean = true;
   /** -1 关闭，0 永久显示，正数为暂停后自动隐藏的分钟数。 */
   @Trace miniPlayerHideMinutes: number = 0;
   @Trace selectionMenuOrder: string = '';

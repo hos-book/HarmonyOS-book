@@ -123,6 +123,7 @@ export struct RankingShelf {
   @Event onChoose: (book: RankingBook, origin: CardOrigin) => void = () => {};
   /** 中间那张变化时通知外层更新排名/书名标题。 */
   @Event onFocusChange: (book: RankingBook, index: number) => void = () => {};
+  @Event onFeedback: () => void = () => {};
   /** 连续虚拟偏移，可为负数/小数，不做 clamp。 */
   @Local bookOffset: number = 0;
   @Local shelfWidth: number = 360;
@@ -139,6 +140,7 @@ export struct RankingShelf {
   private widthReady: boolean = false;
   private offsetReady: boolean = false;
   private lastFocusIndex: number = -1;
+  private feedbackGesture: boolean = false;
   private moveSamples: MoveSample[] = [];
   private coverPending: Set<string> = new Set<string>();
   private coverFailed: Set<string> = new Set<string>();
@@ -178,6 +180,7 @@ export struct RankingShelf {
 
   @Monitor('books')
   onBooksChange(): void {
+    this.feedbackGesture = false;
     this.offsetReady = false;
     this.lastFocusIndex = -1;
     this.coverFailed.clear();
@@ -312,8 +315,10 @@ export struct RankingShelf {
     const target: number = virtualIndex !== undefined ? virtualIndex : this.focusVirtual();
     const index: number = this.modIndex(target);
     if (index === this.lastFocusIndex) return;
+    const feedback: boolean = this.lastFocusIndex >= 0 && this.feedbackGesture;
     this.lastFocusIndex = index;
     this.onFocusChange(this.books[index], index);
+    if (feedback) this.onFeedback();
   }
 
   /** offset 每帧变化（拖动或惯性动画）都实时更新焦点标题，并按窗口推进补水封面。 */
@@ -522,6 +527,8 @@ export struct RankingShelf {
       this.getUIContext().animateTo({ duration: AppMotion.Base, curve: AppCurve.Decelerate,
         onFinish: (): void => {
           if (!this.alive || token !== this.gestureToken) return;
+          this.emitFocus();
+          this.feedbackGesture = false;
           this.endFreeze();
           this.hydrateVisible();
         } }, (): void => {
@@ -553,6 +560,7 @@ export struct RankingShelf {
 
   /** 回到当前榜单 TOP1：选最近的 0 号虚拟位，用与甩动相同的逐帧动画走过去。 */
   private returnToTop(): void {
+    this.feedbackGesture = false;
     if (!this.offsetReady || this.books.length === 0) return;
     const total: number = this.books.length;
     const shift: number = this.focusShift();
@@ -624,6 +632,8 @@ export struct RankingShelf {
       if (elapsed >= this.flingTotal) {
         const last: number = this.flingTargets.length - 1;
         if (last >= 0) this.bookOffset = this.flingTargets[last];
+        this.emitFocus();
+        this.feedbackGesture = false;
         this.flingActive = false;
         this.endFreeze();
         this.hydrateVisible();
@@ -684,6 +694,7 @@ export struct RankingShelf {
         // 第一次真正拖动时接管正在跑的惯性：先对齐到屏幕真实位置，再交给手指。
         if (!this.dragging) {
           this.dragging = true;
+          this.feedbackGesture = true;
           const visual: number = this.takeOverFling();
           // 以接管瞬间为新的起点，避免惯性已经跑掉的位移被算进手指位移。
           this.startX = point.windowX;
@@ -695,6 +706,7 @@ export struct RankingShelf {
       return;
     }
     if (event.type !== TouchType.Up && event.type !== TouchType.Cancel) return;
+    if (event.type === TouchType.Cancel) this.feedbackGesture = false;
     if (this.dragging) {
       this.settle(this.releaseVelocity());
       this.lastSwipe = Date.now();

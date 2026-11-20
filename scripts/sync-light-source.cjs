@@ -121,6 +121,8 @@ const replaceMethod = (text, signature, body) => {
   return text.replace(expression, body);
 };
 function adapt(name, text) {
+  if (name === 'core/nativesource/NativeExpr.ts') text = require('./light-native-library-cache.cjs')(text);
+  text = require('./light-native-expression-isolation.cjs')(name, text);
   if (name === 'core/rule/AnalyzeRule.ts') {
     // Imported scripts own data payload construction; do not synthesize protocol-specific requests.
     for (const method of ['evalEncodedDataUrlJs', 'evalRawEncodedValue', 'parseJsonSafe', 'pickValue', 'extractLiteralAssignment']) {
@@ -298,7 +300,8 @@ generated.push({ name: 'LightAudioSupport.ts', original: files.get('core/book/Au
 const manifest = { schemaVersion: 2, sources, license: 'GPL-3.0',
   hashNormalization: 'LF',
   patches: ['host-visible-image-scheduling-v1', 'host-reader-cache-budget-v1', 'host-image-protection-v1',
-    'host-reader-cache-boundary-v1', 'host-incognito-partitioned-cookies-v1', 'host-generic-source-rules-v3'],
+    'host-reader-cache-boundary-v1', 'host-incognito-partitioned-cookies-v1', 'host-generic-source-rules-v3',
+    'host-native-library-cache-v1', 'host-native-expression-isolation-v1'],
   files: generated.map(entry => ({ path: entry.name,
     ...provenance(entry.origin || locate(entry.name)),
     ...(entry.generated ? { generated: true } : {}),

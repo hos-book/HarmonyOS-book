@@ -4,11 +4,10 @@ import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSou
 import { BookCoverPolicy } from '../utils/BookCoverPolicy';
 import { BookMetadataPolicy } from '../utils/BookMetadataPolicy';
 import { BookMetadataText } from '../utils/BookMetadataText';
-import { LengthMetrics, PathShape } from '@kit.ArkUI';
+import { FrameCallback, LengthMetrics, PathShape } from '@kit.ArkUI';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { CompatibleGridInsets, PlatformCompat } from '../utils/PlatformCompat';
-import { HdsNavDestination } from '@kit.UIDesignKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AppColor, AppCurve, AppFont, AppMotion, AppRadius, AppSpace, HomeTheme, AppTheme, AppMaterial } from '../theme/Theme';
 import { Book, Chapter } from '../model/Book';
@@ -39,8 +38,9 @@ const SEARCH_HEADER_HEIGHT: number = 56;
 const SEARCH_TITLE_CONTROL_HEIGHT: number = 44;
 const RESULT_TOOLBAR_HEIGHT: number = 48;
 const HISTORY_HEADING_HEIGHT: number = 52;
-// onShown 在当前导航中先于系统滑入动画触发；450ms 转场期间不读取整份书源或执行推荐规则。
-const SEARCH_ENTRY_SETTLE_MS: number = 500;
+// 系统滑入没有公开的完成回调；实机结束通知约 580ms，留出提交余量后再创建正文。
+const SEARCH_ENTRY_SETTLE_MS: number = 650;
+const SEARCH_RECOMMENDATION_DELAY_MS: number = 80;
 
 /** 自绘顶部使用独立磨砂，不依赖 HDS 标题栏的材质合成范围。 */
 class SearchControlSurface implements AttributeModifier<CommonAttribute> {
@@ -52,6 +52,17 @@ class SearchControlSurface implements AttributeModifier<CommonAttribute> {
       .border({ width: 0.5, color: $r('sys.color.comp_divider') })
       .clip(true);
   }
+}
+
+class SearchRecommendationFrame extends FrameCallback {
+  private action: () => void;
+
+  constructor(action: () => void) {
+    super();
+    this.action = action;
+  }
+
+  onFrame(): void { this.action(); }
 }
 
 class SearchCoverTask {
@@ -166,6 +177,12 @@ export struct SearchPage {
   private coverHydrationActive: number = 0;
   private groupedBooks: BookDataSource = new BookDataSource();
   private resultsRefreshTimer: number = -1;
+  private resultsDirty: boolean = false;
+  private resultsScrolling: boolean = false;
+  private resultsResumeTimer: number = -1;
+  private publishedSearchTab: number = -1;
+  private publishedTypeCounts: number[] = [0, 0, 0];
+  private changedRepresentatives: Map<string, Book> = new Map();
   private resultDataSource: BookDataSource = new BookDataSource();
   private searchController: SearchController = new SearchController();
   private resultScroller: Scroller = new Scroller();
@@ -176,6 +193,8 @@ export struct SearchPage {
   private recommendationRevision: string = '';
   private recommendationDataSource: BookDataSource = new BookDataSource();
   private recommendationTimerId: number = -1;
+  private recommendationPublishScheduled: boolean = false;
+  private recommendationPublishRevision: number = 0;
   private entryTimerId: number = -1;
   private historyTextWidths: Map<string, number> = new Map();
   private historyMeasureScale: string = '';
@@ -221,8 +240,43 @@ export struct SearchPage {
   }
 
   private syncSearchCollapse(): void {
-    this.searchCollapseOffset = Math.max(0, Math.min(SEARCH_HEADER_HEIGHT,
+    const offset = Math.max(0, Math.min(SEARCH_HEADER_HEIGHT,
       this.resultScroller.currentOffset().yOffset));
+    if (Math.abs(offset - this.searchCollapseOffset) > 0.5) this.searchCollapseOffset = offset;
+  }
+
+  private handleResultScrollStart(): void {
+    this.resultsScrolling = true;
+    if (this.resultsResumeTimer >= 0) clearTimeout(this.resultsResumeTimer);
+    this.resultsResumeTimer = -1;
+    if (this.resultsRefreshTimer >= 0) clearTimeout(this.resultsRefreshTimer);
+    this.resultsRefreshTimer = -1;
+  }
+
+  private handleResultScrollStop(): void {
+    if (!this.pageShown || this.leavingPage) {
+      this.resetResultScroll();
+      return;
+    }
+    if (this.resultsResumeTimer >= 0) clearTimeout(this.resultsResumeTimer);
+    this.resultsResumeTimer = setTimeout((): void => {
+      this.resultsResumeTimer = -1;
+      this.resultsScrolling = false;
+      if (this.resultsDirty) this.refreshVisibleBooks();
+      this.pumpCoverHydration();
+    }, 120);
+  }
+
+  private resetResultScroll(): void {
+    if (this.resultsResumeTimer >= 0) clearTimeout(this.resultsResumeTimer);
+    this.resultsResumeTimer = -1;
+    this.resultsScrolling = false;
+  }
+
+  private stopResultScroll(): void {
+    const offset = this.resultScroller.currentOffset();
+    this.resultScroller.scrollTo({ xOffset: offset.xOffset, yOffset: offset.yOffset, animation: false });
+    this.resetResultScroll();
   }
 
   aboutToAppear(): void {
@@ -243,6 +297,7 @@ export struct SearchPage {
     if (this.leavingPage) return;
     this.leavingPage = true;
     this.pageShown = false;
+    this.resetResultScroll();
     this.cancelEntryTimer();
     this.searchGen++;
     this.coverHydrationQueue = [];
@@ -254,17 +309,21 @@ export struct SearchPage {
   private handlePageShown(): void {
     if (this.leavingPage) return;
     this.pageShown = true;
+    if (this.resultsDirty) this.scheduleResultsRefresh();
+    this.pumpCoverHydration();
     if (!this.entryReady && this.entryTimerId < 0) {
       this.entryTimerId = setTimeout((): void => {
         this.entryTimerId = -1;
         if (!this.pageShown || this.leavingPage) return;
-        // 先完成输入框与系统滑入，历史材质标签和推荐分别在转场后的任务中构建。
+        // 输入框立即可用；历史标签和正文延后，推荐内容继续分帧提交。
         this.entryReady = true;
         this.trimHistory();
+        this.scheduleRecommendationPublish();
         this.scheduleRecommendations();
       }, SEARCH_ENTRY_SETTLE_MS);
     }
     if (this.applyInitialKeyword()) return;
+    this.scheduleRecommendationPublish();
     this.scheduleRecommendations();
   }
 
@@ -296,6 +355,9 @@ export struct SearchPage {
     this.resultGroupVisible = false;
     this.searchOptionsVisible = false;
     this.pageShown = false;
+    this.resetResultScroll();
+    if (this.resultsRefreshTimer >= 0) clearTimeout(this.resultsRefreshTimer);
+    this.resultsRefreshTimer = -1;
     this.cancelEntryTimer();
     this.cancelRecommendations();
     this.searchController.stopEditing();
@@ -342,16 +404,36 @@ export struct SearchPage {
       this.recommendationRevision = SearchRecommendationService.getRevision();
     }
     if (this.keyword.trim().length > 0) return;
+    this.scheduleRecommendationPublish();
     if (!this.entryReady || !this.pageShown || this.leavingPage || this.hasSearched || this.recommendationsLoaded ||
       this.recommendationsStarted || this.recommendationTimerId >= 0) return;
     this.recommendationTimerId = setTimeout((): void => {
       this.recommendationTimerId = -1;
       if (!this.pageShown || this.leavingPage || this.hasSearched) return;
       this.loadRecommendations();
-    }, SEARCH_ENTRY_SETTLE_MS);
+    }, SEARCH_RECOMMENDATION_DELAY_MS);
+  }
+
+  /** 首屏实测会同时测量四张推荐卡，逐帧追加以分散封面创建。 */
+  private scheduleRecommendationPublish(): void {
+    if (!this.entryReady || !this.pageShown || this.leavingPage || this.hasSearched ||
+      this.keyword.trim().length > 0 || this.recommendationPublishScheduled ||
+      this.recommendationDataSource.totalCount() >= this.recommendationBooks.length) return;
+    this.recommendationPublishScheduled = true;
+    const revision = this.recommendationPublishRevision;
+    this.getUIContext().postFrameCallback(new SearchRecommendationFrame((): void => {
+      if (revision !== this.recommendationPublishRevision) return;
+      this.recommendationPublishScheduled = false;
+      if (!this.pageShown || this.leavingPage || this.hasSearched || this.keyword.trim().length > 0) return;
+      const book = this.recommendationBooks[this.recommendationDataSource.totalCount()];
+      if (book !== undefined) this.recommendationDataSource.appendBooks([book]);
+      this.scheduleRecommendationPublish();
+    }));
   }
 
   private cancelRecommendations(): void {
+    this.recommendationPublishRevision++;
+    this.recommendationPublishScheduled = false;
     if (this.recommendationTimerId >= 0) {
       clearTimeout(this.recommendationTimerId);
       this.recommendationTimerId = -1;
@@ -462,7 +544,7 @@ export struct SearchPage {
         }
         if (books.length === this.recommendationBooks.length) return;
         this.recommendationBooks = books;
-        this.recommendationDataSource.updateBooks(books);
+        this.scheduleRecommendationPublish();
       });
     } catch (error) {
       hilog.warn(DOMAIN, TAG, 'load recommendations failed: %{public}s', String(error));
@@ -525,8 +607,6 @@ export struct SearchPage {
       for (const source of selectedSources) this.sourcePages.set(source.bookSourceUrl, 1);
       await this.searchSources(selectedSources, keyword, gen, this.searchSeen, concurrency);
       if (gen !== this.searchGen) return;
-      this.audioCount = this.audioBooks.length;
-      this.textCount = this.textBooks.length;
       this.refreshVisibleBooks();
     } catch (e) {
       hilog.error(DOMAIN, TAG, 'search failed: %{public}s', String(e));
@@ -538,6 +618,7 @@ export struct SearchPage {
   }
 
   private resetPagination(): void {
+    this.resetResultScroll();
     this.sourcePages = new Map();
     this.searchSeen = new Set();
     this.resultGroups = new Map();
@@ -547,6 +628,10 @@ export struct SearchPage {
     this.textRepresentatives = [];
     this.comicRepresentatives = [];
     this.coverHydrationQueue = [];
+    this.resultsDirty = false;
+    this.publishedSearchTab = -1;
+    this.publishedTypeCounts = [0, 0, 0];
+    this.changedRepresentatives.clear();
     this.resultGroupsRevision = 0;
     if (this.resultsRefreshTimer >= 0) clearTimeout(this.resultsRefreshTimer);
     this.resultsRefreshTimer = -1;
@@ -657,6 +742,7 @@ export struct SearchPage {
   }
 
   private prefetchCovers(books: Book[]): void {
+    if (!this.pageShown || this.leavingPage || this.resultsScrolling) return;
     const covers: string[] = [];
     for (const book of books) {
       if (book.cover && book.cover.startsWith('http')) covers.push(book.cover);
@@ -678,7 +764,8 @@ export struct SearchPage {
   }
 
   private pumpCoverHydration(): void {
-    while (!this.leavingPage && this.coverHydrationActive < LOCAL_RULE_COVER_CONCURRENCY &&
+    while (this.pageShown && !this.leavingPage && !this.resultsScrolling &&
+      this.coverHydrationActive < LOCAL_RULE_COVER_CONCURRENCY &&
       this.coverHydrationQueue.length > 0) {
       const task = this.coverHydrationQueue.shift();
       if (task === undefined || task.generation !== this.searchGen) continue;
@@ -733,6 +820,7 @@ export struct SearchPage {
     const representativeIndex = this.representativeIndexes.get(key);
     if (groupIndex === 0 && representativeIndex !== undefined) {
       this.representativesForType(book.contentType)[representativeIndex] = book;
+      this.changedRepresentatives.set(key, book);
     }
   }
 
@@ -767,7 +855,8 @@ export struct SearchPage {
   }
 
   private scheduleResultsRefresh(): void {
-    if (this.resultsRefreshTimer >= 0) return;
+    this.resultsDirty = true;
+    if (!this.pageShown || this.leavingPage || this.resultsScrolling || this.resultsRefreshTimer >= 0) return;
     this.resultsRefreshTimer = setTimeout((): void => {
       this.resultsRefreshTimer = -1;
       if (!this.leavingPage) this.refreshVisibleBooks();
@@ -787,28 +876,55 @@ export struct SearchPage {
   private refreshVisibleBooks(): void {
     if (this.resultsRefreshTimer >= 0) clearTimeout(this.resultsRefreshTimer);
     this.resultsRefreshTimer = -1;
-    const visible: Book[] = [];
-    if (this.searchTab === 0 || this.searchTab === 1) {
-      for (const book of this.audioRepresentatives) visible.push(book);
+    if (this.leavingPage) return;
+    if (!this.pageShown || this.resultsScrolling) {
+      this.resultsDirty = true;
+      return;
     }
-    if (this.searchTab === 0 || this.searchTab === 2) {
-      for (const book of this.textRepresentatives) visible.push(book);
+    const groups: Book[][] = [this.audioRepresentatives, this.textRepresentatives, this.comicRepresentatives];
+    if (this.publishedSearchTab !== this.searchTab) {
+      const visible: Book[] = [];
+      for (let type = 0; type < groups.length; type++) {
+        if (this.searchTab === 0 || this.searchTab === type + 1) {
+          for (const book of groups[type]) visible.push(book);
+        }
+      }
+      this.resultDataSource.updateBooks(visible);
+    } else {
+      let offset: number = 0;
+      for (let type = 0; type < groups.length; type++) {
+        if (this.searchTab !== 0 && this.searchTab !== type + 1) continue;
+        const published = this.publishedTypeCounts[type];
+        this.resultDataSource.insertBooks(offset + published, groups[type].slice(published));
+        offset += groups[type].length;
+      }
+      for (const book of this.changedRepresentatives.values()) {
+        const type = book.contentType === 'comic' ? 2 : book.contentType === 'text' ? 1 : 0;
+        if (this.searchTab !== 0 && this.searchTab !== type + 1) continue;
+        const index = this.representativeIndexes.get(this.groupKey(book));
+        if (index === undefined) continue;
+        const offset = this.searchTab !== 0 ? 0 :
+          (type > 0 ? groups[0].length : 0) + (type > 1 ? groups[1].length : 0);
+        this.resultDataSource.replaceBook(offset + index, book);
+      }
     }
-    if (this.searchTab === 0 || this.searchTab === 3) {
-      for (const book of this.comicRepresentatives) visible.push(book);
-    }
+    this.publishedSearchTab = this.searchTab;
+    this.publishedTypeCounts = groups.map((books: Book[]): number => books.length);
+    this.changedRepresentatives.clear();
+    this.resultsDirty = false;
     this.audioCount = this.audioBooks.length;
     this.textCount = this.textBooks.length;
     this.comicCount = this.comicBooks.length;
     this.resultGroupsRevision++;
-    this.resultDataSource.updateBooks(visible);
-    this.visibleResultCount = visible.length;
+    this.visibleResultCount = this.resultDataSource.totalCount();
   }
 
   private selectSearchTab(index: number): void {
     if (index < 0 || index > 3 || this.searchTab === index) return;
+    this.stopResultScroll();
     this.searchTab = index;
     this.refreshVisibleBooks();
+    this.pumpCoverHydration();
   }
 
   private searchResultToBook(result: SearchResult, contentType: 'audio' | 'text' | 'comic'): Book {
@@ -1206,9 +1322,11 @@ export struct SearchPage {
       }
     })
     .onDidScroll(() => this.syncSearchCollapse())
+    .onScrollStart(() => this.handleResultScrollStart())
+    .onScrollStop(() => this.handleResultScrollStop())
     .columnsGap(AppSpace.Sm)
     .rowsGap(AppSpace.Md)
-    .cachedCount(6)
+    .cachedCount(2)
     .layoutWeight(1)
     .width('100%')
     .scrollBar(BarState.Off)
@@ -1313,6 +1431,8 @@ export struct SearchPage {
       RESULT_TOOLBAR_HEIGHT + AppSpace.Sm)
     .contentEndOffset(WindowUtils.getFloatingTabBottomVp() + AppSpace.Lg)
     .onDidScroll(() => this.syncSearchCollapse())
+    .onScrollStart(() => this.handleResultScrollStart())
+    .onScrollStop(() => this.handleResultScrollStop())
     .padding({
       left: AppSpace.Md,
       right: AppSpace.Md
@@ -1383,6 +1503,9 @@ export struct SearchPage {
         .id('search-layout-button')
         .onClick(() => {
           this.searchController.stopEditing();
+          this.stopResultScroll();
+          if (this.resultsDirty) this.refreshVisibleBooks();
+          this.pumpCoverHydration();
           this.getUIContext().animateTo({ duration: AppMotion.Base, curve: AppCurve.Standard }, () => {
             this.viewMode = this.viewMode === 0 ? 1 : 0;
             try {
@@ -1554,7 +1677,7 @@ export struct SearchPage {
   }
 
   build() {
-    HdsNavDestination() {
+    NavDestination() {
       Stack({ alignContent: Alignment.TopStart }) {
         Column()
           .width('100%')
@@ -1565,7 +1688,9 @@ export struct SearchPage {
           .bindMenu(this.searchOptionsVisible, this.buildSearchMenu, this.searchOptionsMenuOptions())
 
         Column() {
-          this.buildSearchBody()
+          if (this.entryReady || this.hasSearched) {
+            this.buildSearchBody()
+          }
         }
         .width('100%')
         .height('100%')
@@ -1588,10 +1713,7 @@ export struct SearchPage {
     }
     .hideTitleBar(true)
     .hideBackButton(true)
-    .systemBarStyle(
-      { statusBarContentColor: this.statusBarContentColor },
-      { statusBarContentColor: this.statusBarContentColor }
-    )
+    .systemBarStyle({ statusBarContentColor: this.statusBarContentColor })
     .ignoreLayoutSafeArea([LayoutSafeAreaType.SYSTEM], [LayoutSafeAreaEdge.TOP, LayoutSafeAreaEdge.BOTTOM])
     .backgroundColor(HomeTheme.BgNeutral)
     .bindMenu(this.resultGroupVisible, this.buildResultGroup, this.resultGroupMenuOptions())
@@ -1613,7 +1735,8 @@ export struct SearchPage {
       this.stopPendingSearchUpdates();
       this.searchController.stopEditing();
     })
-    // 保持沉浸材质实时采样，双向转场均交给 HDS；customTransition 会覆盖 systemTransition。
+    // 顶栏已由内容树绘制，使用原生目的页即可，避免创建隐藏的 HDS 标题与材质结构。
+    // 保留实时材质和双向系统滑入，不在转场中建立整页纹理。
     .renderGroup(false)
     .systemTransition(NavigationSystemTransitionType.SLIDE_RIGHT)
   }

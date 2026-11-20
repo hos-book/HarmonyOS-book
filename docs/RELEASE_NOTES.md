@@ -1,4 +1,27 @@
-# 1.1.15 更新日志（2026-11-19）
+# 1.1.16 更新日志（2026-11-20）
+
+1. 优化首页、书架、阅听记录及个人中心的页面切换，改善连续操作和返回页面时的内容衔接。
+2. 优化全网榜单加载与刷新，优先展示当前浏览内容，保留返回时的轮播位置，减少重复加载。
+3. 新增榜单滑动音效与触感，横向切换书籍时提供轻响和轻微振动，可在设置中统一开启或关闭。
+4. 优化多书源搜索与结果列表更新，改善搜索期间的滑动、类型筛选和网格、列表切换体验。
+5. 优化书源封面加载与缓存复用，减少重复读取，改善大量书籍封面同时展示时的响应。
+
+## 发布配置
+
+- 版本代码：1026001；本次发布渠道为邀请测试，沿用现有会员功能配置。
+- 覆盖全部现有测试组，开启测试通知，关闭上架自检及自检报告通知，选择即刻生效。
+
+## 构建与发布记录
+
+- Release SDK 26.0.0.105 与发布签名 APP 构建通过；验包确认 1.1.16 / 1026001、release 模式、debug=false、最低 API 20、目标 API 26，资源及混淆契约校验通过。
+- 独立 ArkTS 检查受 LSP 未初始化影响；构建 MCP 遇到既有 OHPM 批处理递归错误，使用同一 Release IDE 的 Node/Hvigor CLI 完成编译与签名。
+- 发布包、混淆映射、验包结果和邀测回执归档于 `artifacts/releases/1.1.16-1026001/`。
+- 已有实机验证记录见 `docs/APP_UI.md` 与 `docs/LIGHT_SOURCE_SYNC.md`；本次发版完成 Release 构建及验包。榜单音效强弱、振感与开关实景仍待测试组确认。
+- 发布参考本轮读取的 [AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)与 [Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)。
+
+---
+
+## 1.1.15 更新日志（2026-11-19）
 
 1. 优化 EPUB 与基础排版的仿真翻页，改善连续点击、反向滑动和跨章节切换时的画面衔接。
 2. 修复部分 EPUB 横屏双栏正文裁切、多行标题重叠的问题，完善窗口变化后的重新排版与阅读位置恢复。

@@ -144,6 +144,12 @@ class Lambda {
 
 const OPERATORS = ['>>>', '=>', '??', '&&', '||', '==', '!=', '<=', '>=', '<<', '>>', '+', '-', '*', '/', '%', '!',
   '<', '>', '?', ':', ',', '.', '(', ')', '[', ']', '{', '}', '&', '|', '^', '~', '=', ';'];
+const OPERATORS_BY_FIRST: Map<string, string[]> = new Map();
+for (const op of OPERATORS) {
+  const choices = OPERATORS_BY_FIRST.get(op[0]) || [];
+  choices.push(op);
+  OPERATORS_BY_FIRST.set(op[0], choices);
+}
 const KEYWORDS = ['fn', 'let', 'if', 'else', 'for', 'in', 'while', 'return', 'break', 'continue'];
 const MAX_STEPS = 3000000;
 const MAX_CALL_DEPTH = 64;
@@ -281,7 +287,7 @@ function tokenize(source: string): Token[] {
       continue;
     }
     let matched = '';
-    for (const op of OPERATORS) {
+    for (const op of OPERATORS_BY_FIRST.get(ch) || []) {
       if (source.startsWith(op, i)) {
         matched = op;
         break;
@@ -794,13 +800,40 @@ export class NativeExpr {
     return names;
   }
 
+  private static libraryCache: Map<string, { functions: FunctionDecl[], tokens: number }> = new Map();
+  private static libraryChars: number = 0;
+  private static libraryTokens: number = 0;
+
   private static parseLibrary(source: string): FunctionDecl[] {
-    const functions = new Parser(tokenize(source || '')).parseLibrary();
+    const cached = NativeExpr.libraryCache.get(source);
+    if (cached !== undefined) {
+      NativeExpr.libraryCache.delete(source);
+      NativeExpr.libraryCache.set(source, cached);
+      return cached.functions;
+    }
+    const tokens = tokenize(source || '');
+    const functions = new Parser(tokens).parseLibrary();
     const seen: Set<string> = new Set();
     for (const fn of functions) {
       if (BUILTIN_NAMES.indexOf(fn.name) >= 0) throw new NativeExprError(`函数名 “${fn.name}” 与内置函数重名`);
       if (seen.has(fn.name)) throw new NativeExprError(`函数 “${fn.name}” 重复定义`);
       seen.add(fn.name);
+    }
+    // Validation and execution reuse immutable syntax. Each NativeExpr still owns its
+    // function map, host, scope, script dependencies, step counter and call depth.
+    if (source.length <= 2 * 1024 * 1024 && tokens.length <= 100000) {
+      while (NativeExpr.libraryCache.size >= 64 ||
+        NativeExpr.libraryChars + source.length > 2 * 1024 * 1024 ||
+        NativeExpr.libraryTokens + tokens.length > 100000) {
+        const oldest = NativeExpr.libraryCache.keys().next().value;
+        if (oldest === undefined) break;
+        NativeExpr.libraryChars -= oldest.length;
+        NativeExpr.libraryTokens -= NativeExpr.libraryCache.get(oldest)!.tokens;
+        NativeExpr.libraryCache.delete(oldest);
+      }
+      NativeExpr.libraryCache.set(source, { functions, tokens: tokens.length });
+      NativeExpr.libraryChars += source.length;
+      NativeExpr.libraryTokens += tokens.length;
     }
     return functions;
   }
@@ -820,7 +853,7 @@ export class NativeExpr {
     return this;
   }
 
-  /** Inspect the parsed expression without evaluating it. Only JS calls need an isolated script host. */
+  /** Inspect dependencies without evaluating. JS calls and library loops need the bounded host. */
   requiresScript(source: string, template: boolean = false): boolean {
     const key = (template ? 't:' : 'e:') + source;
     const cached = this.scriptDependencies.get(key);
@@ -834,6 +867,8 @@ export class NativeExpr {
       // Large/ambiguous dependency graphs stay in the bounded script host.
       if (++visited > 10000) { required = true; break; }
       const node = nodes.pop() as Node;
+      // Pure library functions can still spend hundreds of milliseconds in a loop.
+      if (node.t === 'for' || node.t === 'while') { required = true; break; }
       if (node.t === 'call') {
         const name = node.name as string;
         const fn = this.library.get(name);

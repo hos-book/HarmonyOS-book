@@ -27,11 +27,7 @@ export class BookDataSource implements IDataSource {
   updateBooks(books: Book[]): void {
     // LazyForEach 对未观测对象仅在键变化时重建；隐藏项的版本保留到 clear，支持筛选切回。
     for (const book of books) {
-      const previous = this.versionedBooks.get(book.id);
-      if (previous !== undefined && previous !== book) {
-        this.contentVersions.set(book.id, (this.contentVersions.get(book.id) ?? 0) + 1);
-      }
-      this.versionedBooks.set(book.id, book);
+      this.trackBook(book);
     }
     const previousIndexes = new Map<string, number>();
     for (let index = 0; index < this.books.length; index++) previousIndexes.set(this.books[index].id, index);
@@ -60,6 +56,32 @@ export class BookDataSource implements IDataSource {
     this.books = books;
     for (const index of added) this.listeners.forEach((listener) => listener.onDataAdd(index));
     for (const index of changed) this.listeners.forEach((listener) => listener.onDataChange(index));
+  }
+
+  /** 已知新增位置时直接插入，避免流式搜索每批扫描、复制全部历史结果。 */
+  insertBooks(index: number, books: Book[]): void {
+    if (books.length === 0) return;
+    for (const book of books) this.trackBook(book);
+    this.books.splice(index, 0, ...books);
+    for (let offset = 0; offset < books.length; offset++) {
+      this.listeners.forEach((listener) => listener.onDataAdd(index + offset));
+    }
+  }
+
+  /** 封面补全只替换对应条目，版本规则与全量同步一致。 */
+  replaceBook(index: number, book: Book): void {
+    if (this.books[index] === undefined || this.books[index] === book) return;
+    this.trackBook(book);
+    this.books[index] = book;
+    this.listeners.forEach((listener) => listener.onDataChange(index));
+  }
+
+  private trackBook(book: Book): void {
+    const previous = this.versionedBooks.get(book.id);
+    if (previous !== undefined && previous !== book) {
+      this.contentVersions.set(book.id, (this.contentVersions.get(book.id) ?? 0) + 1);
+    }
+    this.versionedBooks.set(book.id, book);
   }
 
   /** 与 updateBooks 配套；业务身份稳定，仅该项内容替换时更新版本，不受列表索引影响。 */

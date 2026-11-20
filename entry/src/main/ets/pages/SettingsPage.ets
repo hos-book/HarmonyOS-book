@@ -563,6 +563,15 @@ export struct SettingsPage {
     } finally { this.savingGeneral = false; }
   }
 
+  private async setRankingScrollFeedback(enabled: boolean): Promise<void> {
+    if (!this.isLoaded || this.savingGeneral || enabled === this.generalSettings.rankingScrollFeedback) return;
+    this.savingGeneral = true;
+    try { await PreferenceService.setRankingScrollFeedback(enabled); }
+    catch (_error) {
+      if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
+    } finally { this.savingGeneral = false; }
+  }
+
   private async setVerticalBottomTabs(enabled: boolean): Promise<void> {
     if (!this.isLoaded || this.savingGeneral || !PlatformCompat.supports(24) ||
       enabled === this.appearance.verticalBottomTabs) return;
@@ -727,6 +736,14 @@ export struct SettingsPage {
           $r('app.string.settings_swipe_switch_tabs_desc'),
           UIUtils.makeBinding<boolean>(() => this.generalSettings.swipeSwitchTabs),
           (enabled: boolean): void => { this.setSwipeSwitchTabs(enabled); },
+          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral)
+        )
+        this.buildDivider()
+        this.buildSwitchItem(
+          $r('app.string.settings_ranking_scroll_feedback'),
+          $r('app.string.settings_ranking_scroll_feedback_desc'),
+          UIUtils.makeBinding<boolean>(() => this.generalSettings.rankingScrollFeedback),
+          (enabled: boolean): void => { this.setRankingScrollFeedback(enabled); },
           UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.savingGeneral)
         )
         this.buildDivider()

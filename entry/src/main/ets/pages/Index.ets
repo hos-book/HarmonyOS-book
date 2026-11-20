@@ -928,6 +928,7 @@ struct Index {
     Navigation(this.navStack) {
       MainPage({
         navStack: this.navStack,
+        contentActive: this.companionActive && (this.parallelNavigation || this.companionRoute.length === 0),
         allowPlayerDrag: this.navigationWidth < 720,
         onHomeShownHandlerChange: (handler: (() => void) | undefined): void => {
           this.homeShownHandler = handler;

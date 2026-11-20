@@ -2,6 +2,22 @@
 
 简听通过 `LocalRuleDispatcher → light/LightSourceBridge → LightSourceCore` 调用轻页的书源核心。页面仍由简听维护。轻页兼容源和轻页 `sourceFormat: native` 源走此链路；原简听规则核心、`jianting.source` 引擎及按域名分流的专用内容适配器已删除；历史定义保留为数据，停用格式不执行。
 
+## 搜索函数库缓存与后台执行（2026-11-20）
+
+同步入口接入两项宿主补丁：`host-native-library-cache-v1`（`scripts/light-native-library-cache.cjs`）缓存解析语法，`host-native-expression-isolation-v1`（`scripts/light-native-expression-isolation.cjs`）将含循环的原生表达式交给现有有界后台宿主。生成目标为 `NativeExpr.ts` 与 `NativeSourceRunner.ts`；内核固定提交仍为 `8a3a8291a5f81a602ba845692764cc059f1531ce`，应用辅助仍为 `5ee1cde39cfa124ef65b39b88a729f254d5afd9a`。通过同步脚本生成，不手改上游文件。
+
+冷进程首次搜索曾出现 7 次 518–565ms 主线程长任务，调用链包含函数库解析与表达式循环。进一步计时发现单次函数库分词、解析最大约 35ms；仅增加解析缓存后仍有 491–518ms 停顿，不能把整段停顿归因于解析。剩余热点是请求模板调用原生函数库中的循环，过去因规则没有 JS 而留在主线程。
+
+语法缓存按函数库完整原文区分，仅缓存通过语法及重名检查的语法树；最多 64 项、累计 2 Mi 字符和 100000 token，按最近使用顺序淘汰，超限函数库正常解析但不缓存。只读语法可共享，函数 Map、host、作用域、脚本依赖、步数和调用深度仍由实例独立持有。运算符按首字符筛选候选，保留原最长匹配顺序。
+
+`requiresScript()` 沿函数调用依赖识别 `for/while`，包含间接调用；遇到循环时，即使没有 JS 函数库也使用现有 `LightNativeScripts → LocalRuleQuickJsRuntime` 的 taskpool、有界 QuickJS 执行链。字段处理复用原有每批 16 项的后台批处理，避免每字段重复传递整页。普通短表达式仍直接求值；不提供后台宿主的既有调用方保留直接执行路径。独立 VM 内的 `NativeExprProgram.ts` 保持原生成流程。
+
+主机定向验证通过：解析缓存命中与淘汰、非法语法、运算符及实例变量隔离，直接/间接循环识别、无 JS 源循环结果、模板、批量字段 item/index 语义、原 JS 调用和短表达式分流。Release SDK 26.0.0.105 的增量 Debug HAP 构建通过，最低 API 20 / 目标 API 26，已覆盖安装 Mate 80。
+
+真机使用相同关键词“凡人修仙传”、51 个源、重启应用后的首次搜索与 12 次滑动采样：35 秒内未再出现此前约半秒的主线程长任务；QuerySql 完成续体最大 17.253ms，整个采样的主线程任务最大 82.030ms（后台任务完成回调），仍有进一步压缩余地。任务耗时不是屏幕帧率。搜索结束显示 2082 条结果（745 有声、1314 电子书、23 漫画）；类型切换、网格/列表切换、同名来源菜单、详情往返和“凡人仙族传”的 692 章目录、首章正文均已在真机验证。
+
+性能定位参考本任务已读取的 [ArkUI 性能分析](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-performance-analysis/SKILL.md)及其[高频重复工作指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-performance-analysis/references/component/frequent-work.md)，收益以设备采样为准。
+
 ## 公共包更新（2026-11-11）
 
 本轮固定版本如下；下方早期记录中的提交及文件数仅代表当时状态。

@@ -355,6 +355,19 @@ export class PreferenceService {
     }
   }
 
+  static async setRankingScrollFeedback(enabled: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    const previous = store.getSync('ranking_scroll_feedback', true);
+    try {
+      await store.put('ranking_scroll_feedback', enabled);
+      await store.flush();
+      GeneralSettings.current.rankingScrollFeedback = enabled;
+    } catch (error) {
+      await store.put('ranking_scroll_feedback', previous);
+      throw new Error(`Failed to save ranking feedback preference: ${String(error)}`);
+    }
+  }
+
   static async setJianjianCompanionEnabled(enabled: boolean): Promise<void> {
     const store = await PreferenceService.ensureStore();
     const previous: boolean = store.getSync(KEY_JIANJIAN_COMPANION_ENABLED, false) === true;
@@ -757,6 +770,7 @@ export class PreferenceService {
         }
         GeneralSettings.current.adaptiveHandedness = s.getSync('adaptive_handedness', true) !== false;
         GeneralSettings.current.swipeSwitchTabs = s.getSync('swipe_switch_tabs', true) !== false;
+        GeneralSettings.current.rankingScrollFeedback = s.getSync('ranking_scroll_feedback', true) !== false;
         const selectionMenu = s.getSync('reader_selection_menu', '');
         if (typeof selectionMenu === 'string') {
           const parts = selectionMenu.split('|');

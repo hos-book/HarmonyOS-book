@@ -6885,6 +6885,14 @@
       "value": "开启时横滑切换首页、书架、记录和我的；关闭时横滑切换首页栏目或书架类型"
     },
     {
+      "name": "settings_ranking_scroll_feedback",
+      "value": "榜单滑动音效与触感"
+    },
+    {
+      "name": "settings_ranking_scroll_feedback_desc",
+      "value": "横向滑动全网榜单书卡，切换书籍时播放轻响并轻微振动"
+    },
+    {
       "name": "settings_adaptive_handedness_desc",
       "value": "根据左右手握持自动调整底栏、阅读亮度条和朗读小播控的位置"
     },

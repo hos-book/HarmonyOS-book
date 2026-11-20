@@ -29,6 +29,23 @@ class LightPanelControlData {
   }
 }
 
+/** Immutable definition snapshot; each image still creates its own live runtime in LightSourceCore. */
+export class LightSourceCoverSession {
+  readonly size: number;
+  private localJson: string;
+  private sessionKey: string;
+
+  constructor(localJson: string, sessionKey: string) {
+    this.localJson = localJson;
+    this.sessionKey = sessionKey;
+    this.size = localJson.length + sessionKey.length;
+  }
+
+  load(raw: string): Promise<string> {
+    return LightSourceCore.cover(this.localJson, raw, this.sessionKey);
+  }
+}
+
 /** The imported source dispatcher is the only application entry to the upstream engine. */
 export class LightSourceBridge {
   static async cacheComicImages(source: LocalRuleSource, urls: string[], request?: LightSourceRequest): Promise<string[]> {
@@ -37,6 +54,10 @@ export class LightSourceBridge {
 
   static async cover(source: LocalRuleSource, raw: string, sessionKey: string): Promise<string> {
     return LightSourceCore.cover(LightSourceBridge.prepare(source), raw, sessionKey);
+  }
+
+  static prepareCoverSession(source: LocalRuleSource, sessionKey: string): LightSourceCoverSession {
+    return new LightSourceCoverSession(LightSourceBridge.prepare(source), sessionKey);
   }
   static async voices(source: LocalRuleSource): Promise<LocalRuleVoice[]> {
     return JSON.parse(await LightSourceCore.voices(LightSourceBridge.prepare(source)));

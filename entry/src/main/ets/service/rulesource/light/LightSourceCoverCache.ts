@@ -5,6 +5,10 @@ import { cryptoFramework } from '@kit.CryptoArchitectureKit';
 /** Host-owned cache. Imported source rules never receive file access. */
 export class LightSourceCoverCache {
   private static commitTail: Promise<void> = Promise.resolve();
+  private static indexedDir: string = '';
+  // In insertion order from oldest to newest; only the serialized commit path writes this index.
+  private static entries: Map<string, number> = new Map();
+  private static cachedBytes: number = 0;
 
   static async materialize(identity: string, load: () => Promise<Uint8Array>): Promise<string> {
     const root = AppStorage.get<string>('appCacheDir');
@@ -12,6 +16,7 @@ export class LightSourceCoverCache {
     const dir = `${root}/source_covers`;
     if (!await fs.access(dir)) {
       try { await fs.mkdir(dir, true); } catch (error) { if (!await fs.access(dir)) throw error; }
+      LightSourceCoverCache.indexedDir = '';
     }
     const digest = cryptoFramework.createMd('SHA256');
     await digest.update({ data: new util.TextEncoder().encodeInto('source-cover-v2\n' + identity) });
@@ -29,17 +34,21 @@ export class LightSourceCoverCache {
   private static async commit(dir: string, path: string, bytes: Uint8Array): Promise<void> {
     // Serialize eviction and publication, not network I/O. Four simultaneous covers still fit the disk budget.
     if (await fs.access(path) && (await fs.stat(path)).size > 0) return;
-    // Bound disk usage; oldest files are disposable and can be recreated from the original URL.
-    const entries = (await Promise.all((await fs.listFile(dir)).map(async name => {
-      const stat = await fs.stat(`${dir}/${name}`);
-      return { name, size: stat.size, time: stat.mtime };
-    }))).sort((a, b) => a.time - b.time);
-    let size = entries.reduce((total, item) => total + item.size, 0);
-    for (const item of entries) {
-      if (size + bytes.length <= 64 * 1024 * 1024) break;
-      try { await fs.unlink(`${dir}/${item.name}`); size -= item.size; } catch (_) { }
+    await LightSourceCoverCache.loadIndex(dir);
+    const name = path.substring(dir.length + 1);
+    // A failed image or external cache cleanup may have removed this file since it was indexed.
+    LightSourceCoverCache.forget(name);
+    for (const entry of LightSourceCoverCache.entries) {
+      if (LightSourceCoverCache.cachedBytes + bytes.length <= 64 * 1024 * 1024) break;
+      const entryPath = `${dir}/${entry[0]}`;
+      try {
+        await fs.unlink(entryPath);
+        LightSourceCoverCache.forget(entry[0]);
+      } catch (error) {
+        if (!await fs.access(entryPath)) LightSourceCoverCache.forget(entry[0]);
+      }
     }
-    if (size + bytes.length > 64 * 1024 * 1024) throw new Error('Cover cache full');
+    if (LightSourceCoverCache.cachedBytes + bytes.length > 64 * 1024 * 1024) throw new Error('Cover cache full');
     const temporary = `${path}.tmp`;
     const file = await fs.open(temporary, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
     let closed = false;
@@ -54,10 +63,43 @@ export class LightSourceCoverCache {
       await fs.close(file);
       closed = true;
       await fs.rename(temporary, path);
+      LightSourceCoverCache.forget(`${name}.tmp`);
+      LightSourceCoverCache.entries.set(name, bytes.length);
+      LightSourceCoverCache.cachedBytes += bytes.length;
     } catch (error) {
       if (!closed) { try { await fs.close(file); } catch (_) { } }
       try { await fs.unlink(temporary); } catch (_) { }
+      LightSourceCoverCache.indexedDir = '';
       throw error;
     }
+  }
+
+  private static forget(name: string): void {
+    LightSourceCoverCache.cachedBytes -= LightSourceCoverCache.entries.get(name) ?? 0;
+    LightSourceCoverCache.entries.delete(name);
+  }
+
+  private static async loadIndex(dir: string): Promise<void> {
+    if (LightSourceCoverCache.indexedDir === dir) return;
+    const names = await fs.listFile(dir);
+    const entries: { name: string; size: number; time: number }[] = [];
+    // Scan once after startup/cleanup, with bounded I/O instead of thousands of simultaneous callbacks.
+    for (let start = 0; start < names.length; start += 16) {
+      await Promise.all(names.slice(start, start + 16).map(async name => {
+        const path = `${dir}/${name}`;
+        try {
+          const stat = await fs.stat(path);
+          entries.push({ name, size: stat.size, time: stat.mtime });
+        } catch (error) { if (await fs.access(path)) throw error; }
+      }));
+    }
+    entries.sort((a, b) => a.time - b.time);
+    LightSourceCoverCache.entries.clear();
+    LightSourceCoverCache.cachedBytes = 0;
+    for (const entry of entries) {
+      LightSourceCoverCache.entries.set(entry.name, entry.size);
+      LightSourceCoverCache.cachedBytes += entry.size;
+    }
+    LightSourceCoverCache.indexedDir = dir;
   }
 }

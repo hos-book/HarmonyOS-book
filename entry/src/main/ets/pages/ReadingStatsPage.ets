@@ -369,6 +369,7 @@ export struct ReadingStatsPage {
         Promise.resolve().then(() => PreferenceService.getFavorites()).then((items: string[]): void => { favoriteIds = new Set(items); }),
         Promise.resolve().then(() => TextReadingProgressService.getAll(ctx, true)).then((items: TextReadingPosition[]): void => { reading = items; })
       ]);
+      if (!this.recoveryActive || !this.pageVisible) return;
       if (this.listScrolling) { this.reloadPending = true; return; }
       const allRecords = await this.buildRecordViews(ctx,
         usageRecords.filter((record: BookUsageStats): boolean => !record.archived), history, reading);

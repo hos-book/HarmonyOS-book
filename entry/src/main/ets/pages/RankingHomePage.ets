@@ -18,6 +18,7 @@ import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSou
 import { RankingBoardOrderComponent } from '../components/RankingBoardOrderComponent';
 import { SearchCache } from '../utils/SearchCache';
 import { RankingService } from '../service/ranking/RankingService';
+import { RankingFeedbackService } from '../service/ranking/RankingFeedbackService';
 import { RankingComicMetadata } from '../service/ranking/RankingComicMetadata';
 import { RankingCoverResolver } from '../service/ranking/RankingCoverResolver';
 import { RankingPreferences, RankingCategorySetting } from '../service/ranking/RankingPreferences';
@@ -893,6 +894,7 @@ struct RankingBoardPodium {
     (_book: RankingBook, _index: number): void => {};
   /** 横拖开始时通知页面锁住列表纵向滚动，松手后恢复。 */
   @Event onFanDragChange: (dragging: boolean) => void = () => {};
+  @Event onFeedback: () => void = () => {};
   @Local podiumWidth: number = Math.max(280, WindowUtils.getWindowWidthVp() -
     WindowUtils.getLeftSafeVp() - WindowUtils.getRightSafeVp());
   /** 连续位置：0 表示第 1 本居中，1 表示第 2 本居中，可一次跨多张。 */
@@ -915,6 +917,7 @@ struct RankingBoardPodium {
   private dragging: boolean = false;
   private vertical: boolean = false;
   private snapToken: number = 0;
+  private feedbackGesture: boolean = false;
   private snapActive: boolean = false;
   private snapStartAt: number = -1;
   private snapFrom: number = 0;
@@ -1019,6 +1022,7 @@ struct RankingBoardPodium {
 
   /** 把指定名次转到五卡中心，复用现有逐帧切换动画。 */
   private snapToBook(index: number): void {
+    this.feedbackGesture = false;
     const count: number = this.books.length;
     if (count === 0) return;
     const current: number = Math.round(this.fanPosition);
@@ -1503,6 +1507,7 @@ struct RankingBoardPodium {
     this.infoFocus = normalized;
     const book: RankingBook | undefined = this.books[normalized];
     if (book !== undefined) this.onFocusInfo(book, normalized);
+    if (this.feedbackGesture) this.onFeedback();
   }
 
   private coverId(book: RankingBook): string {
@@ -1561,6 +1566,7 @@ struct RankingBoardPodium {
         }
         if (absX <= 8 || absX < absY) return;
         this.dragging = true;
+        this.feedbackGesture = true;
         this.onFanDragChange(true);
         this.snapActive = false;
         // 从当前视觉位置接管；+dx/step 让起手那几像素不丢、也不会跳一下。
@@ -1578,6 +1584,7 @@ struct RankingBoardPodium {
       return;
     }
     if (event.type !== TouchType.Up && event.type !== TouchType.Cancel) return;
+    if (event.type === TouchType.Cancel) this.feedbackGesture = false;
     if (this.dragging) {
       this.settleFan(this.releaseVelocity());
       this.onFanDragChange(false);
@@ -1604,6 +1611,7 @@ struct RankingBoardPodium {
 
   /** 回到 TOP1：取离当前位置最近的、焦点为 0 的整数位，走同一套五卡交接动画。 */
   private returnToTopFan(): void {
+    this.feedbackGesture = false;
     const count: number = this.books.length;
     if (count === 0) return;
     const center: number = Math.round(this.fanPosition);
@@ -1624,6 +1632,7 @@ struct RankingBoardPodium {
       this.snapActive = false;
       this.fanMovingSign = 0;
       this.setInfoFocus(target, true);
+      this.feedbackGesture = false;
       return;
     }
     this.snapDuration = Math.min(760,
@@ -1650,6 +1659,7 @@ struct RankingBoardPodium {
         this.snapActive = false;
         this.fanMovingSign = 0;
         this.setInfoFocus(this.snapTarget, true);
+        this.feedbackGesture = false;
         return;
       }
       const progress: number = this.decelerateProgress(elapsed / this.snapDuration);
@@ -1730,6 +1740,7 @@ struct RankingSection {
     } catch (_error) { /* 未完成布局时等待下一次点击，不生成虚假的屏幕中心卡位。 */ }
   }
   @Event onMore: (board: RankingBoard) => void = () => {};
+  @Event onFeedback: () => void = () => {};
   /** 货架当前居中卡：打开查看榜单时用它做收拢锚点。 */
   @Event onCenterChange: (boardId: string, book: RankingBook, index: number) => void =
     (_boardId: string, _book: RankingBook, _index: number): void => {};
@@ -1749,6 +1760,7 @@ struct RankingSection {
   private headerToken: number = 0;
   private lastFocusAt: number = 0;
   private sectionAlive: boolean = true;
+  private audioScrolling: boolean = false;
   private audioData: HomeRecommendationDataSource<RankingBook> = new HomeRecommendationDataSource<RankingBook>();
 
   aboutToAppear(): void {
@@ -1992,6 +2004,7 @@ struct RankingSection {
             onGatherSnapshot: this.onGatherSnapshot,
             scrollTopToken: this.scrollTopToken,
             onChoose: this.onOpenCard,
+            onFeedback: this.onFeedback,
             onFocusChange: (book: RankingBook, index: number): void => {
               this.updateFocus(book, index);
             } })
@@ -2030,9 +2043,14 @@ struct RankingSection {
           }, (book: RankingBook): string => book.id)
         }.listDirection(Axis.Horizontal).height(228).width('100%').scrollBar(BarState.Off)
         .id('rankingShelfHost-' + this.board.id)
+        .onScrollStart((): void => { this.audioScrolling = true; })
+        .onScrollStop((): void => { this.audioScrolling = false; })
         .onScrollIndex((start: number): void => {
           const book: RankingBook | undefined = this.board.books[start];
-          if (book !== undefined) this.updateFocus(book, start);
+          if (book !== undefined) {
+            if (this.audioScrolling && this.focusBook !== undefined && this.focusBook.id !== book.id) this.onFeedback();
+            this.updateFocus(book, start);
+          }
         })
         .contentStartOffset(24).contentEndOffset(24).cachedCount(1)
         .opacity(this.shelfOpacity)
@@ -2070,6 +2088,9 @@ class RankingMatchRestoreFrame extends FrameCallback {
 @ComponentV2
 export struct RankingHomePage {
   @Param visible: boolean = true;
+  @Param active: boolean = true;
+  @Local feedbackSettings: GeneralSettings = GeneralSettings.current;
+  private feedback: RankingFeedbackService = new RankingFeedbackService();
   @Param customBackground: boolean = false;
   /** 底部占用高度（系统避让区 + 底栏），由 MainPage 逐层透传，供详情卡片避让。 */
   @Param bottomTabInset: number = 0;
@@ -2252,10 +2273,12 @@ export struct RankingHomePage {
   private readonly rankingSettingsListener = (): void => { this.reloadCategories(); };
 
   private async reloadCategories(): Promise<void> {
+    const generation: number = ++this.generation;
+    this.clearBoardUpdates();
     try {
       const settings = await RankingPreferences.load();
       const boardOrder = await RankingPreferences.loadBoardOrder();
-      if (!this.alive) return;
+      if (!this.alive || generation !== this.generation) return;
       const enabled = settings.filter((item: RankingCategorySetting): boolean => item.enabled);
       this.platforms = [RankingService.platforms()[0]].concat(enabled.map((item: RankingCategorySetting): RankingPlatform =>
         new RankingPlatform(item.id, item.name)));
@@ -2270,11 +2293,17 @@ export struct RankingHomePage {
         }
       }
       this.boards = RankingPreferences.orderBoards(next, boardOrder);
+      this.requestedBoardIds.clear();
+      this.visibleBoardIds.clear();
+      for (const id of this.completedBoardIds) {
+        const board = this.boards.find((entry: RankingBoard): boolean => entry.id === id);
+        if (board === undefined || (board.books.length === 0 && !board.unavailable)) this.completedBoardIds.delete(id);
+      }
       this.syncBoards();
       this.load(false);
     } catch (_error) {
       // 偏好读取失败时保留默认或当前配置，不覆写保存值。
-      if (this.alive) this.load(false);
+      if (this.alive && generation === this.generation) this.load(false);
     }
   }
   private boardData: HomeRecommendationDataSource<RankingBoard> = new HomeRecommendationDataSource<RankingBoard>();
@@ -2301,6 +2330,15 @@ export struct RankingHomePage {
   private readonly searchHeaderBuilder: CustomBuilder = (): void => this.searchHeader();
   private generation: number = 0;
   private alive: boolean = false;
+  private requestedBoardIds: Set<string> = new Set();
+  private completedBoardIds: Set<string> = new Set();
+  private forcedBoardIds: Set<string> = new Set();
+  private visibleBoardIds: Set<string> = new Set();
+  private runningBoardIds: Set<string> = new Set();
+  private boardLoadTimer: number = -1;
+  private boardUpdateTimer: number = -1;
+  private pendingBoardUpdates: Map<string, RankingBoard> = new Map();
+  private posterHydrating: Set<RankingBook> = new Set();
   // 内外层导航及独立榜单使用同一主题字色，避免滚动时互相覆盖。
   @Local statusBarContentColor: string = WindowUtils.isDarkMode() ? '#FFFFFFFF' : '#FF000000';
   private readonly statusBarColorListener = (): void => {
@@ -2314,6 +2352,7 @@ export struct RankingHomePage {
 
   aboutToAppear(): void {
     this.alive = true;
+    this.updateFeedbackActivity();
     this.statusBarColorListener();
     WindowUtils.addReaderColorListener(this.statusBarColorListener);
     this.platformData.setItems(this.platforms);
@@ -2338,7 +2377,12 @@ export struct RankingHomePage {
     RankingPreferences.unsubscribe(this.rankingSettingsListener);
     WindowUtils.removeReaderColorListener(this.statusBarColorListener);
     this.alive = false;
+    this.feedback.setActive(false);
     this.generation++;
+    this.clearBoardUpdates();
+    if (this.boardLoadTimer !== -1) clearTimeout(this.boardLoadTimer);
+    this.boardLoadTimer = -1;
+    this.requestedBoardIds.clear();
     this.boardFlowToken++;
     this.closeCard();
     WindowUtils.removeSafeAreaListener(this.safeAreaListener);
@@ -2348,8 +2392,35 @@ export struct RankingHomePage {
   @Monitor('visible')
   updateHomeVisibility(): void {
     if (this.visible) {
-      this.posterPlatformId = this.randomPosterPlatform(this.posterPlatformId);
-      this.syncBoards();
+      // 热切页复用当前平台、封面节点和轮播位置；换内容留给主动刷新或平台选择。
+      this.load(false);
+    }
+  }
+
+  @Monitor('active', 'feedbackSettings.rankingScrollFeedback', 'boardTransitioning', 'boardFlowActive', 'cardVisible')
+  private updateFeedbackActivity(): void {
+    this.feedback.setActive(this.alive && this.active && this.feedbackSettings.rankingScrollFeedback &&
+      !this.boardTransitioning && !this.boardFlowActive && !this.cardVisible);
+  }
+
+  private playRankingFeedback(): void {
+    const context = this.getUIContext().getHostContext();
+    if (context !== undefined) this.feedback.play(context);
+  }
+
+  @Monitor('active', 'boardTransitioning', 'boardFlowActive')
+  private updateLoadActivity(): void {
+    if (!this.alive) return;
+    if (this.active && !this.boardTransitioning && !this.boardFlowActive) {
+      this.scheduleBoardUpdates();
+      this.hydratePosters();
+      this.scheduleBoardLoads();
+    } else {
+      if (this.boardUpdateTimer !== -1) clearTimeout(this.boardUpdateTimer);
+      this.boardUpdateTimer = -1;
+      if (this.boardLoadTimer !== -1) clearTimeout(this.boardLoadTimer);
+      this.boardLoadTimer = -1;
+      if (!this.active) this.refreshing = false;
     }
   }
 
@@ -2358,16 +2429,21 @@ export struct RankingHomePage {
       platform.id.length > 0 && this.boards.some((board: RankingBoard): boolean =>
         board.platformId === platform.id && board.books.length > 0));
     // 按平台等概率抽取；存在其他可用平台时，避免连续两次抽中同一个。
-    const alternatives = available.filter((platform: RankingPlatform): boolean => platform.id !== previousId);
-    const candidates = alternatives.length > 0 ? alternatives : available;
+    const pool = available.length > 0 ? available :
+      this.platforms.filter((platform: RankingPlatform): boolean => platform.id.length > 0);
+    const alternatives = pool.filter((platform: RankingPlatform): boolean => platform.id !== previousId);
+    const candidates = alternatives.length > 0 ? alternatives : pool;
     return candidates.length > 0 ? candidates[Math.floor(Math.random() * candidates.length)].id : '';
   }
 
   private syncBoards(): void {
     const visible = this.boards.filter((board: RankingBoard): boolean => !this.platformId || board.platformId === this.platformId);
-    this.boardData.setItems(visible);
-    if (!this.boards.some((board: RankingBoard): boolean =>
-      board.platformId === this.posterPlatformId && board.books.length > 0)) {
+    const sameOrder: boolean = visible.length === this.boardData.totalCount() &&
+      visible.every((board: RankingBoard, index: number): boolean => board.id === this.boardData.getData(index).id);
+    if (sameOrder) this.boardData.updateItems(visible);
+    else this.boardData.setItems(visible);
+    if (!this.platforms.some((platform: RankingPlatform): boolean =>
+      platform.id.length > 0 && platform.id === this.posterPlatformId)) {
       this.posterPlatformId = this.randomPosterPlatform(this.posterPlatformId);
     }
     const posterPlatformId = this.posterPlatformId;
@@ -2382,25 +2458,18 @@ export struct RankingHomePage {
         if (book === undefined || seen.has(book.id) || posters.length >= 6) continue;
         seen.add(book.id);
         posters.push(new RankingPosterItem(book));
-        const context = this.getUIContext().getHostContext();
-        if (context !== undefined) {
-          RankingComicMetadata.hydrate(context, book).then((): void => {
-            // 封面是异步补的：换一个新数组让 posterDeckItems 重算，轮播才会从占位图换成真封面。
-            if (this.posterItems.some((item: RankingPosterItem): boolean => item.book.id === book.id)) {
-              this.posterItems = this.posterItems.slice();
-            }
-            if (this.posterItems[0]?.book.id === book.id && !this.posterCover) this.posterCover = book.coverUrl;
-          });
-        }
       }
     }
     const posterIdentity = posters.map((item: RankingPosterItem): string => item.book.id).join('|');
-    if (this.posterIdentity !== posterIdentity) {
+    if (this.posterIdentity !== posterIdentity || posters.some(
+      (item: RankingPosterItem, index: number): boolean => item.book !== this.posterItems[index]?.book)) {
+      const identityChanged: boolean = this.posterIdentity !== posterIdentity;
       this.posterIdentity = posterIdentity;
       this.posterItems = posters;
       this.posterCount = posters.length;
-      this.posterCover = posters[0]?.book.coverUrl ?? '';
+      if (identityChanged) this.posterCover = posters[0]?.book.coverUrl ?? '';
     }
+    this.hydratePosters();
     if (this.activeBoard !== undefined) {
       const id = this.activeBoard.id;
       const updated = this.boards.find((board: RankingBoard): boolean => board.id === id);
@@ -2411,25 +2480,148 @@ export struct RankingHomePage {
     }
   }
 
-  private async load(force: boolean): Promise<void> {
+  private hydratePosters(): void {
+    if (!this.alive || !this.active || this.boardTransitioning || this.boardFlowActive) return;
     const context = this.getUIContext().getHostContext();
-    if (!context) { this.loading = false; this.refreshing = false; return; }
-    const generation = ++this.generation;
-    this.loading = true;
-    try {
-      // 当前平台优先加载；精品推荐沿用用户保存的单榜顺序。
-      const snapshot = this.boards.filter((board: RankingBoard): boolean =>
-        !this.platformId || board.platformId === this.platformId).concat(
-        this.boards.filter((board: RankingBoard): boolean =>
-          this.platformId.length > 0 && board.platformId !== this.platformId));
-      await RankingService.loadProgressively(context, snapshot, force,
-        (loaded: RankingBoard): void => {
-          this.boards = this.boards.map((entry: RankingBoard): RankingBoard => entry.id === loaded.id ? loaded : entry);
-          this.syncBoards();
-        }, (): boolean => generation === this.generation);
-    } finally {
-      if (generation === this.generation) { this.loading = false; this.refreshing = false; }
+    if (context === undefined) return;
+    for (const item of this.posterItems) {
+      const book = item.book;
+      if (book.platformId !== 'qqcomic' || book.coverUrl.length > 0 || this.posterHydrating.has(book)) continue;
+      this.posterHydrating.add(book);
+      // RankingBook 的封面/作者/评分是 @Trace；元数据变化自动更新轮播，不再复制整副牌。
+      RankingComicMetadata.hydrate(context, book).catch((): void => {}).finally((): void => {
+        this.posterHydrating.delete(book);
+      });
     }
+  }
+
+  private load(force: boolean): void {
+    if (!this.alive) return;
+    if (force) {
+      if (this.activeBoard === undefined) {
+        this.posterPlatformId = this.platformId || this.randomPosterPlatform(this.posterPlatformId);
+        this.syncBoards();
+      }
+      this.generation++;
+      this.clearBoardUpdates();
+      this.requestedBoardIds.clear();
+      for (const board of this.boards) {
+        if (this.activeBoard !== undefined ? board.id === this.activeBoard.id :
+          !this.platformId || board.platformId === this.platformId) {
+          this.completedBoardIds.delete(board.id);
+          this.forcedBoardIds.add(board.id);
+        }
+      }
+    }
+    if (this.activeBoard !== undefined) {
+      this.requestBoard(this.activeBoard.id);
+    } else {
+      // 首屏、可见区域和轮播所选平台优先；其他榜单在接近视口时再读缓存/联网。
+      for (let index: number = 0; index < Math.min(3, this.boardData.totalCount()); index++) {
+        this.requestBoard(this.boardData.getData(index).id);
+      }
+      for (const id of this.visibleBoardIds) this.requestBoard(id);
+      for (const board of this.boards) {
+        if (board.platformId === this.posterPlatformId) this.requestBoard(board.id);
+      }
+    }
+    this.updateBoardLoadingState();
+  }
+
+  private requestBoard(id: string): void {
+    if (!this.alive || (this.completedBoardIds.has(id) && !this.forcedBoardIds.has(id))) return;
+    this.requestedBoardIds.add(id);
+    this.scheduleBoardLoads();
+  }
+
+  private onBoardVisibility(board: RankingBoard, visible: boolean): void {
+    if (!visible) { this.visibleBoardIds.delete(board.id); return; }
+    this.visibleBoardIds.add(board.id);
+    this.requestBoard(board.id);
+    for (let index: number = 0; index < this.boardData.totalCount() - 1; index++) {
+      if (this.boardData.getData(index).id === board.id) {
+        this.requestBoard(this.boardData.getData(index + 1).id);
+        break;
+      }
+    }
+  }
+
+  private scheduleBoardLoads(): void {
+    if (!this.alive || !this.active || this.boardTransitioning || this.boardFlowActive || this.boardLoadTimer !== -1) return;
+    this.boardLoadTimer = setTimeout((): void => {
+      this.boardLoadTimer = -1;
+      this.pumpBoardLoads();
+    }, 0);
+  }
+
+  private pumpBoardLoads(): void {
+    if (!this.alive || !this.active || this.boardTransitioning || this.boardFlowActive) return;
+    const context = this.getUIContext().getHostContext();
+    if (context === undefined) { this.loading = false; this.refreshing = false; return; }
+    while (this.runningBoardIds.size < 3) {
+      const id = Array.from(this.requestedBoardIds).find((value: string): boolean => !this.runningBoardIds.has(value));
+      if (id === undefined) break;
+      this.requestedBoardIds.delete(id);
+      const board = this.boards.find((value: RankingBoard): boolean => value.id === id);
+      if (board === undefined || (this.completedBoardIds.has(id) && !this.forcedBoardIds.has(id))) continue;
+      const generation = this.generation;
+      const force = this.forcedBoardIds.has(id);
+      this.runningBoardIds.add(id);
+      RankingService.loadProgressively(context, [board], force, (loaded: RankingBoard): void => {
+        this.pendingBoardUpdates.set(loaded.id, loaded);
+        this.scheduleBoardUpdates();
+      }, (): boolean => this.alive && this.active && generation === this.generation)
+        .catch((): void => {}).finally((): void => {
+          this.runningBoardIds.delete(id);
+          if (!this.alive) return;
+          if (generation === this.generation) {
+            if (this.active) {
+              this.completedBoardIds.add(id);
+              this.forcedBoardIds.delete(id);
+            } else {
+              this.requestedBoardIds.add(id);
+            }
+          }
+          this.updateBoardLoadingState();
+          this.scheduleBoardLoads();
+        });
+    }
+    this.updateBoardLoadingState();
+  }
+
+  private updateBoardLoadingState(): void {
+    this.loading = this.runningBoardIds.size > 0 || this.requestedBoardIds.size > 0 || this.pendingBoardUpdates.size > 0;
+    if (!this.loading) {
+      this.refreshing = false;
+      if (this.posterCount === 0 && this.boards.some((board: RankingBoard): boolean => board.books.length > 0)) {
+        this.posterPlatformId = this.randomPosterPlatform(this.posterPlatformId);
+        this.syncBoards();
+      }
+    }
+  }
+
+  /** 合并同时返回的缓存/联网结果，转场期间保留快照，避免反复重建轮播和榜单内容。 */
+  private scheduleBoardUpdates(): void {
+    if (!this.alive || !this.active || this.boardTransitioning || this.boardFlowActive ||
+      this.pendingBoardUpdates.size === 0 || this.boardUpdateTimer !== -1) return;
+    this.boardUpdateTimer = setTimeout((): void => {
+      this.boardUpdateTimer = -1;
+      if (!this.alive || !this.active || this.boardTransitioning || this.boardFlowActive) return;
+      this.boards = this.boards.map((board: RankingBoard): RankingBoard =>
+        this.pendingBoardUpdates.get(board.id) ?? board);
+      this.pendingBoardUpdates.clear();
+      this.syncBoards();
+      this.updateBoardLoadingState();
+    }, this.boardData.totalCount() > 0 && this.boards.some(
+      (board: RankingBoard): boolean => board.books.length > 0) ? 80 : 0);
+  }
+
+  private clearBoardUpdates(): void {
+    if (this.boardUpdateTimer !== -1) clearTimeout(this.boardUpdateTimer);
+    this.boardUpdateTimer = -1;
+    // 换代丢弃尚未展示的快照时，同步撤销完成标记，允许之后重新加载对应榜单。
+    for (const id of this.pendingBoardUpdates.keys()) this.completedBoardIds.delete(id);
+    this.pendingBoardUpdates.clear();
   }
 
   private handlePlatformSwipe(event: GestureEvent): void {
@@ -2456,12 +2648,16 @@ export struct RankingHomePage {
     }
     this.platformId = id;
     this.overview = false;
+    this.requestedBoardIds.clear();
+    this.visibleBoardIds.clear();
     this.syncBoards();
+    this.load(false);
     // 不操作纵向滚动控制器；平台切换保持当前海报与分类栏位置。
   }
 
   private openBoard(board: RankingBoard): void {
     if (this.boardTransitioning || this.activeBoard !== undefined) return;
+    this.requestBoard(board.id);
     this.boardRefreshPullOffset = 0;
     this.boardScroller = new Scroller();
     this.onScrollerReady(this.boardScroller);
@@ -4332,7 +4528,7 @@ export struct RankingHomePage {
   private heroContent() {
     if (this.posterCount > 0) {
       BookPosterCarousel({ items: this.posterDeckItems,
-        autoPlay: this.visible && this.posterVisible && this.activeBoard === undefined &&
+        autoPlay: this.active && this.posterVisible && this.activeBoard === undefined &&
           !this.boardTransitioning && !this.cardVisible,
         // 右侧整叠封面本身也要能点开详情。
         openCover: true,
@@ -4607,6 +4803,7 @@ export struct RankingHomePage {
           LazyForEach(this.boardData, (board: RankingBoard) => {
             ListItem() {
               RankingSection({ board: board, hiddenId: this.cardBookId,
+                onFeedback: (): void => this.playRankingFeedback(),
                 chromeOpacity: this.sectionChromeOpacity(board.id),
                 shelfOpacity: this.sectionShelfOpacity(board.id),
                 gatherBoardId: this.sectionGatherBoardId(board.id),
@@ -4631,6 +4828,7 @@ export struct RankingHomePage {
             }
             // 卡片集可能向上/向下移到底栏上方，跨到相邻榜单区域时也要盖在它们上面。
             .zIndex(this.sectionGatherProgress(board.id) > 0 ? 80 : 0)
+             .onVisibleAreaChange([0], (visible: boolean): void => this.onBoardVisibility(board, visible))
           }, (board: RankingBoard): string => `${board.id}:${board.fetchedAt}:${board.stale}:${board.unavailable}`)
         }
       }
@@ -5088,6 +5286,7 @@ export struct RankingHomePage {
                   onFocusInfo: (book: RankingBook, index: number): void =>
                     this.onBoardFanFocusInfo(book, index),
                   onFanDragChange: (dragging: boolean): void => { this.fanDragging = dragging; },
+                  onFeedback: (): void => this.playRankingFeedback(),
                   onChoose: (book: RankingBook, nodeId: string): void =>
                     this.openBoardBook(book, nodeId) })
               }.id(`rankingBoardPodiumItem-${board.id}`).zIndex(10)
@@ -5173,7 +5372,8 @@ export struct RankingHomePage {
     Stack({ alignContent: Alignment.TopStart }) {
       if (AppTheme.ShowCoverBackdrop && !this.customBackground) {
         Stack({ alignContent: Alignment.Top }) {
-          RankingPosterBackground({ cover: this.posterCover, imageHeight: this.posterBackgroundHeight })
+          RankingPosterBackground({ cover: this.posterCover, imageHeight: this.posterBackgroundHeight,
+            suspended: !this.active || this.activeBoard !== undefined || this.boardTransitioning || this.cardVisible })
           Column().width('100%').height(this.posterBackgroundHeight)
             .linearGradient({ angle: 180, colors: [[Color.Transparent, 0.25], [HomeTheme.BgNeutral, 1]] })
         }.width('100%').height(this.posterBackgroundHeight)

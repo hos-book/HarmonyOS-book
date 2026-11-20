@@ -1,4 +1,4 @@
-import { AppRadius, AppSpace, AppMotion, AppCurve, AppMaterial, HomeTheme, AppTheme } from '../theme/Theme';
+import { AppSpace, AppMotion, AppCurve, AppMaterial, HomeTheme, AppTheme } from '../theme/Theme';
 
 /** 首页与搜索历史共用的原生沉浸材质标签。 */
 @ComponentV2
@@ -44,7 +44,7 @@ export struct ImmersiveTabComponent {
     .width(this.fitContent ? LayoutPolicy.wrapContent : this.itemWidth)
     .height(34)
     .flexShrink(0)
-    .borderRadius(AppRadius.Pill)
+    .borderRadius(17)
     .justifyContent(FlexAlign.Center)
     .backgroundColor(Color.Transparent)
     // 文字使用稳定的主题色，滚动背景变化时不触发材质子树反色。

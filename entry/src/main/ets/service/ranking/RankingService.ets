@@ -167,9 +167,12 @@ export class RankingService {
       if (time <= 0 || time > Date.now() + 60000 || Date.now() - time > 30 * 86400000) return board;
       const books = RankingParser.parse(board.platformId, board.id, record.getString('body'));
       if (books.length > 0) {
-        board.books = books.slice(0, RankingService.MAX_BOOKS);
-        board.fetchedAt = time;
-        board.stale = Date.now() - time >= RankingService.TTL;
+        // 缓存也返回独立快照，让首页按变化的榜单通知，避免原地修改后只能全量刷新。
+        const cached = new RankingBoard(board.id, board.platformId, board.platformName, board.title, board.endpoint);
+        cached.books = books.slice(0, RankingService.MAX_BOOKS);
+        cached.fetchedAt = time;
+        cached.stale = Date.now() - time >= RankingService.TTL;
+        return cached;
       }
     } catch (_error) { /* 损坏缓存回退网络。 */ }
     return board;

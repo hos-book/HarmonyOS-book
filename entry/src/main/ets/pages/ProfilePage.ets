@@ -78,6 +78,7 @@ export struct ProfilePage {
   @Local appearance: AppAppearance = AppAppearance.current;
   @Local appBackgrounds: AppBackgroundService = AppBackgroundService.instance;
   @Param navStack: NavPathStack = new NavPathStack();
+  @Param active: boolean = true;
   @Event onScrollerReady: (scroller: Scroller) => void = () => {};
   @Event onContentScroll: (offset: number, state: ScrollState) => void = () => {};
   @Local medalService: MedalService = MedalService.instance;
@@ -86,11 +87,23 @@ export struct ProfilePage {
   @Local showMembership: boolean = false;
 
   private scrollScroller: Scroller = new Scroller();
+  private alive: boolean = false;
+  private servicesStarted: boolean = false;
 
   aboutToAppear(): void {
+    this.alive = true;
     this.onScrollerReady(this.scrollScroller);
+    this.startServices();
+  }
+
+  aboutToDisappear(): void { this.alive = false; }
+
+  @Monitor('active')
+  private startServices(): void {
+    if (!this.alive || !this.active || this.servicesStarted) return;
     const context = this.getUIContext().getHostContext();
     if (context) {
+      this.servicesStarted = true;
       this.auth.restore(context);
       this.medalService.init(context).catch((error: Error): void => {
         console.warn(`[ProfilePage] medals unavailable: ${error.message}`);

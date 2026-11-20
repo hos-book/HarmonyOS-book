@@ -67,6 +67,8 @@ const FLOATING_WIDE_BREAKPOINT: number = 600;
 const TAB_RESTORE_WIDTH_GROWTH: number = 48;
 const TAB_RESTORE_HEIGHT_GROWTH: number = 80;
 const TAB_SWITCH_DURATION: number = 350;
+// HdsTabs 仅提供动画开始通知；比原生时长多留 50ms，覆盖结束帧的提交。
+const TAB_CONTENT_RESUME_DELAY: number = TAB_SWITCH_DURATION + 50;
 
 class MainTabsAppearance {
   style: HdsTabsFloatingStyle | undefined = undefined;
@@ -94,6 +96,7 @@ class RankingHistoryRouteParams {
 @ComponentV2
 export struct MainPage {
   @Param navStack: NavPathStack = new NavPathStack();
+  @Param contentActive: boolean = true;
   @Param allowPlayerDrag: boolean = true;
   @Event onBackHandlerChange: (handler: (() => boolean) | undefined) => void = () => {};
   @Event onHomeShownHandlerChange: (handler: (() => void) | undefined) => void = () => {};
@@ -191,6 +194,7 @@ export struct MainPage {
   }
   @Monitor('appearance.verticalBottomTabs')
   private onTabStyleChanged(): void {
+    this.resetTabPreparation();
     if (this.miniBarExpandTimer !== -1) clearTimeout(this.miniBarExpandTimer);
     this.miniBarExpandTimer = -1;
     // 开关切换时重建对应的原生底栏，不能沿用另一种布局的控制器和折叠状态。
@@ -215,6 +219,16 @@ export struct MainPage {
     this.syncVerticalBars();
   }
   @Local currentTab: number = 0;
+  @Local tabTransitioning: boolean = false;
+  private tabTransitionTarget: number = -1;
+  private queuedTabIndex: number = -1;
+  private tabResumeTimer: number = -1;
+  private tabPreloadTimer: number = -1;
+  private preloadedTabs: Set<number> = new Set();
+
+  @Computed
+  private get tabContentActive(): boolean { return this.contentActive && !this.tabTransitioning; }
+
   // 镜像原生 Tabs 已选中的物理索引，动画开始时同步，供后续属性刷新使用。
   // 不参与状态观测，避免 onChange 再刷新 HdsTabs 整组属性并重建 MiniPlayer。
   private nativeTabIndex: number = 0;
@@ -414,6 +428,8 @@ export struct MainPage {
   }
 
   private cancelLayoutTimers(): void {
+    this.cancelTabPreload();
+    this.cancelTabResume();
     if (this.miniBarExpandTimer !== -1) clearTimeout(this.miniBarExpandTimer);
     this.miniBarExpandTimer = -1;
     if (this.viewportUpdateTimerId !== -1) {
@@ -612,14 +628,17 @@ export struct MainPage {
       return;
     }
     if (!this.generalSettings.historyEnabled && index === 2) index = 0;
-    if (index === this.currentTab) return;
-    this.tabController.changeIndex(MainTabPolicy.physical(index, this.generalSettings.historyEnabled));
+    this.requestTabChange(MainTabPolicy.physical(index, this.generalSettings.historyEnabled));
   }
 
   private requestTabChange(index: number): void {
     const count: number = MainTabPolicy.order(this.generalSettings.historyEnabled).length;
-    if (!this.tabsReady || !Number.isInteger(index) ||
-      index < 0 || index >= count || index === this.nativeTabIndex) return;
+    if (!this.tabsReady || !Number.isInteger(index) || index < 0 || index >= count) return;
+    if (this.tabTransitioning) {
+      this.queuedTabIndex = index === this.tabTransitionTarget ? -1 : index;
+      return;
+    }
+    if (index === this.nativeTabIndex) return;
     this.tabController.changeIndex(index);
   }
 
@@ -641,11 +660,13 @@ export struct MainPage {
   @Monitor('generalSettings.historyEnabled')
   private onHistoryVisibilityChanged(): void {
     if (!this.tabsReady) return;
+    this.resetTabPreparation();
     const logical = !this.generalSettings.historyEnabled && this.currentTab === 2 ? 0 : this.currentTab;
     this.nativeTabIndex = MainTabPolicy.physical(logical, this.generalSettings.historyEnabled);
     this.currentTab = logical;
     this.tabController.changeIndex(this.nativeTabIndex);
     this.lastTabClickIndex = -1;
+    this.scheduleTabPreload();
   }
 
   private async restoreLastPlayed(): Promise<void> {
@@ -876,7 +897,9 @@ export struct MainPage {
 
   private handleTabBarClick(index: number): void {
     const now = Date.now();
-    if (index === this.lastTabClickIndex && now - this.lastTabClickTime < 300) {
+    if (this.tabTransitioning) this.queuedTabIndex = index === this.tabTransitionTarget ? -1 : index;
+    if (!this.tabTransitioning && index === this.nativeTabIndex &&
+      index === this.lastTabClickIndex && now - this.lastTabClickTime < 300) {
       const scroller = this.scrollers.get(MainTabPolicy.logical(index, this.generalSettings.historyEnabled));
       if (scroller !== undefined) {
         try { scroller.scrollEdge(Edge.Top); } catch (_error) { /* 页面正在切换。 */ }
@@ -886,13 +909,107 @@ export struct MainPage {
     this.lastTabClickIndex = index;
   }
 
-  private handleTabChange(index: number): void {
-    const previous: number = this.nativeTabIndex;
-    this.nativeTabIndex = index;
-    this.currentTab = MainTabPolicy.logical(index, this.generalSettings.historyEnabled);
-    if (previous !== index) {
-      this.resetTabStyle();
+  /** 在目标页首次构建之前停下内容任务；连续点击只接续最后一个目标。 */
+  private prepareTabChange(currentIndex: number, targetIndex: number): boolean {
+    if (this.tabTransitionTarget !== -1 && this.tabTransitionTarget !== targetIndex) {
+      this.queuedTabIndex = targetIndex;
+      return false;
     }
+    if (currentIndex === targetIndex) return true;
+    this.cancelTabPreload();
+    this.tabTransitionTarget = targetIndex;
+    this.tabTransitioning = true;
+    return true;
+  }
+
+  private handleTabAnimationStart(targetIndex: number): void {
+    hilog.debug(0x0000, 'MainTabs', 'content animation start target=%{public}d', targetIndex);
+    this.cancelTabPreload();
+    this.cancelTabResume();
+    this.tabTransitionTarget = targetIndex;
+    this.tabTransitioning = true;
+    // 只镜像原生选择，不在动画开始时激活目标页的数据和轮播。
+    this.nativeTabIndex = targetIndex;
+    this.tabResumeTimer = setTimeout((): void => {
+      this.tabResumeTimer = -1;
+      if (!this.miniPlayerIdleAlive || this.tabTransitionTarget !== targetIndex) return;
+      this.finishTabChange(targetIndex);
+    }, TAB_CONTENT_RESUME_DELAY);
+  }
+
+  private handleTabChange(index: number): void {
+    hilog.debug(0x0000, 'MainTabs', 'content change index=%{public}d transitioning=%{public}s',
+      index, String(this.tabTransitioning));
+    if (this.tabTransitionTarget !== -1 && index !== this.tabTransitionTarget) return;
+    this.nativeTabIndex = index;
+    // 点击和控制器切换时 onChange 会早于动画结束，不能在这里恢复内容任务。
+    if (!this.tabTransitioning) this.finishTabChange(index);
+  }
+
+  private finishTabChange(index: number): void {
+    hilog.debug(0x0000, 'MainTabs', 'content resume index=%{public}d', index);
+    const previous: number = this.currentTab;
+    this.nativeTabIndex = index;
+    this.preloadedTabs.add(MainTabPolicy.logical(index, this.generalSettings.historyEnabled));
+    this.tabTransitionTarget = -1;
+    const next: number = this.queuedTabIndex;
+    this.queuedTabIndex = -1;
+    if (next >= 0 && next !== index) {
+      this.tabController.changeIndex(next);
+      return;
+    }
+    this.currentTab = MainTabPolicy.logical(index, this.generalSettings.historyEnabled);
+    this.tabTransitioning = false;
+    if (previous !== this.currentTab) this.resetTabStyle();
+    this.scheduleTabPreload();
+  }
+
+  private cancelTabResume(): void {
+    if (this.tabResumeTimer !== -1) clearTimeout(this.tabResumeTimer);
+    this.tabResumeTimer = -1;
+  }
+
+  private cancelTabPreload(): void {
+    if (this.tabPreloadTimer !== -1) clearTimeout(this.tabPreloadTimer);
+    this.tabPreloadTimer = -1;
+  }
+
+  private resetTabPreparation(): void {
+    this.cancelTabPreload();
+    this.cancelTabResume();
+    this.preloadedTabs.clear();
+    this.tabTransitionTarget = -1;
+    this.queuedTabIndex = -1;
+    this.tabTransitioning = false;
+  }
+
+  @Monitor('contentActive')
+  private onContentActivityChanged(): void {
+    if (this.contentActive) this.scheduleTabPreload();
+    else this.cancelTabPreload();
+  }
+
+  /** 四个固定页签分次准备节点，预加载子页保持 inactive，不启动书单/统计加载。 */
+  private scheduleTabPreload(): void {
+    this.cancelTabPreload();
+    if (!this.miniPlayerIdleAlive || !this.tabsReady || !this.tabContentActive) return;
+    this.preloadedTabs.add(this.currentTab);
+    const next: number | undefined = MainTabPolicy.order(this.generalSettings.historyEnabled)
+      .find((logical: number): boolean => !this.preloadedTabs.has(logical));
+    if (next === undefined) return;
+    const controller: HdsTabsController = this.tabController;
+    this.tabPreloadTimer = setTimeout((): void => {
+      this.tabPreloadTimer = -1;
+      if (!this.miniPlayerIdleAlive || !this.tabContentActive || controller !== this.tabController) return;
+      try {
+        controller.preloadItems([MainTabPolicy.physical(next, this.generalSettings.historyEnabled)])
+          .then((): void => {
+            if (!this.miniPlayerIdleAlive || controller !== this.tabController) return;
+            this.preloadedTabs.add(next);
+            this.scheduleTabPreload();
+          }).catch((): void => { /* 未挂载时留给正常切页创建。 */ });
+      } catch (_error) { /* 原生容器已卸载。 */ }
+    }, 500);
   }
 
   /** 榜单卡片复用既有阅读/播放入口，默认恢复已保存位置。 */
@@ -960,6 +1077,7 @@ export struct MainPage {
         TabContent() {
           HomePage({
             visible: this.currentTab === 0,
+            active: this.tabContentActive,
             bottomTabInset: this.bottomTabInset(),
             miniPlayerVisible: this.miniPlayerVisible(),
             onOpenReader: (book: Book, onReturn: () => void, resourceIndex?: number): void => {
@@ -994,6 +1112,8 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.registerTabScroller(0, scroller); },
             onContentScroll: (offset: number, state: ScrollState): void => this.onContentScroll(0, offset, state)
           })
+          // 书封保留局部缓存；整页含实时材质，避免切入时重建全屏纹理。
+          .renderGroup(false)
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
@@ -1006,6 +1126,7 @@ export struct MainPage {
               this.shelfBackHandler = handler;
             },
             visible: this.currentTab === 1,
+            active: this.tabContentActive,
             historyEnabled: this.generalSettings.historyEnabled,
             onRecords: (): void => { if (this.generalSettings.historyEnabled) this.changeTab(2); },
             onRecentTouch: (active: boolean): void => {
@@ -1019,6 +1140,7 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.registerTabScroller(1, scroller); },
             onContentScroll: (offset: number, state: ScrollState): void => this.onContentScroll(1, offset, state)
           })
+          .renderGroup(false)
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
@@ -1028,7 +1150,7 @@ export struct MainPage {
         if (this.generalSettings.historyEnabled) {
         TabContent() {
           ReadingStatsPage({
-            visible: this.currentTab === 2,
+            visible: this.currentTab === 2 && this.tabContentActive,
             onBackHandlerChange: (handler: (() => boolean) | undefined): void => {
               this.recordsBackHandler = handler;
             },
@@ -1037,6 +1159,7 @@ export struct MainPage {
             onScrollerReady: (scroller: Scroller) => { this.registerTabScroller(2, scroller); },
             onContentScroll: (offset: number, state: ScrollState): void => this.onContentScroll(2, offset, state)
           })
+          .renderGroup(false)
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
@@ -1046,10 +1169,12 @@ export struct MainPage {
 
         TabContent() {
           ProfilePage({
+            active: this.currentTab === 3 && this.tabContentActive,
             navStack: this.navStack,
             onScrollerReady: (scroller: Scroller) => { this.registerTabScroller(3, scroller); },
             onContentScroll: (offset: number, state: ScrollState): void => this.onContentScroll(3, offset, state)
           })
+          .renderGroup(false)
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
@@ -1072,8 +1197,10 @@ export struct MainPage {
       .barBackgroundColor(this.tabsAppearance.surface)
       .barBackgroundBlurStyle(this.tabsAppearance.materialSupported ? BlurStyle.NONE : BlurStyle.COMPONENT_REGULAR)
       .onTabBarClick((index: number): void => this.handleTabBarClick(index))
-      .onAnimationStart((_index: number, targetIndex: number): void => this.handleTabChange(targetIndex))
+      .onContentWillChange((index: number, targetIndex: number): boolean => this.prepareTabChange(index, targetIndex))
+      .onAnimationStart((_index: number, targetIndex: number): void => this.handleTabAnimationStart(targetIndex))
       .onChange((index: number): void => this.handleTabChange(index))
+      .onAppear((): void => this.scheduleTabPreload())
       // 使用 HdsTabs 原生整页横向滑动，底栏与迷你播放器保持原位。
       .animationDuration(TAB_SWITCH_DURATION)
       .width('100%')
@@ -1095,8 +1222,10 @@ export struct MainPage {
       .scrollable(false)
       .attributeModifier(new CompatibleTabsModifier(this.floatingBarStyle(), 56 + this.bottomSafeVp))
       .onTabBarClick((index: number): void => this.handleTabBarClick(index))
-      .onAnimationStart((_index: number, targetIndex: number): void => this.handleTabChange(targetIndex))
+      .onContentWillChange((index: number, targetIndex: number): boolean => this.prepareTabChange(index, targetIndex))
+      .onAnimationStart((_index: number, targetIndex: number): void => this.handleTabAnimationStart(targetIndex))
       .onChange((index: number): void => this.handleTabChange(index))
+      .onAppear((): void => this.scheduleTabPreload())
       // 使用 HdsTabs 原生整页横向滑动，底栏与迷你播放器保持原位。
       .animationDuration(TAB_SWITCH_DURATION)
       .width('100%')
