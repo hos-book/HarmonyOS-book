@@ -9231,6 +9231,16 @@
     {"name":"record_chart_collapse","value":"收起近七日阅听"},
     {"name":"record_chart_day_accessibility","value":"%s，点击查看当天时长，再点一次查看七日合计"},
     {"name":"record_chart_reset","value":"显示近七日合计"},
-    {"name":"record_chart_selected_title","value":"%s阅听"}
+    {"name":"record_chart_selected_title","value":"%s阅听"},
+    {"name":"rule_source_settings_title","value":"书源设置"},
+    {"name":"rule_source_settings_section","value":"设置"},
+    {"name":"rule_source_account_section","value":"账号"},
+    {"name":"rule_source_actions_section","value":"操作"},
+    {"name":"rule_source_session_saved","value":"网页会话未确认"},
+    {"name":"rule_source_check_login","value":"检查登录"},
+    {"name":"rule_source_logout","value":"退出登录"},
+    {"name":"rule_source_working","value":"正在处理…"},
+    {"name":"rule_source_settings_saved","value":"设置已保存"},
+    {"name":"rule_source_discard","value":"放弃修改"}
   ]
 }

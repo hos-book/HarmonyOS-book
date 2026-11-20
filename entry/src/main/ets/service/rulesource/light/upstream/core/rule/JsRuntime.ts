@@ -6,6 +6,8 @@ import { JsonPathEvaluator } from './JsonPathEvaluator';
 import { QuickJsScriptRuntime } from '../script/QuickJsScriptRuntime';
 
 export class JsRuntime {
+  /** Upper bound for an expression after variable substitution; see substituteVars. */
+  private static readonly MAX_SUBSTITUTED_LENGTH: number = 2 * 1024 * 1024;
   private vars: Record<string, string> = {};
   private jsonContext: Object | null = null;
 
@@ -127,12 +129,12 @@ export class JsRuntime {
       expr = this.replaceNoArgCalls(expr);
       this.applyCookieSideEffects(expr);
 
-      for (const k in this.vars) {
-        const value = this.vars[k];
-        const escaped = value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
-        const replacement = value.match(/^-?\d+(\.\d+)?$/) ? value : `"${escaped}"`;
-        expr = expr.replace(new RegExp('\\b' + k + '\\b', 'g'), replacement);
-      }
+      const substituted = this.substituteVars(expr, (value: string): string => {
+        if (/^-?\d+(\.\d+)?$/.test(value)) return value;
+        return `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+      });
+      if (substituted === null) return '';
+      expr = substituted;
 
       const truncateMatch = expr.match(/^~~\(([\s\S]+)\)$/);
       if (truncateMatch && truncateMatch[1]) {
@@ -180,8 +182,45 @@ export class JsRuntime {
     }
     const parts = this.splitConcat(v);
     if (parts.length > 1) return parts.map((part: string) => this.evalStr(part)).join('');
-    for (const k in this.vars) v = v.replace(new RegExp('\\b' + k + '\\b', 'g'), this.vars[k]);
-    return v;
+    const substituted = this.substituteVars(v, (value: string): string => value);
+    return substituted === null ? '' : substituted;
+  }
+
+  /**
+   * Replaces every whole-word variable name in `text` with its rendered value, in ONE pass over
+   * the original text. Substituted values are never rescanned: replacing variable by variable
+   * used to re-substitute names occurring inside an earlier value (a page body holding `html`,
+   * `page`, `url` hundreds of times), multiplying the string on every key until the main thread
+   * froze. A function replacer keeps `$'`/`` $` ``/`$&` in values literal, names are matched
+   * literally (`source.tone`) and longer names win. Returns null when the result would exceed
+   * MAX_SUBSTITUTED_LENGTH, so callers give up instead of building a huge expression.
+   */
+  private substituteVars(text: string, render: (value: string) => string): string | null {
+    const keys = Object.keys(this.vars).filter((key: string): boolean => key.length > 0);
+    if (keys.length === 0 || !text) return text;
+    keys.sort((a: string, b: string): number => b.length - a.length);
+    const pattern = new RegExp(
+      '\\b(?:' + keys.map((key: string): string => key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')\\b',
+      'g');
+    const rendered = new Map<string, string>();
+    let length = text.length;
+    let overflow = false;
+    const result = text.replace(pattern, (name: string): string => {
+      if (overflow) return name;
+      let value = rendered.get(name);
+      if (value === undefined) {
+        const raw = this.vars[name];
+        value = render(typeof raw === 'string' ? raw : String(raw));
+        rendered.set(name, value);
+      }
+      length += value.length - name.length;
+      if (length > JsRuntime.MAX_SUBSTITUTED_LENGTH) {
+        overflow = true;
+        return name;
+      }
+      return value;
+    });
+    return overflow ? null : result;
   }
 
   private evalVariableMatchExpression(expression: string): string | null {

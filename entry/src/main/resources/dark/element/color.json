@@ -1,5 +1,6 @@
 {
   "color": [
+    { "name": "source_control_background", "value": "#303236" },
     {"name": "splash_brand_text", "value": "#F5F7FA"},
     {"name": "splash_brand_caption", "value": "#7C8290"},
     {"name": "splash_progress_track", "value": "#22242C"},

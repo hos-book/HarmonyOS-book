@@ -79,6 +79,8 @@ export class LightSourceBridge {
     const panel = new LocalRulePanel();
     panel.controls = raw.controls.map((item: LocalRuleControl): LocalRuleControl => LightSourceBridge.panelControl(item));
     panel.entries = raw.entries.map((item: LocalRuleControl): LocalRuleControl => LightSourceBridge.panelControl(item));
+    panel.loginState = raw.loginState ?? '';
+    panel.loginUser = raw.loginUser ?? '';
     return panel;
   }
   static async panelOptions(source: LocalRuleSource, controlId: string): Promise<string[]> {

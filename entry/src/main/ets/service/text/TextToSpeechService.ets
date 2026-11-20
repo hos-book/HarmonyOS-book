@@ -608,20 +608,27 @@ export class TextToSpeechService {
   }
 
   setSleep(minutes: number, chapterEnd: boolean = false): void {
-    if (this.sleepTimer !== -1) clearInterval(this.sleepTimer);
-    this.sleepTimer = -1;
-    this.sleepDeadline = minutes > 0 ? Date.now() + minutes * 60000 : 0;
+    this.sleepDeadline = minutes > 0 ? systemDateTime.getUptime(systemDateTime.TimeType.STARTUP) + minutes * 60000 : 0;
     this.state.stopAtChapterEnd = chapterEnd;
     this.state.remainingSeconds = Math.max(0, minutes * 60);
-    if (minutes > 0) {
-      this.sleepTimer = setInterval((): void => {
-        this.state.remainingSeconds = Math.max(0, Math.ceil((this.sleepDeadline - Date.now()) / 1000));
-        if (this.state.remainingSeconds === 0) {
-          this.pause();
-          this.setSleep(0);
-        }
-      }, 1000);
+    this.scheduleSleepTimer();
+  }
+
+  private scheduleSleepTimer(): void {
+    if (this.sleepTimer !== -1) clearTimeout(this.sleepTimer);
+    this.sleepTimer = -1;
+    if (this.sleepDeadline <= 0) return;
+    const remaining = Math.max(0, this.sleepDeadline - systemDateTime.getUptime(systemDateTime.TimeType.STARTUP));
+    this.state.remainingSeconds = Math.ceil(remaining / 1000);
+    if (remaining === 0) {
+      this.pause();
+      this.setSleep(0);
+      return;
     }
+    this.sleepTimer = setTimeout((): void => {
+      this.sleepTimer = -1;
+      this.scheduleSleepTimer();
+    }, this.foreground ? Math.min(1000, remaining) : remaining);
   }
 
   async start(book: Book, chapterIndex: number, offset: number, restore: boolean = false): Promise<void> {
@@ -1057,7 +1064,7 @@ export class TextToSpeechService {
 
   private async speakNext(ticket: number): Promise<void> {
     if (!this.valid(ticket) || this.book === null) return;
-    if (this.sleepDeadline > 0 && Date.now() >= this.sleepDeadline) {
+    if (this.sleepDeadline > 0 && systemDateTime.getUptime(systemDateTime.TimeType.STARTUP) >= this.sleepDeadline) {
       this.pause(); this.setSleep(0); return;
     }
     if (this.segmentIndex >= this.segments.length) {
@@ -1513,6 +1520,7 @@ export class TextToSpeechService {
 
   setForeground(foreground: boolean): void {
     this.foreground = foreground;
+    this.scheduleSleepTimer();
     if (foreground) this.notify();
   }
 

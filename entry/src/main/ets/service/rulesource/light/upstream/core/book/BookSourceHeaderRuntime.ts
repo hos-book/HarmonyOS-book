@@ -75,10 +75,24 @@ export class BookSourceHeaderRuntime {
     request.code = raw;
     try {
       const result = await runtime.execute(request);
-      return BookSourceHeaderRuntime.parseHeaderJson(result.value || '');
+      const parsed = BookSourceHeaderRuntime.parseHeaderJson(result.value || '');
+      // A header carrying the current Unix time is part of a per-request signature (timestamp + hash of it);
+      // Android evaluates the rule for every request, and a cached copy goes stale once the server checks age.
+      if (BookSourceHeaderRuntime.carriesCurrentTime(parsed.headers)) parsed.ttlMs = 0;
+      return parsed;
     } catch (_) {
       return failed;
     }
+  }
+
+  static carriesCurrentTime(headers: Record<string, string>, now: number = Date.now()): boolean {
+    for (const key of Object.keys(headers)) {
+      const text = String(headers[key] || '').trim();
+      if (!/^\d{10}(?:\d{3})?$/.test(text)) continue;
+      const ms = text.length === 10 ? Number(text) * 1000 : Number(text);
+      if (Math.abs(ms - now) <= 10 * 60 * 1000) return true;
+    }
+    return false;
   }
 
   private static hash(value: string): string {

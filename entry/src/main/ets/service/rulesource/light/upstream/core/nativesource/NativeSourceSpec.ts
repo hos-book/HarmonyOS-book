@@ -22,6 +22,11 @@ export interface NativeVarSpec {
   filter?: boolean;
   /** js 里的函数名：打开书源设置页时运行它取选项列表（例如测速后列出可用线路），失败时用 options。 */
   optionsScript?: string;
+  /**
+   * 显示条件，= 开头的表达式，只能读 vars（其他变量的当前值）。为假时这一项不出现在发现页筛选栏和书源设置页，
+   * 已保存的值保留、规则里照常能读。用来做联动：例如“源站”按“模式”拆成几项，只显示当前模式的那一项。
+   */
+  when?: string;
 }
 
 /** 听书音色：id 是传给接口的值，name 是显示名。 */
@@ -129,6 +134,11 @@ export interface NativeStageSpec extends NativeRequestSpec {
   fail?: string;
   list?: string;
   fields?: Record<string, NativeValue>;
+  /**
+   * 这个阶段自己的限流，写法同顶层 rate（"次数/毫秒" 或毫秒间隔）。写了就按阶段单独排队、不占顶层的名额；
+   * 写 0 表示这个阶段不限流；不写沿用顶层。阶段里的翻页、附加请求和脚本请求都算这个阶段的。
+   */
+  rate?: string | number;
 }
 
 export interface NativeMenuSpec {
@@ -143,6 +153,8 @@ export interface NativeMenuSpec {
   /** 这个分类自己的请求方法与请求体，不写时沿用 explore 的。body 写空串表示不带请求体。 */
   method?: string;
   body?: NativeValue;
+  /** 这个分类最多翻到第几页，不写时沿用 explore.maxPage。 */
+  maxPage?: number;
 }
 
 export interface NativeDynamicMenuSpec extends NativeRequestSpec {
@@ -159,6 +171,8 @@ export interface NativeDynamicMenuSpec extends NativeRequestSpec {
 export interface NativeExploreSpec extends NativeStageSpec {
   menus?: NativeMenuSpec[];
   dynamicMenus?: NativeDynamicMenuSpec;
+  /** 最多翻到第几页：超过时不发请求、直接当作没有更多。站点分页有固定上限、越界就报错时用。 */
+  maxPage?: number;
 }
 
 export interface NativeDetailSpec extends NativeStageSpec {
@@ -248,7 +262,7 @@ export interface NativeLinkSpec {
   message?: string;
 }
 
-/** 漫画图片解密：密钥和 IV 在取正文时算好，应用下载图片后用系统加密框架解密。 */
+/** 正文图片解密（漫画图片与图文正文里的插图）：密钥和 IV 在取正文时算好，应用下载图片后用系统加密框架解密。 */
 export interface NativeImageDecodeSpec {
   /** js 中的字节处理函数，与标准加密字段互斥。 */
   script?: string;
@@ -317,6 +331,8 @@ export interface NativeSourceDefinition {
   enabledExplore?: boolean;
   rate?: string;
   headers?: Record<string, string>;
+  /** 所有请求参数与表单的默认编码，如 gbk；阶段（或脚本请求）上写的 charset 优先。 */
+  charset?: string;
   vars?: NativeVarSpec[];
   /** 函数库：用 fn 定义的纯计算函数，供表达式调用。 */
   lib?: string;
@@ -405,11 +421,11 @@ export class NativeSourceSpec {
 
   /** 从导入对象整理出定义；不合法时抛出带原因的错误。 */
   static fromObject(value: NativeValue): NativeSourceDefinition {
-    if (!NativeSourceSpec.isDefinitionObject(value)) throw new Error('不是原生规则：缺少 "sourceFormat": "native"');
+    if (!NativeSourceSpec.isDefinitionObject(value)) throw new Error('不是原生书源：缺少 "sourceFormat": "native"');
     const raw = value as Record<string, NativeValue>;
     const version = Number(raw['version'] || raw['nativeSource'] || NativeSourceSpec.VERSION);
     if (version > NativeSourceSpec.VERSION) {
-      throw new Error(`该原生规则需要更新版本的应用（格式版本 ${version}）`);
+      throw new Error(`该原生书源需要更新版本的应用（格式版本 ${version}）`);
     }
     const definition: Record<string, NativeValue> = { nativeSource: NativeSourceSpec.VERSION };
     for (const key of Object.keys(raw)) {
@@ -499,15 +515,15 @@ export class NativeSourceSpec {
       }
     } else if (cover !== undefined) {
       if (cover && cover.params !== undefined) errors.push('coverDecode.params 需要 script');
-      if (!cover || !/^AES\/CBC\/PKCS(?:5|7)Padding$/i.test(cover.algorithm || '') ||
+      if (!cover || !/^AES\/CBC\/(?:PKCS5|PKCS7|No)Padding$/i.test(cover.algorithm || '') ||
         ![16, 24, 32].includes(NativeSourceSpec.coverKeyBytes(cover)) ||
         (cover.ivPrefixBytes === 16 ? !!cover.iv :
           (cover.ivPrefixBytes !== undefined && cover.ivPrefixBytes !== 0) || !/^[a-f0-9]{32}$/i.test(cover.iv || ''))) {
-        errors.push('coverDecode 需要 AES/CBC/PKCS7Padding、16/24/32 字节的 key，以及 iv 或 ivPrefixBytes:16');
+        errors.push('coverDecode 需要 AES/CBC/PKCS7Padding 或 AES/CBC/NoPadding、16/24/32 字节的 key，以及 iv 或 ivPrefixBytes:16');
       }
     }
-    if (!definition.name) errors.push('缺少规则名称 name');
-    if (!/^https?:\/\//i.test(definition.url || '')) errors.push('规则地址 url 必须以 http:// 或 https:// 开头');
+    if (!definition.name) errors.push('缺少书源名称 name');
+    if (!/^https?:\/\//i.test(definition.url || '')) errors.push('书源地址 url 必须以 http:// 或 https:// 开头');
     if (!definition.search && !definition.explore) errors.push('至少需要 search 或 explore 其中之一');
     const type = String(definition.type || 'text').toLowerCase();
     if (['text', 'audio', 'comic', 'image', 'video'].indexOf(type) < 0) {
@@ -529,6 +545,15 @@ export class NativeSourceSpec {
       }
       if (item.default !== undefined && typeof item.default !== 'string' &&
         (typeof item.default !== 'number' || !Number.isFinite(item.default))) errors.push(`vars.${item.key}.default 必须是字符串或有限数字`);
+      if (item.when !== undefined) {
+        // 显示条件在筛选栏里同步求值，只认表达式，不能是选择器或模板。
+        if (typeof item.when !== 'string' || item.when.trim().charAt(0) !== '=') {
+          errors.push(`vars.${item.key}.when 必须是 = 开头的表达式，例如 "= vars.mode == '小说'"`);
+        } else {
+          const whenError = NativeExpr.check(item.when.trim().substring(1));
+          if (whenError) errors.push(`vars.${item.key}.when：${whenError}`);
+        }
+      }
     }
 
     if (definition.lib !== undefined && typeof definition.lib !== 'string') {
@@ -637,6 +662,9 @@ export class NativeSourceSpec {
       ['search', definition.search], ['explore', definition.explore], ['detail', definition.detail],
       ['toc', definition.toc], ['content', definition.content]
     ];
+    if (definition.charset !== undefined && typeof definition.charset !== 'string') {
+      errors.push('charset 必须是字符串，例如 "gbk"');
+    }
     for (const entry of stages) {
       if (entry[1] === undefined) continue;
       if (!entry[1] || typeof entry[1] !== 'object' || Array.isArray(entry[1])) {
@@ -655,6 +683,7 @@ export class NativeSourceSpec {
         errors.push('explore 需要 menus 或 dynamicMenus');
       }
       if (explore.menus !== undefined && !Array.isArray(explore.menus)) errors.push('explore.menus 必须是数组');
+      NativeSourceSpec.checkMaxPage(explore.maxPage, 'explore.maxPage', errors);
       const dynamic = explore.dynamicMenus;
       if (dynamic && (typeof dynamic !== 'object' || Array.isArray(dynamic))) {
         errors.push('explore.dynamicMenus 必须是对象');
@@ -672,6 +701,7 @@ export class NativeSourceSpec {
           continue;
         }
         if (menu.list !== undefined && typeof menu.list !== 'string') errors.push(`explore.menus[${index}].list 必须是字符串`);
+        NativeSourceSpec.checkMaxPage(menu.maxPage, `explore.menus[${index}].maxPage`, errors);
         if (menu.fields !== undefined && (!menu.fields || typeof menu.fields !== 'object' || Array.isArray(menu.fields))) {
           errors.push(`explore.menus[${index}].fields 必须是对象`);
         }
@@ -691,6 +721,16 @@ export class NativeSourceSpec {
         if (!fields['url']) errors.push('toc.fields 缺少 url');
       }
       NativeSourceSpec.checkBatch(definition.toc.batch, 'toc.batch', errors);
+    }
+    for (const stageName of NativeSourceSpec.RATE_STAGES) {
+      const stage = (definition as NativeValue as Record<string, NativeValue>)[stageName];
+      if (!stage || typeof stage !== 'object' || Array.isArray(stage)) continue;
+      const rate = (stage as Record<string, NativeValue>)['rate'];
+      if (rate === undefined) continue;
+      if ((typeof rate !== 'string' && typeof rate !== 'number') || !NativeSourceSpec.isRateText(String(rate))) {
+        errors.push(`${stageName}.rate 写法不对：写成“次数/毫秒”（如 "8/1000"）或毫秒间隔（如 "1000"），` +
+          `写 0 表示这个阶段不限流`);
+      }
     }
     if (definition.content) {
       const content = definition.content;
@@ -777,6 +817,128 @@ export class NativeSourceSpec {
       }
     }
     return errors;
+  }
+
+  /**
+   * 不影响导入、但会让书源“看起来能用、实际白跑”的写法，在编辑页校验和导入时作为提示列出（不拦截）。
+   * 定义不合法时返回空列表，错误由 validate 报。
+   */
+  static warningsOf(value: NativeValue): string[] {
+    let definition: NativeSourceDefinition;
+    try {
+      definition = NativeSourceSpec.fromObject(value);
+    } catch (e) {
+      return [];
+    }
+    const warnings: string[] = [];
+    // 分页并发（batch）受所在阶段实际生效的 rate 约束：阶段写了 rate 用阶段的，否则用顶层的。
+    const intervalBatches: Map<string, string[]> = new Map<string, string[]>();
+    const intervals: Map<string, string> = new Map<string, string>();
+    for (const stageName of ['toc', 'content']) {
+      const stage = stageName === 'toc' ? definition.toc : definition.content;
+      if (!stage || stage.batch === undefined) continue;
+      const own = stage.rate !== undefined && stage.rate !== null;
+      const rate = (own ? stage.rate : definition.rate) as NativeValue;
+      const rateText = rate === undefined || rate === null ? '' : String(rate).trim();
+      if (!/^\d+$/.test(rateText) || Number(rateText) <= 0) continue;
+      const label = own ? `${stageName}.rate` : 'rate';
+      intervals.set(label, rateText);
+      intervalBatches.set(label, (intervalBatches.get(label) || []).concat([`${stageName}.batch`]));
+    }
+    intervalBatches.forEach((batched: string[], label: string): void => {
+      warnings.push(`${label} 写成纯数字（每次请求间隔 ${intervals.get(label)} 毫秒）会让 ${batched.join('、')} 的并发失效，` +
+        `分页只能一页一页排队；站点要限流时写成“次数/毫秒”，例如 "8/1000"`);
+    });
+    for (const entry of NativeSourceSpec.selectorRules(definition)) {
+      const pseudo = NativeSourceSpec.unsupportedPseudo(entry.rule);
+      if (pseudo) warnings.push(`${entry.path}：选择器里的 ${pseudo} 不受支持，会静默取空；` +
+        `取第几个用 :eq(n)、:first、:last 或索引写法 .0`);
+    }
+    return warnings.slice(0, 10);
+  }
+
+  /** 会被当作选择器执行的规则（表达式、模板、JSONPath、XPath 之外）。 */
+  private static selectorRules(definition: NativeSourceDefinition): Array<{ path: string, rule: string }> {
+    const out: Array<{ path: string, rule: string }> = [];
+    const add = (path: string, value: NativeValue): void => {
+      if (typeof value !== 'string') return;
+      const text = value.trim();
+      if (!text || /^(=|\$|@json:|@xpath:|\/\/|##|@js:|<js>)/i.test(text) || text.indexOf('{{') >= 0) return;
+      out.push({ path: path, rule: text });
+    };
+    const addMap = (path: string, map: Record<string, NativeValue> | undefined): void => {
+      if (!map || typeof map !== 'object' || Array.isArray(map)) return;
+      for (const key of Object.keys(map)) add(`${path}.${key}`, map[key]);
+    };
+    const stages: Array<[string, NativeStageSpec | undefined]> = [
+      ['search', definition.search], ['explore', definition.explore], ['detail', definition.detail],
+      ['toc', definition.toc], ['content', definition.content]
+    ];
+    for (const [name, stage] of stages) {
+      if (!stage || typeof stage !== 'object') continue;
+      add(`${name}.list`, stage.list);
+      addMap(`${name}.fields`, stage.fields);
+      addMap(`${name}.let`, stage.let);
+    }
+    if (definition.detail) addMap('detail.keep', definition.detail.keep);
+    if (definition.toc) add('toc.nextUrl', definition.toc.nextUrl);
+    const content = definition.content;
+    if (content) {
+      for (const key of ['text', 'images', 'audio', 'video', 'videoPage', 'nextUrl']) {
+        add(`content.${key}`, (content as NativeValue as Record<string, NativeValue>)[key]);
+      }
+    }
+    const explore = definition.explore;
+    if (explore && Array.isArray(explore.menus)) {
+      explore.menus.forEach((menu: NativeMenuSpec, index: number): void => {
+        if (!menu || typeof menu !== 'object') return;
+        add(`explore.menus[${index}].list`, menu.list);
+        addMap(`explore.menus[${index}].fields`, menu.fields);
+      });
+    }
+    if (explore && explore.dynamicMenus && typeof explore.dynamicMenus === 'object') {
+      add('explore.dynamicMenus.list', explore.dynamicMenus.list);
+      add('explore.dynamicMenus.title', explore.dynamicMenus.title);
+    }
+    return out;
+  }
+
+  private static readonly SUPPORTED_PSEUDO: string[] = ['contains', 'has', 'not', 'first', 'last', 'eq', 'lt', 'gt',
+    'nth-child', 'nth-of-type', 'first-child', 'first-of-type'];
+
+  /** 规则里第一个选择器解析不了的伪类，例如 ":last-child"、":nth-child(2n+1)"；没有时返回空串。 */
+  static unsupportedPseudo(rule: string): string {
+    for (const branch of rule.split(/\|\||&&/)) {
+      let selector = branch;
+      const replaceAt = selector.indexOf('##');
+      if (replaceAt >= 0) selector = selector.substring(0, replaceAt);
+      selector = selector.trim().replace(/^@css:/i, '').replace(/\[[^\]]*\]/g, '[]');
+      const pattern = /:([A-Za-z][\w-]*)(\(([^()]*)\))?/g;
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(selector)) !== null) {
+        const name = match[1].toLowerCase();
+        if (NativeSourceSpec.SUPPORTED_PSEUDO.indexOf(name) < 0) return `:${match[1]}${match[2] || ''}`;
+        if ((name === 'nth-child' || name === 'nth-of-type') && !/^\s*\d+\s*$/.test(match[3] || '')) {
+          return `:${match[1]}${match[2] || ''}`;
+        }
+      }
+    }
+    return '';
+  }
+
+  private static checkMaxPage(maxPage: number | undefined, path: string, errors: string[]): void {
+    if (maxPage !== undefined && !(typeof maxPage === 'number' && Number.isInteger(maxPage) && maxPage >= 1 && maxPage <= 10000)) {
+      errors.push(`${path} 必须是 1 到 10000 的整数`);
+    }
+  }
+
+  /** 可以写自己 rate 的阶段。 */
+  static readonly RATE_STAGES: string[] = ['search', 'explore', 'detail', 'toc', 'content'];
+
+  /** rate 的合法写法：空或 0（不限流）、毫秒间隔、“次数/毫秒”。与 BookSourceRateLimiter.parse 认的一致。 */
+  private static isRateText(value: string): boolean {
+    const text = value.trim();
+    return text === '' || /^\d+$/.test(text) || /^\d+\s*\/\s*\d+$/.test(text);
   }
 
   private static checkBatch(batch: number | undefined, path: string, errors: string[]): void {
@@ -868,7 +1030,7 @@ export class NativeSourceSpec {
         problem = NativeExpr.check(text.substring(1));
         if (!problem) names = NativeExpr.calledNames(text.substring(1));
       } else if (/^@?js\s*:|<js>|@js\s*:/i.test(text)) {
-        problem = '原生规则不支持脚本，请改用 = 表达式';
+        problem = '原生书源不支持脚本，请改用 = 表达式';
       } else if (text.indexOf('{{') >= 0) {
         problem = NativeExpr.checkTemplate(text);
         if (!problem) names = NativeExpr.calledNames(text, true);

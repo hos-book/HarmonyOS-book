@@ -26,6 +26,8 @@ export interface SourceCookieJar {
   setCookies(url: string, value: string): void;
   replaceCookies(url: string, value: string): void;
   removeCookie(url: string, name?: string): void;
+  /** Non-blocking removal for UI paths such as logout; jars without it fall back to removeCookie. */
+  removeCookieAsync?(url: string, name?: string): Promise<void>;
   copyCookies(from: string, to: string): void;
   saveAsync(): void;
   saveSync(): void;

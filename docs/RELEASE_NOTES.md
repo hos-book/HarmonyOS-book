@@ -1,4 +1,28 @@
-# 1.1.16 更新日志（2026-11-20）
+# 1.1.17 更新日志（2026-11-21）
+
+1. 完善原生书源设置，集中展示模式选项、账号与书源操作，支持按当前配置显示相关选项，并保留已保存的设置。
+2. 优化多书源搜索与换源流程，及时取消已结束的请求；从书籍详情或播放页返回搜索时，恢复同名书籍来源列表及浏览位置。
+3. 调整首页、书架、阅听记录与个人中心的切换方式，减少整页移动，保留页签反馈及当前页面的内容状态。
+4. 优化播放进度保存与后台任务调度，合并重复写入，完善有声书和文字朗读的定时停止及前后台切换衔接。
+5. 更新书源解析核心，完善条件变量、请求编码、登录会话与 Cookie 处理，提升导入书源的兼容性。
+6. 优化书源管理和设置页面的刷新方式、长文本展示及操作反馈，减少重复加载。
+
+## 发布配置
+
+- 版本代码：1027001；发布渠道为邀请测试，沿用现有会员功能配置。
+- 覆盖全部现有测试组，开启测试通知，关闭上架自检及自检报告通知，选择即刻生效。
+
+## 构建与发布记录
+
+- 发布包、混淆映射、验包结果与邀测回执归档于 `artifacts/releases/1.1.17-1027001/`。
+- 使用 Release SDK 26.0.0.105 和现有发布签名完成 APP 构建；验包确认 1.1.17 / 1027001、release 模式、debug=false、最低 API 20、目标 API 26，资源及混淆契约检查通过。
+- 已执行变更 ETS 的独立静态检查；构建 MCP 遇到既有 OHPM 批处理递归错误，改用同一 Release IDE 的 Node/Hvigor CLI 完成编译与签名。
+- 本次发版未新增设备功能验收；既有实机观察与待验证项见 `docs/APP_UI.md`、`docs/LIGHT_SOURCE_SYNC.md`，原生源真实登录及登录后阅读仍待验证。
+- 发布参考本轮读取的 [AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)、[邀测流程](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/workflows.md)与 [Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)。目录 API 返回 HTTP 429，未完成目录树刷新，使用当前索引提供的技能路径。
+
+---
+
+## 1.1.16 更新日志（2026-11-20）
 
 1. 优化首页、书架、阅听记录及个人中心的页面切换，改善连续操作和返回页面时的内容衔接。
 2. 优化全网榜单加载与刷新，优先展示当前浏览内容，保留返回时的轮播位置，减少重复加载。

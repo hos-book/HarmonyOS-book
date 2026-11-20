@@ -1060,6 +1060,49 @@ export class PreferenceService {
     await s.flush();
   }
 
+  /** 同一播放快照的四组键一次落盘，完成后再通知卡片与同步服务。 */
+  static async savePlaybackSnapshot(progress: PlayProgress): Promise<void> {
+    if (!progress.bookId || !progress.chapterId) return;
+    const store = await PreferenceService.ensureStore();
+    const historyEnabled = GeneralSettings.current.historyEnabled;
+    if (historyEnabled) {
+      const history = await PreferenceService.getHistory();
+      const item: PlayHistoryItem = {
+        bookId: progress.bookId, chapterId: progress.chapterId, progressMs: progress.positionMs,
+        updatedAt: progress.updatedAt, chapterTitle: progress.chapterTitle, durationMs: progress.durationMs,
+        sourceUrl: progress.sourceUrl, bookUrl: progress.bookUrl
+      };
+      const next = history.filter((saved: PlayHistoryItem): boolean => saved.bookId !== progress.bookId);
+      next.unshift(item);
+      await store.put(KEY_HISTORY, JSON.stringify(next.slice(0, 50)));
+    }
+    const lastPlayed: LastPlayedItem = {
+      bookId: progress.bookId, chapterId: progress.chapterId, progressMs: progress.positionMs,
+      chapterTitle: progress.chapterTitle, durationMs: progress.durationMs, speed: progress.speed
+    };
+    const chapter = new ChapterPlayProgress();
+    chapter.bookId = progress.bookId;
+    chapter.chapterId = progress.chapterId;
+    chapter.positionMs = progress.positionMs;
+    chapter.durationMs = progress.durationMs;
+    chapter.updatedAt = progress.updatedAt;
+    const saved = await PreferenceService.loadChapterProgresses(progress.bookId);
+    const chapters = saved.filter((item: ChapterPlayProgress): boolean => item.chapterId !== progress.chapterId);
+    chapters.unshift(chapter);
+    if (chapters.length > MAX_CHAPTER_PROGRESS_PER_BOOK) chapters.length = MAX_CHAPTER_PROGRESS_PER_BOOK;
+    await store.put(KEY_LAST_PLAYED, JSON.stringify(lastPlayed));
+    await store.put(KEY_PROGRESS_PREFIX + progress.bookId, JSON.stringify(progress));
+    await store.put(KEY_CHAPTER_PROGRESS_PREFIX + progress.bookId, JSON.stringify(chapters));
+    await store.flush();
+    PreferenceService.progressMemo.set(progress.bookId, progress);
+    PreferenceService.chapterProgressMemo.set(progress.bookId, chapters);
+    if (historyEnabled) PreferenceService.notifyHistoryChanged();
+    else emitter.emit(LIBRARY_SYNC_CHANGED);
+    await PreferenceService.promoteFavorite(progress.bookId).catch((): void => {
+      // 书架排序失败不影响已保存的播放进度。
+    });
+  }
+
   static async getLastPlayed(): Promise<LastPlayedItem | null> {
     const s = await PreferenceService.ensureStore();
     const raw = await s.get(KEY_LAST_PLAYED, '') as string;

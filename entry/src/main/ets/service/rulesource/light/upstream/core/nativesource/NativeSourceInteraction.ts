@@ -29,7 +29,29 @@ export interface NativeSourceInteractionHandler {
 }
 
 export class NativeSourceInteraction {
+  /** 用户在书源脚本弹出的验证页里点了返回（或等待超时）后，这么久内不再自动弹出，改走「去验证」。 */
+  static readonly DECLINE_COOLDOWN_MS: number = 10 * 60 * 1000;
   private static current: NativeSourceInteractionHandler | null = null;
+  private static declinedAt: Map<string, number> = new Map();
+
+  /** 记下用户关掉了这个书源的验证页。 */
+  static noteDeclined(sourceUrl: string, now: number = Date.now()): void {
+    if (sourceUrl) NativeSourceInteraction.declinedAt.set(sourceUrl, now);
+  }
+
+  /** 这个书源是否还在冷却期：是的话阅读、刷新时不再自动弹出网页。 */
+  static isDeclined(sourceUrl: string, now: number = Date.now()): boolean {
+    const at = NativeSourceInteraction.declinedAt.get(sourceUrl);
+    if (at === undefined) return false;
+    if (now - at < NativeSourceInteraction.DECLINE_COOLDOWN_MS && now >= at) return true;
+    NativeSourceInteraction.declinedAt.delete(sourceUrl);
+    return false;
+  }
+
+  /** 用户自己去验证并完成了（或脚本的验证页正常完成）：恢复自动弹出。 */
+  static clearDeclined(sourceUrl: string): void {
+    NativeSourceInteraction.declinedAt.delete(sourceUrl);
+  }
 
   static setHandler(handler: NativeSourceInteractionHandler | null): void {
     NativeSourceInteraction.current = handler;

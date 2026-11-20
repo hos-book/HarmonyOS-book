@@ -254,19 +254,19 @@ export class BookSourceStageWebRuntime {
     return new Promise<StageWebRuntimeResult>((resolve, reject) => {
       if (SourceEngineHost.isCancelled(request.source) ||
         (request.ownerId && this.cancelledOwners.has(request.ownerId))) {
-        reject(new Error('规则脚本任务已取消'));
+        reject(new Error('书源脚本任务已取消'));
         return;
       }
       const estimatedBytes = this.estimateRequestBytes(request);
       const inputLimit = Math.max(256 * 1024,
         Math.min(request.maxInputBytes || 20 * 1024 * 1024, 24 * 1024 * 1024));
       if (estimatedBytes > inputLimit) {
-        reject(new Error(`规则脚本输入过大(${Math.ceil(estimatedBytes / 1024)} KiB)`));
+        reject(new Error(`书源脚本输入过大(${Math.ceil(estimatedBytes / 1024)} KiB)`));
         return;
       }
       if (this.tasks.length + this.workers.size >= BookSourceStageWebRuntime.MAX_QUEUED_TASKS ||
         this.queuedBytes + estimatedBytes > BookSourceStageWebRuntime.MAX_QUEUED_BYTES) {
-        reject(new Error('规则脚本队列繁忙，请稍后重试'));
+        reject(new Error('书源脚本队列繁忙，请稍后重试'));
         return;
       }
       const task = new StageWebRuntimeTask();
@@ -307,7 +307,7 @@ export class BookSourceStageWebRuntime {
     for (const task of this.tasks) {
       if (task.request.ownerId === ownerId) {
         this.queuedBytes = Math.max(0, this.queuedBytes - task.estimatedBytes);
-        if (task.reject) task.reject(new Error('规则脚本任务已取消'));
+        if (task.reject) task.reject(new Error('书源脚本任务已取消'));
       } else {
         remaining.push(task);
       }
@@ -424,7 +424,7 @@ export class BookSourceStageWebRuntime {
   /** Translates raw transport errors (e.g. HarmonyOS "Operation timeout") into readable text. */
   private humanizeNetworkError(raw: string): string {
     const value = (raw || '').trim();
-    if (!value) return '规则脚本网络请求失败';
+    if (!value) return '书源脚本网络请求失败';
     if (/2300028|operation\s+timeout|timed?\s*out|timeout/i.test(value)) {
       return `接口请求超时：源站长时间无响应（${this.hostFromSpec(value)}）`;
     }
@@ -473,20 +473,21 @@ export class BookSourceStageWebRuntime {
 
   private async executeTask(request: StageWebRuntimeRequest): Promise<StageWebRuntimeResult> {
     this.ensureNotCancelled(request);
-    // Coordinators may hold a source snapshot while the login/editor page saves a new token.
-    // Refresh missing runtime fields before executing so a stale empty snapshot cannot issue an
-    // unauthenticated request or overwrite the newly saved state when the stage completes.
+    // Coordinators may hold a source snapshot (a reader keeps the one it opened with) while the
+    // login/editor page saves new state. Persisted state is authoritative, including an EMPTY value:
+    // an empty login header after the user logged out is the logout itself, so the snapshot's old
+    // token must neither be sent nor written back. (Letting a non-empty snapshot win over an empty
+    // database brought a revoked token back after every logout, and the account could not log in again.)
     const persistence = BookSourceRuntimeStore.forSource(request.source);
     const persistedAtStart = persistence ? await persistence.getBookSource(request.source.bookSourceUrl) : null;
     if (persistedAtStart) {
-      // Persisted state is authoritative: the login panel (tone/type/explore switches) and the
-      // editor write runtime state through the database, while coordinators may still hold a
-      // snapshot captured before that save. A stale non-empty snapshot previously won whenever
-      // it was not literally empty, silently ignoring freshly saved settings.
-      request.source.variable = persistedAtStart.variable || request.source.variable;
-      request.source.loginHeader = persistedAtStart.loginHeader || request.source.loginHeader;
-      request.source.loginInfo = persistedAtStart.loginInfo || request.source.loginInfo;
+      request.source.variable = persistedAtStart.variable || '';
+      request.source.loginHeader = persistedAtStart.loginHeader || '';
+      request.source.loginInfo = persistedAtStart.loginInfo || '';
     }
+    // What the script saw when it started; on completion only the fields it actually changed are saved.
+    const variableAtStart = request.source.variable || '';
+    const loginHeaderAtStart = request.source.loginHeader || '';
     const sourceKey = request.source.bookSourceUrl || request.source.bookSourceName || 'source';
     const journal = new BookSourceExecutionJournal();
     const responses: Record<string, string> = journal.responses;
@@ -595,12 +596,12 @@ export class BookSourceStageWebRuntime {
         if (reissued && repeatCount > repeatLimit) {
           console.warn('[StageWebRuntime] repeated request storm for ' +
             (request.source.bookSourceName || '') + ' x' + repeatCount + ', ' + this.describeState());
-          throw new Error('规则脚本网络请求次数过多');
+          throw new Error('书源脚本网络请求次数过多');
         }
         if (requestCount > distinctLimit) {
           console.warn('[StageWebRuntime] request ceiling exceeded for ' +
             (request.source.bookSourceName || '') + ', ' + this.describeState());
-          throw new Error('规则脚本网络请求次数过多');
+          throw new Error('书源脚本网络请求次数过多');
         }
         journal.markRequestStarted(`${BookSourceHostActionKind.HTTP_REQUEST}\n${spec}`);
         const fetchStartedAt = Date.now();
@@ -638,7 +639,7 @@ export class BookSourceStageWebRuntime {
         const totalLimit = Math.max(responseLimit,
           Math.min(request.maxTotalResponseBytes || 16 * 1024 * 1024, 16 * 1024 * 1024));
         if (totalResponseBytes > totalLimit) {
-          throw new Error('规则脚本累计响应过大');
+          throw new Error('书源脚本累计响应过大');
         }
         journal.recordResponse(step.pendingAjax, responseBody);
         journal.recordResponseHeaders(step.pendingAjax, response.headers);
@@ -669,10 +670,15 @@ export class BookSourceStageWebRuntime {
       cacheState = this.storeCache(sourceKey, nextCacheState, cacheState);
       const persistedBeforeSave = persistence ? await persistence.getBookSource(request.source.bookSourceUrl) : null;
       if (persistedBeforeSave) {
-        // Empty state from a non-login task is never an explicit logout. Preserve a token/header
-        // that another page saved while this asynchronous task was running.
-        request.source.variable = step.variable || persistedBeforeSave.variable || '';
-        request.source.loginHeader = request.source.loginHeader || persistedBeforeSave.loginHeader || '';
+        // A stage task may run for seconds while the login page logs out or logs in again. Write
+        // back only what this script itself changed; everything else keeps the latest saved value,
+        // so a task that started with the old token cannot overwrite the new one when it finishes.
+        const scriptVariable = request.source.variable || '';
+        const scriptLoginHeader = request.source.loginHeader || '';
+        request.source.variable = scriptVariable !== variableAtStart ?
+          scriptVariable : (persistedBeforeSave.variable || '');
+        request.source.loginHeader = scriptLoginHeader !== loginHeaderAtStart ?
+          scriptLoginHeader : (persistedBeforeSave.loginHeader || '');
         request.source.loginInfo = this.mergeRuntimeState(
           persistedBeforeSave.loginInfo || request.source.loginInfo || '',
           step.javaState, step.sourceState);
@@ -683,7 +689,7 @@ export class BookSourceStageWebRuntime {
       }
       return step;
     }
-    throw new Error('规则脚本执行步骤过多');
+    throw new Error('书源脚本执行步骤过多');
   }
 
   /**
@@ -877,7 +883,7 @@ export class BookSourceStageWebRuntime {
 
   private ensureNotCancelled(request: StageWebRuntimeRequest): void {
     if (request.ownerId && this.cancelledOwners.has(request.ownerId)) {
-      throw new Error('规则脚本任务已取消');
+      throw new Error('书源脚本任务已取消');
     }
   }
 
@@ -896,7 +902,7 @@ export class BookSourceStageWebRuntime {
     }
     if (!controller) {
       console.warn('[StageWebRuntime] unavailable after wait, ' + this.describeState());
-      throw new Error('规则脚本运行环境未就绪');
+      throw new Error('书源脚本运行环境未就绪');
     }
     return this.runJavaScriptOnController(controller, script);
   }
@@ -907,8 +913,8 @@ export class BookSourceStageWebRuntime {
       const timer = setTimeout(() => {
         if (completed) return;
         completed = true;
-        this.quarantineController(controller, '规则脚本引擎响应超时');
-        reject(new Error('规则脚本引擎响应超时'));
+        this.quarantineController(controller, '书源脚本引擎响应超时');
+        reject(new Error('书源脚本引擎响应超时'));
       }, 20000);
       controller.runJavaScript(script)
         .then((value: string): void => {
@@ -1438,7 +1444,7 @@ export class BookSourceStageWebRuntime {
         ', encoded=' + String(value.indexOf('%7B') >= 0 || value.indexOf('%7b') >= 0) +
         ', error=' + String(error));
       const step = new StageWebRuntimeStep();
-      step.errorMessage = '规则脚本返回格式异常';
+      step.errorMessage = '书源脚本返回格式异常';
       return step;
     }
   }

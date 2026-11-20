@@ -13,6 +13,16 @@ export enum RateLimitAcquireResult {
   RateLimited = 2
 }
 
+/**
+ * A native source stage that declares its own `rate`: its requests queue in a window of their own (keyed by
+ * source + stage) instead of the source-level one. `0` or an empty value means that stage is not limited even
+ * when the source is.
+ */
+export interface BookSourceStageRate {
+  stage: string;
+  rate: string;
+}
+
 export class BookSourceRateLimiter {
   // A Map, not an object: the key is source-supplied text and must never reach a prototype member.
   private static states: Map<string, BookSourceRateState> = new Map<string, BookSourceRateState>();
@@ -24,17 +34,21 @@ export class BookSourceRateLimiter {
    * @param isCancelled checked before every wait slice; a cancelled wait consumes no slot
    * @param maxWaitMs total waiting allowed; 0 (the default) waits as long as the window requires, which is what
    *   reading and caching want. Searching passes a cap: a source may declare windows of up to an hour.
+   * @param stageRate a native stage's own `rate`, replacing the source-level one with a window of its own
    */
   static async acquire(source: BookSource | null, isCancelled?: () => boolean,
-    maxWaitMs: number = 0): Promise<RateLimitAcquireResult> {
+    maxWaitMs: number = 0, stageRate: BookSourceStageRate | null = null): Promise<RateLimitAcquireResult> {
     if (SourceEngineHost.isCancelled(source) || (isCancelled && isCancelled())) {
       return RateLimitAcquireResult.Cancelled;
     }
-    if (!source || !source.concurrentRate) return RateLimitAcquireResult.Acquired;
-    const config = this.parse(source.concurrentRate);
+    if (!source) return RateLimitAcquireResult.Acquired;
+    const rate = stageRate ? stageRate.rate : source.concurrentRate;
+    if (!rate) return RateLimitAcquireResult.Acquired;
+    const config = this.parse(rate);
     if (!config) return RateLimitAcquireResult.Acquired;
-    const key = source.bookSourceUrl || source.bookSourceName;
-    if (!key) return RateLimitAcquireResult.Acquired;
+    const sourceKey = source.bookSourceUrl || source.bookSourceName;
+    if (!sourceKey) return RateLimitAcquireResult.Acquired;
+    const key = stageRate ? `${sourceKey}#rate:${stageRate.stage}` : sourceKey;
     const deadline = maxWaitMs > 0 ? Date.now() + maxWaitMs : 0;
     let state = this.states.get(key);
     if (!state) {

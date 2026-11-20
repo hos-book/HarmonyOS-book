@@ -236,6 +236,52 @@ export class BookChapter {
    * 该章是某一卷的第一章时返回卷名，否则返回空串。
    * 卷名记在 variable 里而不单独占一个章节位置，章节序号和阅读进度不受分卷影响。
    */
+  /**
+   * 目录项第二行的文字：章节变量里的更新时间与字数（书源目录给了 updateTime、wordCount 时才有）。
+   * 10 或 13 位纯数字的时间按秒或毫秒时间戳格式化，其余按原文；纯数字字数补“字”。
+   */
+  /** 目录给出的章节类型（章节变量 type）；没有时为空串，按书籍类型处理。 */
+  static typeOf(chapter: BookChapter): string {
+    const variable = chapter ? chapter.variable : '';
+    if (!variable || variable.indexOf('"type"') < 0) return '';
+    try {
+      const parsed = JSON.parse(variable) as Record<string, Object>;
+      return String(parsed['type'] || '').trim().toLowerCase();
+    } catch (e) {
+      return '';
+    }
+  }
+
+  /** 图文书里的视频章：阅读页显示播放卡片，播放页只列这些章节。 */
+  static isVideoChapter(chapter: BookChapter): boolean {
+    return BookChapter.typeOf(chapter) === 'video';
+  }
+
+  static metaTextOf(chapter: BookChapter): string {
+    const variable = chapter ? chapter.variable : '';
+    if (!variable || (variable.indexOf('"updateTime"') < 0 && variable.indexOf('"wordCount"') < 0)) return '';
+    let parsed: Record<string, Object>;
+    try {
+      parsed = JSON.parse(variable) as Record<string, Object>;
+    } catch (e) {
+      return '';
+    }
+    const parts: string[] = [];
+    const time = BookChapter.chapterTimeText(String(parsed['updateTime'] ?? '').trim());
+    if (time) parts.push(time);
+    const words = String(parsed['wordCount'] ?? '').trim();
+    if (words) parts.push(/^\d+$/.test(words) ? `${words}字` : words);
+    return parts.join(' · ');
+  }
+
+  private static chapterTimeText(value: string): string {
+    if (!/^\d{10}(\d{3})?$/.test(value)) return value;
+    const date = new Date(value.length === 10 ? Number(value) * 1000 : Number(value));
+    const pad = (n: number): string => (n < 10 ? '0' : '') + n;
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
+      `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  }
+
   static volumeTitleOf(chapter: BookChapter): string {
     const variable = chapter ? chapter.variable : '';
     if (!variable || variable.indexOf('"volume"') < 0) return '';

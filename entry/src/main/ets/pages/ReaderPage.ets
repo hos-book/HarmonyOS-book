@@ -374,6 +374,7 @@ export struct ReaderPage {
     this.showCommentSheet = false;
     this.stopAutoPage();
     this.readingForeground = false;
+    this.syncSessionTimer();
     this.volumeKeys.dispose();
     this.smartKeys.dispose();
     this.completeOnlineTextTurn(this.onlineTextTurnConfirmed);
@@ -389,6 +390,7 @@ export struct ReaderPage {
   private readingTime: ReadingTimeTracker = new ReadingTimeTracker();
   private foregroundHandler = (): void => {
     this.readingForeground = true;
+    this.syncSessionTimer();
     this.syncVolumeKeys();
     if (this.readerVisible) { this.syncSpeechPosition(); this.saveProgress(); }
   };
@@ -452,12 +454,10 @@ export struct ReaderPage {
     this.holdingHand.setVisible(this.generalSettings.adaptiveHandedness);
     emitter.on('app.reader.background', this.backgroundHandler);
     emitter.on('app.reader.foreground', this.foregroundHandler);
-    this.sessionTimer = setInterval((): void => {
-      if (this.readingForeground && this.readerVisible && !this.leaving) this.saveProgress();
-    }, 15000);
     emitter.on(EVT_READER_TYPOGRAPHY_CHANGED, this.typographyChangeHandler);
     this.leaving = false;
     this.readerVisible = true;
+    this.syncSessionTimer();
     this.readerBarVisible = false;
     this.syncReaderStatusBar();
     WindowUtils.setReaderActive(true);
@@ -507,6 +507,16 @@ export struct ReaderPage {
     WindowUtils.removeSafeAreaListener(this.safeAreaChangeHandler);
     WindowUtils.removeReaderColorListener(this.readerColorListener);
     WindowUtils.setStatusBarLight(false);
+  }
+
+  private syncSessionTimer(): void {
+    if (!this.readingForeground || !this.readerVisible || this.leaving) {
+      if (this.sessionTimer >= 0) clearInterval(this.sessionTimer);
+      this.sessionTimer = -1;
+      return;
+    }
+    if (this.sessionTimer >= 0) return;
+    this.sessionTimer = setInterval((): void => this.saveProgress(), 15000);
   }
 
   private cancelReaderSettingsRefresh(): void {
@@ -3386,6 +3396,7 @@ export struct ReaderPage {
     .defaultFocus(true)
     .onVisibleAreaChange([0, 1], (visible: boolean): void => {
       this.readerVisible = visible;
+      this.syncSessionTimer();
       if (visible) this.syncSpeechPosition();
       this.saveProgress();
       if (!visible) ReadingSessionService.end('reading');

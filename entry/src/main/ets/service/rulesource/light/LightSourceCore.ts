@@ -258,7 +258,8 @@ export class LightSourceCore {
           url:item.url,type:'category',group:item.groupTitle || ''}))});
       }
       const definition = NativeSourceSpec.unpack(source.jsLib);
-      const controls: Object[] = NativeSourceService.varItems(source).map(item => {
+      const controls: Object[] = NativeSourceService.varItems(source).filter(item => login ||
+        definition?.vars?.some(spec => spec.key === item.key && spec.filter === true)).map(item => {
         const dynamic = definition?.vars?.some(spec => spec.key === item.key && !!spec.optionsScript) ?? false;
         const options = item.options;
         return {
@@ -269,9 +270,14 @@ export class LightSourceCore {
         placeholder: '',
         action: dynamic || options.length ? `light-native-set:${item.key}` : ''
       };});
-      if (controls.length) controls.push({id:'light-native-save',title:saveLabel,type:'button',action:'light-native-save'});
+      if (login && controls.length) controls.push({id:'light-native-save',title:saveLabel,type:'button',action:'light-native-save'});
       const spec = NativeSourceService.loginSpec(source);
       const form = NativeSourceService.loginForm(source);
+      const loggedIn = NativeSourceService.hasLoginCookies(source);
+      const credential = NativeSourceService.credential(source);
+      const loginState = !spec ? '' : !loggedIn ? 'none' :
+        credential.token || spec.cookies?.length ? 'valid' : 'saved';
+      if (login) {
       for (const field of form) {
         controls.push({id:`light-native-form:${field.key}`,title:field.label || field.key,
           type:field.secret ? 'password' : 'text',value:'',group:field.key});
@@ -282,9 +288,12 @@ export class LightSourceCore {
         controls.push({id:'light-native-submit',title:loginLabel,type:'button',action:'light-native-submit'});
       }
       if (spec?.url) controls.push({id:'light-native-login',title:loginLabel,type:'button',action:'light-native-login'});
+      if (spec?.check) controls.push({id:'light-native-check',title:'',type:'button',action:'light-native-check'});
+      if (loggedIn) controls.push({id:'light-native-logout',title:'',type:'button',action:'light-native-logout'});
       for (const item of await NativeSourceService.actions(source,new HttpClient())) {
         controls.push({id:`light-native-action:${item.index}`,title:item.label,type:'button',
           action:`light-native-action:${item.index}`});
+      }
       }
       const menuStarted = Date.now();
       const menus = login ? [] : await NativeSourceService.exploreMenus(source, new HttpClient());
@@ -295,7 +304,7 @@ export class LightSourceCore {
         return {id:`${menu.title}:${menu.target}`,title:menu.title,url:menu.target,
           type:menu.target ? 'category' : 'group', group};
       });
-      return JSON.stringify({controls,entries});
+      return JSON.stringify({controls,entries,loginState,loginUser:credential.user});
     });
   }
   static async panelOptions(localJson: string, controlId: string): Promise<string> {
@@ -348,6 +357,16 @@ export class LightSourceCore {
         if (!spec?.url || !/^https:\/\//i.test(spec.url)) throw new Error('书源未声明有效的 HTTPS 登录地址');
         return JSON.stringify({browserUrl:spec.url});
       }
+      if (action.action === 'light-native-check') {
+        const result = await NativeSourceService.checkLogin(source,new HttpClient());
+        return JSON.stringify({message:result.message,checkedLoginState:result.ok ? 'valid' : 'none',refresh:true});
+      }
+      if (action.action === 'light-native-logout') {
+        await NativeSourceService.logout(source);
+        await LightSourceDatabase.getInstance(source).updateBookSourceLoginRuntime(source.bookSourceUrl,
+          source.variable,'',NativeSourceService.loginInfoWith(source,'',''));
+        return JSON.stringify({refresh:true,refreshLogin:true});
+      }
       if (action.action === 'light-native-submit' || action.action === 'light-native-send-code') {
         const inputs = JSON.parse(controlsJson) as {id:string;value:string}[];
         const form: Record<string,string> = {};
@@ -359,7 +378,7 @@ export class LightSourceCore {
         }
         const result = await NativeSourceService.submitLogin(source,new HttpClient(),form);
         if (result.ok) {
-          const info = NativeSourceService.loginInfoWith(source,result.token,result.user);
+          const info = NativeSourceService.loginInfoWith(source,result.token || 'ok',result.user);
           await LightSourceDatabase.getInstance(source).updateBookSourceLoginRuntime(
             source.bookSourceUrl,source.variable,source.loginHeader,info);
         }

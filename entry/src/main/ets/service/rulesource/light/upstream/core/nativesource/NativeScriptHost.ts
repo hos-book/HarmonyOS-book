@@ -11,6 +11,7 @@ import { BookSourceDebugRedactor } from '../book/BookSourceDebugModels';
 import { NativeExpr } from './NativeExpr';
 import type { NativeValue } from './NativeExpr';
 import type { NativeRequest, NativeResponse, NativeRunnerHost } from './NativeSourceRunner';
+import type { BookSourceStageRate } from '../http/BookSourceRateLimiter';
 
 /** 宿主对脚本一次调用的处理；抛出的错误会成为脚本里可以 catch 的错误。 */
 export type NativeScriptCallHandler = (name: string, args: NativeValue[]) => Promise<NativeValue> | NativeValue;
@@ -72,9 +73,21 @@ export interface NativeScriptContext {
    * 搜索、发现是多个书源同时跑的，不弹网页，browser.verify 改走「去验证」。
    */
   interactive: boolean;
+  /**
+   * 本可交互的阶段（详情、目录、正文）这次在后台运行：书架检查更新、预加载邻章、缓存下载，或用户刚在验证页
+   * 点了返回还在冷却期。browser.verify 改走「去验证」，browser.open 直接跳过，免得反复弹出网页。
+   */
+  background?: boolean;
   /** 脚本请求实际带的请求头：顶层 headers 按当前作用域求值，再叠上脚本给出的（同名以脚本为准）。 */
   requestHeaders: (own: Record<string, string>) => Promise<Record<string, string>>;
+  /** 书源顶层的 charset：脚本请求没写 charset 时用它。 */
+  charset?: string;
+  /** 所在阶段写了自己的 rate 时，脚本发的请求也按它排队。 */
+  stageRate?: BookSourceStageRate;
 }
+
+/** responseType: 'bytes' 的单个响应上限：字节要转成 Base64 经 JSON 交给脚本，再大就不划算。 */
+export const MAX_BINARY_RESPONSE_BYTES: number = 8 * 1024 * 1024;
 
 const BATCH = 8;
 const MAX_SLEEP_MS = 5000;
@@ -176,12 +189,17 @@ export class NativeScriptHost {
         return this.context.emit(args[0] === undefined ? null : args[0]).then((): NativeValue => null);
       }
       case '@browserVerify':
-        return this.browserVerify(this.url(args[0]), this.text(args[1]), args[2]);
+        return this.browserVerify(this.browserUrl(args[0]), this.text(args[1]), args[2]);
       case '@browserOpen': {
         const host = this.context.host;
+        const url = this.browserUrl(args[0]);
+        if (this.context.background) {
+          this.trace(`browser.open ${url}`, '后台运行，不打开网页', '');
+          return null;
+        }
         if (!this.context.interactive) throw new Error(NOT_INTERACTIVE);
         if (!host.openBrowser) throw new Error('当前环境不支持打开网页');
-        return this.browserOpen(this.url(args[0]), this.text(args[1]));
+        return this.browserOpen(url, this.text(args[1]));
       }
       case '@render':
         return this.render(this.url(args[0]), args[1]);
@@ -214,7 +232,7 @@ export class NativeScriptHost {
     }
     const userAgent = supplied === undefined ? await this.userAgent() : String(supplied);
     const host = this.context.host;
-    if (!this.context.interactive) {
+    if (!this.context.interactive || this.context.background) {
       if (host.requestVerification) host.requestVerification(url, hint || '网页验证', userAgent);
       throw new Error(`需要网页验证${hint ? `（${hint}）` : ''}，请点「去验证」后重试`);
     }
@@ -327,14 +345,18 @@ export class NativeScriptHost {
     }
     if (this.context.cancelled()) throw new Error('已取消');
     const body = response.body || '';
-    this.bytes += body.length;
+    const base64 = request.binary ? (response.bodyBase64 || '') : '';
+    // 字节响应按实际字节数计入累计上限（Base64 每 4 个字符 3 字节）。
+    const received = request.binary ? Math.floor(base64.length * 3 / 4) : body.length;
+    this.bytes += received;
     this.trace(`${request.method} ${BookSourceDebugRedactor.url(request.url)}`,
-      `${response.requestId || ''} · ${response.status || '-'} · ${body.length} 字符 · ${Date.now() - startedAt} ms`,
+      `${response.requestId || ''} · ${response.status || '-'} · ${received} ${request.binary ? '字节' : '字符'} · ` +
+        `${Date.now() - startedAt} ms`,
       response.ok ? '' : (response.error || `HTTP ${response.status}`));
     if (this.bytes > this.context.limits.bytes) {
       throw new Error(`脚本收到的数据超过上限（${Math.round(this.context.limits.bytes / 1024 / 1024)} MB）`);
     }
-    return {
+    const result: Record<string, NativeValue> = {
       errorCode: response.errorCode || (response.ok ? '' : response.status > 0 ? 'HTTP_STATUS' : 'REQUEST_FAILED'),
       errorStage: response.errorStage || (response.ok ? '' : response.status > 0 ? 'response' : 'unknown'),
       statusCodeAvailable: response.statusCodeAvailable === true,
@@ -346,6 +368,9 @@ export class NativeScriptHost {
       headers: HttpHeaderValues.normalize(response.headers || {}), headersAvailable: response.headersAvailable === true,
       requestId: response.requestId || ''
     };
+    // 前置脚本把 bodyBase64 换成 response.bytes（Uint8Array）后删掉这个键。
+    if (request.binary) result['bodyBase64'] = base64;
+    return result;
   }
 
   /** 脚本给出的请求（地址字符串或对象）整理成与声明式请求相同的 NativeRequest。 */
@@ -367,16 +392,26 @@ export class NativeScriptHost {
     if (!/^[A-Z]+$/.test(method)) throw new Error(`请求方法无效：${spec['method']}`);
     const web = spec['webView'];
     const webSpec: Record<string, NativeValue> | null = web && typeof web === 'object' ? web as Record<string, NativeValue> : null;
-    return {
+    const responseType = spec['responseType'];
+    if (responseType !== undefined && responseType !== null && responseType !== 'text' && responseType !== 'bytes') {
+      throw new Error(`responseType 只能是 'text' 或 'bytes'：${this.text(responseType)}`);
+    }
+    const binary = responseType === 'bytes';
+    if (binary && (web === true || !!webSpec)) throw new Error("responseType: 'bytes' 不能与 webView 同用");
+    if (binary && /^data:/i.test(url)) throw new Error("responseType: 'bytes' 不支持 data: 地址");
+    const request: NativeRequest = {
       url: url, method: method, headers: await this.context.requestHeaders(headers), body: body,
       webView: web === true || !!webSpec,
       webWaitFor: webSpec && webSpec['waitFor'] ? String(webSpec['waitFor']).trim() : '',
       webTimeout: Math.max(3, Math.min(Number(webSpec ? webSpec['timeout'] : 0) || 15, 60)),
-      charset: this.text(spec['charset']).trim(),
+      charset: this.text(spec['charset']).trim() || (this.context.charset || ''),
       retry: HttpRetryPolicy.parse(spec['retry']),
       timeoutMs: spec['timeout'] === undefined ? defaultTimeout : this.requestTimeout(spec['timeout']),
       primary: false
     };
+    if (binary) request.binary = true;
+    if (this.context.stageRate) request.stageRate = this.context.stageRate;
+    return request;
   }
 
   /** 书源请求用的 User-Agent：顶层 headers 里写了（可以是模板）就用求值后的值，否则用宿主默认的。 */
@@ -408,6 +443,18 @@ export class NativeScriptHost {
 
   private url(value: NativeValue): string {
     return NativeExpr.resolveUrl(this.text(value).trim(), this.context.sourceUrl);
+  }
+
+  /**
+   * browser.verify / browser.open 的地址。脚本拼地址时变量没取到值，会得到 “undefined”“null” 这样的文本，
+   * 补上站点域名后看起来像正常网址，打开却是空白页，而且每次刷新都再弹一次。这类地址直接报书源错误。
+   */
+  private browserUrl(value: NativeValue): string {
+    const raw = this.text(value).trim();
+    if (!raw || /^(?:undefined|null|NaN)$/.test(raw) || /(?:^|[\/=])(?:undefined|null|NaN)(?=$|[\/?#&])/.test(raw)) {
+      throw new Error(`网页地址无效：${raw || '空'}（书源脚本没有给出有效地址）`);
+    }
+    return this.url(raw);
   }
 
   private text(value: NativeValue): string {

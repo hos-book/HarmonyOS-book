@@ -9,8 +9,9 @@ export class SourceImageDecoder {
   private static readonly ISO_BRANDS = ['ftypavif', 'ftypavis', 'ftypheic', 'ftypheix', 'ftypmif1', 'ftypmsf1'];
 
   static validate(spec: NativeCoverDecodeSpec): void {
-    if (!spec || !/^AES\/CBC\/PKCS(?:5|7)Padding$/i.test(spec.algorithm || '')) {
-      throw new Error('coverDecode requires AES/CBC/PKCS7Padding');
+    // NoPadding: the ciphertext is whole blocks with no padding to strip; image formats ignore trailing bytes.
+    if (!spec || !/^AES\/CBC\/(?:PKCS5|PKCS7|No)Padding$/i.test(spec.algorithm || '')) {
+      throw new Error('coverDecode requires AES/CBC/PKCS7Padding or AES/CBC/NoPadding');
     }
     if (![16, 24, 32].includes(NativeSourceSpec.coverKeyBytes(spec))) throw new Error('Invalid AES key');
     if (spec.ivPrefixBytes === 16) {

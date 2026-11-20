@@ -5,16 +5,22 @@ import { BookSourceService } from './BookSourceService';
 import { SourceDataService } from './SourceDataService';
 import { BookIdentity } from '../utils/BookIdentity';
 import { ChapterTitleFormatter } from '../utils/ChapterTitleFormatter';
+import { LightSourceRequest } from './rulesource/light/LightSourceRequestPolicy';
 
 export class SourceSwitchSearch {
   private stopped: boolean = false;
   private cancelWait: (() => void) | null = null;
   private cancellation: Promise<SearchResult[]>;
+  private requests: Set<LightSourceRequest> = new Set();
+  private updateTimer: number = -1;
 
   get cancelled(): boolean { return this.stopped; }
   set cancelled(value: boolean) {
     if (!value || this.stopped) return;
     this.stopped = true;
+    for (const request of this.requests) request.cancel();
+    if (this.updateTimer !== -1) clearTimeout(this.updateTimer);
+    this.updateTimer = -1;
     if (this.cancelWait !== null) this.cancelWait();
   }
   failed: number = 0;
@@ -32,6 +38,7 @@ export class SourceSwitchSearch {
 
   async run(book: Book, update: (books: Book[]) => void, keyword: string = ''): Promise<void> {
     const query = keyword.trim() || SourceSwitchSearch.searchKeyword(book.title);
+    const queryKey = SourceSwitchSearch.titleKey(query);
     const available = await Promise.race([SourceDataService.getEnabledSources(),
       this.cancellation.then((): BookSource[] => [])]);
     const contentType = book.contentType ?? 'audio';
@@ -46,22 +53,33 @@ export class SourceSwitchSearch {
     const seen = new Set<string>();
     if (this.cancelled) return;
     update([]);
+    const publish = (): void => {
+      if (this.updateTimer !== -1) clearTimeout(this.updateTimer);
+      this.updateTimer = -1;
+      if (!this.cancelled) update(found.slice());
+    };
     let nextIndex = 0;
     const worker = async (): Promise<void> => {
       while (!this.cancelled && nextIndex < sources.length) {
         const source = sources[nextIndex++];
+        const request = new LightSourceRequest();
+        request.cancelCheck = (): boolean => this.cancelled;
+        this.requests.add(request);
         let timer = -1;
         try {
           const timeout = new Promise<SearchResult[]>((_resolve, reject): void => {
-            timer = setTimeout((): void => reject(new Error('source search timeout')), this.timeoutMs);
+            timer = setTimeout((): void => {
+              request.cancel();
+              reject(new Error('source search timeout'));
+            }, this.timeoutMs);
           });
-          const results = await Promise.race([BookSourceService.searchBooks(source, query), timeout, this.cancellation]);
+          const results = await Promise.race([BookSourceService.searchBooks(source, query, 1, request), timeout, this.cancellation]);
           if (this.cancelled) return;
           for (const result of results) {
             const kind = result.contentType ?? (source.bookSourceType === LocalRuleSourceType.COMIC ? 'comic' : (source.bookSourceType === LocalRuleSourceType.TEXT ||
               source.bookSourceType === LocalRuleSourceType.WEB_FILE) ? 'text' : 'audio');
             if (kind !== contentType || !result.bookUrl ||
-              !SourceSwitchSearch.titleKey(result.name).includes(SourceSwitchSearch.titleKey(query))) continue;
+              !SourceSwitchSearch.titleKey(result.name).includes(queryKey)) continue;
             const candidate = SourceSwitchSearch.toBook(result, source, kind);
             if (seen.has(candidate.id)) continue;
             seen.add(candidate.id);
@@ -71,16 +89,18 @@ export class SourceSwitchSearch {
           if (!this.cancelled) this.failed++;
         } finally {
           if (timer !== -1) clearTimeout(timer);
+          this.requests.delete(request);
           if (!this.cancelled) {
             this.completed++;
-            update(found.slice());
+            if (this.updateTimer === -1) this.updateTimer = setTimeout(publish, 100);
           }
         }
       }
     };
     const tasks: Promise<void>[] = [];
     for (let index = 0; index < Math.min(6, sources.length); index++) tasks.push(worker());
-    await Promise.all(tasks);
+    try { await Promise.all(tasks); }
+    finally { publish(); }
   }
 
   /** Strip edition labels from the search query; keep the full title in results for confirmation. */

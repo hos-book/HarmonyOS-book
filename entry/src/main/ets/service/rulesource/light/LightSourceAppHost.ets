@@ -38,7 +38,8 @@ export class LightSourceAppHost implements LightSourceHost {
     local.bookSourceUrl = source.bookSourceUrl;
     local.variable = source.variable;
     local.definition = LocalRuleSourceCodec.stringify(source);
-    local.rawSourceJson = JSON.stringify(source);
+    // definition 已包含可执行的完整定义。不要再把含 rawSourceJson 的模型嵌套复制一遍；
+    // 搜索分页、详情和换源都会经过这里，重复大脚本会放大主线程分配与 GC。
     local.engine = source.engine;
     local.enabledExplore = source.enabledExplore;
     return JSON.stringify(local);

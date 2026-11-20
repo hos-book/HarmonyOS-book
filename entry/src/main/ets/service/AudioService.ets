@@ -12,7 +12,7 @@ import { avSession } from '@kit.AVSessionKit';
 import { Book, Chapter, AudioSource } from '../model/Book';
 import { BookSource } from '../model/BookSource';
 import { PlayerState, PlayMode, SleepMode } from '../model/PlayerState';
-import { PreferenceService, PlayProgress, ChapterPlayProgress } from './PreferenceService';
+import { PreferenceService, PlayProgress } from './PreferenceService';
 import { SourceDataService } from './SourceDataService';
 import { AudioRequestInfo, BookSourceService } from './BookSourceService';
 import { DataService } from './DataService';
@@ -259,6 +259,8 @@ export class AudioService {
       this.foregroundPositionUntil = 0;
       this.foregroundResume = null;
     }
+    this.updateSleepTimer();
+    this.scheduleSleepTimer();
     this.tracePlayback(foreground ? 'foreground' : 'background');
   }
   private resumeAfterSleepChapter: boolean = false;
@@ -273,6 +275,7 @@ export class AudioService {
   /** 节流持久化的最近一次时间戳。正常播放依靠 timeUpdate 稀疏持久化(5s 一次),
    *  避免依赖 tick 频繁落盘,配合低功耗渲染器长休眠周期 */
   private lastPersistAt: number = 0;
+  private historyCachedGeneration: number = -1;
   private historyWriteChain: Promise<void> = Promise.resolve();
   private static readonly PERSIST_INTERVAL_MS: number = 5000;
   private static readonly USAGE_TICK_MS: number = 15000;
@@ -614,12 +617,7 @@ export class AudioService {
       }
       // 先更新进度，再处理片尾停止，确保落盘的是本次章尾位置。
       this.checkSkipOutro(ms);
-      // 稀疏持久化:正常播放期间每 5s 落盘一次,避免杀进程丢失大段进度。
-      // 与 tick 的 15s 持久化错开:这里管播放中兜底,tick 管 Widget 同步兜底。
-      if (this.state.isPlaying && now - this.lastPersistAt >= AudioService.PERSIST_INTERVAL_MS) {
-        this.persistHistory().catch(() => { /* ignore */ });
-        this.lastPersistAt = now;
-      }
+      this.persistPeriodicHistory();
     });
     p.on('error', (err: BusinessError) => {
       if (this.player !== p || this.playerSourceGeneration !== this.playGen) return;
@@ -858,7 +856,7 @@ export class AudioService {
     };
     this.usageSince = systemDateTime.getUptime(systemDateTime.TimeType.STARTUP);
     this.timer = setInterval(() => {
-      this.persistHistory();
+      this.persistPeriodicHistory();
       this.recordListenUsage();
       // 同步给 widget:稳态播放期间 stateChange 不再翻转,卡片那边的 FormExt 进程
       // 缓存又跟主进程隔离,系统触发 onUpdateForm 时容易读到陈旧的 isPlaying。
@@ -913,7 +911,12 @@ export class AudioService {
     this.lastProgressWriteAt = Date.now();
   }
 
-  private async persistHistory(): Promise<void> {
+  private persistPeriodicHistory(): void {
+    if (!this.state?.isPlaying || Date.now() - this.lastPersistAt < AudioService.PERSIST_INTERVAL_MS) return;
+    this.persistHistory(true).catch((): void => { /* 下一检查点重试，暂停和切章仍立即保存。 */ });
+  }
+
+  private async persistHistory(periodic: boolean = false): Promise<void> {
     if (this.frozenPersistGen >= 0) return;
     if (!this.state || !this.state.currentBook || !this.state.currentChapter) return;
     if (!this.state.isPlaying && LibrarySyncActivity.remotePlayback.has(this.state.currentBook.id)) return;
@@ -927,23 +930,14 @@ export class AudioService {
     const durationMs = this.state.durationMs;
     const speed = this.state.speed;
     const updatedAt = Date.now();
+    this.lastPersistAt = updatedAt;
+    const generation = this.playGen;
     const chapterIndex = this.findChapterIndex(book, chapter);
     // 内存信号立即更新，页面恢复不等待 Preferences/数据库 I/O。
     PlaybackStore.getInstance().update(book.id, chapterId, chapterIndex,
       chapter.source?.value ?? '', this.state.isPlaying);
     const write = this.historyWriteChain.catch((): void => {}).then(async (): Promise<void> => {
       if (LibrarySyncActivity.remotePlayback.has(book.id) && !this.state?.isPlaying) return;
-      await PreferenceService.upsertHistory({
-        bookId: book.id,
-        chapterId,
-        progressMs,
-        updatedAt,
-        chapterTitle,
-        durationMs,
-        sourceUrl: book.sourceUrl || '',
-        bookUrl: book.bookUrl || ''
-      });
-      await PreferenceService.setLastPlayed(book.id, chapterId, progressMs, chapterTitle, durationMs, speed);
       // 每本书独立的最新进度,切书前 reset AVPlayer 之前必须把这条落盘,
       // 切回旧书时 caller 没传 positionMs 也能从这里 fallback 到上次位置
       const progress: PlayProgress = {
@@ -958,15 +952,13 @@ export class AudioService {
         sourceUrl: book.sourceUrl || '',
         bookUrl: book.bookUrl || ''
       };
-      await PreferenceService.saveProgress(progress);
-      const chapterProgress = new ChapterPlayProgress();
-      chapterProgress.bookId = book.id;
-      chapterProgress.chapterId = chapterId;
-      chapterProgress.positionMs = progressMs;
-      chapterProgress.durationMs = durationMs;
-      chapterProgress.updatedAt = updatedAt;
-      await PreferenceService.saveChapterProgress(chapterProgress);
-      await DataService.upsertCachedBook(book);
+      await PreferenceService.savePlaybackSnapshot(progress);
+      // 进度键不包含目录；周期检查点只在本次播放首次保存书籍快照。
+      // 暂停、切章、退出和 prepared 时的真实时长更新仍保存完整目录。
+      if (!periodic || this.historyCachedGeneration !== generation) {
+        await DataService.upsertCachedBook(book);
+        this.historyCachedGeneration = generation;
+      }
       emitter.emit(EVT_HISTORY_UPDATED, { data: { bookId: book.id } });
     });
     this.historyWriteChain = write;
@@ -1808,9 +1800,9 @@ export class AudioService {
     });
     this.state.sleepSmartStop = smartStop;
     this.state.sleepFadeOut = fadeOut;
-    this.sleepEndTime = Date.now() + minutes * 60 * 1000;
+    this.sleepEndTime = systemDateTime.getUptime(systemDateTime.TimeType.STARTUP) + minutes * 60 * 1000;
     this.state.sleepRemainingMs = minutes * 60 * 1000;
-    this.sleepTimer = setInterval(() => this.updateSleepTimer(), 1000);
+    this.scheduleSleepTimer();
     return true;
   }
 
@@ -1849,15 +1841,29 @@ export class AudioService {
     if (!enabled && this.state.sleepWaitingForChapter) this.finishSleep(false);
   }
 
+  private scheduleSleepTimer(): void {
+    if (this.sleepTimer >= 0) clearTimeout(this.sleepTimer);
+    this.sleepTimer = -1;
+    if (!this.state || this.state.sleepMode !== SleepMode.Duration || this.state.sleepWaitingForChapter) return;
+    const remaining = Math.max(0, this.sleepEndTime - systemDateTime.getUptime(systemDateTime.TimeType.STARTUP));
+    // 后台仅等待到期；前台保持秒级显示，切换前后台不会重置截止时间。
+    this.sleepTimer = setTimeout((): void => {
+      this.sleepTimer = -1;
+      this.updateSleepTimer();
+      this.scheduleSleepTimer();
+    }, this.foreground ? Math.min(1000, remaining) : remaining);
+  }
+
   private updateSleepTimer(atChapterEnd: boolean = false): void {
     if (!this.state || this.state.sleepMode !== SleepMode.Duration || this.state.sleepWaitingForChapter) return;
-    const remaining = Math.max(0, this.sleepEndTime - Date.now());
+    const remaining = Math.max(0, this.sleepEndTime - systemDateTime.getUptime(systemDateTime.TimeType.STARTUP));
     this.state.sleepRemainingMs = remaining;
     if (remaining > 0) return;
     if (atChapterEnd) {
       this.finishSleep(true);
       return;
     }
+    this.capturePlayerPosition();
     const chapterRemaining = this.state.durationMs - this.state.progressMs;
     if (this.state.sleepSmartStop && this.player?.state === 'playing'
       && !this.state.isLoading && chapterRemaining > 0 && chapterRemaining <= 10 * 60 * 1000) {
@@ -1870,7 +1876,7 @@ export class AudioService {
   cancelSleepTimer(): void {
     this.autoSleepRequested = false;
     if (this.sleepTimer >= 0) {
-      clearInterval(this.sleepTimer);
+      clearTimeout(this.sleepTimer);
       this.sleepTimer = -1;
     }
     this.sleepEndTime = 0;

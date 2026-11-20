@@ -11,7 +11,7 @@ import { CompatibleGridInsets, PlatformCompat } from '../utils/PlatformCompat';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AppColor, AppCurve, AppFont, AppMotion, AppRadius, AppSpace, HomeTheme, AppTheme, AppMaterial } from '../theme/Theme';
 import { Book, Chapter } from '../model/Book';
-import { BookSource, SearchResult } from '../model/BookSource';
+import { BookInfo, BookSource, SearchResult } from '../model/BookSource';
 import { LocalRuleSource } from '../model/LocalRuleSource';
 import { BookSourceService } from '../service/BookSourceService';
 import { SourceDataService } from '../service/SourceDataService';
@@ -166,6 +166,9 @@ export struct SearchPage {
   @Local selectedSourceUrls: string[] = [];
   @Local availableSearchSources: BookSource[] = [];
   @Local resultGroupVisible: boolean = false;
+  private restoreResultGroupOnReturn: boolean = false;
+  private resultGroupScrollOffset: number = 0;
+  private resultGroupScroller: Scroller = new Scroller();
   private resultGroups: Map<string, Book[]> = new Map();
   @Local resultGroupsRevision: number = 0;
   private searchBookIndexes: Map<string, number> = new Map();
@@ -188,6 +191,7 @@ export struct SearchPage {
   private resultScroller: Scroller = new Scroller();
   private recommendationScroller: Scroller = new Scroller();
   private searchGen: number = 0;
+  private searchRequests: Set<LightSourceRequest> = new Set();
   private recommendationGen: number = 0;
   private recommendationRequest: LightSourceRequest | undefined = undefined;
   private recommendationRevision: string = '';
@@ -296,10 +300,12 @@ export struct SearchPage {
   private stopPendingSearchUpdates(): void {
     if (this.leavingPage) return;
     this.leavingPage = true;
+    this.restoreResultGroupOnReturn = false;
     this.pageShown = false;
     this.resetResultScroll();
     this.cancelEntryTimer();
     this.searchGen++;
+    this.cancelSearchRequests();
     this.coverHydrationQueue = [];
     if (this.resultsRefreshTimer >= 0) clearTimeout(this.resultsRefreshTimer);
     this.resultsRefreshTimer = -1;
@@ -309,6 +315,10 @@ export struct SearchPage {
   private handlePageShown(): void {
     if (this.leavingPage) return;
     this.pageShown = true;
+    if (this.restoreResultGroupOnReturn) {
+      this.restoreResultGroupOnReturn = false;
+      this.resultGroupVisible = true;
+    }
     if (this.resultsDirty) this.scheduleResultsRefresh();
     this.pumpCoverHydration();
     if (!this.entryReady && this.entryTimerId < 0) {
@@ -618,6 +628,7 @@ export struct SearchPage {
   }
 
   private resetPagination(): void {
+    this.cancelSearchRequests();
     this.resetResultScroll();
     this.sourcePages = new Map();
     this.searchSeen = new Set();
@@ -635,6 +646,11 @@ export struct SearchPage {
     this.resultGroupsRevision = 0;
     if (this.resultsRefreshTimer >= 0) clearTimeout(this.resultsRefreshTimer);
     this.resultsRefreshTimer = -1;
+  }
+
+  private cancelSearchRequests(): void {
+    for (const request of this.searchRequests) request.cancel();
+    this.searchRequests.clear();
   }
 
   private async searchSources(sources: BookSource[], keyword: string, gen: number,
@@ -668,10 +684,11 @@ export struct SearchPage {
 
   private async searchOneSource(source: BookSource, keyword: string, gen: number,
     seen: Set<string>): Promise<void> {
+    const request = new LightSourceRequest();
+    request.cancelCheck = (): boolean => gen !== this.searchGen || this.leavingPage;
+    this.searchRequests.add(request);
     try {
       const page = this.sourcePages.get(source.bookSourceUrl) ?? 1;
-      const request = new LightSourceRequest();
-      request.cancelCheck = (): boolean => gen !== this.searchGen || this.leavingPage;
       const results = await BookSourceService.searchBooks(source, keyword, page, request);
       if (gen !== this.searchGen) return;
       // 使用筛选前的身份判断翻页进度；不支持翻页、反复返回首页的源在此终止。
@@ -710,6 +727,7 @@ export struct SearchPage {
       hilog.warn(DOMAIN, TAG, 'source search failed [%{public}s]: %{public}s',
         source.bookSourceName, String(e));
     } finally {
+      this.searchRequests.delete(request);
       if (gen === this.searchGen && this.searching && !this.sourcePages.has(source.bookSourceUrl)) {
         this.searchedSourceCount++;
       }
@@ -798,7 +816,10 @@ export struct SearchPage {
     gen: number): Promise<Book | undefined> {
     const request = new LightSourceRequest(0);
     request.cancelCheck = (): boolean => gen !== this.searchGen || this.leavingPage;
-    const info = await BookSourceService.getBookInfo(source, book.bookUrl, book.variables, request);
+    this.searchRequests.add(request);
+    let info: BookInfo | null;
+    try { info = await BookSourceService.getBookInfo(source, book.bookUrl, book.variables, request); }
+    finally { this.searchRequests.delete(request); }
     if (gen !== this.searchGen || info === null) return undefined;
     const coverUrl = info.coverUrl.trim();
     if (coverUrl.length === 0 || coverUrl === book.cover) return undefined;
@@ -962,13 +983,19 @@ export struct SearchPage {
     const group = this.resultGroups.get(this.groupKey(book));
     if (group && group.length > 1) {
       this.groupedBooks.setBooks(group.slice());
+      this.resultGroupScrollOffset = 0;
       this.resultGroupVisible = true;
       return;
     }
     this.openBookDetail(book);
   }
 
-  private openBookDetail(book: Book): void {
+  private openBookDetail(book: Book, fromResultGroup: boolean = false): void {
+    // Route changes hide the native menu; returning should restore this same source list.
+    this.restoreResultGroupOnReturn = fromResultGroup;
+    if (fromResultGroup) {
+      this.resultGroupScrollOffset = this.resultGroupScroller.currentOffset().yOffset;
+    }
     this.resultGroupVisible = false;
     SearchCache.put(book);
     if (PlaybackStore.getInstance().isCurrentBook(book.id)) {
@@ -992,6 +1019,10 @@ export struct SearchPage {
     options.backgroundBlurStyle = PlatformCompat.immersiveMaterial ? BlurStyle.NONE : BlurStyle.COMPONENT_THICK;
     options.systemMaterial = AppMaterial.ReaderSheetThick;
     options.anchorPosition = { x: this.resultMenuX, y: this.resultMenuY };
+    options.onDidAppear = (): void => {
+      if (!this.resultGroupVisible || !this.pageShown) return;
+      this.resultGroupScroller.scrollTo({ xOffset: 0, yOffset: this.resultGroupScrollOffset, animation: false });
+    };
     return options;
   }
 
@@ -1061,7 +1092,7 @@ export struct SearchPage {
     Column({ space: AppSpace.Xs }) {
       ImmersiveMenuHeader({ title: $r('app.string.search_group_title'),
         onClose: (): void => { this.resultGroupVisible = false; } })
-      List() {
+      List({ scroller: this.resultGroupScroller }) {
         LazyForEach(this.groupedBooks, (book: Book) => {
           ListItem() {
             Row({ space: 12 }) {
@@ -1078,7 +1109,7 @@ export struct SearchPage {
                     .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis }).width('100%')
                 }
               }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-            }.width('100%').padding(12).onClick((): void => { this.openBookDetail(book); })
+            }.width('100%').padding(12).onClick((): void => { this.openBookDetail(book, true); })
           }
         }, (book: Book): string => book.id)
       }.width('100%').layoutWeight(1).scrollBar(BarState.Off)

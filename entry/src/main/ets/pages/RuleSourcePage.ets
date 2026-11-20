@@ -1,5 +1,5 @@
 import { SourceTestTaskService } from '../service/rulesource/SourceTestTaskService';
-import { BusinessError } from '@kit.BasicServicesKit';
+import { BusinessError, emitter } from '@kit.BasicServicesKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
 import { RuleSourceImportQueue } from '../service/rulesource/RuleSourceImportQueue';
 import { RuleSourceNoticeService } from '../service/rulesource/RuleSourceNoticeService';
@@ -18,11 +18,11 @@ import {
   LocalRuleSourceBulkTestProgress,
   LocalRuleSourceBulkTestReport
 } from '../service/rulesource/LocalRuleSourceBulkTester';
-import { LocalRuleSourceRepository } from '../service/rulesource/LocalRuleSourceRepository';
+import { LocalRuleSourceRepository, EVT_RULE_SOURCE_LOGIN_CHANGED } from '../service/rulesource/LocalRuleSourceRepository';
 import { LocalRuleSourceCodec } from '../service/rulesource/LocalRuleSourceCodec';
 import { LocalRuleTlsTrustStore } from '../service/rulesource/LocalRuleTlsTrustStore';
 import { LightSourceCookies as LocalRuleHttpClient } from '../service/rulesource/light/LightSourceCookies';
-import { SourceDataService } from '../service/SourceDataService';
+import { SourceDataService, EVT_RULE_SOURCES_CHANGED } from '../service/SourceDataService';
 import { AppTheme, AppColor, AppFont, AppMaterial, AppRadius, AppSpace } from '../theme/Theme';
 import { CharsetCodec } from '../utils/CharsetCodec';
 import { WindowUtils } from '../utils/WindowUtils';
@@ -109,6 +109,8 @@ export struct RuleSourcePage {
   @Param navStack: NavPathStack = new NavPathStack();
   @Local externalImports: RuleSourceImportQueue = RuleSourceImportQueue.getInstance();
   private pageAttached: boolean = false;
+  private pageVisible: boolean = false;
+  private foreground: boolean = true;
   @Local externalNoticeDeferred: boolean = false;
   private noticeInFlight: boolean = false;
   private noticeResolver: ((accepted: boolean) => void) | undefined = undefined;
@@ -177,15 +179,25 @@ export struct RuleSourcePage {
   private allSources: LocalRuleSource[] = [];
   @Local loginStatuses: Map<string, string> = new Map();
   private loginRevision: number = -1;
+  private loginRefreshPending: boolean = false;
 
   private async refreshLoginStatuses(): Promise<void> {
+    if (this.loginRefreshPending) return;
+    this.loginRefreshPending = true;
     const revision = LocalRuleSourceRepository.getLoginRevision();
-    const statuses = await LocalRuleSourceRepository.listLoginStatuses();
-    this.loginStatuses = statuses;
-    this.loginRevision = revision;
+    try {
+      const statuses = await LocalRuleSourceRepository.listLoginStatuses();
+      if (!this.pageAttached) return;
+      this.loginStatuses = statuses;
+      this.loginRevision = revision;
+    } finally {
+      this.loginRefreshPending = false;
+      if (revision !== LocalRuleSourceRepository.getLoginRevision()) this.scheduleRefreshCheck();
+    }
   }
 
   private sourceLoginLabel(source: LocalRuleSource): Resource {
+    if (source.engine === 'light-native') return $r('app.string.rule_source_settings_title');
     const status = this.loginStatuses.get(source.bookSourceUrl) ?? '';
     if (status === 'valid' || status === 'saved') return $r('app.string.source_login_valid');
     if (status === 'expired') return $r('app.string.source_login_expired');
@@ -194,6 +206,15 @@ export struct RuleSourcePage {
   private filteredSources: LocalRuleSource[] = [];
   private lastInvalidationCounter: number = 0;
   private refreshCheckTimer: number = -1;
+  private readonly sourceChangedHandler = (): void => this.scheduleRefreshCheck();
+  private readonly backgroundHandler = (): void => {
+    this.foreground = false;
+    this.stopRefreshCheck();
+  };
+  private readonly foregroundHandler = (): void => {
+    this.foreground = true;
+    this.scheduleRefreshCheck();
+  };
   private loadRevision: number = 0;
   private safeAreaListener: (top: number, bottom: number) => void = (top: number, bottom: number): void => {
     this.safeTop = top;
@@ -206,8 +227,11 @@ export struct RuleSourcePage {
     this.syncTestTask();
     WindowUtils.addSafeAreaListener(this.safeAreaListener);
     this.lastInvalidationCounter = SourceDataService.getInvalidationCounter();
+    emitter.on(EVT_RULE_SOURCES_CHANGED, this.sourceChangedHandler);
+    emitter.on(EVT_RULE_SOURCE_LOGIN_CHANGED, this.sourceChangedHandler);
+    emitter.on('app.reader.background', this.backgroundHandler);
+    emitter.on('app.reader.foreground', this.foregroundHandler);
     this.loadSources();
-    this.startRefreshCheck();
   }
 
   aboutToDisappear(): void {
@@ -219,11 +243,19 @@ export struct RuleSourcePage {
     this.loadRevision++;
     WindowUtils.removeSafeAreaListener(this.safeAreaListener);
     this.stopRefreshCheck();
+    emitter.off(EVT_RULE_SOURCES_CHANGED, this.sourceChangedHandler);
+    emitter.off(EVT_RULE_SOURCE_LOGIN_CHANGED, this.sourceChangedHandler);
+    emitter.off('app.reader.background', this.backgroundHandler);
+    emitter.off('app.reader.foreground', this.foregroundHandler);
     SourceTestTaskService.unsubscribe(this.testTaskHandler);
   }
 
-  private startRefreshCheck(): void {
-    this.refreshCheckTimer = setInterval(() => {
+  private scheduleRefreshCheck(): void {
+    if (!this.pageAttached || !this.pageVisible || !this.foreground || this.refreshCheckTimer >= 0) return;
+    // 导入/批量测试的密集通知合并一次，页面闲置时不轮询。
+    this.refreshCheckTimer = setTimeout((): void => {
+      this.refreshCheckTimer = -1;
+      if (!this.pageAttached || !this.pageVisible || !this.foreground || this.isLoading) return;
       // 手动导入/测试期间收到的文件保留排队，空闲且回到本页后继续。
       this.consumeExternalImports();
       if (this.loginRevision !== LocalRuleSourceRepository.getLoginRevision()) {
@@ -234,12 +266,12 @@ export struct RuleSourcePage {
         this.lastInvalidationCounter = currentCounter;
         this.refresh();
       }
-    }, 1000);
+    }, 100);
   }
 
   private stopRefreshCheck(): void {
     if (this.refreshCheckTimer >= 0) {
-      clearInterval(this.refreshCheckTimer);
+      clearTimeout(this.refreshCheckTimer);
       this.refreshCheckTimer = -1;
     }
   }
@@ -290,12 +322,17 @@ export struct RuleSourcePage {
 
   @Monitor('externalImports.revision')
   private onExternalImportRequested(): void {
-    this.consumeExternalImports();
+    this.scheduleRefreshCheck();
+  }
+
+  @Monitor('isLoading', 'isImporting', 'isBulkTesting', 'busySourceUrl', 'importDialogKind', 'externalNoticeDeferred')
+  private onImportAvailabilityChanged(): void {
+    this.scheduleRefreshCheck();
   }
 
   private async consumeExternalImports(): Promise<void> {
     const paths = this.navStack.getAllPathName();
-    if (!this.pageAttached || this.isLoading || this.loadFailed || this.isImporting || this.isBulkTesting ||
+    if (!this.pageAttached || !this.pageVisible || !this.foreground || this.isLoading || this.loadFailed || this.isImporting || this.isBulkTesting ||
       this.externalNoticeDeferred || this.noticeInFlight ||
       this.busySourceUrl.length > 0 || this.importDialogKind.length > 0 ||
       paths[paths.length - 1] !== 'ruleSources' ||
@@ -677,7 +714,7 @@ export struct RuleSourcePage {
   private async openImportDialog(kind: string, sourceUrl: string = ''): Promise<void> {
     if (!this.pageAttached || this.importDialogKind.length > 0 || this.isImporting ||
       this.isBulkTesting || this.busySourceUrl.length > 0) return;
-    if (!await this.confirmImportNotice()) return;
+    if (kind !== 'notice' && !await this.confirmImportNotice()) return;
     this.importDialogKind = kind;
     this.importLinkInvalid = false;
     this.talebookSourceUrl = sourceUrl;
@@ -1123,6 +1160,7 @@ export struct RuleSourcePage {
   }
 
   private canOpenSourceLogin(source: LocalRuleSource): boolean {
+    if (source.engine === 'light-native') return true;
     if (source.engine === 'light' || source.engine === 'light-native') {
       return source.loginUrl.trim().length > 0 || source.loginUi.trim().length > 0;
     }
@@ -1402,6 +1440,11 @@ export struct RuleSourcePage {
           })
         }
       }.width('100%').height('100%')
+        .onVisibleAreaChange([0], (visible: boolean): void => {
+          this.pageVisible = visible;
+          if (visible) this.scheduleRefreshCheck();
+          else this.stopRefreshCheck();
+        })
     }
   }
 
@@ -1431,9 +1474,6 @@ export struct RuleSourcePage {
         .padding({ bottom: Math.max(this.safeBottom, RULE_SOURCE_MIN_BOTTOM_INSET) })
       } else {
         List({ space: AppSpace.Xs, scroller: this.sourceListScroller }) {
-          ListItem() {
-            this.buildNoticeSummary()
-          }
           ListItem() {
             Row() {
               Text($r('app.string.rule_source_installed'))
@@ -1526,7 +1566,9 @@ export struct RuleSourcePage {
 
   @Builder
   buildImportDialog() {
-    if (this.importDialogKind === 'nas') {
+    if (this.importDialogKind === 'notice') {
+      this.buildNoticeDialog()
+    } else if (this.importDialogKind === 'nas') {
       this.buildTalebookConnection()
     } else {
       this.buildLinkImportDialog()
@@ -1645,6 +1687,18 @@ export struct RuleSourcePage {
           .textOverflow({ overflow: TextOverflow.Ellipsis })
 
         if (!this.isLoading && !this.loadFailed && !this.isEditMode && this.managementView.length === 0) {
+          Button({ type: ButtonType.Circle }) {
+            SymbolGlyph($r('sys.symbol.exclamationmark_circle'))
+              .fontSize(20).fontColor([AppTheme.TextSecondary])
+          }
+          .width(36).height(36).padding(0)
+          .backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Pill)
+          .margin({ right: AppSpace.Xs })
+          .enabled(!this.isBulkTesting && !this.isImporting && this.busySourceUrl.length === 0)
+          .accessibilityText($r('app.string.rule_source_notice_title'))
+          .id('rule-source-notice-open')
+          .onClick((): void => { this.openImportDialog('notice'); })
+
           if (this.sourceCount > 0) {
             Button({ type: ButtonType.Circle }) {
               if (this.isBulkTesting) {
@@ -1846,33 +1900,66 @@ export struct RuleSourcePage {
   }
 
   @Builder
-  buildNoticeSummary() {
-    Column({ space: AppSpace.Xs }) {
-      Text($r('app.string.rule_source_notice_summary'))
-        .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).lineHeight(20).width('100%')
-      Row() {
-        Button($r('app.string.rule_source_notice_title'), { type: ButtonType.Normal })
-          .height(36).fontSize(AppFont.Caption).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
-          .padding({ left: 0, right: AppSpace.Sm })
-          .id('rule-source-notice-open')
-          .onClick((): void => { this.navStack.pushPathByName('ruleSourceNotice', ''); })
-        Blank()
+  buildNoticeSection(title: Resource, body: Resource) {
+    Column({ space: AppSpace.Sm }) {
+      Text(title).fontSize(AppFont.BodyL).fontWeight(FontWeight.Bold)
+        .fontColor(AppTheme.TextPrimary).width('100%')
+      Text(body).fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
+        .lineHeight(25).width('100%')
+    }.width('100%').alignItems(HorizontalAlign.Start)
+  }
+
+  @Builder
+  buildNoticeDialog() {
+    Column({ space: AppSpace.Md }) {
+      Text($r('app.string.rule_source_notice_title'))
+        .fontSize(AppFont.TitleL).fontWeight(FontWeight.Bold).fontColor(AppTheme.TextPrimary)
+      Scroll() {
+        Column({ space: AppSpace.Lg }) {
+          Text($r('app.string.rule_source_notice_summary'))
+            .fontSize(AppFont.Body).fontColor(AppColor.Brand).lineHeight(25).width('100%')
+          this.buildNoticeSection($r('app.string.rule_source_notice_scope_title'),
+            $r('app.string.rule_source_notice_scope'))
+          this.buildNoticeSection($r('app.string.rule_source_notice_rights_title'),
+            $r('app.string.rule_source_notice_rights'))
+          this.buildNoticeSection($r('app.string.rule_source_notice_privacy_title'),
+            $r('app.string.rule_source_notice_privacy'))
+          this.buildNoticeSection($r('app.string.rule_source_notice_security_title'),
+            $r('app.string.rule_source_notice_security'))
+          this.buildNoticeSection($r('app.string.rule_source_notice_cost_title'),
+            $r('app.string.rule_source_notice_cost'))
+          this.buildNoticeSection($r('app.string.rule_source_notice_responsibility_title'),
+            $r('app.string.rule_source_notice_responsibility'))
+          this.buildNoticeSection($r('app.string.rule_source_notice_exit_title'),
+            $r('app.string.rule_source_notice_exit'))
+        }.width('100%').alignItems(HorizontalAlign.Start)
+      }.width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+        .id('rule-source-notice-content')
+      Row({ space: AppSpace.Sm }) {
+        Button($r('app.string.common_ok'), { type: ButtonType.Normal })
+          .layoutWeight(1).height(44).fontColor(AppColor.Brand).backgroundColor(AppColor.BrandSoft)
+          .borderRadius(AppRadius.Sm)
+          .onClick((): void => { this.closeImportDialog(); })
         if (this.externalNoticeDeferred && this.externalImports.hasPending()) {
           Button($r('app.string.rule_source_notice_resume'), { type: ButtonType.Normal })
-            .height(36).fontSize(AppFont.Caption).fontColor(AppColor.Brand).backgroundColor(AppColor.BrandSoft)
-            .borderRadius(AppRadius.Sm).enabled(!this.isImporting && !this.isBulkTesting)
-            .onClick((): void => { this.externalNoticeDeferred = false; this.consumeExternalImports(); })
+            .layoutWeight(1).height(44).fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
+            .borderRadius(AppRadius.Sm)
+            .onClick((): void => {
+              this.externalNoticeDeferred = false;
+              this.closeImportDialog();
+            })
         }
       }.width('100%')
-    }.width('100%').alignItems(HorizontalAlign.Start).padding(AppSpace.Md)
-      .backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg)
+    }.width('100%')
+      .height(Math.min(640, WindowUtils.getWindowHeightVp() - this.safeTop - this.safeBottom - 48))
+      .padding(AppSpace.Lg).alignItems(HorizontalAlign.Start)
   }
 
   @Builder
   buildToolsMenu() {
     Menu() {
       MenuItem({ content: $r('app.string.rule_source_notice_title') })
-        .onClick((): void => { this.navStack.pushPathByName('ruleSourceNotice', ''); })
+        .onClick((): void => { this.openImportDialog('notice'); })
       MenuItem({ content: $r('app.string.source_manage_groups') }).onClick(() => this.openManagement('groups'))
       MenuItem({ content: $r('app.string.source_manage_order') }).onClick(() => this.openManagement('order'))
       MenuItem({ content: $r('app.string.source_manage_tls') }).onClick(() => this.openManagement('tls'))
@@ -2497,7 +2584,7 @@ export struct RuleSourcePage {
               .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
               .padding({ left: AppSpace.Xs, right: AppSpace.Xs, top: 2, bottom: 2 })
               .margin({ left: AppSpace.Xs })
-              .backgroundColor(AppTheme.SettingsBackground).borderRadius(AppRadius.Pill)
+              .backgroundColor($r('app.color.source_control_background')).borderRadius(AppRadius.Pill)
           }, (groupName: string) => groupName)
         }.width('100%')
 
@@ -2532,7 +2619,7 @@ export struct RuleSourcePage {
               if (item.source.exploreUrl.length > 0) {
                 Button($r('app.string.rule_source_explore'), { type: ButtonType.Normal })
                   .layoutWeight(1).height(40).borderRadius(AppRadius.Sm)
-                  .backgroundColor(AppColor.BrandSoft).fontColor(AppColor.Brand)
+                  .backgroundColor($r('app.color.source_control_background')).fontColor(AppColor.Brand)
                   .enabled(item.source.enabledExplore && !this.isBulkTesting && !this.isImporting)
                   .onClick(() => this.navStack.pushPathByName('ruleSourceExplore', item.source.bookSourceUrl))
               }
@@ -2540,7 +2627,7 @@ export struct RuleSourcePage {
                 this.canOpenSourceLogin(item.source)) {
                 Button(this.sourceLoginLabel(item.source), { type: ButtonType.Normal })
                   .layoutWeight(1).height(40).borderRadius(AppRadius.Sm)
-                  .backgroundColor(AppTheme.SettingsBackground).fontColor(AppColor.Brand)
+                  .backgroundColor($r('app.color.source_control_background')).fontColor(AppColor.Brand)
                   .enabled(!this.isBulkTesting && !this.isImporting && this.busySourceUrl.length === 0)
                   .onClick(() => this.openLoginEntry(item.source))
               }
@@ -2565,7 +2652,7 @@ export struct RuleSourcePage {
             .layoutWeight(1)
             .height(36)
             .constraintSize({ minWidth: 0 })
-            .backgroundColor(AppColor.BrandSoft)
+            .backgroundColor($r('app.color.source_control_background'))
             .borderRadius(AppRadius.Sm)
             .enabled(!item.source.isLocked && !this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
             .onClick(() => this.editSource(item.source))
@@ -2584,7 +2671,7 @@ export struct RuleSourcePage {
             .layoutWeight(1)
             .height(36)
             .constraintSize({ minWidth: 0 })
-            .backgroundColor(AppTheme.SettingsBackground)
+            .backgroundColor($r('app.color.source_control_background'))
             .borderRadius(AppRadius.Sm)
             .enabled(!this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
             .onClick(() => this.debugSource(item.source))
@@ -2603,7 +2690,7 @@ export struct RuleSourcePage {
             .layoutWeight(1)
             .height(36)
             .constraintSize({ minWidth: 0 })
-            .backgroundColor(item.source.canExecute() ? AppColor.BrandSoft : Color.Transparent)
+            .backgroundColor($r('app.color.source_control_background'))
             .borderRadius(AppRadius.Sm)
             .enabled(item.source.canExecute() && !this.isImporting && !this.isBulkTesting &&
               this.busySourceUrl.length === 0)
@@ -2624,7 +2711,7 @@ export struct RuleSourcePage {
             .layoutWeight(1)
             .height(36)
             .constraintSize({ minWidth: 0 })
-            .backgroundColor(RULE_SOURCE_DANGER_SOFT)
+            .backgroundColor($r('app.color.source_control_background'))
             .borderRadius(AppRadius.Sm)
             .enabled(!item.source.isLocked && !this.isImporting && !this.isBulkTesting && this.busySourceUrl.length === 0)
             .accessibilityText($r('app.string.rule_source_delete_action'))

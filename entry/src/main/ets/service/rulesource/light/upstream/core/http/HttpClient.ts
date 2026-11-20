@@ -130,7 +130,7 @@ export class HttpClient {
     this.timeout = timeout;
   }
 
-  static readonly CANCELLED_ERROR: string = '规则请求已取消';
+  static readonly CANCELLED_ERROR: string = '书源请求已取消';
 
   static timeoutResponse(req: HttpRequest): HttpResponse {
     if (req.useWebView && req.webRequestId) {
@@ -375,10 +375,10 @@ export class HttpClient {
           const options: http.HttpRequestOptions = {
             method: method,
             header: headers,
-            extraData: requestData,
             connectTimeout: this.timeoutFor(req, req.connectTimeout),
             readTimeout: this.timeoutFor(req, req.readTimeout)
           };
+          if (requestData !== undefined) options.extraData = requestData;
           this.applyTlsTrust(options, req.url);
           if (forceHttp1) options.usingProtocol = http.HttpProtocol.HTTP1_1;
           streamSentAt = Date.now();
@@ -419,11 +419,11 @@ export class HttpClient {
       const options: http.HttpRequestOptions = {
         method: method,
         header: headers,
-        extraData: requestData,
         connectTimeout: this.timeoutFor(req, req.connectTimeout),
         readTimeout: this.timeoutFor(req, req.readTimeout),
         expectDataType: http.HttpDataType.ARRAY_BUFFER
       };
+      if (requestData !== undefined) options.extraData = requestData;
       if (maxResponseBytes > 0) options.maxLimit = Math.min(maxResponseBytes, 100 * 1024 * 1024);
       this.applyTlsTrust(options, req.url);
       if (forceHttp1) options.usingProtocol = http.HttpProtocol.HTTP1_1;
@@ -574,12 +574,12 @@ export class HttpClient {
       const options: http.HttpRequestOptions = {
         method: this.resolveMethod(req.method),
         header: headers,
-        extraData: requestData,
         connectTimeout: this.timeoutFor(req, req.connectTimeout),
         readTimeout: this.timeoutFor(req, req.readTimeout),
         expectDataType: http.HttpDataType.ARRAY_BUFFER,
         maxLimit: maxResponseBytes
       };
+      if (requestData !== undefined) options.extraData = requestData;
       this.applyTlsTrust(options, req.url);
       if (forceHttp1) options.usingProtocol = http.HttpProtocol.HTTP1_1;
       const transportStartedAt = Date.now();
@@ -661,9 +661,13 @@ export class HttpClient {
     }
   }
 
-  private requestData(req: HttpRequest): string | ArrayBuffer {
+  /**
+   * 请求体。GET/HEAD 返回 undefined，调用方不设置 extraData：系统 HTTP 模块会把 GET 的字符串 extraData
+   * 拼到地址后面，传空串会让带查询参数的地址末尾多出一个“&”，校验严格或带签名的接口会因此失败。
+   */
+  private requestData(req: HttpRequest): string | ArrayBuffer | undefined {
     const method = (req.method || 'GET').toUpperCase();
-    if (method === 'GET' || method === 'HEAD') return '';
+    if (method === 'GET' || method === 'HEAD') return undefined;
     return req.bodyBytes || req.body || '';
   }
 

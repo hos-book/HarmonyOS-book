@@ -56,16 +56,27 @@ export class BookTypeSupport {
   static isAudio(book: Book | SearchBook | null): boolean {
     if (!book || book.origin === 'local') return false;
     if ((Number(book.type) & this.AUDIO) !== 0) return true;
-    return this.typeFromVariable(book.variable) === this.AUDIO ||
-      this.typeFromIdentity(book.originName, book.kind) === this.AUDIO;
+    if (this.hasDeclaredMedia(book.variable)) return this.typeFromVariable(book.variable) === this.AUDIO;
+    return this.typeFromIdentity(book.originName, book.kind) === this.AUDIO;
   }
 
   static isImage(book: Book | SearchBook | null): boolean {
     if (!book) return false;
     if (book.origin === 'local') return this.isLocalImageVariable(book.variable);
     if ((Number(book.type) & this.IMAGE) !== 0) return true;
-    return this.typeFromVariable(book.variable) === this.IMAGE ||
-      this.typeFromIdentity(book.originName, book.kind) === this.IMAGE;
+    if (this.hasDeclaredMedia(book.variable)) return this.typeFromVariable(book.variable) === this.IMAGE;
+    return this.typeFromIdentity(book.originName, book.kind) === this.IMAGE;
+  }
+
+  /**
+   * 书籍变量里明确写了媒体类型（小说/漫画/有声/视频）。写了就以它为准，不再按书源名、分类去猜：
+   * 名为“漫画xx综合”的多频道书源里，声明为小说的书不能因为书源名带“漫画”被当成漫画。
+   */
+  static hasDeclaredMedia(variable: string): boolean {
+    if (!variable) return false;
+    if (this.typeFromVariable(variable) !== 0) return true;
+    const match = variable.match(/["']?(?:tab|type|mediaType)["']?\s*:\s*["']video["']/i);
+    return match !== null;
   }
 
   /** 视频类书籍（短剧等）：没有阅读形态，由书源在书籍变量里声明 tab=video。 */

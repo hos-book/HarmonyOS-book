@@ -84,6 +84,14 @@ export class BookSourceDebugSession {
 
 /** Central sink shared by HTTP, rule and ArkWeb layers. */
 export class BookSourceDebugContext {
+  /** Fields without which a stage's output is not usable; keyed by SourceRuntimeStage value. */
+  private static readonly KEY_FIELDS: Record<string, string[]> = {
+    'search': ['name', 'bookUrl'],
+    'explore': ['name', 'bookUrl'],
+    'bookInfo': ['name', 'tocUrl'],
+    'toc': ['chapterList', 'chapterName', 'chapterUrl'],
+    'content': ['content', 'images']
+  };
   readonly session: BookSourceDebugSession;
   private currentStep: BookSourceDebugStep | null = null;
   private usedBytes: number = 0;
@@ -107,10 +115,25 @@ export class BookSourceDebugContext {
     return step;
   }
 
+  /**
+   * A stage can still yield output while some of its rules threw (e.g. a failed content script
+   * falls back to the page text). Rule errors therefore settle the reported status: an error in
+   * the stage's key field fails it, any other rule error turns a pass into a warning.
+   */
   finishStep(status: string = 'passed', error: string = ''): void {
     if (!this.currentStep) return;
+    const failedRules = this.currentStep.rules.filter((rule: BookSourceDebugRuleTrace): boolean => !!rule.error);
+    let message = error;
+    if (failedRules.length > 0) {
+      const keyFields = BookSourceDebugContext.KEY_FIELDS[this.currentStep.stage] || [];
+      const keyFailed = failedRules.some((rule: BookSourceDebugRuleTrace): boolean => keyFields.indexOf(rule.field) >= 0);
+      if (status === 'passed') status = keyFailed ? 'failed' : 'warning';
+      const detail = failedRules.map((rule: BookSourceDebugRuleTrace): string => `${rule.field}：${rule.error}`)
+        .join('；');
+      message = message ? `${message}；规则出错 ${detail}` : `规则出错 ${detail}`;
+    }
     this.currentStep.status = status;
-    this.currentStep.error = this.safe(error, 2000);
+    this.currentStep.error = this.safe(message, 2000);
     this.currentStep.elapsedMs = Math.max(0, Date.now() - this.currentStep.startedAt);
   }
 

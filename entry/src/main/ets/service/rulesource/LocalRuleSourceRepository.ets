@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { buffer } from '@kit.ArkTS';
 import { relationalStore } from '@kit.ArkData';
+import { emitter } from '@kit.BasicServicesKit';
 import {
   LocalRuleSource,
   LocalRuleSourceCookie,
@@ -12,6 +13,7 @@ import { LocalRuleSourceImportParser } from './LocalRuleSourceImportParser';
 import { LocalRuleSourceCodec } from './LocalRuleSourceCodec';
 
 const DATABASE_NAME = 'rule_sources.db';
+export const EVT_RULE_SOURCE_LOGIN_CHANGED = 'app.ruleSources.login.changed';
 const TABLE_NAME = 'rule_sources';
 const SESSION_TABLE_NAME = 'rule_source_sessions';
 const COOKIE_TABLE_NAME = 'rule_source_cookies';
@@ -146,6 +148,7 @@ export class LocalRuleSourceRepository {
     };
     await store.insert(LOGIN_TABLE_NAME, values, relationalStore.ConflictResolution.ON_CONFLICT_REPLACE);
     LocalRuleSourceRepository.loginRevision++;
+    emitter.emit(EVT_RULE_SOURCE_LOGIN_CHANGED);
   }
 
   static async expireLogin(sourceUrl: string): Promise<void> {

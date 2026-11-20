@@ -64,11 +64,32 @@ ${script ? NativeJsPrelude.SCRIPT_API : NativeJsPrelude.EXPRESSION_STUBS}
 
   /** 脚本阶段的宿主接口：每个调用都经 __host 同步交给宿主，名字以 @ 开头，与内置函数区分。 */
   private static readonly SCRIPT_API: string = `
+  var B64 = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  var B64_INDEX = new Uint8Array(128);
+  for (var b64i = 0; b64i < B64.length; b64i++) B64_INDEX[B64.charCodeAt(b64i)] = b64i;
+  // responseType: 'bytes' 的响应经 JSON 传来的是 Base64，在这里还原成 Uint8Array。
+  var fromBase64 = function (text) {
+    var length = text.length;
+    while (length > 0 && text.charCodeAt(length - 1) === 61) length--;
+    var out = new Uint8Array(Math.floor(length * 3 / 4));
+    var buffer = 0, bits = 0, o = 0;
+    for (var i = 0; i < length; i++) {
+      buffer = ((buffer << 6) | B64_INDEX[text.charCodeAt(i) & 127]) & 0xffffff;
+      bits += 6;
+      if (bits >= 8) { bits -= 8; out[o++] = (buffer >> bits) & 255; }
+    }
+    return out;
+  };
   var wrap = function (response) {
     if (response && typeof response === 'object') {
       Object.defineProperty(response, 'json', {
         value: function () { return JSON.parse(response.body); }, enumerable: false
       });
+      if (typeof response.bodyBase64 === 'string') {
+        // 不可枚举：脚本把整个响应当返回值时，不会把字节逐个序列化进 JSON。
+        Object.defineProperty(response, 'bytes', { value: fromBase64(response.bodyBase64), enumerable: false });
+        delete response.bodyBase64;
+      }
     }
     return response;
   };
@@ -254,7 +275,7 @@ ${script ? NativeJsPrelude.SCRIPT_API : NativeJsPrelude.EXPRESSION_STUBS}
       return `${summary}；${name} 不是全局变量：阶段脚本里用 ctx.${name}，表达式调用的函数请把它作为参数传入`;
     }
     if (!NativeJsPrelude.isIdentifier(name) || builtins.indexOf(name) < 0) return summary;
-    return `${summary}；若要调用原生规则内置函数，请使用 native.${name}(...)`;
+    return `${summary}；若要调用原生书源内置函数，请使用 native.${name}(...)`;
   }
 
   /** 规则里能直接用、在 js 里只能从 ctx 读的名字（http、vars 等接口在脚本里本来就是全局的，不在此列）。 */

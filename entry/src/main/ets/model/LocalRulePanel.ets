@@ -18,9 +18,12 @@ export class LocalRuleControl {
 export class LocalRulePanel {
   controls: LocalRuleControl[] = [];
   entries: LocalRuleControl[] = [];
+  loginState: string = '';
+  loginUser: string = '';
 }
 
 export class LocalRulePanelAction {
+  checkedLoginState: string = '';
   panel: LocalRulePanel | undefined = undefined;
   message: string = '';
   searchKeyword: string = '';

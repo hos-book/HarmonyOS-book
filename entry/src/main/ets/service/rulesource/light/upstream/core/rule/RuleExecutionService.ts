@@ -116,6 +116,12 @@ export class RuleExecutionService {
       }
 
       let lastFrameYieldAt = Date.now();
+      // Every item is seeded with the same context, and most rules never write to it. Re-serializing it per item
+      // multiplied one large variable (a stored page, a long book variable) by the item count: a several-thousand
+      // chapter catalog with a ~900 KB variable ran the shared heap out of memory. An item whose context equals
+      // the previous one's reuses that JSON string instead of allocating another copy.
+      let previousRecord: Record<string, string> | null = null;
+      let previousJson = '';
       for (let itemIndex = 0; itemIndex < itemCount; itemIndex++) {
         // Crossing a frame boundary after every chunk regardless of the work done made a cheap
         // 8,000-chapter catalog spend most of its time budget asleep (500+ frames). The time slice
@@ -164,7 +170,12 @@ this.seedSourceVariables(analyzer.getContext(), request.source, request.contextV
         result.values.push(itemValues);
         // Static source fields (especially jsLib) are re-seeded for every stage and must not be
         // copied into every item's persistent context.
-        result.contextValues.push(analyzer.getContext().toPersistentJson());
+        const record = analyzer.getContext().toPersistentRecord();
+        if (previousRecord === null || !RuleExecutionService.sameRecord(previousRecord, record)) {
+          previousRecord = record;
+          previousJson = JSON.stringify(record);
+        }
+        result.contextValues.push(previousJson);
       }
       if (request.debugContext) {
         for (const field of request.fields) {
@@ -480,6 +491,16 @@ this.seedSourceVariables(analyzer.getContext(), request.source, request.contextV
     } catch (_) {
     }
     return result;
+  }
+
+  /** Same keys with the same values. Values seeded from one record are the same string instances, so equal is cheap. */
+  private static sameRecord(a: Record<string, string>, b: Record<string, string>): boolean {
+    const keys = Object.keys(a);
+    if (keys.length !== Object.keys(b).length) return false;
+    for (const key of keys) {
+      if (!Object.prototype.hasOwnProperty.call(b, key) || a[key] !== b[key]) return false;
+    }
+    return true;
   }
 
   private throwIfDeadlineExceeded(deadlineAt: number, stage: string): void {

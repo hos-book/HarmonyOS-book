@@ -17,11 +17,14 @@ export class JsonPathEvaluator {
   private static readonly MAX_RESULTS = 50000;
   private static readonly MAX_VISITED_NODES = 200000;
   private static readonly MAX_RECURSION_DEPTH = 64;
+  /** 拆好的路径只读不改，按原文缓存：目录逐章取字段时同一条路径会求值上千次。 */
+  private static readonly TOKEN_CACHE_LIMIT = 512;
+  private static tokenCache: Map<string, JsonPathToken[]> = new Map<string, JsonPathToken[]>();
 
   static evaluate(root: Object, path: string): Object[] {
     const value = (path || '').trim();
     if (!value) return [];
-    const tokens = this.tokenize(value);
+    const tokens = this.cachedTokens(value);
     if (tokens.length === 0 && (value === '$' || value === '@')) return [root];
     if (tokens.length === 0) return [];
 
@@ -32,6 +35,15 @@ export class JsonPathEvaluator {
       if (current.length === 0) break;
     }
     return current;
+  }
+
+  private static cachedTokens(path: string): JsonPathToken[] {
+    const cached = this.tokenCache.get(path);
+    if (cached) return cached;
+    const tokens = this.tokenize(path);
+    if (this.tokenCache.size >= this.TOKEN_CACHE_LIMIT) this.tokenCache.clear();
+    this.tokenCache.set(path, tokens);
+    return tokens;
   }
 
   private static tokenize(path: string): JsonPathToken[] {

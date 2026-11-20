@@ -1,11 +1,13 @@
 import { HttpRetryPolicy } from '../http/HttpRetryPolicy';
 import type { HttpRetrySpec } from '../http/HttpRetryPolicy';
 import { BookSource } from '../../model/data/Book';
-import { HttpClient, HttpRequest, HttpResponse } from '../http/HttpClient';
+import { HttpBinaryResponse, HttpClient, HttpRequest, HttpResponse } from '../http/HttpClient';
 import { VerificationSupport } from '../http/VerificationSupport';
 import { RequestSessionConfig, RequestSessionSupport } from '../http/RequestSessionSupport';
 import { BookSourceRateLimiter, RateLimitAcquireResult } from '../http/BookSourceRateLimiter';
+import type { BookSourceStageRate } from '../http/BookSourceRateLimiter';
 import { util } from '@kit.ArkTS';
+import { LegacyCharsetEncoder } from './LegacyCharsetEncoder';
 import { BookSourceDebugContext } from '../book/BookSourceDebugModels';
 import { BookSourceHeaderRuntime } from '../book/BookSourceHeaderRuntime';
 import { SourceEngineHost } from '../host/SourceEngineHost';
@@ -43,7 +45,9 @@ export class AnalyzeUrl {
   private requestDeadlineAt: number = 0;
   private cancelCheck?: () => boolean;
   private rateLimitMaxWaitMs: number = 0;
+  private stageRate: BookSourceStageRate | null = null;
   private staticSourceHeader: boolean = true;
+  private sourceAuthoredUrl: boolean = false;
 
   constructor(source: BookSource | null, client: HttpClient,
     runtimeSourceHeaders: Record<string, string> = {}) {
@@ -60,6 +64,12 @@ export class AnalyzeUrl {
   setCancelCheck(check: () => boolean, rateLimitMaxWaitMs: number = 0): AnalyzeUrl {
     this.cancelCheck = check;
     this.rateLimitMaxWaitMs = rateLimitMaxWaitMs;
+    return this;
+  }
+
+  /** A native source stage's own `rate`: these requests queue in that stage's window, not the source-level one. */
+  setStageRate(stageRate: BookSourceStageRate | null): AnalyzeUrl {
+    this.stageRate = stageRate;
     return this;
   }
 
@@ -82,6 +92,18 @@ export class AnalyzeUrl {
    */
   useScriptResolvedHeaders(): AnalyzeUrl {
     this.scriptResolvedHeaders = true;
+    return this;
+  }
+
+  /**
+   * The address comes from the source's own request rule (searchUrl / exploreUrl), not from page data. Like a
+   * java.ajax address, the source chose it, so the login header and the evaluated `@js:` header rule go to
+   * whatever host it names. Aggregators whose bookSourceUrl is a name have no own site to match, and their API
+   * host often switches between mirrors; without this their token-guarded search is sent anonymously. Covers,
+   * images and other addresses read from responses must not use an instance marked this way.
+   */
+  trustSourceAuthoredUrl(): AnalyzeUrl {
+    this.sourceAuthoredUrl = true;
     return this;
   }
 
@@ -248,7 +270,7 @@ export class AnalyzeUrl {
     // carries them to any host, as on Android: the script already holds these values and chose
     // the address, and sources whose bookSourceUrl is a name rather than a URL (aggregators) have
     // no own site to match at all. URL-local explicit headers still win.
-    if (this.scriptResolvedHeaders || this.isTrustedRequestHost(requestUrl)) {
+    if (this.scriptResolvedHeaders || this.sourceAuthoredUrl || this.isTrustedRequestHost(requestUrl)) {
       for (const key of Object.keys(this.runtimeSourceHeaders)) {
         const name = String(key || '').trim();
         if (name) headers[name] = String(this.runtimeSourceHeaders[key] || '');
@@ -259,7 +281,7 @@ export class AnalyzeUrl {
 
   private shouldApplyLoginHeaders(requestUrl: string): boolean {
     if (!this.source || !this.source.loginHeader) return false;
-    return this.isTrustedRequestHost(requestUrl);
+    return this.sourceAuthoredUrl || this.isTrustedRequestHost(requestUrl);
   }
 
   /**
@@ -416,21 +438,23 @@ export class AnalyzeUrl {
   }
 
   private percentEncode(value: string, charset: string, form: boolean): string {
-    try {
-      const normalized = charset === 'gbk' || charset === 'gb2312' ? 'gb18030' : charset;
-      const bytes = new util.TextEncoder(normalized).encodeInto(value);
-      let result = '';
-      for (let i = 0; i < bytes.length; i++) {
-        const byte = bytes[i];
-        const ch = String.fromCharCode(byte);
-        if (/[A-Za-z0-9_.~-]/.test(ch) || (form && ch === '*')) result += ch;
-        else if (form && ch === ' ') result += '+';
-        else result += '%' + byte.toString(16).toUpperCase().padStart(2, '0');
-      }
-      return result;
-    } catch (_) {
-      return value;
+    // 系统编码器不认 GBK 时由 LegacyCharsetEncoder 用码表兜底；以前这里吞掉异常、把原文发出去，
+    // 站点按 GBK 解不出关键词，只会返回 0 条，看起来像“站里没有这本书”。
+    let bytes = LegacyCharsetEncoder.encode(value, charset);
+    if (!bytes) {
+      if (LegacyCharsetEncoder.isGb(charset)) throw new Error(`当前系统无法按 ${charset} 编码请求参数`);
+      console.warn(`[AnalyzeUrl] charset ${charset} unsupported, request parameters sent as UTF-8`);
+      bytes = new util.TextEncoder().encodeInto(value);
     }
+    let result = '';
+    for (let i = 0; i < bytes.length; i++) {
+      const byte = bytes[i];
+      const ch = String.fromCharCode(byte);
+      if (/[A-Za-z0-9_.~-]/.test(ch) || (form && ch === '*')) result += ch;
+      else if (form && ch === ' ') result += '+';
+      else result += '%' + byte.toString(16).toUpperCase().padStart(2, '0');
+    }
+    return result;
   }
 
   private safeDecode(value: string): string {
@@ -522,8 +546,10 @@ export class AnalyzeUrl {
       readTimeout: this.requestDeadlineAt > 0 ? Math.max(1, this.requestDeadlineAt - Date.now()) : undefined
     };
     if (this.config.rawBody && this.config.body) {
-      const charset = this.normalizeCharset(this.config.charset || 'utf-8');
-      request.bodyBytes = new util.TextEncoder(charset).encodeInto(this.config.body).buffer as ArrayBuffer;
+      const charset = this.config.charset || 'utf-8';
+      const bytes = LegacyCharsetEncoder.encode(this.config.body, charset);
+      if (!bytes) throw new Error(`当前系统无法按 ${charset} 编码请求体`);
+      request.bodyBytes = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
     }
     return request;
   }
@@ -574,6 +600,59 @@ export class AnalyzeUrl {
 
   async fetchPrepared(req: HttpRequest): Promise<HttpResponse> {
     return this.fetchWithRetry(req);
+  }
+
+  /**
+   * The raw bytes of a response (native source scripts' `responseType: 'bytes'`). The request is prepared exactly
+   * like fetch(): source headers, cookies, session, charset, timeout and the source/stage rate window. There is no
+   * WebView, data: or fallback-URL path; a managed retry policy and numeric retry apply as in fetch().
+   */
+  async fetchBinary(urlTemplate: string, maxResponseBytes: number): Promise<HttpBinaryResponse> {
+    if (this.source && !this.scriptResolvedHeaders && BookSourceHeaderRuntime.script(this.source.header || '').trim()) {
+      this.runtimeSourceHeaders = await BookSourceHeaderRuntime.resolve(this.source);
+    }
+    this.parse(urlTemplate);
+    const req = this.buildRequest();
+    req.maxResponseBytes = maxResponseBytes;
+    const failed = (error: string): HttpBinaryResponse =>
+      ({ url: req.url || urlTemplate, statusCode: 0, headers: {}, data: new Uint8Array(), success: false, error: error });
+    if (!req.url) return failed('empty url');
+    if (req.url.startsWith('data:')) return failed('data: 地址不能按字节读取');
+    if (req.useWebView) return failed('网页抓取（webView）不能按字节读取');
+    const attempt = async (current: HttpRequest): Promise<HttpBinaryResponse> => {
+      if (current.deadlineAt && Date.now() >= current.deadlineAt) return failed('请求超时 (2300028)');
+      const slot = await this.acquireTimedSlot(current);
+      if (slot !== RateLimitAcquireResult.Acquired) {
+        return failed(slot === RateLimitAcquireResult.Cancelled ? '请求已取消' :
+          `书源限流：等待超过 ${Math.round(this.rateLimitMaxWaitMs / 1000)} 秒仍未轮到（并发率 ${this.rateText()}）`);
+      }
+      return await this.client.executeBinary(current, maxResponseBytes);
+    };
+    const policy = this.retryPolicy;
+    let response = await attempt(req);
+    if (policy) {
+      if (!['GET', 'HEAD'].includes(req.method.toUpperCase()) || req.body || req.bodyBytes) return response;
+      req.deadlineAt = req.deadlineAt || Date.now() + 60000;
+      for (let index = 0; index < policy.times && policy.onStatus!.includes(response.statusCode); index++) {
+        const delay = HttpRetryPolicy.delay(policy, index, response.headers, Date.now());
+        if (delay < 0) break;
+        const cancelled = (): boolean => !!req.cancelCheck && req.cancelCheck();
+        if (!await HttpRetryPolicy.wait(delay, cancelled, req.deadlineAt)) {
+          return failed(cancelled() ? '请求已取消' : '请求超时 (2300028)');
+        }
+        response = await attempt({ ...req, retryAttempt: index + 1, retryReason: `HTTP ${response.statusCode}，退避 ${delay} ms` });
+      }
+      return response;
+    }
+    for (let i = 0; i < this.config.retry && !response.success; i++) {
+      if (req.deadlineAt && Date.now() >= req.deadlineAt) break;
+      response = await attempt({ ...req, retryAttempt: i + 1, retryReason: '数字 retry' });
+    }
+    return response;
+  }
+
+  private rateText(): string {
+    return this.stageRate ? `${this.stageRate.stage}.rate ${this.stageRate.rate}` : this.source?.concurrentRate || '';
   }
 
   private async fetchWithRetry(req: HttpRequest): Promise<HttpResponse> {
@@ -673,7 +752,7 @@ export class AnalyzeUrl {
       const remaining = req.deadlineAt ? Math.max(1, req.deadlineAt - Date.now()) : 0;
       const maxWait = remaining > 0 ? (this.rateLimitMaxWaitMs > 0 ? Math.min(remaining, this.rateLimitMaxWaitMs) : remaining) :
         this.rateLimitMaxWaitMs;
-      return await BookSourceRateLimiter.acquire(this.source, req.cancelCheck, maxWait);
+      return await BookSourceRateLimiter.acquire(this.source, req.cancelCheck, maxWait, this.stageRate);
     } finally {
       if (timingId > 0) {
         SourceEngineHost.end(timingId, 'source-rate-wait', startedAt, `priority=${SourceEngineHost.priority(this.source)}` +
@@ -719,7 +798,7 @@ export class AnalyzeUrl {
       body: '',
       success: false,
       error: reason === RateLimitAcquireResult.Cancelled ? '请求已取消' :
-        `规则限流：等待超过 ${Math.round(this.rateLimitMaxWaitMs / 1000)} 秒仍未轮到（并发率 ${this.source?.concurrentRate || ''}）`
+        `书源限流：等待超过 ${Math.round(this.rateLimitMaxWaitMs / 1000)} 秒仍未轮到（并发率 ${this.rateText()}）`
     };
   }
 
@@ -760,12 +839,6 @@ export class AnalyzeUrl {
       if (!destinationScoped.includes(key.toLowerCase())) result[key] = headers[key];
     }
     return result;
-  }
-
-  private normalizeCharset(charset: string): string {
-    const value = (charset || '').toLowerCase().replace(/["']/g, '').trim();
-    if (value === 'gbk' || value === 'gb2312') return 'gb18030';
-    return value || 'utf-8';
   }
 
   private findOptionIndex(value: string): number {

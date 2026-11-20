@@ -2,9 +2,19 @@
 
 简听通过 `LocalRuleDispatcher → light/LightSourceBridge → LightSourceCore` 调用轻页的书源核心。页面仍由简听维护。轻页兼容源和轻页 `sourceFormat: native` 源走此链路；原简听规则核心、`jianting.source` 引擎及按域名分流的专用内容适配器已删除；历史定义保留为数据，停用格式不执行。
 
+## 原生书源设置与条件变量（2026-11-20）
+
+通过 `scripts/prepare-light-source.py --engine-revision 19cfd7bf88a0f8d30d777a2191919d4375b314aa` 调用既有同步脚本，生成 97 个文件。书源核心固定为 `19cfd7bf88a0f8d30d777a2191919d4375b314aa`，应用辅助保持 `5ee1cde39cfa124ef65b39b88a729f254d5afd9a`；下方旧提交为历史记录。保留有界 QuickJS、Cookie 隔离及函数库缓存/表达式后台执行宿主补丁。变量 `when` 通过公共包 `visibleVars` 过滤，保存隐藏项时保留其已存值。
+
+设置 UI 参考轻页应用 `7278cdea649d829a2945cb60e194ce9cf63ddc9c` 的 `entry/src/main/ets/pages/NativeSourceSettings.ets`，在简听通用面板中用 V2 实现设置、账号及操作分组，不复制上游 V1 页面。原生源入口按引擎识别；仅有 login.form/login.script 而无 login.url 的来源也能进入。表单登录、登录检查、注销和操作继续调用公共包接口，通过现有加密运行态持久化。
+
+本轮设置页通过 ArkTS 检查及 Release SDK 26.0.0.105 增量 Debug HAP 构建，已安装 Mate 80。已观察设置入口、模式保存与重启保留、账号/操作分组及紧凑版长文本显示；账号未登录，真实登录与登录后阅读未验证。后续紧凑版改为保留列表实例刷新，网页返回与操作后的滚动位置仍待交互验证，避免覆盖设备上正在编辑的设置。
+
+布局实现参考已读取的 [ArkUI 指引](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)及 [Builder 刷新约束](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/18-arkts-rules/arkts-ui-extension.md)。
+
 ## 搜索函数库缓存与后台执行（2026-11-20）
 
-同步入口接入两项宿主补丁：`host-native-library-cache-v1`（`scripts/light-native-library-cache.cjs`）缓存解析语法，`host-native-expression-isolation-v1`（`scripts/light-native-expression-isolation.cjs`）将含循环的原生表达式交给现有有界后台宿主。生成目标为 `NativeExpr.ts` 与 `NativeSourceRunner.ts`；内核固定提交仍为 `8a3a8291a5f81a602ba845692764cc059f1531ce`，应用辅助仍为 `5ee1cde39cfa124ef65b39b88a729f254d5afd9a`。通过同步脚本生成，不手改上游文件。
+同步入口接入两项宿主补丁：`host-native-library-cache-v1`（`scripts/light-native-library-cache.cjs`）缓存解析语法，`host-native-expression-isolation-v1`（`scripts/light-native-expression-isolation.cjs`）将含循环的原生表达式交给现有有界后台宿主。生成目标为 `NativeExpr.ts` 与 `NativeSourceRunner.ts`；当时内核固定提交为 `8a3a8291a5f81a602ba845692764cc059f1531ce`，应用辅助仍为 `5ee1cde39cfa124ef65b39b88a729f254d5afd9a`。通过同步脚本生成，不手改上游文件。
 
 冷进程首次搜索曾出现 7 次 518–565ms 主线程长任务，调用链包含函数库解析与表达式循环。进一步计时发现单次函数库分词、解析最大约 35ms；仅增加解析缓存后仍有 491–518ms 停顿，不能把整段停顿归因于解析。剩余热点是请求模板调用原生函数库中的循环，过去因规则没有 JS 而留在主线程。
 
