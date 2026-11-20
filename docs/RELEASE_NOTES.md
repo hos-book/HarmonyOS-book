@@ -20,6 +20,15 @@
 - 本次发版未新增设备功能验收；既有实机观察与待验证项见 `docs/APP_UI.md`、`docs/LIGHT_SOURCE_SYNC.md`，原生源真实登录及登录后阅读仍待验证。
 - 发布参考本轮读取的 [AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)、[邀测流程](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/workflows.md)与 [Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)。目录 API 返回 HTTP 429，未完成目录树刷新，使用当前索引提供的技能路径。
 
+## AGC 提交记录
+
+- 代码提交：`3dc7ccf`，已通过 SSH 推送至 GitHub。
+- 2026-11-21 邀请测试提交接口返回成功，版本 ID：`2088145811723549504`，软件包 ID：`2088147865858760512`。页面显示正在执行平台自动预审，通过后自动转交审核；外部测试组待审核通过后开放。
+- 全部测试组已绑定：简听外部体验（254 人）、内测组（1 人）；测试通知开启（`needNotify=1`），实际送达由平台执行。
+- 上架自检及自检报告通知均关闭（`onshelfSelfDetect=0`、`onshelfSelfDetectNotice=0`）；平台自动预审由提交审核触发，与可选上架自检分开执行。
+- 分发使用即刻生效模式（`sendMode=0`），未设置延后开始。测试窗口为 2026-11-21 02:15:30 至 2026-12-21 23:59:59（北京时间）。
+- [邀请测试链接](https://appgallery.huawei.com/apptest/join/76b3950e34e16d575fa92a209fc631dd)。提交回执已归档于本版本目录的 `release-progress.json`。
+
 ---
 
 ## 1.1.16 更新日志（2026-11-20）
