@@ -1,5 +1,16 @@
 import { Book, Chapter } from './Book';
 
+/** 详情页先进入播放器，再按选中章节或历史位置起播。 */
+export class PlayerStartParams {
+  bookId: string;
+  chapterId: string;
+
+  constructor(bookId: string, chapterId: string = '') {
+    this.bookId = bookId;
+    this.chapterId = chapterId;
+  }
+}
+
 /**
  * 播放模式
  * - sequence: 顺序播放（最后一集结束后停止）

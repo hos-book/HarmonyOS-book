@@ -1,3 +1,27 @@
+# 1.1.18 更新日志（2026-11-21）
+
+1. 优化本地 AI 字幕的识别分段、时间对齐与跨窗口拼接，改善字幕刷新及当前句定位。
+2. 优化迷你播放器展开、收起与拖动转场，完善沉浸材质及横竖布局下的播放控制衔接。
+3. 优化书籍详情页的阅读与收听入口，目录加载期间可进入目标页面，并按历史位置或选中章节继续。
+4. 优化主页面页签切换与书房滑动操作，提升连续浏览体验。
+
+## 发布配置
+
+- 版本代码：1028001；邀请测试沿用现有会员权益配置。
+- 覆盖 AGC 当前全部测试组：简听外部体验（258 人）；开启测试通知，关闭上架自检及自检报告通知。
+- 测试期沿用 30 天，分发方式设为即刻生效。平台自动预审照常执行，外部组开放时间以审核结果为准。
+
+## 构建与验包
+
+- 使用 Release SDK 26.0.0.105 与现有发布签名完成 APP 构建；包内元数据确认版本 1.1.18 / 1028001、Release 模式、debug=false、最低 API 20、目标 API 26。
+- 签名 APP 归档于 `artifacts/releases/1.1.18-1028001/Jianting-1.1.18-1028001-release.app`，包体约 56.1 MB。
+- 变更 ETS 的静态检查提示 API 可用性及现有规则告警；Release ArkTS 编译、打包与签名完成。
+- MCP 构建遇到 OHPM 批处理递归错误；使用 `.env` 指定的 Release IDE Hvigor CLI 与 `--no-daemon` 完成构建。构建日志另有组件 ID 与依赖资源声明提示。
+- 本轮完成 Release 构建与包内元数据核对，未新增设备实机操作验证。
+- 发布参考本轮读取的 [AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)、[邀测流程](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/workflows.md)、[AGC 命令说明](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/commands.md)与 [Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)。
+
+---
+
 # 1.1.17 更新日志（2026-11-21）
 
 1. 优化阅读排版与翻页效果，改善横屏双栏、连续翻页及阅读位置恢复体验。

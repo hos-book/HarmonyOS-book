@@ -32,7 +32,7 @@ import { PlayerState, PLAYER_STATE_KEY, PlayMode, SleepMode } from '../model/Pla
 import { BookSourceService } from '../service/BookSourceService';
 import { DataService } from '../service/DataService';
 import { AudioPlayFailedPayload, AudioService, EVT_AUDIO_PLAY_FAILED, EVT_SLEEP_CANCELLED } from '../service/AudioService';
-import { PreferenceService } from '../service/PreferenceService';
+import { PlayHistoryItem, PreferenceService } from '../service/PreferenceService';
 import { SourceDataService } from '../service/SourceDataService';
 import { PlaybackStore } from '../service/PlaybackStore';
 import { DownloadService, DownloadUpdatePayload, EVT_DOWNLOAD_UPDATED } from '../service/DownloadService';
@@ -154,6 +154,8 @@ export struct PlayerPage {
   @Local dragState: PlayerDragState = PlayerDragTransition.getInstance().state;
   @Param resumeChapterId: string = '';
   @Param resumeProgressMs: number = 0;
+  @Param startFromDetail: boolean = false;
+  @Local preparingPlayback: boolean = false;
   @Local book: Book | null = null;
   @Local showSourceSwitch: boolean = false;
   private sourceUnavailable: boolean = false;
@@ -294,6 +296,7 @@ export struct PlayerPage {
       return;
     }
     LibrarySyncActivity.playing.add(this.bookId);
+    this.preparingPlayback = this.startFromDetail;
     this.isLeaving = false;
     WindowUtils.addSafeAreaListener(this.safeAreaChangeHandler);
     WindowUtils.refreshAvoidArea();
@@ -343,7 +346,7 @@ export struct PlayerPage {
     emitter.on(EVT_SLEEP_CANCELLED, this.sleepCancelledHandler);
     setTimeout(() => {
       if (this.isLeaving) return;
-      this.loadBook();
+      this.loadBook().finally((): void => { this.preparingPlayback = false; });
     }, 32);
     setTimeout(() => {
       if (this.isLeaving) return;
@@ -653,7 +656,7 @@ export struct PlayerPage {
     AudioService.getInstance().bind(this.playerState, this.context!);
 
     // 历史记录入口：若指定了恢复章节，且当前 AudioService 没有在播放该章节，则主动起播 + seek
-    if (this.resumeChapterId && !this.isLeaving) {
+    if ((this.resumeChapterId || this.startFromDetail) && !this.isLeaving) {
       await this.tryResumePlay(b);
     }
   }
@@ -692,6 +695,7 @@ export struct PlayerPage {
   }
 
   private playbackLoading(): boolean {
+    if (this.preparingPlayback) return true;
     return this.isSpeechBook() ? this.speechMatchesBook() && this.speechState.loading :
       this.audioMatchesBook() && this.playerState.isLoading;
   }
@@ -1008,7 +1012,7 @@ export struct PlayerPage {
     if (!this.needsChapterHydration(book) || this.chapterLoadInProgress) return book;
     this.chapterLoadInProgress = true;
     try {
-      if (book.tocComplete === false) {
+      if (book.tocComplete === false || BookSourceService.pendingAudioBook(book.id) !== undefined) {
         return await BookSourceService.loadAudioBook(book, (_loaded: Book): void => {});
       }
       const localChapters = await DataService.getChaptersForBook(book.id);
@@ -1057,24 +1061,28 @@ export struct PlayerPage {
 
   private async tryResumePlay(book: Book): Promise<void> {
     await LibrarySyncActivity.prepareResume(book.id);
-    if (this.isLeaving || this.book?.id !== book.id) return;
     const saved = await PreferenceService.getProgress(book.id);
     const synced = LibrarySyncActivity.remotePlayback.has(book.id) && saved !== null;
     const chapterId = synced && saved ? saved.chapterId : this.resumeChapterId;
-    const target = book.chapters.find((c) => c.id === chapterId) ??
+    let progressMs = synced && saved ? saved.positionMs : this.resumeProgressMs;
+    let target: Chapter | undefined = book.chapters.find((chapter: Chapter): boolean => chapter.id === chapterId) ??
       (synced && saved ? book.chapters[DataService.resolveChapterIndex(book, saved.chapterId, saved.chapterTitle)] : undefined);
+    if (this.startFromDetail && !this.resumeChapterId && !synced) {
+      const history = await PreferenceService.getHistory();
+      const last = history.find((item: PlayHistoryItem): boolean => item.bookId === book.id);
+      const index = last ? DataService.resolveChapterIndex(book, last.chapterId, last.chapterTitle) : -1;
+      target = index >= 0 ? book.chapters[index] : book.chapters[0];
+      progressMs = last?.progressMs ?? 0;
+    }
+    if (this.isLeaving || this.book?.id !== book.id) return;
     if (!target) {
       hilog.warn(DOMAIN, TAG, 'resume chapter not found: %{public}s', this.resumeChapterId);
       return;
     }
-    // ★ PlaybackStore 同书+同章节命中:直接复用 live state,不调 AudioService 任何方法,
-    //   绝对不会触发 reset。即使 progressMs 与 resumeProgressMs 略有差异,以 live 为准
-    if (PlaybackStore.getInstance().isCurrentChapter(book.id, target.id) && !synced) {
-      return;
-    }
-    // 切到不同章节(可能不同书) → AudioService 内部会 same-book/same-chapter 短路或 reset
+    // 同书同章沿用实时播放位置，云端进度按既有同步规则处理。
+    if (PlaybackStore.getInstance().isCurrentChapter(book.id, target.id) && !synced) return;
     SearchCache.put(book);
-    await AudioService.getInstance().playChapterAndSeek(book, target, synced && saved ? saved.positionMs : this.resumeProgressMs);
+    await AudioService.getInstance().playChapterAndSeek(book, target, progressMs);
   }
 
   private formatMs(ms: number): string {

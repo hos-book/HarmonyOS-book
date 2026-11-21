@@ -1,6 +1,6 @@
 import { UIContext } from '@kit.ArkUI';
 import { image } from '@kit.ImageKit';
-import { OneShotRect, OneShotTransitionIds, OneShotTransitionCoordinator } from './OneShotTransition';
+import { OneShotRect, OneShotTransitionIds, OneShotTransitionCoordinator, OneShotLayoutCallback } from './OneShotTransition';
 import { WindowUtils } from './WindowUtils';
 
 export class PlayerDragOrigin {
@@ -42,7 +42,14 @@ export class PlayerDragState {
   @Trace coverHeight: number = 0;
   @Trace coverRadius: number = 0;
   @Trace contentOpacity: number = 1;
-  @Trace sourceOpacity: number = 1;
+  @Trace compactOpacity: number = 0;
+  @Trace miniBarRevealed: boolean = false;
+  @Trace miniBarScaleX: number = 1;
+  @Trace miniBarScaleY: number = 1;
+  @Trace miniBarHeight: number = 0;
+  @Trace miniBarCollapsed: boolean = false;
+  @Trace miniBarVertical: boolean = false;
+  @Trace miniBarCompactControls: boolean = false;
   @Trace coverSource: string = '';
   @Trace coverDecodeSize: number = 300;
   @Trace coverImageOpacity: number = 0;
@@ -111,12 +118,6 @@ export class PlayerDragTransition {
       // 截取未被父容器圆形裁剪的图片，放大时才能连续变成播放页圆角封面。
       if (withSnapshot) {
         origin.snapshot = uiContext.getComponentSnapshot().getSync('mini-player-cover-image');
-        // 收起跟手时以进入播放页前的真实底页作背景，不重建首页或切换其状态。
-        try {
-          const backdrop = uiContext.getComponentSnapshot().getSync(OneShotTransitionIds.ROOT_NAVIGATION);
-          OneShotTransitionCoordinator.releaseSnapshot(this.state.backdropSnapshot);
-          this.state.backdropSnapshot = backdrop;
-        } catch (_error) { /* 背景快照失败不影响播控和封面转场。 */ }
       }
       return origin;
     } catch (_error) {
@@ -163,6 +164,14 @@ export class PlayerDragTransition {
     this.state.backdropSnapshot = undefined;
   }
 
+  captureBackdrop(uiContext: UIContext): void {
+    try {
+      const backdrop = uiContext.getComponentSnapshot().getSync('main-page-root', { waitUntilRenderFinished: true });
+      OneShotTransitionCoordinator.releaseSnapshot(this.state.backdropSnapshot);
+      this.state.backdropSnapshot = backdrop;
+    } catch (_error) { /* 当前底页继续由原导航容器呈现。 */ }
+  }
+
   canReturnTo(page: string): boolean {
     return this.returnPage.length > 0 && this.returnPage === page;
   }
@@ -199,7 +208,9 @@ export class PlayerDragTransition {
     this.state.coverImageOpacity = 0;
     this.state.coverRevealed = false;
     this.state.contentOpacity = 0;
-    this.state.sourceOpacity = 1;
+    this.state.miniBarHeight = origin.height;
+    this.state.compactOpacity = origin.sourceNodeId === 'mini-player-bar' ? 1 : 0;
+    this.state.miniBarRevealed = false;
     this.state.active = true;
     console.info(`[PlayerTransition] open source=${origin.sourceNodeId}` +
       ` rect=${origin.left},${origin.top},${origin.width},${origin.height}`);
@@ -244,7 +255,9 @@ export class PlayerDragTransition {
       this.state.snapshot = snapshot;
       this.state.sourceNodeId = origin.sourceNodeId;
       this.state.contentOpacity = 1;
-      this.state.sourceOpacity = 0;
+      this.state.miniBarHeight = origin.height;
+      this.state.compactOpacity = 0;
+      this.state.miniBarRevealed = false;
       this.state.active = true;
       console.info(`[PlayerTransition] return target=${origin.left},${origin.top},${origin.width},${origin.height}`);
       return origin;
@@ -270,9 +283,9 @@ export class PlayerDragTransition {
     this.state.coverHeight = origin.coverHeight;
     this.state.coverRadius = origin.sourceNodeId === 'mini-player-bar'
       ? Math.min(origin.coverWidth, origin.coverHeight) / 2 : origin.radius;
-    // 与收起几何在同一动画闭包内回显文字和播控，封面仍由转场快照接管。
-    // 等 complete() 才恢复透明度会先露出空胶囊，再突然补上内容。
-    if (origin.sourceNodeId === 'mini-player-bar') this.state.sourceOpacity = 1;
+    // 自绘文字、进度环与播控随面板一起收拢，complete() 完成原生栏交接。
+    this.state.miniBarHeight = origin.height;
+    this.state.compactOpacity = origin.sourceNodeId === 'mini-player-bar' ? 1 : 0;
     if (hideContent) this.state.contentOpacity = 0;
   }
 
@@ -287,6 +300,7 @@ export class PlayerDragTransition {
     this.state.coverWidth = WindowUtils.pxToVp(cover.widthPx);
     this.state.coverHeight = WindowUtils.pxToVp(cover.heightPx);
     this.state.coverRadius = 16;
+    this.state.compactOpacity = 0;
   }
 
   beginGesture(height: number, offsetY: number, commit: () => void): void {
@@ -305,7 +319,6 @@ export class PlayerDragTransition {
     this.previewCancel = cancelAnimation;
     this.state.previewBookId = bookId;
     this.state.previewing = true;
-    this.state.sourceOpacity = 0;
     this.update(offsetY);
   }
 
@@ -353,7 +366,10 @@ export class PlayerDragTransition {
       this.expandToPlayer(cover, viewport);
       this.state.snapshot = snapshot;
       this.state.contentOpacity = 1;
-      this.state.sourceOpacity = 0;
+      this.state.sourceNodeId = this.dismissOrigin.sourceNodeId;
+      this.state.miniBarHeight = this.dismissOrigin.height;
+      this.state.compactOpacity = 0;
+      this.state.miniBarRevealed = false;
       this.state.dismissing = true;
       this.state.active = true;
       this.update(offsetY);
@@ -364,7 +380,7 @@ export class PlayerDragTransition {
     if (this.dismissCover !== undefined && this.dismissViewport !== undefined) {
       this.expandToPlayer(this.dismissCover, this.dismissViewport);
       this.state.contentOpacity = 1;
-      this.state.sourceOpacity = 0;
+      this.state.compactOpacity = 0;
     }
   }
 
@@ -396,13 +412,13 @@ export class PlayerDragTransition {
     this.state.frameWidth = origin.width + (origin.viewportWidth - origin.width) * fraction;
     this.state.frameHeight = origin.height + (origin.viewportHeight - origin.height) * fraction;
     this.state.radius = origin.radius * (1 - fraction);
-    // 小幅拖动先展示封面，面板展开后再柔和显露正文；反向拖动沿同一路径收回。
+    // 起始呈现完整紧凑栏，随展开比例交接正文；反向拖动沿同一路径收回。
     const contentProgress: number = Math.min(1, Math.max(0, (fraction - 0.08) / 0.72));
     this.state.contentOpacity = contentProgress * contentProgress * (3 - 2 * contentProgress);
     if (origin.sourceNodeId === 'mini-player-bar') {
       // 靠近迷你栏时交接文字与播控；上下拖动共用进度，回拖和取消也连续恢复。
-      const sourceProgress: number = Math.min(1, Math.max(0, fraction / 0.3));
-      this.state.sourceOpacity = 1 - sourceProgress * sourceProgress * (3 - 2 * sourceProgress);
+      const compactProgress: number = Math.min(1, Math.max(0, fraction / 0.3));
+      this.state.compactOpacity = 1 - compactProgress * compactProgress * (3 - 2 * compactProgress);
     }
     if (cover !== undefined && viewport !== undefined) {
       this.state.coverX = origin.coverLeft +
@@ -479,6 +495,35 @@ export class PlayerDragTransition {
     if (open) commit?.();
   }
 
+  /** 落位时整条迷你栏轻压回弹，稳定后提交原生栏可见帧。 */
+  finishAtMiniBar(uiContext: UIContext, finish: () => void): void {
+    if (this.state.sourceNodeId !== 'mini-player-bar') {
+      finish();
+      return;
+    }
+    uiContext.keyframeAnimateTo({
+      onFinish: (): void => {
+        this.state.miniBarRevealed = true;
+        uiContext.postFrameCallback(new OneShotLayoutCallback((): void => {
+          uiContext.postFrameCallback(new OneShotLayoutCallback(finish));
+        }));
+      }
+    }, [
+      { duration: 80, curve: Curve.EaseOut, event: (): void => {
+        this.state.miniBarScaleX = 1.012;
+        this.state.miniBarScaleY = 0.95;
+      } },
+      { duration: 120, curve: Curve.EaseInOut, event: (): void => {
+        this.state.miniBarScaleX = 0.994;
+        this.state.miniBarScaleY = 1.025;
+      } },
+      { duration: 150, curve: Curve.EaseOut, event: (): void => {
+        this.state.miniBarScaleX = 1;
+        this.state.miniBarScaleY = 1;
+      } }
+    ]);
+  }
+
   complete(): void {
     this.generation++;
     this.opening = false;
@@ -496,7 +541,10 @@ export class PlayerDragTransition {
     this.previewCancel = undefined;
     this.state.active = false;
     this.state.contentOpacity = 1;
-    this.state.sourceOpacity = 1;
+    this.state.compactOpacity = 0;
+    this.state.miniBarRevealed = false;
+    this.state.miniBarScaleX = 1;
+    this.state.miniBarScaleY = 1;
     this.state.coverSource = '';
     this.state.coverImageOpacity = 0;
     this.state.coverRevealed = false;

@@ -1,0 +1,489 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <link rel="icon" href="data:,">
+  <title>简简 · 奶油小猫形象预览</title>
+  <!--
+    Standalone character preview. The application example shows a cropped companion area.
+    Design references:
+    https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/01-design/mobile/hmos-design-visual-mobile/SKILL.md
+    https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/01-design/mobile/hmos-design-visual-mobile/references/0.governance/HarmonyOS%20Design.md
+    https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/01-design/mobile/hmos-design-visual-mobile/references/2.theme/harmony-tokens.css
+    https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/01-design/mobile/hmos-design-visual-mobile/references/2.theme/mobile-scale.css
+    Character palette: cream fur, peach ears, sage reading accessories.
+  -->
+  <style>
+    :root {
+      --page: rgb(247, 247, 242);
+      --surface: rgb(255, 255, 251);
+      --stage: rgb(242, 239, 228);
+      --stage-halo: rgb(255, 254, 246);
+      --ink: rgb(54, 63, 54);
+      --muted: rgb(123, 130, 117);
+      --line: rgb(226, 229, 217);
+      --accent: rgb(89, 115, 80);
+      --accent-soft: rgb(234, 239, 226);
+      --on-accent: rgb(255, 255, 248);
+      --paper: rgb(251, 249, 241);
+      --shade: rgba(63, 73, 50, .06);
+      --fur-light: rgb(255, 253, 244);
+      --fur-mid: rgb(248, 234, 208);
+      --fur-dark: rgb(228, 201, 162);
+      --fur-edge: rgb(211, 183, 145);
+      --fur-highlight: rgb(255, 255, 252);
+      --peach: rgb(240, 174, 144);
+      --pink: rgb(234, 155, 149);
+      --pink-light: rgb(255, 217, 205);
+      --eye: rgb(76, 58, 45);
+      --eye-bottom: rgb(130, 102, 69);
+      --sage: rgb(120, 147, 108);
+      --sage-dark: rgb(81, 113, 75);
+      --sage-light: rgb(175, 195, 149);
+      --page-light: rgb(255, 252, 226);
+      --page-dark: rgb(229, 214, 179);
+      --heart: rgb(226, 137, 134);
+      --harmony-padding-level4: 8px;
+      --harmony-padding-level6: 12px;
+      --harmony-padding-level8: 16px;
+      --harmony-padding-level12: 24px;
+      --harmony-padding-level16: 32px;
+      --harmony-corner-radius-level8: 16px;
+      --harmony-corner-radius-level12: 24px;
+      --harmony-corner-radius-level16: 32px;
+    }
+    [data-theme="dark"] {
+      color-scheme: dark;
+      --page: rgb(29, 33, 30);
+      --surface: rgb(37, 42, 37);
+      --stage: rgb(43, 47, 40);
+      --stage-halo: rgb(67, 70, 53);
+      --ink: rgb(234, 237, 220);
+      --muted: rgb(166, 177, 157);
+      --line: rgb(65, 73, 60);
+      --accent: rgb(181, 202, 155);
+      --accent-soft: rgb(57, 69, 49);
+      --on-accent: rgb(34, 43, 28);
+      --paper: rgb(46, 51, 44);
+      --shade: rgba(0, 0, 0, .16);
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: var(--ink); background: var(--page); font-family: "HarmonyOS Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif; -webkit-font-smoothing: antialiased; transition: background .3s, color .3s; }
+    button { font: inherit; color: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+    button:focus-visible { outline: 3px solid var(--accent); outline-offset: 5px; }
+    button, a { touch-action: manipulation; }
+    h1, h2, h3, p { margin: 0; }
+    .wrap { max-width: 1256px; margin: auto; padding: 0 40px; }
+    .masthead { display: flex; align-items: center; justify-content: space-between; gap: 24px; padding-block: 26px; border-bottom: 1px solid var(--line); }
+    .brand { display: flex; align-items: center; gap: 14px; font-size: 16px; font-weight: 650; }
+    .brand-stamp { display: grid; place-items: center; width: 36px; aspect-ratio: 1; border-radius: 12px; background: var(--accent); color: var(--on-accent); font-size: 21px; font-family: "STKaiti", "KaiTi", serif; }
+    .brand-divider { height: 16px; width: 1px; background: var(--line); margin-inline: 6px; }
+    .brand-note { color: var(--muted); font-size: 12px; font-weight: 400; letter-spacing: 2px; }
+    .theme-toggle { border: 1px solid var(--line); background: var(--surface); border-radius: 24px; display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 8px 16px; font-size: 12px; }
+    .theme-light { width: 12px; height: 12px; border-radius: 50%; background: var(--accent); box-shadow: inset -4px -2px 0 var(--surface); }
+    .intro { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; padding-block: 38px 28px; }
+    .eyebrow { font-size: 10px; letter-spacing: 3px; color: var(--muted); font-weight: 600; }
+    h1 { margin-top: 10px; font-size: clamp(27px, 3.2vw, 38px); font-weight: 600; letter-spacing: 1px; line-height: 1.45; }
+    .intro p { margin-top: 12px; color: var(--muted); font-size: 14px; line-height: 1.8; }
+    .edition { display: flex; align-items: center; gap: 9px; font-size: 12px; white-space: nowrap; padding-bottom: 6px; color: var(--muted); }
+    .edition-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+    .workspace { display: grid; grid-template-columns: minmax(0, 1fr) 348px; gap: 24px; align-items: stretch; }
+    .portrait { position: relative; display: flex; flex-direction: column; overflow: hidden; border-radius: var(--harmony-corner-radius-level16); background: var(--stage); min-width: 0; }
+    .portrait-top { display: flex; align-items: center; justify-content: space-between; padding: 24px 28px 0; z-index: 1; }
+    .portrait-name { font-family: Georgia, serif; font-size: 18px; font-style: italic; color: var(--accent); }
+    .live-label { display: flex; gap: 6px; align-items: center; font-size: 11px; color: var(--muted); }
+    .live-label::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+    .art-area { flex: 1; display: grid; place-items: center; position: relative; isolation: isolate; min-height: 444px; }
+    .art-area::before { content: ""; position: absolute; width: 380px; max-width: 90%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, var(--stage-halo) 8%, var(--stage-halo) 46%, transparent 72%); z-index: -1; }
+    .art-area::after { content: ""; position: absolute; width: 316px; max-width: 74%; aspect-ratio: 1; border-radius: 50%; border: 1px solid color-mix(in srgb, var(--surface) 65%, transparent); z-index: -1; }
+    .cat-hit { display: block; width: min(375px, 91%); padding: 0; margin: 8px 0 0; border: 0; background: transparent; position: relative; z-index: 2; }
+    .cat-hit:active { transform: scale(.985); }
+    .hello { position: absolute; top: 32px; left: 50%; translate: -50% 0; z-index: 3; background: var(--surface); color: var(--ink); border: 1px solid var(--line); border-radius: 18px 18px 18px 4px; padding: 10px 18px; font-size: 12px; white-space: nowrap; box-shadow: 0 5px 16px var(--shade); transform: rotate(-4deg); }
+    .art-note { position: absolute; color: var(--muted); font-size: 11px; letter-spacing: 1px; }
+    .art-note-left { top: 47%; left: 8%; transform: rotate(-9deg); }
+    .art-note-right { right: 7%; bottom: 25%; transform: rotate(8deg); }
+    .star { position: absolute; color: var(--accent); font-family: Georgia, serif; font-size: 24px; opacity: .45; }
+    .star-one { top: 26%; right: 17%; }
+    .star-two { left: 20%; bottom: 25%; font-size: 16px; }
+    .portrait-bottom { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 0 28px 24px; color: var(--muted); font-size: 11px; }
+    .portrait-bottom b { font-weight: 500; color: var(--ink); }
+    .motion-hint { display: flex; align-items: center; gap: 8px; }
+    .motion-lines { display: flex; align-items: center; gap: 3px; height: 14px; }
+    .motion-lines i { display: block; width: 2px; height: 5px; background: var(--accent); border-radius: 2px; animation: sound 1.8s ease-in-out infinite; }
+    .motion-lines i:nth-child(2) { height: 12px; animation-delay: -.4s; }
+    .motion-lines i:nth-child(3) { height: 8px; animation-delay: -.8s; }
+    .sidebar { display: flex; flex-direction: column; gap: 20px; }
+    .moods { border-radius: var(--harmony-corner-radius-level12); background: var(--surface); border: 1px solid var(--line); padding: 24px; }
+    .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    h2 { font-size: 17px; font-weight: 600; }
+    .tiny-label { color: var(--muted); font-size: 10px; letter-spacing: 1px; }
+    .mood-grid { margin-top: 18px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+    .mood-button { display: flex; flex-direction: column; align-items: center; gap: 5px; border: 1px solid transparent; padding: 5px 2px 10px; border-radius: 16px; background: transparent; font-size: 11px; color: var(--muted); transition: background .2s, border-color .2s, transform .2s; }
+    .mood-button:hover { transform: translateY(-2px); background: var(--page); }
+    .mood-button[aria-pressed="true"] { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 28%, transparent); color: var(--accent); font-weight: 600; }
+    .mood-face { width: 51px; height: 55px; overflow: hidden; }
+    .mood-face .cat { width: 80px; max-width: none; transform: translate(-14px, -9px); }
+    .mood-face .cat-body { animation: none; }
+    .mood-face .cat-tail, .mood-face .cat-shadow, .mood-face .cat-sparkles { display: none; }
+    .mood-copy { margin-top: 18px; font-size: 12px; line-height: 1.8; color: var(--muted); min-height: 44px; }
+    .pet-button { display: flex; justify-content: center; align-items: center; gap: 10px; margin-top: 18px; width: 100%; border: 0; border-radius: 24px; background: var(--accent); color: var(--on-accent); padding: 13px 16px; font-size: 13px; transition: transform .2s; }
+    .pet-button:hover { transform: translateY(-2px); }
+    .pet-button:active { transform: scale(.98); }
+    .pet-heart { font-family: Georgia, serif; font-size: 18px; }
+    .placement { flex: 1; display: flex; flex-direction: column; gap: 13px; }
+    .placement-heading { display: flex; justify-content: space-between; align-items: center; padding-inline: 3px; }
+    .placement-heading h2 { font-size: 13px; }
+    .app-crop { position: relative; flex: 1; min-height: 210px; overflow: hidden; border: 1px solid var(--line); background: var(--paper); border-radius: var(--harmony-corner-radius-level12); padding: 22px; }
+    .crop-title { font-size: 17px; font-weight: 600; }
+    .crop-subtitle { color: var(--muted); font-size: 11px; margin-top: 5px; }
+    .book-row { display: flex; align-items: center; gap: 14px; margin-top: 20px; }
+    .book-cover { flex: 0 0 54px; height: 73px; padding: 10px 8px; background: var(--sage-dark); color: var(--page-light); border-radius: 3px 6px 6px 3px; font-size: 13px; letter-spacing: 3px; box-shadow: inset 4px 0 0 rgba(0, 0, 0, .08); line-height: 1.5; }
+    .book-details { display: grid; gap: 7px; }
+    .book-details b { font-size: 12px; font-weight: 500; }
+    .book-details span { color: var(--muted); font-size: 10px; }
+    .reading-line { height: 3px; width: 88px; background: var(--line); border-radius: 2px; }
+    .reading-line::before { content: ""; display: block; width: 36%; height: 100%; background: var(--sage); border-radius: 2px; }
+    .mini-cat { position: absolute; bottom: 2px; right: 0; width: 108px; height: 122px; padding: 0; background: transparent; border: 0; cursor: grab; touch-action: none; z-index: 2; }
+    .mini-cat:active { cursor: grabbing; }
+    .mini-cat .cat { width: 108px; height: 122px; }
+    .mini-bubble { position: absolute; right: 15px; bottom: 126px; padding: 7px 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 10px 10px 2px 10px; font-size: 10px; color: var(--accent); pointer-events: none; }
+    .details-strip { display: grid; grid-template-columns: 1.3fr 1fr 1fr; gap: 28px; margin-top: 28px; padding: 24px 0; border-top: 1px solid var(--line); }
+    .detail { display: flex; gap: 14px; align-items: center; }
+    .detail-number { font-family: Georgia, serif; font-style: italic; font-size: 22px; color: var(--muted); opacity: .65; }
+    .detail b { font-weight: 500; font-size: 12px; display: block; }
+    .detail p { font-size: 11px; line-height: 1.8; color: var(--muted); margin-top: 4px; }
+    .palette { display: flex; gap: 0; padding-left: 2px; }
+    .swatch { width: 26px; height: 26px; border: 3px solid var(--page); margin-left: -3px; border-radius: 50%; }
+    .swatch-cream { background: var(--fur-mid); }
+    .swatch-peach { background: var(--pink); }
+    .swatch-sage { background: var(--sage); }
+    footer { display: flex; align-items: center; justify-content: space-between; color: var(--muted); padding: 8px 0 24px; font-size: 10px; letter-spacing: 1px; gap: 16px; }
+    .svg-library { position: absolute; width: 0; height: 0; overflow: hidden; }
+    .cat { display: block; width: 100%; height: auto; overflow: visible; pointer-events: none; }
+    .cat-body { transform-origin: 200px 383px; animation: breathe 4s ease-in-out infinite; }
+    .cat-head { transform-origin: 200px 266px; animation: head-tilt 7s ease-in-out infinite; }
+    .cat-tail { transform-origin: 267px 342px; animation: tail-sway 3.2s ease-in-out infinite; }
+    .cat-eye-open { transform-box: fill-box; transform-origin: center; animation: blink 5.2s linear infinite; }
+    .cat-eye-closed, .cat-eye-reading, .cat-book, .cat-headphones, .cat-sleep, .cat-happy-mouth, .cat-sparkles { display: none; }
+    .cat-shadow { animation: shadow-breathe 4s ease-in-out infinite; transform-origin: 200px 394px; }
+    .cat[data-mood="reading"] .cat-book, .cat[data-mood="reading"] .cat-eye-reading { display: inline; }
+    .cat[data-mood="reading"] .cat-eye-open, .cat[data-mood="reading"] .cat-paw-rest { display: none; }
+    .cat[data-mood="reading"] .cat-head { animation: read-nod 4.4s ease-in-out infinite; }
+    .cat[data-mood="listening"] .cat-headphones { display: inline; }
+    .cat[data-mood="listening"] .cat-head { animation: listening 2s ease-in-out infinite; }
+    .cat[data-mood="listening"] .cat-tail { animation-duration: 1.8s; }
+    .cat[data-mood="sleepy"] .cat-eye-open, .cat[data-mood="happy"] .cat-eye-open, .cat[data-mood="happy"] .cat-mouth { display: none; }
+    .cat[data-mood="sleepy"] .cat-eye-closed, .cat[data-mood="happy"] .cat-eye-closed, .cat[data-mood="happy"] .cat-happy-mouth { display: inline; }
+    .cat[data-mood="sleepy"] .cat-sleep, .cat[data-mood="happy"] .cat-sparkles { display: inline; }
+    .cat[data-mood="sleepy"] .cat-head { transform: rotate(8deg); animation: sleepy-nod 5s ease-in-out infinite; }
+    .cat[data-mood="sleepy"] .cat-tail { animation-duration: 6s; }
+    .cat[data-mood="happy"] .cat-body { animation: happy-bounce .7s ease-in-out infinite; }
+    .cat[data-mood="happy"] .cat-tail { animation-duration: .9s; }
+    .cat[data-mood="happy"] .cat-blush { opacity: .95; }
+    .cat-blush { opacity: .66; transition: opacity .3s; }
+    .cat-sparkles path { transform-box: fill-box; transform-origin: center; animation: heart-float 1.8s ease-in-out infinite; }
+    .cat-sparkles path:nth-child(2) { animation-delay: -.6s; }
+    .cat-sparkles path:nth-child(3) { animation-delay: -1.2s; }
+    .cat-sleep text { font-family: Georgia, serif; fill: var(--sage); font-weight: 700; animation: dream 3s ease-in-out infinite; }
+    .cat-sleep text:nth-child(2) { animation-delay: -1s; }
+    .cat-sleep text:nth-child(3) { animation-delay: -2s; }
+    @keyframes breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.012, 1.018); } }
+    @keyframes head-tilt { 0%, 40%, 100% { transform: rotate(-2deg); } 60%, 80% { transform: rotate(2deg); } }
+    @keyframes tail-sway { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(8deg); } }
+    @keyframes blink { 0%, 42%, 47%, 74%, 79%, 100% { transform: scaleY(1); } 44%, 76% { transform: scaleY(.08); } }
+    @keyframes shadow-breathe { 0%, 100% { transform: scaleX(1); opacity: .13; } 50% { transform: scaleX(1.05); opacity: .1; } }
+    @keyframes read-nod { 0%, 100% { transform: translateY(3px) rotate(-2deg); } 50% { transform: translateY(6px) rotate(1deg); } }
+    @keyframes listening { 0%, 100% { transform: rotate(-5deg); } 50% { transform: rotate(5deg); } }
+    @keyframes sleepy-nod { 0%, 100% { transform: rotate(7deg) translateY(3px); } 50% { transform: rotate(10deg) translateY(6px); } }
+    @keyframes happy-bounce { 0%, 100% { transform: translateY(0) scale(1.015, .99); } 50% { transform: translateY(-7px) scale(.995, 1.015); } }
+    @keyframes heart-float { 0%, 100% { transform: translateY(0) scale(.9); opacity: .5; } 50% { transform: translateY(-10px) scale(1.08); opacity: 1; } }
+    @keyframes dream { 0%, 100% { opacity: .3; translate: 0 4px; } 50% { opacity: .9; translate: 0 -4px; } }
+    @keyframes sound { 0%, 100% { scale: 1 .65; } 50% { scale: 1 1; } }
+    @media (min-width: 1500px) { .wrap { padding-top: 16px; } .art-area { min-height: 490px; } .cat-hit { width: 400px; } }
+    @media (max-width: 1000px) { .wrap { padding-inline: 24px; } .workspace { grid-template-columns: minmax(0, 1fr) 310px; gap: 16px; } .art-note { display: none; } .moods { padding: 20px; } .details-strip { gap: 16px; } }
+    @media (max-width: 740px) {
+      .wrap { padding-inline: 20px; }
+      .masthead { padding-block: 20px; }
+      .brand-note, .brand-divider, .edition { display: none; }
+      .intro { padding-block: 28px 24px; }
+      .intro p { font-size: 12px; }
+      .workspace { grid-template-columns: 1fr; }
+      .art-area { min-height: 390px; }
+      .cat-hit { width: 340px; }
+      .hello { top: 22px; }
+      .sidebar { display: grid; grid-template-columns: 1fr 1fr; align-items: stretch; gap: 16px; }
+      .mood-grid { gap: 0; }
+      .mood-face { width: 43px; }
+      .mood-face .cat { transform: translate(-18px, -9px); }
+      .moods { padding: 18px; }
+      .tiny-label { display: none; }
+      .app-crop { min-height: 244px; padding: 18px; }
+      .book-details { display: none; }
+      .details-strip { grid-template-columns: 1fr; gap: 16px; padding-block: 22px; }
+      .detail { gap: 16px; }
+      .detail-number { width: 36px; text-align: center; }
+      .palette { width: 36px; flex-wrap: wrap; gap: 0; padding: 0; }
+      .swatch { width: 17px; height: 17px; border-width: 1px; margin-left: -2px; }
+      footer { font-size: 9px; letter-spacing: .5px; }
+    }
+    @media (max-width: 480px) {
+      .sidebar { grid-template-columns: 1fr; }
+      .mood-grid { gap: 8px; }
+      .mood-face { width: 51px; }
+      .mood-face .cat { transform: translate(-14px, -9px); }
+      .moods { padding: 24px; }
+      .mood-copy { min-height: 0; }
+      .app-crop { min-height: 218px; padding: 24px; }
+      .book-details { display: grid; }
+      .art-area { min-height: 360px; }
+      .cat-hit { width: 306px; }
+      .portrait-top { padding: 20px 22px 0; }
+      .portrait-bottom { padding: 0 22px 20px; font-size: 10px; gap: 8px; }
+      .hello { font-size: 11px; top: 18px; }
+      .star-one { right: 11%; }
+      .star-two { left: 10%; }
+      .brand { font-size: 14px; gap: 10px; }
+      .theme-toggle { padding-inline: 12px; }
+    }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+  </style>
+</head>
+<body>
+  <svg class="svg-library" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <radialGradient id="fur" cx="37%" cy="24%" r="81%"><stop stop-color="var(--fur-highlight)"/><stop offset=".48" stop-color="var(--fur-light)"/><stop offset=".84" stop-color="var(--fur-mid)"/><stop offset="1" stop-color="var(--fur-dark)"/></radialGradient>
+      <linearGradient id="body-fur" x1="0" y1="0" x2=".85" y2="1"><stop stop-color="var(--fur-light)"/><stop offset=".65" stop-color="var(--fur-mid)"/><stop offset="1" stop-color="var(--fur-dark)"/></linearGradient>
+      <linearGradient id="tail-fur" x1="0" y1="1" x2="1" y2="0"><stop stop-color="var(--fur-dark)"/><stop offset=".55" stop-color="var(--fur-mid)"/><stop offset="1" stop-color="var(--fur-light)"/></linearGradient>
+      <linearGradient id="inner-ear" x1="0" y1="0" x2=".8" y2="1"><stop stop-color="var(--pink)"/><stop offset="1" stop-color="var(--pink-light)"/></linearGradient>
+      <radialGradient id="blush"><stop stop-color="var(--pink)" stop-opacity=".85"/><stop offset="1" stop-color="var(--pink)" stop-opacity="0"/></radialGradient>
+      <linearGradient id="eye" x1="0" y1="0" x2="0" y2="1"><stop stop-color="var(--eye)"/><stop offset=".65" stop-color="var(--eye)"/><stop offset="1" stop-color="var(--eye-bottom)"/></linearGradient>
+      <linearGradient id="book-cover" x1="0" y1="0" x2="1" y2="1"><stop stop-color="var(--sage-light)"/><stop offset="1" stop-color="var(--sage-dark)"/></linearGradient>
+    </defs>
+  </svg>
+
+  <div class="wrap">
+    <header class="masthead">
+      <div class="brand"><span class="brand-stamp" aria-hidden="true">简</span><span>简听阅读</span><span class="brand-divider"></span><span class="brand-note">陪伴，有了新模样</span></div>
+      <button class="theme-toggle" id="theme-toggle" type="button" aria-pressed="false"><span class="theme-light" aria-hidden="true"></span><span id="theme-label">夜间看看</span></button>
+    </header>
+
+    <main>
+      <section class="intro" aria-labelledby="page-title">
+        <div><div class="eyebrow">A LITTLE CAT. A LITTLE COMPANY.</div><h1 id="page-title">你好呀，我是简简。</h1><p>一只爱看书、爱听故事，也爱黏着你的小猫。</p></div>
+        <div class="edition"><span class="edition-dot"></span>奶油小猫 · 形象预览 01</div>
+      </section>
+
+      <div class="workspace">
+        <section class="portrait" aria-label="简简动态形象">
+          <div class="portrait-top"><span class="portrait-name">Jianjian, the little reader</span><span class="live-label">陪伴中</span></div>
+          <div class="art-area">
+            <div class="hello" id="hello" role="status" aria-live="polite">喵，今天读到哪里啦？</div>
+            <span class="art-note art-note-left" aria-hidden="true">软乎乎的小脸</span>
+            <span class="star star-one" aria-hidden="true">✧</span>
+            <button class="cat-hit" id="pet-cat" type="button" aria-label="摸摸简简的小脑袋"><span id="hero-cat"></span></button>
+            <span class="star star-two" aria-hidden="true">✧</span>
+            <span class="art-note art-note-right" aria-hidden="true">尾巴轻轻摇</span>
+          </div>
+          <div class="portrait-bottom"><span>点点小猫，<b>它会开心一下</b></span><span class="motion-hint"><span class="motion-lines" aria-hidden="true"><i></i><i></i><i></i></span>呼吸 · 眨眼 · 摆尾</span></div>
+        </section>
+
+        <aside class="sidebar">
+          <section class="moods" aria-labelledby="moods-title">
+            <div class="section-heading"><h2 id="moods-title">今天，陪你做什么？</h2><span class="tiny-label">MOODS</span></div>
+            <div class="mood-grid" role="group" aria-label="选择小猫状态">
+              <button class="mood-button" type="button" data-mood="idle" aria-pressed="true"><span class="mood-face" data-cat="idle" aria-hidden="true"></span><span>陪伴</span></button>
+              <button class="mood-button" type="button" data-mood="reading" aria-pressed="false"><span class="mood-face" data-cat="reading" aria-hidden="true"></span><span>看书</span></button>
+              <button class="mood-button" type="button" data-mood="listening" aria-pressed="false"><span class="mood-face" data-cat="listening" aria-hidden="true"></span><span>听书</span></button>
+              <button class="mood-button" type="button" data-mood="sleepy" aria-pressed="false"><span class="mood-face" data-cat="sleepy" aria-hidden="true"></span><span>困困</span></button>
+            </div>
+            <p class="mood-copy" id="mood-copy">小爪子乖乖收好，尾巴轻轻摇。<br>你读你的故事，我陪在旁边。</p>
+            <button class="pet-button" type="button" id="pet-button"><span class="pet-heart" aria-hidden="true">♡</span>摸摸小脑袋</button>
+          </section>
+
+          <section class="placement" aria-labelledby="placement-title">
+            <div class="placement-heading"><h2 id="placement-title">缩小以后，也很可爱</h2><span class="tiny-label">应用内局部示意</span></div>
+            <div class="app-crop" id="app-crop">
+              <div class="crop-title">我的书架</div><div class="crop-subtitle">从这一页，继续。</div>
+              <div class="book-row"><div class="book-cover" aria-hidden="true">山间<br>来信</div><div class="book-details"><b>山间来信</b><span>第六章 · 春天的回声</span><span class="reading-line"></span></div></div>
+              <div class="mini-bubble" id="mini-bubble">陪你慢慢读呀</div>
+              <button class="mini-cat" id="mini-cat" type="button" aria-label="拖动简简调整位置，点击摸摸简简"></button>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      <section class="details-strip" aria-label="形象设计细节">
+        <div class="detail"><div class="palette" aria-hidden="true"><span class="swatch swatch-cream"></span><span class="swatch swatch-peach"></span><span class="swatch swatch-sage"></span></div><div><b>奶油白 × 杏桃粉 × 鼠尾草绿</b><p>暖暖的毛色，配一本小小的绿皮书。</p></div></div>
+        <div class="detail"><span class="detail-number" aria-hidden="true">01</span><div><b>圆脸、短爪、软肚皮</b><p>放大看细节，缩小看轮廓。</p></div></div>
+        <div class="detail"><span class="detail-number" aria-hidden="true">02</span><div><b>安静陪着，轻轻回应</b><p>点一点会开心，小窗里还能拖着走。</p></div></div>
+      </section>
+    </main>
+    <footer><span>简听阅读 · 简简形象设计</span><span>A SOFT LITTLE READING COMPANION</span></footer>
+  </div>
+
+  <template id="cat-template">
+    <svg class="cat" viewBox="0 0 400 430" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" data-mood="idle">
+      <ellipse class="cat-shadow" cx="200" cy="393" rx="91" ry="12" fill="var(--eye)" opacity=".13"/>
+      <g class="cat-body">
+        <g class="cat-tail" fill="none" stroke-linecap="round">
+          <path d="M263 346 C306 370 349 343 335 309 C328 291 311 285 303 299" stroke="var(--fur-edge)" stroke-width="32"/>
+          <path d="M263 345 C306 369 348 343 334 309 C327 292 311 287 304 299" stroke="url(#tail-fur)" stroke-width="28"/>
+          <path d="M327 303 Q319 293 313 298" stroke="var(--peach)" stroke-width="19" opacity=".7"/>
+        </g>
+        <path d="M149 263 C126 281 119 327 129 356 C140 387 260 387 271 356 C282 327 274 283 251 263Z" fill="url(#body-fur)" stroke="var(--fur-edge)" stroke-width="1.8"/>
+        <ellipse cx="200" cy="324" rx="49" ry="51" fill="var(--fur-light)" opacity=".78"/>
+        <g fill="url(#fur)" stroke="var(--fur-edge)" stroke-width="1.6">
+          <ellipse cx="155" cy="373" rx="31" ry="18" transform="rotate(-8 155 373)"/>
+          <ellipse cx="245" cy="373" rx="31" ry="18" transform="rotate(8 245 373)"/>
+        </g>
+        <g fill="none" stroke="var(--fur-edge)" stroke-width="1.8" stroke-linecap="round"><path d="M141 375 l1 7 M151 377 l1 7 M248 377 l-1 7 M258 375 l-1 7"/></g>
+        <g class="cat-paw-rest">
+          <path d="M144 289 C130 297 136 331 153 338 C168 344 178 329 171 317 L159 296" fill="url(#fur)" stroke="var(--fur-edge)" stroke-width="1.6"/>
+          <path d="M256 289 C270 297 264 331 247 338 C232 344 222 329 229 317 L241 296" fill="url(#fur)" stroke="var(--fur-edge)" stroke-width="1.6"/>
+          <g stroke="var(--fur-edge)" stroke-width="1.7" stroke-linecap="round"><path d="M148 326 l3 5 M155 322 l3 5 M252 326 l-3 5 M245 322 l-3 5"/></g>
+        </g>
+        <g class="cat-head">
+          <g class="cat-ears" stroke="var(--fur-edge)" stroke-width="1.8" stroke-linejoin="round">
+            <path d="M99 168 C91 141 86 89 99 64 C104 55 112 57 120 63 C139 77 153 96 163 117Z" fill="url(#body-fur)"/>
+            <path d="M301 168 C309 141 314 89 301 64 C296 55 288 57 280 63 C261 77 247 96 237 117Z" fill="url(#body-fur)"/>
+          </g>
+          <path d="M105 135 C101 116 101 86 106 78 C112 72 138 99 144 114Z" fill="url(#inner-ear)"/>
+          <path d="M295 135 C299 116 299 86 294 78 C288 72 262 99 256 114Z" fill="url(#inner-ear)"/>
+          <path d="M89 176 C89 123 131 101 179 99 Q186 90 195 99 Q204 91 214 100 C265 101 309 124 311 176 C325 204 319 236 294 259 C272 281 238 289 200 289 C162 289 128 281 106 259 C81 236 75 204 89 176Z" fill="url(#fur)" stroke="var(--fur-edge)" stroke-width="1.8"/>
+          <path d="M236 106 C249 110 264 121 270 134 C276 147 271 159 261 159 C249 157 253 139 239 131 C226 123 223 108 236 106Z" fill="var(--peach)" opacity=".47"/>
+          <path d="M266 117 C280 124 291 136 294 148 C295 157 285 160 280 151 C277 143 275 136 269 132 C261 126 260 120 266 117Z" fill="var(--peach)" opacity=".3"/>
+          <path d="M103 165 C107 141 125 123 148 117" stroke="var(--fur-highlight)" stroke-width="7" stroke-linecap="round" opacity=".8" fill="none"/>
+          <ellipse cx="200" cy="237" rx="58" ry="38" fill="var(--fur-light)" opacity=".7"/>
+          <g class="cat-blush"><ellipse cx="124" cy="225" rx="28" ry="18" fill="url(#blush)"/><ellipse cx="276" cy="225" rx="28" ry="18" fill="url(#blush)"/></g>
+          <g class="cat-eye-open">
+            <ellipse cx="150" cy="199" rx="14" ry="19" fill="url(#eye)"/>
+            <ellipse cx="146" cy="191" rx="4.8" ry="5.5" fill="var(--fur-highlight)"/>
+            <circle cx="155" cy="205" r="2.6" fill="var(--fur-highlight)" opacity=".8"/>
+          </g>
+          <g class="cat-eye-open">
+            <ellipse cx="250" cy="199" rx="14" ry="19" fill="url(#eye)"/>
+            <ellipse cx="246" cy="191" rx="4.8" ry="5.5" fill="var(--fur-highlight)"/>
+            <circle cx="255" cy="205" r="2.6" fill="var(--fur-highlight)" opacity=".8"/>
+          </g>
+          <g class="cat-eye-reading" fill="url(#eye)"><ellipse cx="150" cy="207" rx="13" ry="14"/><ellipse cx="250" cy="207" rx="13" ry="14"/><g fill="var(--fur-highlight)"><circle cx="146" cy="203" r="4"/><circle cx="246" cy="203" r="4"/></g></g>
+          <g class="cat-eye-closed" fill="none" stroke="var(--eye)" stroke-width="4.5" stroke-linecap="round"><path d="M137 202 Q150 213 163 202"/><path d="M237 202 Q250 213 263 202"/></g>
+          <g fill="none" stroke="var(--fur-edge)" stroke-width="2.2" stroke-linecap="round"><path d="M104 215 l-20 -5 M103 226 l-22 1 M296 215 l20 -5 M297 226 l22 1"/></g>
+          <path d="M193 220 Q200 216 207 220 Q209 223 200 229 Q191 223 193 220Z" fill="var(--pink)"/>
+          <path class="cat-mouth" d="M200 229 v5 M200 234 Q193 245 186 235 M200 234 Q207 245 214 235" stroke="var(--eye)" stroke-width="2.5" stroke-linecap="round" fill="none"/>
+          <g class="cat-happy-mouth"><path d="M188 234 Q200 242 212 234 Q210 252 200 252 Q190 252 188 234Z" fill="var(--eye)"/><ellipse cx="200" cy="248" rx="6" ry="4" fill="var(--pink)"/></g>
+          <g class="cat-headphones">
+            <path d="M90 185 C78 63 317 61 310 185" fill="none" stroke="var(--sage-dark)" stroke-width="18" stroke-linecap="round"/>
+            <path d="M91 175 C87 74 311 73 309 175" fill="none" stroke="var(--sage-light)" stroke-width="7" stroke-linecap="round"/>
+            <rect x="72" y="166" width="31" height="65" rx="14" fill="var(--sage-dark)" transform="rotate(-9 87 198)"/>
+            <rect x="78" y="172" width="18" height="51" rx="9" fill="var(--sage-light)" transform="rotate(-9 87 198)"/>
+            <rect x="297" y="166" width="31" height="65" rx="14" fill="var(--sage-dark)" transform="rotate(9 312 198)"/>
+            <rect x="304" y="172" width="18" height="51" rx="9" fill="var(--sage-light)" transform="rotate(9 312 198)"/>
+          </g>
+        </g>
+        <g class="cat-book">
+          <path d="M134 299 Q167 296 200 311 Q233 296 266 299 L265 356 Q232 357 200 374 Q168 357 135 356Z" fill="url(#book-cover)" stroke="var(--sage-dark)" stroke-width="2.5" stroke-linejoin="round"/>
+          <path d="M141 292 Q171 290 200 306 Q229 290 259 292 L258 346 Q227 348 200 364 Q172 348 142 346Z" fill="var(--page-light)" stroke="var(--page-dark)" stroke-width="1.5" stroke-linejoin="round"/>
+          <path d="M200 306 v58" fill="none" stroke="var(--page-dark)" stroke-width="2"/>
+          <g fill="none" stroke="var(--page-dark)" stroke-width="2" stroke-linecap="round"><path d="M151 306 Q172 306 188 316 M151 316 Q172 316 188 326 M151 326 Q171 327 184 334 M212 316 Q230 306 249 306 M212 326 Q230 316 249 316 M216 334 Q231 328 245 327"/></g>
+          <path d="M238 294 v20 l5 -4 5 2 v-20" fill="var(--pink)"/>
+          <path d="M135 311 C111 304 113 337 131 341 C144 343 149 333 143 327 C154 322 146 312 135 311Z" fill="url(#fur)" stroke="var(--fur-edge)" stroke-width="1.7"/>
+          <path d="M265 311 C289 304 287 337 269 341 C256 343 251 333 257 327 C246 322 254 312 265 311Z" fill="url(#fur)" stroke="var(--fur-edge)" stroke-width="1.7"/>
+        </g>
+      </g>
+      <g class="cat-sparkles" fill="var(--heart)"><path d="M67 150 C42 135 50 118 60 122 Q68 124 68 131 Q76 118 84 125 C95 135 77 145 67 150Z"/><path d="M332 130 C307 115 315 98 325 102 Q333 104 333 111 Q341 98 349 105 C360 115 342 125 332 130Z"/><path d="M309 261 C291 250 296 238 303 241 Q309 242 309 248 Q315 238 321 243 C329 250 317 258 309 261Z"/></g>
+      <g class="cat-sleep"><text x="308" y="165" font-size="20">z</text><text x="326" y="140" font-size="25">z</text><text x="349" y="111" font-size="30">z</text></g>
+    </svg>
+  </template>
+
+  <script>
+    'use strict';
+    const template = document.getElementById('cat-template');
+    function placeCat(host, mood) {
+      const cat = template.content.firstElementChild.cloneNode(true);
+      cat.dataset.mood = mood;
+      host.append(cat);
+      return cat;
+    }
+    const heroCat = placeCat(document.getElementById('hero-cat'), 'idle');
+    const miniButton = document.getElementById('mini-cat');
+    const miniCat = placeCat(miniButton, 'idle');
+    document.querySelectorAll('[data-cat]').forEach(host => placeCat(host, host.dataset.cat));
+
+    const moods = {
+      idle: { hello: '喵，今天读到哪里啦？', copy: '小爪子乖乖收好，尾巴轻轻摇。\n你读你的故事，我陪在旁边。', bubble: '陪你慢慢读呀' },
+      reading: { hello: '这一页，我也想看看。', copy: '抱紧小书本，眼睛跟着文字走。\n读到喜欢的句子，记得告诉我。', bubble: '这一页真好看' },
+      listening: { hello: '耳机分你一半，好呀？', copy: '戴上小耳机，脑袋跟着轻轻晃。\n让故事慢慢流进耳朵里。', bubble: '一起听故事呀' },
+      sleepy: { hello: '呼噜……故事明天接着听。', copy: '眼睛眯成弯弯的线，脑袋歪一点。\n今天的故事，陪你一起带进梦里。', bubble: '晚安，好梦呀' }
+    };
+    let selectedMood = 'idle';
+    let petTimer;
+    const hello = document.getElementById('hello');
+    const moodCopy = document.getElementById('mood-copy');
+    const miniBubble = document.getElementById('mini-bubble');
+    moodCopy.style.whiteSpace = 'pre-line';
+
+    function showMood(mood) {
+      heroCat.dataset.mood = mood;
+      miniCat.dataset.mood = mood;
+      hello.textContent = moods[mood].hello;
+      miniBubble.textContent = moods[mood].bubble;
+    }
+    document.querySelectorAll('.mood-button').forEach(button => {
+      button.addEventListener('click', () => {
+        clearTimeout(petTimer);
+        selectedMood = button.dataset.mood;
+        document.querySelectorAll('.mood-button').forEach(item => item.setAttribute('aria-pressed', String(item === button)));
+        moodCopy.textContent = moods[selectedMood].copy;
+        showMood(selectedMood);
+      });
+    });
+    function petCat() {
+      clearTimeout(petTimer);
+      heroCat.dataset.mood = 'happy';
+      miniCat.dataset.mood = 'happy';
+      hello.textContent = '呼噜呼噜，最喜欢你啦。';
+      miniBubble.textContent = '贴贴，喵～';
+      petTimer = setTimeout(() => showMood(selectedMood), 2700);
+    }
+    document.getElementById('pet-cat').addEventListener('click', petCat);
+    document.getElementById('pet-button').addEventListener('click', petCat);
+
+    document.getElementById('theme-toggle').addEventListener('click', event => {
+      const dark = document.documentElement.dataset.theme === 'light';
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      event.currentTarget.setAttribute('aria-pressed', String(dark));
+      document.getElementById('theme-label').textContent = dark ? '日间看看' : '夜间看看';
+    });
+
+    const crop = document.getElementById('app-crop');
+    let drag;
+    let moved = false;
+    miniButton.addEventListener('pointerdown', event => {
+      drag = { x: event.clientX, y: event.clientY, left: miniButton.offsetLeft, top: miniButton.offsetTop };
+      moved = false;
+      miniButton.setPointerCapture(event.pointerId);
+    });
+    miniButton.addEventListener('pointermove', event => {
+      if (drag) {
+        const dx = event.clientX - drag.x;
+        const dy = event.clientY - drag.y;
+        if (Math.hypot(dx, dy) > 5) moved = true;
+        if (moved) {
+          miniButton.style.right = 'auto';
+          miniButton.style.bottom = 'auto';
+          miniButton.style.left = Math.max(0, Math.min(crop.clientWidth - miniButton.offsetWidth, drag.left + dx)) + 'px';
+          miniButton.style.top = Math.max(0, Math.min(crop.clientHeight - miniButton.offsetHeight, drag.top + dy)) + 'px';
+          miniBubble.style.visibility = 'hidden';
+        }
+      }
+    });
+    miniButton.addEventListener('pointerup', () => { drag = null; });
+    miniButton.addEventListener('pointercancel', () => { drag = null; });
+    miniButton.addEventListener('click', event => {
+      if (event.detail === 0 || moved === false) petCat();
+    });
+  </script>
+</body>
+</html>

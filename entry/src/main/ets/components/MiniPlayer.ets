@@ -1,10 +1,10 @@
-import { AppColor, AppSpace, AppFont, HomeTheme, AppMotion, AppCurve, AppTheme } from '../theme/Theme';
+import { AppColor, AppSpace, AppFont, HomeTheme, AppMotion, AppCurve } from '../theme/Theme';
 import { Book } from '../model/Book';
 import { PlaybackLoadingIndicator } from './PlaybackLoadingIndicator';
 import { CoverImage } from './CoverImage';
 import { CoverDecoration } from './CoverDecoration';
+import { PlayerBarSurface } from './PlayerBarSurface';
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
-import { HdsCompat } from '../utils/HdsCompat';
 
 @ComponentV2
 export struct MiniPlayer {
@@ -17,22 +17,23 @@ export struct MiniPlayer {
   @Param verticalStyle: boolean = false;
   /** 新版单行态保留全部播控，封面随系统迷你栏放大。 */
   @Param compactControls: boolean = false;
+  @Param transitionCopy: boolean = false;
+  @Param dragEnabled: boolean = true;
   @Event onChapters: () => void = () => {};
   @Event onTapBody: () => void = () => {};
   @Event onToggle: () => void = () => {};
   @Event onNext: () => void = () => {};
   @Event onExpand: () => void = () => {};
   @Event onInteract: () => void = () => {};
-  @Event onPlayerPanStart: (offsetY: number) => void = () => {};
-  @Event onPlayerPanUpdate: (offsetY: number) => void = () => {};
-  @Event onPlayerPanEnd: (offsetY: number, velocityY: number) => void = () => {};
-  @Event onPlayerPanCancel: () => void = () => {};
-  private draggingPlayer: boolean = false;
+  @Event onPlayerDragStart: (offsetY: number) => void = () => {};
   @Local dragState: PlayerDragState = PlayerDragTransition.getInstance().state;
+  @Local materialWidth: number = 0;
+  @Local materialHeight: number = 0;
+  private draggingPlayer: boolean = false;
 
   private controlTransition(delay: number): TransitionEffect {
-    // 双层栏的控件始终存在；播放器返回统一由 sourceOpacity 回显，避免再从透明错峰入场。
-    if (this.verticalStyle || this.dragState.active) return TransitionEffect.IDENTITY;
+    // 自绘副本与双层栏直接显示完整播控，内容透明度统一交给转场面板。
+    if (this.transitionCopy || this.verticalStyle || this.dragState.active) return TransitionEffect.IDENTITY;
     // 展开时轻移入场；收起立即淡出，避免控件拖在收拢的胶囊外。
     return TransitionEffect.asymmetric(
       TransitionEffect.opacity(0).combine(TransitionEffect.translate({ x: 10 }))
@@ -84,145 +85,162 @@ export struct MiniPlayer {
 
   build() {
     if (this.book) {
-      Row({ space: this.collapsed ? 0 : AppSpace.Sm }) {
-        Stack() {
-          Progress({ value: this.progressPercent, total: 100, type: ProgressType.Ring })
-            .width('100%')
-            .height('100%')
-            .color(AppColor.Brand)
-            .backgroundColor(HomeTheme.ProgressTrack)
-            .style({
-              strokeWidth: 1.5,
-              enableSmoothEffect: false,
-              enableScanEffect: false,
-              shadow: false
-            })
-
-          Stack() {
-            this.coverImageBuilder()
-            CoverDecoration({ radius: this.collapsed ? 999 : 22, compact: true })
-          }
-          .width('92%')
-          .height('92%')
-          .borderRadius(this.collapsed ? 999 : 22)
-          .backgroundColor($r('sys.color.comp_background_tertiary'))
-          .clip(true)
-          .opacity(this.dragState.active && this.dragState.sourceNodeId === 'mini-player-bar' ? 0 : 1)
+      Stack() {
+        if (!this.transitionCopy) {
+          PlayerBarSurface({ surfaceWidth: this.materialWidth, surfaceHeight: this.materialHeight })
         }
-        .width(this.collapsed ? '100%' : this.verticalStyle && !this.compactControls ? 32 : 44)
-        .height(this.collapsed ? '100%' : this.verticalStyle && !this.compactControls ? 32 : 44)
-        .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
-        .onClick(() => {
-          if (this.collapsed) {
-            this.onExpand();
-          } else {
-            this.onTapBody();
-          }
-        })
-
-        if (!this.collapsed) {
-          Column({ space: 2 }) {
-            Text(this.book.title)
-              .fontSize(this.verticalStyle ? 14 : AppFont.Body)
-              .fontColor($r('sys.color.font_primary'))
-              .fontWeight(FontWeight.Medium)
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
-
-            Text(this.chapterTitle || '--')
-              .fontSize(this.verticalStyle ? 11 : AppFont.Caption)
-              .fontColor($r('sys.color.font_secondary'))
-              .maxLines(1)
-              .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Row({ space: this.collapsed ? 0 : AppSpace.Sm }) {
+          Stack() {
+            Progress({ value: this.progressPercent, total: 100, type: ProgressType.Ring })
               .width('100%')
-          }
-          .layoutWeight(1)
-          .alignItems(HorizontalAlign.Start)
-          .onClick(() => this.onTapBody())
-          .transition(this.controlTransition(0))
+              .height('100%')
+              .color(AppColor.Brand)
+              .backgroundColor(HomeTheme.ProgressTrack)
+              .style({
+                strokeWidth: 1.5,
+                enableSmoothEffect: false,
+                enableScanEffect: false,
+                shadow: false
+              })
 
-          Stack() {
-            if (this.loading) {
-              PlaybackLoadingIndicator({ indicatorSize: 24 })
-            } else if (this.verticalStyle) {
-              SymbolGlyph(this.playing
-                ? $r('sys.symbol.pause_round_triangle_fill')
-                : $r('sys.symbol.play_round_triangle_fill'))
-                .fontSize(30)
-                .fontWeight(this.playing ? FontWeight.Medium : FontWeight.Normal)
-                .fontColor([$r('sys.color.font_primary')])
-                .symbolEffect(new ReplaceSymbolEffect(EffectScope.WHOLE), this.playing ? 1 : 0)
-            } else {
-              SymbolGlyph(this.playing ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'))
-                .fontSize(24)
-                .fontColor([$r('sys.color.font_primary')])
-                .symbolEffect(new ReplaceSymbolEffect(EffectScope.WHOLE), this.playing ? 1 : 0)
+            Stack() {
+              if (!this.transitionCopy) {
+                this.coverImageBuilder()
+              }
+              CoverDecoration({ radius: this.collapsed ? 999 : 22, compact: true })
             }
-          }.width(this.verticalStyle ? 30 : 24).height(this.verticalStyle ? 30 : 24)
-            .id('mini-player-toggle')
-            .hitTestBehavior(HitTestMode.Block)
-            .accessibilityText(this.playing || this.loading ? $r('app.string.tts_pause') : $r('app.string.tts_play'))
-            .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
-            .onClick(() => this.onToggle())
-            .transition(this.controlTransition(25))
+            .width('92%')
+            .height('92%')
+            .borderRadius(this.collapsed ? 999 : 22)
+            .backgroundColor($r('sys.color.comp_background_tertiary'))
+            .clip(true)
+            .opacity(this.dragState.active && this.dragState.sourceNodeId === 'mini-player-bar' &&
+              !this.dragState.miniBarRevealed ? 0 : 1)
+          }
+          .width(this.collapsed ? '100%' : this.verticalStyle && !this.compactControls ? 32 : 44)
+          .height(this.collapsed ? '100%' : this.verticalStyle && !this.compactControls ? 32 : 44)
+          .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.96 })
+          .onClick(() => {
+            if (this.collapsed) {
+              this.onExpand();
+            } else {
+              this.onTapBody();
+            }
+          })
 
-          SymbolGlyph($r('sys.symbol.forward_end_fill'))
-            .fontSize(22)
-            .fontColor([$r('sys.color.font_primary')])
-            .hitTestBehavior(HitTestMode.Block)
-            .id('mini-player-next').accessibilityText($r('app.string.tts_next'))
-            .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
-            .onClick(() => this.onNext())
-            .transition(this.controlTransition(45))
+          if (!this.collapsed) {
+            Column({ space: 2 }) {
+              Text(this.book.title)
+                .fontSize(this.verticalStyle ? 14 : AppFont.Body)
+                .fontColor($r('sys.color.font_primary'))
+                .fontWeight(FontWeight.Medium)
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
 
-          if (this.verticalStyle) {
-            SymbolGlyph($r('sys.symbol.music_note_list'))
-              .fontSize(22).fontColor([$r('sys.color.font_primary')])
-              .width(28).height(32).hitTestBehavior(HitTestMode.Block)
-              .id('mini-player-chapters').accessibilityText($r('app.string.reader_catalog'))
+              Text(this.chapterTitle || '--')
+                .fontSize(this.verticalStyle ? 11 : AppFont.Caption)
+                .fontColor($r('sys.color.font_secondary'))
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+                .width('100%')
+            }
+            .layoutWeight(1)
+            .alignItems(HorizontalAlign.Start)
+            .onClick(() => this.onTapBody())
+            .transition(this.controlTransition(0))
+
+            Stack() {
+              if (this.loading) {
+                PlaybackLoadingIndicator({ indicatorSize: 24 })
+              } else if (this.verticalStyle) {
+                SymbolGlyph(this.playing
+                  ? $r('sys.symbol.pause_round_triangle_fill')
+                  : $r('sys.symbol.play_round_triangle_fill'))
+                  .fontSize(30)
+                  .fontWeight(this.playing ? FontWeight.Medium : FontWeight.Normal)
+                  .fontColor([$r('sys.color.font_primary')])
+                  .symbolEffect(new ReplaceSymbolEffect(EffectScope.WHOLE), this.playing ? 1 : 0)
+              } else {
+                SymbolGlyph(this.playing ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'))
+                  .fontSize(24)
+                  .fontColor([$r('sys.color.font_primary')])
+                  .symbolEffect(new ReplaceSymbolEffect(EffectScope.WHOLE), this.playing ? 1 : 0)
+              }
+            }.width(this.verticalStyle ? 30 : 24).height(this.verticalStyle ? 30 : 24)
+              .id(this.transitionCopy ? 'player-transition-toggle' : 'mini-player-toggle')
+              .hitTestBehavior(HitTestMode.Block)
+              .accessibilityText(this.playing || this.loading ? $r('app.string.tts_pause') : $r('app.string.tts_play'))
               .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
-              .onClick((): void => this.onChapters())
-              .transition(this.controlTransition(65))
+              .onClick(() => this.onToggle())
+              .transition(this.controlTransition(25))
+
+            SymbolGlyph($r('sys.symbol.forward_end_fill'))
+              .fontSize(22)
+              .fontColor([$r('sys.color.font_primary')])
+              .hitTestBehavior(HitTestMode.Block)
+              .id(this.transitionCopy ? 'player-transition-next' : 'mini-player-next')
+              .accessibilityText($r('app.string.tts_next'))
+              .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
+              .onClick(() => this.onNext())
+              .transition(this.controlTransition(45))
+
+            if (this.verticalStyle) {
+              SymbolGlyph($r('sys.symbol.music_note_list'))
+                .fontSize(22).fontColor([$r('sys.color.font_primary')])
+                .width(28).height(32).hitTestBehavior(HitTestMode.Block)
+                .id(this.transitionCopy ? 'player-transition-chapters' : 'mini-player-chapters')
+                .accessibilityText($r('app.string.reader_catalog'))
+                .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.9 })
+                .onClick((): void => this.onChapters())
+                .transition(this.controlTransition(65))
+            }
           }
         }
+        .width('100%')
+        .height('100%')
+        .padding({
+          left: this.collapsed ? 0 : this.verticalStyle ? (this.compactControls ? 8 : 4) : AppSpace.Xs,
+          right: this.collapsed ? 0 : AppSpace.Md
+        })
       }
       .width('100%')
       .height('100%')
       .borderRadius(999)
-      .backgroundColor(HdsCompat.materialSupported ? Color.Transparent : AppTheme.Surface)
-      .backgroundBlurStyle(HdsCompat.materialSupported ? BlurStyle.NONE : BlurStyle.COMPONENT_REGULAR)
-      .id('mini-player-bar')
+      .id(this.transitionCopy ? 'player-transition-mini-bar' : 'mini-player-bar')
+      .onSizeChange((_previous: SizeOptions, current: SizeOptions): void => {
+        this.materialWidth = Number(current.width);
+        this.materialHeight = Number(current.height);
+      })
       .transition(TransitionEffect.IDENTITY)
-      .opacity(this.dragState.sourceNodeId === 'mini-player-bar' ? this.dragState.sourceOpacity : 1)
-      // 双层栏由内容自行处理上拖，隔离 HDS 祖先的原生收展手势；子播控仍正常命中。
-      .hitTestBehavior(this.verticalStyle ? HitTestMode.BLOCK_HIERARCHY : HitTestMode.Default)
+      .opacity(!this.transitionCopy && this.dragState.active &&
+        this.dragState.sourceNodeId === 'mini-player-bar' && !this.dragState.miniBarRevealed ? 0 : 1)
+      // 原生栏保持挂载并接收完整手势，自绘副本只负责呈现。
+      .hitTestBehavior(this.transitionCopy ? HitTestMode.None : HitTestMode.Default)
       .onTouch((event: TouchEvent): void => {
         if (event.type === TouchType.Down) this.onInteract();
-        // 双层栏隔离祖先命中后，根 Navigation 的触摸兜底不会收到此次松手。
         if (this.draggingPlayer && (event.type === TouchType.Up || event.type === TouchType.Cancel)) {
           PlayerDragTransition.getInstance().releaseTouch(event.type === TouchType.Cancel);
         }
       })
-      .gesture(PanGesture({ direction: PanDirection.Vertical, distance: 8 })
+      .priorityGesture(PanGesture({ direction: PanDirection.Vertical, distance: 8 }).tag('mini-player-pan')
         .onActionStart((event: GestureEvent): void => {
-          this.draggingPlayer = event.offsetY < 0;
-          if (this.draggingPlayer) this.onPlayerPanStart(event.offsetY);
+          this.draggingPlayer = this.dragEnabled && !this.transitionCopy && event.offsetY < 0;
+          if (this.draggingPlayer) this.onPlayerDragStart(event.offsetY);
         })
         .onActionUpdate((event: GestureEvent): void => {
-          if (this.draggingPlayer) this.onPlayerPanUpdate(event.offsetY);
+          if (this.draggingPlayer) PlayerDragTransition.getInstance().update(event.offsetY);
         })
         .onActionEnd((event: GestureEvent): void => {
-          if (this.draggingPlayer) this.onPlayerPanEnd(event.offsetY, event.velocityY);
+          if (this.draggingPlayer) PlayerDragTransition.getInstance().end(event.offsetY, event.velocityY);
           this.draggingPlayer = false;
         })
         .onActionCancel((): void => {
-          if (this.draggingPlayer) this.onPlayerPanCancel();
+          if (this.draggingPlayer) PlayerDragTransition.getInstance().cancel();
           this.draggingPlayer = false;
         }))
-      .padding({
-        left: this.collapsed ? 0 : this.verticalStyle ? (this.compactControls ? 8 : 4) : AppSpace.Xs,
-        right: this.collapsed ? 0 : AppSpace.Md
-      })
+      .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult =>
+        info.tag === 'mini-player-pan' && (!this.dragEnabled || this.transitionCopy) ?
+          GestureJudgeResult.REJECT : GestureJudgeResult.CONTINUE)
     }
   }
 }

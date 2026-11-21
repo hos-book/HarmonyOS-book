@@ -10,7 +10,7 @@ import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent
 import { ThemeBackgroundScene } from '../model/AppThemeVisual';
 import { Book, Chapter } from '../model/Book';
 import { GeneralSettings } from '../model/GeneralSettings';
-import { PlayerState, PLAYER_STATE_KEY } from '../model/PlayerState';
+import { PlayerStartParams, PlayerState, PLAYER_STATE_KEY } from '../model/PlayerState';
 import { BookSourceService } from '../service/BookSourceService';
 import { BookMetadataText as LocalRuleMetadataText } from '../utils/BookMetadataText';
 import { DataService } from '../service/DataService';
@@ -19,7 +19,6 @@ import { DownloadService, DownloadUpdatePayload, EVT_DOWNLOAD_UPDATED } from '..
 import { DownloadStore, DownloadBookRecord } from '../service/DownloadStore';
 import { DownloadPolicy } from '../service/DownloadPolicy';
 import { SourceDataService } from '../service/SourceDataService';
-import { PlaybackStore } from '../service/PlaybackStore';
 import { SearchCache } from '../utils/SearchCache';
 import { WindowUtils } from '../utils/WindowUtils';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
@@ -193,7 +192,7 @@ export struct BookDetailPage {
   @Local primaryCtaWidth: number = 0;
   @Local playerState: PlayerState = AppStorageV2.connect(PlayerState, PLAYER_STATE_KEY, () => new PlayerState())!;
   @Local playerTransition: PlayerDragState = PlayerDragTransition.getInstance().state;
-  @Local isStartingPlay: boolean = false;
+  private openingPrimaryAction: boolean = false;
   @Local lastHistory: PlayHistoryItem | null = null;
   @Local textReadingProgress: TextReadingPosition | null = null;
   @Local introExpanded: boolean = false;
@@ -921,13 +920,20 @@ export struct BookDetailPage {
     }).catch(() => this.showToast($r('app.string.download_operation_failed')));
   }
 
-  private openPrimaryAction(chapter?: Chapter): void {
-    if (this.chaptersLoading() || !this.book || this.book.chapters.length === 0 || this.isStartingPlay) return;
-    if ((this.book?.contentType === 'text' || this.book?.contentType === 'comic')) {
-      this.openTextReader(chapter);
-      return;
+  private async openPrimaryAction(chapter?: Chapter): Promise<void> {
+    if (!this.book || this.openingPrimaryAction || this.playerTransition.active) return;
+    this.openingPrimaryAction = true;
+    try {
+      if (this.book.contentType === 'text' || this.book.contentType === 'comic') {
+        this.openTextReader(chapter);
+      } else {
+        await this.startPlay(chapter);
+      }
+    } catch (_error) {
+      if (this.detailActive && this.detailVisible) this.showToast($r('app.string.book_detail_load_failed'));
+    } finally {
+      this.openingPrimaryAction = false;
     }
-    this.startPlay(chapter);
   }
 
   private openTextReader(chapter?: Chapter): void {
@@ -967,62 +973,19 @@ export struct BookDetailPage {
   }
 
   private async startPlay(chapter?: Chapter): Promise<void> {
-    if (!this.book || this.isStartingPlay || this.playerTransition.active) return;
-    this.isStartingPlay = true;
-    // 起播使用任务持有的目录，后台追加章节会继续对播放器可见。
+    if (!this.book || this.playerTransition.active) return;
+    // 播放页复用后台任务持有的目录。
     const loadingBook = SearchCache.get(this.bookId);
     if (loadingBook && BookSourceService.pendingAudioBook(this.bookId) !== undefined) this.book = loadingBook;
-
-    // 没有指定章节时，优先从历史恢复，否则用第一章
-    let target: Chapter | undefined = chapter;
-    let resumeProgressMs = 0;
-    if (!target && this.lastHistory) {
-      // 标题优先定位:连载更新/TOC 重排后旧 chapterId 会指向错误章节
-      const hi = DataService.resolveChapterIndex(this.book, this.lastHistory.chapterId, this.lastHistory.chapterTitle);
-      target = hi >= 0 ? this.book.chapters[hi] : undefined;
-      resumeProgressMs = this.lastHistory.progressMs;
-    }
-    if (!target) {
-      target = this.book.chapters[0];
-    }
-    if (!target) {
-      this.isStartingPlay = false;
-      return;
-    }
-    // ★ 用户当前正在播这本书且同章节:用 live state.progressMs(更新)替代 lastHistory.progressMs(可能旧 5s),
-    //   避免从详情页继续播放反而回退进度
-    if (PlaybackStore.getInstance().isCurrentChapter(this.book.id, target.id)) {
-      resumeProgressMs = this.playerState.progressMs;
-    }
-
     SearchCache.put(this.book);
     await this.cleanStackBeforePushPlayer();
     const paths: string[] = this.navStack.getAllPathName();
-    if (!this.detailActive || paths[paths.length - 1] !== 'detail') {
-      this.isStartingPlay = false;
-      return;
-    }
-    // 保留详情页与封面，等旧播放器释放后再采集当前坐标，避免先清栈露出首页。
+    if (!this.detailActive || paths[paths.length - 1] !== 'detail') return;
     const transition = PlayerDragTransition.getInstance();
     const origin = transition.captureCover(this.getUIContext(),
       OneShotTransitionIds.detailCover(this.bookId), AppRadius.Sm);
     if (origin !== undefined) transition.beginTap(origin, 'detail');
-    // ★ 当前在播的就是同书「且就是当前这一章」:直接 push player 不带 chapter 参数,
-    //   PlayerPage 复用 live state,避免 tryResumePlay 触发 playChapterAndSeek 重置。
-    //   若用户点的是别的章(target 非当前章),则走下面带 chapterId 的分支,播放选中的章。
-    if (PlaybackStore.getInstance().isCurrentBook(this.book.id)
-      && PlaybackStore.getInstance().isCurrentChapter(this.book.id, target.id)) {
-      this.navStack.pushPathByName('player', this.bookId);
-      this.isStartingPlay = false;
-      return;
-    }
-    const playerParams: Record<string, Object> = {
-      'bookId': this.bookId,
-      'chapterId': target.id,
-      'progressMs': resumeProgressMs
-    };
-    this.navStack.pushPathByName('player', playerParams);
-    this.isStartingPlay = false;
+    this.navStack.pushPathByName('player', new PlayerStartParams(this.bookId, chapter?.id ?? ''));
   }
 
   /** 只移除被详情盖住的旧播放器，保留当前详情作为转场起点和返回目标。 */
@@ -1565,7 +1528,6 @@ export struct BookDetailPage {
   // ==================== 主 CTA ====================
 
   private primaryCtaLabel(): Resource {
-    if (this.chaptersLoading()) return $r('app.string.book_detail_loading_chapters');
     if ((this.book?.contentType === 'text' || this.book?.contentType === 'comic')) {
       return this.textReadingProgress
         ? $r('app.string.book_detail_continue_read')
@@ -1575,20 +1537,12 @@ export struct BookDetailPage {
     return $r('app.string.book_detail_continue_listen');
   }
 
-  private chaptersLoading(): boolean {
-    return this.deferEntry || ((this.loadingDetail || this.loadingToc) && (this.book?.chapters.length ?? 0) === 0);
-  }
-
   @Builder
   buildPrimaryCta() {
     Button({ type: ButtonType.Capsule }) {
       Row({ space: AppSpace.Sm }) {
-        if (this.chaptersLoading() || this.isStartingPlay) {
-          LoadingProgress().width(18).height(18).color(AppColor.Brand)
-        } else {
-          SymbolGlyph((this.book?.contentType === 'text' || this.book?.contentType === 'comic') ? $r('sys.symbol.book') : $r('sys.symbol.play_fill'))
+        SymbolGlyph((this.book?.contentType === 'text' || this.book?.contentType === 'comic') ? $r('sys.symbol.book') : $r('sys.symbol.play_fill'))
           .fontSize(18).fontColor([$r('sys.color.font_primary')])
-        }
         Text(this.primaryCtaLabel())
           .fontSize(AppFont.Title).fontWeight(FontWeight.Medium)
           .fontColor($r('sys.color.font_primary')).maxLines(1)
@@ -1613,8 +1567,8 @@ export struct BookDetailPage {
       if (typeof newValue.width === 'number') this.primaryCtaWidth = newValue.width;
     })
     .clickEffect({ level: ClickEffectLevel.LIGHT, scale: 0.97 })
-    .enabled(!this.chaptersLoading() && (this.book?.chapters.length ?? 0) > 0 && !this.isStartingPlay)
-    .opacity(this.chaptersLoading() || (this.book?.chapters.length ?? 0) === 0 || this.isStartingPlay ? 0.6 : 1)
+    .enabled(this.book !== null)
+    .opacity(this.book === null ? 0.6 : 1)
     .onClick((): void => { this.openPrimaryAction(); })
   }
 

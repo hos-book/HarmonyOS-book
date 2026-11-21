@@ -1,7 +1,8 @@
 import { worker, MessageEvents } from '@kit.ArkTS';
 import { OfflineRecognizer, OfflineRecognizerConfig, OfflinePunctuation, OfflinePunctuationConfig } from 'sherpa_onnx';
 import { decodeSubtitleAudio } from 'libsubtitle_audio.so';
-import { SubtitleWorkerRequest, SubtitleWorkerResponse, SubtitleSegmenter, SUBTITLE_CHUNK_MS } from '../model/AudioSubtitle';
+import { SubtitleWorkerRequest, SubtitleWorkerResponse, SubtitleUnit, SubtitleSegmenter,
+  SUBTITLE_CHUNK_MS, SUBTITLE_CONTEXT_MS } from '../model/AudioSubtitle';
 
 const port = worker.workerPort;
 let recognizer: OfflineRecognizer | null = null;
@@ -30,8 +31,7 @@ port.onmessage = (event: MessageEvents): void => {
       recognizer = new OfflineRecognizer(config);
       console.info(`[AudioSubtitleDevice] recognizerInitMs=${Date.now() - started}`);
     }
-    // The first provisional text must not wait for a second neural network to initialize.
-    // The following full-context pass restores punctuation and replaces this short preview.
+    // A short preview precedes punctuation initialization and full-context recognition.
     if (!request.preview && !punctuation) {
       const started = Date.now();
       const config = new OfflinePunctuationConfig();
@@ -41,30 +41,36 @@ port.onmessage = (event: MessageEvents): void => {
       console.info(`[AudioSubtitleDevice] punctuationInitMs=${Date.now() - started}`);
     }
     const chunkStart = request.chunk * SUBTITLE_CHUNK_MS;
-    const startMs = request.preview ? Math.max(chunkStart, Math.min(chunkStart + 8000, request.positionMs - 500)) : chunkStart;
-    const pcm = decodeSubtitleAudio(request.audioPath, startMs, request.preview ? 4000 : SUBTITLE_CHUNK_MS);
-    response.chunk.endMs = pcm.endMs;
+    const chunkEnd = chunkStart + SUBTITLE_CHUNK_MS;
+    const startMs = request.preview ? Math.max(chunkStart, Math.min(chunkStart + 8000, request.positionMs - 500)) :
+      Math.max(0, chunkStart - SUBTITLE_CONTEXT_MS);
+    const windowEnd = request.preview ? startMs + 4000 : chunkEnd + SUBTITLE_CONTEXT_MS;
+    const pcm = decodeSubtitleAudio(request.audioPath, startMs, windowEnd - startMs);
+    response.chunk.endMs = Math.min(pcm.endMs, chunkEnd);
+    let recognized: SubtitleUnit[] = [];
     if (pcm.samples.length > 0) {
       const stream = recognizer.createStream();
       stream.acceptWaveform({ samples: pcm.samples, sampleRate: pcm.sampleRate });
       recognizer.decode(stream);
       const result = recognizer.getResult(stream);
-      response.chunk.units = SubtitleSegmenter.units(request.chunk, pcm.endMs,
+      recognized = SubtitleSegmenter.units(request.chunk, pcm.endMs,
         result.text, result.tokens ?? [], result.timestamps ?? [], startMs);
     }
-    const previous = request.previous && request.previous.index === request.chunk - 1 ? request.previous : null;
+    const previous = !request.preview && request.previous && request.previous.index === request.chunk - 1 ? request.previous : null;
     const prefix = previous ? request.prefix : [];
-    const units = previous ? prefix.concat(previous.units, response.chunk.units) : response.chunk.units;
+    const joined = previous ? SubtitleSegmenter.join(previous.units, recognized, chunkStart) : recognized;
+    response.chunk.units = SubtitleSegmenter.owned(request.chunk, joined);
+    const units = prefix.concat(joined);
     const text = SubtitleSegmenter.text(units);
-    const finalChunk = !request.preview && (request.finalChunk || pcm.endMs < startMs + SUBTITLE_CHUNK_MS - 100);
+    const finalChunk = !request.preview && (request.finalChunk || pcm.endMs < windowEnd - 100);
     const punctuated = text.trim() && !request.preview && punctuation ? punctuation.addPunct(text) : text;
     const annotated = SubtitleSegmenter.punctuate(units, punctuated, finalChunk);
-    response.chunk.annotated = annotated.filter((unit): boolean => unit.startMs >= startMs);
-    response.chunk.cues = SubtitleSegmenter.cues(request.chunk, annotated, finalChunk);
+    response.chunk.annotated = SubtitleSegmenter.owned(request.chunk, annotated);
+    response.chunk.cues = SubtitleSegmenter.cues(request.chunk, response.chunk.annotated, finalChunk && pcm.endMs <= chunkEnd);
     if (previous) {
-      previous.annotated = annotated.filter((unit): boolean =>
-        unit.startMs >= previous.index * SUBTITLE_CHUNK_MS && unit.startMs < startMs);
-      previous.cues = SubtitleSegmenter.cues(previous.index, annotated, false);
+      previous.units = SubtitleSegmenter.owned(previous.index, joined);
+      previous.annotated = SubtitleSegmenter.owned(previous.index, annotated);
+      previous.cues = SubtitleSegmenter.cues(previous.index, previous.annotated, false);
       response.previous = previous;
     }
   } catch (error) {

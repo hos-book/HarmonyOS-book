@@ -8,8 +8,11 @@ import { HiCarService } from '../service/HiCarService';
 import { WebEngineGate } from '../service/WebEngineGate';
 import { WebBookFetchRuntimeHost } from '../service/rulesource/light/WebBookFetchRuntimeHost';
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
+import { PlayerTransitionMiniBar } from '../components/PlayerTransitionMiniBar';
+import { PlayerBarSurface } from '../components/PlayerBarSurface';
 import { BookDetailPage, DetailBackInterceptor, DetailTitleBarActions, DetailTitleBarState } from './BookDetailPage';
 import { PlayerPage, PlayerBackInterceptor, PlayerEntryDecider } from './PlayerPage';
+import { PlayerStartParams } from '../model/PlayerState';
 import { SettingsPage } from './SettingsPage';
 import { ReadingSettingsPage } from './ReadingSettingsPage';
 import { VoiceManagementPage } from './VoiceManagementPage';
@@ -380,7 +383,7 @@ struct Index {
       const drag = PlayerDragTransition.getInstance();
       let finished: boolean = false;
       const animation: NavigationAnimatedTransition = {
-        timeout: 1400,
+        timeout: 1800,
         transition: (proxy: NavigationTransitionProxy): void => {
           this.navigationEnabled = false;
           this.playerRenderGroup = false;
@@ -398,7 +401,12 @@ struct Index {
                 if (finished) return;
                 this.getUIContext().animateTo({
                   curve: AppCurve.PlayerCollapse,
-                  onFinish: (): void => { if (!finished) proxy.finishTransition(); }
+                  onFinish: (): void => {
+                    if (finished) return;
+                    drag.finishAtMiniBar(this.getUIContext(), (): void => {
+                      if (!finished) proxy.finishTransition();
+                    });
+                  }
                 }, (): void => {
                   if (origin === undefined) this.playerOpacity = 0;
                   else drag.collapseToBar(origin, false);
@@ -466,9 +474,6 @@ struct Index {
               this.getUIContext().animateTo({ duration: AppMotion.Base,
                 delay: this.playerDragState.contentOpacity > 0.1 ? 0 : 60, curve: AppCurve.Decelerate }, (): void => {
                 this.playerDragState.contentOpacity = 1;
-              });
-              this.getUIContext().animateTo({ duration: 80, curve: Curve.Linear }, (): void => {
-                this.playerDragState.sourceOpacity = 0;
               });
             }));
           }));
@@ -1284,18 +1289,21 @@ struct PlayerPageWrapper {
   }
 
   private resolveBookId(): string {
+    if (this.param instanceof PlayerStartParams) return this.param.bookId;
     if (typeof this.param === 'string') return this.param as string;
     const r = this.param as Record<string, Object>;
     return (r['bookId'] as string) ?? '';
   }
 
   private resolveChapterId(): string {
+    if (this.param instanceof PlayerStartParams) return this.param.chapterId;
     if (typeof this.param === 'string') return '';
     const r = this.param as Record<string, Object>;
     return (r['chapterId'] as string) ?? '';
   }
 
   private resolveProgressMs(): number {
+    if (this.param instanceof PlayerStartParams) return 0;
     if (typeof this.param === 'string') return 0;
     const r = this.param as Record<string, Object>;
     const v = r['progressMs'];
@@ -1307,22 +1315,39 @@ struct PlayerPageWrapper {
       if (this.dragState.dismissing && this.dragState.backdropSnapshot !== undefined) {
         Image(this.dragState.backdropSnapshot)
           .width('100%').height('100%').objectFit(ImageFit.Fill)
+          .opacity(this.dragState.miniBarRevealed ? 0 : 1)
           .hitTestBehavior(HitTestMode.None)
       }
       Stack({ alignContent: Alignment.TopStart }) {
+        if (this.dragState.active && this.dragState.sourceNodeId === 'mini-player-bar') {
+          PlayerBarSurface({ surfaceWidth: this.dragState.frameWidth,
+            surfaceHeight: this.dragState.frameHeight, surfaceRadius: this.dragState.radius })
+            .width('100%').height('100%')
+            .opacity(1 - this.dragState.contentOpacity)
+            .hitTestBehavior(HitTestMode.None)
+        }
         PlayerPage({
           navStack: this.navStack,
           bookId: this.resolveBookId(),
           deferEntry: this.deferEntry,
           previewOnly: this.previewOnly,
           resumeChapterId: this.resolveChapterId(),
-          resumeProgressMs: this.resolveProgressMs()
+          resumeProgressMs: this.resolveProgressMs(),
+          startFromDetail: this.param instanceof PlayerStartParams
         })
           .width(this.dragState.active ? this.dragState.viewportWidth : '100%')
           .height(this.dragState.active ? this.dragState.viewportHeight : '100%')
           .translate({ x: this.dragState.active ? -this.dragState.frameX : 0,
             y: this.dragState.active ? -this.dragState.frameY : 0 })
           .opacity(this.dragState.contentOpacity)
+        if (this.dragState.active && this.dragState.sourceNodeId === 'mini-player-bar') {
+          PlayerTransitionMiniBar()
+            .width('100%')
+            .height(this.dragState.miniBarHeight)
+            .position({ x: 0, y: 0 })
+            .opacity(this.dragState.compactOpacity)
+            .hitTestBehavior(HitTestMode.None)
+        }
         if (this.dragState.active && (this.dragState.snapshot !== undefined || this.dragState.coverSource.length > 0)) {
           Stack() {
             if (this.dragState.snapshot !== undefined) {
@@ -1350,6 +1375,8 @@ struct PlayerPageWrapper {
       .translate({ x: this.dragState.active ? this.dragState.frameX : 0,
         y: this.dragState.active ? this.dragState.frameY : 0 })
       .borderRadius(this.dragState.active ? this.dragState.radius : 0)
+      .scale({ x: this.dragState.miniBarScaleX, y: this.dragState.miniBarScaleY })
+      .opacity(this.dragState.miniBarRevealed ? 0 : 1)
       // HDS 底栏会采样上层背景，退场时不能留下随胶囊收缩的纯黑底板。
       .backgroundColor(this.dragState.active ? Color.Transparent : '#000000')
       .clip(true)

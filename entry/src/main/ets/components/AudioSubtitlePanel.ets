@@ -72,7 +72,8 @@ export struct AudioSubtitlePanel {
   @Monitor('playerState.progressMs', 'state.revision')
   progressChanged(): void {
     if (!this.mounted || !this.foreground || !this.visible) return;
-    if (this.displayedRevision !== this.state.revision) {
+    const revised = this.displayedRevision !== this.state.revision;
+    if (revised) {
       this.source.update(this.state.cues);
       this.displayedRevision = this.state.revision;
     }
@@ -80,7 +81,7 @@ export struct AudioSubtitlePanel {
     const next = index >= 0 ? this.state.cues[index].id : '';
     const changed = this.activeId !== next;
     this.activeId = next;
-    if (this.following && changed && index >= 0) this.scrollToCue(index);
+    if (this.following && (changed || revised) && index >= 0) this.scrollToCue(index);
     AudioSubtitleService.instance.tick(this.playerState.progressMs);
   }
 
@@ -144,7 +145,7 @@ export struct AudioSubtitlePanel {
                 .fontColor(cue.id === this.activeId ? '#FFFFFF' : '#99FFFFFF')
                 .fontWeight(cue.id === this.activeId ? FontWeight.Medium : FontWeight.Normal)
             }
-          }, (cue: SubtitleCue): string => cue.id)
+          }, (cue: SubtitleCue): string => `${cue.id}:${cue.text}`)
         }.width('100%').height('100%').scrollBar(BarState.Off).cachedCount(2)
           .contentStartOffset(Math.max(0, this.viewportHeight / 2 - 21))
           .contentEndOffset(Math.max(0, this.viewportHeight / 2 - 21))

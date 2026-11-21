@@ -17,7 +17,7 @@ import { TextToSpeechState } from '../model/TextToSpeechState';
 import { CompatibleTabsModifier, HdsCompat } from '../utils/HdsCompat';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { common } from '@kit.AbilityKit';
-import { AppStorageV2, SymbolGlyphModifier } from '@kit.ArkUI';
+import { AppStorageV2, FrameCallback, SymbolGlyphModifier } from '@kit.ArkUI';
 import { HdsTabs, HdsTabsController, HdsBarStyle, HdsTabsBarChangeMode, HdsTabsFloatingStyle } from '@kit.UIDesignKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -74,6 +74,19 @@ class MainTabsAppearance {
   materialSupported: boolean = false;
 }
 
+class MainTabEnterFrame extends FrameCallback {
+  private action: () => void;
+
+  constructor(action: () => void) {
+    super();
+    this.action = action;
+  }
+
+  onFrame(_frameTimeInNano: number): void {
+    this.action();
+  }
+}
+
 class RankingAudioRouteParams {
   bookId: string;
   chapterId: string;
@@ -82,6 +95,19 @@ class RankingAudioRouteParams {
     this.bookId = bookId;
     this.chapterId = chapterId;
     this.progressMs = progressMs;
+  }
+}
+
+class MainMiniBarRenderedFrame extends FrameCallback {
+  private action: () => void;
+
+  constructor(action: () => void) {
+    super();
+    this.action = action;
+  }
+
+  onIdle(_timeLeftInNano: number): void {
+    this.action();
   }
 }
 
@@ -217,6 +243,8 @@ export struct MainPage {
     this.syncVerticalBars();
   }
   @Local currentTab: number = 0;
+  @Local tabEnterOpacity: number = 1;
+  @Local tabEnterOffset: number = 0;
   private tabPreloadTimer: number = -1;
   private preloadedTabs: Set<number> = new Set();
 
@@ -744,13 +772,10 @@ export struct MainPage {
         collapsed: !this.useVerticalTabs() && this.miniBarCollapsed,
         verticalStyle: this.useVerticalTabs(),
         compactControls: this.useVerticalTabs() && (this.useWideFloatingBars() || this.miniBarCompactControls),
+        dragEnabled: this.allowPlayerDrag,
+        onPlayerDragStart: (offsetY: number): void => this.beginPlayerDrag(offsetY),
         onChapters: (): void => { this.openMiniChapters(); },
         onInteract: (): void => this.refreshMiniPlayerIdle(true),
-        onPlayerPanStart: (offsetY: number): void => this.beginPlayerDrag(offsetY),
-        onPlayerPanUpdate: (offsetY: number): void => PlayerDragTransition.getInstance().update(offsetY),
-        onPlayerPanEnd: (offsetY: number, velocityY: number): void =>
-          PlayerDragTransition.getInstance().end(offsetY, velocityY),
-        onPlayerPanCancel: (): void => { PlayerDragTransition.getInstance().cancel(); },
         onTapBody: () => {
           // 折叠态:点击封面 → 展开迷你栏(不进播放器);展开态:进播放器
           if (this.useFloatingTabs() && !this.useVerticalTabs() && this.miniBarCollapsed) {
@@ -833,8 +858,10 @@ export struct MainPage {
       miniBar: this.miniPlayerVisible() ? {
         miniBarBuilder: this.stableMiniBarBuilder,
         miniBarStyle: this.useVerticalTabs() ?
-          (this.useWideFloatingBars() ? HdsBarStyle.EXPAND : HdsBarStyle.COLLAPSE) : undefined,
-        enableMiniBarBackground: true,
+          this.appliedVerticalBarStyle ??
+            (this.useWideFloatingBars() ? HdsBarStyle.EXPAND : HdsBarStyle.COLLAPSE) : undefined,
+        // 稳定的 MiniPlayer 材质宿主随内容显隐，原生迷你栏持续挂载。
+        enableMiniBarBackground: false,
         enableMiniBarClip: true,
         // 系统切换样式时同步页签状态；新版两种状态都保留全部播控。
         onBarStyleChange: (miniStyle: HdsBarStyle, tabStyle: HdsBarStyle,
@@ -897,15 +924,31 @@ export struct MainPage {
     this.lastTabClickIndex = index;
   }
 
-  /** 主导航直接换页，保留原生页签反馈，避免整屏位移反复计算浮动材质。 */
+  /** 内容区按页签方向淡入，浮动导航沿用原生反馈。 */
   private handleTabChange(index: number): void {
     this.cancelTabPreload();
     const previous: number = this.currentTab;
     this.nativeTabIndex = index;
     this.currentTab = MainTabPolicy.logical(index, this.generalSettings.historyEnabled);
     this.preloadedTabs.add(this.currentTab);
-    if (previous !== this.currentTab) this.resetTabStyle();
+    if (previous !== this.currentTab) {
+      this.resetTabStyle();
+      this.animateTabEntry(previous);
+    }
     this.scheduleTabPreload();
+  }
+
+  private animateTabEntry(previous: number): void {
+    this.getUIContext().animateTo({ duration: 0 }, (): void => {
+      this.tabEnterOpacity = 0;
+      this.tabEnterOffset = this.currentTab > previous ? 12 : -12;
+    });
+    this.getUIContext().postFrameCallback(new MainTabEnterFrame((): void => {
+      this.getUIContext().animateTo({ duration: 220, curve: AppCurve.Standard }, (): void => {
+        this.tabEnterOpacity = 1;
+        this.tabEnterOffset = 0;
+      });
+    }));
   }
 
   private cancelTabPreload(): void {
@@ -1049,6 +1092,8 @@ export struct MainPage {
           })
           // 播控转场只缓存首页底图，避免榜单实时材质随上层动画逐帧重采样。
           .freeze(this.playerTransitionState.active)
+          .opacity(this.currentTab === 0 ? this.tabEnterOpacity : 1)
+          .translate({ x: this.currentTab === 0 ? this.tabEnterOffset : 0 })
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
@@ -1066,7 +1111,10 @@ export struct MainPage {
             onRecords: (): void => { if (this.generalSettings.historyEnabled) this.changeTab(2); },
             onRecentTouch: (active: boolean): void => {
               // 只隔离卡片区域本次手势，其他书房位置仍可横滑切换主 Tab。
-              this.shelfRecentGestureUntil = active ? Number.MAX_SAFE_INTEGER : Date.now() + 120;
+              if (active) this.shelfRecentGestureUntil = Number.MAX_SAFE_INTEGER;
+              else if (this.shelfRecentGestureUntil === Number.MAX_SAFE_INTEGER) {
+                this.shelfRecentGestureUntil = Date.now() + 120;
+              }
             },
             bottomTabInset: this.bottomTabInset(),
             miniPlayerVisible: this.miniPlayerVisible(),
@@ -1076,6 +1124,8 @@ export struct MainPage {
             onContentScroll: (offset: number, state: ScrollState): void => this.onContentScroll(1, offset, state)
           })
           .renderGroup(false)
+          .opacity(this.currentTab === 1 ? this.tabEnterOpacity : 1)
+          .translate({ x: this.currentTab === 1 ? this.tabEnterOffset : 0 })
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
@@ -1095,6 +1145,8 @@ export struct MainPage {
             onContentScroll: (offset: number, state: ScrollState): void => this.onContentScroll(2, offset, state)
           })
           .renderGroup(false)
+          .opacity(this.currentTab === 2 ? this.tabEnterOpacity : 1)
+          .translate({ x: this.currentTab === 2 ? this.tabEnterOffset : 0 })
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
@@ -1110,6 +1162,8 @@ export struct MainPage {
             onContentScroll: (offset: number, state: ScrollState): void => this.onContentScroll(3, offset, state)
           })
           .renderGroup(false)
+          .opacity(this.currentTab === 3 ? this.tabEnterOpacity : 1)
+          .translate({ x: this.currentTab === 3 ? this.tabEnterOffset : 0 })
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
@@ -1134,7 +1188,7 @@ export struct MainPage {
       .onTabBarClick((index: number): void => this.handleTabBarClick(index))
       .onChange((index: number): void => this.handleTabChange(index))
       .onAppear((): void => this.scheduleTabPreload())
-      // 主导航即时切换，不让整页横移与底栏实时材质叠加。
+      // 原生容器即时选中目标页，内容区通过 220ms 淡入和 12vp 位移呈现。
       .animationDuration(0)
       .width('100%')
       .height('100%')
@@ -1157,7 +1211,7 @@ export struct MainPage {
       .onTabBarClick((index: number): void => this.handleTabBarClick(index))
       .onChange((index: number): void => this.handleTabChange(index))
       .onAppear((): void => this.scheduleTabPreload())
-      // 主导航即时切换，不让整页横移与底栏实时材质叠加。
+      // 原生容器即时选中目标页，内容区通过 220ms 淡入和 12vp 位移呈现。
       .animationDuration(0)
       .width('100%')
       .height('100%')
@@ -1192,6 +1246,7 @@ export struct MainPage {
         .backgroundBlurStyle(BlurStyle.COMPONENT_REGULAR)
         .borderRadius(24)
         .clip(true)
+        .opacity(this.systemMiniBarVisible() ? 1 : 0)
         .margin({ bottom: 64 + this.bottomSafeVp })
       }
 
@@ -1348,6 +1403,28 @@ export struct MainPage {
     this.navStack.pushPathByName('blockMore', params);
   }
 
+  private systemMiniBarVisible(): boolean {
+    return !this.playerTransitionState.active || this.playerTransitionState.sourceNodeId !== 'mini-player-bar' ||
+      this.playerTransitionState.miniBarRevealed;
+  }
+
+  @Monitor('miniBarCollapsed', 'miniBarCompactControls', 'appearance.verticalBottomTabs', 'viewportWidth')
+  private syncMiniPlayerTransitionLayout(): void {
+    this.playerTransitionState.miniBarCollapsed = !this.useVerticalTabs() && this.miniBarCollapsed;
+    this.playerTransitionState.miniBarVertical = this.useVerticalTabs();
+    this.playerTransitionState.miniBarCompactControls =
+      this.useVerticalTabs() && (this.useWideFloatingBars() || this.miniBarCompactControls);
+  }
+
+  private prepareMiniPlayerTransition(): void {
+    this.syncMiniPlayerTransitionLayout();
+    this.getUIContext().postFrameCallback(new MainMiniBarRenderedFrame((): void => {
+      if (this.playerTransitionState.active) {
+        PlayerDragTransition.getInstance().captureBackdrop(this.getUIContext());
+      }
+    }));
+  }
+
   private beginPlayerDrag(offsetY: number): void {
     const book = this.currentPlaybackBook();
     const paths = this.navStack.getAllPathName();
@@ -1360,10 +1437,12 @@ export struct MainPage {
     if (this.useVerticalTabs()) {
       const origin = transition.capture(this.getUIContext());
       if (origin !== undefined) {
+        this.prepareMiniPlayerTransition();
         transition.beginPreviewGesture(gestureHeight, offsetY, origin, book.id,
           (): void => { this.navStack.pushPathByName('player', book.id); },
           (finish: () => void): void => {
-            this.getUIContext().animateTo({ curve: AppCurve.GestureSettle, onFinish: finish },
+            this.getUIContext().animateTo({ curve: AppCurve.GestureSettle,
+              onFinish: (): void => transition.finishAtMiniBar(this.getUIContext(), finish) },
               (): void => transition.collapsePreview());
           });
         return;
@@ -1378,6 +1457,7 @@ export struct MainPage {
     if (this.allowPlayerDrag && this.navStack.size() === 0) {
       const transition = PlayerDragTransition.getInstance();
       const origin = transition.capture(this.getUIContext());
+      this.prepareMiniPlayerTransition();
       if (origin !== undefined && transition.beginTap(origin)) {
         // 点击与上拖共用底部播控的真实矩形，保留 Navigation 自定义转场。
         this.navStack.pushPathByName('player', book.id);
