@@ -8,7 +8,7 @@
 ## 发布配置
 
 - 版本代码：1028001；邀请测试沿用现有会员权益配置。
-- 覆盖 AGC 当前全部测试组：简听外部体验（258 人）；开启测试通知，关闭上架自检及自检报告通知。
+- 覆盖 AGC 当前全部测试组：简听外部体验（258 人）、内测组（1 人）；开启测试通知，关闭上架自检及自检报告通知。
 - 测试期沿用 30 天，分发方式设为即刻生效。平台自动预审照常执行，外部组开放时间以审核结果为准。
 
 ## 构建与验包
@@ -19,6 +19,14 @@
 - MCP 构建遇到 OHPM 批处理递归错误；使用 `.env` 指定的 Release IDE Hvigor CLI 与 `--no-daemon` 完成构建。构建日志另有组件 ID 与依赖资源声明提示。
 - 本轮完成 Release 构建与包内元数据核对，未新增设备实机操作验证。
 - 发布参考本轮读取的 [AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)、[邀测流程](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/workflows.md)、[AGC 命令说明](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/commands.md)与 [Hvigor 构建技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-studio-hvigor/SKILL.md)。
+
+## AGC 邀测提交记录
+
+- 2026-11-21 邀请测试提交接口返回成功；版本 ID：`2088782561915481856`，软件包 ID：`2088784240677264768`。
+- 已绑定当前全部测试组：简听外部体验（258 人）、内测组（1 人）；测试通知开启（`needNotify=1`），测试期为 2026-11-21 23:22:54 至 2026-12-21 23:59:59（北京时间）。
+- 分发方式为即刻生效（`sendMode=0`）；上架自检与自检报告通知关闭（`onshelfSelfDetect=0`、`onshelfSelfDetectNotice=0`）。自检报告查询返回“self detect task is not exist”。
+- AGC 版本列表当前返回状态码 4；平台审核与外部组开放时间以 AGC 后续状态为准。通知已配置开启，实际送达由平台执行。
+- 邀测提交回执归档于 `artifacts/releases/1.1.18-1028001/release-progress.json`。
 
 ---
 

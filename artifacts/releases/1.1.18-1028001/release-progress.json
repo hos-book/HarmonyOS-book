@@ -1,0 +1,60 @@
+{
+  "version": "1.1.18",
+  "versionCode": 1028001,
+  "appId": "6917615941058168740",
+  "versionId": "2088782561915481856",
+  "pkgIds": [
+    "2088784240677264768"
+  ],
+  "releaseType": 6,
+  "onshelfSelfDetect": 0,
+  "onshelfSelfDetectNotice": 0,
+  "openTestInfo": {
+    "startTime": 1795274574000,
+    "endTime": 1797868799000,
+    "testType": 3,
+    "testDesc": "1.1.18 AI字幕、播放器与阅听体验优化",
+    "testTaskInfo": {
+      "groupInfos": [
+        {
+          "groupId": "b920f1502a7f40db829334b3682aead8",
+          "groupName": "简听外部体验",
+          "addedTesterNum": 258,
+          "bind": 1,
+          "groupType": 0
+        },
+        {
+          "groupId": "2fc3aa26ce24410e866605bb0f3fbfc0",
+          "groupName": "内测组",
+          "addedTesterNum": 1,
+          "bind": 1,
+          "groupType": 1
+        }
+      ],
+      "needShareLink": 1,
+      "needNotify": 1,
+      "displayArea": "1"
+    },
+    "sendMode": 0,
+    "expiredTimeLength": 7,
+    "customerSource": 0,
+    "distributeChannel": "1",
+    "showScreenshot": 1,
+    "bindGroupType": 0
+  },
+  "submitResponse": {
+    "ret": {
+      "code": 0,
+      "msg": "success"
+    }
+  },
+  "versionListState": 4,
+  "selfDetectQuery": {
+    "ret": {
+      "code": 204144758,
+      "msg": "self detect task is not exist"
+    }
+  },
+  "startBeijing": "2026-11-21 23:22:54",
+  "endBeijing": "2026-12-21 23:59:59"
+}
