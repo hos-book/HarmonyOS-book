@@ -1,7 +1,9 @@
+import { common } from '@kit.AbilityKit';
 import { LocalRuleSourceType } from '../model/LocalRuleSource';
 import { Book, Chapter } from '../model/Book';
 import { BookSource, SearchResult } from '../model/BookSource';
 import { BookSourceService } from './BookSourceService';
+import { BookSourceSwitchResultCache } from './BookSourceSwitchResultCache';
 import { SourceDataService } from './SourceDataService';
 import { BookIdentity } from '../utils/BookIdentity';
 import { ChapterTitleFormatter } from '../utils/ChapterTitleFormatter';
@@ -36,23 +38,40 @@ export class SourceSwitchSearch {
     });
   }
 
-  async run(book: Book, update: (books: Book[]) => void, keyword: string = ''): Promise<void> {
+  async run(book: Book, update: (books: Book[]) => void, keyword: string = '',
+    cacheContext?: common.Context): Promise<void> {
     const query = keyword.trim() || SourceSwitchSearch.searchKeyword(book.title);
     const queryKey = SourceSwitchSearch.titleKey(query);
-    const available = await Promise.race([SourceDataService.getEnabledSources(),
+    const identity = SourceSwitchSearch.cacheIdentity(book);
+    const availableTask = SourceDataService.getEnabledSources();
+    const cachedTask: Promise<Book[]> = cacheContext === undefined ? Promise.resolve([]) :
+      BookSourceSwitchResultCache.load(cacheContext, identity, query);
+    const available = await Promise.race([availableTask,
       this.cancellation.then((): BookSource[] => [])]);
+    const cachedBooks = await Promise.race([cachedTask, this.cancellation.then((): Book[] => [])]);
     const contentType = book.contentType ?? 'audio';
-    // 在调度搜索前按导入定义筛选，避免向异类书源发送请求。
-    const sources = available.filter((source: BookSource): boolean =>
+    const eligibleSources = available.filter((source: BookSource): boolean =>
       source.bookSourceUrl !== book.sourceUrl && (contentType === 'comic' ?
         source.bookSourceType === LocalRuleSourceType.COMIC : contentType === 'text' ?
         source.bookSourceType === LocalRuleSourceType.TEXT || source.bookSourceType === LocalRuleSourceType.WEB_FILE :
         source.bookSourceType === LocalRuleSourceType.AUDIO));
-    this.total = sources.length;
+    const eligibleSourceUrls = new Set<string>();
+    for (const source of eligibleSources) eligibleSourceUrls.add(source.bookSourceUrl);
     const found: Book[] = [];
     const seen = new Set<string>();
     if (this.cancelled) return;
-    update([]);
+    const cachedSourceUrls = new Set<string>();
+    for (const candidate of cachedBooks) {
+      if (!eligibleSourceUrls.has(candidate.sourceUrl) || candidate.contentType !== contentType || !candidate.bookUrl ||
+        seen.has(candidate.id)) continue;
+      seen.add(candidate.id);
+      cachedSourceUrls.add(candidate.sourceUrl);
+      found.push(candidate);
+    }
+    if (found.length > 0) update(found.slice());
+    else if (cacheContext === undefined) update([]);
+    const sources = eligibleSources.filter((source: BookSource): boolean => !cachedSourceUrls.has(source.bookSourceUrl));
+    this.total = sources.length;
     const publish = (): void => {
       if (this.updateTimer !== -1) clearTimeout(this.updateTimer);
       this.updateTimer = -1;
@@ -66,6 +85,7 @@ export class SourceSwitchSearch {
         request.cancelCheck = (): boolean => this.cancelled;
         this.requests.add(request);
         let timer = -1;
+        const previousCount = found.length;
         try {
           const timeout = new Promise<SearchResult[]>((_resolve, reject): void => {
             timer = setTimeout((): void => {
@@ -94,13 +114,23 @@ export class SourceSwitchSearch {
             this.completed++;
             if (this.updateTimer === -1) this.updateTimer = setTimeout(publish, 100);
           }
+          if (cacheContext !== undefined && found.length > previousCount) {
+            BookSourceSwitchResultCache.save(cacheContext, identity, query, found.slice());
+          }
         }
       }
     };
     const tasks: Promise<void>[] = [];
     for (let index = 0; index < Math.min(6, sources.length); index++) tasks.push(worker());
     try { await Promise.all(tasks); }
-    finally { publish(); }
+    finally {
+      publish();
+      if (cacheContext !== undefined) await BookSourceSwitchResultCache.flush();
+    }
+  }
+
+  static cacheIdentity(book: Book): string {
+    return `${book.contentType ?? 'audio'}\u001f${SourceSwitchSearch.titleKey(book.title)}\u001f${SourceSwitchSearch.titleKey(book.author)}`;
   }
 
   /** Strip edition labels from the search query; keep the full title in results for confirmation. */

@@ -12,6 +12,7 @@ import { ChapterRuleContext } from '../ChapterRuleContext';
 import { NativeSourceImport } from './upstream/core/nativesource/NativeSourceImport';
 import { WebBookService } from './upstream/core/book/WebBookService';
 import { SearchCoordinator } from './upstream/core/book/SearchCoordinator';
+import { SearchChineseScriptService } from './SearchChineseScriptService';
 import { ExploreCoordinator } from './upstream/core/book/ExploreCoordinator';
 import { NativeCommentPage } from './upstream/core/nativesource/NativeCommentPage';
 import { LightReaderCommentDocument } from './LightReaderCommentDocument';
@@ -466,7 +467,8 @@ export class LightSourceCore {
       await LightSourceRuntime.updateState(source.bookSourceUrl,state => { delete state.lightLoginPending; });
     });
   }
-  static async search(localJson: string, keyword: string, page: number, request?: LightSourceRequest): Promise<string> {
+  static async search(localJson: string, keyword: string, page: number, request?: LightSourceRequest,
+    searchSimplifiedTraditional: boolean = false): Promise<string> {
     if (request?.isCancelled()) throw new Error('搜索已取消');
     const local = JSON.parse(localJson) as LocalRuleSource;
     const source = this.source(local);
@@ -484,7 +486,12 @@ export class LightSourceCore {
         cancellationTimer = undefined;
       }, 50);
       try {
-        const items = await coordinator.search(keyword, () => {}, { targetSources: [source], maxResultsPerSource: 50, page });
+        const items = await coordinator.search(keyword, () => {}, {
+          targetSources: [source],
+          maxResultsPerSource: 50,
+          page,
+          chineseScript: searchSimplifiedTraditional ? SearchChineseScriptService.create() : undefined
+        });
         if (request?.isCancelled()) throw new Error('搜索已取消');
         if (!items.length && coordinator.getLastFailureReason()) throw new Error(coordinator.getLastFailureReason());
         return JSON.stringify(items.map(item => this.result(item, source)));

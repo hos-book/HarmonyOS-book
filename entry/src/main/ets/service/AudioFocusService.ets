@@ -2,6 +2,7 @@ import { audio } from '@kit.AudioKit';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { DiagnosticLogService } from './DiagnosticLogService';
 import { ExternalMediaWatcher } from './ExternalMediaWatcher';
+import { PreferenceService } from './PreferenceService';
 
 /** 有声书与 TTS 共用系统默认媒体会话；只恢复被系统打断的播放。 */
 export class AudioFocusService {
@@ -40,19 +41,40 @@ export class AudioFocusService {
     this.watcher.disarm();
     const task = this.chain.catch((): void => {}).then(async (): Promise<void> => {
       if (ticket !== this.generation || this.owner !== owner || this.waiting) return;
+      const coexistenceEnabled = await PreferenceService.getAudioCoexistenceEnabled();
+      if (ticket !== this.generation || this.owner !== owner || this.waiting) return;
       if (this.session === null) {
         this.session = audio.getAudioManager().getSessionManager();
         this.session.on('audioSessionStateChanged', this.onState);
       }
-      this.session.setAudioSessionScene(audio.AudioSessionScene.AUDIO_SESSION_SCENE_MEDIA);
-      if (PlatformCompat.supports(26)) {
-        // 将可恢复的抢占交由系统发送 PAUSE/RESUME，避免应用自行推断恢复时机。
-        this.session.setAudioSessionBehavior(audio.AudioSessionBehaviorFlags.PAUSE_WHEN_INTERRUPTED);
-      }
-      await this.session.activateAudioSession({ concurrencyMode: audio.AudioConcurrencyMode.CONCURRENCY_DEFAULT });
+      await this.activateSession(this.session, coexistenceEnabled);
     });
     this.chain = task;
     return task;
+  }
+
+  applyCoexistenceSetting(enabled: boolean): Promise<void> {
+    const ticket = this.generation;
+    const owner = this.owner;
+    const session = this.session;
+    if (owner.length === 0 || session === null) return Promise.resolve();
+    const task = this.chain.catch((): void => {}).then(async (): Promise<void> => {
+      if (ticket !== this.generation || this.owner !== owner || this.session !== session) return;
+      await this.activateSession(session, enabled);
+    });
+    this.chain = task;
+    return task;
+  }
+
+  private activateSession(session: audio.AudioSessionManager, coexistenceEnabled: boolean): Promise<void> {
+    session.setAudioSessionScene(audio.AudioSessionScene.AUDIO_SESSION_SCENE_MEDIA);
+    if (PlatformCompat.supports(26)) {
+      session.setAudioSessionBehavior(audio.AudioSessionBehaviorFlags.PAUSE_WHEN_INTERRUPTED);
+    }
+    const concurrencyMode: audio.AudioConcurrencyMode = coexistenceEnabled && PlatformCompat.supports(23)
+      ? audio.AudioConcurrencyMode.CONCURRENCY_MIX_WITH_OTHERS
+      : audio.AudioConcurrencyMode.CONCURRENCY_DEFAULT;
+    return session.activateAudioSession({ concurrencyMode: concurrencyMode });
   }
 
   /** 先撤销意图，再串行停用，避免旧播放器的清理停掉后来的播放器。 */

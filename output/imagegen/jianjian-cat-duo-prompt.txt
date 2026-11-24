@@ -1,0 +1,19 @@
+Use case: stylized-concept
+Asset type: refined cartoon mascot pair for the Jianjian reading companion HTML concept.
+Input image 1: character identity reference. Study both real cats in the supplied photograph and preserve their individual coat patterns, face markings, green eyes, pink noses, and coat lengths.
+
+Primary request: Create a beautiful, original illustration of exactly these two cats as an affectionate cartoon duo. Use polished, softly dimensional character illustration with delicate painterly fur, carefully sculpted silhouettes, expressive eyes, and excellent small-scale readability.
+
+Cat A: The black-and-white long-haired cat in the foreground of the reference. Preserve its black ears and crown, the distinctive white blaze down the forehead and nose, white muzzle and cheeks, lavish white chest ruff, dark back, and bright natural green irises. Its head is broad and gently rounded, with soft cheek fluff, a tiny pink nose, subtle whisker pads, and fine long white whiskers. Make the fluffy white front paws clearly visible.
+
+Cat B: The calico cat behind it in the reference. Preserve its distinctive black-and-warm-orange facial patches, narrow white stripe along the nose, white muzzle and chest, black ears, and green eyes. Give this cat a slightly rounder, shorter-haired face than Cat A so their individual identities remain immediately recognizable. Preserve the asymmetry of the photographed calico markings.
+
+Style: Premium illustrated storybook characters with gentle 2.5D volume and refined handcrafted detail. Build the fur from soft, intentional tufts and fine edge strands. Use restrained, accurate eye highlights, delicate pink inner ears, nuanced black fur with charcoal reflected light, warm white fur, and soft natural shading. The result should feel lively, tender, sophisticated, and distinctly feline.
+
+Proportions and pose: Both cats have appealing, moderately enlarged heads, compact natural feline bodies, soft paws, and long fluffy tails. Both sit close together at equal visual prominence, slightly angled toward one another, looking warmly toward the viewer. Show both complete bodies, all visible paws, ear tips, and tails. Their heads gently lean toward each other. Each face remains fully visible and individually readable.
+
+Composition: A landscape character portrait, with the two cats centered as a balanced pair. Let the characters occupy approximately 78 percent of the image height. Leave comfortable clean space around the silhouette. Keep the background an uninterrupted pale warm ivory studio backdrop with a very soft contact shadow under the paws. The composition contains only the two cats and this simple backdrop; their natural anatomy and fur carry the design.
+
+Lighting: Broad soft window light, gentle luminous eye reflections, soft ambient bounce, quiet warm atmosphere. Preserve detail throughout the black-and-white coats and the calico markings.
+
+Output intent: A finished, high-quality character concept that can serve as the main artwork in an HTML preview. Deliver artwork with a clean, unlettered surface and crisp facial detail.

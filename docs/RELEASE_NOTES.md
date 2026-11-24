@@ -1,3 +1,29 @@
+# 1.1.19 更新日志（2026-11-24）
+
+1. 优化本地多角色朗读识别与音色衔接，按设备能力优先使用 NNRT 加速，并支持 CPU 执行。
+2. 新增音频共存设置，可按需让有声书与文字朗读和其他应用音频同时播放。
+3. 优化搜索选项与文字匹配，支持简繁同搜，并改善精确搜索和作者搜索操作。
+4. 优化作品切换后的结果展示与复用，缩短重复检索等待。
+5. 优化迷你播放器展开、拖动、封面衔接及章节开头朗读体验。
+
+## 发布配置
+
+- 版本代码：1029001；邀测与正式版沿用现有发布签名和会员权益配置。
+- 邀请测试覆盖当前全部测试组：简听外部体验（270 人）、内测组（1 人）；开启测试通知，关闭上架自检与自检报告通知，即刻生效，测试期 30 天。
+- 正式版本选择全网发布，审核通过后立即上架。
+
+## 构建与发布记录
+
+- 使用 Release SDK 26.0.0.105 与发布签名完成 APP 构建；包内元数据确认版本 1.1.19 / 1029001、Release 模式、debug=false、最低 API 20、目标 API 26。签名包与元数据归档于 `artifacts/releases/1.1.19-1029001/`。
+- 2026-11-24 邀请测试提交成功，版本 ID：`2090552872465860608`，软件包 ID：`2090558844030737472`；AGC 查询状态码为 4。简听外部体验（270 人）与内测组（1 人）均已绑定，测试通知开启（`needNotify=1`），测试期为 2026-11-24 09:57:47 至 2026-12-24 23:59:59（北京时间）。
+- 上架自检与自检报告通知均关闭（`onshelfSelfDetect=0`、`onshelfSelfDetectNotice=0`）；自检任务查询结果为空。
+- 2026-11-24 正式版提交接口返回 `ret.code=0`。正式版本 ID：`2090552313675570240`，软件包 ID：`2090560580707462912`；AGC 回查状态码为 12。版本选择全网发布（`releaseType=1`），审核通过后立即上架。
+- 邀测与正式版回执归档于 `artifacts/releases/1.1.19-1029001/release-progress.json` 和 `formal-release-receipt.json`。正式版更新说明归档为 `formal-whatsnew.txt`。
+- 本轮完成 Release 构建、邀测与正式版 AGC 提交及代码交付；实机安装安排在独立设备操作中。
+- 发布流程参照 [AGC 提交应用审核接口](https://developer.huawei.com/consumer/cn/doc/App/agc-help-publish-api-app-submit-0000002271160585)、[AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)及[发布流程](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/workflows.md)。
+
+---
+
 # 1.1.18 更新日志（2026-11-21）
 
 1. 优化本地 AI 字幕的识别分段、时间对齐与跨窗口拼接，改善字幕刷新及当前句定位。

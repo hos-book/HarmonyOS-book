@@ -1,7 +1,6 @@
 export class RoleModelInfo {
   path: string = '';
   name: string = '';
-  fingerprint: string = '';
   architecture: string = '';
   bytes: number = 0;
 }
@@ -14,6 +13,7 @@ export class RoleModelState {
   @Trace progress: number = 0;
   @Trace verifying: boolean = false;
   @Trace error: ResourceStr = '';
+  @Trace backend: string = '';
 }
 
 export class RoleSpeaker {
@@ -57,8 +57,19 @@ export class RoleModelAnswer {
   speaker: string = '?';
 }
 
+export class RoleInferenceLine {
+  id: number = 0;
+  start: number = 0;
+  end: number = 0;
+}
+
+export class RoleInferenceRequest {
+  context: string = '';
+  lines: RoleInferenceLine[] = [];
+}
+
 export class RoleChapterCache {
-  version: number = 1;
+  version: number = 3;
   dialogues: RoleDialogue[] = [];
 }
 

@@ -1,42 +1,57 @@
 # 本地多角色朗读
 
-入口：阅读器右上角菜单 → 角色配音，或“我的 → 阅听设置 → 多角色朗读”。阅读器使用现有沉浸半模态面板，设置页使用磨砂标题和主题卡片，两者复用 RoleSpeechPanel。启用开关作用于全部文字书，音色绑定只作用于所示书籍。模型统一在“我的 → 模型管理”的多角色朗读卡片中管理，与漫画着色、AI 字幕平级；配音面板不再放置管理按钮，无模型时文字提示统一入口。模型卡片负责 GGUF 导入、替换、下载地址说明、取消及删除确认，离页取消在途导入，失败或取消保留旧模型。复制阶段只显示一个百分号，验证阶段显示等待状态。
+入口：阅读器菜单 → 角色配音，或“我的 → 阅听设置 → 多角色朗读”。模型在“我的 → 模型管理”统一导入。启用状态全局保存，旁白、默认对白和人物音色按书籍保存，继续复用现有音色选择、试听、播放和阅读进度。
 
-点击旁白、默认对白或已发现人物进入音色编辑，搜索已启用的本地或 HTTP 音色，选中只更新草稿；确认后保存，取消保留原设置。可跟随当前全局音色。试听优先使用该角色的正文短句；“试听当前片段”使用已识别内容的不同声音，最多 6 段、300 字，不启动新识别。角色列表和音色列表保留滚动能力并隐藏滚动条；片段试听固定在列表外，底部留出安全区。
+## 通用模型与自动调度
 
-本地 TTS 在同一模型管理页的分组中独立导入：Piper 超文、小雅各提供 1 个中文声音，Kokoro 提供 100 个中文声音。选择对应的官方 INT8 `.tar.bz2` 原包即可，无需解压或转换；Kokoro 也兼容已有配套 ZIP。可将旁白绑定超文、对白绑定小雅，也可给人物选择 Kokoro 音色。全局音色为 Piper 时，新发现人物仅从其他已启用的 Piper 声音分配；全局为 Kokoro 时，仅从其他已启用的 Kokoro 声音分配。无候选时沿用默认声音。已保存的手动绑定保留，可混合选择两个系列；跨模型发声可能重新加载模型。旁白、默认对白和人物都使用本地音色且正文已在本机时，分角与合成均可离线完成。模型包、稳定 speaker ID、许可及设备验证边界见 [OFFLINE_TTS.md](OFFLINE_TTS.md)。
+只需导入一份 `csi-v1-generic.ms`。同一模型供手机、平板和电脑使用，调度依据系统公开的 NNRT 加速器能力，独立于厂商和芯片型号。
 
-试听暂停原朗读，结束、关闭或取消后，仅恢复本次试听暂停的同一会话与原字符位置；原本暂停、主动暂停、换书、后台或音频抢占后不恢复。连续试听与重复关闭共用受控清理，等待音频输出和焦点释放。确认音色不取消当前正在发声的片段，只废弃后续旧音色预取，从下一朗读片段生效。
+`RoleModelService` 通过 `librole_nnrt.so` 串行调用系统 MindSpore Lite C API。运行上下文先添加 `OH_AI_NNRTDEVICE_ACCELERATOR`，再添加 CPU。MindSpore Lite 将适配算子优先调度到 NNRT，其余算子在 CPU 上执行；设备仅提供 CPU 时直接使用 CPU。加速模型加载或推理失败时，重新建立 CPU 上下文并执行同一份模型与输入。
 
-## 下载与兼容范围
+模型管理卡显示文件名、大小和运行方式：“NPU 优先，CPU 协同”表示已配置加速器参与调度；具体算子分配由系统完成。“CPU”表示 CPU 上下文。界面状态表达调度方式，实际加速占比以设备运行结果为准。
 
-推荐下载：
+原生推理在异步工作线程执行，使用 2 个 CPU 线程，空闲 30 秒释放模型。导入支持复制进度、取消、模型加载和样例推理；更新模型继续保留人物音色设置。
 
-https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf?download=true
+角色识别与语音合成分别调度。Piper、Kokoro 本地语音继续通过 sherpa-onnx CPU 合成；HTTP 音色沿用现有服务。音色与模型许可见 `OFFLINE_TTS.md`。
 
-文件名 `Qwen3.5-0.8B-Q4_K_M.gguf`，发布页显示约 533 MB。文本分角不需要 mmproj。模型权重不包含在 HAP 中，也不会自动下载；用户需遵守发布者的模型许可。
+## 角色识别流程
 
-导入支持范围由原生检查器决定：GGUF v3、单文件、Qwen3 / Qwen3.5 架构、Q4_K_M、文件不超过 1792 MiB、参数总数不超过 2.2B、层数不超过 32、隐藏维度不超过 2560。支持范围不等同于已验证所有同规格模型；导入仍必须通过实际加载与短推理。Qwen 的模型只识别角色，不负责生成声音；搭配导入的本地 TTS 可以在本机发声，HTTP 音色仍需联网。
+1. `ReaderDialogueHighlighter` 确定对白的原文 UTF-16 范围。
+2. `RoleSpeechPlanner` 将最多三段相邻对白组成窗口，传递完整原文片段及对白起止位置。
+3. `RoleBertTokenizer` 每个窗口分词一次，各对白复用 token 和原文映射。按 512 token 预算围绕目标对白选取上下文，长对白保留首尾及两侧叙述，原文与阅读位置保持完整。
+4. CSI 提供姓名起止分数；候选评分时应用现有姓名长度、代词与文本规则，压缩位置两侧独立选择姓名。
+5. `RoleSpeechService` 保存角色与音色关联，按原文范围交给既有朗读链路；待确认角色使用默认对白音色。
 
-## 页面 → 服务 → 本地数据
+暂停和换书沿用现有取消机制，每段对白推理前后检查当前会话。章节缓存版本为 3；模型变更与既有章节身份一起参与缓存选择。每书角色设置、缓存数量和播放位置沿用现有存储约定。
 
-- `RoleSpeechSettingsPage / RoleSpeechPanel`：设置页和阅读器共用配音选择、草稿试听、确认保存、启停、按书绑定与失败重试；阅读器保留现有沉浸材质与系统前景色，设置页复用 AppTheme 和间距/圆角 token。
-- `AiModelSettingsPage / RoleModelCard`：“我的 → 模型管理”中的平级多角色模型卡片，复制和验证分阶段显示，不将模型操作混入人物列表。
-- `RoleModelService`：1 MiB 分块复制并计算 SHA256；空间检查、原生验证、原子替换和 Preferences 回滚。目录为 `filesDir/role_models`；Preferences `role_speech_model` 仅保存模型目录信息和启用状态。
-- `RoleSpeechPlanner / RoleSpeechService`：引用阅读器的成对引号范围，最多三段对白组成小窗口，提前处理一个窗口。输出限制为编号与说话人，编号重复/越界拒绝，无法确认的姓名使用默认对白。模型不能修改正文或字符位置。
-- `filesDir/role_speech/book-<hash>.json`：每书旁白、默认对白和最多 128 个角色的音色 ID。`cache-<hash>.json` 保存分角结果，身份包含模型 SHA256、书章、原文及引号规则，最多 64 份章节缓存；不保存音频。
-- `TextToSpeechService`：先按对白边界分段，合成不能跨角色，保留原文 UTF-16 偏移。HTTP 预取与播放使用相同音色身份；角色音色起播前失败暂时回退全局音色，默认音色本身失败沿用原错误处理。系统音色使用当前系统选择。分角模式每片段最多 300 字，下一章先预取正文，到章后按其对白分析，避免错误预合成。
+## 模型转换
 
-暂停、换书或设置改变会取消旧分角任务；迟到结果不能推进播放。识别失败时本章后续对白使用默认设置，可点“重新识别本章”重试。首次识别有等待，速度、温度、功耗和识别质量与设备及模型有关。原生模型闲置 30 秒释放。
+源模型为 `Warma10032/chinese-roberta-wwm-ext-large-csi-v1` 的 `csi-v1.pth`；配置使用 `hfl/chinese-roberta-wwm-ext-large`。导出采用 `BertForQuestionAnswering`、`layer_norm_eps=1e-5`、eager attention。应用包含配套中文词表。
 
-## 原生依赖与复现
+转换环境使用 Python、PyTorch 2.5.1、Transformers 4.46.3、ONNX 1.17.0 和官方 MindSpore Lite 2.7.0 `converter_lite`。脚本先导出 opset 13 ONNX，再按 `--saveType=MINDIR_LITE --fp16=on --optimize=general` 转换为便携式模型；转换仅使用通用图优化，设备在运行时选择计算后端。
 
-固定 llama.cpp v0.9.0，提交 `cd959bae99ff4bed22bef2604f45241c09bbb8c8`，源码和散列见 `third_party/role-llama/upstream.json`，`python scripts/sync-role-llama.py` 可复现所需 CPU 构建输入。OHOS 线程兼容通过独立头文件适配，上游源码保持不变。
+```bash
+export LD_LIBRARY_PATH=/path/to/mindspore-lite/tools/converter/lib
+python scripts/convert-role-speaker-model.py \
+  --model-dir /path/to/config \
+  --checkpoint /path/to/csi-v1.pth \
+  --converter /path/to/mindspore-lite/tools/converter/converter/converter_lite \
+  --output artifacts/models/csi-v1-generic.ms
+```
 
-`librole_inference.so` 使用 Native Async Work，串行调用、两条 CPU 计算线程、2048 token 上下文、45 秒任务期限和取消回调。仅接受 `role_models` 沙箱中的路径；加载前限制 GGUF 元数据和张量预算。只打包 arm64-v8a / x86_64 库及 MIT 许可证，不打包 GGUF 权重。穿戴启动流程不调用分角功能。
+三个输入均为 `(1,512)` INT32：`input_ids`、`token_type_ids`、`attention_mask`。输出为 `start_logits`、`end_logits` 两组 512 项浮点分数。原生桥统一输出 FP32 给 ArkTS。
 
-## 验证边界
+CSI 原始项目对语料标注非商业研究用途；权重许可与语料来源条件分别审阅。模型独立交付，HAP 包含推理桥接、词表及许可，MindSpore Lite 使用系统运行时。
 
-2026-11-10：新增及修改 ETS 检查无错误；Release SDK 26.0.0.105 的 Debug HAP 编译通过，arm64-v8a / x86_64 原生库均编译通过。`scripts/test-text-to-speech.cjs` 78 项回归通过，其中包括对白分界、逐角色预取、系统/HTTP 混用、失败回退、暂停取消、缓存和导入回滚。新增覆盖角色确认保留当前片段、下一片段使用新音色，以及试听恢复凭据失效。`scripts/test-voice-preview.cjs` 覆盖分角色试听、重复关闭仅恢复一次、连续替换、等待音频释放、后台/抢占取消恢复和原本暂停不恢复。回归中的原生推理被模拟，不能视为真实模型效果验证。Mate 80 已安装并查看新界面，实际模型识别质量、持续后台播放、深色及其他设备尺寸仍需专项验收。
+## 依据与验证记录
 
-正式发布补充：Release 导出混淆必须在根目录 `obfuscation-rules.txt` 保留 `librole_inference.so` 的 `run`、`cancel` 全局名与属性名。`scripts/verify-release-package.py --name-cache ...` 会检查这两个固定原生导出；Debug 构建成功不能代替该项验证。
+- 官方 NNRT/CPU 协同指南：https://raw.githubusercontent.com/openharmony/docs/master/en/application-dev/ai/mindspore/mindspore-lite-guidelines.md
+- 官方模型转换指南：https://raw.githubusercontent.com/openharmony/docs/master/en/application-dev/ai/mindspore/mindspore-lite-converter-guidelines.md
+- 模型转换工具：https://www.mindspore.cn/lite/docs/en/r2.7.0/use/downloads.html
+- CSI 模型：https://huggingface.co/Warma10032/chinese-roberta-wwm-ext-large-csi-v1
+- CSI 训练项目：https://github.com/yudiandoris/csi
+- ArkTS 语法指南技能：https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/SKILL.md
+- ArkUI 开发技能：https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/SKILL.md
+- 编译修复技能：https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md
+
+2026-11-23：通用 `.ms` 转换成功，文件大小 649,147,872 字节。Release SDK 26.0.0.105 的 Debug HAP 构建通过。独立 LSP 检查仍引用旧版双参数原生声明，报告参数数量提示；当前声明为单参数，完整构建已按当前声明编译通过。运行时 API 以本机 Release SDK 26 声明为依据，所用 MindSpore 接口均在 API 20 及以前提供。在线目录索引已获取，根目录 API 返回 HTTP 429；技能应用沿用索引定位和已读取的参考正文。实际耗时、识别质量与 NPU/CPU 分配效果仍待真机确认。

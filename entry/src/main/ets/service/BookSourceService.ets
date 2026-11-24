@@ -265,12 +265,13 @@ export class BookSourceService {
   }
 
   static async searchBooks(source: BookSource, keyword: string, page: number = 1,
-    request?: LightSourceRequest): Promise<SearchResult[]> {
+    request?: LightSourceRequest, searchSimplifiedTraditional: boolean = false): Promise<SearchResult[]> {
     if (request?.isCancelled()) return [];
     if (source instanceof LocalRuleSource && !source.isSearchEnabled()) return [];
     const localSource = await BookSourceService.resolveLocalSource(source);
     if (request?.isCancelled()) return [];
-    return localSource === undefined ? [] : LocalRuleDispatcher.search(localSource, keyword, page, request);
+    return localSource === undefined ? [] :
+      LocalRuleDispatcher.search(localSource, keyword, page, request, searchSimplifiedTraditional);
   }
 
   static async testLocalSource(source: LocalRuleSource, keyword: string,

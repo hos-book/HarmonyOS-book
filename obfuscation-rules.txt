@@ -35,6 +35,9 @@
   # Fixed N-API exports from librole_inference.so.
   run
   cancel
+  loadRoleNnrtModel
+  predictRoleNnrtModel
+  releaseRoleNnrtModel
   # Fixed N-API exports from libmodel_pack_crypto.so.
   getKey
   getKeyId
@@ -57,6 +60,9 @@
   shatterClose
   run
   cancel
+  loadRoleNnrtModel
+  predictRoleNnrtModel
+  releaseRoleNnrtModel
   getKey
   getKeyId
   # Optional model-pack manifest fields.

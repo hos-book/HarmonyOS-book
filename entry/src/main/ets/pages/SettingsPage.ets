@@ -15,6 +15,7 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AppTheme, AppRadius, AppSpace, AppFont, AppColor } from '../theme/Theme';
 import { PreferenceService } from '../service/PreferenceService';
 import { AudioService } from '../service/AudioService';
+import { AudioFocusService } from '../service/AudioFocusService';
 import { ChapterCacheService } from '../service/ChapterCacheService';
 import { WidgetUpdater } from '../service/WidgetUpdater';
 import { WindowUtils } from '../utils/WindowUtils';
@@ -84,6 +85,8 @@ export struct SettingsPage {
   @Local defaultPlaybackSpeed: number = 1;
   @Local defaultPlaybackSpeedDraft: number = 1;
   @Local isSavingDefaultPlaybackSpeed: boolean = false;
+  @Local audioCoexistenceEnabled: boolean = false;
+  @Local isSavingAudioCoexistence: boolean = false;
   @Local preloadCount: number = 1;
   @Local preloadDraft: string = '1';
   @Local preloadCustom: boolean = false;
@@ -166,6 +169,7 @@ export struct SettingsPage {
       const autoPlay = await PreferenceService.getAutoPlayOnLaunch();
       const coverResolution = await PreferenceService.getCoverSuperResolution();
       const defaultPlaybackSpeed = await PreferenceService.getDefaultPlaybackSpeed();
+      const audioCoexistenceEnabled = await PreferenceService.getAudioCoexistenceEnabled();
       const preloadCount = await PreferenceService.getPreloadChapters();
       if (!this.alive || serial !== this.preferencesLoadSerial) return;
       this.currentMode = mode;
@@ -175,6 +179,7 @@ export struct SettingsPage {
       this.coverSuperResolution = coverResolution && this.membership.hasAccess;
       this.defaultPlaybackSpeed = defaultPlaybackSpeed;
       this.defaultPlaybackSpeedDraft = defaultPlaybackSpeed;
+      this.audioCoexistenceEnabled = audioCoexistenceEnabled;
       this.preloadCount = preloadCount;
       this.preloadDraft = preloadCount.toString();
       this.preloadCustom = !PRELOAD_OPTIONS.some((opt: PreloadOption): boolean => opt.count === preloadCount);
@@ -257,6 +262,28 @@ export struct SettingsPage {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
     } finally {
       this.isSavingDefaultPlaybackSpeed = false;
+    }
+  }
+
+  private async setAudioCoexistenceEnabled(enabled: boolean): Promise<void> {
+    if (!this.isLoaded || this.isSavingAudioCoexistence || this.audioCoexistenceEnabled === enabled) return;
+    this.isSavingAudioCoexistence = true;
+    try {
+      await PreferenceService.setAudioCoexistenceEnabled(enabled);
+      if (this.alive) this.audioCoexistenceEnabled = enabled;
+      try {
+        await AudioFocusService.getInstance().applyCoexistenceSetting(enabled);
+      } catch (error) {
+        hilog.warn(0xFF00, 'SettingsPage', 'Apply audio coexistence failed: %{public}s', String(error));
+        if (this.alive) {
+          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_audio_coexistence_apply_failed') });
+        }
+      }
+    } catch (error) {
+      hilog.warn(0xFF00, 'SettingsPage', 'Save audio coexistence failed: %{public}s', String(error));
+      if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
+    } finally {
+      this.isSavingAudioCoexistence = false;
     }
   }
 
@@ -834,6 +861,16 @@ export struct SettingsPage {
         }.width('100%')
           .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Sm, bottom: AppSpace.Sm })
           .enabled(this.isLoaded && !this.isSavingDefaultPlaybackSpeed)
+
+        this.buildDivider()
+
+        this.buildSwitchItem(
+          $r('app.string.settings_audio_coexistence_title'),
+          $r('app.string.settings_audio_coexistence_desc'),
+          UIUtils.makeBinding<boolean>(() => this.audioCoexistenceEnabled),
+          (enabled: boolean): void => { this.setAudioCoexistenceEnabled(enabled); },
+          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.isSavingAudioCoexistence)
+        )
 
         this.buildDivider()
 

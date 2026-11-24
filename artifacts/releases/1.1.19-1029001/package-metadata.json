@@ -1,0 +1,23 @@
+{
+  "package": "Jianting-1.1.19-1029001-release.app",
+  "sizeBytes": 51721350,
+  "product": "release",
+  "sdk": {
+    "version": "26.0.0.105",
+    "releaseType": "Release"
+  },
+  "modules": [
+    {
+      "name": "entry-default.hap",
+      "bundleName": "com.huan.listenbook",
+      "versionName": "1.1.19",
+      "versionCode": 1029001,
+      "minApi": 20,
+      "targetApi": 26,
+      "compileSdkVersion": "26.0.0.105",
+      "sdkChannel": "Release",
+      "buildMode": "release",
+      "debug": false
+    }
+  ]
+}

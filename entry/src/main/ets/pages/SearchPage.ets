@@ -15,10 +15,12 @@ import { BookInfo, BookSource, SearchResult } from '../model/BookSource';
 import { LocalRuleSource } from '../model/LocalRuleSource';
 import { BookSourceService } from '../service/BookSourceService';
 import { SourceDataService } from '../service/SourceDataService';
+import { HomeSourceService } from '../service/rulesource/HomeSourceService';
 import { SearchCache } from '../utils/SearchCache';
 import { SearchOptions } from '../utils/SearchOptions';
 import { BookCard } from '../components/BookCard';
 import { CoverImage } from '../components/CoverImage';
+import { PhysicalBookCover } from '../components/PhysicalBookCover';
 import { BookDataSource } from '../utils/BookDataSource';
 import { BookIdentity } from '../utils/BookIdentity';
 import { CoverPrefetcher } from '../service/CoverPrefetcher';
@@ -34,7 +36,9 @@ const LOCAL_RULE_COVER_CONCURRENCY: number = 3;
 const LOCAL_RULE_COVER_LIMIT: number = 12;
 const LOCAL_RULE_COVER_PENDING_LIMIT: number = 96;
 const SEARCH_COVER_ASPECT_RATIO: number = 0.75;
-const SEARCH_HEADER_HEIGHT: number = 56;
+const SEARCH_TITLE_BAR_HEIGHT: number = 56;
+const SEARCH_MODE_ROW_HEIGHT: number = 36;
+const SEARCH_HEADER_HEIGHT: number = SEARCH_TITLE_BAR_HEIGHT + SEARCH_MODE_ROW_HEIGHT;
 const SEARCH_TITLE_CONTROL_HEIGHT: number = 44;
 const RESULT_TOOLBAR_HEIGHT: number = 48;
 const HISTORY_HEADING_HEIGHT: number = 52;
@@ -121,6 +125,8 @@ export struct SearchPage {
   @Param initialKeyword: string = '';
 
   @Local keyword: string = '';
+  @Local searchCurrentSource: boolean = true;
+  @Local searchSimplifiedTraditional: boolean = true;
   @Local exactSearch: boolean = false;
   @Local searchByAuthor: boolean = false;
   @Local searchTextOnly: boolean = false;
@@ -606,8 +612,15 @@ export struct SearchPage {
     try {
       const sources = await SourceDataService.getEnabledSources();
       if (gen !== this.searchGen) return;
+      let currentSourceUrl = '';
+      if (this.searchCurrentSource) {
+        const currentSource = await HomeSourceService.getSelectedSource();
+        currentSourceUrl = currentSource?.bookSourceUrl ?? '';
+      }
+      if (gen !== this.searchGen) return;
       const selectedSources = sources.filter((source: BookSource): boolean =>
         SearchOptions.matchesSource(source, this.searchTextOnly, this.searchAudioOnly, this.searchComicOnly) &&
+        (!this.searchCurrentSource || currentSourceUrl.length === 0 || source.bookSourceUrl === currentSourceUrl) &&
         (!this.sourceFilterEnabled || this.selectedSourceUrls.includes(source.bookSourceUrl)));
       this.searchSourceTotal = selectedSources.length;
       const concurrency = await PreferenceService.getSearchConcurrency();
@@ -689,7 +702,8 @@ export struct SearchPage {
     this.searchRequests.add(request);
     try {
       const page = this.sourcePages.get(source.bookSourceUrl) ?? 1;
-      const results = await BookSourceService.searchBooks(source, keyword, page, request);
+      const results = await BookSourceService.searchBooks(source, keyword, page, request,
+        this.searchSimplifiedTraditional);
       if (gen !== this.searchGen) return;
       // 使用筛选前的身份判断翻页进度；不支持翻页、反复返回首页的源在此终止。
       const freshResults: SearchResult[] = [];
@@ -705,7 +719,8 @@ export struct SearchPage {
       const fallbackContentType: 'audio' | 'text' | 'comic' = source.bookSourceType === 0 || source.bookSourceType === 3
         ? 'text' : source.bookSourceType === 2 ? 'comic' : 'audio';
       for (const item of freshResults) {
-        if (!SearchOptions.matches(item.name, item.author || '', keyword, this.exactSearch, this.searchByAuthor)) continue;
+        if (!SearchOptions.matches(item.name, item.author || '', keyword, this.exactSearch, this.searchByAuthor,
+          this.searchSimplifiedTraditional)) continue;
         const contentType: 'audio' | 'text' | 'comic' = item.contentType ?? fallbackContentType;
         if (!SearchOptions.matchesContentType(contentType, this.searchTextOnly, this.searchAudioOnly, this.searchComicOnly)) continue;
         const book = this.searchResultToBook(item, contentType);
@@ -1210,7 +1225,7 @@ export struct SearchPage {
         }
         LazyForEach(this.recommendationDataSource, (book: Book) => {
           ListItem() {
-            Column() { this.buildListItem(book) }.width('100%')
+            Column() { this.buildListItem(book, true) }.width('100%')
               .padding({ left: AppSpace.Md, right: AppSpace.Md })
           }
         }, (book: Book): string => book.id)
@@ -1371,10 +1386,13 @@ export struct SearchPage {
   }
 
   @Builder
-  buildListItem(book: Book) {
+  buildListItem(book: Book, isRecommendation: boolean = false) {
     Row({ space: AppSpace.Md }) {
       Stack({ alignContent: Alignment.TopEnd }) {
-        if (book.cover && book.cover.startsWith('http')) {
+        if (isRecommendation) {
+          PhysicalBookCover({ url: book.cover, title: book.title, author: book.author,
+            localPlaceholder: book.id.startsWith('import_'), imgWidth: 92 })
+        } else if (book.cover && book.cover.startsWith('http')) {
           CoverImage({
             url: book.cover,
             imgWidth: 92,
@@ -1391,7 +1409,7 @@ export struct SearchPage {
             .borderRadius(AppRadius.Md).objectFit(ImageFit.Cover)
         }
         this.buildGroupBadge(book)
-        if (book.narrator) {
+        if (!isRecommendation && book.narrator) {
           Text(book.narrator)
             .fontSize(10)
             .fontColor(Color.White)
@@ -1418,6 +1436,7 @@ export struct SearchPage {
           .maxLines(1)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
           .width('100%')
+        if (isRecommendation) this.buildResultGroupTags(book.category)
         if (book.intro) {
           Text(book.intro)
             .fontSize(AppFont.Caption)
@@ -1576,10 +1595,111 @@ export struct SearchPage {
 
     }
     .width('100%')
-    .height(SEARCH_HEADER_HEIGHT)
+    .height(SEARCH_TITLE_BAR_HEIGHT)
     .padding({ left: AppSpace.Xs, right: AppSpace.Md })
     .alignItems(VerticalAlign.Center)
     .backgroundColor(Color.Transparent)
+    .opacity(Math.max(0, Math.min(1, (SEARCH_TITLE_BAR_HEIGHT - this.searchCollapseOffset) / 24)))
+    .visibility(this.searchCollapseOffset >= SEARCH_TITLE_BAR_HEIGHT - 0.5 ? Visibility.Hidden : Visibility.Visible)
+  }
+
+  @Builder
+  buildSearchModes() {
+    Row({ space: AppSpace.Xxs }) {
+      Row({ space: 2 }) {
+        Checkbox({ name: 'search-current-source' })
+          .select(this.searchCurrentSource)
+          .width(16)
+          .height(16)
+          .mark({ size: 9, strokeWidth: 1.5 })
+          .selectedColor(AppColor.Brand)
+          .accessibilityText($r('app.string.search_current_source'))
+          .onChange((checked: boolean): void => {
+            this.searchCurrentSource = checked;
+            this.updateSearchOptions();
+          })
+        Text($r('app.string.search_current_source'))
+          .fontSize(AppFont.Caption)
+          .fontColor($r('sys.color.font_secondary'))
+          .maxLines(1)
+          .onClick((): void => {
+            this.searchCurrentSource = !this.searchCurrentSource;
+            this.updateSearchOptions();
+          })
+      }.alignItems(VerticalAlign.Center)
+
+      Row({ space: 2 }) {
+        Checkbox({ name: 'search-simplified-traditional' })
+          .select(this.searchSimplifiedTraditional)
+          .width(16)
+          .height(16)
+          .mark({ size: 9, strokeWidth: 1.5 })
+          .selectedColor(AppColor.Brand)
+          .accessibilityText($r('app.string.search_simplified_traditional'))
+          .onChange((checked: boolean): void => {
+            this.searchSimplifiedTraditional = checked;
+            this.updateSearchOptions();
+          })
+        Text($r('app.string.search_simplified_traditional'))
+          .fontSize(AppFont.Caption)
+          .fontColor($r('sys.color.font_secondary'))
+          .maxLines(1)
+          .onClick((): void => {
+            this.searchSimplifiedTraditional = !this.searchSimplifiedTraditional;
+            this.updateSearchOptions();
+          })
+      }.alignItems(VerticalAlign.Center)
+
+      Row({ space: 2 }) {
+        Checkbox({ name: 'search-exact' })
+          .select(this.exactSearch)
+          .width(16)
+          .height(16)
+          .mark({ size: 9, strokeWidth: 1.5 })
+          .selectedColor(AppColor.Brand)
+          .accessibilityText($r('app.string.search_exact'))
+          .onChange((checked: boolean): void => {
+            this.exactSearch = checked;
+            this.updateSearchOptions();
+          })
+        Text($r('app.string.search_exact'))
+          .fontSize(AppFont.Caption)
+          .fontColor($r('sys.color.font_secondary'))
+          .maxLines(1)
+          .onClick((): void => {
+            this.exactSearch = !this.exactSearch;
+            this.updateSearchOptions();
+          })
+      }.alignItems(VerticalAlign.Center)
+
+      Row({ space: 2 }) {
+        Checkbox({ name: 'search-by-author' })
+          .select(this.searchByAuthor)
+          .width(16)
+          .height(16)
+          .mark({ size: 9, strokeWidth: 1.5 })
+          .selectedColor(AppColor.Brand)
+          .accessibilityText($r('app.string.search_by_author'))
+          .onChange((checked: boolean): void => {
+            this.searchByAuthor = checked;
+            this.updateSearchOptions();
+          })
+        Text($r('app.string.search_by_author'))
+          .fontSize(AppFont.Caption)
+          .fontColor($r('sys.color.font_secondary'))
+          .maxLines(1)
+          .onClick((): void => {
+            this.searchByAuthor = !this.searchByAuthor;
+            this.updateSearchOptions();
+          })
+      }.alignItems(VerticalAlign.Center)
+    }
+    .width('100%')
+    .height(SEARCH_MODE_ROW_HEIGHT)
+    .padding({ left: 4, right: 4 })
+    .alignItems(VerticalAlign.Center)
+    .justifyContent(FlexAlign.Center)
+    .translate({ y: -AppSpace.Xxs })
     .opacity(Math.max(0, Math.min(1, (SEARCH_HEADER_HEIGHT - this.searchCollapseOffset) / 24)))
     .visibility(this.searchCollapseOffset >= SEARCH_HEADER_HEIGHT - 0.5 ? Visibility.Hidden : Visibility.Visible)
   }
@@ -1610,20 +1730,6 @@ export struct SearchPage {
     Column() {
       SearchOptionItem({ label: $r('app.string.search_selected_sources'), selected: this.sourceFilterEnabled,
         onToggle: (): void => { this.openSourcePicker(); } })
-      SearchOptionItem({
-        label: $r('app.string.search_exact'), selected: this.exactSearch,
-        onToggle: (): void => {
-          this.exactSearch = !this.exactSearch;
-          this.updateSearchOptions();
-        }
-      })
-      SearchOptionItem({
-        label: $r('app.string.search_by_author'), selected: this.searchByAuthor,
-        onToggle: (): void => {
-          this.searchByAuthor = !this.searchByAuthor;
-          this.updateSearchOptions();
-        }
-      })
       SearchOptionItem({
         label: $r('app.string.search_text_only'), selected: this.searchTextOnly,
         onToggle: (): void => {
@@ -1656,6 +1762,7 @@ export struct SearchPage {
   buildSearchHeader() {
     Column() {
       this.buildSearchTitleBar()
+      this.buildSearchModes()
       this.buildSearchNavigationBottom()
     }
     .width('100%')

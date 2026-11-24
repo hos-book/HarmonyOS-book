@@ -1,0 +1,51 @@
+{
+  "versionName": "1.1.19",
+  "versionCode": 1029001,
+  "releaseDate": "2026-11-24",
+  "build": {
+    "package": "Jianting-1.1.19-1029001-release.app",
+    "sizeBytes": 51721350,
+    "sdkVersion": "26.0.0.105",
+    "sdkChannel": "Release",
+    "buildMode": "release",
+    "debug": false,
+    "minApi": 20,
+    "targetApi": 26
+  },
+  "inviteTest": {
+    "submitted": true,
+    "responseCode": 0,
+    "versionId": "2090552872465860608",
+    "packageId": "2090558844030737472",
+    "state": 4,
+    "releaseType": 6,
+    "sendMode": 0,
+    "startTime": 1795485467713,
+    "endTime": 1798127999000,
+    "needNotify": 1,
+    "onshelfSelfDetect": 0,
+    "onshelfSelfDetectNotice": 0,
+    "groups": [
+      {
+        "groupName": "简听外部体验",
+        "testerCount": 270
+      },
+      {
+        "groupName": "内测组",
+        "testerCount": 1
+      }
+    ]
+  },
+  "formalRelease": {
+    "submitted": true,
+    "responseCode": 0,
+    "versionId": "2090552313675570240",
+    "packageId": "2090560580707462912",
+    "state": 12,
+    "releaseType": 1,
+    "releasePhase": 0,
+    "remark": "简听阅读 1.1.19 正式版本",
+    "releaseSchedule": "审核通过后立即上架",
+    "lastUpdateTime": 1795487189449
+  }
+}

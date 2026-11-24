@@ -1,6 +1,3 @@
-llama.cpp / ggml v0.9.0
-Commit: cd959bae99ff4bed22bef2604f45241c09bbb8c8
-Source: https://github.com/ggml-org/llama.cpp
-MIT License: see LICENSE.txt
-CPU inference library only. No GGUF model weights are distributed.
-OHOS host adapter: entry/src/main/cpp/role_inference.cpp and role_thread_compat.h.
+Historical llama.cpp source remains in the source tree for reference.
+The active role-speaker runtime uses the HarmonyOS system MindSpore Lite Kit for portable NNRT/CPU inference.
+The app includes the CSI Chinese vocabulary and its Apache License 2.0 notice; model weights are acquired and converted separately by the user.

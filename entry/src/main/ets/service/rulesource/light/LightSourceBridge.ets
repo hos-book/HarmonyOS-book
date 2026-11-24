@@ -123,9 +123,10 @@ export class LightSourceBridge {
     return LightSourceCore.clearLogin(LightSourceBridge.prepare(source, true));
   }
   static async search(source: LocalRuleSource, keyword: string, page: number,
-    request?: LightSourceRequest): Promise<SearchResult[]> {
+    request?: LightSourceRequest, searchSimplifiedTraditional: boolean = false): Promise<SearchResult[]> {
     if (request?.isCancelled()) return [];
-    const values: SearchResult[] = JSON.parse(await LightSourceCore.search(LightSourceBridge.prepare(source), keyword, page, request));
+    const values: SearchResult[] = JSON.parse(await LightSourceCore.search(LightSourceBridge.prepare(source), keyword,
+      page, request, searchSimplifiedTraditional));
     return values;
   }
   static async explore(source: LocalRuleSource, address: string, page: number, limit: number): Promise<LocalRuleExploreResult> {

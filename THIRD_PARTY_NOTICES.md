@@ -2,10 +2,10 @@
 
 ## 多角色朗读本地推理
 
-- llama.cpp / ggml：MIT，Copyright (c) 2023-2026 The ggml authors。
-- 上游：https://github.com/ggml-org/llama.cpp ，固定 v0.9.0 / commit `cd959bae99ff4bed22bef2604f45241c09bbb8c8`；源码归档 SHA256 为 `fbe74146a3cdc00f706773eb233bc4aedb7d8c3c7e2122440e492a99c1ec5a76`。
-- `third_party/role-llama/` 保留 CPU 库构建输入及许可证，由 `scripts/sync-role-llama.py` 复现；仅构建 CPU 推理，不包含服务器或模型权重。OHOS 线程亲和性兼容头、异步 NAPI 和模型检查在 `entry/src/main/cpp/role_*`，未改写上游源码。
-- 许可全文随 HAP 保存在 `rawfile/third_party/role_llama/LICENSE.txt`。GGUF 权重由用户另行下载并导入，遵循各模型发布者的许可，应用不分发权重。
+- 角色识别使用 HarmonyOS 系统 MindSpore Lite Kit 及 Native C API；通用 MindIR Lite 模型同时用于 NNRT 加速与 CPU 计算，按系统能力调度。
+- 模型转换采用 MindSpore Lite 2.7.0 的通用图优化，项目 Apache-2.0。转换工具由官方发布，应用使用系统运行时。
+- CSI 词表来自 hfl/chinese-roberta-wwm-ext-large，Apache-2.0 许可保存在 `rawfile/third_party/role_speaker/`。CSI 权重独立获取，原始 CSI 项目对语料标注非商业研究用途。
+- 保留的 llama.cpp / ggml 源码属于 MIT 许可历史依赖，其许可证继续随原目录维护。当前角色识别由系统 MindSpore Lite 承担。
 
 ## 本地 TTS 与多角色声音
 

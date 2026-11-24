@@ -31,10 +31,10 @@ export class LocalRuleDispatcher {
   }
 
   static async search(source: LocalRuleSource, keyword: string,
-    page: number = 1, request?: LightSourceRequest): Promise<SearchResult[]> {
+    page: number = 1, request?: LightSourceRequest, searchSimplifiedTraditional: boolean = false): Promise<SearchResult[]> {
     if (request?.isCancelled() || !source.isSearchEnabled()) return [];
     try {
-      return await LocalRuleDispatcher.searchStrict(source, keyword, page, {}, request);
+      return await LocalRuleDispatcher.searchStrict(source, keyword, page, {}, request, searchSimplifiedTraditional);
     } catch (error) {
       if (request?.isCancelled()) return [];
       LocalRuleDispatcher.logFailure(source, 'search', error as Object);
@@ -113,9 +113,10 @@ export class LocalRuleDispatcher {
   }
 
   private static async searchStrict(source: LocalRuleSource, keyword: string,
-    page: number, variables: Record<string, string> = {}, request?: LightSourceRequest): Promise<SearchResult[]> {
+    page: number, variables: Record<string, string> = {}, request?: LightSourceRequest,
+    searchSimplifiedTraditional: boolean = false): Promise<SearchResult[]> {
     LocalRuleDispatcher.requireSource(source);
-    return LightSourceBridge.search(source, keyword, page, request);
+    return LightSourceBridge.search(source, keyword, page, request, searchSimplifiedTraditional);
   }
 
   private static requireSource(source: LocalRuleSource): void {

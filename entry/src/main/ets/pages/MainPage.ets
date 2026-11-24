@@ -338,8 +338,10 @@ export struct MainPage {
   aboutToAppear(): void {
     this.miniPlayerIdleAlive = true;
     this.refreshMiniPlayerIdle(true);
+    this.schedulePlayerPreview();
     this.onHomeShownHandlerChange((): void => {
       this.refreshMiniPlayerIdle();
+      this.schedulePlayerPreview();
       this.resetTabStyle();
       const resume = this.pendingHomeResume;
       this.pendingHomeResume = undefined;
@@ -397,6 +399,7 @@ export struct MainPage {
     'speechState.active', 'speechState.bookId', 'speechState.playing', 'speechState.loading')
   private onMiniPlayerPlaybackChanged(): void {
     this.refreshMiniPlayerIdle();
+    this.schedulePlayerPreview();
   }
 
   private miniPlayerVisible(): boolean {
@@ -1425,6 +1428,25 @@ export struct MainPage {
     }));
   }
 
+  @Monitor('contentActive', 'allowPlayerDrag', 'appearance.verticalBottomTabs', 'miniPlayerIdleHidden',
+    'generalSettings.miniPlayerHideMinutes', 'viewportWidth', 'viewportHeight', 'playerTransitionState.active')
+  private schedulePlayerPreview(): void {
+    this.getUIContext().postFrameCallback(new MainMiniBarRenderedFrame((): void => {
+      if (!this.miniPlayerIdleAlive || this.playerTransitionState.active) return;
+      const transition = PlayerDragTransition.getInstance();
+      const book = this.currentPlaybackBook();
+      if (!this.contentActive || !this.allowPlayerDrag || !this.useVerticalTabs() ||
+        !this.miniPlayerVisible() || this.navStack.size() > 0 || book === null) {
+        transition.clearPreparedPreview();
+        return;
+      }
+      const origin = transition.capture(this.getUIContext(), false);
+      if (origin === undefined) return;
+      this.syncMiniPlayerTransitionLayout();
+      transition.preparePreview(book.id, origin);
+    }));
+  }
+
   private beginPlayerDrag(offsetY: number): void {
     const book = this.currentPlaybackBook();
     const paths = this.navStack.getAllPathName();
@@ -1435,11 +1457,14 @@ export struct MainPage {
     // 双层播放栏不要求拖过整屏的 18%；普通上拖约 58vp 即可展开，大窗口也保持可达。
     const gestureHeight: number = this.useVerticalTabs() ? Math.min(this.viewportHeight, 320) : this.viewportHeight;
     if (this.useVerticalTabs()) {
-      const origin = transition.capture(this.getUIContext());
+      const origin = transition.capture(this.getUIContext(), !transition.hasPreparedCover(book.id));
       if (origin !== undefined) {
-        this.prepareMiniPlayerTransition();
+        this.syncMiniPlayerTransitionLayout();
         transition.beginPreviewGesture(gestureHeight, offsetY, origin, book.id,
-          (): void => { this.navStack.pushPathByName('player', book.id); },
+          (): void => {
+            transition.captureBackdrop(this.getUIContext());
+            this.navStack.pushPathByName('player', book.id);
+          },
           (finish: () => void): void => {
             this.getUIContext().animateTo({ curve: AppCurve.GestureSettle,
               onFinish: (): void => transition.finishAtMiniBar(this.getUIContext(), finish) },

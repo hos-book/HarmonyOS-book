@@ -1,0 +1,1977 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>简听阅读 · 书架设计预览</title>
+  <style>
+    :root {
+      --harmony-brand: rgba(10, 89, 247, 1);
+      --harmony-font-primary: rgba(0, 0, 0, 0.898039);
+      --harmony-font-secondary: rgba(0, 0, 0, 0.6);
+      --harmony-font-tertiary: rgba(0, 0, 0, 0.4);
+      --harmony-background-primary: rgba(255, 255, 255, 1);
+      --harmony-background-secondary: rgba(241, 243, 245, 1);
+      --harmony-comp-background-primary: rgba(255, 255, 255, 1);
+      --harmony-comp-background-tertiary: rgba(0, 0, 0, 0.047059);
+      --harmony-comp-divider: rgba(0, 0, 0, 0.12);
+      --harmony-interactive-focus: rgba(10, 89, 247, 1);
+      --harmony-page-canvas-width-mobile: 360px;
+      --harmony-page-padding-mobile: 16px;
+      --harmony-page-content-width-mobile: 328px;
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 24px;
+      --space-6: 32px;
+      --space-7: 40px;
+      --radius-small: 4px;
+      --radius-card: 6px;
+      --radius-dialog: 8px;
+      --paper: rgb(247, 248, 246);
+      --surface: rgb(255, 255, 255);
+      --ink: rgb(27, 30, 33);
+      --muted: rgb(104, 110, 115);
+      --line: rgb(222, 225, 222);
+      --blue: var(--harmony-brand);
+      --coral: rgb(229, 83, 58);
+      --teal: rgb(26, 126, 113);
+      --sun: rgb(244, 190, 63);
+      --night: rgb(32, 40, 52);
+      --shadow-page: 0 18px 72px rgba(26, 36, 42, 0.12);
+      font-family: "HarmonyOS Sans SC", "HarmonyOS Sans", "Noto Sans SC", sans-serif;
+      color: var(--ink);
+      background: rgb(230, 233, 232);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-width: 320px;
+      background: rgb(230, 233, 232);
+      color: var(--ink);
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      color: inherit;
+      cursor: pointer;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 2px;
+    }
+
+    .app {
+      width: min(100%, 1440px);
+      min-height: 100vh;
+      margin: 0 auto;
+      background: var(--paper);
+      box-shadow: var(--shadow-page);
+    }
+
+    .mobile-status {
+      display: none;
+    }
+
+    .global-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-5);
+      min-height: 76px;
+      padding: 0 48px;
+      border-bottom: 1px solid var(--line);
+      background: var(--surface);
+    }
+
+    .wordmark {
+      display: flex;
+      align-items: baseline;
+      gap: var(--space-2);
+      min-width: 200px;
+      color: var(--ink);
+      text-decoration: none;
+    }
+
+    .wordmark strong {
+      font-size: 17px;
+      font-weight: 700;
+    }
+
+    .wordmark span {
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .primary-nav {
+      display: flex;
+      align-items: center;
+      gap: var(--space-6);
+      align-self: stretch;
+    }
+
+    .primary-nav button {
+      border: 0;
+      border-bottom: 3px solid transparent;
+      padding: 0;
+      background: transparent;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .primary-nav button[aria-current="page"] {
+      border-bottom-color: var(--blue);
+      color: var(--ink);
+      font-weight: 700;
+    }
+
+    .header-note {
+      min-width: 200px;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: right;
+    }
+
+    .page-grid {
+      display: grid;
+      grid-template-columns: 224px minmax(0, 1fr);
+      gap: 40px;
+      padding: 36px 48px 48px;
+    }
+
+    .group-sidebar {
+      position: sticky;
+      top: 24px;
+      align-self: start;
+      padding-top: 10px;
+    }
+
+    .sidebar-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: var(--space-3);
+    }
+
+    .sidebar-heading h2 {
+      margin: 0;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .sidebar-heading button,
+    .text-button {
+      border: 0;
+      padding: 6px 0;
+      background: transparent;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .group-list {
+      display: grid;
+      gap: 3px;
+    }
+
+    .group-link {
+      display: grid;
+      grid-template-columns: 10px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--space-2);
+      width: 100%;
+      min-height: 42px;
+      border: 0;
+      border-radius: var(--radius-card);
+      padding: 0 10px;
+      background: transparent;
+      color: var(--muted);
+      text-align: left;
+      transition: background-color 140ms ease, color 140ms ease;
+    }
+
+    .group-link:hover {
+      background: rgba(10, 89, 247, 0.06);
+      color: var(--ink);
+    }
+
+    .group-link[aria-current="true"] {
+      background: var(--ink);
+      color: var(--surface);
+    }
+
+    .group-dot {
+      width: 8px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: var(--dot-color, var(--blue));
+    }
+
+    .group-link[aria-current="true"] .group-dot {
+      background: var(--sun);
+    }
+
+    .group-name {
+      overflow: hidden;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .group-count {
+      font-size: 11px;
+      color: currentColor;
+      opacity: 0.7;
+    }
+
+    .sidebar-add {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      width: 100%;
+      min-height: 42px;
+      margin-top: var(--space-2);
+      border: 1px dashed rgb(184, 190, 188);
+      border-radius: var(--radius-card);
+      padding: 0 10px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: left;
+    }
+
+    .main-content {
+      min-width: 0;
+    }
+
+    .page-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: var(--space-5);
+      padding: 0 0 24px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .eyebrow {
+      margin: 0 0 6px;
+      color: var(--muted);
+      font-size: 10px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin: 0;
+      font-size: 32px;
+      line-height: 1.15;
+      font-weight: 750;
+    }
+
+    .total-count {
+      color: var(--coral);
+      font-size: 15px;
+      font-weight: 700;
+    }
+
+    .heading-caption {
+      margin: 8px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .stats {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      margin: 0;
+    }
+
+    .stat {
+      display: grid;
+      gap: 3px;
+      min-width: 86px;
+      padding: 0 16px;
+      border-left: 1px solid var(--line);
+    }
+
+    .stat dt {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .stat dd {
+      margin: 0;
+      font-size: 19px;
+      font-weight: 700;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      padding: 20px 0 16px;
+    }
+
+    .search-field {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+      flex: 1 1 320px;
+      min-width: 120px;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-small);
+      padding: 0 12px;
+      background: var(--surface);
+    }
+
+    .search-field span {
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .search-field input {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .search-field input::placeholder {
+      color: rgb(142, 148, 150);
+    }
+
+    .toolbar-actions {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 0 0 auto;
+    }
+
+    .toolbar-button {
+      min-height: 40px;
+      border: 1px solid transparent;
+      border-radius: var(--radius-small);
+      padding: 0 11px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .toolbar-button:hover {
+      border-color: var(--line);
+      background: var(--surface);
+      color: var(--ink);
+    }
+
+    .toolbar-button.primary {
+      border-color: var(--ink);
+      background: var(--ink);
+      color: var(--surface);
+    }
+
+    .toolbar-button.primary:hover {
+      background: var(--blue);
+      border-color: var(--blue);
+    }
+
+    .mobile-groups {
+      display: none;
+    }
+
+    .continue-reading {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      align-items: center;
+      gap: var(--space-4);
+      margin: 2px 0 30px;
+      border-radius: var(--radius-card);
+      padding: 14px 18px;
+      background: var(--night);
+      color: var(--surface);
+    }
+
+    .continue-cover {
+      display: grid;
+      place-items: center;
+      width: 48px;
+      aspect-ratio: 0.72;
+      border-radius: 3px;
+      background: var(--sun);
+      color: var(--night);
+      font-size: 9px;
+      font-weight: 800;
+      text-align: center;
+    }
+
+    .continue-copy {
+      display: grid;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .continue-copy .eyebrow {
+      margin: 0;
+      color: rgba(255, 255, 255, 0.62);
+    }
+
+    .continue-copy strong {
+      overflow: hidden;
+      font-size: 15px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .continue-copy span {
+      color: rgba(255, 255, 255, 0.66);
+      font-size: 11px;
+    }
+
+    .continue-progress {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: min(100%, 240px);
+      margin-top: 4px;
+    }
+
+    .progress-track {
+      overflow: hidden;
+      flex: 1;
+      min-width: 0;
+      height: 3px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.25);
+    }
+
+    .progress-fill {
+      width: 62%;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--sun);
+    }
+
+    .continue-progress small {
+      color: rgba(255, 255, 255, 0.72);
+      font-size: 10px;
+    }
+
+    .continue-action {
+      min-height: 36px;
+      border: 1px solid rgba(255, 255, 255, 0.36);
+      border-radius: var(--radius-small);
+      padding: 0 12px;
+      background: transparent;
+      color: var(--surface);
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .continue-action:hover {
+      background: var(--surface);
+      color: var(--night);
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: var(--space-3);
+      margin-bottom: 14px;
+    }
+
+    .section-heading h2 {
+      margin: 0;
+      font-size: 19px;
+      font-weight: 700;
+    }
+
+    .section-heading p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .view-controls {
+      display: flex;
+      gap: 4px;
+    }
+
+    .view-controls button {
+      min-height: 32px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-small);
+      padding: 0 9px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .view-controls button[aria-pressed="true"] {
+      border-color: var(--ink);
+      background: var(--ink);
+      color: var(--surface);
+    }
+
+    .selection-toolbar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      margin-bottom: 14px;
+      border-left: 3px solid var(--blue);
+      padding: 8px 12px;
+      background: rgba(10, 89, 247, 0.07);
+      color: var(--ink);
+      font-size: 12px;
+    }
+
+    .selection-toolbar.is-visible {
+      display: flex;
+    }
+
+    .books-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 28px 18px;
+    }
+
+    .book-card {
+      min-width: 0;
+      border-radius: var(--radius-card);
+      padding: 0 0 8px;
+      transition: background-color 140ms ease, outline-color 140ms ease;
+    }
+
+    .book-card:hover {
+      background: rgba(255, 255, 255, 0.7);
+    }
+
+    .book-card.is-selected {
+      outline: 2px solid var(--blue);
+      outline-offset: 4px;
+      background: rgba(10, 89, 247, 0.05);
+    }
+
+    .cover {
+      display: grid;
+      grid-template-rows: minmax(0, 1fr) auto;
+      gap: 6px;
+      overflow: hidden;
+      aspect-ratio: 0.72;
+      border-radius: 3px;
+      padding: 12px;
+      color: var(--cover-ink, var(--surface));
+      background: var(--cover-bg, var(--night));
+    }
+
+    .cover-art {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-rows: repeat(3, minmax(0, 1fr));
+      align-items: center;
+      justify-items: center;
+      min-height: 0;
+    }
+
+    .cover-art .shape {
+      display: block;
+      min-width: 0;
+      min-height: 0;
+    }
+
+    .cover-label {
+      align-self: end;
+      font-size: 8px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+
+    .cover-title {
+      margin: 0;
+      font-size: 17px;
+      line-height: 1.2;
+      font-weight: 750;
+    }
+
+    .cover-author {
+      font-size: 9px;
+      opacity: 0.82;
+    }
+
+    .cover--sun {
+      --cover-bg: rgb(216, 75, 52);
+      --cover-ink: rgb(255, 250, 236);
+    }
+
+    .cover--sun .shape-a {
+      grid-area: 1 / 2 / 3 / 4;
+      width: 80%;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: rgb(248, 190, 86);
+    }
+
+    .cover--sun .shape-b {
+      grid-area: 2 / 1 / 4 / 4;
+      align-self: end;
+      width: 100%;
+      height: 74%;
+      clip-path: polygon(0 74%, 28% 34%, 49% 66%, 72% 16%, 100% 58%, 100% 100%, 0 100%);
+      background: rgb(46, 53, 56);
+    }
+
+    .cover--sun .shape-c {
+      grid-area: 1 / 1 / 2 / 2;
+      width: 8px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: var(--surface);
+    }
+
+    .cover--leaf {
+      --cover-bg: rgb(30, 116, 105);
+      --cover-ink: rgb(247, 245, 226);
+    }
+
+    .cover--leaf .shape-a {
+      grid-area: 1 / 1 / 3 / 3;
+      width: 66%;
+      height: 82%;
+      border-radius: 100% 0 100% 0;
+      background: rgb(174, 213, 157);
+      transform: rotate(-18deg);
+    }
+
+    .cover--leaf .shape-b {
+      grid-area: 2 / 2 / 4 / 4;
+      width: 64%;
+      height: 90%;
+      border-radius: 0 100% 0 100%;
+      background: rgb(226, 192, 113);
+      transform: rotate(14deg);
+    }
+
+    .cover--leaf .shape-c {
+      grid-area: 1 / 3 / 2 / 4;
+      width: 10px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: rgb(233, 237, 194);
+    }
+
+    .cover--moon {
+      --cover-bg: rgb(44, 73, 145);
+      --cover-ink: rgb(250, 247, 222);
+    }
+
+    .cover--moon .shape-a {
+      grid-area: 1 / 2 / 3 / 4;
+      width: 78%;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: rgb(242, 203, 105);
+    }
+
+    .cover--moon .shape-b {
+      grid-area: 2 / 1 / 4 / 4;
+      align-self: end;
+      width: 100%;
+      height: 68%;
+      clip-path: polygon(0 82%, 24% 46%, 48% 70%, 70% 27%, 100% 66%, 100% 100%, 0 100%);
+      background: rgb(33, 44, 72);
+    }
+
+    .cover--moon .shape-c {
+      grid-area: 1 / 1 / 2 / 2;
+      width: 6px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: var(--surface);
+    }
+
+    .cover--city {
+      --cover-bg: rgb(240, 190, 58);
+      --cover-ink: rgb(31, 37, 39);
+    }
+
+    .cover--city .cover-label {
+      color: rgb(155, 69, 45);
+    }
+
+    .cover--city .shape-a,
+    .cover--city .shape-b,
+    .cover--city .shape-c {
+      align-self: end;
+      width: 70%;
+      background: rgb(34, 47, 56);
+    }
+
+    .cover--city .shape-a {
+      grid-area: 1 / 1 / 4 / 2;
+      height: 74%;
+    }
+
+    .cover--city .shape-b {
+      grid-area: 1 / 2 / 4 / 3;
+      height: 96%;
+      background: rgb(212, 86, 59);
+    }
+
+    .cover--city .shape-c {
+      grid-area: 1 / 3 / 4 / 4;
+      height: 61%;
+    }
+
+    .cover--paper {
+      --cover-bg: rgb(255, 255, 255);
+      --cover-ink: rgb(31, 37, 39);
+      border: 1px solid var(--line);
+    }
+
+    .cover--paper .cover-art {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      grid-template-rows: repeat(3, minmax(0, 1fr));
+      overflow: hidden;
+      min-height: 0;
+      background: rgb(247, 247, 247);
+    }
+
+    .cover-art-image {
+      display: block;
+      grid-area: 1 / 1 / 4 / 4;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .cover--coral {
+      --cover-bg: rgb(226, 89, 73);
+      --cover-ink: rgb(255, 248, 233);
+    }
+
+    .cover--coral .shape-a {
+      grid-area: 1 / 1 / 3 / 3;
+      width: 80%;
+      aspect-ratio: 1;
+      border: 10px solid rgb(255, 212, 113);
+      border-radius: 50%;
+    }
+
+    .cover--coral .shape-b {
+      grid-area: 2 / 2 / 4 / 4;
+      width: 76%;
+      height: 72%;
+      background: rgb(34, 67, 77);
+      clip-path: polygon(50% 0, 100% 100%, 0 100%);
+    }
+
+    .cover--coral .shape-c {
+      grid-area: 1 / 3 / 2 / 4;
+      width: 7px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: var(--surface);
+    }
+
+    .cover--green {
+      --cover-bg: rgb(39, 94, 69);
+      --cover-ink: rgb(248, 244, 226);
+    }
+
+    .cover--green .shape-a {
+      grid-area: 1 / 1 / 3 / 3;
+      width: 78%;
+      height: 82%;
+      border-radius: 50% 50% 4px 4px;
+      background: rgb(223, 129, 81);
+    }
+
+    .cover--green .shape-b {
+      grid-area: 2 / 2 / 4 / 4;
+      width: 60%;
+      height: 70%;
+      border-radius: 50% 50% 4px 4px;
+      background: rgb(227, 201, 114);
+    }
+
+    .cover--green .shape-c {
+      grid-area: 1 / 3 / 2 / 4;
+      width: 8px;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      background: rgb(224, 230, 184);
+    }
+
+    .cover-copy {
+      display: grid;
+      gap: 5px;
+      align-content: end;
+    }
+
+    .book-meta {
+      display: grid;
+      gap: 4px;
+      padding: 9px 2px 0;
+    }
+
+    .book-title-row {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 6px;
+    }
+
+    .book-title {
+      overflow: hidden;
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.35;
+      font-weight: 650;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .book-author {
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 11px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .book-group {
+      width: fit-content;
+      max-width: 100%;
+      overflow: hidden;
+      border-left: 2px solid var(--book-color, var(--blue));
+      padding-left: 6px;
+      color: var(--muted);
+      font-size: 10px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .book-progress {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 3px;
+    }
+
+    .book-progress .progress-track {
+      background: rgb(220, 223, 221);
+    }
+
+    .book-progress .progress-fill {
+      background: var(--blue);
+    }
+
+    .book-progress small {
+      color: var(--muted);
+      font-size: 9px;
+    }
+
+    .selection-mark {
+      grid-area: 1 / 1 / 2 / 2;
+      z-index: 1;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      justify-self: start;
+      align-self: start;
+      width: 22px;
+      aspect-ratio: 1;
+      border: 1px solid rgba(255, 255, 255, 0.85);
+      border-radius: 50%;
+      background: rgba(25, 31, 36, 0.56);
+      color: var(--surface);
+      font-size: 12px;
+      font-weight: 700;
+      margin: 4px;
+    }
+
+    .is-selecting .selection-mark {
+      display: flex;
+    }
+
+    .is-selected .selection-mark {
+      border-color: var(--blue);
+      background: var(--blue);
+    }
+
+    .books-grid.is-list {
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .books-grid.is-list .book-card {
+      display: grid;
+      grid-template-columns: 62px minmax(0, 1fr);
+      align-items: center;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+      padding: 8px;
+    }
+
+    .books-grid.is-list .cover {
+      grid-row: span 2;
+      width: 62px;
+      padding: 6px;
+    }
+
+    .books-grid.is-list .cover-art {
+      min-height: 0;
+    }
+
+    .books-grid.is-list .cover-label,
+    .books-grid.is-list .cover-title,
+    .books-grid.is-list .cover-author {
+      display: none;
+    }
+
+    .books-grid.is-list .book-meta {
+      padding: 0;
+    }
+
+    .books-grid.is-list .book-progress {
+      grid-column: 2;
+      width: min(100%, 280px);
+    }
+
+    .empty-state {
+      display: none;
+      grid-column: 1 / -1;
+      border-top: 1px solid var(--line);
+      padding: 48px 16px;
+      color: var(--muted);
+      font-size: 14px;
+      text-align: center;
+    }
+
+    .empty-state.is-visible {
+      display: block;
+    }
+
+    .mobile-tabbar {
+      display: none;
+    }
+
+    dialog {
+      width: min(calc(100vw - 28px), 480px);
+      max-height: min(82vh, 720px);
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-dialog);
+      padding: 0;
+      background: var(--surface);
+      color: var(--ink);
+      box-shadow: 0 20px 80px rgba(20, 26, 30, 0.25);
+    }
+
+    dialog::backdrop {
+      background: rgba(25, 31, 36, 0.38);
+    }
+
+    .dialog-content {
+      display: grid;
+      gap: var(--space-4);
+      padding: 22px;
+    }
+
+    .dialog-header {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: var(--space-3);
+    }
+
+    .dialog-header h2 {
+      margin: 0;
+      font-size: 19px;
+    }
+
+    .dialog-header p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .dialog-close {
+      min-width: 36px;
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-small);
+      background: transparent;
+      font-size: 12px;
+    }
+
+    .group-create {
+      display: flex;
+      gap: 8px;
+    }
+
+    .group-create input,
+    .move-form select {
+      min-width: 0;
+      min-height: 40px;
+      flex: 1;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-small);
+      padding: 0 10px;
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .group-create button,
+    .dialog-primary {
+      min-height: 40px;
+      border: 0;
+      border-radius: var(--radius-small);
+      padding: 0 12px;
+      background: var(--ink);
+      color: var(--surface);
+      font-size: 12px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .manage-list {
+      display: grid;
+      gap: 6px;
+      max-height: 340px;
+      overflow-y: auto;
+      padding: 0;
+      list-style: none;
+    }
+
+    .manage-row {
+      display: grid;
+      grid-template-columns: 10px minmax(0, 1fr) auto auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 44px;
+      border-bottom: 1px solid var(--line);
+      padding: 4px 0;
+    }
+
+    .manage-name {
+      overflow: hidden;
+      font-size: 13px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .manage-count {
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .manage-actions {
+      display: flex;
+      gap: 4px;
+    }
+
+    .manage-actions button {
+      min-width: 34px;
+      min-height: 32px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius-small);
+      padding: 0 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .manage-actions button:hover {
+      border-color: var(--blue);
+      color: var(--blue);
+    }
+
+    .move-form {
+      display: grid;
+      gap: 10px;
+    }
+
+    .move-form label {
+      display: grid;
+      gap: 6px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .toast {
+      position: fixed;
+      right: 16px;
+      bottom: 18px;
+      z-index: 5;
+      max-width: calc(100vw - 32px);
+      border-radius: var(--radius-small);
+      padding: 11px 14px;
+      background: var(--ink);
+      color: var(--surface);
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px);
+      transition: opacity 150ms ease, transform 150ms ease;
+    }
+
+    .toast.is-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 980px) {
+      .global-header {
+        padding: 0 28px;
+      }
+
+      .page-grid {
+        grid-template-columns: 190px minmax(0, 1fr);
+        gap: 26px;
+        padding: 30px 28px 40px;
+      }
+
+      .books-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 24px 14px;
+      }
+
+      .header-note {
+        min-width: 120px;
+      }
+    }
+
+    @media (max-width: 720px) {
+      body {
+        background: var(--paper);
+      }
+
+      .app {
+        box-shadow: none;
+      }
+
+      .mobile-status {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 34px;
+        padding: 0 20px;
+        background: var(--surface);
+        color: var(--ink);
+        font-size: 11px;
+        font-weight: 650;
+      }
+
+      .mobile-status span:last-child {
+        color: var(--muted);
+        font-weight: 500;
+      }
+
+      .global-header {
+        min-height: 58px;
+        padding: 0 16px;
+      }
+
+      .wordmark {
+        min-width: 0;
+      }
+
+      .wordmark span,
+      .primary-nav,
+      .header-note {
+        display: none;
+      }
+
+      .page-grid {
+        display: block;
+        padding: 22px 16px 30px;
+      }
+
+      .group-sidebar {
+        display: none;
+      }
+
+      .page-heading {
+        align-items: start;
+        flex-direction: column;
+        gap: 18px;
+        padding-bottom: 18px;
+      }
+
+      h1 {
+        font-size: 30px;
+      }
+
+      .heading-caption {
+        font-size: 12px;
+      }
+
+      .stats {
+        width: 100%;
+      }
+
+      .stat {
+        min-width: 0;
+        flex: 1;
+        padding: 0 12px;
+      }
+
+      .stat:first-child {
+        padding-left: 0;
+        border-left: 0;
+      }
+
+      .stat dd {
+        font-size: 17px;
+      }
+
+      .toolbar {
+        align-items: stretch;
+        flex-direction: column;
+        gap: 8px;
+        padding: 14px 0 12px;
+      }
+
+      .search-field {
+        flex-basis: auto;
+      }
+
+      .toolbar-actions {
+        justify-content: space-between;
+        gap: 4px;
+      }
+
+      .toolbar-button {
+        min-height: 36px;
+        padding: 0 7px;
+        font-size: 11px;
+      }
+
+      .mobile-groups {
+        display: flex;
+        gap: 18px;
+        overflow-x: auto;
+        margin: 0 -16px 18px;
+        border-bottom: 1px solid var(--line);
+        padding: 0 16px;
+        scrollbar-width: none;
+      }
+
+      .mobile-groups::-webkit-scrollbar {
+        display: none;
+      }
+
+      .mobile-group-button {
+        flex: 0 0 auto;
+        min-height: 42px;
+        border: 0;
+        border-bottom: 3px solid transparent;
+        padding: 0 0 2px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .mobile-group-button span {
+        margin-left: 4px;
+        font-size: 10px;
+        opacity: 0.72;
+      }
+
+      .mobile-group-button[aria-current="true"] {
+        border-bottom-color: var(--blue);
+        color: var(--ink);
+        font-weight: 700;
+      }
+
+      .continue-reading {
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 12px;
+        margin-bottom: 24px;
+        padding: 12px;
+      }
+
+      .continue-cover {
+        width: 42px;
+      }
+
+      .continue-action {
+        grid-column: 2;
+        justify-self: start;
+        min-height: 32px;
+      }
+
+      .section-heading {
+        align-items: center;
+      }
+
+      .section-heading h2 {
+        font-size: 17px;
+      }
+
+      .section-heading p {
+        font-size: 10px;
+      }
+
+      .books-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 22px 12px;
+      }
+
+      .cover {
+        padding: 10px;
+      }
+
+      .cover-title {
+        font-size: 15px;
+      }
+
+      .books-grid.is-list .cover {
+        width: 56px;
+      }
+
+      .mobile-tabbar {
+        position: sticky;
+        bottom: 0;
+        z-index: 4;
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        border-top: 1px solid var(--line);
+        padding: 8px 10px max(8px, env(safe-area-inset-bottom));
+        background: rgba(255, 255, 255, 0.96);
+      }
+
+      .mobile-tabbar button {
+        display: grid;
+        justify-items: center;
+        align-content: center;
+        min-height: 44px;
+        border: 0;
+        background: transparent;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 600;
+      }
+
+      .mobile-tabbar button[aria-current="page"] {
+        color: var(--blue);
+        font-weight: 700;
+      }
+
+      .dialog-content {
+        padding: 18px;
+      }
+
+      .manage-row {
+        grid-template-columns: 8px minmax(0, 1fr) auto;
+      }
+
+      .manage-actions button {
+        min-width: 30px;
+        padding: 0 4px;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    @media (max-width: 360px) {
+      .page-grid {
+        padding-right: 12px;
+        padding-left: 12px;
+      }
+
+      .toolbar-actions {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .toolbar-button {
+        padding: 0 4px;
+        font-size: 10px;
+      }
+
+      .manage-actions button {
+        min-width: 28px;
+        font-size: 9px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="mobile-status" aria-label="状态栏">
+      <span>9:41</span>
+      <span>5G&nbsp;&nbsp;96%</span>
+    </div>
+    <header class="global-header">
+      <a class="wordmark" href="#" aria-label="简听阅读">
+        <strong>简听阅读</strong>
+        <span>Reading room</span>
+      </a>
+      <nav class="primary-nav" aria-label="主导航">
+        <button type="button">首页</button>
+        <button type="button" aria-current="page">书架</button>
+        <button type="button">记录</button>
+        <button type="button">我的</button>
+      </nav>
+      <div class="header-note">一个放慢阅读节奏的地方</div>
+    </header>
+
+    <div class="page-grid">
+      <aside class="group-sidebar" aria-label="书架分组">
+        <div class="sidebar-heading">
+          <h2>我的分组</h2>
+          <button type="button" data-open-groups>管理</button>
+        </div>
+        <div class="group-list" id="group-sidebar-list"></div>
+        <button type="button" class="sidebar-add" data-open-groups><span>添加</span>新建分组</button>
+      </aside>
+
+      <main class="main-content">
+        <section class="page-heading">
+          <div>
+            <p class="eyebrow">MY READING ROOM</p>
+            <h1>书架 <span class="total-count" id="total-count">08</span></h1>
+            <p class="heading-caption">8 本藏书 · 3 个自定分组</p>
+          </div>
+          <dl class="stats" aria-label="阅读概况">
+            <div class="stat"><dt>正在读</dt><dd id="reading-count">05</dd></div>
+            <div class="stat"><dt>已读完</dt><dd id="finished-count">01</dd></div>
+            <div class="stat"><dt>自定分组</dt><dd id="custom-group-count">03</dd></div>
+          </dl>
+        </section>
+
+        <section class="toolbar" aria-label="书架工具">
+          <label class="search-field">
+            <span>查找</span>
+            <input id="book-search" type="search" placeholder="书名、作者" autocomplete="off">
+          </label>
+          <div class="toolbar-actions">
+            <button type="button" class="toolbar-button" id="sort-button">最近加入</button>
+            <button type="button" class="toolbar-button" id="organize-button">整理书籍</button>
+            <button type="button" class="toolbar-button" id="view-grid" aria-pressed="true">封面</button>
+            <button type="button" class="toolbar-button" id="view-list" aria-pressed="false">清单</button>
+            <button type="button" class="toolbar-button primary" data-open-groups>分组管理</button>
+          </div>
+        </section>
+
+        <nav class="mobile-groups" id="mobile-group-list" aria-label="书架分组"></nav>
+
+        <section class="continue-reading" aria-label="继续阅读">
+          <div class="continue-cover" aria-hidden="true">夜<br>行</div>
+          <div class="continue-copy">
+            <p class="eyebrow">PICK UP WHERE YOU LEFT</p>
+            <strong>山海夜行记</strong>
+            <span>第 08 章 · 读至 62%</span>
+            <div class="continue-progress">
+              <div class="progress-track"><div class="progress-fill"></div></div>
+              <small>62%</small>
+            </div>
+          </div>
+          <button type="button" class="continue-action" id="continue-button">继续阅读</button>
+        </section>
+
+        <section class="library-section">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">COLLECTION</p>
+              <h2 id="section-title">全部藏书</h2>
+              <p id="section-count">8 本书</p>
+            </div>
+            <div class="view-controls" aria-label="书籍视图">
+              <button type="button" id="section-grid" aria-pressed="true">封面</button>
+              <button type="button" id="section-list" aria-pressed="false">清单</button>
+            </div>
+          </div>
+          <div class="selection-toolbar" id="selection-toolbar">
+            <span id="selection-count">已选 0 本</span>
+            <button type="button" class="text-button" id="move-selected">移入分组</button>
+          </div>
+          <div class="books-grid" id="books-grid" aria-live="polite"></div>
+          <div class="empty-state" id="empty-state">这里还没有书籍</div>
+        </section>
+      </main>
+    </div>
+
+    <nav class="mobile-tabbar" aria-label="底部导航">
+      <button type="button">首页</button>
+      <button type="button" aria-current="page">书架</button>
+      <button type="button">记录</button>
+      <button type="button">我的</button>
+    </nav>
+  </div>
+
+  <dialog id="group-dialog">
+    <div class="dialog-content">
+      <div class="dialog-header">
+        <div>
+          <h2>分组管理</h2>
+          <p id="group-summary">3 个自定分组</p>
+        </div>
+        <button type="button" class="dialog-close" data-close-dialog>完成</button>
+      </div>
+      <form class="group-create" id="group-create-form">
+        <input id="group-name" type="text" maxlength="18" placeholder="新分组名称">
+        <button type="submit">创建分组</button>
+      </form>
+      <ol class="manage-list" id="manage-list"></ol>
+    </div>
+  </dialog>
+
+  <dialog id="move-dialog">
+    <form class="dialog-content move-form" id="move-form">
+      <div class="dialog-header">
+        <div>
+          <h2>移动书籍</h2>
+          <p id="move-summary">选择目标分组</p>
+        </div>
+        <button type="button" class="dialog-close" data-close-dialog>返回</button>
+      </div>
+      <label>目标分组
+        <select id="move-target"></select>
+      </label>
+      <button type="submit" class="dialog-primary">确认移动</button>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const groups = [
+      { name: '奇幻漫游', color: 'var(--coral)', visible: true },
+      { name: '城市笔记', color: 'var(--teal)', visible: true },
+      { name: '夜读清单', color: 'var(--blue)', visible: true }
+    ];
+
+    const books = [
+      { id: 'night-walk', title: '山海夜行记', author: '沈知遥', group: '奇幻漫游', progress: 62, art: 'sun', label: 'FABLE' },
+      { id: 'moss-travel', title: '沿着苔痕旅行', author: '周晚禾', group: '城市笔记', progress: 28, art: 'leaf', label: 'FIELD NOTES' },
+      { id: 'moon-letter', title: '月球来信', author: '顾南星', group: '夜读清单', progress: 42, art: 'moon', label: 'FICTION' },
+      { id: 'city-answer', title: '城市的另一种答案', author: '叶时安', group: '城市笔记', progress: 100, art: 'city', label: 'ESSAYS' },
+      { id: 'sea-room', title: '海风里的房间', author: '林屿', group: '奇幻漫游', progress: 16, art: 'coral', label: 'STORIES' },
+      { id: 'paper-sun', title: '纸上日光', author: '简听书房', group: '', progress: 0, art: 'paper', label: 'LOCAL BOOK' },
+      { id: 'ordinary-universe', title: '普通人的宇宙', author: '陈以宁', group: '夜读清单', progress: 0, art: 'green', label: 'NONFICTION' },
+      { id: 'post-office', title: '雨落在邮局', author: '许棠', group: '', progress: 51, art: 'moon', label: 'NOVEL' }
+    ];
+
+    const colors = ['var(--coral)', 'var(--teal)', 'var(--blue)', 'rgb(195, 144, 40)', 'rgb(117, 91, 150)'];
+    const selectedBooks = new Set();
+    let activeGroup = '全部藏书';
+    let isSelecting = false;
+    let isList = false;
+    let sortIndex = 0;
+    let toastTimer = 0;
+
+    const groupSidebar = document.getElementById('group-sidebar-list');
+    const mobileGroups = document.getElementById('mobile-group-list');
+    const booksGrid = document.getElementById('books-grid');
+    const groupDialog = document.getElementById('group-dialog');
+    const moveDialog = document.getElementById('move-dialog');
+    const toast = document.getElementById('toast');
+    const sortLabels = ['最近加入', '阅读进度', '书名顺序'];
+
+    function countInGroup(name) {
+      if (name === '全部藏书') return books.length;
+      if (name === '未分组') return books.filter((book) => !book.group).length;
+      return books.filter((book) => book.group === name).length;
+    }
+
+    function makeGroupButton(name, color, mobile) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = mobile ? 'mobile-group-button' : 'group-link';
+      button.setAttribute('aria-current', activeGroup === name ? 'true' : 'false');
+      button.addEventListener('click', () => {
+        activeGroup = name;
+        selectedBooks.clear();
+        renderNavigation();
+        renderBooks();
+      });
+
+      if (mobile) {
+        button.append(document.createTextNode(name));
+        const count = document.createElement('span');
+        count.textContent = String(countInGroup(name));
+        button.append(count);
+        return button;
+      }
+
+      const dot = document.createElement('span');
+      dot.className = 'group-dot';
+      dot.style.setProperty('--dot-color', color);
+      const label = document.createElement('span');
+      label.className = 'group-name';
+      label.textContent = name;
+      const count = document.createElement('span');
+      count.className = 'group-count';
+      count.textContent = String(countInGroup(name));
+      button.append(dot, label, count);
+      return button;
+    }
+
+    function visibleGroupNames() {
+      return ['全部藏书', ...groups.filter((group) => group.visible).map((group) => group.name), '未分组'];
+    }
+
+    function renderNavigation() {
+      groupSidebar.replaceChildren();
+      mobileGroups.replaceChildren();
+      const names = visibleGroupNames();
+      document.querySelector('.heading-caption').textContent = books.length + ' 本藏书 · ' + groups.length + ' 个自定分组';
+      names.forEach((name) => {
+        const item = groups.find((group) => group.name === name);
+        const color = item ? item.color : name === '未分组' ? 'rgb(140, 146, 146)' : 'var(--blue)';
+        groupSidebar.append(makeGroupButton(name, color, false));
+        mobileGroups.append(makeGroupButton(name, color, true));
+      });
+      document.getElementById('section-title').textContent = activeGroup;
+      document.getElementById('custom-group-count').textContent = String(groups.length).padStart(2, '0');
+    }
+
+    function makeShape(className) {
+      const shape = document.createElement('span');
+      shape.className = 'shape ' + className;
+      shape.setAttribute('aria-hidden', 'true');
+      return shape;
+    }
+
+    function makeBookCard(book) {
+      const card = document.createElement('article');
+      card.className = 'book-card' + (selectedBooks.has(book.id) ? ' is-selected' : '');
+      card.dataset.bookId = book.id;
+      card.tabIndex = 0;
+
+      const cover = document.createElement('div');
+      cover.className = 'cover cover--' + book.art;
+      cover.setAttribute('aria-label', book.title + '，' + book.author);
+
+      const art = document.createElement('div');
+      art.className = 'cover-art';
+      if (book.art === 'paper') {
+        const image = document.createElement('img');
+        image.className = 'cover-art-image';
+        image.src = '../../entry/src/main/resources/base/media/book_cover_placeholder.png';
+        image.alt = '';
+        art.append(image);
+      } else {
+        art.append(makeShape('shape-a'), makeShape('shape-b'), makeShape('shape-c'));
+      }
+
+      const mark = document.createElement('span');
+      mark.className = 'selection-mark';
+      mark.textContent = selectedBooks.has(book.id) ? '选' : '';
+      mark.setAttribute('aria-hidden', 'true');
+
+      const label = document.createElement('span');
+      label.className = 'cover-label';
+      label.textContent = book.label;
+      const coverTitle = document.createElement('strong');
+      coverTitle.className = 'cover-title';
+      coverTitle.textContent = book.title;
+      const coverAuthor = document.createElement('span');
+      coverAuthor.className = 'cover-author';
+      coverAuthor.textContent = book.author;
+      const copy = document.createElement('div');
+      copy.className = 'cover-copy';
+      copy.append(label, coverTitle, coverAuthor);
+      art.append(mark);
+      cover.append(art, copy);
+      card.setAttribute('role', 'button');
+      card.setAttribute('aria-pressed', String(selectedBooks.has(book.id)));
+
+      const meta = document.createElement('div');
+      meta.className = 'book-meta';
+      const titleRow = document.createElement('div');
+      titleRow.className = 'book-title-row';
+      const title = document.createElement('h3');
+      title.className = 'book-title';
+      title.textContent = book.title;
+      titleRow.append(title);
+      const author = document.createElement('span');
+      author.className = 'book-author';
+      author.textContent = book.author;
+      const group = document.createElement('span');
+      group.className = 'book-group';
+      group.style.setProperty('--book-color', colors[Math.max(0, groups.findIndex((item) => item.name === book.group)) % colors.length]);
+      group.textContent = book.group || '未分组';
+      meta.append(titleRow, author, group);
+
+      if (book.progress > 0) {
+        const progress = document.createElement('div');
+        progress.className = 'book-progress';
+        const track = document.createElement('div');
+        track.className = 'progress-track';
+        const fill = document.createElement('div');
+        fill.className = 'progress-fill';
+        fill.style.width = book.progress + '%';
+        track.append(fill);
+        const value = document.createElement('small');
+        value.textContent = book.progress === 100 ? '已读完' : book.progress + '%';
+        progress.append(track, value);
+        meta.append(progress);
+      }
+
+      card.append(cover, meta);
+      card.addEventListener('click', () => {
+        if (isSelecting) {
+          if (selectedBooks.has(book.id)) selectedBooks.delete(book.id);
+          else selectedBooks.add(book.id);
+          renderBooks();
+          return;
+        }
+        showToast('打开《' + book.title + '》');
+      });
+      card.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          card.click();
+        }
+      });
+      return card;
+    }
+
+    function renderBooks() {
+      const query = document.getElementById('book-search').value.trim().toLowerCase();
+      let visibleBooks = books.filter((book) => {
+        const matchesGroup = activeGroup === '全部藏书' ||
+          (activeGroup === '未分组' ? !book.group : book.group === activeGroup);
+        const matchesQuery = !query || (book.title + ' ' + book.author).toLowerCase().includes(query);
+        return matchesGroup && matchesQuery;
+      });
+
+      if (sortIndex === 1) visibleBooks = visibleBooks.slice().sort((a, b) => b.progress - a.progress);
+      if (sortIndex === 2) visibleBooks = visibleBooks.slice().sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'));
+
+      booksGrid.replaceChildren(...visibleBooks.map(makeBookCard));
+      booksGrid.classList.toggle('is-list', isList);
+      booksGrid.classList.toggle('is-selecting', isSelecting);
+      document.getElementById('section-count').textContent = visibleBooks.length + ' 本书';
+      document.getElementById('total-count').textContent = String(books.length).padStart(2, '0');
+      document.getElementById('reading-count').textContent = String(books.filter((book) => book.progress > 0 && book.progress < 100).length).padStart(2, '0');
+      document.getElementById('finished-count').textContent = String(books.filter((book) => book.progress === 100).length).padStart(2, '0');
+      document.getElementById('empty-state').classList.toggle('is-visible', visibleBooks.length === 0);
+      document.getElementById('selection-toolbar').classList.toggle('is-visible', isSelecting);
+      document.getElementById('selection-count').textContent = '已选 ' + selectedBooks.size + ' 本';
+      document.getElementById('move-selected').disabled = selectedBooks.size === 0;
+      renderNavigation();
+    }
+
+    function renderManager() {
+      const list = document.getElementById('manage-list');
+      document.getElementById('group-summary').textContent = groups.length + ' 个自定分组';
+      list.replaceChildren();
+      groups.forEach((group, index) => {
+        const row = document.createElement('li');
+        row.className = 'manage-row';
+        const dot = document.createElement('span');
+        dot.className = 'group-dot';
+        dot.style.setProperty('--dot-color', group.color);
+        const name = document.createElement('span');
+        name.className = 'manage-name';
+        name.textContent = group.name;
+        const count = document.createElement('span');
+        count.className = 'manage-count';
+        count.textContent = countInGroup(group.name) + ' 本';
+        const actions = document.createElement('div');
+        actions.className = 'manage-actions';
+
+        const up = document.createElement('button');
+        up.type = 'button';
+        up.textContent = '上移';
+        up.disabled = index === 0;
+        up.addEventListener('click', () => reorderGroup(index, -1));
+        const down = document.createElement('button');
+        down.type = 'button';
+        down.textContent = '下移';
+        down.disabled = index === groups.length - 1;
+        down.addEventListener('click', () => reorderGroup(index, 1));
+        const visibility = document.createElement('button');
+        visibility.type = 'button';
+        visibility.textContent = group.visible ? '显示' : '隐藏';
+        visibility.addEventListener('click', () => {
+          group.visible = !group.visible;
+          renderManager();
+          renderNavigation();
+        });
+        const rename = document.createElement('button');
+        rename.type = 'button';
+        rename.textContent = '改名';
+        rename.addEventListener('click', () => {
+          const nextName = window.prompt('分组名称', group.name);
+          if (!nextName || !nextName.trim()) return;
+          const value = nextName.trim();
+          const oldName = group.name;
+          group.name = value;
+          books.forEach((book) => { if (book.group === oldName) book.group = value; });
+          if (activeGroup === oldName) activeGroup = value;
+          renderManager();
+          renderBooks();
+        });
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.textContent = '删除';
+        remove.addEventListener('click', () => {
+          if (!window.confirm('删除分组“' + group.name + '”，并将书籍移入未分组？')) return;
+          const removedName = group.name;
+          books.forEach((book) => { if (book.group === removedName) book.group = ''; });
+          groups.splice(index, 1);
+          if (activeGroup === removedName) activeGroup = '全部藏书';
+          renderManager();
+          renderBooks();
+          showToast('分组已删除');
+        });
+        actions.append(up, down, visibility, rename, remove);
+        row.append(dot, name, count, actions);
+        list.append(row);
+      });
+    }
+
+    function reorderGroup(index, direction) {
+      const nextIndex = index + direction;
+      if (nextIndex < 0 || nextIndex >= groups.length) return;
+      const item = groups.splice(index, 1)[0];
+      groups.splice(nextIndex, 0, item);
+      renderManager();
+      renderNavigation();
+    }
+
+    function openGroupManager() {
+      renderManager();
+      groupDialog.showModal();
+    }
+
+    function openMoveDialog() {
+      const select = document.getElementById('move-target');
+      select.replaceChildren();
+      [...groups.map((group) => group.name), '未分组'].forEach((name) => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        select.append(option);
+      });
+      document.getElementById('move-summary').textContent = '已选 ' + selectedBooks.size + ' 本';
+      moveDialog.showModal();
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add('is-visible');
+      window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), 1800);
+    }
+
+    document.querySelectorAll('[data-open-groups]').forEach((button) => button.addEventListener('click', openGroupManager));
+    document.querySelectorAll('[data-close-dialog]').forEach((button) => button.addEventListener('click', () => {
+      button.closest('dialog').close();
+    }));
+
+    document.getElementById('book-search').addEventListener('input', renderBooks);
+    document.getElementById('sort-button').addEventListener('click', (event) => {
+      sortIndex = (sortIndex + 1) % sortLabels.length;
+      event.currentTarget.textContent = sortLabels[sortIndex];
+      renderBooks();
+    });
+    document.getElementById('organize-button').addEventListener('click', (event) => {
+      isSelecting = !isSelecting;
+      selectedBooks.clear();
+      event.currentTarget.textContent = isSelecting ? '完成整理' : '整理书籍';
+      renderBooks();
+    });
+
+    function setView(list) {
+      isList = list;
+      document.getElementById('view-grid').setAttribute('aria-pressed', String(!list));
+      document.getElementById('view-list').setAttribute('aria-pressed', String(list));
+      document.getElementById('section-grid').setAttribute('aria-pressed', String(!list));
+      document.getElementById('section-list').setAttribute('aria-pressed', String(list));
+      renderBooks();
+    }
+
+    document.getElementById('view-grid').addEventListener('click', () => setView(false));
+    document.getElementById('view-list').addEventListener('click', () => setView(true));
+    document.getElementById('section-grid').addEventListener('click', () => setView(false));
+    document.getElementById('section-list').addEventListener('click', () => setView(true));
+    document.getElementById('continue-button').addEventListener('click', () => showToast('继续阅读《山海夜行记》'));
+    document.getElementById('move-selected').addEventListener('click', openMoveDialog);
+
+    document.getElementById('group-create-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const input = document.getElementById('group-name');
+      const value = input.value.trim();
+      if (!value) {
+        input.focus();
+        return;
+      }
+      if (!groups.some((group) => group.name === value) && value !== '未分组' && value !== '全部藏书') {
+        groups.push({ name: value, color: colors[groups.length % colors.length], visible: true });
+        activeGroup = value;
+        input.value = '';
+        renderManager();
+        renderBooks();
+        showToast('已创建分组：' + value);
+      } else {
+        showToast('这个分组名称已在使用');
+      }
+    });
+
+    document.getElementById('move-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const target = document.getElementById('move-target').value;
+      const value = target === '未分组' ? '' : target;
+      books.forEach((book) => {
+        if (selectedBooks.has(book.id)) book.group = value;
+      });
+      const moved = selectedBooks.size;
+      selectedBooks.clear();
+      isSelecting = false;
+      document.getElementById('organize-button').textContent = '整理书籍';
+      moveDialog.close();
+      renderBooks();
+      showToast('已移动 ' + moved + ' 本');
+    });
+
+    renderNavigation();
+    renderBooks();
+  </script>
+</body>
+</html>

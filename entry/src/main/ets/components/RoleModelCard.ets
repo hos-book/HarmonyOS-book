@@ -6,7 +6,7 @@ import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { AppColor, AppFont, AppRadius, AppSpace, AppTheme } from '../theme/Theme';
 import { SettingsHintButton } from './SettingsHintButton';
 
-/** 模型管理页中的多角色模型卡片，沿用原 GGUF 导入和朗读暂停/恢复流程。 */
+/** Model management for portable CSI models. */
 @ComponentV2
 export struct RoleModelCard {
   @Param blocked: boolean = false;
@@ -85,7 +85,7 @@ export struct RoleModelCard {
   private async copyDownload(): Promise<void> {
     try {
       await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN,
-        'https://huggingface.co/unsloth/Qwen3.5-0.8B-GGUF/resolve/main/Qwen3.5-0.8B-Q4_K_M.gguf?download=true'));
+        'https://huggingface.co/Warma10032/chinese-roberta-wwm-ext-large-csi-v1/resolve/main/csi-v1.pth?download=true'));
       this.toast($r('app.string.role_model_link_copied'));
     } catch (_error) { this.toast($r('app.string.role_save_error')); }
   }
@@ -109,6 +109,9 @@ export struct RoleModelCard {
           Text(this.state.model.name).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
             .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
           Text($r('app.string.role_model_size', Math.round(this.state.model.bytes / 1024 / 1024)))
+            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+          Text(this.state.backend === 'nnrt' ? $r('app.string.role_model_backend_npu') :
+            this.state.backend === 'cpu' ? $r('app.string.role_model_backend_cpu') : $r('app.string.role_model_backend_auto'))
             .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
         }
         if (this.state.busy) {

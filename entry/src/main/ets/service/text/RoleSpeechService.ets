@@ -1,7 +1,5 @@
 import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
-import { CustomTtsConfig } from '../../model/CustomTtsConfig';
-import { isOfflineTtsProvider } from '../../model/OfflineTtsCatalog';
 import { RoleAnalysisWindow, RoleBookSettings, RoleChapterCache, RoleDialogue,
   RoleSpeaker, RoleSpeechState, RoleSpeechSample } from '../../model/RoleSpeech';
 import { SubtitleFiles } from '../subtitle/SubtitleFiles';
@@ -161,15 +159,15 @@ export class RoleSpeechService {
     this.content = content;
     this.dialogues = RoleSpeechPlanner.dialogues(content, quotes);
     this.windows = RoleSpeechPlanner.windows(this.dialogues);
-    const fingerprint = RoleModelService.getInstance().state.model?.fingerprint ?? '';
-    const key = await SubtitleFiles.key(JSON.stringify([1, bookId, chapter, fingerprint, quotes, content]));
+    const modelPath = RoleModelService.getInstance().state.model?.path ?? '';
+    const key = await SubtitleFiles.key(JSON.stringify([2, bookId, chapter, modelPath, quotes, content]));
     if (ticket !== this.epoch) return;
     this.cachePath = `${context.filesDir}/role_speech/cache-${key}.json`;
     try {
       const text = await this.read(this.cachePath);
       if (ticket !== this.epoch) return;
       const saved: RoleChapterCache = text ? JSON.parse(text) : new RoleChapterCache();
-      if (saved?.version === 1 && Array.isArray(saved.dialogues) && saved.dialogues.length <= this.dialogues.length) {
+      if (saved?.version === 3 && Array.isArray(saved.dialogues) && saved.dialogues.length <= this.dialogues.length) {
         const byStart: Map<number, RoleDialogue> = new Map<number, RoleDialogue>();
         for (const item of saved.dialogues) if (item !== null) byStart.set(item.start, item);
         for (const dialogue of this.dialogues) {
@@ -210,26 +208,17 @@ export class RoleSpeechService {
     const dialogue = this.dialogueAt(offset);
     if (!dialogue) return this.book.narratorVoiceId;
     const speaker = this.book.speakers.find((item: RoleSpeaker): boolean => item.name === dialogue.speaker);
-    return speaker !== undefined ? speaker.voiceId : this.book.dialogueVoiceId;
+    return speaker !== undefined && speaker.voiceId.length > 0 ? speaker.voiceId : this.book.dialogueVoiceId;
   }
 
-  async ensureAt(offset: number, voices: CustomTtsConfig[], defaultVoice: string): Promise<void> {
-    if (this.readyAt(offset)) return;
-    const dialogue = this.dialogueAt(offset);
-    if (!dialogue) return;
-    const index = this.windows.findIndex((window: RoleAnalysisWindow): boolean =>
-      window.indices.some((id: number): boolean => this.dialogues[id] === dialogue));
-    if (index >= 0) await this.analyse(index, voices, defaultVoice);
-  }
-
-  prefetch(offset: number, voices: CustomTtsConfig[], defaultVoice: string): Promise<void> {
+  prefetch(offset: number): Promise<void> {
     if (!this.enabled || this.failed || this.pending.size > 0) return Promise.resolve();
     const index = this.windows.findIndex((window: RoleAnalysisWindow): boolean => !window.complete &&
-      this.dialogues[window.indices[window.indices.length - 1]].end > offset);
-    return index < 0 ? Promise.resolve() : this.analyse(index, voices, defaultVoice);
+      this.dialogues[window.indices[window.indices.length - 1]].end >= offset);
+    return index < 0 ? Promise.resolve() : this.analyse(index);
   }
 
-  private analyse(index: number, voices: CustomTtsConfig[], defaultVoice: string): Promise<void> {
+  private analyse(index: number): Promise<void> {
     const existing = this.pending.get(index);
     if (existing !== undefined) return existing;
     const ticket = this.epoch;
@@ -238,14 +227,10 @@ export class RoleSpeechService {
       try {
         this.state.analysing = true;
         const known = this.book.speakers.map((item: RoleSpeaker): string => item.name);
-        const prompt = RoleSpeechPlanner.prompt(this.content, this.dialogues, window, known);
-        const result = await RoleModelService.getInstance().infer(prompt);
+        const request = RoleSpeechPlanner.request(this.content, this.dialogues, window);
+        const result = await RoleModelService.getInstance().infer(request);
         if (ticket !== this.epoch || !this.enabled) return;
-        const names = RoleSpeechPlanner.answers(result, window.indices.length, RoleSpeechPlanner.evidence(prompt), known);
-        const selected = voices.find((item: CustomTtsConfig): boolean => item.id === defaultVoice);
-        const localProvider = selected && isOfflineTtsProvider(selected.provider) ? selected.provider : '';
-        const available = voices.filter((item: CustomTtsConfig): boolean => item.enabled && item.id !== defaultVoice &&
-          (!localProvider || item.provider === localProvider));
+        const names = RoleSpeechPlanner.answers(result, window.indices.length, request.context, known);
         for (let position = 0; position < window.indices.length; position++) {
           const dialogue = this.dialogues[window.indices[position]];
           let name = names[position];
@@ -253,7 +238,6 @@ export class RoleSpeechService {
             if (this.book.speakers.length >= 128) name = '?';
             else {
               const speaker = new RoleSpeaker(); speaker.name = name; speaker.id = name;
-              speaker.voiceId = available.length > 0 ? available[this.book.speakers.length % available.length].id : '';
               this.book.speakers.push(speaker);
             }
           }

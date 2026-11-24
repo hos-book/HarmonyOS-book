@@ -43,6 +43,7 @@ export const EVT_COVER_SUPER_RESOLUTION_CHANGED = 'app.cover.super_resolution.ch
 const KEY_AUDIO_INTERRUPT_MODE = 'audio_interrupt_mode';
 const KEY_AUDIO_AUTO_RESUME = 'audio_auto_resume';
 const KEY_AUDIO_FOCUS_MODE = 'audio_focus_mode_v2';
+const KEY_AUDIO_COEXISTENCE_ENABLED = 'audio_coexistence_enabled';
 const KEY_DEFAULT_PLAYBACK_SPEED = 'default_playback_speed';
 const KEY_PRIVACY_AGREED_VERSION = 'privacy_agreed_version';
 const KEY_HOME_GRID_COLUMNS = 'home_grid_columns';
@@ -121,6 +122,7 @@ export class PreferenceBackupSnapshot {
   audioInterruptMode: number = 0;
   audioAutoResume: boolean = true;
   audioFocusMode: number | undefined = undefined;
+  audioCoexistenceEnabled: boolean = false;
   defaultPlaybackSpeed: number = 1;
   homeGridColumns: number = 3;
   preloadChapters: number = 1;
@@ -1600,6 +1602,17 @@ export class PreferenceService {
     }
   }
 
+  static async getAudioCoexistenceEnabled(): Promise<boolean> {
+    const store = await PreferenceService.ensureStore();
+    return (await store.get(KEY_AUDIO_COEXISTENCE_ENABLED, false)) === true;
+  }
+
+  static async setAudioCoexistenceEnabled(enabled: boolean): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    await store.put(KEY_AUDIO_COEXISTENCE_ENABLED, enabled);
+    await store.flush();
+  }
+
   /** 仅供旧备份兼容；当前播放统一使用系统策略。 */
   static async getAudioInterruptMode(): Promise<number> {
     const s = await PreferenceService.ensureStore();
@@ -2238,6 +2251,7 @@ export class PreferenceService {
     snapshot.audioInterruptMode = await PreferenceService.getAudioInterruptMode();
     snapshot.audioAutoResume = await PreferenceService.getAudioAutoResume();
     snapshot.audioFocusMode = await PreferenceService.getAudioFocusMode();
+    snapshot.audioCoexistenceEnabled = await PreferenceService.getAudioCoexistenceEnabled();
     snapshot.defaultPlaybackSpeed = await PreferenceService.getDefaultPlaybackSpeed();
     snapshot.homeGridColumns = await PreferenceService.getHomeGridColumns();
     snapshot.preloadChapters = await PreferenceService.getPreloadChapters();
@@ -2348,6 +2362,7 @@ export class PreferenceService {
     await s.put(KEY_AUDIO_AUTO_RESUME, snapshot.audioAutoResume);
     await s.put(KEY_AUDIO_FOCUS_MODE,
       snapshot.audioFocusMode === 1 || snapshot.audioFocusMode === 2 ? snapshot.audioFocusMode : 0);
+    await s.put(KEY_AUDIO_COEXISTENCE_ENABLED, snapshot.audioCoexistenceEnabled === true);
     await s.put(KEY_DEFAULT_PLAYBACK_SPEED,
       PreferenceService.normalizeDefaultPlaybackSpeed(snapshot.defaultPlaybackSpeed));
     await s.put(KEY_HOME_GRID_COLUMNS, snapshot.homeGridColumns);

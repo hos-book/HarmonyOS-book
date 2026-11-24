@@ -1,6 +1,7 @@
 import { Book, Chapter } from '../model/Book';
 import { BookSourceService } from '../service/BookSourceService';
 import { SourceSwitchSearch, SourceSwitchBookDataSource } from '../service/BookSourceSwitchService';
+import { BookSourceSwitchResultCache } from '../service/BookSourceSwitchResultCache';
 import { ChapterDataSource } from '../utils/ChapterDataSource';
 import { AppColor, AppMaterial, AppSpace } from '../theme/Theme';
 import { PreferenceService } from '../service/PreferenceService';
@@ -31,6 +32,7 @@ export struct BookSourceSwitchSheet {
   private disposed: boolean = false;
   private chapterScroller: Scroller = new Scroller();
   private chapterScrollTimer: number = -1;
+  private activeSearchKey: string = '';
 
   aboutToAppear(): void {
     this.disposed = false;
@@ -54,16 +56,20 @@ export struct BookSourceSwitchSheet {
 
   private async findSources(): Promise<void> {
     if (!this.book || !this.keyword.trim()) { this.searching = false; return; }
+    const nextSearchKey = BookSourceSwitchResultCache.searchKey(
+      SourceSwitchSearch.cacheIdentity(this.book), this.keyword);
+    const sameSearch = this.activeSearchKey === nextSearchKey;
+    this.activeSearchKey = nextSearchKey;
     this.search.cancelled = true;
     const task = new SourceSwitchSearch();
     this.search = task;
     this.searching = true;
-    this.count = 0;
+    this.count = sameSearch ? this.results.totalCount() : 0;
     this.failed = 0;
     this.completed = 0;
     this.total = 0;
     this.errorText = '';
-    this.results.setBooks([]);
+    if (!sameSearch) this.results.setBooks([]);
     try {
       await task.run(this.book, (books: Book[]): void => {
         if (this.disposed || this.search !== task) return;
@@ -72,7 +78,7 @@ export struct BookSourceSwitchSheet {
         this.failed = task.failed;
         this.completed = task.completed;
         this.total = task.total;
-      }, this.keyword);
+      }, this.keyword, this.getUIContext().getHostContext()!);
     } catch (error) {
       if (!this.disposed) this.errorText = error instanceof Error ? error.message : String(error);
     } finally {

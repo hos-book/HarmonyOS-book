@@ -3122,7 +3122,7 @@
     },
     {
       "name": "guide_home_search_desc",
-      "value": "输入书名开始搜索，点击结果进入详情。搜索框旁的筛选按钮可指定书源、开启精准搜索或搜索作者，也可筛选电子书、有声书和漫画。找不到内容时，先检查书源和筛选条件。"
+      "value": "输入书名开始搜索，点击结果进入详情。搜索框下方可开启当前源搜索、简繁同搜、精准搜索和搜索作者，搜索框旁的筛选按钮可指定书源或筛选电子书、有声书和漫画。搜索结果较少时，可调整书源与筛选条件。"
     },
     {
       "name": "guide_home_refresh_action",
@@ -6257,6 +6257,18 @@
       "value": "用于无倍速记录的有声书；单本倍速独立记忆，互不影响"
     },
     {
+      "name": "settings_audio_coexistence_title",
+      "value": "音频共存"
+    },
+    {
+      "name": "settings_audio_coexistence_desc",
+      "value": "有声书与朗读语音尽量和其他应用音频同时播放"
+    },
+    {
+      "name": "settings_audio_coexistence_apply_failed",
+      "value": "设置已保存，当前播放策略更新失败"
+    },
+    {
       "name": "comic_type",
       "value": "漫画"
     },
@@ -6651,6 +6663,14 @@
     {
       "name": "search_source_confirm",
       "value": "确认选择"
+    },
+    {
+      "name": "search_current_source",
+      "value": "当前源搜索"
+    },
+    {
+      "name": "search_simplified_traditional",
+      "value": "简繁同搜"
     },
     {
       "name": "search_source_empty",
@@ -8474,15 +8494,15 @@
     },
     {
       "name": "role_model_empty_hint",
-      "value": "模型由你单独下载，不包含在安装包中"
+      "value": "角色模型单独导入，音色沿用现有朗读设置"
     },
     {
       "name": "role_model_size",
-      "value": "%d MB · 已验证可加载"
+      "value": "%d MB · 本地模型"
     },
     {
       "name": "role_model_import",
-      "value": "导入 GGUF 模型"
+      "value": "导入通用角色模型"
     },
     {
       "name": "role_model_replace",
@@ -8510,27 +8530,27 @@
     },
     {
       "name": "role_model_help",
-      "value": "推荐 Qwen3.5-0.8B Q4_K_M（约 533 MB）。支持 Qwen3 / Qwen3.5 的小型 Q4_K_M 单文件 GGUF，最大 1.75 GB。模型只负责识别角色；朗读仍使用音色管理中的音色，在线音色仍需联网。"
+      "value": "导入一份通用 CSI .ms 模型即可。应用按设备能力优先使用 NPU，CPU 承接其余计算；加速加载或推理失败时自动切换 CPU。手机、平板与电脑使用同一模型，人物音色与阅读位置继续保留。"
     },
     {
       "name": "role_model_download_link",
-      "value": "复制推荐模型下载地址"
+      "value": "复制源权重地址"
     },
     {
       "name": "role_model_link_copied",
-      "value": "下载地址已复制，可粘贴到浏览器下载"
+      "value": "源权重地址已复制"
     },
     {
       "name": "role_model_size_error",
-      "value": "模型文件过大或参数量不兼容，请使用推荐的小型模型。"
+      "value": "请选择配套 CSI 模型，文件大小须在 1.75 GB 以内。"
     },
     {
       "name": "role_model_space_error",
-      "value": "存储空间不足，请先释放空间后再导入。"
+      "value": "请先释放存储空间，再导入角色模型。"
     },
     {
       "name": "role_model_memory_error",
-      "value": "当前可用内存不足，请关闭其他应用或使用更小的模型。"
+      "value": "请释放运行内存，再加载角色模型。"
     },
     {
       "name": "role_model_timeout_error",
@@ -8538,15 +8558,39 @@
     },
     {
       "name": "role_model_unsupported_error",
-      "value": "暂不支持此模型，请导入 Qwen3 / Qwen3.5 小型 Q4_K_M 单文件 GGUF。"
+      "value": "请选择配套 CSI 通用 .ms 模型。"
     },
     {
       "name": "role_model_invalid_error",
-      "value": "模型文件损坏或下载不完整，请重新下载。"
+      "value": "模型解析失败，请重新选择配套 CSI .ms 文件。"
     },
     {
       "name": "role_model_load_error",
-      "value": "模型加载或识别失败，请检查文件后重试。未识别的对白使用默认音色。"
+      "value": "角色模型加载或推理失败，请重新导入配套通用 .ms 模型。待识别对白继续使用默认音色。"
+    },
+    {
+      "name": "role_model_npu_error",
+      "value": "当前采用 CPU 执行角色识别。"
+    },
+    {
+      "name": "role_model_npu_build_error",
+      "value": "加速加载已转为 CPU 执行。"
+    },
+    {
+      "name": "role_model_backend_auto",
+      "value": "自动调度：NPU 优先，CPU 接续"
+    },
+    {
+      "name": "role_model_backend_npu",
+      "value": "运行方式：NPU 优先，CPU 协同"
+    },
+    {
+      "name": "role_model_backend_cpu",
+      "value": "运行方式：CPU"
+    },
+    {
+      "name": "role_model_tokenizer_error",
+      "value": "词表资源缺失或格式异常，请更新应用资源。"
     },
     {
       "name": "role_save_error",
@@ -8954,7 +8998,7 @@
     },
     {
       "name": "model_pack_help",
-      "value": "漫画着色请选择配套的 .jtmodel 模型包，AI 字幕请选择配套 ZIP；本地 TTS 可直接导入下载的官方 Kokoro .tar.bz2 模型包，也兼容已有配套 ZIP，均无需解压；多角色朗读请选择 GGUF。搭配多角色朗读和本地 TTS，可在离线时使用不同人物声音。这些模型不随应用预装，未导入不影响普通阅读和播放。导入期间离开此页会取消并保留原有模型。漫画翻译语言包仍在首次使用时按需下载。"
+      "value": "漫画着色请选择配套 .jtmodel，AI 字幕请选择配套 ZIP；本地 TTS 直接导入对应的官方 .tar.bz2，Kokoro 也兼容已有配套 ZIP。多角色朗读导入通用 CSI .ms，系统按设备能力配置 NPU 优先、CPU 接续。相关模型由用户单独导入，普通阅读和播放可独立使用。导入期间离开此页会取消并保留原有模型。漫画翻译语言包在首次使用时按需下载。"
     },
     {
       "name": "model_pack_space",
@@ -9058,7 +9102,7 @@
     { "name": "app_background_preview_recent", "value": "最近阅读" },
     { "name": "app_background_unsaved", "value": "修改待应用" },
     { "name": "offline_tts_title", "value": "本地 TTS" },
-    { "name": "offline_tts_hint", "value": "按下方模型选择对应的官方 .tar.bz2 文件导入，无需解压或转换。导入后到音色管理选择默认声音，或在多角色朗读中为旁白和人物绑定声音。多角色识别需另行导入 GGUF；正文已在本机且全部角色使用本地音色时，可离线朗读。首次起读需加载模型，速度与设备有关。" },
+    { "name": "offline_tts_hint", "value": "按下方模型选择对应的官方 .tar.bz2 文件导入。导入后到音色管理选择默认声音，或在多角色朗读中为旁白和人物绑定声音。角色识别另行导入通用 CSI .ms，自动使用 NPU 或 CPU；正文已在本机且全部角色使用本地音色时，可离线朗读。首次起读需加载模型，速度与设备有关。" },
     { "name": "offline_tts_kokoro_hint", "value": "Kokoro 提供 100 个中文音色，可在同一模型内为不同人物选声。直接导入官方 v1.1 INT8 .tar.bz2，也兼容已有配套 ZIP。模型较大，加载与合成速度需在当前设备试听确认。" },
     { "name": "offline_tts_piper_hint", "value": "Piper 中文单音色模型，通过本机 CPU 合成语音。可将超文、小雅分别绑定旁白或人物，也可搭配已导入的 Kokoro 音色。直接导入对应的官方 INT8 .tar.bz2，无需解压。手机上的速度和听感以试听为准。" },
     { "name": "offline_tts_missing", "value": "未导入" },

@@ -1,5 +1,6 @@
 import { BookSource } from '../model/BookSource';
 import { LocalRuleSource } from '../model/LocalRuleSource';
+import { SearchChineseScriptService } from '../service/rulesource/light/SearchChineseScriptService';
 
 export class SearchOptions {
   static matchesSource(source: BookSource, textOnly: boolean, audioOnly: boolean, comicOnly: boolean = false): boolean {
@@ -19,10 +20,13 @@ export class SearchOptions {
     return (textOnly && type === 'text') || (audioOnly && type === 'audio') || (comicOnly && type === 'comic');
   }
 
-  static matches(name: string, author: string, keyword: string, exact: boolean, byAuthor: boolean): boolean {
+  static matches(name: string, author: string, keyword: string, exact: boolean, byAuthor: boolean,
+    simplifiedTraditional: boolean = false): boolean {
     if (!exact && !byAuthor) return true;
-    const value = (byAuthor ? author : name).trim().toLocaleLowerCase();
-    const query = keyword.trim().toLocaleLowerCase();
+    const rawValue = (byAuthor ? author : name).trim().toLocaleLowerCase();
+    const rawQuery = keyword.trim().toLocaleLowerCase();
+    const value = simplifiedTraditional ? SearchChineseScriptService.toSimplified(rawValue) : rawValue;
+    const query = simplifiedTraditional ? SearchChineseScriptService.toSimplified(rawQuery) : rawQuery;
     return exact ? value === query : value.includes(query);
   }
 

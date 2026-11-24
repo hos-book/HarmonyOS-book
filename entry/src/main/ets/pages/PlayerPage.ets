@@ -1846,7 +1846,7 @@ export struct PlayerPage {
       if (this.book && this.book.cover) {
         if (this.book.cover.startsWith('http')) {
           CoverImage({ url: this.book.cover, useFixedHeight: true, imgHeight: '100%', radius: 0,
-            themedDecoration: false })
+            themedDecoration: false, showPlaceholder: false, eagerLoad: true })
             .width('100%')
             .height('100%')
             .blur(40)
@@ -1864,11 +1864,6 @@ export struct PlayerPage {
             .objectFit(ImageFit.Cover)
             .blur(40)
         }
-      } else {
-        Column()
-          .width('100%')
-          .height('100%')
-          .backgroundColor('#3B4650')
       }
 
       Column()
@@ -1879,6 +1874,7 @@ export struct PlayerPage {
     }
     .width('100%')
     .height('100%')
+    .backgroundColor('#3B4650')
   }
 
   private async reloadCurrentChapter(): Promise<void> {
@@ -2042,9 +2038,10 @@ export struct PlayerPage {
         author: this.book!.author, localPlaceholder: this.book!.id.startsWith('import_'),
         fallback: this.book!.coverFallback ?? '', highQuality: this.highQualityCover, radius: 12,
         onImageReady: (source: string, size: number): void =>
-          PlayerDragTransition.getInstance().setReadyCover(source, size) })
+          PlayerDragTransition.getInstance().setReadyCover(source, size, this.previewOnly) })
         .width(this.isCompactPlayer() ? 64 : 72).aspectRatio(1).borderRadius(12).clip(true)
-        .id('player-page-cover').opacity(this.dragState.active && !this.dragState.coverRevealed ? 0 : 1)
+        .id(this.previewOnly ? 'player-preview-cover' : 'player-page-cover')
+        .opacity(this.dragState.active && !this.dragState.coverRevealed ? 0 : 1)
         .accessibilityText($r('app.string.reader_details'))
         .onClick((): void => { if (!this.dragState.active) this.openBookDetail(); })
       Column({ space: AppSpace.Xs }) {
@@ -2075,7 +2072,7 @@ export struct PlayerPage {
           title: this.book!.title, url: this.book!.cover, fallback: this.book!.coverFallback ?? '',
           highQuality: this.highQualityCover,
           onImageReady: (source: string, size: number): void =>
-            PlayerDragTransition.getInstance().setReadyCover(source, size)
+            PlayerDragTransition.getInstance().setReadyCover(source, size, this.previewOnly)
         })
         if (this.sourceName !== '') {
           Text(this.sourceName)
@@ -2096,7 +2093,7 @@ export struct PlayerPage {
       .aspectRatio(1)
       .borderRadius(16)
       .clip(true)
-      .id('player-page-cover')
+      .id(this.previewOnly ? 'player-preview-cover' : 'player-page-cover')
       .opacity(this.dragState.active && !this.dragState.coverRevealed ? 0 : 1)
       .accessibilityText($r('app.string.reader_details'))
       .onClick((): void => { if (!this.dragState.active) this.openBookDetail(); })

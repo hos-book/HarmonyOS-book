@@ -1,0 +1,29 @@
+{
+  "appId": "6917615941058168740",
+  "versionName": "1.1.19",
+  "versionCode": 1029001,
+  "request": {
+    "releaseType": 1,
+    "releasePhase": 0,
+    "remark": "简听阅读 1.1.19 正式版本"
+  },
+  "response": {
+    "ret": {
+      "code": 0,
+      "msg": "success"
+    }
+  },
+  "version": {
+    "versionId": "2090552313675570240",
+    "packageId": "2090560580707462912",
+    "state": 12,
+    "lastUpdateTime": 1795487189449
+  },
+  "package": {
+    "file": "Jianting-1.1.19-1029001-release.app",
+    "sdkVersion": "26.0.0.105",
+    "sdkChannel": "Release",
+    "buildMode": "release",
+    "debug": false
+  }
+}

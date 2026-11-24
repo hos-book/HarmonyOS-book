@@ -577,18 +577,19 @@ struct Index {
   }
 
   private playerFadeTransition(isPush: boolean): NavigationAnimatedTransition {
+    // 转场创建时准备首帧透明度，让来源页自然衔接播放页。
+    this.playerOpacity = isPush ? 0 : 1;
+    this.playerRenderGroup = true;
     let finished: boolean = false;
     const animation: NavigationAnimatedTransition = {
       timeout: 1400,
       transition: (proxy: NavigationTransitionProxy): void => {
         this.navigationEnabled = false;
-        this.playerOpacity = isPush ? 0 : 1;
-        this.playerRenderGroup = false;
         // 无可见来源时保留原有淡入淡出，不凭空添加新的滑动方向。
         console.info(`[PlayerTransition] ${isPush ? 'open' : 'close'} without visible source`);
         this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
           if (finished) return;
-          this.getUIContext().animateTo({ duration: 300, curve: Curve.FastOutSlowIn,
+          this.getUIContext().animateTo({ duration: 400, curve: Curve.EaseInOut,
             onFinish: (): void => { if (!finished) proxy.finishTransition(); }
           }, (): void => { this.playerOpacity = isPush ? 1 : 0; });
         }));
@@ -596,6 +597,7 @@ struct Index {
       onTransitionEnd: (success: boolean): void => {
         finished = true;
         this.playerOpacity = 1;
+        this.playerRenderGroup = false;
         this.navigationEnabled = true;
         if (isPush && success) PlayerEntryDecider.markEntered();
       }
@@ -692,6 +694,15 @@ struct Index {
         PlayerPageWrapper({ navStack: this.navStack, param: param as Object, deferEntry: this.playerDragState.active })
       }
       .hideTitleBar(true)
+      .onWillAppear((): void => {
+        // 挂载前准备首帧；淡入时整页合成，保持封面与深色遮罩的层次。
+        this.playerOpacity = this.playerDragState.active ? 1 : 0;
+        this.playerRenderGroup = !this.playerDragState.active;
+      })
+      .onShown((): void => {
+        this.playerOpacity = 1;
+        this.playerRenderGroup = false;
+      })
       // 播放页统一由根 Navigation 调度，避免叠加默认转场和共享元素自动配对。
       .systemTransition(NavigationSystemTransitionType.NONE)
       // 抽屉(章节/定时/跳过)打开时,右滑/返回先关抽屉而不是退整页
@@ -922,6 +933,18 @@ struct Index {
     }
   }
 
+  private updatePlayerPreviewTarget(bookId: string): void {
+    this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+      this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+        const drag = PlayerDragTransition.getInstance();
+        if (drag.state.previewBookId !== bookId) return;
+        drag.setPreviewTarget(
+          PlayerDragTransition.measure(this.getUIContext(), 'player-preview-cover'),
+          PlayerDragTransition.measure(this.getUIContext(), 'player-preview-surface'));
+      }));
+    }));
+  }
+
   build() {
     Stack() {
     if (this.hiCarState.carWindow) {
@@ -977,23 +1000,16 @@ struct Index {
     .width('100%')
     .height('100%')
     .id(OneShotTransitionIds.ROOT_NAVIGATION)
-    if (this.playerDragState.previewing) {
-      PlayerPageWrapper({ navStack: this.navStack, param: this.playerDragState.previewBookId,
-        deferEntry: true, previewOnly: true })
-        .width('100%').height('100%')
-        .enabled(false)
-        .hitTestBehavior(HitTestMode.None)
-        .onAppear((): void => {
-          this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
-            this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
-              const drag = PlayerDragTransition.getInstance();
-              if (!drag.state.previewing) return;
-              drag.setPreviewTarget(
-                PlayerDragTransition.measure(this.getUIContext(), 'player-page-cover'),
-                PlayerDragTransition.measure(this.getUIContext(), 'player-drag-surface'));
-            }));
-          }));
-        })
+    if (this.playerDragState.previewBookId.length > 0) {
+      ForEach([this.playerDragState.previewBookId], (bookId: string): void => {
+        PlayerPageWrapper({ navStack: this.navStack, param: bookId, deferEntry: true, previewOnly: true })
+          .width('100%').height('100%')
+          .visibility(this.playerDragState.previewing ? Visibility.Visible : Visibility.Hidden)
+          .enabled(false)
+          .hitTestBehavior(HitTestMode.None)
+          .onAppear((): void => this.updatePlayerPreviewTarget(bookId))
+          .onSizeChange((): void => this.updatePlayerPreviewTarget(bookId))
+      }, (bookId: string): string => bookId)
     }
     }
     // Keep the rendering transport active when the home NavDestination is hidden.
@@ -1261,6 +1277,10 @@ struct PlayerPageWrapper {
   @Local dragState: PlayerDragState = PlayerDragTransition.getInstance().state;
   private draggingDismiss: boolean = false;
 
+  private usesTransitionFrame(): boolean {
+    return this.previewOnly || this.dragState.active;
+  }
+
   private readyCoverSource(source: string): ResourceStr {
     if (source.startsWith('/')) return `file://${source}`;
     if (source.startsWith('file://') || source.startsWith('http')) return source;
@@ -1319,7 +1339,7 @@ struct PlayerPageWrapper {
           .hitTestBehavior(HitTestMode.None)
       }
       Stack({ alignContent: Alignment.TopStart }) {
-        if (this.dragState.active && this.dragState.sourceNodeId === 'mini-player-bar') {
+        if (this.previewOnly || (this.dragState.active && this.dragState.sourceNodeId === 'mini-player-bar')) {
           PlayerBarSurface({ surfaceWidth: this.dragState.frameWidth,
             surfaceHeight: this.dragState.frameHeight, surfaceRadius: this.dragState.radius })
             .width('100%').height('100%')
@@ -1335,12 +1355,12 @@ struct PlayerPageWrapper {
           resumeProgressMs: this.resolveProgressMs(),
           startFromDetail: this.param instanceof PlayerStartParams
         })
-          .width(this.dragState.active ? this.dragState.viewportWidth : '100%')
-          .height(this.dragState.active ? this.dragState.viewportHeight : '100%')
-          .translate({ x: this.dragState.active ? -this.dragState.frameX : 0,
-            y: this.dragState.active ? -this.dragState.frameY : 0 })
-          .opacity(this.dragState.contentOpacity)
-        if (this.dragState.active && this.dragState.sourceNodeId === 'mini-player-bar') {
+          .width(this.usesTransitionFrame() ? this.dragState.viewportWidth : '100%')
+          .height(this.usesTransitionFrame() ? this.dragState.viewportHeight : '100%')
+          .translate({ x: this.usesTransitionFrame() ? -this.dragState.frameX : 0,
+            y: this.usesTransitionFrame() ? -this.dragState.frameY : 0 })
+          .opacity(this.usesTransitionFrame() ? this.dragState.contentOpacity : 1)
+        if (this.previewOnly || (this.dragState.active && this.dragState.sourceNodeId === 'mini-player-bar')) {
           PlayerTransitionMiniBar()
             .width('100%')
             .height(this.dragState.miniBarHeight)
@@ -1370,11 +1390,11 @@ struct PlayerPageWrapper {
             .hitTestBehavior(HitTestMode.None)
         }
       }
-      .width(this.dragState.active ? this.dragState.frameWidth : '100%')
-      .height(this.dragState.active ? this.dragState.frameHeight : '100%')
-      .translate({ x: this.dragState.active ? this.dragState.frameX : 0,
-        y: this.dragState.active ? this.dragState.frameY : 0 })
-      .borderRadius(this.dragState.active ? this.dragState.radius : 0)
+      .width(this.usesTransitionFrame() ? this.dragState.frameWidth : '100%')
+      .height(this.usesTransitionFrame() ? this.dragState.frameHeight : '100%')
+      .translate({ x: this.usesTransitionFrame() ? this.dragState.frameX : 0,
+        y: this.usesTransitionFrame() ? this.dragState.frameY : 0 })
+      .borderRadius(this.usesTransitionFrame() ? this.dragState.radius : 0)
       .scale({ x: this.dragState.miniBarScaleX, y: this.dragState.miniBarScaleY })
       .opacity(this.dragState.miniBarRevealed ? 0 : 1)
       // HDS 底栏会采样上层背景，退场时不能留下随胶囊收缩的纯黑底板。
@@ -1383,7 +1403,7 @@ struct PlayerPageWrapper {
     }
     .width('100%')
     .height('100%')
-    .id('player-drag-surface')
+    .id(this.previewOnly ? 'player-preview-surface' : 'player-drag-surface')
     .gesture(PanGesture({ direction: PanDirection.Vertical, distance: 8 })
       .onActionStart((event: GestureEvent): void => {
         this.draggingDismiss = !this.previewOnly && !this.dragState.active && event.offsetY > 0;

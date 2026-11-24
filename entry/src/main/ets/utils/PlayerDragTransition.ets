@@ -71,6 +71,8 @@ export class PlayerDragTransition {
   private previewOrigin: PlayerDragOrigin | undefined = undefined;
   private previewCover: OneShotRect | undefined = undefined;
   private previewViewport: OneShotRect | undefined = undefined;
+  private previewCoverSource: string = '';
+  private previewCoverDecodeSize: number = 300;
   private previewOffsetY: number = 0;
   private previewCancel: ((finish: () => void) => void) | undefined = undefined;
   private dismissCover: OneShotRect | undefined = undefined;
@@ -204,8 +206,9 @@ export class PlayerDragTransition {
       ? Math.min(origin.coverWidth, origin.coverHeight) / 2 : origin.radius;
     this.state.snapshot = origin.snapshot;
     this.opening = true;
-    this.state.coverSource = '';
-    this.state.coverImageOpacity = 0;
+    this.state.coverSource = origin.sourceNodeId === 'mini-player-bar' ? this.previewCoverSource : '';
+    this.state.coverDecodeSize = this.previewCoverDecodeSize;
+    this.state.coverImageOpacity = origin.snapshot === undefined && this.state.coverSource.length > 0 ? 1 : 0;
     this.state.coverRevealed = false;
     this.state.contentOpacity = 0;
     this.state.miniBarHeight = origin.height;
@@ -219,13 +222,23 @@ export class PlayerDragTransition {
 
   beginTap(origin: PlayerDragOrigin, returnPage: string = ''): boolean {
     const started: boolean = this.begin(origin.viewportHeight, 0, origin);
-    if (started) this.returnPage = returnPage;
+    if (started) {
+      this.returnPage = returnPage;
+      this.clearPreparedPreview();
+    }
     return started;
   }
 
   /** 播放页已解码的原图可直接复用于运动封面，不继续放大迷你栏截图。 */
-  setReadyCover(source: string, decodeSize: number): void {
-    if (!this.opening || !this.state.active || !source || !Number.isFinite(decodeSize) || decodeSize <= 0) return;
+  setReadyCover(source: string, decodeSize: number, previewOnly: boolean = false): void {
+    if (!source || !Number.isFinite(decodeSize) || decodeSize <= 0) return;
+    if (previewOnly) {
+      if (this.state.previewBookId.length === 0) return;
+      this.previewCoverSource = source;
+      this.previewCoverDecodeSize = decodeSize;
+      if (!this.state.previewing) return;
+    }
+    if (!this.opening || !this.state.active) return;
     this.state.coverDecodeSize = Math.min(1024, Math.max(64, decodeSize));
     this.state.coverSource = source;
   }
@@ -311,8 +324,31 @@ export class PlayerDragTransition {
     this.update(offsetY);
   }
 
+  hasPreparedCover(bookId: string): boolean {
+    return this.state.previewBookId === bookId && this.previewCoverSource.length > 0;
+  }
+
+  preparePreview(bookId: string, origin: PlayerDragOrigin): void {
+    if (this.state.active) return;
+    if (this.state.previewBookId !== bookId) this.clearPreparedPreview();
+    this.state.sourceNodeId = origin.sourceNodeId;
+    this.state.viewportWidth = origin.viewportWidth;
+    this.state.viewportHeight = origin.viewportHeight;
+    this.collapseToBar(origin);
+    this.state.previewBookId = bookId;
+  }
+
+  clearPreparedPreview(): void {
+    this.state.previewBookId = '';
+    this.previewCover = undefined;
+    this.previewViewport = undefined;
+    this.previewCoverSource = '';
+    this.previewCoverDecodeSize = 300;
+  }
+
   beginPreviewGesture(height: number, offsetY: number, origin: PlayerDragOrigin, bookId: string,
     commit: () => void, cancelAnimation: (finish: () => void) => void): void {
+    if (this.state.previewBookId !== bookId) this.clearPreparedPreview();
     if (!this.begin(height, 0, origin)) return;
     this.gestureCommit = commit;
     this.previewOrigin = origin;
@@ -323,10 +359,10 @@ export class PlayerDragTransition {
   }
 
   setPreviewTarget(cover: OneShotRect, viewport: OneShotRect): void {
-    if (!this.state.previewing || !cover.isValid() || !viewport.isValid()) return;
+    if (this.state.previewBookId.length === 0 || !cover.isValid() || !viewport.isValid()) return;
     this.previewCover = cover;
     this.previewViewport = viewport;
-    this.update(this.previewOffsetY);
+    if (this.state.previewing) this.update(this.previewOffsetY);
   }
 
   collapsePreview(): void {
@@ -486,11 +522,12 @@ export class PlayerDragTransition {
         return;
       }
       // 保留手指松开处的几何和快照，目的页从这里继续展开。
+      commit?.();
       this.state.previewing = false;
       this.previewOrigin = undefined;
-      this.previewCover = undefined;
-      this.previewViewport = undefined;
+      this.clearPreparedPreview();
       this.previewCancel = undefined;
+      return;
     }
     if (open) commit?.();
   }
@@ -530,14 +567,11 @@ export class PlayerDragTransition {
     this.gestureCommit = undefined;
     this.progress = 0;
     this.state.previewing = false;
-    this.state.previewBookId = '';
     this.state.dismissing = false;
     this.dismissCover = undefined;
     this.dismissViewport = undefined;
     this.dismissOrigin = undefined;
     this.previewOrigin = undefined;
-    this.previewCover = undefined;
-    this.previewViewport = undefined;
     this.previewCancel = undefined;
     this.state.active = false;
     this.state.contentOpacity = 1;

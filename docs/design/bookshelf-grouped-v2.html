@@ -1,0 +1,2401 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>简听阅读 · 分组书架预览</title>
+  <style>
+    @font-face {
+      font-family: HMSymbol;
+      src: url("bookshelf-v2-assets/HMSymbolVF_1.ttf") format("truetype");
+      font-display: block;
+    }
+
+    :root {
+      --harmony-brand: rgba(10, 89, 247, 1);
+      --harmony-font-primary: rgba(0, 0, 0, 0.898039);
+      --harmony-font-secondary: rgba(0, 0, 0, 0.6);
+      --harmony-font-tertiary: rgba(0, 0, 0, 0.4);
+      --harmony-background-primary: rgba(255, 255, 255, 1);
+      --harmony-background-secondary: rgba(241, 243, 245, 1);
+      --harmony-comp-background-primary: rgba(255, 255, 255, 1);
+      --harmony-comp-background-tertiary: rgba(0, 0, 0, 0.047059);
+      --harmony-comp-divider: rgba(0, 0, 0, 0.12);
+      --harmony-interactive-focus: rgba(10, 89, 247, 1);
+      --harmony-page-canvas-width-mobile: 360px;
+      --harmony-page-padding-mobile: 16px;
+      --harmony-page-content-width-mobile: 328px;
+      --harmony-space-1: 4px;
+      --harmony-space-2: 8px;
+      --harmony-space-3: 12px;
+      --harmony-space-4: 16px;
+      --harmony-space-5: 24px;
+      --harmony-space-6: 32px;
+      --harmony-radius-1: 4px;
+      --harmony-radius-2: 6px;
+      --harmony-radius-3: 8px;
+      --harmony-control-height-36: 36px;
+      --harmony-control-height-40: 40px;
+      --harmony-control-height-56: 56px;
+      --harmony-card-gap-mobile: 12px;
+      --harmony-section-gap-tight-mobile: 8px;
+      --harmony-section-gap-mobile: 16px;
+      --page: rgb(247, 249, 247);
+      --surface: rgb(255, 255, 255);
+      --ink: rgb(28, 34, 33);
+      --muted: rgb(104, 113, 110);
+      --line: rgb(225, 231, 228);
+      --brand: var(--harmony-brand);
+      --green: rgb(49, 111, 91);
+      --coral: rgb(215, 91, 70);
+      --gold: rgb(178, 126, 39);
+      --sky: rgb(79, 121, 173);
+      --plum: rgb(150, 85, 104);
+      --shadow: 0 10px 28px rgba(24, 42, 35, 0.08);
+      font-family: "HarmonyOS Sans SC", "HarmonyOS Sans", "Noto Sans SC", sans-serif;
+      color: var(--ink);
+      background: rgb(230, 235, 232);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-width: 320px;
+      margin: 0;
+      background: rgb(230, 235, 232);
+      color: var(--ink);
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      color: inherit;
+      cursor: pointer;
+    }
+
+    button:focus-visible,
+    input:focus-visible,
+    select:focus-visible {
+      outline: 2px solid var(--brand);
+      outline-offset: 2px;
+    }
+
+    .app {
+      position: relative;
+      width: min(100%, 1440px);
+      min-height: 100vh;
+      margin: 0 auto;
+      background: var(--page);
+      box-shadow: 0 0 64px rgba(24, 42, 35, 0.08);
+    }
+
+    .hm {
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      font-family: HMSymbol, sans-serif;
+      font-weight: 400;
+      line-height: 1;
+      speak: none;
+    }
+
+    .desktop-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      height: 76px;
+      border-bottom: 1px solid var(--line);
+      padding: 0 48px;
+      background: var(--surface);
+    }
+
+    .desktop-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 190px;
+      color: var(--ink);
+      text-decoration: none;
+    }
+
+    .desktop-brand img {
+      display: block;
+      width: 30px;
+      height: 30px;
+      border-radius: 8px;
+      object-fit: cover;
+    }
+
+    .desktop-brand strong {
+      font-size: 15px;
+      font-weight: 650;
+    }
+
+    .desktop-nav {
+      display: flex;
+      align-items: stretch;
+      gap: 32px;
+      height: 100%;
+    }
+
+    .desktop-nav button {
+      position: relative;
+      border: 0;
+      padding: 0 2px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .desktop-nav button[aria-current="page"] {
+      color: var(--ink);
+      font-weight: 650;
+    }
+
+    .desktop-nav button[aria-current="page"]::after {
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 2px;
+      background: var(--brand);
+      content: "";
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      justify-content: end;
+      gap: 8px;
+      min-width: 190px;
+    }
+
+    .icon-button {
+      display: inline-grid;
+      place-items: center;
+      flex: 0 0 auto;
+      width: 40px;
+      height: 40px;
+      border: 0;
+      border-radius: 50%;
+      padding: 0;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .icon-button:hover {
+      background: var(--harmony-comp-background-tertiary);
+      color: var(--ink);
+    }
+
+    .icon-button .hm {
+      font-size: 21px;
+    }
+
+    .text-action {
+      min-height: 36px;
+      border: 0;
+      border-radius: 4px;
+      padding: 0 12px;
+      background: transparent;
+      color: var(--brand);
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .text-action:hover {
+      background: rgba(10, 89, 247, 0.07);
+    }
+
+    .desktop-page-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 24px;
+      margin-bottom: 24px;
+    }
+
+    .desktop-page-heading h1 {
+      margin: 0;
+      font-size: 30px;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+
+    .desktop-page-heading p {
+      margin: 7px 0 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .page-content {
+      width: min(100%, 1360px);
+      margin: 0 auto;
+      padding: 32px 48px 64px;
+    }
+
+    .mobile-titlebar {
+      display: none;
+    }
+
+    .mobile-search {
+      display: none;
+    }
+
+    .search-field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: min(100%, 388px);
+      height: 40px;
+      border: 1px solid rgba(28, 34, 33, 0.07);
+      border-radius: 24px;
+      padding: 0 12px;
+      background: rgba(255, 255, 255, 0.8);
+      color: var(--muted);
+    }
+
+    .search-field .hm {
+      width: 18px;
+      height: 18px;
+      color: var(--muted);
+      font-size: 18px;
+    }
+
+    .search-field input {
+      width: 100%;
+      min-width: 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--ink);
+      font-size: 14px;
+    }
+
+    .search-field input::placeholder {
+      color: rgb(134, 143, 140);
+    }
+
+    .section {
+      margin-top: 28px;
+    }
+
+    .section-heading {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .section-heading-copy {
+      display: flex;
+      align-items: baseline;
+      gap: 9px;
+      min-width: 0;
+    }
+
+    .section-heading h2 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.35;
+      font-weight: 680;
+    }
+
+    .section-heading p {
+      overflow: hidden;
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .section-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      flex: 0 0 auto;
+      min-height: 32px;
+      border: 0;
+      padding: 0 4px;
+      background: transparent;
+      color: var(--brand);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    .section-link .hm {
+      font-size: 16px;
+    }
+
+    .resume-band {
+      display: grid;
+      grid-template-columns: 112px minmax(0, 1fr);
+      align-items: center;
+      gap: 20px;
+      min-height: 174px;
+      border-radius: 6px;
+      padding: 18px 22px;
+      background: rgb(232, 241, 236);
+    }
+
+    .resume-cover {
+      display: block;
+      width: 96px;
+      aspect-ratio: 0.72;
+      overflow: hidden;
+      border: 0;
+      border-radius: 3px;
+      padding: 0;
+      background: rgb(34, 37, 36);
+      box-shadow: 0 7px 15px rgba(21, 37, 30, 0.18);
+    }
+
+    .resume-cover img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .resume-copy {
+      display: grid;
+      gap: 7px;
+      min-width: 0;
+    }
+
+    .resume-kicker {
+      color: var(--green);
+      font-size: 10px;
+      line-height: 1.2;
+      font-weight: 700;
+    }
+
+    .resume-title {
+      overflow: hidden;
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.35;
+      font-weight: 680;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .resume-author {
+      overflow: hidden;
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .resume-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 4px;
+    }
+
+    .resume-progress {
+      width: min(100%, 208px);
+      height: 4px;
+      overflow: hidden;
+      border-radius: 4px;
+      background: rgba(49, 111, 91, 0.16);
+    }
+
+    .resume-progress span {
+      display: block;
+      width: 68%;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--green);
+    }
+
+    .resume-meta small {
+      color: var(--green);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .resume-continue {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      justify-self: start;
+      gap: 6px;
+      width: fit-content;
+      min-height: 38px;
+      border: 1px solid rgba(49, 111, 91, 0.28);
+      border-radius: 4px;
+      padding: 0 12px;
+      background: rgba(255, 255, 255, 0.7);
+      color: var(--green);
+      font-size: 12px;
+      font-weight: 650;
+      white-space: nowrap;
+    }
+
+    .resume-continue .hm {
+      font-size: 15px;
+    }
+
+    .resume-continue:hover {
+      background: var(--green);
+      color: white;
+    }
+
+    .group-section {
+      margin-top: 30px;
+    }
+
+    .group-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .group-card {
+      position: relative;
+      display: block;
+      min-width: 0;
+      height: 138px;
+      overflow: hidden;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      padding: 14px;
+      background: var(--group-tint, rgb(238, 242, 239));
+      text-align: left;
+      transition: border-color 140ms ease, transform 140ms ease;
+    }
+
+    .group-card:hover {
+      transform: translateY(-2px);
+    }
+
+    .group-card[aria-pressed="true"] {
+      border-color: var(--group-color, var(--brand));
+    }
+
+    .group-card--all {
+      --group-tint: rgb(231, 238, 247);
+      --group-color: rgb(67, 104, 155);
+    }
+
+    .group-card--unassigned {
+      --group-tint: rgb(241, 241, 237);
+      --group-color: rgb(120, 126, 116);
+    }
+
+    .group-card-header {
+      position: relative;
+      z-index: 2;
+      display: grid;
+      gap: 5px;
+      max-width: 62%;
+    }
+
+    .group-card-header strong {
+      overflow: hidden;
+      font-size: 14px;
+      line-height: 1.35;
+      font-weight: 680;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .group-card-header small {
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .group-card-accent {
+      width: 22px;
+      height: 2px;
+      margin-top: 2px;
+      background: var(--group-color, var(--brand));
+    }
+
+    .group-art {
+      position: absolute;
+      right: 10px;
+      bottom: 0;
+      width: 118px;
+      height: 104px;
+    }
+
+    .group-art img {
+      position: absolute;
+      bottom: -8px;
+      width: 56px;
+      aspect-ratio: 0.72;
+      border: 2px solid rgba(255, 255, 255, 0.94);
+      border-radius: 2px;
+      object-fit: cover;
+      box-shadow: 0 5px 12px rgba(31, 45, 38, 0.18);
+    }
+
+    .group-art img:nth-child(1) {
+      right: 51px;
+      transform: rotate(-12deg);
+    }
+
+    .group-art img:nth-child(2) {
+      right: 25px;
+      bottom: -3px;
+      transform: rotate(4deg);
+    }
+
+    .group-art img:nth-child(3) {
+      right: 0;
+      bottom: -8px;
+      transform: rotate(12deg);
+    }
+
+    .group-empty-mark {
+      position: absolute;
+      right: 18px;
+      bottom: 18px;
+      display: grid;
+      place-items: center;
+      width: 52px;
+      aspect-ratio: 0.72;
+      border: 1px dashed rgba(86, 98, 90, 0.35);
+      border-radius: 3px;
+      color: rgba(86, 98, 90, 0.48);
+    }
+
+    .group-empty-mark .hm {
+      font-size: 20px;
+    }
+
+    .library-section {
+      margin-top: 34px;
+    }
+
+    .library-heading {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 14px;
+    }
+
+    .library-heading h2 {
+      overflow: hidden;
+      margin: 0;
+      font-size: 20px;
+      line-height: 1.35;
+      font-weight: 680;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .library-heading p {
+      margin: 5px 0 0;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .library-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 0 0 auto;
+    }
+
+    .sort-button {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      min-height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 0 9px;
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .sort-button .hm {
+      font-size: 15px;
+    }
+
+    .view-toggle {
+      display: flex;
+      align-items: center;
+      height: 36px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 2px;
+      background: var(--surface);
+    }
+
+    .view-toggle button {
+      display: grid;
+      place-items: center;
+      width: 31px;
+      height: 30px;
+      border: 0;
+      border-radius: 3px;
+      padding: 0;
+      background: transparent;
+      color: var(--muted);
+    }
+
+    .view-toggle button[aria-pressed="true"] {
+      background: rgb(234, 239, 247);
+      color: var(--brand);
+    }
+
+    .view-toggle .hm {
+      font-size: 18px;
+    }
+
+    .library-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .filter-tabs {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      min-width: 0;
+      overflow-x: auto;
+      scrollbar-width: none;
+    }
+
+    .filter-tabs::-webkit-scrollbar {
+      display: none;
+    }
+
+    .filter-tab {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      flex: 0 0 auto;
+      min-height: 34px;
+      border: 0;
+      border-radius: 18px;
+      padding: 0 12px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .filter-tab[aria-pressed="true"] {
+      background: var(--ink);
+      color: white;
+    }
+
+    .filter-tab small {
+      opacity: 0.68;
+      font-size: 10px;
+    }
+
+    .selection-toolbar {
+      display: none;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin: 0 0 14px;
+      border-left: 3px solid var(--brand);
+      padding: 8px 12px;
+      background: rgb(234, 239, 247);
+      color: var(--ink);
+      font-size: 12px;
+    }
+
+    .selection-toolbar.is-visible {
+      display: flex;
+    }
+
+    .selection-toolbar button {
+      min-height: 30px;
+      border: 0;
+      border-radius: 3px;
+      padding: 0 10px;
+      background: var(--brand);
+      color: white;
+      font-size: 11px;
+      font-weight: 600;
+    }
+
+    .books-grid {
+      display: grid;
+      grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 26px 18px;
+    }
+
+    .book-card {
+      position: relative;
+      display: grid;
+      min-width: 0;
+      align-content: start;
+      border-radius: 4px;
+      padding: 0 0 4px;
+      cursor: pointer;
+    }
+
+    .book-cover {
+      position: relative;
+      display: block;
+      width: 100%;
+      max-width: 174px;
+      aspect-ratio: 0.72;
+      overflow: hidden;
+      border-radius: 3px;
+      background: rgb(229, 231, 227);
+      box-shadow: 0 5px 12px rgba(30, 43, 36, 0.12);
+      transition: transform 150ms ease, box-shadow 150ms ease;
+    }
+
+    .book-card:hover .book-cover {
+      transform: translateY(-3px);
+      box-shadow: 0 9px 18px rgba(30, 43, 36, 0.16);
+    }
+
+    .book-cover img {
+      display: block;
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+
+    .cover-state {
+      position: absolute;
+      top: 7px;
+      left: 7px;
+      display: none;
+      align-items: center;
+      gap: 4px;
+      min-height: 22px;
+      border-radius: 2px;
+      padding: 0 6px;
+      background: rgba(28, 34, 33, 0.78);
+      color: white;
+      font-size: 9px;
+    }
+
+    .cover-state .hm {
+      font-size: 11px;
+    }
+
+    .book-progressing .cover-state,
+    .book-complete .cover-state {
+      display: inline-flex;
+    }
+
+    .book-select-mark {
+      position: absolute;
+      z-index: 2;
+      top: 8px;
+      right: 8px;
+      display: none;
+      place-items: center;
+      width: 22px;
+      height: 22px;
+      border: 1px solid rgba(255, 255, 255, 0.95);
+      border-radius: 50%;
+      background: rgba(25, 31, 30, 0.42);
+      color: white;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .is-selecting .book-select-mark {
+      display: grid;
+    }
+
+    .is-selected .book-select-mark {
+      border-color: var(--brand);
+      background: var(--brand);
+    }
+
+    .book-meta {
+      display: grid;
+      gap: 4px;
+      max-width: 174px;
+      padding-top: 9px;
+    }
+
+    .book-title {
+      display: -webkit-box;
+      overflow: hidden;
+      min-height: 36px;
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.38;
+      font-weight: 620;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
+    }
+
+    .book-author {
+      overflow: hidden;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.35;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .book-group-label {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      width: fit-content;
+      max-width: 100%;
+      overflow: hidden;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 10px;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .book-group-dot {
+      flex: 0 0 auto;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--book-color, var(--brand));
+    }
+
+    .book-progress-line {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin-top: 2px;
+    }
+
+    .book-progress-line .track {
+      flex: 1;
+      min-width: 0;
+      height: 3px;
+      overflow: hidden;
+      border-radius: 3px;
+      background: rgb(226, 230, 227);
+    }
+
+    .book-progress-line .track span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: var(--book-color, var(--brand));
+    }
+
+    .book-progress-line small {
+      color: var(--muted);
+      font-size: 9px;
+      white-space: nowrap;
+    }
+
+    .books-grid.is-list {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+
+    .books-grid.is-list .book-card {
+      grid-template-columns: 64px minmax(0, 1fr);
+      gap: 12px;
+      min-height: 90px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 12px;
+    }
+
+    .books-grid.is-list .book-cover {
+      width: 64px;
+      height: 88px;
+      max-width: none;
+      grid-row: span 2;
+    }
+
+    .books-grid.is-list .book-meta {
+      max-width: none;
+      padding-top: 2px;
+    }
+
+    .books-grid.is-list .book-title {
+      min-height: 0;
+      font-size: 14px;
+    }
+
+    .empty-state {
+      display: none;
+      padding: 36px 12px;
+      color: var(--muted);
+      font-size: 13px;
+      text-align: center;
+    }
+
+    .empty-state.is-visible {
+      display: block;
+    }
+
+    .cover-credit {
+      margin-top: 24px;
+      color: var(--muted);
+      font-size: 10px;
+      text-align: right;
+    }
+
+    .cover-credit a {
+      color: inherit;
+      text-decoration: underline;
+      text-decoration-color: rgba(104, 113, 110, 0.35);
+      text-underline-offset: 2px;
+    }
+
+    .mobile-bottomtab {
+      display: none;
+    }
+
+    .library-dialog {
+      width: min(520px, calc(100vw - 32px));
+      max-height: min(78vh, 720px);
+      overflow: auto;
+      border: 1px solid rgba(28, 34, 33, 0.08);
+      border-radius: 8px;
+      padding: 0;
+      background: var(--surface);
+      color: var(--ink);
+      box-shadow: 0 24px 80px rgba(18, 29, 24, 0.2);
+    }
+
+    .library-dialog::backdrop {
+      background: rgba(21, 29, 26, 0.3);
+      backdrop-filter: blur(4px);
+    }
+
+    .dialog-content {
+      display: grid;
+      gap: 16px;
+      padding: 22px;
+    }
+
+    .dialog-heading {
+      display: flex;
+      align-items: start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .dialog-heading h2 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.35;
+    }
+
+    .dialog-heading p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .dialog-close {
+      display: grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border: 0;
+      border-radius: 50%;
+      background: var(--harmony-comp-background-tertiary);
+      color: var(--muted);
+    }
+
+    .dialog-close .hm {
+      font-size: 17px;
+    }
+
+    .group-create {
+      display: flex;
+      gap: 8px;
+    }
+
+    .group-create input,
+    .move-select {
+      width: 100%;
+      min-width: 0;
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 0 11px;
+      background: var(--surface);
+      color: var(--ink);
+      font-size: 13px;
+    }
+
+    .dialog-primary {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 40px;
+      border: 0;
+      border-radius: 4px;
+      padding: 0 12px;
+      background: var(--brand);
+      color: white;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .dialog-primary .hm {
+      font-size: 15px;
+    }
+
+    .manage-list {
+      display: grid;
+      gap: 4px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    .manage-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 10px;
+      min-height: 62px;
+      border-top: 1px solid var(--line);
+      padding: 8px 0;
+    }
+
+    .manage-main {
+      display: grid;
+      grid-template-columns: 8px minmax(0, 1fr);
+      align-items: center;
+      gap: 9px;
+      min-width: 0;
+    }
+
+    .manage-main .group-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--group-color, var(--brand));
+    }
+
+    .manage-copy {
+      display: grid;
+      gap: 3px;
+      min-width: 0;
+    }
+
+    .manage-copy strong {
+      overflow: hidden;
+      font-size: 12px;
+      font-weight: 620;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .manage-copy small {
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .manage-actions {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+    }
+
+    .manage-actions button {
+      min-height: 30px;
+      border: 0;
+      border-radius: 3px;
+      padding: 0 6px;
+      background: transparent;
+      color: var(--muted);
+      font-size: 10px;
+    }
+
+    .manage-actions button:hover {
+      background: var(--harmony-comp-background-tertiary);
+      color: var(--ink);
+    }
+
+    .manage-actions button:disabled {
+      opacity: 0.35;
+      cursor: default;
+    }
+
+    .manage-visibility {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 10px;
+      white-space: nowrap;
+    }
+
+    .manage-visibility input {
+      width: 14px;
+      height: 14px;
+      accent-color: var(--brand);
+    }
+
+    .move-form {
+      display: grid;
+      gap: 16px;
+    }
+
+    .move-form label {
+      display: grid;
+      gap: 7px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .toast {
+      position: fixed;
+      z-index: 120;
+      bottom: 24px;
+      left: 50%;
+      max-width: calc(100vw - 32px);
+      transform: translate(-50%, 10px);
+      border-radius: 4px;
+      padding: 10px 14px;
+      background: rgba(29, 37, 34, 0.93);
+      color: white;
+      font-size: 12px;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 150ms ease, transform 150ms ease;
+    }
+
+    .toast.is-visible {
+      transform: translate(-50%, 0);
+      opacity: 1;
+    }
+
+    @media (max-width: 1120px) {
+      .group-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+
+      .books-grid {
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 820px) {
+      .desktop-header {
+        padding: 0 28px;
+      }
+
+      .page-content {
+        padding-right: 28px;
+        padding-left: 28px;
+      }
+
+      .group-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .books-grid {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 720px) {
+      body {
+        background: var(--page);
+      }
+
+      .app {
+        width: 100%;
+        box-shadow: none;
+      }
+
+      .desktop-header,
+      .desktop-page-heading {
+        display: none;
+      }
+
+      .mobile-titlebar {
+        position: fixed;
+        z-index: 10;
+        top: 0;
+        left: 50%;
+        display: block;
+        width: min(100%, 360px);
+        height: 124px;
+        transform: translateX(-50%);
+        pointer-events: none;
+      }
+
+      .mobile-titlebar::before {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(to bottom,
+          rgba(247, 249, 247, 0.98) 0%,
+          rgba(247, 249, 247, 0.96) 46%,
+          rgba(247, 249, 247, 0.78) 70%,
+          rgba(247, 249, 247, 0) 100%);
+        content: "";
+        -webkit-backdrop-filter: blur(12px) saturate(1.2);
+        backdrop-filter: blur(12px) saturate(1.2);
+        -webkit-mask-image: linear-gradient(to bottom, black 0%, black 50%, transparent 100%);
+        mask-image: linear-gradient(to bottom, black 0%, black 50%, transparent 100%);
+        pointer-events: none;
+      }
+
+      .harmony-statusbar {
+        position: relative;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        height: 36px;
+        padding: 8px 24px;
+        color: var(--harmony-font-primary);
+      }
+
+      .harmony-statusbar-time {
+        display: block;
+        width: 40px;
+        min-width: 40px;
+        font-size: 15px;
+        line-height: 20px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .harmony-statusbar-icons {
+        position: relative;
+        display: block;
+        flex: 0 0 auto;
+        width: 96px;
+        height: 13px;
+      }
+
+      .harmony-statusbar-icon {
+        position: absolute;
+        top: 0;
+        display: block;
+        height: 13px;
+        background-position: center;
+        background-repeat: no-repeat;
+        background-size: 100% 100%;
+      }
+
+      .harmony-statusbar-icon-wifi {
+        top: 0.796px;
+        left: 0.401px;
+        width: 15.344px;
+        height: 12.001px;
+        background-image: url("bookshelf-v2-assets/statusbar-wifi-light.png");
+      }
+
+      .harmony-statusbar-icon-single-card {
+        top: 0.797px;
+        left: 21.398px;
+        width: 21.5px;
+        height: 12px;
+        background-image: url("bookshelf-v2-assets/statusbar-single-card-light.png");
+      }
+
+      .harmony-statusbar-icon-dual-card {
+        top: 0.797px;
+        left: 47.398px;
+        width: 17.5px;
+        height: 12px;
+        background-image: url("bookshelf-v2-assets/statusbar-dual-card-light.png");
+      }
+
+      .harmony-statusbar-icon-battery {
+        top: 0;
+        left: 70.25px;
+        width: 25.75px;
+        height: 13px;
+        background-image: url("bookshelf-v2-assets/statusbar-battery-light.png");
+      }
+
+      .harmony-titlebar__content {
+        position: relative;
+        width: 100%;
+        height: 88px;
+        pointer-events: auto;
+      }
+
+      .harmony-titlebar__title {
+        position: absolute;
+        top: 21px;
+        left: 16px;
+        margin: 0;
+        font-size: 26px;
+        line-height: 35px;
+        font-weight: 700;
+      }
+
+      .harmony-titlebar__actions {
+        position: absolute;
+        top: 19px;
+        right: 16px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .harmony-titlebar__action-btn {
+        display: grid;
+        place-items: center;
+        width: 40px;
+        height: 40px;
+        border: 1px solid rgba(28, 34, 33, 0.06);
+        border-radius: 50%;
+        padding: 0;
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--ink);
+        pointer-events: auto;
+      }
+
+      .harmony-titlebar__action-btn .hm {
+        font-size: 21px;
+      }
+
+      .page-content {
+        width: min(100%, 360px);
+        margin: 0 auto;
+        padding: 96px 16px 120px;
+      }
+
+      .mobile-search {
+        position: relative;
+        z-index: 30;
+        display: flex;
+        width: 100%;
+        margin: 0 0 18px;
+      }
+
+      .mobile-search .search-field {
+        width: 100%;
+        background: rgba(255, 255, 255, 0.82);
+      }
+
+      .section {
+        margin-top: 22px;
+      }
+
+      .section-heading {
+        margin-bottom: 10px;
+      }
+
+      .section-heading h2 {
+        font-size: 16px;
+      }
+
+      .resume-band {
+        grid-template-columns: 76px minmax(0, 1fr);
+        gap: 12px;
+        min-height: 132px;
+        border-radius: 6px;
+        padding: 12px;
+      }
+
+      .resume-cover {
+        width: 76px;
+        border-radius: 2px;
+      }
+
+      .resume-copy {
+        gap: 5px;
+      }
+
+      .resume-kicker {
+        font-size: 9px;
+      }
+
+      .resume-title {
+        font-size: 16px;
+      }
+
+      .resume-author {
+        font-size: 10px;
+      }
+
+      .resume-meta {
+        gap: 6px;
+        margin-top: 2px;
+      }
+
+      .resume-progress {
+        width: min(100%, 150px);
+      }
+
+      .resume-meta small {
+        font-size: 9px;
+      }
+
+      .resume-continue {
+        min-height: 30px;
+        margin-top: 2px;
+        border: 0;
+        padding: 0;
+        background: transparent;
+        font-size: 10px;
+      }
+
+      .resume-continue:hover {
+        background: transparent;
+        color: var(--brand);
+      }
+
+      .group-section {
+        margin-top: 22px;
+      }
+
+      .group-grid {
+        display: flex;
+        gap: 10px;
+        overflow-x: auto;
+        margin-right: -16px;
+        padding: 1px 16px 5px 0;
+        scrollbar-width: none;
+      }
+
+      .group-grid::-webkit-scrollbar {
+        display: none;
+      }
+
+      .group-card {
+        flex: 0 0 178px;
+        height: 120px;
+        padding: 12px;
+      }
+
+      .group-card-header {
+        gap: 4px;
+      }
+
+      .group-card-header strong {
+        font-size: 12px;
+      }
+
+      .group-card-header small {
+        font-size: 9px;
+      }
+
+      .group-art {
+        right: 6px;
+        width: 104px;
+        height: 92px;
+      }
+
+      .group-art img {
+        width: 48px;
+      }
+
+      .group-art img:nth-child(1) {
+        right: 43px;
+      }
+
+      .group-art img:nth-child(2) {
+        right: 22px;
+      }
+
+      .group-art img:nth-child(3) {
+        right: 0;
+      }
+
+      .group-empty-mark {
+        right: 16px;
+        bottom: 14px;
+        width: 44px;
+      }
+
+      .library-section {
+        margin-top: 27px;
+      }
+
+      .library-heading {
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+      }
+
+      .library-heading h2 {
+        font-size: 18px;
+      }
+
+      .library-heading p {
+        font-size: 10px;
+      }
+
+      .library-controls {
+        gap: 5px;
+      }
+
+      .sort-button {
+        min-height: 32px;
+        gap: 4px;
+        padding: 0 7px;
+        font-size: 10px;
+      }
+
+      .view-toggle {
+        height: 32px;
+        padding: 1px;
+      }
+
+      .view-toggle button {
+        width: 28px;
+        height: 28px;
+      }
+
+      .library-toolbar {
+        gap: 6px;
+        margin-bottom: 15px;
+      }
+
+      .filter-tabs {
+        margin-right: -16px;
+        padding-right: 16px;
+      }
+
+      .filter-tab {
+        min-height: 32px;
+        gap: 4px;
+        padding: 0 10px;
+        font-size: 10px;
+      }
+
+      .filter-tab small {
+        font-size: 9px;
+      }
+
+      .books-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 22px 14px;
+      }
+
+      .book-cover {
+        max-width: none;
+      }
+
+      .book-meta {
+        max-width: none;
+        padding-top: 8px;
+      }
+
+      .book-title {
+        min-height: 35px;
+        font-size: 12px;
+      }
+
+      .book-author,
+      .book-group-label {
+        font-size: 9px;
+      }
+
+      .books-grid.is-list .book-card {
+        grid-template-columns: 64px minmax(0, 1fr);
+      }
+
+      .mobile-bottomtab {
+        position: fixed;
+        z-index: 100;
+        bottom: 0;
+        left: 50%;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: min(100%, 360px);
+        height: 100px;
+        transform: translateX(-50%);
+      }
+
+      .mobile-bottomtab::before {
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(to bottom, rgba(247, 249, 247, 0) 0%, rgba(247, 249, 247, 0.86) 38%, rgb(247, 249, 247) 100%);
+        content: "";
+        pointer-events: none;
+      }
+
+      .harmony-bottomtab__bar {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: min(328px, calc(100vw - 32px));
+        height: 56px;
+        margin-top: 4px;
+        border: 1px solid rgba(255, 255, 255, 0.76);
+        border-radius: 100px;
+        padding: 4px 12px;
+        background: rgba(255, 255, 255, 0.68);
+        box-shadow: 0 8px 48px rgba(0, 0, 0, 0.08), 0 4px 8px rgba(0, 0, 0, 0.08);
+        -webkit-backdrop-filter: blur(26px) saturate(1.2);
+        backdrop-filter: blur(26px) saturate(1.2);
+      }
+
+      .harmony-bottomtab__tabs {
+        display: flex;
+        align-items: center;
+        width: 100%;
+        height: 48px;
+      }
+
+      .harmony-bottomtab__tab {
+        display: grid;
+        place-items: center;
+        align-content: center;
+        flex: 1;
+        gap: 3px;
+        min-width: 0;
+        height: 48px;
+        border: 0;
+        border-radius: 8px;
+        padding: 0;
+        background: transparent;
+        color: rgba(0, 0, 0, 0.7);
+      }
+
+      .harmony-bottomtab__tab-icon {
+        display: grid;
+        place-items: center;
+        width: 24px;
+        height: 24px;
+        font-family: HMSymbol, sans-serif;
+        font-size: 22px;
+        line-height: 1;
+      }
+
+      .harmony-bottomtab__tab-label {
+        font-size: 10px;
+        line-height: 14px;
+        font-weight: 550;
+      }
+
+      .harmony-bottomtab__tab[aria-current="page"] {
+        color: var(--brand);
+      }
+
+      .harmony-bottomtab__indicator {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 100%;
+        height: 28px;
+      }
+
+      .harmony-bottomtab__indicator-bar {
+        width: 112px;
+        height: 5px;
+        border-radius: 2.5px;
+        background: rgba(0, 0, 0, 0.2);
+      }
+
+      .toast {
+        bottom: 112px;
+      }
+    }
+
+    @media (max-width: 360px) {
+      .page-content {
+        padding-right: 14px;
+        padding-left: 14px;
+      }
+
+      .mobile-search .search-field {
+        height: 38px;
+      }
+
+      .resume-band {
+        grid-template-columns: 70px minmax(0, 1fr);
+        gap: 10px;
+        padding: 10px;
+      }
+
+      .resume-cover {
+        width: 70px;
+      }
+
+      .section-heading h2 {
+        font-size: 15px;
+      }
+
+      .sort-button {
+        max-width: 92px;
+        overflow: hidden;
+        white-space: nowrap;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      *,
+      *::before,
+      *::after {
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="desktop-header">
+      <a class="desktop-brand" href="#" aria-label="简听阅读">
+        <img src="../../entry/src/main/resources/base/media/app_icon_legacy.png" alt="">
+        <strong>简听阅读</strong>
+      </a>
+      <nav class="desktop-nav" aria-label="主导航">
+        <button type="button">首页</button>
+        <button type="button" aria-current="page">书架</button>
+        <button type="button">阅读记录</button>
+      </nav>
+      <div class="header-actions">
+        <button type="button" class="icon-button" id="desktop-search-button" aria-label="搜索书籍" title="搜索书籍">
+          <span class="hm" aria-hidden="true">&#xF0029;</span>
+        </button>
+        <button type="button" class="text-action" id="desktop-organize-button">整理书籍</button>
+        <button type="button" class="text-action" data-open-groups>分组管理</button>
+      </div>
+    </header>
+
+    <header class="mobile-titlebar harmony-titlebar harmony-titlebar--normal" data-component="titlebar">
+      <section class="harmony-statusbar harmony-statusbar-light" data-component="statusbar" data-figma-node-id="36:3656" aria-label="系统状态栏">
+        <span class="harmony-statusbar-time">9:41</span>
+        <span class="harmony-statusbar-icons" aria-hidden="true">
+          <i class="harmony-statusbar-icon harmony-statusbar-icon-wifi"></i>
+          <i class="harmony-statusbar-icon harmony-statusbar-icon-single-card"></i>
+          <i class="harmony-statusbar-icon harmony-statusbar-icon-dual-card"></i>
+          <i class="harmony-statusbar-icon harmony-statusbar-icon-battery"></i>
+        </span>
+      </section>
+      <div class="harmony-titlebar__content">
+        <h1 class="harmony-titlebar__title">书架</h1>
+        <div class="harmony-titlebar__actions">
+          <button class="harmony-titlebar__action-btn" id="mobile-search-button" type="button" aria-label="搜索书籍" title="搜索书籍">
+            <span class="hm" aria-hidden="true">&#xF0029;</span>
+          </button>
+          <button class="harmony-titlebar__action-btn" id="mobile-organize-button" type="button" aria-label="整理书籍" title="整理书籍">
+            <span class="hm" aria-hidden="true">&#xF0570;</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <main class="page-content">
+      <header class="desktop-page-heading">
+        <div>
+          <h1>我的书架</h1>
+          <p><span id="desktop-book-total">6</span> 本藏书 <span aria-hidden="true">·</span> <span id="desktop-group-total">4</span> 个分组</p>
+        </div>
+        <label class="search-field" for="desktop-book-search">
+          <span class="hm" aria-hidden="true">&#xF0029;</span>
+          <input id="desktop-book-search" type="search" placeholder="搜索书名或作者" autocomplete="off">
+        </label>
+      </header>
+
+      <div class="mobile-search">
+        <label class="search-field" for="mobile-book-search">
+          <span class="hm" aria-hidden="true">&#xF0029;</span>
+          <input id="mobile-book-search" type="search" placeholder="搜索书名或作者" autocomplete="off">
+        </label>
+      </div>
+
+      <section class="section" aria-labelledby="continue-title">
+        <div class="section-heading">
+          <div class="section-heading-copy">
+            <h2 id="continue-title">继续阅读</h2>
+            <p>上次读到第 43 章</p>
+          </div>
+          <button class="section-link" id="resume-link" type="button">打开阅读器 <span class="hm" aria-hidden="true">&#xF0231;</span></button>
+        </div>
+        <div class="resume-band">
+          <button class="resume-cover" id="resume-cover-button" type="button" aria-label="继续阅读《活着》">
+            <img src="bookshelf-v2-assets/cover-alive.jpg" alt="《活着》封面">
+          </button>
+          <div class="resume-copy">
+            <span class="resume-kicker">正在阅读 · 电子书</span>
+            <h3 class="resume-title">活着</h3>
+            <p class="resume-author">余华 · 已读至第 43 章</p>
+            <div class="resume-meta">
+              <div class="resume-progress" aria-label="阅读进度 68%"><span></span></div>
+              <small>68%</small>
+            </div>
+            <button class="resume-continue" id="continue-button" type="button">
+              <span class="hm" aria-hidden="true">&#xF00B4;</span>
+              <span>继续阅读</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section class="group-section" aria-labelledby="groups-title">
+        <div class="section-heading">
+          <div class="section-heading-copy">
+            <h2 id="groups-title">收藏分组</h2>
+            <p id="group-count-label">4 个分组</p>
+          </div>
+          <button class="section-link" type="button" data-open-groups>
+            <span class="hm" aria-hidden="true">&#xF0035;</span>
+            <span>新建</span>
+          </button>
+        </div>
+        <div class="group-grid" id="group-grid" aria-label="书架分组"></div>
+      </section>
+
+      <section class="library-section" aria-labelledby="library-title">
+        <div class="library-heading">
+          <div>
+            <h2 id="library-title">全部藏书</h2>
+            <p id="library-count">6 本书</p>
+          </div>
+          <div class="library-controls">
+            <button class="sort-button" id="sort-button" type="button" aria-label="更改排序方式" title="更改排序方式">
+              <span class="hm" aria-hidden="true">&#xF0069;</span>
+              <span id="sort-label">最近加入</span>
+            </button>
+            <div class="view-toggle" role="group" aria-label="书籍视图">
+              <button type="button" id="view-grid" aria-label="封面视图" title="封面视图" aria-pressed="true">
+                <span class="hm" aria-hidden="true">&#xF0061;</span>
+              </button>
+              <button type="button" id="view-list" aria-label="清单视图" title="清单视图" aria-pressed="false">
+                <span class="hm" aria-hidden="true">&#xF0069;</span>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="library-toolbar">
+          <div class="filter-tabs" role="group" aria-label="书籍类型筛选">
+            <button class="filter-tab" type="button" data-filter="all" aria-pressed="true">全部 <small id="count-all">6</small></button>
+            <button class="filter-tab" type="button" data-filter="audio" aria-pressed="false">有声书 <small id="count-audio">2</small></button>
+            <button class="filter-tab" type="button" data-filter="text" aria-pressed="false">电子书 <small id="count-text">4</small></button>
+            <button class="filter-tab" type="button" data-filter="comic" aria-pressed="false">漫画 <small id="count-comic">0</small></button>
+          </div>
+        </div>
+        <div class="selection-toolbar" id="selection-toolbar">
+          <span id="selection-count">已选 0 本</span>
+          <button type="button" id="move-selected">移入分组</button>
+        </div>
+        <div class="books-grid" id="books-grid" aria-live="polite"></div>
+        <div class="empty-state" id="empty-state">当前分组暂无书籍</div>
+      </section>
+      <footer class="cover-credit"><a href="https://openlibrary.org" target="_blank" rel="noreferrer">封面样例来自 Open Library</a></footer>
+    </main>
+
+    <nav class="mobile-bottomtab harmony-bottomtab" data-component="bottomtab" data-variant="4" aria-label="底部导航">
+      <div class="harmony-bottomtab__bar harmony-bottomtab__bar--4">
+        <div class="harmony-bottomtab__tabs">
+          <button class="harmony-bottomtab__tab" type="button" aria-label="首页">
+            <span class="harmony-bottomtab__tab-icon" aria-hidden="true">&#xF0027;</span>
+            <span class="harmony-bottomtab__tab-label">首页</span>
+          </button>
+          <button class="harmony-bottomtab__tab" type="button" aria-current="page" aria-label="书架">
+            <span class="harmony-bottomtab__tab-icon" aria-hidden="true">&#xF07C9;</span>
+            <span class="harmony-bottomtab__tab-label">书架</span>
+          </button>
+          <button class="harmony-bottomtab__tab" type="button" aria-label="记录">
+            <span class="harmony-bottomtab__tab-icon" aria-hidden="true">&#xF03DD;</span>
+            <span class="harmony-bottomtab__tab-label">记录</span>
+          </button>
+          <button class="harmony-bottomtab__tab" type="button" aria-label="我的">
+            <span class="harmony-bottomtab__tab-icon" aria-hidden="true">&#xF05E5;</span>
+            <span class="harmony-bottomtab__tab-label">我的</span>
+          </button>
+        </div>
+      </div>
+      <div class="harmony-bottomtab__indicator" aria-hidden="true"><div class="harmony-bottomtab__indicator-bar"></div></div>
+    </nav>
+  </div>
+
+  <dialog class="library-dialog" id="group-dialog">
+    <div class="dialog-content">
+      <div class="dialog-heading">
+        <div>
+          <h2>分组管理</h2>
+          <p id="group-summary">4 个自定分组</p>
+        </div>
+        <button class="dialog-close" type="button" data-close-dialog aria-label="关闭">
+          <span class="hm" aria-hidden="true">&#xF00D3;</span>
+        </button>
+      </div>
+      <form class="group-create" id="group-create-form">
+        <input id="new-group-name" type="text" maxlength="18" placeholder="新分组名称" aria-label="新分组名称">
+        <button class="dialog-primary" type="submit"><span class="hm" aria-hidden="true">&#xF0035;</span><span>创建</span></button>
+      </form>
+      <ul class="manage-list" id="manage-list"></ul>
+    </div>
+  </dialog>
+
+  <dialog class="library-dialog" id="move-dialog">
+    <form class="dialog-content move-form" id="move-form">
+      <div class="dialog-heading">
+        <div>
+          <h2>移动书籍</h2>
+          <p id="move-summary">选择目标分组</p>
+        </div>
+        <button class="dialog-close" type="button" data-close-dialog aria-label="返回">
+          <span class="hm" aria-hidden="true">&#xF00D3;</span>
+        </button>
+      </div>
+      <label>目标分组
+        <select class="move-select" id="move-target"></select>
+      </label>
+      <button class="dialog-primary" type="submit">确认移动</button>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script>
+    const assetRoot = 'bookshelf-v2-assets/';
+    const groups = [
+      { name: '文学精选', color: 'var(--green)', tint: 'rgb(232, 241, 236)', visible: true },
+      { name: '科幻漫游', color: 'var(--sky)', tint: 'rgb(232, 238, 248)', visible: true },
+      { name: '睡前短读', color: 'var(--gold)', tint: 'rgb(248, 242, 223)', visible: true },
+      { name: '成长纪事', color: 'var(--plum)', tint: 'rgb(245, 235, 238)', visible: true }
+    ];
+
+    const books = [
+      { id: 'alive', title: '活着', author: '余华', group: '文学精选', type: 'text', progress: 68, cover: 'cover-alive.jpg' },
+      { id: 'three-body', title: '三体', author: '刘慈欣', group: '科幻漫游', type: 'audio', progress: 42, cover: 'cover-three-body.jpg' },
+      { id: 'century', title: '百年孤独', author: '加西亚·马尔克斯', group: '文学精选', type: 'text', progress: 0, cover: 'cover-century.jpg' },
+      { id: 'prince', title: '小王子', author: '安托万·德·圣埃克苏佩里', group: '睡前短读', type: 'text', progress: 100, cover: 'cover-prince.jpg' },
+      { id: 'bird', title: '你当像鸟飞往你的山', author: '塔拉·韦斯特弗', group: '成长纪事', type: 'text', progress: 22, cover: 'cover-bird.jpg' },
+      { id: 'siddhartha', title: '悉达多', author: '赫尔曼·黑塞', group: '成长纪事', type: 'audio', progress: 0, cover: 'cover-siddhartha.jpg' }
+    ];
+
+    const selectedBooks = new Set();
+    const groupColors = ['var(--green)', 'var(--sky)', 'var(--gold)', 'var(--plum)', 'var(--coral)'];
+    const groupTints = ['rgb(232, 241, 236)', 'rgb(232, 238, 248)', 'rgb(248, 242, 223)', 'rgb(245, 235, 238)', 'rgb(249, 235, 231)'];
+    const groupGrid = document.getElementById('group-grid');
+    const booksGrid = document.getElementById('books-grid');
+    const groupDialog = document.getElementById('group-dialog');
+    const moveDialog = document.getElementById('move-dialog');
+    const toast = document.getElementById('toast');
+    const sortLabels = ['最近加入', '阅读进度', '书名顺序'];
+    let activeGroup = '全部藏书';
+    let activeFilter = 'all';
+    let isSelecting = false;
+    let isList = false;
+    let sortIndex = 0;
+    let toastTimer = 0;
+
+    function countInGroup(name) {
+      if (name === '全部藏书') return books.length;
+      if (name === '未分组') return books.filter((book) => !book.group).length;
+      return books.filter((book) => book.group === name).length;
+    }
+
+    function groupBooks(name) {
+      if (name === '全部藏书') return books;
+      if (name === '未分组') return books.filter((book) => !book.group);
+      return books.filter((book) => book.group === name);
+    }
+
+    function getBookCover(book) {
+      return assetRoot + book.cover;
+    }
+
+    function colorForGroup(name) {
+      const group = groups.find((item) => item.name === name);
+      return group ? group.color : name === '未分组' ? 'rgb(120, 126, 116)' : 'rgb(67, 104, 155)';
+    }
+
+    function makeGroupCard(name, allBooks, options) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'group-card' + (options.className ? ' ' + options.className : '');
+      card.style.setProperty('--group-color', options.color);
+      card.style.setProperty('--group-tint', options.tint);
+      card.setAttribute('aria-pressed', String(activeGroup === name));
+      card.addEventListener('click', () => {
+        activeGroup = name;
+        selectedBooks.clear();
+        renderGroupCards();
+        renderBooks();
+      });
+
+      const head = document.createElement('span');
+      head.className = 'group-card-header';
+      const title = document.createElement('strong');
+      title.textContent = name;
+      const count = document.createElement('small');
+      count.textContent = countInGroup(name) + ' 本藏书';
+      const accent = document.createElement('span');
+      accent.className = 'group-card-accent';
+      head.append(title, count, accent);
+      card.append(head);
+
+      const art = document.createElement('span');
+      art.className = 'group-art';
+      allBooks.slice(0, 3).forEach((book) => {
+        const image = document.createElement('img');
+        image.src = getBookCover(book);
+        image.alt = '';
+        art.append(image);
+      });
+      if (allBooks.length === 0) {
+        const mark = document.createElement('span');
+        mark.className = 'group-empty-mark';
+        const glyph = document.createElement('span');
+        glyph.className = 'hm';
+        glyph.setAttribute('aria-hidden', 'true');
+        glyph.innerHTML = '&#xF00C5;';
+        mark.append(glyph);
+        art.append(mark);
+      }
+      card.append(art);
+      return card;
+    }
+
+    function renderGroupCards() {
+      groupGrid.replaceChildren();
+      const all = makeGroupCard('全部藏书', books, {
+        className: 'group-card--all',
+        color: 'rgb(67, 104, 155)',
+        tint: 'rgb(231, 238, 247)'
+      });
+      groupGrid.append(all);
+      groups.filter((group) => group.visible).forEach((group) => {
+        groupGrid.append(makeGroupCard(group.name, groupBooks(group.name), group));
+      });
+      groupGrid.append(makeGroupCard('未分组', groupBooks('未分组'), {
+        className: 'group-card--unassigned',
+        color: 'rgb(120, 126, 116)',
+        tint: 'rgb(241, 241, 237)'
+      }));
+      document.getElementById('group-count-label').textContent = groups.length + ' 个分组';
+      document.getElementById('desktop-group-total').textContent = String(groups.length);
+    }
+
+    function makeBookCard(book) {
+      const card = document.createElement('article');
+      card.className = 'book-card' + (selectedBooks.has(book.id) ? ' is-selected' : '');
+      if (book.progress > 0 && book.progress < 100) card.classList.add('book-progressing');
+      if (book.progress === 100) card.classList.add('book-complete');
+      card.dataset.bookId = book.id;
+      card.tabIndex = 0;
+      card.setAttribute('role', 'button');
+      card.setAttribute('aria-pressed', String(selectedBooks.has(book.id)));
+
+      const cover = document.createElement('span');
+      cover.className = 'book-cover';
+      const image = document.createElement('img');
+      image.src = getBookCover(book);
+      image.alt = book.title + '封面';
+      const state = document.createElement('span');
+      state.className = 'cover-state';
+      state.textContent = book.progress === 100 ? '已读完' : '在读';
+      const mark = document.createElement('span');
+      mark.className = 'book-select-mark';
+      mark.textContent = selectedBooks.has(book.id) ? '✓' : '';
+      mark.setAttribute('aria-hidden', 'true');
+      cover.append(image, state, mark);
+
+      const meta = document.createElement('span');
+      meta.className = 'book-meta';
+      const title = document.createElement('strong');
+      title.className = 'book-title';
+      title.textContent = book.title;
+      const author = document.createElement('span');
+      author.className = 'book-author';
+      author.textContent = book.author;
+      const groupLabel = document.createElement('span');
+      groupLabel.className = 'book-group-label';
+      const dot = document.createElement('span');
+      dot.className = 'book-group-dot';
+      dot.style.setProperty('--book-color', colorForGroup(book.group));
+      const groupName = document.createElement('span');
+      groupName.textContent = book.group || '未分组';
+      groupLabel.append(dot, groupName);
+      meta.append(title, author, groupLabel);
+
+      if (book.progress > 0 && book.progress < 100) {
+        const progress = document.createElement('span');
+        progress.className = 'book-progress-line';
+        const track = document.createElement('span');
+        track.className = 'track';
+        const fill = document.createElement('span');
+        fill.style.width = book.progress + '%';
+        fill.style.background = colorForGroup(book.group);
+        track.append(fill);
+        const value = document.createElement('small');
+        value.textContent = book.progress + '%';
+        progress.append(track, value);
+        meta.append(progress);
+      }
+
+      card.append(cover, meta);
+      card.addEventListener('click', () => {
+        if (isSelecting) {
+          if (selectedBooks.has(book.id)) selectedBooks.delete(book.id);
+          else selectedBooks.add(book.id);
+          renderBooks();
+          return;
+        }
+        showToast('打开《' + book.title + '》');
+      });
+      card.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          card.click();
+        }
+      });
+      return card;
+    }
+
+    function readSearchValue() {
+      const mobile = document.getElementById('mobile-book-search');
+      const desktop = document.getElementById('desktop-book-search');
+      return (window.matchMedia('(max-width: 720px)').matches ? mobile.value : desktop.value).trim().toLowerCase();
+    }
+
+    function renderBooks() {
+      const query = readSearchValue();
+      let visibleBooks = groupBooks(activeGroup).filter((book) => {
+        const matchesType = activeFilter === 'all' || book.type === activeFilter;
+        const matchesQuery = !query || (book.title + ' ' + book.author).toLowerCase().includes(query);
+        return matchesType && matchesQuery;
+      });
+      if (sortIndex === 1) visibleBooks = visibleBooks.slice().sort((left, right) => right.progress - left.progress);
+      if (sortIndex === 2) visibleBooks = visibleBooks.slice().sort((left, right) => left.title.localeCompare(right.title, 'zh-CN'));
+
+      booksGrid.replaceChildren(...visibleBooks.map(makeBookCard));
+      booksGrid.classList.toggle('is-list', isList);
+      booksGrid.classList.toggle('is-selecting', isSelecting);
+      document.getElementById('library-title').textContent = activeGroup;
+      document.getElementById('library-count').textContent = visibleBooks.length + ' 本书';
+      document.getElementById('selection-toolbar').classList.toggle('is-visible', isSelecting);
+      document.getElementById('selection-count').textContent = '已选 ' + selectedBooks.size + ' 本';
+      document.getElementById('move-selected').disabled = selectedBooks.size === 0;
+      document.getElementById('empty-state').classList.toggle('is-visible', visibleBooks.length === 0);
+      document.getElementById('desktop-book-total').textContent = String(books.length);
+      document.getElementById('count-all').textContent = String(groupBooks(activeGroup).length);
+      document.getElementById('count-audio').textContent = String(groupBooks(activeGroup).filter((book) => book.type === 'audio').length);
+      document.getElementById('count-text').textContent = String(groupBooks(activeGroup).filter((book) => book.type === 'text').length);
+      document.getElementById('count-comic').textContent = String(groupBooks(activeGroup).filter((book) => book.type === 'comic').length);
+      renderGroupCards();
+    }
+
+    function renderManager() {
+      const list = document.getElementById('manage-list');
+      document.getElementById('group-summary').textContent = groups.length + ' 个自定分组';
+      list.replaceChildren();
+      groups.forEach((group, index) => {
+        const row = document.createElement('li');
+        row.className = 'manage-row';
+        const main = document.createElement('div');
+        main.className = 'manage-main';
+        main.style.setProperty('--group-color', group.color);
+        const dot = document.createElement('span');
+        dot.className = 'group-dot';
+        const copy = document.createElement('span');
+        copy.className = 'manage-copy';
+        const name = document.createElement('strong');
+        name.textContent = group.name;
+        const count = document.createElement('small');
+        count.textContent = countInGroup(group.name) + ' 本藏书';
+        copy.append(name, count);
+        main.append(dot, copy);
+
+        const actions = document.createElement('div');
+        actions.className = 'manage-actions';
+        const visibilityLabel = document.createElement('label');
+        visibilityLabel.className = 'manage-visibility';
+        const visibility = document.createElement('input');
+        visibility.type = 'checkbox';
+        visibility.checked = group.visible;
+        visibility.setAttribute('aria-label', '显示分组 ' + group.name);
+        visibility.addEventListener('change', () => {
+          group.visible = visibility.checked;
+          if (!group.visible && activeGroup === group.name) activeGroup = '全部藏书';
+          renderManager();
+          renderBooks();
+        });
+        visibilityLabel.append(visibility, document.createTextNode('显示'));
+
+        const up = document.createElement('button');
+        up.type = 'button';
+        up.textContent = '上移';
+        up.disabled = index === 0;
+        up.addEventListener('click', () => reorderGroup(index, -1));
+        const down = document.createElement('button');
+        down.type = 'button';
+        down.textContent = '下移';
+        down.disabled = index === groups.length - 1;
+        down.addEventListener('click', () => reorderGroup(index, 1));
+        const rename = document.createElement('button');
+        rename.type = 'button';
+        rename.textContent = '改名';
+        rename.addEventListener('click', () => renameGroup(group));
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.textContent = '删除';
+        remove.addEventListener('click', () => deleteGroup(index));
+        actions.append(visibilityLabel, up, down, rename, remove);
+        row.append(main, actions);
+        list.append(row);
+      });
+    }
+
+    function reorderGroup(index, direction) {
+      const target = index + direction;
+      if (target < 0 || target >= groups.length) return;
+      const current = groups.splice(index, 1)[0];
+      groups.splice(target, 0, current);
+      renderManager();
+      renderGroupCards();
+    }
+
+    function renameGroup(group) {
+      const nextName = window.prompt('分组名称', group.name);
+      if (!nextName || !nextName.trim()) return;
+      const value = nextName.trim();
+      if (groups.some((item) => item !== group && item.name === value)) {
+        showToast('分组名称已在使用');
+        return;
+      }
+      const previous = group.name;
+      group.name = value;
+      books.forEach((book) => { if (book.group === previous) book.group = value; });
+      if (activeGroup === previous) activeGroup = value;
+      renderManager();
+      renderBooks();
+    }
+
+    function deleteGroup(index) {
+      const group = groups[index];
+      if (!window.confirm('删除分组“' + group.name + '”，并将书籍移入未分组？')) return;
+      books.forEach((book) => { if (book.group === group.name) book.group = ''; });
+      groups.splice(index, 1);
+      if (activeGroup === group.name) activeGroup = '全部藏书';
+      renderManager();
+      renderBooks();
+      showToast('分组已删除');
+    }
+
+    function openGroupManager() {
+      renderManager();
+      groupDialog.showModal();
+    }
+
+    function openMoveDialog() {
+      const select = document.getElementById('move-target');
+      select.replaceChildren();
+      [...groups.map((group) => group.name), '未分组'].forEach((name) => {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        select.append(option);
+      });
+      document.getElementById('move-summary').textContent = '已选 ' + selectedBooks.size + ' 本书';
+      moveDialog.showModal();
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add('is-visible');
+      window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => toast.classList.remove('is-visible'), 1700);
+    }
+
+    function setOrganizing(value) {
+      isSelecting = value;
+      selectedBooks.clear();
+      const desktopButton = document.getElementById('desktop-organize-button');
+      const mobileButton = document.getElementById('mobile-organize-button');
+      desktopButton.textContent = isSelecting ? '完成整理' : '整理书籍';
+      mobileButton.querySelector('.hm').innerHTML = isSelecting ? '&#xF0013;' : '&#xF0570;';
+      mobileButton.setAttribute('aria-label', isSelecting ? '完成整理' : '整理书籍');
+      mobileButton.title = isSelecting ? '完成整理' : '整理书籍';
+      renderBooks();
+    }
+
+    function setView(list) {
+      isList = list;
+      document.getElementById('view-grid').setAttribute('aria-pressed', String(!list));
+      document.getElementById('view-list').setAttribute('aria-pressed', String(list));
+      renderBooks();
+    }
+
+    document.querySelectorAll('[data-open-groups]').forEach((button) => button.addEventListener('click', openGroupManager));
+    document.querySelectorAll('[data-close-dialog]').forEach((button) => button.addEventListener('click', () => button.closest('dialog').close()));
+    document.getElementById('desktop-search-button').addEventListener('click', () => document.getElementById('desktop-book-search').focus());
+    document.getElementById('mobile-search-button').addEventListener('click', () => document.getElementById('mobile-book-search').focus());
+    document.getElementById('desktop-organize-button').addEventListener('click', () => setOrganizing(!isSelecting));
+    document.getElementById('mobile-organize-button').addEventListener('click', () => setOrganizing(!isSelecting));
+    document.getElementById('desktop-book-search').addEventListener('input', renderBooks);
+    document.getElementById('mobile-book-search').addEventListener('input', renderBooks);
+    document.getElementById('continue-button').addEventListener('click', () => showToast('继续阅读《活着》'));
+    document.getElementById('resume-link').addEventListener('click', () => showToast('打开《活着》'));
+    document.getElementById('resume-cover-button').addEventListener('click', () => showToast('打开《活着》'));
+    document.getElementById('sort-button').addEventListener('click', () => {
+      sortIndex = (sortIndex + 1) % sortLabels.length;
+      document.getElementById('sort-label').textContent = sortLabels[sortIndex];
+      renderBooks();
+    });
+    document.getElementById('view-grid').addEventListener('click', () => setView(false));
+    document.getElementById('view-list').addEventListener('click', () => setView(true));
+    document.querySelectorAll('.filter-tab').forEach((button) => button.addEventListener('click', () => {
+      activeFilter = button.dataset.filter || 'all';
+      document.querySelectorAll('.filter-tab').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+      renderBooks();
+    }));
+    document.getElementById('move-selected').addEventListener('click', openMoveDialog);
+
+    document.getElementById('group-create-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const input = document.getElementById('new-group-name');
+      const name = input.value.trim();
+      if (!name) {
+        input.focus();
+        return;
+      }
+      if (name === '全部藏书' || name === '未分组' || groups.some((group) => group.name === name)) {
+        showToast('分组名称已在使用');
+        return;
+      }
+      const colorIndex = groups.length % groupColors.length;
+      groups.push({ name, color: groupColors[colorIndex], tint: groupTints[colorIndex], visible: true });
+      activeGroup = name;
+      input.value = '';
+      renderManager();
+      renderBooks();
+      showToast('已创建分组：' + name);
+    });
+
+    document.getElementById('move-form').addEventListener('submit', (event) => {
+      event.preventDefault();
+      const target = document.getElementById('move-target').value;
+      const group = target === '未分组' ? '' : target;
+      selectedBooks.forEach((id) => {
+        const book = books.find((item) => item.id === id);
+        if (book) book.group = group;
+      });
+      const moved = selectedBooks.size;
+      selectedBooks.clear();
+      setOrganizing(false);
+      moveDialog.close();
+      renderBooks();
+      showToast('已移动 ' + moved + ' 本');
+    });
+
+    renderGroupCards();
+    renderBooks();
+  </script>
+</body>
+</html>

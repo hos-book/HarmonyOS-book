@@ -102,6 +102,7 @@ export class TextToSpeechService {
   private chapterContent: string = '';
   private textDocument: ReaderTextDocument | null = null;
   private segmentIndex: number = 0;
+  private chapterTitlePending: boolean = false;
   private readingPageBookId: string = '';
   private readingPageChapter: number = -1;
   private readingPageEnds: number[] = [];
@@ -977,6 +978,7 @@ export class TextToSpeechService {
     this.state.loading = true;
     this.state.chapterIndex = index;
     this.state.chapterTitle = book.chapters[index].title;
+    this.chapterTitlePending = offset === 0;
     this.state.charOffset = offset;
     this.state.playbackOffset = offset;
     this.state.contentLength = 0;
@@ -1008,9 +1010,12 @@ export class TextToSpeechService {
         if (!this.valid(ticket)) return;
       }
       this.rebuildSpeechSegments();
-      if (this.segments.length === 0 && content.trim().length === 0) throw new Error('Empty chapter');
+      const hasBodySegment = this.segments.some((segment: SpeechSegment): boolean =>
+        !this.isChapterTitleSegment(segment));
+      if (!hasBodySegment && content.trim().length === 0) throw new Error('Empty chapter');
       this.state.contentLength = content.length;
-      this.segmentIndex = SpeechTextSegmenter.indexAt(this.segments, this.state.charOffset);
+      this.segmentIndex = this.chapterTitlePending && this.isChapterTitleSegment(this.segments[0]) ? 0 :
+        SpeechTextSegmenter.indexAt(this.segments, this.state.charOffset);
       if (nextSpeech !== null && !nextSpeech.cancelled &&
         this.matchNextChapterSpeech(book, index) === nextSpeech && this.segmentIndex === 0) {
         nextSpeech.tasks.forEach((task: HttpTtsPlayer, part: number): void => {
@@ -1078,11 +1083,7 @@ export class TextToSpeechService {
       return;
     }
     const segment = this.segments[this.segmentIndex];
-    if (this.roles.enabled && !this.roles.readyAt(segment.start + segment.leadingWhitespace)) {
-      this.state.loading = true; this.notify();
-      await this.roles.ensureAt(segment.start + segment.leadingWhitespace, this.state.customTtsConfigs, this.state.customTtsId);
-      if (!this.valid(ticket) || segment !== this.segments[this.segmentIndex]) return;
-    }
+    const chapterTitleSegment = this.isChapterTitleSegment(segment);
     const voiceId = this.segmentVoiceId(segment);
     if (!voiceId && this.engine === null) {
       try { await this.ensureEngine(ticket); }
@@ -1114,7 +1115,7 @@ export class TextToSpeechService {
         this.requestId = this.nextSystemId;
         this.playPreparedSystemSpeech(this.requestId, ticket);
       } else this.engine?.speak(segment.text, params);
-      this.prefetchRoles(ticket, segment.end);
+      if (!chapterTitleSegment) this.prefetchRoles(ticket, segment.end);
     } catch (error) {
       this.fail(error instanceof Error ? error : new Error(String(error)));
     }
@@ -1197,7 +1198,7 @@ export class TextToSpeechService {
         this.recordSpokenTime();
         this.requestId = '';
         this.clearWatchdog();
-        this.segmentIndex++;
+        this.advanceSpeechSegment();
         this.speakNext(ticket);
       } catch (error) {
         if (this.valid(ticket) && id === this.requestId) this.fail(new Error(String(error)));
@@ -1223,7 +1224,7 @@ export class TextToSpeechService {
   private followSpeechProgress(position: number, duration: number): void {
     if (!Number.isFinite(position) || !Number.isFinite(duration) || duration <= 0 || position < 0) return;
     const segment = this.segments[this.segmentIndex];
-    if (!segment) return;
+    if (!segment || this.isChapterTitleSegment(segment)) return;
     // 合成接口没有逐字时间戳。仅用真实播放进度估算页界，不切音频、不逐字刷新 UI。
     const readStart = segment.start + segment.leadingWhitespace;
     const offset = Math.min(segment.end - 1,
@@ -1260,14 +1261,48 @@ export class TextToSpeechService {
   }
 
   private rebuildSpeechSegments(): void {
+    const activeSegment = this.segments[this.segmentIndex];
+    const resumeChapterTitle = this.chapterTitlePending && this.state.charOffset === 0 &&
+      (this.segments.length === 0 || this.isChapterTitleSegment(activeSegment));
+    if (this.chapterTitlePending && this.state.charOffset > 0) this.chapterTitlePending = false;
     const pageEnds: number[] = [];
     // 手动从新页起读仍按指定页首切入；自然播放的后续页界不拆词。
     if (this.state.charOffset > 0) {
       pageEnds.push(this.state.charOffset);
     }
-    this.segments = SpeechTextSegmenter.batches(this.chapterContent, this.state.synthesis,
-      this.customBatching(), pageEnds, this.roles.boundaries());
-    this.segmentIndex = SpeechTextSegmenter.indexAt(this.segments, this.state.charOffset);
+    this.segments = this.chapterSpeechSegments(this.chapterContent, this.state.chapterTitle, this.state.synthesis,
+      this.customBatching(), pageEnds, this.roles.boundaries(), this.chapterTitlePending);
+    if (!this.segments.some((segment: SpeechSegment): boolean => this.isChapterTitleSegment(segment))) {
+      this.chapterTitlePending = false;
+    }
+    this.segmentIndex = resumeChapterTitle && this.chapterTitlePending ? 0 :
+      SpeechTextSegmenter.indexAt(this.segments, this.state.charOffset);
+  }
+
+  private chapterSpeechSegments(content: string, title: string, settings: SpeechSynthesisSettings, custom: boolean,
+    pageEnds: number[] = [], roleBoundaries: number[] = [], includeTitle: boolean = true): SpeechSegment[] {
+    const bodySegments = SpeechTextSegmenter.batches(content, settings, custom, pageEnds, roleBoundaries);
+    if (!includeTitle || title.trim().length === 0) return bodySegments;
+    const titleSegments = SpeechTextSegmenter.batches(title, settings, custom);
+    for (const segment of titleSegments) {
+      segment.start = 0;
+      segment.end = 0;
+      segment.leadingWhitespace = 0;
+    }
+    return titleSegments.concat(bodySegments);
+  }
+
+  private isChapterTitleSegment(segment: SpeechSegment | undefined): boolean {
+    return segment !== undefined && segment.start === 0 && segment.end === 0;
+  }
+
+  private advanceSpeechSegment(): void {
+    const segment = this.segments[this.segmentIndex];
+    const next = this.segments[this.segmentIndex + 1];
+    if (this.chapterTitlePending && this.isChapterTitleSegment(segment) && !this.isChapterTitleSegment(next)) {
+      this.chapterTitlePending = false;
+    }
+    this.segmentIndex++;
   }
 
   setReadingPageEnds(bookId: string, chapterIndex: number, offsets: number[]): void {
@@ -1281,6 +1316,7 @@ export class TextToSpeechService {
   }
 
   private segmentVoiceId(segment: SpeechSegment): string {
+    if (this.isChapterTitleSegment(segment)) return this.state.customTtsId;
     const requested = this.roles.voiceAt(segment.start + segment.leadingWhitespace);
     if (requested && (this.unavailableVoices.get(requested) ?? 0) <= Date.now() &&
       this.state.customTtsConfigs.some((item: CustomTtsConfig): boolean => item.id === requested && item.enabled)) return requested;
@@ -1289,7 +1325,7 @@ export class TextToSpeechService {
 
   private prefetchRoles(ticket: number, offset: number): void {
     if (!this.roles.enabled) return;
-    this.roles.prefetch(offset, this.state.customTtsConfigs, this.state.customTtsId).then((): void => {
+    this.roles.prefetch(offset).then((): void => {
       if (!this.valid(ticket) || !this.requestId) return;
       this.prefetchHttp(null, ticket, this.state.playing && !this.state.loading);
       if (!this.segmentVoiceId(this.segments[this.segmentIndex])) this.prefetchSystemPage();
@@ -1331,7 +1367,7 @@ export class TextToSpeechService {
     const speed = this.state.speed;
     for (let index = this.segmentIndex; index < end; index++) {
       const segment = this.segments[index];
-      if (!this.roles.readyAt(segment.start + segment.leadingWhitespace)) continue;
+      if (!this.isChapterTitleSegment(segment) && !this.roles.readyAt(segment.start + segment.leadingWhitespace)) continue;
       // 配音确认只改变后续片段；预取回调不能取消当前已经消费的音频。
       if (index === this.segmentIndex && this.httpPlayer !== null && this.httpTasks.get(index) === this.httpPlayer) continue;
       const voiceId = this.segmentVoiceId(segment);
@@ -1404,7 +1440,7 @@ export class TextToSpeechService {
         if (slot.cancelled) return;
         const document = await ReaderToolsService.render(context, book.id, raw);
         if (slot.cancelled) return;
-        slot.segments = SpeechTextSegmenter.batches(document.content, settings, true);
+        slot.segments = this.chapterSpeechSegments(document.content, book.chapters[index].title, settings, true);
         slot.raw = raw;
         this.fillNextChapterSpeech(slot, config);
       } catch (_error) { /* 下一章失败不打断当前音频；到章时再按普通路径加载。 */ }
@@ -1482,7 +1518,7 @@ export class TextToSpeechService {
         this.clearWatchdog();
         this.httpTasks.delete(index);
         this.httpTaskVoices.delete(index);
-        this.segmentIndex++;
+        this.advanceSpeechSegment();
         this.speakNext(ticket);
       } catch (error) {
         if (this.valid(ticket) && id === this.requestId) {
@@ -1526,7 +1562,7 @@ export class TextToSpeechService {
 
   private highlightParagraph(): void {
     const segment = this.segments[this.segmentIndex];
-    if (!segment) return;
+    if (!segment || this.isChapterTitleSegment(segment)) return;
     const offset = Math.max(segment.start + segment.leadingWhitespace, this.state.playbackOffset);
     const start = this.chapterContent.lastIndexOf('\n', Math.max(0, offset - 1)) + 1;
     const end = this.chapterContent.indexOf('\n', offset);
