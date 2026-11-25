@@ -381,6 +381,14 @@
       "value": "已切换为漫画，请返回书架重新打开。"
     },
     {
+      "name": "theme_bundle_apricot_name",
+      "value": "杏笺书斋"
+    },
+    {
+      "name": "theme_bundle_apricot_description",
+      "value": "浅杏宣纸、疏枝淡山与朱砂小印，配以古籍题签和柔金细线，留一方温润书斋。"
+    },
+    {
       "name": "theme_bundle_mist_name",
       "value": "雾蓝"
     },
@@ -406,7 +414,7 @@
     },
     {
       "name": "theme_bundle_hint",
-      "value": "默认主题免费，其他主题套装为 VIP 专享，可免费预览。应用套装会恢复推荐主题色与材质，并切换默认封面、套装背景和首页图标；已有书封及单独设置的 App 背景会保留。"
+      "value": "默认主题免费，其他主题套装为 VIP 专享，可免费预览。应用套装会采用推荐主题色，并切换默认封面、套装背景和首页图标；材质效果保留用户当前选择，已有书封及单独设置的 App 背景继续保留。"
     },
     {
       "name": "theme_bundle_apply",
@@ -434,11 +442,11 @@
     },
     {
       "name": "theme_bundle_reset_overrides",
-      "value": "恢复套装推荐外观"
+      "value": "恢复套装推荐主题色"
     },
     {
       "name": "theme_bundle_customized",
-      "value": "已自定义主题色或材质"
+      "value": "已自定义主题色"
     },
     {
       "name": "theme_bundle_preview_label",
@@ -6261,12 +6269,24 @@
       "value": "音频共存"
     },
     {
-      "name": "settings_audio_coexistence_desc",
-      "value": "有声书与朗读语音尽量和其他应用音频同时播放"
+      "name": "settings_audio_mode_title",
+      "value": "音频模式"
     },
     {
-      "name": "settings_audio_coexistence_apply_failed",
+      "name": "settings_audio_mode_apply_failed",
       "value": "设置已保存，当前播放策略更新失败"
+    },
+    {
+      "name": "settings_audio_auto_resume_title",
+      "value": "暂停自动恢复"
+    },
+    {
+      "name": "settings_audio_mode_desc",
+      "value": "默认：按系统规则暂停后手动继续。\n音频共存：尽量与其他应用音频同时播放。\n暂停自动恢复：临时失焦暂停后，获焦自动继续。"
+    },
+    {
+      "name": "settings_audio_mode_default",
+      "value": "默认"
     },
     {
       "name": "comic_type",
@@ -8466,7 +8486,7 @@
     },
     {
       "name": "role_speech_title",
-      "value": "多角色朗读"
+      "value": "AI 多角色朗读"
     },
     {
       "name": "role_speech_experimental",
@@ -8478,59 +8498,11 @@
     },
     {
       "name": "role_speech_enable",
-      "value": "启用多角色朗读"
+      "value": "启用 AI 多角色朗读"
     },
     {
       "name": "role_speech_hint",
-      "value": "在手机上识别对白，按角色切换音色"
-    },
-    {
-      "name": "role_model_title",
-      "value": "本地分角模型"
-    },
-    {
-      "name": "role_model_empty",
-      "value": "尚未导入模型"
-    },
-    {
-      "name": "role_model_empty_hint",
-      "value": "角色模型单独导入，音色沿用现有朗读设置"
-    },
-    {
-      "name": "role_model_size",
-      "value": "%d MB · 本地模型"
-    },
-    {
-      "name": "role_model_import",
-      "value": "导入通用角色模型"
-    },
-    {
-      "name": "role_model_replace",
-      "value": "替换模型"
-    },
-    {
-      "name": "role_model_remove",
-      "value": "删除本地模型"
-    },
-    {
-      "name": "role_model_remove_hint",
-      "value": "删除后关闭多角色朗读，并释放模型占用的空间。本书音色绑定会保留。"
-    },
-    {
-      "name": "role_model_copying",
-      "value": "正在导入 %d%"
-    },
-    {
-      "name": "role_model_verifying",
-      "value": "正在验证模型，请稍候…"
-    },
-    {
-      "name": "role_model_imported",
-      "value": "模型导入成功，已启用多角色朗读"
-    },
-    {
-      "name": "role_model_help",
-      "value": "导入一份通用 CSI .ms 模型即可。应用按设备能力优先使用 NPU，CPU 承接其余计算；加速加载或推理失败时自动切换 CPU。手机、平板与电脑使用同一模型，人物音色与阅读位置继续保留。"
+      "value": "AI 识别人物对白，按角色切换音色"
     },
     {
       "name": "role_model_download_link",
@@ -8539,58 +8511,6 @@
     {
       "name": "role_model_link_copied",
       "value": "源权重地址已复制"
-    },
-    {
-      "name": "role_model_size_error",
-      "value": "请选择配套 CSI 模型，文件大小须在 1.75 GB 以内。"
-    },
-    {
-      "name": "role_model_space_error",
-      "value": "请先释放存储空间，再导入角色模型。"
-    },
-    {
-      "name": "role_model_memory_error",
-      "value": "请释放运行内存，再加载角色模型。"
-    },
-    {
-      "name": "role_model_timeout_error",
-      "value": "模型处理超时，本章暂用默认音色，可稍后重新识别。"
-    },
-    {
-      "name": "role_model_unsupported_error",
-      "value": "请选择配套 CSI 通用 .ms 模型。"
-    },
-    {
-      "name": "role_model_invalid_error",
-      "value": "模型解析失败，请重新选择配套 CSI .ms 文件。"
-    },
-    {
-      "name": "role_model_load_error",
-      "value": "角色模型加载或推理失败，请重新导入配套通用 .ms 模型。待识别对白继续使用默认音色。"
-    },
-    {
-      "name": "role_model_npu_error",
-      "value": "当前采用 CPU 执行角色识别。"
-    },
-    {
-      "name": "role_model_npu_build_error",
-      "value": "加速加载已转为 CPU 执行。"
-    },
-    {
-      "name": "role_model_backend_auto",
-      "value": "自动调度：NPU 优先，CPU 接续"
-    },
-    {
-      "name": "role_model_backend_npu",
-      "value": "运行方式：NPU 优先，CPU 协同"
-    },
-    {
-      "name": "role_model_backend_cpu",
-      "value": "运行方式：CPU"
-    },
-    {
-      "name": "role_model_tokenizer_error",
-      "value": "词表资源缺失或格式异常，请更新应用资源。"
     },
     {
       "name": "role_save_error",
@@ -8606,7 +8526,7 @@
     },
     {
       "name": "role_book_hint",
-      "value": "角色会随朗读逐步出现，自动从已启用的本地或网络音色中分配，也可点击修改。绑定按书保存，首次识别需要等待；无法确认的对白使用默认对白音色。使用本地音色时，角色识别与发声均在本机执行。"
+      "value": "AI 随朗读识别人物，并根据人物特征与音色资料匹配声音，也可手动选择或重新配音。人物音色按书保存。识别使用已保存的 AI 配置，并向该服务发送当前对白、前后文和选声资料；发声沿用现有朗读设置。"
     },
     {
       "name": "role_narrator",
@@ -8622,7 +8542,7 @@
     },
     {
       "name": "role_voice_unavailable",
-      "value": "音色不可用，暂随当前朗读音色"
+      "value": "音色待启用，暂随当前朗读音色"
     },
     {
       "name": "role_voice_search",
@@ -8638,7 +8558,7 @@
     },
     {
       "name": "role_analysing",
-      "value": "正在识别后续对白…"
+      "value": "AI 正在识别人物对白…"
     },
     {
       "name": "role_retry_chapter",
@@ -8650,7 +8570,7 @@
     },
     {
       "name": "role_global_scope",
-      "value": "全局开关，适用于所有文字书"
+      "value": "适用于所有文字书；对白与前后文将发送至已配置的 AI 服务"
     },
     {
       "name": "role_book_scope",
@@ -8662,7 +8582,7 @@
     },
     {
       "name": "role_prepare_hint",
-      "value": "请先到“我的 → 模型管理”导入多角色朗读模型。模型用于识别人物，声音沿用你已添加的音色。"
+      "value": "请先完成现有 AI 配置。角色识别使用已选模型，声音沿用你已添加的音色。"
     },
     {
       "name": "role_prepare_action",
@@ -8678,12 +8598,18 @@
     },
     {
       "name": "role_fallback_hint",
-      "value": "本章角色识别暂不可用，后续对白使用默认音色，可重新识别。"
+      "value": "本章暂用默认音色，可重新进行 AI 角色识别。"
     },
     {
       "name": "role_voice_confirm_hint",
-      "value": "先选择音色，再试听；确认后从下一朗读片段生效。取消不会修改原设置。"
+      "value": "先选择音色，再试听；确认后从下一朗读片段生效。"
     },
+    { "name": "role_ai_rematch", "value": "AI 重新配音" },
+    { "name": "role_ai_matching", "value": "AI 正在匹配音色…" },
+    { "name": "role_ai_match_ready", "value": "AI 已选好音色，试听后点击保存" },
+    { "name": "role_ai_match_empty", "value": "匹配依据待补充，当前选择已保留，可继续手动选声" },
+    { "name": "role_ai_context_hint", "value": "请先打开本书并朗读一段，让 AI 获取人物上下文" },
+    { "name": "role_selected_voice", "value": "当前选择" },
     {
       "name": "role_voice_apply",
       "value": "使用这个音色"
@@ -8707,26 +8633,6 @@
     {
       "name": "role_preview_empty",
       "value": "开始朗读本书后，可试听当前片段的角色配音"
-    },
-    {
-      "name": "role_model_manage",
-      "value": "模型管理"
-    },
-    {
-      "name": "role_model_ready",
-      "value": "已就绪"
-    },
-    {
-      "name": "role_model_busy",
-      "value": "准备中"
-    },
-    {
-      "name": "role_model_download_title",
-      "value": "下载与兼容说明"
-    },
-    {
-      "name": "role_model_leave_hint",
-      "value": "请留在本页完成导入，返回会取消；原有模型会保留。"
     },
     {
       "name": "reader_excerpt_title",
@@ -8998,7 +8904,7 @@
     },
     {
       "name": "model_pack_help",
-      "value": "漫画着色请选择配套 .jtmodel，AI 字幕请选择配套 ZIP；本地 TTS 直接导入对应的官方 .tar.bz2，Kokoro 也兼容已有配套 ZIP。多角色朗读导入通用 CSI .ms，系统按设备能力配置 NPU 优先、CPU 接续。相关模型由用户单独导入，普通阅读和播放可独立使用。导入期间离开此页会取消并保留原有模型。漫画翻译语言包在首次使用时按需下载。"
+      "value": "漫画着色请选择配套 .jtmodel，智能去水印请选择配套 SLBR .onnx，AI 字幕请选择配套 ZIP；本地 TTS 直接导入对应的官方 .tar.bz2，Kokoro 也兼容已有配套 ZIP。AI 多角色朗读复用已有 AI 配置。模型由用户单独导入，普通阅读和播放可独立使用。漫画翻译语言包在首次使用时按需下载。"
     },
     {
       "name": "model_pack_space",
@@ -9102,7 +9008,7 @@
     { "name": "app_background_preview_recent", "value": "最近阅读" },
     { "name": "app_background_unsaved", "value": "修改待应用" },
     { "name": "offline_tts_title", "value": "本地 TTS" },
-    { "name": "offline_tts_hint", "value": "按下方模型选择对应的官方 .tar.bz2 文件导入。导入后到音色管理选择默认声音，或在多角色朗读中为旁白和人物绑定声音。角色识别另行导入通用 CSI .ms，自动使用 NPU 或 CPU；正文已在本机且全部角色使用本地音色时，可离线朗读。首次起读需加载模型，速度与设备有关。" },
+    { "name": "offline_tts_hint", "value": "按下方模型选择对应的官方 .tar.bz2 文件导入。导入后到音色管理选择默认声音，或在多角色朗读中为旁白和人物绑定声音。角色识别复用已有 AI 配置并使用网络服务，本地音色在设备内合成。首次起读需加载模型，速度与设备有关。" },
     { "name": "offline_tts_kokoro_hint", "value": "Kokoro 提供 100 个中文音色，可在同一模型内为不同人物选声。直接导入官方 v1.1 INT8 .tar.bz2，也兼容已有配套 ZIP。模型较大，加载与合成速度需在当前设备试听确认。" },
     { "name": "offline_tts_piper_hint", "value": "Piper 中文单音色模型，通过本机 CPU 合成语音。可将超文、小雅分别绑定旁白或人物，也可搭配已导入的 Kokoro 音色。直接导入对应的官方 INT8 .tar.bz2，无需解压。手机上的速度和听感以试听为准。" },
     { "name": "offline_tts_missing", "value": "未导入" },
@@ -9285,6 +9191,19 @@
     {"name":"rule_source_logout","value":"退出登录"},
     {"name":"rule_source_working","value":"正在处理…"},
     {"name":"rule_source_settings_saved","value":"设置已保存"},
-    {"name":"rule_source_discard","value":"放弃修改"}
+    {"name":"rule_source_discard","value":"放弃修改"},
+    {"name": "role_ai_configure", "value": "前往 AI 配置"},
+    {"name": "role_ai_model", "value": "识别模型：%s"},
+    {"name": "role_ai_config_error", "value": "请完成 AI 配置后启用角色识别"},
+    {"name": "comic_watermark_title", "value": "智能去水印"},
+    {"name": "comic_watermark_hint", "value": "本地识别页边文字、Logo 与画面内半透明水印，并修复覆盖区域"},
+    {"name": "comic_watermark_prepare", "value": "请先到“我的 → 模型管理”导入去水印模型"},
+    {"name": "comic_watermark_working", "value": "智能去水印中…"},
+    {"name": "comic_watermark_error", "value": "去水印处理失败，当前显示原图"},
+    {"name": "comic_watermark_model_hint", "value": "导入配套 SLBR ONNX 模型，自动定位水印并修复背景。图片在设备内处理。复杂水印与漫画文字的识别效果受模型影响，可通过阅读开关查看原图。"},
+    {"name": "comic_watermark_model_size", "value": "SLBR · 本地模型 · 已安装 %d MB"},
+    {"name": "comic_watermark_model_loading", "value": "正在处理本地模型…"},
+    {"name": "comic_watermark_model_error", "value": "模型加载失败，请选择配套 SLBR ONNX 文件"},
+    {"name": "comic_watermark_source", "value": "复制模型来源地址"}
   ]
 }

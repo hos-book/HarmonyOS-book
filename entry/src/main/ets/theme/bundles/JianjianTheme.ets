@@ -69,5 +69,5 @@ export function createJianjianTheme(): AppThemeBundle {
   visual.icons.set(ThemeIconRole.Profile, $r('app.media.theme_jianjian_profile'));
   visual.icons.set(ThemeIconRole.Category, $r('app.media.theme_mist_category'));
   return new AppThemeBundle('baibian-jianjian', $r('app.string.theme_bundle_jianjian_name'),
-    $r('app.string.theme_bundle_jianjian_description'), '#AE416C', 3, visual);
+    $r('app.string.theme_bundle_jianjian_description'), '#AE416C', visual);
 }

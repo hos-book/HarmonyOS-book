@@ -1,0 +1,15 @@
+Comic watermark removal uses the SLBR model:
+Visible Watermark Removal via Self-calibrated Localization and Background Refinement
+Jing Liang, Li Niu, Fengjun Guo, Teng Long and Liqing Zhang, ACM Multimedia 2021.
+
+Official source: https://github.com/bcmi/SLBR-Visible-Watermark-Removal
+Official checkpoint: https://drive.google.com/file/d/1uTCzubnWZtu3HIXaK8xsXX-7x302ss13/view
+
+The application imports a separately exported ONNX model. The authors' repository
+provides the paper and checkpoint; an explicit source/weight license remains to
+be supplied by the authors. Distribution terms require clarification before
+public release of the model.
+
+ONNX Runtime uses the existing sherpa-onnx runtime dependency. Its MIT license
+and third-party notices are retained with the existing offline TTS notices.
+The native bridge uses the ONNX Runtime 1.17.3 public C API header, under MIT.

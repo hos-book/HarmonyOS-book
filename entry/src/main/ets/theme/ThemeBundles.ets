@@ -4,12 +4,14 @@ import { createPaperTheme } from './bundles/PaperTheme';
 import { createMistTheme } from './bundles/MistTheme';
 import { createInkTheme } from './bundles/InkTheme';
 import { createJianjianTheme } from './bundles/JianjianTheme';
+import { createApricotTheme } from './bundles/ApricotTheme';
 
 /** 新套装只在注册表加入一次；校验、列表、解析共用同一数据源。 */
 export class ThemeBundles {
   static readonly DefaultId: string = 'default';
   private static readonly bundles: AppThemeBundle[] = [
-    createDefaultTheme(), createPaperTheme(), createMistTheme(), createInkTheme(), createJianjianTheme()
+    createDefaultTheme(), createPaperTheme(), createMistTheme(), createInkTheme(), createJianjianTheme(),
+    createApricotTheme()
   ];
 
   static list(): AppThemeBundle[] {

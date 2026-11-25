@@ -38,6 +38,7 @@ import { TextReadingProgressService } from '../service/text/TextReadingProgressS
 import { ComicPage, ComicPageDataSource, ComicReaderService } from '../service/ComicReaderService';
 import { ReaderCacheService } from '../service/ReaderCacheService';
 import { OnlineTextContentCache } from '../service/text/OnlineTextContentCache';
+import { ComicWatermarkService, ComicWatermarkState } from '../service/ComicWatermarkService';
 import { ComicSuperResolutionService } from '../service/ComicSuperResolutionService';
 import { MembershipState } from '../model/MembershipState';
 import { MembershipService } from '../service/MembershipService';
@@ -90,6 +91,7 @@ export struct ComicReaderPage {
   @Local pageOverlap: number = 10;
   private pageFraction: number = 0;
   @Local scrollInitialFraction: number = 0;
+  @Local watermarkState: ComicWatermarkState = ComicWatermarkService.instance.state;
   @Local superResolution: boolean = false;
   @Local zoomActive: boolean = false;
   @Local zoomOwner: string = '';
@@ -354,6 +356,7 @@ export struct ComicReaderPage {
       await PreferenceService.applyTocOrder(book);
       const position = await TextReadingProgressService.get(context, book.id);
       const superResolution = await PreferenceService.getComicSuperResolution();
+      await ComicWatermarkService.instance.initialize(context);
       const settings = await TextReadingSettingsService.get(context);
       // 首次沿用旧章节条偏好，此后漫画与小说分别保存。
       const showChapterBar = await PreferenceService.getComicChapterBar(settings.showChapterBar);
@@ -981,7 +984,7 @@ export struct ComicReaderPage {
             initialFraction: this.scrollInitialFraction,
             initialChapterIndex: this.chapterIndex, initialPageIndex: this.pageIndex,
             initialPages: this.scrollInitialPages, pageWidth: this.imageWidth(), displayMode: this.displayMode,
-            superResolution: this.superResolution, trimWhiteBorder: this.trimWhiteBorder, appearance: this.appearance,
+            watermarkRemoval: this.watermarkState.enabled, superResolution: this.superResolution, trimWhiteBorder: this.trimWhiteBorder, appearance: this.appearance,
             placeholderColor: this.canvasInk,
             pageHeight: this.heightVp, viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
             colorization: this.colorization, translation: this.translation, translationDirection: this.translationDirection,
@@ -996,7 +999,7 @@ export struct ComicReaderPage {
           Stack() {
             ForEach(this.currentPages(), (page: ComicPage) => {
               Column() {
-                ComicPageImage({ onGeometryReady: (): void => this.refreshSplitPages(), page: page, superResolution: this.superResolution,
+                ComicPageImage({ onGeometryReady: (): void => this.refreshSplitPages(), page: page, watermarkRemoval: this.watermarkState.enabled, superResolution: this.superResolution,
                   autoPageRequest: this.autoPageRequest, autoPageActive: this.autoPageRunning,
                   onAutoPageEnd: (): void => this.finishAutoPageImage(page),
                   onAutoPageFailure: (): void => this.autoPageImageReady(page, true),
@@ -1017,7 +1020,7 @@ export struct ComicReaderPage {
           Swiper(this.swiper) {
             LazyForEach(this.pages, (page: ComicPage) => {
               Column() {
-                ComicPageImage({ onGeometryReady: (): void => this.refreshSplitPages(), page: page, superResolution: this.superResolution, pageWidth: this.imageWidth(), pageHeight: this.heightVp,
+                ComicPageImage({ onGeometryReady: (): void => this.refreshSplitPages(), page: page, watermarkRemoval: this.watermarkState.enabled, superResolution: this.superResolution, pageWidth: this.imageWidth(), pageHeight: this.heightVp,
                    autoPageRequest: this.autoPageRequest,
                    autoPageActive: this.autoPageRunning && page.key === this.pages.getData(this.pageIndex).key,
                    onAutoPageEnd: (): void => this.finishAutoPageImage(page),
@@ -2054,6 +2057,16 @@ export struct ComicReaderPage {
           selected: [0, 2, 5, 10, 20].indexOf(this.imagePreloadCount),
           onSelect: (index: number): void => { this.setImagePreloadCount([0, 2, 5, 10, 20][index]); }
         }).enabled(!this.settingsSaving)
+      }
+      ReaderSettingCard({ compact: true, title: $r('app.string.comic_watermark_title'), inline: true,
+        description: this.watermarkState.installed ? $r('app.string.comic_watermark_hint') : $r('app.string.comic_watermark_prepare') }) {
+        Toggle({ type: ToggleType.Switch, isOn: this.watermarkState.enabled }).selectedColor(AppColor.Brand)
+          .enabled(this.watermarkState.installed && !this.watermarkState.busy)
+          .onChange((enabled: boolean): void => {
+            ComicWatermarkService.instance.setEnabled(enabled).catch((): void => {
+              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+            });
+          }).id('comic-watermark-toggle')
       }
       ReaderSettingCard({ compact: true, title: $r('app.string.comic_ai_sr'), inline: true, showVip: MembershipState.featureEnabled,
         description: $r('app.string.comic_ai_sr_hint') }) {

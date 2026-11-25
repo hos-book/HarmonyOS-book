@@ -1,4 +1,29 @@
-# 漫画本地着色子包
+# 漫画本地 AI 处理
+
+## 智能去水印
+
+漫画阅读设置提供“智能去水印”开关，覆盖页边文字／Logo 与画面内半透明水印。先在“我的 → 模型管理 → 智能去水印”导入配套 `slbr-watermark-v1.onnx`，再启用阅读开关。关闭后回到原图处理链，阅读原始文件持续保留。
+
+`ComicWatermarkService` 解码本地图片，通过 `libcomic_watermark.so` 在异步线程调用已有 ONNX Runtime，自动定位水印并修复背景。整张图片按 256 × 256 分块、32 像素重叠加权拼接，保留 alpha；输入解码最多 1200 万像素。结果进入已有漫画缓存，顺序为去水印 → 着色／翻译或超分。排队任务按当前页面可见性处理，离页与后台切换沿用组件会话判定。
+
+模型位于 `filesDir/comic_watermark/slbr-v1.onnx`，启用状态保存于 `comic_watermark` Preferences。导入时先加载所选文件、读取模型输入输出契约，再复制到应用目录。模型支持替换和确认删除，删除后关闭功能。
+
+配套模型由 [SLBR 官方源码](https://github.com/bcmi/SLBR-Visible-Watermark-Removal)及官方 CLWD 预训练权重导出，文件为 `artifacts/models/slbr-watermark-v1.onnx`，大小 86,630,073 字节。Python 环境使用 PyTorch 2.5.1 和 ONNX 1.17.0；源码中的训练／可视化导入由导出工具跳过。
+
+```sh
+python scripts/export-comic-watermark.py \
+  --source /path/to/SLBR-Visible-Watermark-Removal \
+  --checkpoint /path/to/slbr-original.pth.tar \
+  --output artifacts/models/slbr-watermark-v1.onnx
+```
+
+导出契约为 opset 17，单输入 `image`、单输出 `clean`，均为 FP32 `[1,3,256,256]`，RGB 数值 0～1。输出按官方方式融合修复背景与预测水印掩码。原生桥使用 ONNX Runtime 1.17.3 的公共 C API，运行库来自当前 sherpa-onnx 依赖。
+
+官方仓库提供论文与预训练权重，源码和权重的公开发行许可仍待作者明确。来源说明随应用保存在 `rawfile/third_party/comic_watermark/NOTICE.txt`；模型单独保存和导入。真实漫画中的正文保留、覆盖区域修复效果与设备耗时仍待实机验证。
+
+2026-11-25：ONNX 导出完成，输入输出元数据符合上述契约；Release SDK 26.0.0.105 的 Debug HAP 构建成功。
+
+## 本地着色子包
 
 主工程通过 `entry/oh-package.json5` 引用 `entry/libs/aiengine.har`（`@legado/aiengine`），不复制引擎源码、不注册额外 App 模块。当前固定提交为 `e9040be8bf567ea67c0fef874c21f2dd72ef8586`（2026-11-11），与轻页应用 `c3dbe650` 记录的 AI 子模块一致，包声明版本仍为 1.0.0；上游仓库、提交和集成版本见 `scripts/comic-ai-package.json`。沿用 Worker 复用、原生像素处理、FP32 复核、模型下载宿主接口及原图缓存保护。透明或半透明插图仍保留原图，不透明 RGBA 可超分，超分缓存版本仍为 v10。本轮新增等长繁转简及简转台湾繁体接口，未更换漫画模型权重，也未新增宿主页面开关。
 

@@ -345,6 +345,15 @@ export struct ReaderContinuousComponent {
     if (chapter !== undefined) this.onPosition(row.chapterIndex, this.visibleCharacter(row), chapter.content, persist);
   }
 
+  private schedulePositionReport(): void {
+    if (this.positionTimer === -1) {
+      this.positionTimer = setTimeout((): void => {
+        this.positionTimer = -1;
+        this.reportPosition(false);
+      }, 150);
+    }
+  }
+
   private visibleChanged(first: number, last: number): void {
     if (first < 0) return;
     if (this.restoring) {
@@ -361,12 +370,7 @@ export struct ReaderContinuousComponent {
     }
     this.firstVisible = first;
     this.lastVisible = last;
-    if (this.positionTimer === -1) {
-      this.positionTimer = setTimeout((): void => {
-        this.positionTimer = -1;
-        this.reportPosition(false);
-      }, 150);
-    }
+    this.schedulePositionReport();
     this.trimChapters();
     if (this.firstVisible < 24) this.loadNeighbor(false);
     if (this.lastVisible >= this.source.totalCount() - 24) this.loadNeighbor(true);
@@ -464,6 +468,7 @@ export struct ReaderContinuousComponent {
         return touch !== undefined && touch.y < this.topGestureInset ? HitTestMode.None : HitTestMode.Default;
       })
       .onScrollIndex((first: number, last: number): void => this.visibleChanged(first, last))
+      .onDidScroll((_scrollOffset: number, _scrollState: ScrollState): void => this.schedulePositionReport())
       .onReachEnd((): void => { this.loadNeighbor(true); })
       .onReachStart((): void => { this.loadNeighbor(false); })
       .onTouch((event: TouchEvent): void => {

@@ -30,7 +30,7 @@ export struct ThemeBundleComponent {
 
   private isCustomized(): boolean {
     const bundle: AppThemeBundle = ThemeBundles.resolve(this.appearance.themeBundleId);
-    return this.appearance.accent !== bundle.accent || this.appearance.material !== bundle.material;
+    return this.appearance.accent !== bundle.accent;
   }
 
   private showResult(message: Resource): void {

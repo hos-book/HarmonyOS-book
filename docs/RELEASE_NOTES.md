@@ -1,3 +1,26 @@
+# 1.1.20 更新日志（2026-11-25）
+
+1. 新增漫画智能去水印，支持导入本地图像模型，在设备内处理页面水印。
+2. 多角色朗读接入已有 AI 配置，结合对白上下文识别人物，并根据人物特征匹配音色。
+3. 新增逐个人物“AI 重新配音”，支持试听与确认保存；角色声音保持稳定，手动选择优先。
+4. 新增“杏笺书斋”主题，提供深浅色背景、书封与个人卡片，切换主题时保留用户材质选择。
+
+## 发布配置
+
+- 版本代码：1030001，沿用现有发布签名与会员权益配置。
+- 邀请测试覆盖当前全部测试组：简听外部体验（275 人）、内测组（1 人）；开启测试通知，关闭上架自检，测试期截至 2026-12-25 23:59:59（北京时间）。
+- 发布归档目录：`artifacts/releases/1.1.20-1030001/`。
+
+## 构建与邀测记录
+
+- Release SDK 26.0.0.105 的发布签名 APP 构建成功；包内元数据为 1.1.20 / 1030001、release 模式、debug=false、最低 API 20、目标 API 26。发布包、混淆映射、更新说明与回执已归档。
+- 2026-11-25 邀测提交返回 `ret.code=0`，版本 ID：`2091535054395148288`，软件包 ID：`2091536767290224384`。提交后回读状态码为 7，后续开放时间由平台处理结果决定。
+- 两组均已绑定（`bind=1`），测试通知开启（`needNotify=1`）；测试期为 2026-11-25 18:31:21 至 2026-12-25 23:59:59（北京时间）。通知送达由 AGC 执行。
+- 创建时明确关闭上架自检（`onshelfSelfDetect=0`），提交前查询确认无自检任务。
+- 具体回执见 `artifacts/releases/1.1.20-1030001/release-progress.json`。本轮沿用 [AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)及[邀测流程](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/workflows.md)，字段依据[测试版本更新接口](https://developer.huawei.com/consumer/cn/doc/doccenter-connect-api/agc-help-test-api-modify-test-version-0000002271160657)和[测试通知说明](https://developer.huawei.com/consumer/cn/doc/doccenter-connect-api/agc-help-test-api-data-testtaskinfo-0000002272455649)。
+
+---
+
 # 1.1.19 更新日志（2026-11-24）
 
 1. 优化本地多角色朗读识别与音色衔接，按设备能力优先使用 NNRT 加速，并支持 CPU 执行。

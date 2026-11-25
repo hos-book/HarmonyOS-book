@@ -1,5 +1,5 @@
 {
-  "name": "librole_nnrt.so",
+  "name": "libcomic_watermark.so",
   "version": "1.0.0",
   "types": "./index.d.ts"
 }

@@ -36,7 +36,7 @@ import { OnlineTextContentCache } from './OnlineTextContentCache';
 import { OnlineTextPaginator } from './OnlineTextPaginator';
 import { SpeechSegment, SpeechTextSegmenter } from './SpeechTextSegmenter';
 import { RoleSpeechService } from './RoleSpeechService';
-import { RoleModelService } from './RoleModelService';
+import { RoleAiService } from './RoleAiService';
 import { OfflineTtsModelService } from './OfflineTtsModelService';
 import { OfflineTtsService } from './OfflineTtsService';
 import { getOfflineTtsVoiceModel, isOfflineTtsProvider } from '../../model/OfflineTtsCatalog';
@@ -229,8 +229,8 @@ export class TextToSpeechService {
       this.state.person = 13;
       this.saveSettings();
     }
-    await RoleModelService.getInstance().initialize(context).catch((): void => {
-      this.roles.state.error = $r('app.string.role_model_load_error');
+    await RoleAiService.instance.initialize(context).catch((): void => {
+      this.roles.state.error = $r('app.string.role_ai_config_error');
     });
   }
 
@@ -1002,9 +1002,10 @@ export class TextToSpeechService {
       this.state.charOffset = document.toDisplay(offset);
       this.state.playbackOffset = this.state.charOffset;
       this.chapterContent = content;
-      if (this.context !== null && this.roles.enabled) {
+      if (this.context !== null) {
         const settings = await TextReadingSettingsService.get(this.context);
         if (!this.valid(ticket)) return;
+        this.roles.setVoices(this.state.customTtsConfigs, this.state.customTtsId);
         await this.roles.prepare(this.context, book.id, book.title,
           book.chapters[index].originSourceValue || book.chapters[index].source.value, content, settings.dialogueQuotePairs);
         if (!this.valid(ticket)) return;
@@ -1084,6 +1085,12 @@ export class TextToSpeechService {
     }
     const segment = this.segments[this.segmentIndex];
     const chapterTitleSegment = this.isChapterTitleSegment(segment);
+    if (!chapterTitleSegment && !this.roles.readyAt(segment.start + segment.leadingWhitespace)) {
+      this.state.loading = true;
+      this.notify();
+      await this.roles.ensureAt(segment.start + segment.leadingWhitespace);
+      if (!this.valid(ticket) || segment !== this.segments[this.segmentIndex]) return;
+    }
     const voiceId = this.segmentVoiceId(segment);
     if (!voiceId && this.engine === null) {
       try { await this.ensureEngine(ticket); }
@@ -1115,7 +1122,7 @@ export class TextToSpeechService {
         this.requestId = this.nextSystemId;
         this.playPreparedSystemSpeech(this.requestId, ticket);
       } else this.engine?.speak(segment.text, params);
-      if (!chapterTitleSegment) this.prefetchRoles(ticket, segment.end);
+      this.prefetchRoles(ticket, chapterTitleSegment ? this.state.charOffset : segment.end);
     } catch (error) {
       this.fail(error instanceof Error ? error : new Error(String(error)));
     }
@@ -1341,6 +1348,7 @@ export class TextToSpeechService {
       const settings = await TextReadingSettingsService.get(this.context);
       const chapter = book.chapters[this.state.chapterIndex];
       if (ticket !== this.generation || !chapter) return;
+      this.roles.setVoices(this.state.customTtsConfigs, this.state.customTtsId);
       await this.roles.prepare(this.context, book.id, book.title, chapter.originSourceValue || chapter.source.value,
         this.chapterContent, settings.dialogueQuotePairs);
       if (ticket !== this.generation) return;

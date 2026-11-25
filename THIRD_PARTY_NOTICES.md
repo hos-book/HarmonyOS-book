@@ -1,11 +1,11 @@
 # 第三方软件声明
 
-## 多角色朗读本地推理
+## 漫画本地智能去水印
 
-- 角色识别使用 HarmonyOS 系统 MindSpore Lite Kit 及 Native C API；通用 MindIR Lite 模型同时用于 NNRT 加速与 CPU 计算，按系统能力调度。
-- 模型转换采用 MindSpore Lite 2.7.0 的通用图优化，项目 Apache-2.0。转换工具由官方发布，应用使用系统运行时。
-- CSI 词表来自 hfl/chinese-roberta-wwm-ext-large，Apache-2.0 许可保存在 `rawfile/third_party/role_speaker/`。CSI 权重独立获取，原始 CSI 项目对语料标注非商业研究用途。
-- 保留的 llama.cpp / ggml 源码属于 MIT 许可历史依赖，其许可证继续随原目录维护。当前角色识别由系统 MindSpore Lite 承担。
+- 图像处理使用 SLBR 公开模型，来源为 https://github.com/bcmi/SLBR-Visible-Watermark-Removal ，论文为 Liang 等，ACM Multimedia 2021，Visible Watermark Removal via Self-calibrated Localization and Background Refinement。
+- 配套 ONNX 由官方预训练权重导出，单独导入应用。当前上游仓库提供研究引用与权重；模型公开发行条款仍待作者明确。
+- 原生桥使用 ONNX Runtime 1.17.3 的 MIT 公共 C API 头，文件及许可证保存在 `third_party/onnxruntime/`。运行库复用既有 sherpa-onnx 依赖，应用随附许可位于 `rawfile/third_party/offline_tts/`。
+- AI 多角色识别复用用户已有 AI 服务配置，人物语音合成继续使用下列既有依赖。
 
 ## 本地 TTS 与多角色声音
 

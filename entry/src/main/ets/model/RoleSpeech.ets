@@ -1,25 +1,16 @@
-export class RoleModelInfo {
-  path: string = '';
-  name: string = '';
-  architecture: string = '';
-  bytes: number = 0;
-}
-
 @ObservedV2
-export class RoleModelState {
-  @Trace model: RoleModelInfo | null = null;
+export class RoleAiState {
+  @Trace configured: boolean = false;
+  @Trace model: string = '';
   @Trace enabled: boolean = false;
-  @Trace busy: boolean = false;
-  @Trace progress: number = 0;
-  @Trace verifying: boolean = false;
-  @Trace error: ResourceStr = '';
-  @Trace backend: string = '';
 }
 
 export class RoleSpeaker {
   id: string = '';
   name: string = '';
   voiceId: string = '';
+  profile: string = '';
+  voiceSource: string = 'manual';
 }
 
 export class RoleBookSettings {
@@ -52,7 +43,25 @@ export class RoleAnalysisWindow {
   complete: boolean = false;
 }
 
-export class RoleModelAnswer {
+export class RoleVoiceMatch {
+  profile: string = '';
+  voiceId: string = '';
+}
+
+export class RoleVoiceOption {
+  id: string = '';
+  description: string = '';
+  preferred: boolean = false;
+}
+
+export class RoleVoiceRequest {
+  speaker: RoleSpeaker = new RoleSpeaker();
+  context: string = '';
+  known: RoleSpeaker[] = [];
+  voices: RoleVoiceOption[] = [];
+}
+
+export class RoleModelAnswer extends RoleVoiceMatch {
   id: number = -1;
   speaker: string = '?';
 }
@@ -61,16 +70,12 @@ export class RoleInferenceLine {
   id: number = 0;
   start: number = 0;
   end: number = 0;
+  text: string = '';
 }
 
 export class RoleInferenceRequest {
   context: string = '';
   lines: RoleInferenceLine[] = [];
-}
-
-export class RoleChapterCache {
-  version: number = 3;
-  dialogues: RoleDialogue[] = [];
 }
 
 export class RoleSpeechSample {

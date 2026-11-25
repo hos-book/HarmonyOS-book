@@ -7,16 +7,14 @@ export class AppThemeBundle {
   name: ResourceStr;
   description: ResourceStr;
   accent: string;
-  material: number;
   visual: AppThemeVisual;
 
-  constructor(id: string, name: ResourceStr, description: ResourceStr, accent: string, material: number,
+  constructor(id: string, name: ResourceStr, description: ResourceStr, accent: string,
     visual: AppThemeVisual = new AppThemeVisual()) {
     this.id = id;
     this.name = name;
     this.description = description;
     this.accent = accent;
-    this.material = material;
     this.visual = visual;
   }
 }

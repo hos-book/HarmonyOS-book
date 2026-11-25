@@ -1,3 +1,0 @@
-Historical llama.cpp source remains in the source tree for reference.
-The active role-speaker runtime uses the HarmonyOS system MindSpore Lite Kit for portable NNRT/CPU inference.
-The app includes the CSI Chinese vocabulary and its Apache License 2.0 notice; model weights are acquired and converted separately by the user.

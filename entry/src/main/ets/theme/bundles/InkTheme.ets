@@ -69,5 +69,5 @@ export function createInkTheme(): AppThemeBundle {
   visual.icons.set(ThemeIconRole.Profile, $r('app.media.theme_ink_profile'));
   visual.icons.set(ThemeIconRole.Category, $r('app.media.theme_ink_category'));
   return new AppThemeBundle('ink-wash', $r('app.string.theme_bundle_ink_name'),
-    $r('app.string.theme_bundle_ink_description'), '#80612E', 3, visual);
+    $r('app.string.theme_bundle_ink_description'), '#80612E', visual);
 }

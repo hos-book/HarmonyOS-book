@@ -13,7 +13,7 @@ import { common } from '@kit.AbilityKit';
 import { Binding, UIUtils } from '@kit.ArkUI';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { AppTheme, AppRadius, AppSpace, AppFont, AppColor } from '../theme/Theme';
-import { PreferenceService } from '../service/PreferenceService';
+import { AudioPlaybackMode, PreferenceService } from '../service/PreferenceService';
 import { AudioService } from '../service/AudioService';
 import { AudioFocusService } from '../service/AudioFocusService';
 import { ChapterCacheService } from '../service/ChapterCacheService';
@@ -67,6 +67,9 @@ const PRELOAD_OPTIONS: PreloadOption[] = [
 const ROW_INDENT: number = AppSpace.Md;
 const SEARCH_CONCURRENCY_OPTIONS: number[] = [3, 6, 9, 12];
 const MINI_PLAYER_HIDE_MINUTES: number[] = [-1, 0, 1, 5, 10, 20];
+const AUDIO_PLAYBACK_MODES: AudioPlaybackMode[] = [
+  AudioPlaybackMode.Default, AudioPlaybackMode.Coexistence, AudioPlaybackMode.AutoResume
+];
 
 enum SettingsCacheKind { Text, Comic, Audio }
 
@@ -85,8 +88,8 @@ export struct SettingsPage {
   @Local defaultPlaybackSpeed: number = 1;
   @Local defaultPlaybackSpeedDraft: number = 1;
   @Local isSavingDefaultPlaybackSpeed: boolean = false;
-  @Local audioCoexistenceEnabled: boolean = false;
-  @Local isSavingAudioCoexistence: boolean = false;
+  @Local audioPlaybackMode: AudioPlaybackMode = AudioPlaybackMode.AutoResume;
+  @Local isSavingAudioPlaybackMode: boolean = false;
   @Local preloadCount: number = 1;
   @Local preloadDraft: string = '1';
   @Local preloadCustom: boolean = false;
@@ -169,7 +172,7 @@ export struct SettingsPage {
       const autoPlay = await PreferenceService.getAutoPlayOnLaunch();
       const coverResolution = await PreferenceService.getCoverSuperResolution();
       const defaultPlaybackSpeed = await PreferenceService.getDefaultPlaybackSpeed();
-      const audioCoexistenceEnabled = await PreferenceService.getAudioCoexistenceEnabled();
+      const audioPlaybackMode = await PreferenceService.getAudioPlaybackMode();
       const preloadCount = await PreferenceService.getPreloadChapters();
       if (!this.alive || serial !== this.preferencesLoadSerial) return;
       this.currentMode = mode;
@@ -179,7 +182,7 @@ export struct SettingsPage {
       this.coverSuperResolution = coverResolution && this.membership.hasAccess;
       this.defaultPlaybackSpeed = defaultPlaybackSpeed;
       this.defaultPlaybackSpeedDraft = defaultPlaybackSpeed;
-      this.audioCoexistenceEnabled = audioCoexistenceEnabled;
+      this.audioPlaybackMode = audioPlaybackMode;
       this.preloadCount = preloadCount;
       this.preloadDraft = preloadCount.toString();
       this.preloadCustom = !PRELOAD_OPTIONS.some((opt: PreloadOption): boolean => opt.count === preloadCount);
@@ -265,25 +268,25 @@ export struct SettingsPage {
     }
   }
 
-  private async setAudioCoexistenceEnabled(enabled: boolean): Promise<void> {
-    if (!this.isLoaded || this.isSavingAudioCoexistence || this.audioCoexistenceEnabled === enabled) return;
-    this.isSavingAudioCoexistence = true;
+  private async setAudioPlaybackMode(mode: AudioPlaybackMode): Promise<void> {
+    if (!this.isLoaded || this.isSavingAudioPlaybackMode || this.audioPlaybackMode === mode) return;
+    this.isSavingAudioPlaybackMode = true;
     try {
-      await PreferenceService.setAudioCoexistenceEnabled(enabled);
-      if (this.alive) this.audioCoexistenceEnabled = enabled;
+      await PreferenceService.setAudioPlaybackMode(mode);
+      if (this.alive) this.audioPlaybackMode = mode;
       try {
-        await AudioFocusService.getInstance().applyCoexistenceSetting(enabled);
+        await AudioFocusService.getInstance().applyPlaybackMode(mode);
       } catch (error) {
-        hilog.warn(0xFF00, 'SettingsPage', 'Apply audio coexistence failed: %{public}s', String(error));
+        hilog.warn(0xFF00, 'SettingsPage', 'Apply audio playback mode failed: %{public}s', String(error));
         if (this.alive) {
-          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_audio_coexistence_apply_failed') });
+          this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_audio_mode_apply_failed') });
         }
       }
     } catch (error) {
-      hilog.warn(0xFF00, 'SettingsPage', 'Save audio coexistence failed: %{public}s', String(error));
+      hilog.warn(0xFF00, 'SettingsPage', 'Save audio playback mode failed: %{public}s', String(error));
       if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.settings_save_failed') });
     } finally {
-      this.isSavingAudioCoexistence = false;
+      this.isSavingAudioPlaybackMode = false;
     }
   }
 
@@ -864,13 +867,26 @@ export struct SettingsPage {
 
         this.buildDivider()
 
-        this.buildSwitchItem(
-          $r('app.string.settings_audio_coexistence_title'),
-          $r('app.string.settings_audio_coexistence_desc'),
-          UIUtils.makeBinding<boolean>(() => this.audioCoexistenceEnabled),
-          (enabled: boolean): void => { this.setAudioCoexistenceEnabled(enabled); },
-          UIUtils.makeBinding<boolean>(() => this.isLoaded && !this.isSavingAudioCoexistence)
-        )
+        Row({ space: AppSpace.Sm }) {
+          Row({ space: 2 }) {
+            Text($r('app.string.settings_audio_mode_title'))
+              .fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).flexShrink(1)
+            SettingsHintButton({
+              title: $r('app.string.settings_audio_mode_title'),
+              message: $r('app.string.settings_audio_mode_desc')
+            })
+          }.layoutWeight(1).alignItems(VerticalAlign.Center)
+          ImmersiveOptionTabs({
+            labels: [$r('app.string.settings_audio_mode_default'),
+              $r('app.string.settings_audio_coexistence_title'), $r('app.string.settings_audio_auto_resume_title')],
+            selected: this.audioPlaybackMode,
+            onSelect: (index: number): void => { this.setAudioPlaybackMode(AUDIO_PLAYBACK_MODES[index]); }
+          }).enabled(this.isLoaded && !this.isSavingAudioPlaybackMode)
+            .accessibilityText($r('app.string.settings_audio_mode_title'))
+            .id('settings-audio-mode')
+        }.width('100%')
+          .padding({ left: ROW_INDENT, right: ROW_INDENT, top: AppSpace.Xs, bottom: AppSpace.Xs })
+          .constraintSize({ minHeight: 52 })
 
         this.buildDivider()
 

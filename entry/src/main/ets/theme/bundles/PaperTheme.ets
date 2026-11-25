@@ -63,5 +63,5 @@ export function createPaperTheme(): AppThemeBundle {
   visual.icons.set(ThemeIconRole.Profile, $r('app.media.theme_paper_profile'));
   visual.icons.set(ThemeIconRole.Category, $r('app.media.theme_paper_category'));
   return new AppThemeBundle('paper-study', $r('app.string.theme_bundle_paper_name'),
-    $r('app.string.theme_bundle_paper_description'), '#496D5C', 3, visual);
+    $r('app.string.theme_bundle_paper_description'), '#496D5C', visual);
 }

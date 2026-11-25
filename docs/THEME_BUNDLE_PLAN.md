@@ -1,13 +1,15 @@
 # 主题套装开发指南
 
-当前内置 `default`（默认套装）、`paper-study`（纸感书房）、`mist-blue`（雾蓝）和 `ink-wash`（墨山）。套装定义随应用发布；没有外部主题包加载、商城或远程资源依赖。
+当前内置 `default`（默认套装）、`paper-study`（纸感书房）、`mist-blue`（雾蓝）、`ink-wash`（墨山）、`baibian-jianjian`（百变简简）和 `apricot-study`（杏笺书斋）。套装定义随应用发布，通过统一注册表管理。
+
+杏笺书斋沿用既有 Image 背景、场景图片、Spine 封面与图标角色能力，提供低饱和浅杏宣纸、边角杏枝、平缓淡山、古籍题签和朱砂小印，配齐深浅两套静态 WebP。设计及素材维护见 [杏笺书斋](themes/apricot-study.md)。
 
 ## 分层与数据流
 
 `ThemeBundleComponent → PreferenceService → AppAppearance → AppTheme / AppColor / HomeTheme / AppMaterial → 页面与组件`。
 
 - `model/AppThemeVisual.ets`：强类型视觉契约，包含语义颜色、背景、图标角色和封面呈现。
-- `model/AppThemeBundle.ets`：名称、描述、推荐强调色、材质与视觉定义。定义创建后按只读配置使用，不修改共享定义实现用户自定义。
+- `model/AppThemeBundle.ets`：名称、描述、推荐强调色与视觉定义。定义创建后按只读配置使用，用户实际选择由 AppThemeSelection 保存。
 - `theme/bundles/`：各套装工厂。默认定义保留系统语义色和原资源，纸感定义保留暖纸及书脊，雾蓝使用冷灰蓝纯色背景、线性图标、细书脊和边框。
 - `theme/ThemeBundles.ets`：唯一注册表；列表、ID 校验、未知 ID 回退共用同一数组。
 - `theme/Theme.ets`：保留现有语义入口，读取当前 V2 状态。页面禁止判断具体主题 ID。
@@ -52,9 +54,9 @@
 | --- | --- |
 | `themeBundleId` | 当前套装 ID |
 | `accentColor` | 当前实际强调色；默认套装空值表示默认玫瑰红 |
-| `materialStyle` | 当前实际材质，推荐为 3 |
+| `materialStyle` | 用户当前实际材质，独立于套装选择 |
 
-应用套装使用其推荐色和材质；用户可继续在设置中修改并恢复推荐值。当前只保存一组实际选择，**不分别记忆各套装的用户覆盖值**。推荐色与保存值一致时采用该套装的深浅色资源；自定义 HEX 仍沿用原计算逻辑。
+应用套装使用其推荐主题色，并保留用户当前材质；恢复默认套装和恢复套装推荐主题色同样保留材质。自定义标记只依据强调色。当前保存一组实际选择，材质通过设置页独立管理。推荐色与保存值一致时采用该套装的深浅色资源；自定义 HEX 仍沿用原计算逻辑。
 
 偏好写入串行执行，flush 成功后才发布 V2 状态，失败回滚。旧颜色/材质偏好及备份迁移沿用原路径，未知套装回退默认并保留合法覆盖值。新增主题不需要更改存储版本。
 

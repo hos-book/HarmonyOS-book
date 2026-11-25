@@ -1,9 +1,10 @@
 import { sendableContextManager } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { CustomTtsConfig } from '../model/CustomTtsConfig';
-import { RoleModelState, RoleSpeaker, RoleSpeechSample, RoleSpeechState } from '../model/RoleSpeech';
+import { RoleAiState, RoleSpeaker, RoleSpeechSample, RoleSpeechState, RoleVoiceRequest } from '../model/RoleSpeech';
+import { JianjianAiService } from '../service/JianjianAiService';
 import { TextToSpeechState } from '../model/TextToSpeechState';
-import { RoleModelService } from '../service/text/RoleModelService';
+import { RoleAiService } from '../service/text/RoleAiService';
 import { RoleSpeechService } from '../service/text/RoleSpeechService';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { VoicePreviewService, VoicePreviewState } from '../service/text/VoicePreviewService';
@@ -27,7 +28,7 @@ class RoleSpeakerDataSource implements IDataSource {
   }
 }
 
-/** 阅读器与设置页共用配音交互，模型统一在“我的 → 模型管理”中管理。 */
+/** 阅读器与设置页共用 AI 角色配音交互。 */
 @ComponentV2
 export struct RoleSpeechPanel {
   @Param bookId: string = '';
@@ -36,8 +37,9 @@ export struct RoleSpeechPanel {
   @Param active: boolean = true;
   @Param topInset: number = 0;
   @Param bottomInset: number = 0;
+  @Event onConfigureAi: () => void = () => {};
   @Event onClose: () => void = () => {};
-  @Local model: RoleModelState = RoleModelService.getInstance().state;
+  @Local ai: RoleAiState = RoleAiService.instance.state;
   @Local liveRoles: RoleSpeechState = RoleSpeechService.getInstance().state;
   @Local savedRoles: RoleSpeechState = new RoleSpeechState();
   @Local speech: TextToSpeechState = TextToSpeechService.getInstance().state;
@@ -50,6 +52,9 @@ export struct RoleSpeechPanel {
   @Local selectedRole: string = '';
   @Local selectedName: ResourceStr = '';
   @Local selectedVoice: string = '';
+  @Local selectedProfile: string = '';
+  @Local selectedSource: string = 'manual';
+  @Local matchingVoice: boolean = false;
   @Local voiceQuery: string = '';
   @Local sampleText: string = '';
   private service: TextToSpeechService = TextToSpeechService.getInstance();
@@ -58,7 +63,8 @@ export struct RoleSpeechPanel {
   private speakers: RoleSpeakerDataSource = new RoleSpeakerDataSource();
   private voices: ReaderTtsDataSource = new ReaderTtsDataSource();
   private alive: boolean = false;
-  private readonly backgroundHandler = (): void => this.preview.stop();
+  private matchingClient: JianjianAiService | null = null;
+  private readonly backgroundHandler = (): void => { this.preview.stop(); this.cancelVoiceMatch(); };
 
   aboutToAppear(): void {
     this.alive = true;
@@ -68,12 +74,19 @@ export struct RoleSpeechPanel {
 
   aboutToDisappear(): void {
     this.alive = false;
+    this.cancelVoiceMatch();
     emitter.off('app.reader.background', this.backgroundHandler);
     this.finishPreview();
   }
 
   @Monitor('active')
-  activeChanged(): void { if (!this.active) this.finishPreview(); }
+  activeChanged(): void {
+    if (!this.active) { this.cancelVoiceMatch(); this.finishPreview(); }
+  }
+
+  private cancelVoiceMatch(): void {
+    this.matchingClient?.cancel(); this.matchingClient = null; this.matchingVoice = false;
+  }
 
   private async finishPreview(): Promise<void> {
     try { await this.preview.stopAndResume(); } catch (_error) { /* 原会话错误由播放器展示。 */ }
@@ -94,7 +107,7 @@ export struct RoleSpeechPanel {
     try {
       await this.service.initialize(sendableContextManager.convertToUIAbilityContext(
         sendableContextManager.convertFromContext(context)));
-      await RoleModelService.getInstance().initialize(context);
+      await RoleAiService.instance.initialize(context);
       const book = this.service.currentBook();
       this.targetId = this.bookId || book?.id || '';
       this.targetTitle = this.bookTitle || book?.title || '';
@@ -128,9 +141,11 @@ export struct RoleSpeechPanel {
   }
 
   private chooseVoice(id: string, name: ResourceStr, voice: string): void {
-    if (this.saving || this.model.busy) return;
+    if (this.saving) return;
     this.finishPreview();
     this.selectedRole = id; this.selectedName = name; this.selectedVoice = voice; this.voiceQuery = '';
+    const speaker = this.roles().speakers.find((item: RoleSpeaker): boolean => item.id === id);
+    this.selectedProfile = speaker?.profile ?? ''; this.selectedSource = speaker?.voiceSource ?? 'manual';
     this.sampleText = this.liveRoles.bookId === this.targetId ? RoleSpeechService.getInstance().sample(id) : '';
     if (!this.sampleText) {
       this.sampleText = this.getUIContext().getHostContext()?.resourceManager.getStringSync($r('app.string.tts_preview_sample').id) ?? '';
@@ -138,9 +153,46 @@ export struct RoleSpeechPanel {
     this.refreshVoices(); this.editing = true;
   }
 
+  private async rematchVoice(): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    const speaker = this.roles().speakers.find((item: RoleSpeaker): boolean => item.id === this.selectedRole);
+    if (!context || !speaker || this.saving || this.matchingVoice) return;
+    const request = new RoleVoiceRequest();
+    request.speaker.id = speaker.id; request.speaker.name = speaker.name;
+    request.speaker.voiceId = this.selectedVoice; request.speaker.profile = this.selectedProfile;
+    request.speaker.voiceSource = this.selectedSource;
+    request.known = this.roles().speakers;
+    request.voices = RoleAiService.voiceOptions(this.speech.customTtsConfigs, this.speech.customTtsId);
+    request.context = this.liveRoles.bookId === this.targetId ? RoleSpeechService.getInstance().voiceContext(speaker.id) : '';
+    if (request.voices.length === 0) { this.toast($r('app.string.role_voice_empty')); return; }
+    if (!request.context && !request.speaker.profile) { this.toast($r('app.string.role_ai_context_hint')); return; }
+    const client = new JianjianAiService();
+    this.matchingClient = client; this.matchingVoice = true;
+    try {
+      await this.finishPreview();
+      await RoleAiService.instance.initialize(context);
+      if (this.matchingClient !== client) return;
+      const match = await RoleAiService.instance.reassign(request, client);
+      if (this.matchingClient !== client) return;
+      this.selectedProfile = match.profile;
+      if (match.voiceId) {
+        this.selectedVoice = match.voiceId; this.selectedSource = 'ai'; this.voiceQuery = '';
+        this.refreshVoices(); this.toast($r('app.string.role_ai_match_ready'));
+      } else {
+        this.toast($r('app.string.role_ai_match_empty'));
+      }
+    } catch (error) {
+      if (this.matchingClient === client) {
+        this.toast(JianjianAiService.errorText(error instanceof Error ? error : new Error(String(error))));
+      }
+    } finally {
+      if (this.matchingClient === client) { this.matchingClient = null; this.matchingVoice = false; }
+    }
+  }
+
   private async saveVoice(): Promise<void> {
     const context = this.getUIContext().getHostContext();
-    if (!context || this.saving || !this.targetId || this.model.busy) return;
+    if (!context || this.saving || this.matchingVoice || !this.targetId) return;
     if (this.selectedVoice && !this.speech.customTtsConfigs.some((item: CustomTtsConfig): boolean =>
       item.id === this.selectedVoice && item.enabled)) { this.toast($r('app.string.role_voice_unavailable')); return; }
     this.saving = true;
@@ -151,7 +203,7 @@ export struct RoleSpeechPanel {
         roles = new RoleSpeechService();
         await roles.selectBook(context, this.targetId, this.targetTitle);
       }
-      await roles.setVoice(this.selectedRole, this.selectedVoice);
+      await roles.setVoice(this.selectedRole, this.selectedVoice, this.selectedSource, this.selectedProfile);
       this.savedRoles = roles.state;
       this.service.roleVoiceChanged(this.targetId);
       if (this.alive) { this.editing = false; this.refreshSpeakers(); this.toast($r('app.string.role_voice_saved')); }
@@ -160,13 +212,13 @@ export struct RoleSpeechPanel {
   }
 
   private async change(action: () => Promise<void>): Promise<void> {
-    if (this.saving || this.model.busy) return;
+    if (this.saving) return;
     this.saving = true;
     await this.finishPreview();
     const bookId = this.speech.bookId;
     const ticket = this.service.pauseForPreview();
     try { await action(); }
-    catch (_error) { this.toast($r('app.string.role_save_error')); }
+    catch (error) { this.toast(JianjianAiService.errorText(error instanceof Error ? error : new Error(String(error)))); }
     finally {
       if (this.speech.bookId === bookId && !this.speech.playing && !this.speech.loading) {
         try { await this.service.refreshRoleSpeech(this.service.canResumePreview(ticket)); }
@@ -179,7 +231,7 @@ export struct RoleSpeechPanel {
   private async audition(): Promise<void> {
     if (this.previewState.active) { await this.finishPreview(); return; }
     const context = this.getUIContext().getHostContext();
-    if (!context || this.saving || this.model.busy || !this.active) return;
+    if (!context || this.saving || this.matchingVoice || !this.active) return;
     const samples: RoleSpeechSample[] = this.editing ? [new RoleSpeechSample(this.sampleText, this.selectedVoice)] :
       this.liveRoles.bookId === this.targetId ? RoleSpeechService.getInstance().preview(this.speech.playbackOffset) : [];
     if (samples.length === 0) { this.toast($r('app.string.role_preview_empty')); return; }
@@ -200,7 +252,7 @@ export struct RoleSpeechPanel {
         SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(16).fontColor([this.secondary()])
       }.width('100%')
     }.width('100%').padding(AppSpace.Md).constraintSize({ minHeight: 64 }).borderRadius(AppRadius.Lg)
-      .backgroundColor(this.surface()).enabled(!this.saving && !this.model.busy)
+      .backgroundColor(this.surface()).enabled(!this.saving)
       .onClick((): void => this.chooseVoice(id, name, voice)).id(`role-voice-${id}`)
   }
 
@@ -214,8 +266,9 @@ export struct RoleSpeechPanel {
           .opacity(id === this.selectedVoice ? 1 : 0)
       }.width('100%')
     }.width('100%').constraintSize({ minHeight: 56 }).padding(AppSpace.Md).borderRadius(AppRadius.Lg)
-      .backgroundColor(this.surface()).accessibilitySelected(id === this.selectedVoice).enabled(!this.saving)
-      .onClick((): void => { this.finishPreview(); this.selectedVoice = id; }).id(`role-choice-${id || 'default'}`)
+      .backgroundColor(this.surface()).accessibilitySelected(id === this.selectedVoice).enabled(!this.saving && !this.matchingVoice)
+      .onClick((): void => { this.finishPreview(); this.selectedVoice = id; this.selectedSource = 'manual'; })
+      .id(`role-choice-${id || 'default'}`)
   }
 
   @Builder
@@ -227,7 +280,7 @@ export struct RoleSpeechPanel {
       .backgroundColor(this.editing ? this.surface() : Color.Transparent)
       .padding({ left: this.editing ? AppSpace.Md : 0, right: this.editing ? AppSpace.Md : 0 })
       .flexShrink(0)
-      .constraintSize({ minHeight: 44 }).enabled(!this.saving && !this.model.busy)
+      .constraintSize({ minHeight: 44 }).enabled(!this.saving && !this.matchingVoice)
       .onClick((): void => { this.audition(); }).id('role-preview')
   }
 
@@ -235,21 +288,24 @@ export struct RoleSpeechPanel {
   roleList() {
     List({ space: AppSpace.Xs }) {
       ListItem() {
-        if (this.model.model === null) {
+        if (!this.ai.configured) {
           Column({ space: AppSpace.Sm }) {
             Text($r('app.string.role_prepare_title')).fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium).fontColor(this.primary())
             Text($r('app.string.role_prepare_hint')).fontSize(AppFont.Body).fontColor(this.secondary())
+            Button($r('app.string.role_ai_configure')).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
+              .onClick((): void => this.onConfigureAi())
           }.alignItems(HorizontalAlign.Start).width('100%').padding(AppSpace.Md).borderRadius(AppRadius.Lg).backgroundColor(this.surface())
         } else {
           Row({ space: AppSpace.Sm }) {
             Column({ space: AppSpace.Xxs }) {
               Text($r('app.string.role_speech_enable')).fontSize(AppFont.BodyL).fontColor(this.primary())
               Text($r('app.string.role_global_scope')).fontSize(AppFont.Caption).fontColor(this.secondary())
+              Text($r('app.string.role_ai_model', this.ai.model)).fontSize(AppFont.Caption).fontColor(this.secondary())
             }.layoutWeight(1).alignItems(HorizontalAlign.Start)
-            Toggle({ type: ToggleType.Switch, isOn: this.model.enabled }).selectedColor(AppColor.Brand)
-              .enabled(!this.saving && !this.model.busy).accessibilityText($r('app.string.role_speech_enable'))
+            Toggle({ type: ToggleType.Switch, isOn: this.ai.enabled }).selectedColor(AppColor.Brand)
+              .enabled(!this.saving).accessibilityText($r('app.string.role_speech_enable'))
               .onChange((enabled: boolean): void => {
-                if (enabled !== this.model.enabled) this.change((): Promise<void> => RoleModelService.getInstance().setEnabled(enabled));
+                if (enabled !== this.ai.enabled) this.change((): Promise<void> => RoleAiService.instance.setEnabled(enabled));
               }).id('role-speech-toggle')
           }.width('100%').padding(AppSpace.Md).borderRadius(AppRadius.Lg).backgroundColor(this.surface())
         }
@@ -260,7 +316,7 @@ export struct RoleSpeechPanel {
             Row({ space: AppSpace.Sm }) {
               Text(this.targetTitle).fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium).fontColor(this.primary())
                 .layoutWeight(1).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
-              if (this.liveRoles.bookId === this.targetId && this.model.enabled) {
+              if (this.liveRoles.bookId === this.targetId && this.ai.enabled) {
                 this.previewButton()
               }
             }.width('100%')
@@ -286,7 +342,7 @@ export struct RoleSpeechPanel {
               Text($r('app.string.role_fallback_hint')).fontSize(AppFont.Body).fontColor(this.secondary())
               Text(this.roles().error).fontSize(AppFont.Caption).fontColor(this.secondary())
               Button($r('app.string.role_retry_chapter')).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
-                .enabled(!this.saving && !this.model.busy && this.model.enabled)
+                .enabled(!this.saving && this.ai.enabled)
                 .onClick((): void => { this.change((): Promise<void> => RoleSpeechService.getInstance().retryChapter()); })
             }
           }.width('100%').alignItems(HorizontalAlign.Start).padding(AppSpace.Xxs)
@@ -303,6 +359,21 @@ export struct RoleSpeechPanel {
   @Builder
   voiceEditor() {
     Text($r('app.string.role_voice_confirm_hint')).fontSize(AppFont.Caption).fontColor(this.secondary()).width('100%')
+    if (this.selectedRole !== '@narrator' && this.selectedRole !== '@dialogue') {
+      Button(this.matchingVoice ? $r('app.string.role_ai_matching') : $r('app.string.role_ai_rematch'))
+        .fontSize(AppFont.Body).fontColor(AppColor.Brand).backgroundColor(this.surface()).width('100%')
+        .constraintSize({ minHeight: 44 }).enabled(this.ai.configured && !this.saving && !this.matchingVoice)
+        .onClick((): void => { this.rematchVoice(); }).id('role-ai-rematch')
+      if (this.selectedProfile) {
+        Text(this.selectedProfile).fontSize(AppFont.Caption).fontColor(this.secondary()).width('100%')
+          .maxLines(3).textOverflow({ overflow: TextOverflow.Ellipsis })
+      }
+    }
+    Row({ space: AppSpace.Xs }) {
+      Text($r('app.string.role_selected_voice')).fontSize(AppFont.Caption).fontColor(this.secondary())
+      Text(this.voiceName(this.selectedVoice)).fontSize(AppFont.Caption).fontColor(AppColor.Brand).layoutWeight(1)
+        .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
+    }.width('100%')
     TextInput({ text: this.voiceQuery, placeholder: $r('app.string.role_voice_search') })
       .fontSize(AppFont.BodyL).height(44).fontColor(this.primary()).backgroundColor(this.surface())
       .onChange((value: string): void => { this.voiceQuery = value; })
@@ -323,7 +394,7 @@ export struct RoleSpeechPanel {
     Row({ space: AppSpace.Sm }) {
       this.previewButton()
       Button($r('app.string.role_voice_apply')).layoutWeight(1).constraintSize({ minHeight: 44 })
-        .fontSize(AppFont.Body).fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand).enabled(!this.saving)
+        .fontSize(AppFont.Body).fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand).enabled(!this.saving && !this.matchingVoice)
         .onClick((): void => { this.saveVoice(); }).id('role-voice-apply')
     }.width('100%')
   }
@@ -338,6 +409,7 @@ export struct RoleSpeechPanel {
           Button(this.editing ? $r('app.string.common_cancel') : $r('app.string.common_close'))
             .fontColor(AppColor.Brand).backgroundColor(Color.Transparent).enabled(!this.saving)
             .onClick((): void => {
+              this.cancelVoiceMatch();
               this.finishPreview();
               if (this.editing) this.editing = false;
               else this.onClose();

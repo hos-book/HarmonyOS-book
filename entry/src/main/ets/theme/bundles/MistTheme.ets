@@ -62,5 +62,5 @@ export function createMistTheme(): AppThemeBundle {
   visual.icons.set(ThemeIconRole.Profile, $r('app.media.theme_mist_profile'));
   visual.icons.set(ThemeIconRole.Category, $r('app.media.theme_mist_category'));
   return new AppThemeBundle('mist-blue', $r('app.string.theme_bundle_mist_name'),
-    $r('app.string.theme_bundle_mist_description'), '#3F647F', 3, visual);
+    $r('app.string.theme_bundle_mist_description'), '#3F647F', visual);
 }

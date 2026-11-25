@@ -1,57 +1,31 @@
-# 本地多角色朗读
+# AI 多角色朗读
 
-入口：阅读器菜单 → 角色配音，或“我的 → 阅听设置 → 多角色朗读”。模型在“我的 → 模型管理”统一导入。启用状态全局保存，旁白、默认对白和人物音色按书籍保存，继续复用现有音色选择、试听、播放和阅读进度。
+入口为阅读器菜单 → 角色配音，或“我的 → 阅听设置 → 多角色朗读”。识别复用已有 AI 配置中的地址、密钥和文本模型；配音面板显示当前模型，并提供既有配置页入口。启用状态全局保存，旁白、默认对白和人物音色按书籍保存。
 
-## 通用模型与自动调度
+## 识别与播放
 
-只需导入一份 `csi-v1-generic.ms`。同一模型供手机、平板和电脑使用，调度依据系统公开的 NNRT 加速器能力，独立于厂商和芯片型号。
+1. `ReaderDialogueHighlighter` 按阅读设置中的引号确定对白原文的 UTF-16 范围。
+2. `RoleSpeechPlanner` 将相邻对白组成窗口，每窗最多 12 段，窗口跨度以 6000 字为界，并带入前后各 1200 字上下文。
+3. `RoleAiService` 向已配置的 AI 服务发送上下文、各段对白原文、编号与范围、本书已有角色资料，以及已启用音色的 ID、名称、分组和已有性别说明。音色目录使用 `[id, description, preferred]` 紧凑格式；请求仅携带选声资料，连接凭据留在本机。服务返回对白编号、人物名、人物特征和音色 ID，原文继续由应用保管。
+4. AI 按原文中的性别、年龄、声线和语气匹配可用音色，匹配程度相当时优先同系列声音，并兼顾角色声音区分。Kokoro 使用现有说话人编号对应的性别资料；其余音色依据名称与分组中的明确说明。`RoleSpeechService` 为新人物保存匹配结果，已有绑定持续保留，手动选择优先。人物身份或音色匹配依据待确认时使用默认对白音色。
+5. 当前对白识别完成后进入既有语音合成与播放链，播放期间预取后续对白。旁白、章节标题、字符位置和阅读进度沿用现有流程。
 
-`RoleModelService` 通过 `librole_nnrt.so` 串行调用系统 MindSpore Lite C API。运行上下文先添加 `OH_AI_NNRTDEVICE_ACCELERATOR`，再添加 CPU。MindSpore Lite 将适配算子优先调度到 NNRT，其余算子在 CPU 上执行；设备仅提供 CPU 时直接使用 CPU。加速模型加载或推理失败时，重新建立 CPU 上下文并执行同一份模型与输入。
+正文片段会发送至用户已配置的 AI 服务。人物识别需要网络；发声可选系统音色、本地 Piper / Kokoro 或已配置的 HTTP 音色。本地 TTS 模型继续在模型管理中独立维护。
 
-模型管理卡显示文件名、大小和运行方式：“NPU 优先，CPU 协同”表示已配置加速器参与调度；具体算子分配由系统完成。“CPU”表示 CPU 上下文。界面状态表达调度方式，实际加速占比以设备运行结果为准。
+暂停、换书和章节重载沿用播放会话取消机制。当前章节识别结果保存在内存，每书人物与音色持久保存；重新进入章节按当前位置识别。原本的 `book-*.json` 设置通过文件内的 bookId 读取，已有绑定继续复用。
 
-原生推理在异步工作线程执行，使用 2 个 CPU 线程，空闲 30 秒释放模型。导入支持复制进度、取消、模型加载和样例推理；更新模型继续保留人物音色设置。
+识别错误在角色面板展示，可通过重新识别发起当前章节分析。音色选择、试听和下一片段生效方式沿用既有配音面板。
 
-角色识别与语音合成分别调度。Piper、Kokoro 本地语音继续通过 sherpa-onnx CPU 合成；HTTP 音色沿用现有服务。音色与模型许可见 `OFFLINE_TTS.md`。
+## 重新匹配角色声音
 
-## 角色识别流程
+打开具体人物的音色编辑页，点击“AI 重新配音”。AI 使用该人物所在的正文片段、已保存人物特征和当前已启用音色重新选声；编辑页展示人物特征与建议音色，试听后点击“使用这个音色”保存。取消编辑保留原绑定。旁白与默认对白继续由用户选择。
 
-1. `ReaderDialogueHighlighter` 确定对白的原文 UTF-16 范围。
-2. `RoleSpeechPlanner` 将最多三段相邻对白组成窗口，传递完整原文片段及对白起止位置。
-3. `RoleBertTokenizer` 每个窗口分词一次，各对白复用 token 和原文映射。按 512 token 预算围绕目标对白选取上下文，长对白保留首尾及两侧叙述，原文与阅读位置保持完整。
-4. CSI 提供姓名起止分数；候选评分时应用现有姓名长度、代词与文本规则，压缩位置两侧独立选择姓名。
-5. `RoleSpeechService` 保存角色与音色关联，按原文范围交给既有朗读链路；待确认角色使用默认对白音色。
+旧版本绑定原样沿用，可逐个人物重新匹配。旧角色尚无特征且当前章节缺少人物上下文时，页面提示先打开本书并朗读一段。重新配音采用独立 AI 请求，关闭面板或进入后台时取消该请求。新保存的绑定记录人物特征及 AI／手动选择来源，同一人物跨对白、跨章节沿用已保存声音。
 
-暂停和换书沿用现有取消机制，每段对白推理前后检查当前会话。章节缓存版本为 3；模型变更与既有章节身份一起参与缓存选择。每书角色设置、缓存数量和播放位置沿用现有存储约定。
+## 实现与验证记录
 
-## 模型转换
+2026-11-25：移除 CSI / MindSpore 本地角色模型服务、分词器、原生桥、模型卡片和配套词表，角色识别切换至现有 AI 对话接口。Release SDK 26.0.0.105 的 Debug HAP 构建成功；真实服务的角色识别效果和设备连续播放仍待验证。
 
-源模型为 `Warma10032/chinese-roberta-wwm-ext-large-csi-v1` 的 `csi-v1.pth`；配置使用 `hfl/chinese-roberta-wwm-ext-large`。导出采用 `BertForQuestionAnswering`、`layer_norm_eps=1e-5`、eager attention。应用包含配套中文词表。
+2026-11-25 选声修正：以人物特征匹配替换顺序轮换选声，保存稳定角色绑定与选择来源，新增逐个人物“AI 重新配音”、试听与确认保存。五个相关 ArkTS 文件完成静态检查，结果为零错误及现有建议项；Release SDK 26.0.0.105 的 Debug 构建成功，已在 HUAWEI Mate 80 安装并启动。真实 AI 服务的音色匹配效果与实际章节听感仍待确认。
 
-转换环境使用 Python、PyTorch 2.5.1、Transformers 4.46.3、ONNX 1.17.0 和官方 MindSpore Lite 2.7.0 `converter_lite`。脚本先导出 opset 13 ONNX，再按 `--saveType=MINDIR_LITE --fp16=on --optimize=general` 转换为便携式模型；转换仅使用通用图优化，设备在运行时选择计算后端。
-
-```bash
-export LD_LIBRARY_PATH=/path/to/mindspore-lite/tools/converter/lib
-python scripts/convert-role-speaker-model.py \
-  --model-dir /path/to/config \
-  --checkpoint /path/to/csi-v1.pth \
-  --converter /path/to/mindspore-lite/tools/converter/converter/converter_lite \
-  --output artifacts/models/csi-v1-generic.ms
-```
-
-三个输入均为 `(1,512)` INT32：`input_ids`、`token_type_ids`、`attention_mask`。输出为 `start_logits`、`end_logits` 两组 512 项浮点分数。原生桥统一输出 FP32 给 ArkTS。
-
-CSI 原始项目对语料标注非商业研究用途；权重许可与语料来源条件分别审阅。模型独立交付，HAP 包含推理桥接、词表及许可，MindSpore Lite 使用系统运行时。
-
-## 依据与验证记录
-
-- 官方 NNRT/CPU 协同指南：https://raw.githubusercontent.com/openharmony/docs/master/en/application-dev/ai/mindspore/mindspore-lite-guidelines.md
-- 官方模型转换指南：https://raw.githubusercontent.com/openharmony/docs/master/en/application-dev/ai/mindspore/mindspore-lite-converter-guidelines.md
-- 模型转换工具：https://www.mindspore.cn/lite/docs/en/r2.7.0/use/downloads.html
-- CSI 模型：https://huggingface.co/Warma10032/chinese-roberta-wwm-ext-large-csi-v1
-- CSI 训练项目：https://github.com/yudiandoris/csi
-- ArkTS 语法指南技能：https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/SKILL.md
-- ArkUI 开发技能：https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/SKILL.md
-- 编译修复技能：https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md
-
-2026-11-23：通用 `.ms` 转换成功，文件大小 649,147,872 字节。Release SDK 26.0.0.105 的 Debug HAP 构建通过。独立 LSP 检查仍引用旧版双参数原生声明，报告参数数量提示；当前声明为单参数，完整构建已按当前声明编译通过。运行时 API 以本机 Release SDK 26 声明为依据，所用 MindSpore 接口均在 API 20 及以前提供。在线目录索引已获取，根目录 API 返回 HTTP 429；技能应用沿用索引定位和已读取的参考正文。实际耗时、识别质量与 NPU/CPU 分配效果仍待真机确认。
+实现参考已读取的在线 [ArkTS 语法指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/SKILL.md)、[ArkUI V2 开发指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/SKILL.md)及[编译修复指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)。

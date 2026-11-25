@@ -73,6 +73,12 @@ const KEY_TOC_ORDER_PREFIX = 'toc_order_v1_';
 /** 华为账号登录身份标识(UnionID/OpenID),JSON 持久化 */
 const KEY_HW_ACCOUNT = 'hw_account_v1';
 
+export enum AudioPlaybackMode {
+  Default = 0,
+  Coexistence = 1,
+  AutoResume = 2
+}
+
 export interface PlayHistoryItem {
   bookId: string;
   chapterId: string;
@@ -1381,14 +1387,14 @@ export class PreferenceService {
     if (ThemeBundles.normalizeId(id) !== id) throw new Error('Unknown theme bundle');
     return PreferenceService.enqueueAppearanceSave((): AppThemeSelection => {
       const bundle = ThemeBundles.resolve(id);
-      return new AppThemeSelection(bundle.id, bundle.accent, bundle.material);
+      return new AppThemeSelection(bundle.id, bundle.accent, AppAppearance.current.material);
     }, id !== ThemeBundles.DefaultId);
   }
 
   static async resetThemeBundleOverrides(): Promise<void> {
     return PreferenceService.enqueueAppearanceSave((): AppThemeSelection => {
       const bundle = ThemeBundles.resolve(AppAppearance.current.themeBundleId);
-      return new AppThemeSelection(bundle.id, bundle.accent, bundle.material);
+      return new AppThemeSelection(bundle.id, bundle.accent, AppAppearance.current.material);
     });
   }
 
@@ -1600,6 +1606,18 @@ export class PreferenceService {
       const failure: Error = error;
       throw failure;
     }
+  }
+
+  static async getAudioPlaybackMode(): Promise<AudioPlaybackMode> {
+    if (await PreferenceService.getAudioCoexistenceEnabled()) return AudioPlaybackMode.Coexistence;
+    return await PreferenceService.getAudioAutoResume() ? AudioPlaybackMode.AutoResume : AudioPlaybackMode.Default;
+  }
+
+  static async setAudioPlaybackMode(mode: AudioPlaybackMode): Promise<void> {
+    const store = await PreferenceService.ensureStore();
+    await store.put(KEY_AUDIO_COEXISTENCE_ENABLED, mode === AudioPlaybackMode.Coexistence);
+    await store.put(KEY_AUDIO_AUTO_RESUME, mode === AudioPlaybackMode.AutoResume);
+    await store.flush();
   }
 
   static async getAudioCoexistenceEnabled(): Promise<boolean> {

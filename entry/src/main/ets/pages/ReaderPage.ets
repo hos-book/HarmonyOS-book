@@ -326,7 +326,7 @@ export struct ReaderPage {
   private onlineTextTurnSerial: number = 0;
   private onlineTextTurnLoading: boolean = false;
   private onlineTextTurnConfirmed: boolean = false;
-  private currentPosition: TextReadingPosition | null = null;
+  @Local currentPosition: TextReadingPosition | null = null;
   private context: common.UIAbilityContext | null = null;
   private leaving: boolean = false;
   private chapterDataSource: ChapterDataSource = new ChapterDataSource();
@@ -1322,7 +1322,8 @@ export struct ReaderPage {
 
   private updateContinuousPosition(chapterIndex: number, offset: number, content: string, persist: boolean): void {
     if (this.leaving || this.onlineTextLoading || this.book === null) return;
-    if (chapterIndex !== this.currentResourceIndex || this.onlineTextContent !== content) {
+    const chapterChanged = chapterIndex !== this.currentResourceIndex;
+    if (chapterChanged || this.onlineTextContent !== content) {
       this.currentResourceIndex = chapterIndex;
       this.currentChapterTitle = this.chapterTitle(chapterIndex);
       this.onlineTextContent = content;
@@ -1331,6 +1332,7 @@ export struct ReaderPage {
     this.onlineTextPageIndex = OnlineTextPaginator.pageIndexForOffset(this.onlineTextPages, offset);
     this.currentPosition = TextReadingPosition.atChar(this.book.id, chapterIndex, '', offset,
       this.onlineTextPageIndex, this.currentChapterTitle);
+    if (chapterChanged) this.prefetchAdjacentOnlineTextChapters(chapterIndex);
     if (persist) {
       this.saveProgress();
       if (this.speechScrollPending) {
@@ -3199,6 +3201,10 @@ export struct ReaderPage {
     if (this.rolePanelOpen) {
       RoleSpeechPanel({ bookId: this.bookId, bookTitle: this.book?.title ?? '', embedded: true,
         active: this.showSpeechSheet && !this.leaving,
+        onConfigureAi: (): void => {
+          this.showSpeechSheet = false;
+          this.navStack.pushPathByName('jianjianAiSettings', '');
+        },
         onClose: (): void => { this.showSpeechSheet = false; } })
     } else {
     ReaderSpeechSheet({ state: this.speechState,

@@ -1,11 +1,12 @@
 # 可选 AI 模型包
 
-普通阅读与播放保持独立。“我的 → 模型管理”提供漫画着色、AI 字幕、多角色朗读卡片和本地 TTS 分组。漫画导入配套 `.jtmodel` 加密模型包，字幕导入 ZIP，多角色朗读导入一份通用 CSI `.ms`，系统 MindSpore Lite 按设备能力优先使用 NPU，CPU 接续其余计算。本地 TTS 分组展示 Piper 超文、小雅和 Kokoro 的状态、大小及导入/删除入口；Piper、小雅与 Kokoro 直接导入官方下载的 INT8 `.tar.bz2`，Kokoro 兼容旧配套 ZIP。CSI 权重由用户独立获取，转换脚本使用 MindSpore Lite 通用图优化生成 `.ms`，应用内仅含中文词表和许可说明。CSI 语料来源标注非商业研究用途；商业发布前完成许可审查。支持替换、取消和确认删除，来源说明位于标题旁的感叹号，会员权益校验保留。
+“我的 → 模型管理”提供漫画着色、漫画智能去水印、AI 字幕卡片和本地 TTS 分组。着色导入配套 `.jtmodel`，去水印导入 SLBR `.onnx`，字幕导入 ZIP；Piper 超文、小雅与 Kokoro 继续使用已有导入方式。AI 多角色朗读复用现有 AI 配置，人物音色使用既有目录。去水印模型在设备内处理图片；识别水印并修复背景后，结果继续进入着色／翻译或超分流程。
 
 | 资源包 | 文件 | 权重原始大小 |
 | --- | --- | --- |
 | 漫画着色 | `artifacts/model-packs/v1/Jianting-comic-color-v1.jtmodel` | 176.25 MiB |
 | AI 字幕 | `artifacts/model-packs/v1/Jianting-audio-subtitle-v1.zip` | 422.10 MiB |
+| 漫画智能去水印 | `artifacts/models/slbr-watermark-v1.onnx` | 82.62 MiB |
 
 漫画包含通用 CPU 与横竖屏 NNRT 模型，字幕包含语音、词表和标点模型；这些权重均不随主包安装。漫画翻译语言包仍沿用原有首次使用时按需下载，运行资源暂保留在主包。普通超分、书源、阅读和播放不依赖可选模型。
 

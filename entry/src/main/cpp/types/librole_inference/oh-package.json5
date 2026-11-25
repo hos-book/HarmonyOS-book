@@ -1,5 +1,0 @@
-{
-  "name": "librole_inference.so",
-  "version": "1.0.0",
-  "types": "./Index.d.ts"
-}

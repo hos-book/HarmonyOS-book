@@ -12,7 +12,7 @@
     "libsubtitle_audio.so": "file:./src/main/cpp/types/libsubtitle_audio",
     "libcba_archive.so": "file:./src/main/cpp/types/libcba_archive",
     "librecord_dissolve.so": "file:./src/main/cpp/types/librecord_dissolve",
-    "librole_nnrt.so": "file:./src/main/cpp/types/librole_nnrt",
+    "libcomic_watermark.so": "file:./src/main/cpp/types/libcomic_watermark",
     "@legado/aiengine": "file:./libs/aiengine.har",
     "@devzeng/quickjs": "file:./libs/quickjs.har"
   }

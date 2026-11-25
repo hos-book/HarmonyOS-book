@@ -1,5 +1,6 @@
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { RoleSpeechPanel } from '../components/RoleSpeechPanel';
+import { RoleAiService } from '../service/text/RoleAiService';
 import { AppFont, AppSpace, AppTheme } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
 
@@ -11,7 +12,13 @@ export struct RoleSpeechSettingsPage {
   build() {
     Stack({ alignContent: Alignment.Top }) {
       Column() {
-        RoleSpeechPanel({ topInset: this.headerHeight, bottomInset: WindowUtils.getBottomSafeVp() })
+        RoleSpeechPanel({ topInset: this.headerHeight, bottomInset: WindowUtils.getBottomSafeVp(),
+          onConfigureAi: (): void => {
+            this.navStack.pushPathByName('jianjianAiSettings', '', (): void => {
+              const context = this.getUIContext().getHostContext();
+              if (context) RoleAiService.instance.initialize(context);
+            });
+          } })
       }.width('100%').height('100%')
       FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {
         Row({ space: AppSpace.Sm }) {
