@@ -9203,7 +9203,7 @@
     {"name": "comic_watermark_model_hint", "value": "导入配套 SLBR ONNX 模型，自动定位水印并修复背景。图片在设备内处理。复杂水印与漫画文字的识别效果受模型影响，可通过阅读开关查看原图。"},
     {"name": "comic_watermark_model_size", "value": "SLBR · 本地模型 · 已安装 %d MB"},
     {"name": "comic_watermark_model_loading", "value": "正在处理本地模型…"},
-    {"name": "comic_watermark_model_error", "value": "模型加载失败，请选择配套 SLBR ONNX 文件"},
+    {"name": "comic_watermark_model_error", "value": "去水印模型操作失败"},
     {"name": "comic_watermark_source", "value": "复制模型来源地址"}
   ]
 }

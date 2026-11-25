@@ -13,7 +13,9 @@ namespace {
 constexpr int TILE = 256;
 constexpr int OVERLAP = 32;
 constexpr int PLANE = TILE * TILE;
-const OrtApi *api = OrtGetApiBase()->GetApi(ORT_API_VERSION);
+// The packaged sherpa-onnx dependency provides ONNX Runtime 1.16.3.
+constexpr uint32_t RUNTIME_API_VERSION = 16;
+const OrtApi *api = OrtGetApiBase()->GetApi(RUNTIME_API_VERSION);
 
 void check(OrtStatus *status)
 {
@@ -37,7 +39,10 @@ struct Model {
     }
     void load(const std::string &path)
     {
-        if (api == nullptr) throw std::runtime_error("watermark_runtime");
+        if (api == nullptr) {
+            throw std::runtime_error(std::string("ONNX Runtime ") + OrtGetApiBase()->GetVersionString() +
+                ": requested C API " + std::to_string(RUNTIME_API_VERSION));
+        }
         check(api->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "ComicWatermark", &env));
         check(api->CreateSessionOptions(&options));
         check(api->SetIntraOpNumThreads(options, 2));

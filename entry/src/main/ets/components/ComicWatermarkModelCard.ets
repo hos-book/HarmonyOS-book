@@ -1,5 +1,6 @@
 import { sendableContextManager } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { hilog } from '@kit.PerformanceAnalysisKit';
 import { ComicWatermarkService, ComicWatermarkState } from '../service/ComicWatermarkService';
 import { AppColor, AppFont, AppRadius, AppSpace, AppTheme } from '../theme/Theme';
 import { SettingsHintButton } from './SettingsHintButton';
@@ -14,13 +15,20 @@ export struct ComicWatermarkModelCard {
   aboutToAppear(): void {
     this.alive = true;
     const context = this.getUIContext().getHostContext();
-    if (context) ComicWatermarkService.instance.initialize(context).catch((): void => this.showError());
+    if (context) ComicWatermarkService.instance.initialize(context).catch((error: Error): void => this.showError(error));
   }
 
   aboutToDisappear(): void { this.alive = false; }
 
-  private showError(): void {
-    if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_watermark_model_error') });
+  private showError(error: Error): void {
+    hilog.error(0x0000, 'ComicWatermark', 'Model operation failed: %{public}s', error.message);
+    if (this.alive) {
+      this.getUIContext().showAlertDialog({
+        title: $r('app.string.comic_watermark_model_error'),
+        message: error.message,
+        confirm: { value: $r('app.string.common_ok'), action: (): void => {} }
+      });
+    }
   }
 
   private async importModel(): Promise<void> {
@@ -30,14 +38,14 @@ export struct ComicWatermarkModelCard {
     try {
       await ComicWatermarkService.instance.pick(sendableContextManager.convertToUIAbilityContext(
         sendableContextManager.convertFromContext(context)));
-    } catch (_error) { this.showError(); }
+    } catch (error) { this.showError(error instanceof Error ? error : new Error(String(error))); }
     finally { this.onChanging(false); }
   }
 
   private async removeModel(): Promise<void> {
     this.onChanging(true);
     try { await ComicWatermarkService.instance.remove(); }
-    catch (_error) { this.showError(); }
+    catch (error) { this.showError(error instanceof Error ? error : new Error(String(error))); }
     finally { this.onChanging(false); }
   }
 
@@ -46,7 +54,7 @@ export struct ComicWatermarkModelCard {
       await pasteboard.getSystemPasteboard().setData(pasteboard.createData(pasteboard.MIMETYPE_TEXT_PLAIN,
         'https://github.com/bcmi/SLBR-Visible-Watermark-Removal'));
       if (this.alive) this.getUIContext().getPromptAction().showToast({ message: $r('app.string.role_model_link_copied') });
-    } catch (_error) { this.showError(); }
+    } catch (error) { this.showError(error instanceof Error ? error : new Error(String(error))); }
   }
 
   build() {

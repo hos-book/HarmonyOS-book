@@ -17,11 +17,13 @@ python scripts/export-comic-watermark.py \
   --output artifacts/models/slbr-watermark-v1.onnx
 ```
 
-导出契约为 opset 17，单输入 `image`、单输出 `clean`，均为 FP32 `[1,3,256,256]`，RGB 数值 0～1。输出按官方方式融合修复背景与预测水印掩码。原生桥使用 ONNX Runtime 1.17.3 的公共 C API，运行库来自当前 sherpa-onnx 依赖。
+导出契约为 opset 17，单输入 `image`、单输出 `clean`，均为 FP32 `[1,3,256,256]`，RGB 数值 0～1。输出按官方方式融合修复背景与预测水印掩码。原生桥沿用 ONNX Runtime 1.17.3 公共 C API 头，并明确请求 C API 16，与 sherpa-onnx 依赖实际打包的 ONNX Runtime 1.16.3 对齐。模型操作失败时显示原始错误详情，并写入 `ComicWatermark` 日志。
 
 官方仓库提供论文与预训练权重，源码和权重的公开发行许可仍待作者明确。来源说明随应用保存在 `rawfile/third_party/comic_watermark/NOTICE.txt`；模型单独保存和导入。真实漫画中的正文保留、覆盖区域修复效果与设备耗时仍待实机验证。
 
-2026-11-25：ONNX 导出完成，输入输出元数据符合上述契约；Release SDK 26.0.0.105 的 Debug HAP 构建成功。
+2026-11-25：ONNX 导出完成，输入输出元数据符合上述契约。Mate 80 导入时原始错误为 `watermark_runtime`，来自 C API 17 请求与实际运行库 1.16.3 的版本差异。调整为 C API 16 后，ArkTS 检查通过，Release SDK 26.0.0.105 的双架构 Debug HAP 构建成功，并已安装到 Mate 80。通过系统文件选择器重新导入下载目录中的同一份 `slbr-watermark-v1.onnx` 后，模型管理显示“已安装 83 MB”。本轮实机结论覆盖模型加载与导入。
+
+错误展示使用在线 [ArkTS 语法规则](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/references/quick-rules/00-arkts-syntax.md)与 [ArkUI UIContext 指南](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/references/quick-rules/02-uicontext.md)，通过组件 UIContext 显示原始错误。C API 版本选择依据 [ONNX Runtime 官方 C API 指南](https://github.com/microsoft/onnxruntime/blob/v1.18.0/docs/C_API_Guidelines.md)的函数表追加兼容约定，以及当前双架构运行库实际版本。
 
 ## 本地着色子包
 
