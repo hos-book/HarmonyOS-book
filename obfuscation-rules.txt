@@ -41,6 +41,9 @@
   # Fixed N-API exports from libmodel_pack_crypto.so.
   getKey
   getKeyId
+  # Fixed N-API exports from libcomic_watermark.so.
+  load
+  process
 
 -keep-property-name
   EpubParserService
@@ -65,6 +68,8 @@
   releaseRoleNnrtModel
   getKey
   getKeyId
+  load
+  process
   # Optional model-pack manifest fields.
   chunkBytes
   cipher
