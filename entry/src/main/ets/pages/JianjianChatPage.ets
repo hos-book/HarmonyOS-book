@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { JianjianAiConfig, JianjianAiMessage, JianjianChatItem, JianjianChatRoute,
   JianjianBookContext, JianjianCitation, JianjianExcerpt } from '../model/JianjianAi';
@@ -350,7 +351,7 @@ export struct JianjianChatPage {
                 Column({ space: AppSpace.Xxs }) {
                   Text($r('app.string.jianjian_name')).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
                   Row({ space: AppSpace.Xs }) {
-                    LoadingProgress().width(20).height(20).color(AppColor.Brand)
+                    InfinityLoadingIndicator({ indicatorSize: 20 })
                     Text($r('app.string.jianjian_ai_replying')).fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
                   }.padding(AppSpace.Sm).backgroundColor(AppTheme.Surface)
                     .borderRadius({ topLeft: AppRadius.Xs, topRight: AppRadius.Lg,
@@ -361,7 +362,7 @@ export struct JianjianChatPage {
           } else if (this.loading) {
             ListItem() {
               Row({ space: AppSpace.Sm }) {
-                LoadingProgress().width(20).height(20).color(AppColor.Brand)
+                InfinityLoadingIndicator({ indicatorSize: 20 })
                 Text($r('app.string.settings_loading'))
                   .fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
               }.padding({ left: 44, top: AppSpace.Xs, bottom: AppSpace.Xs })

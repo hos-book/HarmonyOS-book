@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { ImmersiveMenu } from '../utils/ImmersiveMenu';
 import { ImmersiveMenuHeader } from '../components/ImmersiveMenuHeader';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
@@ -42,8 +43,6 @@ const SEARCH_HEADER_HEIGHT: number = SEARCH_TITLE_BAR_HEIGHT + SEARCH_MODE_ROW_H
 const SEARCH_TITLE_CONTROL_HEIGHT: number = 44;
 const RESULT_TOOLBAR_HEIGHT: number = 48;
 const HISTORY_HEADING_HEIGHT: number = 52;
-// 系统滑入没有公开的完成回调；实机结束通知约 580ms，留出提交余量后再创建正文。
-const SEARCH_ENTRY_SETTLE_MS: number = 650;
 const SEARCH_RECOMMENDATION_DELAY_MS: number = 80;
 
 /** 自绘顶部使用独立磨砂，不依赖 HDS 标题栏的材质合成范围。 */
@@ -123,6 +122,8 @@ export struct SearchPage {
   @Param navStack: NavPathStack = new NavPathStack();
   /** 从详情页分类标签进入时预填并直接检索的关键词；为空表示普通进入。 */
   @Param initialKeyword: string = '';
+  @Param searchTransitionProgress: number = 0;
+  @Param entryTransitionReady: boolean = false;
 
   @Local keyword: string = '';
   @Local searchCurrentSource: boolean = true;
@@ -205,7 +206,6 @@ export struct SearchPage {
   private recommendationTimerId: number = -1;
   private recommendationPublishScheduled: boolean = false;
   private recommendationPublishRevision: number = 0;
-  private entryTimerId: number = -1;
   private historyTextWidths: Map<string, number> = new Map();
   private historyMeasureScale: string = '';
   private pageShown: boolean = false;
@@ -284,8 +284,10 @@ export struct SearchPage {
   }
 
   private stopResultScroll(): void {
-    const offset = this.resultScroller.currentOffset();
-    this.resultScroller.scrollTo({ xOffset: offset.xOffset, yOffset: offset.yOffset, animation: false });
+    const offset: OffsetResult | undefined = this.resultScroller.currentOffset();
+    if (offset) {
+      this.resultScroller.scrollTo({ xOffset: offset.xOffset, yOffset: offset.yOffset, animation: false });
+    }
     this.resetResultScroll();
   }
 
@@ -309,7 +311,6 @@ export struct SearchPage {
     this.restoreResultGroupOnReturn = false;
     this.pageShown = false;
     this.resetResultScroll();
-    this.cancelEntryTimer();
     this.searchGen++;
     this.cancelSearchRequests();
     this.coverHydrationQueue = [];
@@ -327,25 +328,19 @@ export struct SearchPage {
     }
     if (this.resultsDirty) this.scheduleResultsRefresh();
     this.pumpCoverHydration();
-    if (!this.entryReady && this.entryTimerId < 0) {
-      this.entryTimerId = setTimeout((): void => {
-        this.entryTimerId = -1;
-        if (!this.pageShown || this.leavingPage) return;
-        // 输入框立即可用；历史标签和正文延后，推荐内容继续分帧提交。
-        this.entryReady = true;
-        this.trimHistory();
-        this.scheduleRecommendationPublish();
-        this.scheduleRecommendations();
-      }, SEARCH_ENTRY_SETTLE_MS);
-    }
+    this.showEntryContent();
+  }
+
+  @Monitor('entryTransitionReady')
+  private onEntryTransitionReady(): void {
+    this.showEntryContent();
+  }
+
+  private showEntryContent(): void {
+    if (!this.entryTransitionReady || !this.pageShown || this.leavingPage) return;
     if (this.applyInitialKeyword()) return;
     this.scheduleRecommendationPublish();
     this.scheduleRecommendations();
-  }
-
-  private cancelEntryTimer(): void {
-    if (this.entryTimerId >= 0) clearTimeout(this.entryTimerId);
-    this.entryTimerId = -1;
   }
 
   /**
@@ -358,11 +353,7 @@ export struct SearchPage {
     this.keyword = value;
     this.recommendationsLoaded = true;
     this.recommendationsLoading = false;
-    this.recommendationTimerId = setTimeout((): void => {
-      this.recommendationTimerId = -1;
-      if (this.leavingPage || this.hasSearched) return;
-      this.doSearch().catch((): void => {});
-    }, SEARCH_ENTRY_SETTLE_MS);
+    this.doSearch().catch((): void => {});
     return true;
   }
 
@@ -374,7 +365,6 @@ export struct SearchPage {
     this.resetResultScroll();
     if (this.resultsRefreshTimer >= 0) clearTimeout(this.resultsRefreshTimer);
     this.resultsRefreshTimer = -1;
-    this.cancelEntryTimer();
     this.cancelRecommendations();
     this.searchController.stopEditing();
   }
@@ -1212,7 +1202,7 @@ export struct SearchPage {
           ListItem() {
             if (this.recommendationsLoading) {
               Row({ space: AppSpace.Xs }) {
-                LoadingProgress().width(20).height(20).color(AppColor.Brand)
+                InfinityLoadingIndicator({ indicatorSize: 20 })
                 Text($r('app.string.search_recommend_loading')).fontSize(AppFont.Caption)
                   .fontColor($r('sys.color.font_tertiary'))
               }.width('100%').height(72).justifyContent(FlexAlign.Center)
@@ -1273,10 +1263,7 @@ export struct SearchPage {
           }.scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off).layoutWeight(1)
 
           if (this.searching) {
-            LoadingProgress()
-              .width(18)
-              .height(18)
-              .color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 18 })
               .margin({ left: AppSpace.Xs })
             Text(`${this.searchedSourceCount}/${this.searchSourceTotal}`)
               .fontSize(11)
@@ -1306,10 +1293,7 @@ export struct SearchPage {
   buildLoadingState() {
     Column({ space: AppSpace.Sm }) {
       Row({ space: AppSpace.Xs }) {
-        LoadingProgress()
-          .width(40)
-          .height(40)
-          .color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 40 })
         Text(`${this.searchedSourceCount}/${this.searchSourceTotal}`)
           .fontSize(AppFont.Caption)
           .fontColor($r('sys.color.font_secondary'))
@@ -1848,6 +1832,8 @@ export struct SearchPage {
       .width('100%')
       .height('100%')
       .backgroundColor(HomeTheme.BgNeutral)
+      .scale({ x: 0.97 + 0.03 * this.searchTransitionProgress,
+        y: 0.97 + 0.03 * this.searchTransitionProgress, centerX: '50%', centerY: '0%' })
     }
     .hideTitleBar(true)
     .hideBackButton(true)
@@ -1865,6 +1851,11 @@ export struct SearchPage {
       this.resultMenuX = event.touches[0].x;
       this.resultMenuY = event.touches[0].y;
     })
+    .onWillShow((): void => {
+      // 历史与正文提前布局，随搜索框共用整页淡入节奏。
+      this.entryReady = true;
+      this.trimHistory();
+    })
     .onShown(() => this.handlePageShown())
     .onWillHide(() => this.handlePageHidden())
     .onHidden(() => this.handlePageHidden())
@@ -1874,8 +1865,9 @@ export struct SearchPage {
       this.searchController.stopEditing();
     })
     // 顶栏已由内容树绘制，使用原生目的页即可，避免创建隐藏的 HDS 标题与材质结构。
-    // 保留实时材质和双向系统滑入，不在转场中建立整页纹理。
+    // 主导航驱动双向淡化与轻缩放，材质沿用实时绘制。
     .renderGroup(false)
-    .systemTransition(NavigationSystemTransitionType.SLIDE_RIGHT)
+    .opacity(this.searchTransitionProgress)
+    .systemTransition(NavigationSystemTransitionType.NONE)
   }
 }

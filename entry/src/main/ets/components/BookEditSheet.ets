@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { Book } from '../model/Book';
 import { BookPresentation, BookPresentationEdit } from '../model/BookPresentation';
 import { PreferenceService } from '../service/PreferenceService';
@@ -221,7 +222,7 @@ export struct BookEditSheet {
                   if (event?.loadingStatus === 1) this.finishCoverLink(request, true);
                 })
                 .onError((): void => { this.finishCoverLink(request, false); })
-              LoadingProgress().width(24).height(24).color(AppColor.Brand)
+              InfinityLoadingIndicator({ indicatorSize: 24 })
             }.width(66).height(88)
           }, (request: number): string => request.toString())
         } else {
@@ -291,7 +292,7 @@ export struct BookEditSheet {
           })
       }.width('100%')
       }
-      if (this.searching) { LoadingProgress().width(24).height(24).color(AppColor.Brand) }
+      if (this.searching) { InfinityLoadingIndicator({ indicatorSize: 24 }) }
       if (this.error) { Text(this.error).fontColor($r('sys.color.font_secondary')).fontSize(12) }
       if (!this.groupOnly) {
       List({ space: 8 }) {

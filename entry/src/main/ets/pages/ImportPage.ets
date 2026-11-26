@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { LocalBookImportService, LocalImportFile, LocalBookPreview } from '../service/LocalBookImportService';
 import { LocalBookCover } from '../components/LocalBookCover';
 import { BookGroupSheet } from '../components/BookGroupSheet';
@@ -588,7 +589,7 @@ export struct ImportPage {
           Text($r('app.string.import_selected_files', this.pickedFiles.length))
             .fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium)
             .fontColor($r('sys.color.font_primary')).layoutWeight(1)
-          if (this.parsing) { LoadingProgress().width(20).height(20).color(AppColor.Brand) }
+          if (this.parsing) { InfinityLoadingIndicator({ indicatorSize: 20 }) }
           if (this.pickedFiles.length === 1) {
             Button({ type: ButtonType.Circle }) {
               SymbolGlyph($r('sys.symbol.xmark')).fontSize(16).fontColor([$r('sys.color.font_tertiary')])

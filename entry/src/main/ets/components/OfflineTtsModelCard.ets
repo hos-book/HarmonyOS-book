@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { sendableContextManager } from '@kit.AbilityKit';
 import { emitter, pasteboard } from '@kit.BasicServicesKit';
 import { OfflineTtsModelState } from '../model/OfflineTts';
@@ -152,7 +153,7 @@ export struct OfflineTtsModelCard {
         }
         if (this.state.busy || this.removing) {
           Row({ space: AppSpace.Sm }) {
-            LoadingProgress().width(22).height(22).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 22 })
             Text(this.removing ? $r('app.string.model_pack_deleting') : this.state.verifying ?
               $r('app.string.model_pack_verifying') : $r('app.string.model_pack_importing', this.state.progress))
               .fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary).layoutWeight(1)
@@ -183,7 +184,7 @@ export struct OfflineTtsModelCard {
         Button($r('app.string.common_retry')).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
           .onClick((): void => { this.load(); })
       } else {
-        LoadingProgress().width(28).height(28).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 28 })
       }
     }.width('100%').alignItems(HorizontalAlign.Start).padding(AppSpace.Md)
       .borderRadius(AppRadius.Lg).backgroundColor(AppTheme.Surface)

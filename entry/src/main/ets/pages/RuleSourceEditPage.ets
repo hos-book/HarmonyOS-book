@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
 import { LocalRuleSource, LocalRuleSearchRule, LocalRuleBookInfoRule, LocalRuleTocRule, LocalRuleContentRule } from '../model/LocalRuleSource';
 import { LocalRuleSourceRepository } from '../service/rulesource/LocalRuleSourceRepository';
@@ -378,10 +379,7 @@ export struct RuleSourceEditPage {
 
           if (this.isLoading) {
             Column() {
-              LoadingProgress()
-                .width(40)
-                .height(40)
-                .color(AppColor.Brand)
+              InfinityLoadingIndicator({ indicatorSize: 40 })
               Text($r('app.string.common_content_loading'))
                 .fontSize(AppFont.Caption)
                 .fontColor($r('sys.color.font_secondary'))

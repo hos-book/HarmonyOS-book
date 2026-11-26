@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { ComicReaderAppearance } from '../model/ComicReaderAppearance';
 import { ComicAppearanceSettings } from '../components/ComicAppearanceSettings';
 import { ReaderChapterJumpHint } from '../components/ReaderChapterJumpHint';
@@ -241,6 +242,7 @@ export struct ComicReaderPage {
     ComicColorizationService.release();
     this.imagePreloadGeneration++;
     this.savePosition(); this.foreground = false; this.volumeKeys.dispose(); this.smartKeys.dispose(); ReadingSessionService.end('reading');
+    ComicWatermarkService.instance.release().catch((): void => {});
   };
   private foregroundHandler = (): void => {
     this.foreground = true; this.syncVolumeKeys(); this.savePosition(); this.updateImagePreload();
@@ -328,6 +330,7 @@ export struct ComicReaderPage {
     ReaderCacheService.release(this.diskCacheOwner);
     ReaderCacheService.release(`${this.diskCacheOwner}-lists`);
     this.readerVisible = false;
+    ComicWatermarkService.instance.release().catch((): void => {});
     this.holdingHand.setVisible(false);
     this.brightnessControl.dispose();
     if (this.loadFeedbackTimer >= 0) clearInterval(this.loadFeedbackTimer);
@@ -961,7 +964,7 @@ export struct ComicReaderPage {
       Column() {
         if (this.busy && this.pageCount === 0) {
           Column({ space: 16 }) {
-            LoadingProgress().width(36).height(36).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 36 })
             Text($r('app.string.comic_loading')).fontColor(this.canvasInk)
             Text($r('app.string.comic_loading_elapsed', this.loadingSeconds)).fontColor(this.canvasInk).fontSize(12)
           }.layoutWeight(1).width('100%').justifyContent(FlexAlign.Center)
@@ -1058,7 +1061,7 @@ export struct ComicReaderPage {
       }
       if (this.busy && this.pageCount > 0) {
         Column({ space: 6 }) {
-          LoadingProgress().width(36).height(36).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 36 })
           Text($r('app.string.comic_loading_elapsed', this.loadingSeconds)).fontColor(Color.White).fontSize(12)
         }.padding(12).borderRadius(12).backgroundColor('#AA121212')
           .margin({ top: this.topSafe + 60 }).hitTestBehavior(HitTestMode.None)
@@ -1085,6 +1088,10 @@ export struct ComicReaderPage {
             iconColor: this.colorization && this.membership.hasAccess ? AppColor.Brand : $r('sys.color.font_primary'),
             onPress: (): void => { this.setColorization(!this.colorization); } })
             .id('comic-colorization-toggle').enabled(ComicColorizationService.supported())
+          ImmersiveCircleButton({ icon: $r('sys.symbol.eraser_line'), label: $r('app.string.comic_watermark_title'),
+            iconColor: this.watermarkState.enabled ? AppColor.Brand : $r('sys.color.font_primary'),
+            onPress: (): void => { this.setWatermarkRemoval(!this.watermarkState.enabled); } })
+            .id('comic-watermark-shortcut').enabled(!this.watermarkState.busy)
           ImmersiveCircleButton({ icon: $r('sys.symbol.square_grid_2x2'), label: $r('app.string.reader_more'),
             onPress: (): void => { this.showReaderMenu = !this.showReaderMenu; } })
             .id('comic-reader-functions')
@@ -1783,6 +1790,16 @@ export struct ComicReaderPage {
     } finally { this.settingsSaving = false; }
   }
 
+  private setWatermarkRemoval(enabled: boolean): void {
+    if (enabled && !this.watermarkState.installed) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_watermark_prepare') });
+      return;
+    }
+    ComicWatermarkService.instance.setEnabled(enabled).catch((): void => {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
+    });
+  }
+
   private setColorization(enabled: boolean): void {
     if (enabled && !this.membership.hasAccess) {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.membership_feature_required') });
@@ -2062,11 +2079,8 @@ export struct ComicReaderPage {
         description: this.watermarkState.installed ? $r('app.string.comic_watermark_hint') : $r('app.string.comic_watermark_prepare') }) {
         Toggle({ type: ToggleType.Switch, isOn: this.watermarkState.enabled }).selectedColor(AppColor.Brand)
           .enabled(this.watermarkState.installed && !this.watermarkState.busy)
-          .onChange((enabled: boolean): void => {
-            ComicWatermarkService.instance.setEnabled(enabled).catch((): void => {
-              this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
-            });
-          }).id('comic-watermark-toggle')
+          .onChange((enabled: boolean): void => { this.setWatermarkRemoval(enabled); })
+          .id('comic-watermark-toggle')
       }
       ReaderSettingCard({ compact: true, title: $r('app.string.comic_ai_sr'), inline: true, showVip: MembershipState.featureEnabled,
         description: $r('app.string.comic_ai_sr_hint') }) {
@@ -2088,7 +2102,7 @@ export struct ComicReaderPage {
       }
       if (this.translationDownloading) {
         Row({ space: 8 }) {
-          LoadingProgress().width(20).height(20).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 20 })
           Text($r('app.string.comic_translation_downloading', this.translationDownloadPercent)).fontSize(13).layoutWeight(1)
           Button($r('app.string.common_cancel')).onClick((): void => { this.translationIntent++; })
         }.width('100%')

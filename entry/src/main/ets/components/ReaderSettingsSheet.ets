@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { ReaderMarginSlider, ReaderEdgeTabs } from './ReaderMarginControls';
 import { ReaderRegionStyle } from '../model/ReaderRegionStyle';
 import { ReaderRegionStyleEditor } from './ReaderRegionStyleEditor';
@@ -486,7 +487,7 @@ export struct ReaderSettingsSheet {
                 .textOverflow({ overflow: TextOverflow.Ellipsis }).fontColor($r('sys.color.font_secondary'))
             }.layoutWeight(1).alignItems(HorizontalAlign.Start)
             if (this.epubOriginalSwitching) {
-              LoadingProgress().width(22).height(22).color(AppColor.Brand)
+              InfinityLoadingIndicator({ indicatorSize: 22 })
             } else if (this.epubOriginalEnabled) {
               SymbolGlyph($r('sys.symbol.checkmark_circle_fill')).fontSize(22).fontColor([AppColor.Brand])
             }

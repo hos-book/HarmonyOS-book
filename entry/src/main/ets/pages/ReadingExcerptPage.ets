@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { common, sendableContextManager } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { CoverImage } from '../components/CoverImage';
@@ -238,7 +239,7 @@ export struct ReadingExcerptPage {
         Text($r('app.string.reader_excerpt_load_failed')).fontSize(13).fontColor(AppTheme.TextSecondary)
       }
       if (this.loading) {
-        LoadingProgress().width(28).height(28).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 28 })
       } else if (this.hasMore || this.failed) {
         Button(this.failed ? $r('app.string.common_retry') : $r('app.string.reader_excerpt_load_more'))
           .fontSize(14).fontColor(AppColor.Brand).backgroundColor(Color.Transparent).enabled(!this.deleting)
@@ -277,7 +278,7 @@ export struct ReadingExcerptPage {
               Text($r('app.string.reader_excerpt_load_failed')).fontSize(15).fontColor(AppTheme.TextSecondary)
               Button($r('app.string.common_retry')).fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
                 .onClick((): void => { this.load(true); })
-            } else { LoadingProgress().width(32).height(32).color(AppColor.Brand) }
+            } else { InfinityLoadingIndicator({ indicatorSize: 32 }) }
           }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center).padding({ top: this.headerHeight })
         }
       }.width('100%').height('100%').constraintSize({ maxWidth: 760 })
@@ -290,7 +291,7 @@ export struct ReadingExcerptPage {
           Text(this.route.bookTitle || $r('app.string.reader_excerpt_title')).fontSize(AppFont.Title)
             .fontWeight(FontWeight.Bold).fontColor(AppTheme.TextPrimary).layoutWeight(1)
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
-          if (this.deleting) { LoadingProgress().width(22).height(22).color(AppColor.Brand) }
+          if (this.deleting) { InfinityLoadingIndicator({ indicatorSize: 22 }) }
         }.width('100%').padding({ left: 8, right: 20, top: WindowUtils.getStatusBarHeightVp() + 8, bottom: 8 })
       }
     }.width('100%').height('100%').backgroundColor(AppTheme.SettingsBackground)

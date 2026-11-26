@@ -1354,7 +1354,7 @@
     },
     {
       "name": "local_backup_description",
-      "value": "将书源定义、在线书架、阅听记录、阅读与播放进度、统计及常规设置保存为备份文件，不含本地导入书籍、自定义背景和字体文件，无需登录。"
+      "value": "将书源定义、在线书架、阅听记录、阅读与播放进度、自定义封面、统计及常规设置保存为备份文件。本地导入书籍、自定义背景和字体文件请另行保管，无需登录。"
     },
     {
       "name": "local_backup_export",
@@ -1462,7 +1462,7 @@
     },
     {
       "name": "cloud_restore_confirm_message",
-      "value": "备份时间：%s\n书架：%d 本 · 书源：%d 个\n\n将恢复本机在线书架、阅听记录、阅读与播放进度、统计及备份中的常规设置，并合并书源定义。本地导入数据和锁定书源保留。恢复前会保留一份本机快照。"
+      "value": "备份时间：%s\n书架：%d 本 · 书源：%d 个\n\n将恢复本机在线书架、阅听记录、阅读与播放进度、自定义封面、统计及备份中的常规设置，并合并书源定义。本地导入数据和锁定书源保留。恢复前会保留一份本机副本。"
     },
     {
       "name": "cloud_restore_confirm",
@@ -3606,7 +3606,7 @@
     },
     {
       "name": "guide_backup_local_desc",
-      "value": "无需登录即可点击「导出备份」，选择位置保存书源、在线书架、阅听记录、进度和常规设置。恢复时选择「从文件恢复」，核对备份时间和内容后确认；普通书源 JSON 应到书源管理导入。"
+      "value": "无需登录即可点击「导出备份」，选择位置保存书源、在线书架、阅听记录、进度、自定义封面和常规设置。恢复时选择「从文件恢复」，核对备份时间和内容后确认；普通书源 JSON 应到书源管理导入。"
     },
     {
       "name": "guide_backup_cloud_action",
@@ -3622,7 +3622,7 @@
     },
     {
       "name": "guide_backup_files_desc",
-      "value": "备份不包含下载音频、本地导入书籍、自定义背景和字体文件，也不包含书源登录凭证。请另行保管原始书籍与文件，新设备恢复后按需重新导入、下载或登录书源。"
+      "value": "备份包含自定义封面图片及对应关系，网络封面保存图片链接。下载音频、本地导入书籍、自定义背景和字体文件请另行保管，新设备恢复后按需重新导入、下载或登录书源。"
     },
     {
       "name": "guide_common_settings_action",
@@ -9199,8 +9199,12 @@
     {"name": "comic_watermark_hint", "value": "本地识别页边文字、Logo 与画面内半透明水印，并修复覆盖区域"},
     {"name": "comic_watermark_prepare", "value": "请先到“我的 → 模型管理”导入去水印模型"},
     {"name": "comic_watermark_working", "value": "智能去水印中…"},
+    {"name": "comic_watermark_queued", "value": "等待去水印…"},
+    {"name": "comic_watermark_preparing", "value": "正在准备去水印…"},
+    {"name": "comic_watermark_progress", "value": "智能去水印 %d/%d"},
+    {"name": "comic_watermark_saving", "value": "正在保存去水印图片…"},
     {"name": "comic_watermark_error", "value": "去水印处理失败，当前显示原图"},
-    {"name": "comic_watermark_model_hint", "value": "导入配套 SLBR ONNX 模型，自动定位水印并修复背景。图片在设备内处理。复杂水印与漫画文字的识别效果受模型影响，可通过阅读开关查看原图。"},
+    {"name": "comic_watermark_model_hint", "value": "推荐导入配套 SLBR .ms 模型，优先使用设备 NPU 加速；ONNX 模型使用 CPU 处理。图片在设备内完成水印定位与背景修复。复杂水印与漫画文字的识别效果受模型影响，可通过阅读开关查看原图。"},
     {"name": "comic_watermark_model_size", "value": "SLBR · 本地模型 · 已安装 %d MB"},
     {"name": "comic_watermark_model_loading", "value": "正在处理本地模型…"},
     {"name": "comic_watermark_model_error", "value": "去水印模型操作失败"},

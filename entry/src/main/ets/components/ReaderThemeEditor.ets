@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { ReaderColorPalette } from './ReaderColorPalette';
 import { ReaderBackground } from './ReaderBackground';
@@ -91,7 +92,7 @@ export struct ReaderThemeEditor {
       Row({ space: AppSpace.Sm }) {
         Text($r('app.string.reader_theme_background_image')).layoutWeight(1)
           .fontColor($r('sys.color.font_primary'))
-        if (this.picking) { LoadingProgress().width(24).height(24).color(AppColor.Brand) }
+        if (this.picking) { InfinityLoadingIndicator({ indicatorSize: 24 }) }
         Button(this.draftImage.length > 0 ? $r('app.string.reader_change_image') : $r('app.string.reader_theme_import_image'))
           .fontSize(AppFont.Caption).fontColor(AppColor.Brand).backgroundColor(AppColor.GlassSheetControlTint)
           .enabled(!this.picking && !this.saving).onClick((): void => { this.pickImage(); })

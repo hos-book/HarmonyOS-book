@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { AppTheme, AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
 import { AppIconOption, AppIconService } from '../service/AppIconService';
 import { sendableContextManager } from '@kit.AbilityKit';
@@ -95,7 +96,7 @@ export struct AppIconPage {
           $r('app.string.app_icon_unsupported') })
         Blank()
         if (this.loading || this.switching) {
-          LoadingProgress().width(24).height(24).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 24 })
         }
       }
       .width('100%')

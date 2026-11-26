@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { AppAppearance } from '../model/AppAppearance';
 import {
@@ -569,7 +570,7 @@ export struct AppBackgroundSettingsComponent {
       Button({ type: ButtonType.Normal }) {
         Row({ space: AppSpace.Sm }) {
           if (this.picking) {
-            LoadingProgress().width(20).height(20).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 20 })
           } else {
             SymbolGlyph($r('sys.symbol.plus')).fontSize(20).fontColor([AppColor.Brand])
           }
@@ -651,7 +652,7 @@ export struct AppBackgroundSettingsComponent {
         VipFeatureBadge()
       }.width('100%')
       if (this.loading) {
-        LoadingProgress().width(24).height(24).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 24 })
       } else if (this.loadFailed) {
         Text($r('app.string.app_background_loading_failed')).fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
         Button($r('app.string.app_icon_retry')).fontColor(AppColor.Brand).backgroundColor(AppTheme.Surface)

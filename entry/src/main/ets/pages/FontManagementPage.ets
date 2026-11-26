@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { common, sendableContextManager } from '@kit.AbilityKit';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { ManagementBatchBar } from '../components/ManagementBatchBar';
@@ -210,7 +211,7 @@ export struct FontManagementPage {
           Text($r('app.string.reader_font_load_failed')).fontColor(AppTheme.TextSecondary).padding(20)
           Button($r('app.string.common_retry')).fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
             .onClick((): void => { this.load(); })
-        } else { LoadingProgress().width(32).height(32).color(AppColor.Brand) }
+        } else { InfinityLoadingIndicator({ indicatorSize: 32 }) }
       }.width('100%').constraintSize({ maxWidth: 760 }).height('100%')
         .padding({ top: this.ready ? 0 : this.headerHeight })
       FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {
@@ -235,7 +236,7 @@ export struct FontManagementPage {
             .enabled(this.ready && !this.busy && (this.managing || this.fonts.length > 0))
             .onClick((): void => { this.managing = !this.managing; this.selectedPaths = []; })
             .id('font-management-batch')
-          if (this.ready && this.busy) { LoadingProgress().width(20).height(20).color(AppColor.Brand) }
+          if (this.ready && this.busy) { InfinityLoadingIndicator({ indicatorSize: 20 }) }
         }.width('100%').padding({ left: 8, right: 16, top: WindowUtils.getStatusBarHeightVp() + 8, bottom: 8 })
         if (this.managing) {
           ManagementBatchBar({ selectedCount: this.selectedPaths.length, totalCount: this.fonts.length,

@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
 import { AppBackupSnapshot } from '../service/AppBackupService';
 import { WebDavBackupService, WebDavSettings, WebDavBackupError, WebDavErrorCode, WebDavPhase } from '../service/WebDavBackupService';
@@ -173,7 +174,7 @@ export struct WebDavBackupCard {
         this.transferRow(false)
         if (this.service.busy) {
           Row({ space: AppSpace.Sm }) {
-            LoadingProgress().width(20).height(20).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 20 })
             Text(this.phaseText()).fontSize(AppFont.Body).fontColor(AppColor.Brand).layoutWeight(1)
             if (this.service.phase !== WebDavPhase.RESTORING && this.service.phase !== WebDavPhase.CONFIRMING) {
               Button($r('app.string.hw_auth_cancel'), { buttonStyle: ButtonStyleMode.TEXTUAL })

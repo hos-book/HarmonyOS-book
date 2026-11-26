@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { ActivityDay } from '../service/StatsService';
 import { PreferenceService } from '../service/PreferenceService';
 import { AppColor, AppCurve, AppTheme, AppRadius } from '../theme/Theme';
@@ -290,7 +291,7 @@ export struct RecordActivityChart {
         }.height(30).padding({ left: 16, right: 16 }).backgroundColor(Color.Transparent)
           .onClick((): void => this.onRetry())
       } else {
-        LoadingProgress().width(22).height(22).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 22 })
         Text($r('app.string.record_stats_loading')).fontSize(12).fontColor(AppTheme.TextSecondary)
       }
     }.width('100%').height(this.bodyHeight()).justifyContent(FlexAlign.Center)

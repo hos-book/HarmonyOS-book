@@ -4,6 +4,12 @@ export class VideoPlaybackSource {
   pageUrl: string = '';
   headers: Record<string, string> = {};
   error: string = '';
+  /** 书源写了 content.playlist：播放列表经应用的本机代理取回处理（VideoPlaylistProxy）。 */
+  playlist: VideoPlaylistMode | null = null;
+}
+
+export class VideoPlaylistMode {
+  lowLatency: boolean = true;
 }
 
 export class VideoPlaybackSupport {
@@ -19,7 +25,7 @@ export class VideoPlaybackSupport {
 
   static failureText(code: number): string {
     if (VideoPlaybackSupport.unsupported(code)) return '当前播放器不支持此视频规格';
-    if (code === 5411005) return '视频访问被拒绝，请检查登录状态或规则权限';
+    if (code === 5411005) return '视频访问被拒绝，请检查登录状态或书源权限';
     if (code === 5411002 || code === 5400104) return '播放超时，请检查网络后重试';
     return code > 0 ? `播放失败（错误码 ${code}）` : '播放失败，请重试';
   }

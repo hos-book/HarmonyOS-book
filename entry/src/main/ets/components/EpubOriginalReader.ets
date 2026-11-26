@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { webview } from '@kit.ArkWeb';
 import { emitter } from '@kit.BasicServicesKit';
 import { ReaderCommentMessages } from '../model/ReaderComment';
@@ -10,7 +11,6 @@ import { EpubOriginalPosition, EpubOriginalSpot, EpubOriginalPositionIndex } fro
 import { EpubOriginalLayoutOptions, EpubOriginalScript } from '../service/text/light/EpubOriginalScript';
 import { LocalRuleWebSession } from '../service/rulesource/LocalRuleWebSession';
 import { ReaderTapPolicy } from '../utils/ReaderTapPolicy';
-import { AppColor } from '../theme/Theme';
 import { ReaderAiAction } from '../model/ReaderAi';
 import { ReaderSelectionMenu } from '../utils/ReaderSelectionMenu';
 import { ReaderSelectionSettingsDialog } from './ReaderSelectionSettingsPanel';
@@ -820,7 +820,7 @@ export struct EpubOriginalReader {
           })
       }
       if (this.loading) {
-        Stack() { LoadingProgress().width(40).height(40).color(AppColor.Brand) }
+        Stack() { InfinityLoadingIndicator({ indicatorSize: 40 }) }
           .width('100%').height('100%').backgroundColor(this.paperColor)
       }
     }.width('100%').height('100%').clip(true)

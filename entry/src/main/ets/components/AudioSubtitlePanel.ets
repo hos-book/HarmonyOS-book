@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { common } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { Book } from '../model/Book';
@@ -181,7 +182,7 @@ export struct AudioSubtitlePanel {
         Column({ space: 16 }) {
           if (this.state.phase === 'model' || this.state.phase === 'audio' ||
             this.state.phase === 'preparing' || this.state.phase === 'recognizing') {
-            LoadingProgress().width(28).height(28).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 28 })
           }
           Text(this.statusText()).fontSize(14).lineHeight(22).fontColor('#CCFFFFFF').textAlign(TextAlign.Center)
           if (this.state.phase === 'needsModel') {

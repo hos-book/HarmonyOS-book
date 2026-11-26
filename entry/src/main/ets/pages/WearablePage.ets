@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { AppStorageV2 } from '@kit.ArkUI';
 import { emitter } from '@kit.BasicServicesKit';
 import { Book, Chapter } from '../model/Book';
@@ -317,7 +318,7 @@ struct WearablePage {
           ListItem() {
             if (this.runtime.failed) {
               this.action($r('app.string.watch_retry_init'), (): void => { this.initialize(); })
-            } else { LoadingProgress().width(32).height(32).color(AppColor.Brand) }
+            } else { InfinityLoadingIndicator({ indicatorSize: 32 }) }
           }
         } else {
           if (this.cloudInfo) {
@@ -456,7 +457,7 @@ struct WearablePage {
             }
           }
           if (this.busy || this.player.isLoading && this.screen === 'player') {
-            ListItem() { LoadingProgress().color(AppColor.Brand).width(28).height(28) }
+            ListItem() { InfinityLoadingIndicator({ indicatorSize: 28 }) }
           }
           if (this.notice !== '') {
             ListItem() { Text(this.notice).fontSize(13).fontColor('#FFCF99').width('100%') }

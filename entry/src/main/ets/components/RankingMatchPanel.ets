@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { RankingBook } from '../model/Ranking';
 import { BookMatchService, RankingMatch, RankingMatchProgress } from '../service/ranking/BookMatchService';
 import { AppColor, AppTheme } from '../theme/Theme';
@@ -206,7 +207,7 @@ export struct RankingMatchPanel {
       if (this.searching || this.matchesCount > 0) {
       Row({ space: 6 }) {
         if (this.searching) {
-          LoadingProgress().width(14).height(14).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 14 })
         }
         Text(this.status).fontSize(11).fontColor(AppTheme.TextTertiary)
           .layoutWeight(1).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })

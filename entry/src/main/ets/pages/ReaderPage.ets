@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { ReaderRegionStyle } from '../model/ReaderRegionStyle';
 import { ReaderChapterJumpHint } from '../components/ReaderChapterJumpHint';
 import { ReaderCommentChapter, ReaderParagraphComment, ReaderCommentMessages } from '../model/ReaderComment';
@@ -2953,9 +2954,9 @@ export struct ReaderPage {
     .translate({ y: this.readerBarVisible ? 0 : 24 })
     .opacity(this.readerBarVisible ? 1 : 0)
     .animation({ duration: 180, curve: curves.cubicBezierCurve(0.2, 0, 0, 1) })
-    .hitTestBehavior(this.readerBarVisible ? HitTestMode.BLOCK_HIERARCHY : HitTestMode.None)
     .animation(null)
-    .visibility(this.readerBarVisible ? Visibility.Visible : Visibility.Hidden)
+    .hitTestBehavior(this.readerBarVisible ? HitTestMode.BLOCK_HIERARCHY : HitTestMode.None)
+    .accessibilityLevel(this.readerBarVisible ? 'auto' : 'no-hide-descendants')
     .enabled(this.readerBarVisible)
   }
 
@@ -3342,7 +3343,7 @@ export struct ReaderPage {
               .position({ bottom: this.readerTextBottomPaddingVp() + this.readerFooterHeight() + 8 })
           }
           if (this.showBrightnessBar) { this.buildBrightnessBar() }
-          if (this.readerBarVisible && this.speechState.active && this.speechState.bookId === this.bookId && this.isOnlineTextBook()) {
+          if (this.isOnlineTextBook()) {
             this.buildSpeechMiniPlayer()
           }
         }
@@ -3422,12 +3423,16 @@ export struct ReaderPage {
     Stack().width('100%').height('100%')
   }
 
+  private speechMiniVisible(): boolean {
+    return this.readerBarVisible && this.speechState.active && this.speechState.bookId === this.bookId;
+  }
+
   private speechMiniTop(): number { return this.readerTopInsetVp() + 48; }
 
   private speechMiniBottom(): number {
     const height = this.readerViewportHeightVp > 0 ? this.readerViewportHeightVp : WindowUtils.getWindowHeightVp();
-    const bottom = Math.max(this.bottomSafeVp, READER_MIN_SAFE_BOTTOM) + (this.readerBarVisible ?
-      READER_BAR_HEIGHT + (this.showChapterBar ? 76 : READER_FLOATING_BOTTOM + 12) : 16);
+    const bottom = Math.max(this.bottomSafeVp, READER_MIN_SAFE_BOTTOM) +
+      READER_BAR_HEIGHT + (this.showChapterBar ? 76 : READER_FLOATING_BOTTOM + 12);
     return Math.max(this.speechMiniTop(), height - bottom - 48);
   }
 
@@ -3444,58 +3449,66 @@ export struct ReaderPage {
   @Builder
   private buildSpeechMiniPlayer(): void {
     Stack() {
-      if (HdsCompat.materialSupported) {
-        HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
-          TabContent() { Column() }.height(48).tabBar(this.speechMiniMaterialContent())
-        }.barMode(BarMode.Fixed).barHeight(48).barOverlap(true)
-          .barFloatingStyle({
-            barWidth: { smallWidth: 140, mediumWidth: 140, largeWidth: 140 },
-            systemMaterialEffect: HdsCompat.material,
-            barSideMargin: 0, barBottomMargin: 0,
-            gradientMask: { maskColor: '#00000000', maskHeight: 48 },
-            adaptToHandedness: false, thermoCtrl: true, barOpacity: 1
-          })
-          .scrollable(false).onContentWillChange((): boolean => false)
-          .width(140).height(48).hitTestBehavior(HitTestMode.None)
-      } else {
-        Stack().width(140).height(48).borderRadius(24)
-          .backgroundColor($r('sys.color.comp_background_primary'))
-          .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
-      }
-    Row({ space: 4 }) {
-      Button({ type: ButtonType.Circle }) {
-        CoverImage({ url: this.speechState.cover, title: this.book?.title ?? '',
-          author: this.book?.author ?? '', localPlaceholder: this.book?.id.startsWith('import_') ?? false,
-          imgWidth: 40, imgHeight: 40, useFixedHeight: true, radius: 20,
-          })
-      }.width(40).height(40).padding(0).backgroundColor(Color.Transparent)
-        .accessibilityText($r('app.string.tts_title')).id('reader-speech-cover')
-        .onClick((): void => { this.openSpeechPlayer(true); })
-      Button({ type: ButtonType.Circle }) {
-        if (this.speechState.loading) {
-          LoadingProgress().width(28).height(28).color(AppColor.Brand)
+      Stack() {
+        if (HdsCompat.materialSupported) {
+          HdsTabs({ barPosition: BarPosition.End, index: 0 }) {
+            TabContent() { Column() }.height(48).tabBar(this.speechMiniMaterialContent())
+          }.barMode(BarMode.Fixed).barHeight(48).barOverlap(true)
+            .barFloatingStyle({
+              barWidth: { smallWidth: 140, mediumWidth: 140, largeWidth: 140 },
+              systemMaterialEffect: HdsCompat.material,
+              barSideMargin: 0, barBottomMargin: 0,
+              gradientMask: { maskColor: '#00000000', maskHeight: 48 },
+              adaptToHandedness: false, thermoCtrl: true, barOpacity: 1
+            })
+            .scrollable(false).onContentWillChange((): boolean => false)
+            .width(140).height(48).hitTestBehavior(HitTestMode.None)
         } else {
-          Stack() {
-            SymbolGlyph(this.speechState.playing ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'))
-              .fontSize(18).fontColor([this.palette.primary])
-          }.width(32).height(32).borderRadius(16).border({ width: 1.5, color: this.palette.primary })
+          Stack().width(140).height(48).borderRadius(24)
+            .backgroundColor($r('sys.color.comp_background_primary'))
+            .backgroundBlurStyle(BlurStyle.COMPONENT_THIN)
         }
-      }.width(44).height(40).padding(0).backgroundColor(Color.Transparent)
-        .accessibilityText(this.speechState.playing || this.speechState.loading ?
-          $r('app.string.tts_pause') : $r('app.string.tts_play')).id('reader-speech-toggle')
-        .onClick((): void => {
-          const speech = TextToSpeechService.getInstance();
-          if (speech.state.playing || speech.state.loading) speech.pause();
-          else speech.resume();
-        })
-      Button({ type: ButtonType.Circle }) {
-        SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.palette.primary])
-      }.width(40).height(40).padding(0).backgroundColor(Color.Transparent)
-        .accessibilityText($r('app.string.tts_stop')).id('reader-speech-stop')
-        .onClick((): void => { TextToSpeechService.getInstance().stop(); })
-    }.width(140).height(48).padding(4)
-    }.width(140).height(48).attributeModifier(new ReaderControlClip())
+        Row({ space: 4 }) {
+          Button({ type: ButtonType.Circle }) {
+            CoverImage({ url: this.speechState.cover, title: this.book?.title ?? '',
+              author: this.book?.author ?? '', localPlaceholder: this.book?.id.startsWith('import_') ?? false,
+              imgWidth: 40, imgHeight: 40, useFixedHeight: true, radius: 20,
+            })
+          }.width(40).height(40).padding(0).backgroundColor(Color.Transparent)
+            .accessibilityText($r('app.string.tts_title')).id('reader-speech-cover')
+            .onClick((): void => { this.openSpeechPlayer(true); })
+          Button({ type: ButtonType.Circle }) {
+            if (this.speechState.loading) {
+              InfinityLoadingIndicator({ indicatorSize: 28 })
+            } else {
+              Stack() {
+                SymbolGlyph(this.speechState.playing ? $r('sys.symbol.pause_fill') : $r('sys.symbol.play_fill'))
+                  .fontSize(18).fontColor([this.palette.primary])
+              }.width(32).height(32).borderRadius(16).border({ width: 1.5, color: this.palette.primary })
+            }
+          }.width(44).height(40).padding(0).backgroundColor(Color.Transparent)
+            .accessibilityText(this.speechState.playing || this.speechState.loading ?
+              $r('app.string.tts_pause') : $r('app.string.tts_play')).id('reader-speech-toggle')
+            .onClick((): void => {
+              const speech = TextToSpeechService.getInstance();
+              if (speech.state.playing || speech.state.loading) speech.pause();
+              else speech.resume();
+            })
+          Button({ type: ButtonType.Circle }) {
+            SymbolGlyph($r('sys.symbol.xmark')).fontSize(17).fontColor([this.palette.primary])
+          }.width(40).height(40).padding(0).backgroundColor(Color.Transparent)
+            .accessibilityText($r('app.string.tts_stop')).id('reader-speech-stop')
+            .onClick((): void => { TextToSpeechService.getInstance().stop(); })
+        }.width(140).height(48).padding(4)
+      }.width(140).height(48).attributeModifier(new ReaderControlClip())
+        // 内层统一淡化材质与控件，外层位置继续响应握持弹簧与实时拖动。
+        .opacity(this.speechMiniVisible() ? 1 : 0)
+        .animation({ duration: 180, curve: curves.cubicBezierCurve(0.2, 0, 0, 1) })
+    }.width(140).height(48)
       .position({ x: this.speechMiniX(), y: this.speechMiniY() })
+      .enabled(this.speechMiniVisible())
+      .hitTestBehavior(this.speechMiniVisible() ? HitTestMode.Default : HitTestMode.None)
+      .accessibilityLevel(this.speechMiniVisible() ? 'auto' : 'no-hide-descendants')
       .priorityGesture(GestureGroup(GestureMode.Sequence,
         LongPressGesture({ repeat: false, duration: 350 }).onAction((): void => {
           this.speechMiniDragStartY = this.speechMiniY();
@@ -3794,10 +3807,7 @@ export struct ReaderPage {
       }
       if (this.onlineTextLoading && !this.onlineTextTurnLoading) {
         Column({ space: AppSpace.Sm }) {
-          LoadingProgress()
-            .width(48)
-            .height(48)
-            .color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 48 })
           this.buildLoadingHints(this.chapterTitle(this.jumpingResourceIndex))
         }
         .width('100%')
@@ -4284,10 +4294,7 @@ export struct ReaderPage {
   @Builder
   buildLoadingState() {
     Column({ space: AppSpace.Sm }) {
-      LoadingProgress()
-        .width(48)
-        .height(48)
-        .color(AppColor.Brand)
+      InfinityLoadingIndicator({ indicatorSize: 48 })
       this.buildLoadingHints(this.currentChapterTitle)
     }
     .width('100%')

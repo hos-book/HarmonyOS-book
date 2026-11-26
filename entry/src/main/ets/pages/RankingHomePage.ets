@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { HdsNavigation, HdsNavigationTitleMode, HideMode, TitleBarContentOptions, BottomBuilderParams, BuilderOptions } from '@kit.UIDesignKit';
 import { RankingBoard, RankingBook, RankingPlatform } from '../model/Ranking';
 import { ImmersiveTabComponent } from '../components/ImmersiveTabComponent';
@@ -4547,7 +4548,7 @@ export struct RankingHomePage {
         Column({ space: 14 }) {
           Row().height(22).width('80%').backgroundColor(AppColor.Divider).borderRadius(6)
           Row().height(16).width('55%').backgroundColor(AppColor.Divider).borderRadius(5)
-          LoadingProgress().width(24).height(24).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 24 })
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
         Stack() {
           Row().width(RANKING_COVER_WIDTH).height(RANKING_COVER_WIDTH / 0.75)
@@ -4620,7 +4621,7 @@ export struct RankingHomePage {
   private refreshIndicator(offset: number) {
     Row() {
       if (this.refreshing) {
-        LoadingProgress().width(24).height(24).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 24 })
       } else {
         Progress({ value: Math.min(100, offset / 96 * 100), total: 100, type: ProgressType.Ring })
           .width(24).height(24).color(AppColor.Brand).backgroundColor(Color.Transparent)

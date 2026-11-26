@@ -1108,6 +1108,8 @@ export class BookSourceStageWebRuntime {
       baseUrl: request.baseUrl || request.source.bookSourceUrl || '',
       variables: request.variables || {},
         bookVariables: bookVariables,
+        hasBook: !!request.book,
+        hasChapter: !!request.chapter,
         bookType: request.book ? request.book.type : 0,
         bookState: request.book ? {
           bookUrl: request.book.bookUrl, tocUrl: request.book.tocUrl, origin: request.book.origin,
@@ -1155,6 +1157,16 @@ export class BookSourceStageWebRuntime {
       `Object.defineProperty(loginMap,'get',{enumerable:false,value:function(k){return this[k]??'';}});` +
       `Object.defineProperty(loginMap,'put',{enumerable:false,value:function(k,v){this[k]=v;return v;}});` +
       `const bookData=Object.assign({},S.bookVariables||{});` +
+      // java.put/java.get follow Android Legado's scoping: inside a list item the value belongs to that item
+      // (it becomes the search result's / book's variable), otherwise to the open book. The source-wide
+      // javaData copy is only the last fallback; reading it first made every search result share the value
+      // written by the last item, so a book opened from search loaded another book's catalog.
+      `let itemVars=null;function ruleVarGet(k){` +
+      `if(itemVars&&Object.prototype.hasOwnProperty.call(itemVars,k)&&itemVars[k]!=='')return itemVars[k];` +
+      `if(Object.prototype.hasOwnProperty.call(bookData,k)&&bookData[k]!=='')return bookData[k];` +
+      `return Object.prototype.hasOwnProperty.call(javaData,k)?javaData[k]:null;}` +
+      `function ruleVarPut(k,v){javaData[k]=v;const text=v==null?'':(typeof v==='object'?JSON.stringify(v):String(v));` +
+      `if(itemVars)itemVars[k]=text;else if(S.hasBook&&!S.hasChapter)bookData[k]=text;return v;}` +
       `const NativeDate=globalThis.Date;const FixedDate=function(){const a=Array.from(arguments);` +
       `if(new.target)return Reflect.construct(NativeDate,a.length?a:[S.fixedNow]);return new NativeDate(S.fixedNow).toString();};` +
       `FixedDate.now=function(){return S.fixedNow;};FixedDate.parse=NativeDate.parse;FixedDate.UTC=NativeDate.UTC;` +
@@ -1305,9 +1317,11 @@ export class BookSourceStageWebRuntime {
       `if(!pending){pending=v;pendingHeaders=JSON.stringify(sourceHeaders());}return '{}';},` +
       `ajaxAll:function(v){const list=Array.isArray(v)?v:[v];return list.map(responseObject);},` +
       `post:function(u,b,h){return responseObject(requestSpec('POST',u,b,h));},` +
-      `put:function(k,v){javaData[String(k??'')]=v;return v;},` +
+      `put:function(k,v){return ruleVarPut(String(k??''),v);},` +
       `get:function(k,h){if(arguments.length>1)return responseObject(requestSpec('GET',k,null,h));` +
-      `k=String(k??'');return Object.prototype.hasOwnProperty.call(javaData,k)?javaData[k]:null;},` +
+      `return ruleVarGet(String(k??''));},` +
+      `__beginItem:function(seed){itemVars=Object.assign({},seed&&typeof seed==='object'?seed:{});return true;},` +
+      `__endItem:function(){const vars=itemVars||{};itemVars=null;return vars;},` +
       `log:function(v){logs.push({level:'info',message:String(v??'')});return v===undefined?'':v;},` +
       `logType:function(v){logs.push({level:'info',message:String(v??'')});return v===undefined?'':v;},` +
       `toast:function(v){toast=String(v??'');return toast;},longToast:function(v){toast=String(v??'');return toast;},` +

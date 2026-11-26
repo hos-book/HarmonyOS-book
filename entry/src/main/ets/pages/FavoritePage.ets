@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { ContentTypeColor } from '../theme/ContentTypeColor';
 import { ShelfCollectionView } from '../components/ShelfCollectionView';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
@@ -52,7 +53,7 @@ import { StatsService } from '../service/StatsService';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { PlaybackStore } from '../service/PlaybackStore';
 import { SearchCache } from '../utils/SearchCache';
-import { OneShotLayoutCallback, OneShotTransitionIds } from '../utils/OneShotTransition';
+import { OneShotCoverState, OneShotLayoutCallback, OneShotTransitionCoordinator, OneShotTransitionIds } from '../utils/OneShotTransition';
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
 import { WindowUtils } from '../utils/WindowUtils';
 import { BookDataSource } from '../utils/BookDataSource';
@@ -152,6 +153,7 @@ export struct FavoritePage {
   private shelfTouchX: number = 0;
   private shelfTouchY: number = 0;
   @Local playerTransition: PlayerDragState = PlayerDragTransition.getInstance().state;
+  @Local sourceCoverState: OneShotCoverState = OneShotTransitionCoordinator.getInstance().coverState;
   @Local bookColumns: number = 3;
   @Local favoriteBooks: Book[] = [];
   @Local showShelfSource: boolean = GeneralSettings.current.showShelfSource;
@@ -2573,7 +2575,7 @@ export struct FavoritePage {
       } else {
         Column({ space: 14 }) {
           if (this.checkingUpdates) {
-            LoadingProgress().width(36).height(36).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 36 })
           } else {
             SymbolGlyph($r('sys.symbol.book')).fontSize(36).fontColor([$r('sys.color.font_tertiary')])
           }
@@ -2674,7 +2676,7 @@ export struct FavoritePage {
         Button({ type: ButtonType.Capsule }) {
           Row({ space: AppSpace.Xs }) {
             if (this.removingBook) {
-              LoadingProgress().width(20).height(20).color(AppColor.Brand)
+              InfinityLoadingIndicator({ indicatorSize: 20 })
             }
             Text(this.removingBook ? $r('app.string.shelf_batch_deleting') :
               $r('app.string.shelf_delete_count', this.selectedBookIds.size))
@@ -2920,8 +2922,8 @@ export struct FavoritePage {
         .border({ width: this.isManaging && this.selectedBookIds.has(book.id) ? 2 : 0,
           color: AppColor.Brand, radius: PHYSICAL_BOOK_COVER_RADIUS })
         .id(this.shelfCoverId(book, false))
-        .opacity(this.playerTransition.active &&
-          this.playerTransition.sourceNodeId === this.shelfCoverId(book, false) ? 0 : 1)
+        .opacity(this.sourceCoverState.hiddenSourceId === this.shelfCoverId(book, false) ||
+          (this.playerTransition.active && this.playerTransition.sourceNodeId === this.shelfCoverId(book, false)) ? 0 : 1)
         // 封面只展示，长按与右键菜单由外层书卡处理。
         .hitTestBehavior(HitTestMode.None)
 
@@ -3023,8 +3025,8 @@ export struct FavoritePage {
             localPlaceholder: book.id.startsWith('import_'), imgWidth: 80,
             overlayContent: (): void => this.buildListCoverOverlay(book) })
             .flexShrink(0).id(this.shelfCoverId(book, true))
-            .opacity(this.playerTransition.active &&
-              this.playerTransition.sourceNodeId === this.shelfCoverId(book, true) ? 0 : 1)
+            .opacity(this.sourceCoverState.hiddenSourceId === this.shelfCoverId(book, true) ||
+              (this.playerTransition.active && this.playerTransition.sourceNodeId === this.shelfCoverId(book, true)) ? 0 : 1)
 
           Column({ space: 6 }) {
             Row({ space: 6 }) {

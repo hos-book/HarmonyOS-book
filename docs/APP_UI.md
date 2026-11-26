@@ -114,7 +114,9 @@ API 21 及以上的普通有声书播放页顶部提供喇叭图标，与右侧�
 
 书架状态筛选、分组及阅听记录的类型筛选统一使用原生 `bindMenu`，由系统控制开合动效；文字与选中项底色和设置页 `Select` 保持一致，材质沿用 `AppMaterial.Sheet` 与旧系统磨砂回退。状态与类型使用 `Menu/MenuItem`；分组选项使用明确限高的 `List + LazyForEach` 和分组名称稳定键，支持上下滚动，底部固定“分组管理”入口。不能仅给 `Menu` 加 `maxHeight`，否则超出的菜单项可能被裁切且无法滚动。
 
-从书架各视图（含书房最近卡片和分组弹层）点击电子书或漫画，通过 `ShelfReaderRouteParams` 携带封面节点与本次窗口坐标：仅封面层从书籍位置展开并沿左侧翻开，露出原阅读页，约 540ms 完成。无自定义封面的本地书沿用书架默认 `LocalBookCover`，保留书名和作者，进入与返回均不使用单独的纯色封面；在线无封面沿用默认占位图。正文固定在目标尺寸，只做短淡入，不随封面缩放/旋转，不因动画逐帧重排；仍由原阅读服务恢复章节位置。返回书架时共用约 400ms 的反向合拢与归位，先等待书架恢复布局并测量当前封面位置；封面在完整阅读尺寸下翻回，盖住正文后才隐藏正文，再次测量书架重排后的封面位置并缩回，合拢途中不提前露出书架背景；封面已移除或移出可见区域时仍先合拢，再短淡出返回，不飞向入场旧坐标。有声书沿用封面展开与收回，三种内容均保持双向过渡。根 Navigation 优先调度书架转场，避免叠加右滑；其他入口保留原路由行为。来源/目标测量失败、离页、导航超时和窗口变化均完成导航并释放本次绘制状态，取消返回恢复正文；代次标识隔离过期布局和动画回调，避免旧入场结束新返回。主机回归入口为 `scripts/test-shelf-reader-transition.cjs`，播放器回归为 `scripts/test-player-transition.cjs`。依据已读取的在线 [导航转场技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-navigation-transition/SKILL.md)及其 [API 参考](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-navigation-transition/references/navigation-transition-api.md)，所用转场接口经本机 Release SDK 复核，未新增最低 API 20 之后的能力依赖。
+从书架各视图（含书房最近卡片和分组弹层）点击电子书或漫画，通过 `ShelfReaderRouteParams` 携带封面节点与实际窗口坐标。打开采用 650ms 的原生关键帧动画：书封按来源宽高等比抬起并放大，沿左侧书脊翻至 168°，封面内侧、纸页边缘和柔和阴影承接阅读界面。书封正反面在侧向阶段交接；正文保持完整窗口尺寸，纸页容器通过尺寸裁剪、`RenderFit.TOP_LEFT` 和内外反向位移逐步展开，文字保持正常字号与位置。返回以相同几何过程反向合拢，再测量书架当前封面位置并归位，总时长为 600ms；来源移出视口时在中心合拢并淡出。转场期间沿用共享封面显隐状态交接原书架封面，覆盖网格、列表与最近阅听卡片。无自定义封面的本地书沿用书架 `LocalBookCover` 的书名和作者；阅读服务继续恢复原章节与字符位置。有声书沿用原播放器转场。根 Navigation 继续调度双向转场，现有离页、导航超时和窗口变化处理保持有效。
+
+实现依据：在线导航转场技能 `https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-navigation-transition/SKILL.md` 与 ArkUI 开发技能 `https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/SKILL.md`。关键帧动画及绘制适配接口已核对本机 API 26 Release SDK，所用能力覆盖最低 API 20。
 
 2026-11-08 最终按用户要求恢复最初书籍外观及装订线，封面保持完整不透明度，移除叠加书名并增加逐本轻震与悬浮书名。修复普通对象按值传入 Builder 导致提示不刷新的问题：提示内容与位置保存到页面 `@Local pulledSpineHint`，Builder 直接读取页面状态，参考已读取的 [Builder 刷新规则](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/18-arkts-rules/arkts-ui-extension.md)。`test-shelf-spine.cjs` 已通过分排、提示左右边界、标题切换、逐本轻震和同一本去重回归；Release SDK 26.0.0.105 Debug 构建通过并安装 Mate 80。获用户同意后实机确认封面无占位图透出，滑动提示从“极道天魔”切换到“叩问仙道”，松手后隐藏并回位；未量化马达力度与帧率。
 
@@ -191,6 +193,8 @@ API 21 及以上的普通有声书播放页顶部提供喇叭图标，与右侧�
 同日已安装到 MatePad Pro 13 模拟器（2880×1920）：横屏全宽首页的导航与播放器各占 700vp、间隔 8vp，界面与布局树均确认不重叠；导航分栏后的 440vp 左侧容器保留上下双行。
 
 ## 漫画官方榜单
+
+腾讯作品元数据兼容顶层 `ComicSeries` 与 `@graph` 数组中的同作品节点，按作品 ID 读取封面、简介及评分；作者兼容单对象与数组，多位作者按官网顺序以顿号连接。
 
 腾讯动漫使用 /Rank/comicRank/type/ 下的 TOP100、月票、飙升、新作、畅销、男生、女生榜，不再将全部漫画目录当作人气榜。只读取当前榜期，完整榜页未提供作者或封面时，从腾讯官方作品页的 ComicSeries 结构化元数据按需补齐；仅加载可见作品/轮播，跨榜合并同 ID 请求，最多三个并发，缓存七天，失败保留已有封面和榜单。界面平台名使用“腾讯漫画”。哔哩哔哩漫画接入国漫、日漫、韩漫、新作、完结榜，解析官网页面结构化数据并校验榜单 ID，使用当前排序而非上期排名。漫画榜请求使用桌面页面请求头；点击作品仍通过用户导入的漫画源匹配，榜单不变成内置内容源。
 
@@ -490,6 +494,8 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 
 ## 漫画
 
+顶部“着色”旁提供橡皮擦形状的“智能去水印”快捷开关，开启时使用主题色，与设置中的开关共享状态。模型尚待导入时显示模型管理指引。图片处理提示区分等待、准备、已完成块数／总块数和保存阶段；滚离图片时中止当前推理，当前可见图片继续处理。关闭功能恢复原图处理链。
+
 设置 → 图像与翻译提供“去除白边”，默认关闭，漫画全局持久化。后台将原图缩至最长边 768 像素识别四周连续白色外缘，保留两像素保护边、每边最多裁 25%；空白页、透明边及有正文触边时保守保留。仅裁剪显示，不改原图或原始宽高；适宽、完整显示、原图大小、连续/分页、1–4 倍缩放及 AI 图片复用裁剪框。连续阅读等裁剪尺寸就绪后恢复当前图片内进度，检测失败保留原图。
 
 2026-10-19 预缓存补齐：普通 HTTP 图片也通过 App 侧桥接调用公共核心 `ComicImagePipeline` 写入 `comic_images`，每批最多四张，沿用源 Cookie、请求头、解密与单图 20 MiB 上限，不改上游托管文件。按“预缓存章节数”逐章等待图片落地；清单解析和图片预取分别去重，当前章打开不等待整章图片。全部本地文件有效后才显示整章缓存勾，失败仍可在线读并保留云朵状态；离页、后台或明确跳章取消旧预取。`test-comic-preload` 使用真实图片管线和缓存服务验证普通图片下载、本地恢复、四并发上限、任务复用、打开不阻塞、取消/失败和文件缺失失效。
@@ -549,7 +555,9 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 - 书架长按和鼠标右键打开同一操作菜单。阅读正文在工具栏与弹层关闭时支持左右方向键、PageUp/PageDown 翻页，不依赖音量键设置；设置、目录、朗读和输入弹层打开时不抢占按键。
 - 多端回归要求：手机竖横屏、折叠屏展开/收起、平板全屏/分屏、电脑自由窗口缩放；检查 599↔600vp、839↔840vp 切换，书架选择/右键、首页骨架/刷新/双击回顶、阅读字符位置/字号/边距/安全区及播放操作。构建和模拟服务回归不等同于平板、折叠屏和电脑实机验收。
 
-- 底部四个 Tab 为“首页 / 书架 / 记录 / 我的”。切换时内容区以 220ms 淡入并横移 12vp，方向随目标页签位置变化；单击与设置开启后的左右滑动共用动效。在 300ms 内双击当前 Tab 回到该页顶部；首页双击只回顶。
+- 底部四个 Tab 为“首页 / 书架 / 记录 / 我的”。切换采用 Fade Through：旧页用 70ms 淡出，在透明交接点提交原生切页，新页用 150ms 淡入并从 99% 缩放至 100%；浮动导航和迷你播放器沿用原生反馈。单击与设置开启后的左右滑动共用动效；每次点击 Tab 通过 ReaderHapticService 弱档触发一次轻微震动，触感绑定点击事件。在 300ms 内双击当前 Tab 回到该页顶部；首页双击只回顶。
+
+  实现参考已读取的 [ArkUI 开发技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/SKILL.md)与华为 [HdsTabs API](https://developer.huawei.com/consumer/cn/doc/harmonyos-references/ui-design-hdstabs)。换页前回调 `onContentWillChange` 自 API 20 支持，签名已按本机 API 26 Release SDK 核对。
 - 书房模式普通区域的左右滑动切换底部 Tab。最近阅读卡片横滑与文件夹拖动独立处理，抬手后的 120ms 手势避让仅跟随这两类操作。
 - 详情页基础信息展示后，“开始阅读／开始收听”在章节加载期间保持可点击。点击立即进入阅读页或播放器，目标页面显示加载状态并复用后台目录任务，章节准备好后自动展示正文或开始播放；继续阅听沿用已有进度，详情按钮保持正常图标与文字。
 - `Index` 使用 `NavPathStack` 集中管理搜索、详情、阅读、播放、下载、导入、书源、账号、设置等路由。
@@ -696,8 +704,11 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 - 搜索期间，结果工具栏与首屏加载态的 loading 右侧显示已完成书源数/本轮参与搜索的书源总数（如 `4/74`）；成功、无结果或失败均计入完成数。重新搜索或清空输入时归零，旧请求不更新新一轮进度，搜索结束后随 loading 隐藏。
 - 结果提供“全部 / 有声书 / 电子书 / 漫画”计数与网格/列表切换。单源失败不阻断其他来源。
 - 搜索页不启用下拉刷新，结果末项可完整滚动到浮动底栏和系统手势区上方。
-- 搜索页使用原生 `NavDestination`，进入和返回均保留 `SLIDE_RIGHT` 系统侧滑转场；顶部完全自绘，不再创建隐藏的 HDS 标题结构，保持实时绘制，不叠加 customTransition、整页 renderGroup 离屏缓存或透明度动画。进入时不自动聚焦或弹出软键盘，用户点击输入框后再弹出；退场开始前退出输入状态并停止异步结果回写。历史标签的首次换行布局不做隐式材质动画，避免转场中出现黑色闪烁。
-- 本地搜索历史在页面创建时读取，输入框和原生侧滑转场先显示；onShown 后 650ms 再构建历史标签与正文列表，保留完整历史区域占位，并缓存同字号、缩放下的文字宽度。当前系统没有公开的侧滑完成回调；基线 Trace 的结束事件约在开始后 580ms，650ms 为测量后的调度余量，仍需在不同系统上复测。推荐随后等待 80ms 按需执行，避免历史布局与推荐任务集中在同一帧。隐藏或返回时取消进场和推荐任务，快速重进只调度一次。搜索输入框直接位于内容树并保持稳定节点；历史和结果工具栏随结构或高度变化更新，避免初始空态的透明代理节点。回归需核对实际截图、输入/历史点击和推荐加载期间的滑动、返回。
+- 搜索页使用原生 `NavDestination`，主导航通过已有 `customNavContentTransition` 接管搜索页入栈与出栈：进入时用 480ms 原地淡入，内容以顶部中点为原点从 97% 缩放至 100%；返回时用 380ms 反向淡出并轻缩回，双向采用 `Curve.EaseInOut` 柔和起止。来源页保持原位，首页保留浏览位置，宽窗口沿用现有分栏布局。顶部保持内容树内的自绘输入框与实时磨砂，点击输入框后弹出软键盘；退场开始前退出输入状态并停止异步结果回写。
+- 搜索转场进度与就绪状态以 `0 / false` 初始化，出场完成后保留该透明起点；新搜索页从创建首帧开始保持透明，布局完成后接续淡入，入场完成后保持 `1 / true`。2026-11-26 用户录屏在约 1.994s 出现搜索顶栏单帧亮起、随后回到首页再淡入，本次修正聚焦该首帧时序。
+- 2026-11-26 首帧修正版通过 Index / SearchPage 的 ArkTS 检查与 Release SDK 26.0.0.105 Debug HAP 构建，包内 apiReleaseType 为 Release，最低 API 20、目标 API 26；已覆盖安装并启动 HUAWEI Mate 80。修正版实机动态观感待用户确认。
+- 本地搜索历史在页面创建时读取，历史标签与正文在 `onWillShow` 提前布局，和输入框共用整页淡入；原有正文独立 150ms 淡入已移除。历史文字宽度缓存、推荐 80ms 调度间隔及逐帧追加继续沿用，推荐任务和详情分类关键词检索由入场完成回调接续。历史首次换行保持直接布局，整页统一控制透明度和轻缩放；隐藏与返回继续取消推荐任务及旧分帧回写。
+- 本轮转场依据已读取的 [Navigation 转场技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-navigation-transition/SKILL.md)、[转场 API 参考](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-navigation-transition/references/navigation-transition-api.md)、[ArkUI 开发技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/SKILL.md)与 [ArkTS 语法规范](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)，接口已与本机 Release SDK 声明核对，沿用 API 20 范围内能力。2026-11-26 节奏调整版已通过 ArkTS 检查与 Release SDK 26.0.0.105 的 Debug HAP 编译，已覆盖安装并启动 HUAWEI Mate 80；检查输出包含现有设备能力与静态提示。实机动画观感待用户确认。
 - 输入框、返回和筛选控件保留现有独立磨砂，标题背景保留反向圆角裁剪及实时模糊；装饰背景不参与触摸。历史标签使用普通圆角背景，结果工具栏保留其材质；推荐、网格与列表使用可滚动的首尾留白，前景控件保持清晰。
 
 2026-11-20 搜索入场基线：同一 USB 手机、全网榜单首页连续三次进入搜索，UI ReceiveVsync 峰值为 16.95 / 14.78 / 15.29ms；推荐集中创建时峰值为 16.04 / 18.24 / 19.07ms，返回首页 RS RenderFrame 峰值为 18.56 / 18.05 / 17.83ms。首屏 SearchPage 构建约 6.12ms，推荐帧同时创建四张可见书卡。候选改为原生目的页、延后正文并逐帧提交推荐，首页 34vp 分类胶囊圆角改为实际半高 17vp，保留原材质。候选包已构建并安装过一次；复测期间 USB 断开，三次往返未完整执行，不能用该样本宣称整体流畅度改善。最后一次时序修正已通过 Release SDK 26.0.0.105 构建，最终包尚待重连手机安装、检查输入/返回/推荐续传及完成同条件 Trace 对比。独立 ArkTS 检查因 LSP 未初始化不可用。参考已读取的 [Navigation 转场指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-navigation-transition/SKILL.md)和[分帧提交指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-performance-analysis/references/component/frame-splitting.md)。
@@ -745,7 +756,7 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 
 - 分类、评分、完结状态、更新时间、体量信息分别以小胶囊展示；每项有数据才显示，全部为空时收起整行。多个分类分别展示并去重，未知状态不默认显示已完结或连载中。
 
-- 播放页与展开的迷你播放器共用独立主题色旋转环；加载时移除播放/暂停符号子树，避免隐藏符号的替换效果与加载动画叠加。旋转使用原生属性动画，无 JS 逐帧定时器。切书进入地址解析前即同步桌面卡片，书名、章节和状态不等待封面网络下载；封面完成后补齐，过期请求不得恢复旧书或旧播放状态。慢网、连续切书、暂停和无封面通过定向回归验证；动画流畅度仍需动态设备观察。
+- 播放页与展开的迷你播放器共用全局主题色 Infinity 加载动画；加载时移除播放/暂停符号子树，避免隐藏符号的替换效果与加载动画叠加。Infinity 路径由 ArkUI 动画系统驱动，使用两秒线性循环并保持原有控件尺寸。切书进入地址解析前即同步桌面卡片，书名、章节和状态不等待封面网络下载；封面完成后补齐，过期请求不得恢复旧书或旧播放状态。慢网、连续切书、暂停和无封面通过定向回归验证；动画流畅度仍需动态设备观察。
 - 首页、更多页和搜索页书卡提供封面位置与快照，用于书卡展开到详情页、返回收回的连续转场。
 - 详情先使用书籍缓存展示，再刷新数据。窗口尺寸或源书卡位置失效时降级，避免飞向旧坐标。
 - 详情的分类、状态和总章节标签下独立显示“最新更新时间：源返回时间”，使用次级文字、18vp 行高、最多两行；无时间时隐藏且不占位。简介清除 HTML 标签与实体残留并保留换行，旧缓存同样处理。
@@ -958,6 +969,8 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 
 ## 系统备份与跨设备续播
 
+- 云空间历史文件清理：完整备份在目录同步完成后先清理，内容相同时同样执行；上传成功后再次清理，保留最新两份已确认上云的备份。书架与进度同步每次确认上传成功后清理当前安装实例的旧版本，保留最新两份，持续阅听时继续执行。旧安装实例数据保留至用户确认清理范围。
+- 自定义封面随系统备份、应用云备份、本地导出和 WebDAV 一起保存；相册图片携带图片数据与书籍对应关系，网络封面携带链接。恢复后重新绑定本机图片，保留当前书名、分组和隐藏设置；旧版备份继续保留本机封面。备份总大小沿用 32 MiB 上限，本地书籍原文件由用户另行保管。
 - 系统备份使用 `files/backup/listenbook_state.json` 白名单，包含在线收藏、阅听历史、阅读与播放进度、常规阅读设置、朗读进度与设置、跳过设置、统计、在线书元数据、通用设置和清洗后的书源定义。
 - 在线书签、全局与在线书替换规则纳入阅读快照；旧备份没有这些字段时保留当前数据。本地导入书的书签与规则留在本机，恢复备份时保留。实际账号会话、Cookie、敏感 Header Token、原始书源 JSON、卡片 ID、缓存音频、下载、本地导入路径不进入快照。
 - 清洗后的 `jsLib`、变量和登录规则定义可随来源迁移，恢复后状态回到“待测试”。
@@ -986,7 +999,7 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 - 书源导入、新增和更新不查询会员权益，未登录、非会员或会员核验失败均不阻止导入。文件大小、批次内存预算及锁定书源保护继续生效。
 
 - 主题读取 `AppColor` / `AppMaterial`，不在页面复制品牌值；V2 共享外观状态驱动主题色与材质切换。默认主题色为玫瑰红，浅深色 `app_brand` 均为 `#C4475B`；首次进入及未保存自定义色时，选色面板选中“玫瑰红”，原橙色保留为可选预设，已保存的其他主题色不变。
-- 所有新增或修改的 `LoadingProgress` 显式设置 `.color(AppColor.Brand)`。
+- 全局等待加载统一使用 `InfinityLoadingIndicator`，还原 Loading UI Infinity 的横向 ∞ 路径、圆头描边及两秒线性循环；通过 ArkUI `@AnimatableExtend(Path)` 驱动路径偏移，颜色直接绑定 `AppColor.Brand`，随主题套装、自定义强调色及深浅色资源更新。页面、弹层、按钮、阅读、手表与播放入口复用同一组件，调用处保留原有尺寸和布局；骨架屏、下拉手势进度与下载等实际进度条沿用现有表现。
 - 交互浮层使用 `AppMaterial.InteractiveThin`，播放页原生半模态弹层使用 `AppMaterial.PlayerSheet`；实际材质效果由设备系统决定。
 - 首页入口和搜索输入使用透明原生沉浸光感材质，选中文字与下划线使用主题色。
 
@@ -1050,6 +1063,10 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 
 ## 电子书朗读
 
+阅读页“听”与小播控封面共用播放页的 400ms 原地淡入淡出。播放页透明度从 `0` 初始化，淡出与收拢返回完成后保持 `0`，下一次创建直接衔接透明首帧；进入完成后保持 `1`。2026-11-26 用户录屏在约 2.803s、6.176s 分别出现完整播放页单帧显示，随后回到阅读页再淡入，本次修正针对该页面进入时序。实现沿用已读取的 [Navigation 转场技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-navigation-transition/SKILL.md)及其[转场 API 参考](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-navigation-transition/references/navigation-transition-api.md)。
+
+阅读页“听”所在底栏与朗读小播控在文字正文就绪后保持节点及材质挂载，显隐使用 180ms 透明度过渡。“听”随底栏保留原有 24vp 轻移；小播控的纵向位置按工具栏显示时的空间固定计算，淡出期间保持原位，握持切边和长按拖动继续由外层负责。仅当前书籍存在朗读会话且工具栏显示时呈现小播控；隐藏时通过触摸、启用状态和无障碍层级同步屏蔽交互。HDS 沉浸材质与 OFFSCREEN 圆角裁剪继续保留。实现依据为已读取的 [ArkUI 性能分析技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-performance-analysis/SKILL.md)、[初始可见性指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-performance-analysis/references/startup/initial-visibility.md)及[动画 API 指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-performance-analysis/references/animation/animateTo-patterns.md)。
+
 - “听”字字号为 22fp，48vp 圆形入口距底部安全区 86vp；点击直接起播并进入通用播放页，不再提供长按设置入口，TTS 导入与管理从“我的 → 阅听设置”进入；朗读显示迁到其中的独立页面，提供跟随翻页、朗读标记及其自定义颜色，阅读页原快捷入口跳转阅听设置。朗读引擎选择胶囊使用适配深浅模式的实体底色、细边框和轻投影。
 
 - 在线小说阅读页提供右侧独立“听”字沉浸圆形悬浮入口（文字随系统深浅模式适配，原生材质容器不叠加背景/边框覆盖，旧系统回退背景与边框同步适配；不占底栏 Tab，随底栏同步显隐）。首次点击从当前页起读；同书正在朗读时直接进入播放页，暂停时从当前朗读片段继续。“我的 → 阅听设置”独立页面保留引擎、音色查询/下载及自定义 TTS 导入管理，不显示播放、从当前页起读、上次续读、切章或结束朗读操作；通过统一菜单路由进入独立页面，顶部返回按钮回到“我的”。“对话高亮”与“朗读显示”使用并列卡片入口；对话高亮开关、颜色调色盘、HEX 输入、预览及跟随阅读主题开关统一放在“对话高亮”独立页面内，分页和滚动正文共用持久颜色。未选择自定义色时默认跟随当前 App 主题强调色，并解析主题套装和深浅色资源。设置页移除音量增幅，正文移除段落悬浮展示入口和宿主。“朗读显示”将跟随翻页放在标记选项上方；“更改颜色”模式下直接显示调色盘与 HEX 输入，颜色行右侧提供与对话颜色一致的“跟随阅读主题”开关。朗读标记颜色独立于对话颜色保存，分页与滚动共用，纳入阅读备份，旧配置保持主题强调色。
@@ -1060,6 +1077,8 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 - 离开播放页继续朗读，统一迷你栏显示当前书籍、章节和本章进度，支持暂停/继续、下一章、点击展开及上拖进入同一个播放页；锁屏和耳机支持播放/暂停与上下章。
 - 系统没有精确音频时长，TTS 在播放页和迷你栏显示只读的本章字符进度，不提供时间拖动；前后跳转按朗读片段处理。不生成音频下载/导出文件。
 - 回归：我的 → 阅读设置 → 导入与管理 → 返回阅读页点击“听”并进入通用播放页 → 暂停/续读 → 切换系统/自定义音色 → 倍速/目录/跨章 → 定时/本章结束停止 → 返回首页统一迷你栏 → 暂停/下一章/点击及上拖展开 → 锁屏/耳机控制 → 音频与朗读互斥 → 重启恢复。断网验证已缓存章节；缺少正文时应明确报错。
+
+2026-11-26 阅读控件显隐调整已通过 ReaderPage 的 ArkTS 检查及 Release SDK 26.0.0.105 Debug HAP 构建，包内 apiReleaseType 为 Release、最低 API 20、目标 API 26；已覆盖安装并启动 HUAWEI Mate 80。连续呼出／收起工具栏、“听”按钮及朗读小播控的实机动态观感待用户确认。
 
 ## 阅读与导入补充交互
 
@@ -1275,7 +1294,7 @@ EPUB 发布包保留动态模块导出名 `EpubParserService`、`createEpubReade
 
 - 阅听记录和未收藏历史的“阅听足迹”类型筛选采用上述原生 Button 与弹簧滑块，40vp 高度、3vp 内边距和半透明选中资源沿用书架样式，外层使用 `AppMaterial.SurfaceClean`。编辑入口在右上角，编辑中切换为完成图标；切换筛选退出批量选择，取消标题栏筛选菜单保持当前类型。实验室继续使用原生 `CapsuleSegmentButtonV2`。
 - 实验室分段组件的既有依据为 [SegmentButtonV2 参考](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/references/knowledges/04-components/advanced/ohos-arkui-advanced-SegmentButtonV2.md)与[深浅色适配技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-dark-light-adaptation/SKILL.md)，本机 Release SDK 26.0.0.105 标注 V2 分段按钮自 API 18 可用；新版材质由现有 `PlatformCompat` 守卫。
-- “设置 → 外观”提供“横滑切换底部 Tab”，默认开启，以本机 `swipe_switch_tabs` 偏好保存，重启恢复；保存失败保留旧值。开启时正文横滑切换首页／书架／记录／我的，关闭时横滑切换首页栏目或书架类型；两种模式均保留点击底部 Tab。两层手势在识别前按开关互斥，避免子手势吞掉主 Tab 横滑或一次滑动同时切换两层。HdsTabs 原生内容横滑保持关闭，主 Tab 通过控制器即时换页，保留原生页签选中反馈；底栏和迷你播放器保持原位。onChange 同步当前页并恢复对应内容任务，保留空闲预加载，隐藏记录时保留实际索引映射。类型模式下：首页按顶部栏目顺序切换，全网榜单为分类总览、精品推荐及已启用平台，导入源首页为分类总览、推荐及源定义分类；书架切换全部／有声书／电子书／漫画，沿用当前分组、搜索词和状态筛选。横向位移至少 48vp 且明显大于纵向位移，松手后切换，首尾不循环；短滑、纵向滚动、取消及书架批量管理不切换类型。子级横向滚动优先，顶部轮播仍只翻牌；顶部标签点击和双击底栏回顶继续保留；书架通过顶部按钮刷新，首页保留下拉刷新。定向回归：`scripts/test-startup-tab.cjs`、`scripts/test-page-type-swipe.cjs`、`scripts/test-reader-controls-preferences.cjs`。
+- “设置 → 外观”提供“横滑切换底部 Tab”，默认开启，以本机 `swipe_switch_tabs` 偏好保存，重启恢复；保存失败保留旧值。开启时正文横滑切换首页／书架／记录／我的，关闭时横滑切换首页栏目或书架类型；两种模式均保留点击底部 Tab。两层手势在识别前按开关互斥，避免子手势吞掉主 Tab 横滑或一次滑动同时切换两层。HdsTabs 原生内容横滑保持关闭，主 Tab 先完成 70ms 淡出，再通过控制器换页并接续 150ms 淡入与 99%→100% 缩放，保留原生页签选中反馈；底栏和迷你播放器保持原位。onChange 同步当前页并恢复对应内容任务，保留空闲预加载，隐藏记录时保留实际索引映射。类型模式下：首页按顶部栏目顺序切换，全网榜单为分类总览、精品推荐及已启用平台，导入源首页为分类总览、推荐及源定义分类；书架切换全部／有声书／电子书／漫画，沿用当前分组、搜索词和状态筛选。横向位移至少 48vp 且明显大于纵向位移，松手后切换，首尾不循环；短滑、纵向滚动、取消及书架批量管理不切换类型。子级横向滚动优先，顶部轮播仍只翻牌；顶部标签点击和双击底栏回顶继续保留；书架通过顶部按钮刷新，首页保留下拉刷新。定向回归：`scripts/test-startup-tab.cjs`、`scripts/test-page-type-swipe.cjs`、`scripts/test-reader-controls-preferences.cjs`。
 - 阅听记录完整显示并等待 220ms 后统一刷新记录；未完整显示时不响应后台数据事件刷新列表。记录身份及顺序不变时由字段观测更新，不发送整表重载；本地封面异步加载。顶部统计胶囊继续使用 HDS 沉浸光感与原有 OFFSCREEN 圆角裁剪；统计胶囊和空态不再额外执行入场动画。验收需覆盖快速左右横滑、滑动取消、返回页面、下拉刷新、双击回顶、筛选及长按多选；编译通过不代表已验证帧率收益。
 - 阅听记录及未收藏历史的条目保持无独立背景，不添加逐行磨砂、半透明卡片或卡片圆角裁剪；日期组头与紧凑书目行共同参与原生列表布局，加载骨架同样保持无背景。逐行实时背景模糊曾造成实机严重卡顿，不得再次给列表条目添加 backgroundBlurStyle、backdropBlur、HdsTabs 或 OFFSCREEN 材质层，外层继续保留删除消散粒子的绘制空间。
 - 阅听记录列表右侧“记录 / 阅读或播放”两个按钮采用原生圆形 Button、随深浅色适配的静态半透明底色、0.5vp 细边框及系统按压反馈。条目及按钮均不创建背景模糊滤镜、HdsTabs 或 OFFSCREEN 合成层；顶部按钮与书架统一为直径 36vp、图标 22vp、间距 4vp 的原生薄磨砂圆形按钮，不创建 HdsTabs 沉浸光感材质宿主；两页右侧按钮组相对标题行上移 2vp，补偿文字行盒与字形的视觉中心差异。统计胶囊保留原有 HDS 沉浸材质及裁剪。2026-11-18 本次概览改版前的标题与按钮调整已通过 ArkTS 检查及 Release SDK 26.0.0.105 的 debug 构建，并在连接手机截图核对两页标题与按钮对齐、尺寸和材质一致且无裁切；未进行帧率量化。列表拖动及惯性滚动中继续合并进度、统计、收藏事件，停止后刷新；已经开始的异步加载在提交前再次检查滚动状态，避免中途重排。

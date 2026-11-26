@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
 import { LocalRuleSource } from '../model/LocalRuleSource';
 import { LocalRuleDebugResult, LocalRuleDebugService } from '../service/rulesource/LocalRuleDebugService';
@@ -207,10 +208,7 @@ export struct RuleSourceDebugPage {
 
         if (this.isLoading) {
           Column() {
-            LoadingProgress()
-              .width(40)
-              .height(40)
-              .color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 40 })
             Text($r('app.string.common_content_loading'))
               .fontSize(AppFont.Caption)
               .fontColor($r('sys.color.font_secondary'))
@@ -235,10 +233,7 @@ export struct RuleSourceDebugPage {
               Button({ type: ButtonType.Normal }) {
                 Row({ space: AppSpace.Xs }) {
                   if (this.isRunning) {
-                    LoadingProgress()
-                      .width(20)
-                      .height(20)
-                      .color(AppColor.Brand)
+                    InfinityLoadingIndicator({ indicatorSize: 20 })
                   }
                   Text(this.isRunning ? $r('app.string.rule_source_debug_stop') :
                     $r('app.string.rule_source_debug_start'))

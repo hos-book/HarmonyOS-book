@@ -6,6 +6,19 @@ export class ReaderActionData {
   preview: string = '';
   /** 热评点赞数，按书源原样保存（如 "1.2k"）。 */
   likes: string = '';
+  /** 本章说的评论条数文字（如“79条评论”）。只有本章说入口会写。 */
+  count: string = '';
+  /** 本章说的热评列表，最多 ReaderActionMarker.MAX_HOT_ITEMS 条。段评热评只用 preview / likes。 */
+  hots: ReaderActionHot[] = [];
+  /** 热评文字里的表情代号到图片地址（如 "[吃瓜]" → 图片网址），阅读器把代号画成图片。 */
+  emojis: Record<string, string> = {};
+}
+
+/** 本章说卡片上的一条热评。 */
+export class ReaderActionHot {
+  user: string = '';
+  text: string = '';
+  likes: string = '';
 }
 
 export class ReaderActionMatch {
@@ -28,6 +41,45 @@ export class ReaderActionMarker {
   static readonly MAX_URL_LENGTH: number = 12288;
   static readonly MAX_PREVIEW_LENGTH: number = 160;
   static readonly MAX_LIKES_LENGTH: number = 16;
+  static readonly MAX_COUNT_LENGTH: number = 24;
+  static readonly MAX_USER_LENGTH: number = 32;
+  static readonly MAX_HOT_ITEMS: number = 3;
+  static readonly MAX_EMOJIS: number = 24;
+  static readonly MAX_EMOJI_TOKEN_LENGTH: number = 16;
+  static readonly MAX_EMOJI_URL_LENGTH: number = 1024;
+
+  /**
+   * 表情代号到图片地址。接受 { 代号: 地址 } 或 [{ token, url }]；只留 http(s) 地址、
+   * 不含空白的短代号，且代号确实出现在热评文字里（截断后没出现的不存）。
+   */
+  static normalizeEmojis(value: Object | null | undefined, texts: string[]): Record<string, string> {
+    const result: Record<string, string> = {};
+    if (!value || typeof value !== 'object') return result;
+    const pairs: string[][] = [];
+    if (Array.isArray(value)) {
+      for (const entry of value as Object[]) {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+        const fields = entry as Record<string, Object>;
+        pairs.push([String(fields['token'] ?? ''), String(fields['url'] ?? '')]);
+      }
+    } else {
+      const record = value as Record<string, Object>;
+      for (const key of Object.keys(record)) pairs.push([key, String(record[key] ?? '')]);
+    }
+    const joined = (texts || []).join('\n');
+    let size = 0;
+    for (const pair of pairs) {
+      if (size >= ReaderActionMarker.MAX_EMOJIS) break;
+      const token = pair[0].trim();
+      const url = pair[1].trim();
+      if (!token || token.length > ReaderActionMarker.MAX_EMOJI_TOKEN_LENGTH || /\s/.test(token)) continue;
+      if (!/^https?:\/\/\S+$/i.test(url) || url.length > ReaderActionMarker.MAX_EMOJI_URL_LENGTH) continue;
+      if (!joined.includes(token) || result[token] !== undefined) continue;
+      result[token] = url;
+      size++;
+    }
+    return result;
+  }
 
   /** 热评原文：去掉标签、合并空白，最多 MAX_PREVIEW_LENGTH 个字符。 */
   static normalizePreview(value: string): string {
@@ -35,20 +87,59 @@ export class ReaderActionMarker {
       .substring(0, ReaderActionMarker.MAX_PREVIEW_LENGTH);
   }
 
-  static create(label: string, url: string, title: string = '', preview: string = '', likes: string = ''): string {
+  /** 本章说热评：合并空白、截断，丢掉没有正文的条目，最多 MAX_HOT_ITEMS 条。 */
+  static normalizeHots(items: ReaderActionHot[]): ReaderActionHot[] {
+    const result: ReaderActionHot[] = [];
+    for (const item of items || []) {
+      if (result.length >= ReaderActionMarker.MAX_HOT_ITEMS) break;
+      const text = ReaderActionMarker.normalizePreview(item ? String(item.text || '') : '');
+      if (!text) continue;
+      const hot = new ReaderActionHot();
+      hot.text = text;
+      hot.user = String(item.user || '').replace(/[\s　]+/g, ' ').trim()
+        .substring(0, ReaderActionMarker.MAX_USER_LENGTH);
+      hot.likes = String(item.likes || '').trim().substring(0, ReaderActionMarker.MAX_LIKES_LENGTH);
+      result.push(hot);
+    }
+    return result;
+  }
+
+  static normalizeCount(value: string): string {
+    return (value || '').replace(/[\s　]+/g, ' ').trim().substring(0, ReaderActionMarker.MAX_COUNT_LENGTH);
+  }
+
+  /**
+   * count / hots 只给本章说用：评论条数文字与热评列表。emojis 是热评文字里表情代号的图片地址。
+   * 没有热评和条数时只写 label/url/title，与旧版本标记逐字相同，已缓存章节不受影响。
+   */
+  static create(label: string, url: string, title: string = '', preview: string = '', likes: string = '',
+    count: string = '', hots: ReaderActionHot[] = [], emojis: Record<string, string> = {}): string {
     const data = new ReaderActionData();
     data.label = ((label || '').trim() || '打开').substring(0, ReaderActionMarker.MAX_LABEL_LENGTH);
     data.url = (url || '').trim();
     data.title = (title || '').trim().substring(0, ReaderActionMarker.MAX_TITLE_LENGTH);
     if (!data.url || data.url.length > ReaderActionMarker.MAX_URL_LENGTH) return '';
-    // 没有热评时只写 label/url/title，与旧版本标记逐字相同，已缓存章节不受影响。
-    const record: Record<string, string> = { 'label': data.label, 'url': data.url, 'title': data.title };
+    const record: Record<string, Object> = { 'label': data.label, 'url': data.url, 'title': data.title };
     const safePreview = ReaderActionMarker.normalizePreview(preview);
     if (safePreview) {
       record['preview'] = safePreview;
       const safeLikes = (likes || '').trim().substring(0, ReaderActionMarker.MAX_LIKES_LENGTH);
       if (safeLikes) record['likes'] = safeLikes;
     }
+    const safeCount = ReaderActionMarker.normalizeCount(count);
+    if (safeCount) record['count'] = safeCount;
+    const safeHots = ReaderActionMarker.normalizeHots(hots);
+    if (safeHots.length > 0) {
+      record['hots'] = safeHots.map((hot: ReaderActionHot): Record<string, string> => {
+        const entry: Record<string, string> = { 't': hot.text };
+        if (hot.user) entry['u'] = hot.user;
+        if (hot.likes) entry['l'] = hot.likes;
+        return entry;
+      });
+    }
+    const safeEmojis = ReaderActionMarker.normalizeEmojis(emojis,
+      [safePreview].concat(safeHots.map((hot: ReaderActionHot): string => hot.text)));
+    if (Object.keys(safeEmojis).length > 0) record['e'] = safeEmojis;
     const marker = `${ReaderActionMarker.PREFIX}${encodeURIComponent(JSON.stringify(record))}` +
       `${ReaderActionMarker.SUFFIX}`;
     return marker.length <= ReaderActionMarker.MAX_MARKER_LENGTH ? marker : '';
@@ -56,10 +147,12 @@ export class ReaderActionMarker {
 
   /** Persist a user-triggered action supplied by the imported source without interpreting it. */
   static createSourceScript(label: string, script: string, title: string = '', preview: string = '',
-    likes: string = ''): string {
+    likes: string = '', count: string = '', hots: ReaderActionHot[] = [],
+    emojis: Record<string, string> = {}): string {
     const code = (script || '').trim();
     if (!code || code.length > 4096) return '';
-    return this.create(label, `${this.SOURCE_SCRIPT_SCHEME}${encodeURIComponent(code)}`, title, preview, likes);
+    return this.create(label, `${this.SOURCE_SCRIPT_SCHEME}${encodeURIComponent(code)}`, title, preview, likes,
+      count, hots, emojis);
   }
 
   static sourceScript(url: string): string {
@@ -124,6 +217,22 @@ export class ReaderActionMarker {
       data.preview = ReaderActionMarker.normalizePreview(String(record['preview'] || ''));
       data.likes = data.preview ?
         String(record['likes'] || '').trim().substring(0, ReaderActionMarker.MAX_LIKES_LENGTH) : '';
+      data.count = ReaderActionMarker.normalizeCount(String(record['count'] || ''));
+      const hots = record['hots'];
+      if (Array.isArray(hots)) {
+        data.hots = ReaderActionMarker.normalizeHots((hots as Object[]).map((entry: Object): ReaderActionHot => {
+          const item = new ReaderActionHot();
+          if (entry && typeof entry === 'object') {
+            const fields = entry as Record<string, Object>;
+            item.text = String(fields['t'] || '');
+            item.user = String(fields['u'] || '');
+            item.likes = String(fields['l'] || '');
+          }
+          return item;
+        }));
+      }
+      data.emojis = ReaderActionMarker.normalizeEmojis(record['e'],
+        [data.preview].concat(data.hots.map((hot: ReaderActionHot): string => hot.text)));
       if (data.url.length > ReaderActionMarker.MAX_URL_LENGTH) return null;
       return data.url ? data : null;
     } catch (_) {

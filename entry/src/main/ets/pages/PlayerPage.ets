@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { PlayerProgressSlider } from '../components/PlayerProgressSlider';
 import { TextReaderRouteParams, TextReadingPosition, ReaderJumpChapterEvent, EVT_READER_JUMP_CHAPTER } from '../model/TextReading';
@@ -881,7 +882,7 @@ export struct PlayerPage {
           .layoutWeight(1).textAlign(TextAlign.Start).maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
         if (this.selectedPlaybackVoiceId() === id) {
           if (this.savingSourceVoice) {
-            LoadingProgress().width(22).height(22).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 22 })
           } else {
             SymbolGlyph($r('sys.symbol.checkmark')).fontSize(20).fontColor([AppColor.Brand])
               .accessibilityText($r('app.string.tts_selected'))
@@ -2652,8 +2653,7 @@ export struct PlayerPage {
 
             if (this.isCurrentChapter(ch)) {
               if (this.playbackLoading()) {
-                LoadingProgress()
-                  .width(18).height(18).color(AppColor.Brand)
+                InfinityLoadingIndicator({ indicatorSize: 18 })
               } else {
                 SymbolGlyph($r('sys.symbol.speaker_wave_2_fill'))
                   .fontSize(18)
@@ -3168,10 +3168,7 @@ export struct PlayerPage {
     } else if (this.chapterDownloadRecord(ch)?.status === 'pending'
       || this.chapterDownloadRecord(ch)?.status === 'resolving'
       || this.chapterDownloadRecord(ch)?.status === 'downloading') {
-      LoadingProgress()
-        .width(16)
-        .height(16)
-        .color(AppColor.Brand)
+      InfinityLoadingIndicator({ indicatorSize: 16 })
     } else if (this.chapterDownloadRecord(ch)?.status === 'failed') {
       SymbolGlyph($r('sys.symbol.exclamationmark_circle'))
         .fontSize(16)

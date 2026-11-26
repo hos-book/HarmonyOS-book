@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { BookCoverPolicy } from '../utils/BookCoverPolicy';
 import { BookMetadataPolicy } from '../utils/BookMetadataPolicy';
 import { common } from '@kit.AbilityKit';
@@ -141,7 +142,7 @@ export struct DetailTitleBarActions {
           onPress: (): void => { DetailTitleBarState.get().onRefresh(); }
         })
         if (this.refreshing) {
-          LoadingProgress().width(22).height(22).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 22 })
             .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
         }
       }.width(40).height(40).enabled(!this.refreshBusy)
@@ -1658,10 +1659,7 @@ export struct BookDetailPage {
       Column() {
         if (this.loadingDetail) {
           Column({ space: AppSpace.Sm }) {
-            LoadingProgress()
-              .width(40)
-              .height(40)
-              .color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 40 })
             Text($r('app.string.book_detail_loading'))
               .fontSize(AppFont.Body)
               .fontColor($r('sys.color.font_secondary'))
@@ -1752,7 +1750,7 @@ export struct BookDetailPage {
           })
         } else {
           Column() {
-            LoadingProgress().width(40).height(40).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 40 })
           }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         }
       }

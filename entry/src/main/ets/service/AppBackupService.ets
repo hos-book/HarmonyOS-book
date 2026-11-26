@@ -23,6 +23,7 @@ import { LocalRuleSourceImportService } from './rulesource/LocalRuleSourceImport
 import { SourceDataService } from './SourceDataService';
 import { DiagnosticLogService } from './DiagnosticLogService';
 import { ReadingBackupService, ReadingBackupSnapshot } from './text/ReadingBackupService';
+import { BookCoverBackup, BookCoverBackupService } from './BookCoverBackupService';
 
 const BACKUP_DIR: string = 'backup';
 const BACKUP_FILE: string = 'listenbook_state.json';
@@ -84,6 +85,7 @@ export class AppBackupSnapshot {
   books: Book[] = [];
   ruleSources: BackupRuleSource[] = [];
   reading: ReadingBackupSnapshot | undefined = undefined;
+  bookCovers: BookCoverBackup[] | undefined = undefined;
 }
 
 export class AppBackupService {
@@ -113,6 +115,8 @@ export class AppBackupService {
       snapshot.books = await DataService.exportBackupBookShells();
       stage = 'reading';
       snapshot.reading = await ReadingBackupService.createSnapshot(context);
+      stage = 'book_covers';
+      snapshot.bookCovers = await BookCoverBackupService.capture();
       stage = 'sources';
       try {
         await LocalRuleSourceRepository.init(context);
@@ -250,6 +254,7 @@ export class AppBackupService {
     await StatsService.restoreBackupStats(Array.isArray(snapshot.stats) ? snapshot.stats : []);
     await MedalService.instance.restoreSnapshot(context, snapshot.medals);
     await DataService.restoreBackupBookShells(snapshot.books, strict);
+    if (snapshot.bookCovers !== undefined) await BookCoverBackupService.restore(context, snapshot.bookCovers);
     if (snapshot.reading !== undefined) await ReadingBackupService.restoreSnapshot(context, snapshot.reading);
     return true;
   }
@@ -270,6 +275,13 @@ export class AppBackupService {
     }
     if (snapshot.reading !== undefined && !ReadingBackupService.isValidSnapshot(snapshot.reading)) {
       return AppBackupService.invalidSnapshot('reading');
+    }
+    if (snapshot.bookCovers !== undefined && (!Array.isArray(snapshot.bookCovers) ||
+      !snapshot.bookCovers.every((item: BookCoverBackup): boolean => !!item &&
+        typeof item.bookId === 'string' && item.bookId.length > 0 && item.bookId.length <= 8192 &&
+        AppBackupService.validText(item.cover) &&
+        typeof item.imageBase64 === 'string'))) {
+      return AppBackupService.invalidSnapshot('bookCovers');
     }
     if (!Array.isArray(prefs.favorites) || prefs.favorites.length > 10000 ||
       !prefs.favorites.every((id: string): boolean => AppBackupService.validId(id)) ||

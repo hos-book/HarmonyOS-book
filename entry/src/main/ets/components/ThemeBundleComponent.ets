@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { ThemeBackgroundComponent } from './ThemeBackgroundComponent';
 import { ThemeBackgroundScene } from '../model/AppThemeVisual';
 import { ThemeIconComponent } from './ThemeIconComponent';
@@ -180,7 +181,7 @@ export struct ThemeBundleComponent {
         Row({ space: AppSpace.Xs }) {
           if (MembershipState.featureEnabled && bundle.id !== ThemeBundles.DefaultId) { VipFeatureBadge() }
           if (this.applying && this.applyingId === bundle.id) {
-            LoadingProgress().width(18).height(18).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 18 })
           }
           Text(this.applying && this.applyingId === bundle.id ? $r('app.string.theme_bundle_applying') :
             $r('app.string.theme_bundle_apply'))

@@ -8,6 +8,7 @@
  * 动效：整体呼吸式明暗（与 HomeLoadingSkeleton 一致），叠加逐行渐显，
  * 使等待过程有方向感而不是一块静态灰条。
  */
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { AppColor, AppRadius, AppSpace, AppFont, AppMotion } from '../theme/Theme';
 
 /** 与 ChapterListItem 单行实际高度对齐 */
@@ -78,10 +79,7 @@ export struct ChapterLoadingSkeleton {
     Column() {
       // 顶部提示：明确告诉用户正在做什么
       Row({ space: AppSpace.Xs }) {
-        LoadingProgress()
-          .width(16)
-          .height(16)
-          .color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 16 })
         Text(this.isTextBook ? $r('app.string.chapter_catalog_loading') : $r('app.string.chapter_program_loading'))
           .fontSize(AppFont.Caption)
           .fontColor($r('sys.color.font_secondary'))

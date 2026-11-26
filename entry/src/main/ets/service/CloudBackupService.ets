@@ -142,6 +142,9 @@ export class CloudBackupService {
       if (options.protectExisting && (await this.cloudFiles(context, legacyPath)).length > 0) {
         throw new CloudBackupError(CloudBackupErrorCode.EXISTING_BACKUP);
       }
+      // 目录同步完成后清理历史版本，内容相同的备份也执行清理。
+      await this.pruneCloudFiles(context, accountId, legacyPath);
+      await this.assertAccount(context, accountId);
       this.phase = CloudBackupPhase.PREPARING;
       stage = 'create_snapshot';
       failureCode = CloudBackupErrorCode.LOCAL_FAILURE;
@@ -340,9 +343,10 @@ export class CloudBackupService {
     throw new CloudBackupError(CloudBackupErrorCode.SERVER);
   }
 
-  private async pruneCloudFiles(context: common.Context, accountId: string, legacyPath: string, currentPath: string): Promise<void> {
+  private async pruneCloudFiles(context: common.Context, accountId: string, legacyPath: string,
+    currentPath: string = ''): Promise<void> {
     try {
-      let retained = 0;
+      let retained = currentPath ? 1 : 0;
       for (const file of await this.cloudFiles(context, legacyPath)) {
         await this.assertAccount(context, accountId);
         if (file.path === currentPath) continue;
@@ -350,11 +354,11 @@ export class CloudBackupService {
         const state = cloudSync.getCoreFileSyncState(fileUri.getUriFromPath(file.path));
         if ((stat.location & LOCATION_CLOUD) === 0 || (state !== cloudSync.FileState.UPLOAD_SUCCESS &&
           state !== cloudSync.FileState.INITIAL_AFTER_DOWNLOAD)) continue;
-        if (retained++ === 0) continue;
+        if (retained++ < 2) continue;
         await fileIo.unlink(file.path);
       }
     } catch (error) {
-      // 本次已确认上传，清理失败不影响备份成功，也不继续删除。
+      // 清理失败时记录原因并结束本轮清理，备份流程继续。
       this.logFailure('backup', 'prune_old_files', this.normalizeError(error, CloudBackupErrorCode.CLOUD_FILE_FAILURE));
     }
   }

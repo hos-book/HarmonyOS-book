@@ -204,6 +204,7 @@ export interface NativeCommentPageSpec {
   html: string;
   data?: Record<string, NativeValue>;
   title?: string;
+  /** 已停用：评论面板多高由读者在宿主里设置。旧书源写了照样通过校验，读取时忽略。 */
   height?: number;
   /** At most three requests, evaluated only after a click. Results bind directly to their names. */
   fetch?: Record<string, NativeFetchSpec>;
@@ -213,7 +214,7 @@ export interface NativeCommentPageSpec {
  * 按段取热评：只请求评论数最多的前 top 段，同时发出、整体限时，任何一段失败都只是不显示卡片。
  * request 里可用 para.index / para.count / para.text；text、likes 再加上请求结果 res。
  */
-export interface NativeChapterHotSpec {
+export interface NativeHotRequestSpec {
   /** 为假时不发热评请求（例如书源自己的热评开关）。 */
   when?: string;
   request: NativeRequestSpec;
@@ -221,7 +222,14 @@ export interface NativeChapterHotSpec {
   likes?: string;
 }
 
-export interface NativeHotCommentsSpec extends NativeChapterHotSpec {
+export interface NativeChapterHotSpec extends NativeHotRequestSpec {
+  /** 热评作者昵称（text 只给一条文字时用）。 */
+  user?: string;
+  /** 本章评论总数，数字或文字。 */
+  count?: string;
+}
+
+export interface NativeHotCommentsSpec extends NativeHotRequestSpec {
   /** 1 到 12，默认 6。 */
   top?: number;
 }
@@ -238,8 +246,8 @@ export interface NativeCommentsSpec {
    */
   hot?: string | NativeHotCommentsSpec;
   /**
-   * 本章说卡片上的热评（可选）。写成表达式时结果是文字或 { text, likes }；写成对象时发一个请求，
-   * 结果绑定为 res。与段落热评同时请求、同样限时。
+   * 本章说卡片上的热评（可选）。写成表达式时结果是文字、{ text, likes, user }、它们的列表，
+   * 或 { count, items }；写成对象时发一个请求，结果绑定为 res。与段落热评同时请求、同样限时。
    */
   chapterHot?: string | NativeChapterHotSpec;
   /** 段评页地址，可用 para.index / para.text / para.count。 */
@@ -278,6 +286,14 @@ export interface NativeImageDecodeSpec {
   ivPrefixBytes?: number;
 }
 
+/**
+ * 视频 HLS 播放列表交给应用接管：播放列表（含直播反复刷新的 m3u8）由应用取回、补全地址后再交给播放器，
+ * 分片仍由播放器直接下载。lowLatency 为 false 时去掉 LL-HLS 的分片预告，按普通 HLS 播放。
+ */
+export interface NativeVideoPlaylistSpec {
+  lowLatency?: boolean;
+}
+
 export interface NativeContentSpec extends NativeStageSpec {
   comments?: NativeCommentsSpec;
   links?: NativeLinkSpec[];
@@ -293,6 +309,8 @@ export interface NativeContentSpec extends NativeStageSpec {
   mediaError?: string;
   /** 取图片、音频时附带的请求头，例如 Referer。 */
   mediaHeaders?: Record<string, string>;
+  /** 视频的 HLS 播放列表由应用接管请求，见 NativeVideoPlaylistSpec。 */
+  playlist?: NativeVideoPlaylistSpec;
   /** 正文分页地址：一个地址是下一页，列表或多行文本是本章剩余全部分页。 */
   nextUrl?: string;
   /** nextUrl 列出剩余全部分页时，每批并发请求的页数，1 到 16，默认 4。 */
@@ -740,6 +758,19 @@ export class NativeSourceSpec {
       if (!content.text && !content.images && !content.audio && !content.video && !content.videoPage && !content.script) {
         errors.push('content 需要 text、images、audio、video、videoPage 或 script 之一');
       }
+      if (content.playlist !== undefined) {
+        const playlist = content.playlist as NativeValue;
+        if (!playlist || typeof playlist !== 'object' || Array.isArray(playlist)) {
+          errors.push('content.playlist 必须是对象');
+        } else {
+          const record = playlist as Record<string, NativeValue>;
+          if (record['lowLatency'] !== undefined && typeof record['lowLatency'] !== 'boolean') {
+            errors.push('content.playlist.lowLatency 必须是 true 或 false');
+          }
+          const unknown = Object.keys(record).filter((key: string): boolean => key !== 'lowLatency');
+          if (unknown.length > 0) errors.push(`content.playlist 不支持字段：${unknown.join('、')}`);
+        }
+      }
       if (content.replace !== undefined && !Array.isArray(content.replace)) errors.push('content.replace 必须是数组');
       NativeSourceSpec.checkBatch(content.batch, 'content.batch', errors);
       if (content.links !== undefined) {
@@ -948,7 +979,7 @@ export class NativeSourceSpec {
   }
 
   /** hot / chapterHot：表达式字符串，或含 request.url 与 text 的对象。 */
-  private static checkHotSpec(hot: string | NativeChapterHotSpec | undefined, path: string, errors: string[]): void {
+  private static checkHotSpec(hot: string | NativeHotRequestSpec | undefined, path: string, errors: string[]): void {
     if (hot === undefined || typeof hot === 'string') return;
     if (!hot || typeof hot !== 'object' || Array.isArray(hot)) {
       errors.push(`${path} 需要表达式，或含 request 和 text 的对象`);
@@ -964,8 +995,6 @@ export class NativeSourceSpec {
       errors.push(`${path}.html 必须是非空字符串规则`);
       return;
     }
-    if (page.height !== undefined && !(typeof page.height === 'number' && Number.isFinite(page.height) &&
-      page.height >= 0.2 && page.height <= 1)) errors.push(`${path}.height 必须在 0.2 到 1 之间`);
     if (page.title !== undefined && typeof page.title !== 'string') errors.push(`${path}.title 必须是字符串规则`);
     if (page.data !== undefined && (!page.data || typeof page.data !== 'object' || Array.isArray(page.data))) {
       errors.push(`${path}.data 必须是对象`);

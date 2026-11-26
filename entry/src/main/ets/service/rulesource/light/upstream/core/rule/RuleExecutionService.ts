@@ -58,6 +58,9 @@ export class RuleExecutionService {
       const itemChunkSize = Math.max(4, Math.min(Math.round(request.itemChunkSize || 16), 64));
       const fullJsValues: Record<string, string[]> = {};
       const fieldStartedAt: Record<string, number> = {};
+      // java.put() calls a full-script field makes for one item belong to that item (Android Legado stores
+      // them on the search result), so they are collected per item and merged into its persistent context.
+      const scriptItemVars: Record<string, string>[] = [];
       const fieldMatchedCount: Record<string, number> = {};
       const fieldFirstValue: Record<string, string> = {};
 
@@ -84,13 +87,15 @@ export class RuleExecutionService {
         if (code === null && embeddedProcessor === null && postProcessor === null) continue;
         try {
           if (code !== null) {
-            fullJsValues[field.name] = await this.executeFullJsFieldBatch(request, field, code, token);
+            fullJsValues[field.name] = await this.executeFullJsFieldBatch(request, field, code, token,
+              scriptItemVars);
           } else if (embeddedProcessor !== null) {
             fullJsValues[field.name] = await this.executePostProcessorJsFieldBatch(request, field,
-              embeddedProcessor.baseRule, embeddedProcessor.code, token, slice, embeddedProcessor.trailingRule);
+              embeddedProcessor.baseRule, embeddedProcessor.code, token, slice, scriptItemVars,
+              embeddedProcessor.trailingRule);
           } else if (postProcessor !== null) {
             fullJsValues[field.name] = await this.executePostProcessorJsFieldBatch(request, field,
-              postProcessor.baseRule, postProcessor.code, token, slice);
+              postProcessor.baseRule, postProcessor.code, token, slice, scriptItemVars);
           }
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error || '完整脚本执行失败');
@@ -139,6 +144,13 @@ export class RuleExecutionService {
         const analyzer = new AnalyzeRule(content, request.baseUrl).setNoticeScope(request.stage, request.source.bookSourceName);
 this.seedSourceVariables(analyzer.getContext(), request.source, request.contextValues);
         this.applySourceJsVars(analyzer, request.source, request.contextValues);
+        const scriptVars = scriptItemVars[itemIndex];
+        if (scriptVars) {
+          for (const key of Object.keys(scriptVars)) {
+            analyzer.getContext().put(key, scriptVars[key]);
+            analyzer.setJsVar(key, scriptVars[key]);
+          }
+        }
         const itemValues: Record<string, string> = {};
         for (const field of request.fields) {
           token.throwIfCancelled();
@@ -209,8 +221,28 @@ this.seedSourceVariables(analyzer.getContext(), request.source, request.contextV
     }
   }
 
+  /** Reads `{values, vars}` from a per-item script batch and merges each item's java.put() values. */
+  private static readScriptItemBatch(raw: string, itemVars: Record<string, string>[]): string[] {
+    const parsed = JSON.parse(raw || '{}') as Record<string, Object>;
+    const list = parsed ? parsed['values'] : undefined;
+    if (!Array.isArray(list)) throw new Error('完整脚本批量结果格式错误');
+    const vars = parsed['vars'];
+    if (Array.isArray(vars)) {
+      (vars as Object[]).forEach((entry: Object, index: number): void => {
+        if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return;
+        const record = entry as Record<string, Object>;
+        const keys = Object.keys(record);
+        if (keys.length === 0) return;
+        const target = itemVars[index] || {};
+        for (const key of keys) target[key] = String(record[key] ?? '');
+        itemVars[index] = target;
+      });
+    }
+    return (list as Object[]).map((value: Object): string => String(value || ''));
+  }
+
   private async executeFullJsFieldBatch(request: RuleBatchExecutionRequest, field: RuleFieldRequest,
-    code: string, token: CooperativeCancellationToken): Promise<string[]> {
+    code: string, token: CooperativeCancellationToken, itemVars: Record<string, string>[]): Promise<string[]> {
     token.throwIfCancelled();
     const runtime = BookSourceStageWebRuntime.get();
     if (!runtime.isAvailable()) {
@@ -247,7 +279,8 @@ this.seedSourceVariables(analyzer.getContext(), request.source, request.contextV
     runtimeRequest.rhinoCompletion = false;
     runtimeRequest.code = `const __fieldItems=JSON.parse(result||'[]');const __fieldCodeTemplate=${JSON.stringify(compatibleCode)};` +
       `const __fieldList=${field.listResult ? 'true' : 'false'};` +
-      `JSON.stringify(__fieldItems.map(function(__fieldItem){java.__setContextContent(__fieldItem);` +
+      `const __fieldSeeds=${JSON.stringify(itemVars)};const __fieldVars=[];` +
+      `const __fieldRun=function(__fieldItem){java.__setContextContent(__fieldItem);` +
       `try{const $=__fieldItem;let info;const __fieldCode=__fieldCodeTemplate.replace(/\\{\\{([\\s\\S]*?)\\}\\}/g,` +
       `function(_all,__expr){try{const __inner=eval(__expr);return __inner==null?'':String(__inner);}catch(__innerError){return '';}});` +
       `let __fieldValue=eval(__fieldCode);` +
@@ -255,12 +288,13 @@ this.seedSourceVariables(analyzer.getContext(), request.source, request.contextV
       `if(__fieldValue==null)return '';` +
       `return __fieldList?JSON.stringify(Array.isArray(__fieldValue)?__fieldValue:[__fieldValue]):String(__fieldValue);}` +
       `catch(__fieldError){return '__LEGADO_FIELD_ERROR__'+String((__fieldError&&__fieldError.name?` +
-      `__fieldError.name+': ':'')+((__fieldError&&__fieldError.message)||__fieldError||'脚本执行失败'));}}));`;
+      `__fieldError.name+': ':'')+((__fieldError&&__fieldError.message)||__fieldError||'脚本执行失败'));}};` +
+      `const __fieldOut=__fieldItems.map(function(__fieldItem,__fieldIndex){java.__beginItem(__fieldSeeds[__fieldIndex]);` +
+      `try{return __fieldRun(__fieldItem);}finally{__fieldVars[__fieldIndex]=java.__endItem();}});` +
+      `JSON.stringify({values:__fieldOut,vars:__fieldVars});`;
     const runtimeResult = await runtime.execute(runtimeRequest);
     token.throwIfCancelled();
-    const parsed = JSON.parse(runtimeResult.value || '[]') as Object;
-    if (!Array.isArray(parsed)) throw new Error('完整脚本批量结果格式错误');
-    const values = (parsed as Object[]).map((value: Object): string => String(value || ''));
+    const values = RuleExecutionService.readScriptItemBatch(runtimeResult.value, itemVars);
     const fieldError = values.find((value: string): boolean => value.startsWith('__LEGADO_FIELD_ERROR__'));
     if (fieldError) throw new Error(fieldError.substring('__LEGADO_FIELD_ERROR__'.length));
     return values;
@@ -276,7 +310,7 @@ this.seedSourceVariables(analyzer.getContext(), request.source, request.contextV
    */
   private async executePostProcessorJsFieldBatch(request: RuleBatchExecutionRequest, field: RuleFieldRequest,
     baseRule: string, code: string, token: CooperativeCancellationToken, slice: CooperativeTimeSlice,
-    trailingRule: string = ''): Promise<string[]> {
+    itemVars: Record<string, string>[], trailingRule: string = ''): Promise<string[]> {
     const baseValues: string[] = [];
     const itemCount = this.itemCount(request);
     for (let index = 0; index < itemCount; index++) {
@@ -308,7 +342,8 @@ this.seedSourceVariables(analyzer.getContext(), request.source, request.contextV
     runtimeRequest.rhinoCompletion = false;
     runtimeRequest.code = `const __postItems=JSON.parse(result||'[]');` +
       `const __postBases=${JSON.stringify(baseValues)};const __postTemplate=${JSON.stringify(code)};` +
-      `JSON.stringify(__postItems.map(function(__postItem,__postIndex){java.__setContextContent(__postItem);` +
+      `const __postSeeds=${JSON.stringify(itemVars)};const __postVars=[];` +
+      `const __postRun=function(__postItem,__postIndex){java.__setContextContent(__postItem);` +
       `try{const $=__postItem;const __postSource=typeof __postItem==='string'?__postItem:JSON.stringify(__postItem);` +
       // A leading <js> rule (empty base) must see the raw item as `result`, exactly like Android
       // Legado; only overwrite when the base rule actually produced a value.
@@ -321,12 +356,13 @@ this.seedSourceVariables(analyzer.getContext(), request.source, request.contextV
       `return ${field.listResult ? `JSON.stringify(Array.isArray(__postValue)?__postValue:[__postValue])` :
         `String(__postValue)`};}catch(__postError){return '__LEGADO_FIELD_ERROR__'+` +
       `String((__postError&&__postError.name?__postError.name+': ':'')+` +
-      `((__postError&&__postError.message)||__postError||'脚本执行失败'));}}));`;
+      `((__postError&&__postError.message)||__postError||'脚本执行失败'));}};` +
+      `const __postOut=__postItems.map(function(__postItem,__postIndex){java.__beginItem(__postSeeds[__postIndex]);` +
+      `try{return __postRun(__postItem,__postIndex);}finally{__postVars[__postIndex]=java.__endItem();}});` +
+      `JSON.stringify({values:__postOut,vars:__postVars});`;
     const runtimeResult = await runtime.execute(runtimeRequest);
     token.throwIfCancelled();
-    const parsed = JSON.parse(runtimeResult.value || '[]') as Object;
-    if (!Array.isArray(parsed)) throw new Error('完整脚本批量结果格式错误');
-    let values = (parsed as Object[]).map((value: Object): string => String(value || ''));
+    let values = RuleExecutionService.readScriptItemBatch(runtimeResult.value, itemVars);
     const fieldError = values.find((value: string): boolean => value.startsWith('__LEGADO_FIELD_ERROR__'));
     if (fieldError) throw new Error(fieldError.substring('__LEGADO_FIELD_ERROR__'.length));
     if (trailingRule) {

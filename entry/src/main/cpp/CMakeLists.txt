@@ -55,8 +55,8 @@ target_link_libraries(record_dissolve PRIVATE libace_napi.z.so libhilog_ndk.z.so
 
 add_library(comic_watermark SHARED comic_watermark.cpp)
 target_include_directories(comic_watermark PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/onnxruntime/include")
-target_compile_options(comic_watermark PRIVATE -Wall -Wextra -fstack-protector-strong)
-target_link_libraries(comic_watermark PRIVATE libace_napi.z.so
+target_compile_options(comic_watermark PRIVATE -O2 -Wall -Wextra -fstack-protector-strong)
+target_link_libraries(comic_watermark PRIVATE libace_napi.z.so libmindspore_lite_ndk.so libhilog_ndk.z.so
   "${CMAKE_CURRENT_SOURCE_DIR}/../../../oh_modules/sherpa_onnx/libs/${OHOS_ARCH}/libonnxruntime.so")
 
 

@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { ComicReaderAppearance } from '../model/ComicReaderAppearance';
 import { ComicPage, ComicReaderService } from '../service/ComicReaderService';
 import { ComicImageLoader } from '../service/ComicImageLoader';
@@ -40,6 +41,8 @@ export struct ComicPageImage {
   @Local cleanedUrl: string = '';
   @Local watermarkBusy: boolean = false;
   @Local watermarkFailed: boolean = false;
+  @Local watermarkCompleted: number = -2;
+  @Local watermarkTotal: number = 0;
   private watermarkSerial: number = 0;
   @Param superResolution: boolean = false;
   @Param colorization: boolean = false;
@@ -211,9 +214,14 @@ export struct ComicPageImage {
     if (!context) return;
     const ticket = ++this.watermarkSerial;
     this.watermarkBusy = true;
+    this.watermarkCompleted = -2;
+    this.watermarkTotal = 0;
     const active = (): boolean => this.alive && this.visible && this.colorizationActive &&
       this.watermarkRemoval && ticket === this.watermarkSerial;
-    ComicWatermarkService.instance.transform(context, this.resolvedUrl, active).then((path: string): void => {
+    ComicWatermarkService.instance.transform(context, this.resolvedUrl, active,
+      (completed: number, total: number): void => {
+        if (active()) { this.watermarkCompleted = completed; this.watermarkTotal = total; }
+      }).then((path: string): void => {
       if (!active()) return;
       this.cleanedUrl = path; this.watermarkFailed = !path; this.protectImage();
       this.enhance(); this.colorize();
@@ -224,6 +232,13 @@ export struct ComicPageImage {
         this.enhance(); this.colorize();
       }
     }).finally((): void => { if (ticket === this.watermarkSerial) this.watermarkBusy = false; });
+  }
+
+  private watermarkLabel(): Resource {
+    if (this.watermarkCompleted === -2) return $r('app.string.comic_watermark_queued');
+    if (this.watermarkCompleted < 0) return $r('app.string.comic_watermark_preparing');
+    if (this.watermarkCompleted === this.watermarkTotal) return $r('app.string.comic_watermark_saving');
+    return $r('app.string.comic_watermark_progress', this.watermarkCompleted, this.watermarkTotal);
   }
 
   @Monitor('superResolution')
@@ -532,14 +547,14 @@ export struct ComicPageImage {
         .position({ x: this.imageX(), y: this.imageY() }).clip(true)
       if (this.watermarkBusy) {
         Row({ space: 6 }) {
-          LoadingProgress().width(18).height(18).color(AppColor.Brand)
-          Text($r('app.string.comic_watermark_working')).fontSize(12).fontColor(Color.White)
+          InfinityLoadingIndicator({ indicatorSize: 18 })
+          Text(this.watermarkLabel()).fontSize(12).fontColor(Color.White)
         }.padding(8).backgroundColor('#99000000').borderRadius(12).margin({ top: 8, left: 8 })
           .hitTestBehavior(HitTestMode.None)
       }
       if (this.colorBusy) {
         Row({ space: 6 }) {
-          LoadingProgress().width(18).height(18).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 18 })
           Text(this.coloredWithTranslation && this.colorization ? $r('app.string.comic_ai_color_translate_working') :
             this.coloredWithTranslation ? $r('app.string.comic_ai_translate_working') : $r('app.string.comic_ai_color_working'))
             .fontSize(12).fontColor(Color.White)
@@ -572,7 +587,7 @@ export struct ComicPageImage {
   build() {
     Stack() {
       if (!this.loaded && !this.failed) {
-        LoadingProgress().width(28).height(28).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 28 })
       }
       if (this.failed) {
         Column({ space: 12 }) {

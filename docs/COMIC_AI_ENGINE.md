@@ -2,9 +2,17 @@
 
 ## 智能去水印
 
-漫画阅读设置提供“智能去水印”开关，覆盖页边文字／Logo 与画面内半透明水印。先在“我的 → 模型管理 → 智能去水印”导入配套 `slbr-watermark-v1.onnx`，再启用阅读开关。关闭后回到原图处理链，阅读原始文件持续保留。
+漫画阅读顶部在“着色”旁提供橡皮擦形状的“智能去水印”快捷开关，开启时使用主题色高亮，与阅读设置里的开关共享持久化状态。先在“我的 → 模型管理 → 智能去水印”导入配套 `slbr-watermark-v1.onnx`，再启用阅读开关；模型准备提示也可从顶部入口查看。模型尝试识别页边文字／Logo 与画面内半透明水印，关闭后回到原图处理链，阅读原始文件持续保留。
 
-`ComicWatermarkService` 解码本地图片，通过 `libcomic_watermark.so` 在异步线程调用已有 ONNX Runtime，自动定位水印并修复背景。整张图片按 256 × 256 分块、32 像素重叠加权拼接，保留 alpha；输入解码最多 1200 万像素。结果进入已有漫画缓存，顺序为去水印 → 着色／翻译或超分。排队任务按当前页面可见性处理，离页与后台切换沿用组件会话判定。
+`ComicWatermarkService` 解码本地图片，通过 `libcomic_watermark.so` 在异步线程调用已有 ONNX Runtime，自动定位水印并修复背景。同一次阅读复用已加载的模型会话；关闭功能、离开阅读页和进入后台时释放会话，导入或删除模型时同步释放旧会话。整张图片按 256 × 256 分块、32 像素重叠加权拼接，保留 alpha；输入解码最多 1200 万像素。结果进入已有漫画缓存，顺序为去水印 → 着色／翻译或超分。
+
+图片提示依次显示“等待去水印”“正在准备去水印”、已完成块数／总块数与保存阶段。服务每 100ms 读取原生进度并检查现有组件会话条件；翻走图片、关闭功能、后台及离页会通过 `OrtRunOptions` 中止当前推理，并跳过余下分块。模型加载阶段完成后响应取消，取消后的队列继续处理当前可见图片。像素处理启用编译优化，沿用原有分辨率与分块融合方式。
+
+顶部按钮和进度状态遵循在线 [ArkTS 语法指南](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/references/quick-rules/00-arkts-syntax.md)与 [ArkUI V2 状态指南](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/references/quick-rules/05-state.md)。推理取消采用现有 ONNX Runtime C API 16 的 `RunOptionsSetTerminate`，接口签名依据工程内官方头文件。
+
+2026-11-26：上述调整通过三份相关 ArkTS 文件的静态检查，结果为零错误，保留现有 API 适配与代码提示警告。Release SDK 26.0.0.105 的 Debug HAP 构建成功，并已安装、启动于 Mate 80。实机处理耗时与实际水印修复效果仍待确认。
+
+2026-11-26 模拟器画质复测：Mate 90 Pro 模拟器（x86_64、API 26）中，《斗破苍穹》第 2 章的 800×1402 首页和 800×1333 正文页均生成完整 PNG，但页边文字与画面内水印仍有明显残留。输出曾出现红蓝交换：原生缓冲使用 RGBA，而 `image.createPixelMap` 的 `srcPixelFormat` 默认是 BGRA。现显式指定 `srcPixelFormat: image.PixelMapFormat.RGBA_8888`，同一 800×1333 正文页重新推理、保存和显示后肤色及红色画面恢复，水印残留仍然存在。修改文件 ArkTS 检查零错误，Release SDK 26.0.0.105 构建成功并安装到模拟器；本轮证据覆盖 ONNX CPU 路径，漫画水印识别与修复效果仍需模型适配。
 
 模型位于 `filesDir/comic_watermark/slbr-v1.onnx`，启用状态保存于 `comic_watermark` Preferences。导入时先加载所选文件、读取模型输入输出契约，再复制到应用目录。模型支持替换和确认删除，删除后关闭功能。
 

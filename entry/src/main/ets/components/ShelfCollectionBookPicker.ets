@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { Book } from '../model/Book';
 import { AppColor, AppTheme } from '../theme/Theme';
 import { HomeRecommendationDataSource } from '../utils/HomeRecommendationDataSource';
@@ -76,7 +77,7 @@ export struct ShelfCollectionBookPicker {
           .fontColor(AppTheme.TextPrimary).layoutWeight(1)
         Button({ type: ButtonType.Capsule }) {
           if (this.saving) {
-            LoadingProgress().color(AppColor.Brand).width(18).height(18)
+            InfinityLoadingIndicator({ indicatorSize: 18 })
           } else {
             Text($r('app.string.collection_add_books_confirm')).fontSize(12).fontColor(AppColor.Brand)
           }

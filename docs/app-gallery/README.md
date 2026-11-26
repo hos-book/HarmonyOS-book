@@ -13,9 +13,9 @@
 
 ## 安装包
 
-当前邀测构建版本 `1.1.20` / `1030001`，包名 `com.huan.listenbook`，最低 HarmonyOS 6.0 / API 20，目标 API 26，沿用现有会员权益配置。
+当前邀测构建版本 `1.1.21` / `1031001`，包名 `com.huan.listenbook`，最低 HarmonyOS 6.0 / API 20，目标 API 26，沿用现有会员权益配置。
 
-- 发布包：`artifacts/releases/1.1.20-1030001/Jianting-1.1.20-1030001-release.app`。
+- 发布包：`artifacts/releases/1.1.21-1031001/Jianting-1.1.21-1031001-release.app`。
 - 同目录保存混淆映射、验包结果、正式更新说明及邀测提交回执。
 - 邀测覆盖全部现有测试组，开启测试通知，关闭上架自检及自检报告通知，选择即刻生效。实际提交回执见 [版本记录](../RELEASE_NOTES.md)。
 

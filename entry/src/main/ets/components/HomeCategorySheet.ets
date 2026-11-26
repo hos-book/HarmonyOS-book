@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { HomeSourceCategory } from '../service/rulesource/HomeSourceService';
 import { HomeCategoryOverviewDataSource, HomeCategoryOverviewRow, HomeCategoryOverviewItem } from '../utils/HomeCategoryOverviewDataSource';
 import { ImmersiveMenuHeader } from './ImmersiveMenuHeader';
@@ -50,7 +51,7 @@ export struct HomeCategorySheet {
         if (this.resultCount === 0) {
           ListItem() {
             Column({ space: AppSpace.Sm }) {
-              if (this.loading) { LoadingProgress().width(28).height(28).color(AppColor.Brand) }
+              if (this.loading) { InfinityLoadingIndicator({ indicatorSize: 28 }) }
               else {
                 Text(this.query.trim() ? $r('app.string.home_categories_no_match') : $r('app.string.home_categories_empty'))
                   .fontSize(AppFont.Body).fontColor($r('sys.color.font_secondary'))

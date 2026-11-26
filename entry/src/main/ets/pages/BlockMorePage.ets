@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { HdsCompat } from '../utils/HdsCompat';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -332,7 +333,7 @@ export struct BlockMorePage {
   @Builder
   buildLoading() {
     Column() {
-      LoadingProgress().width(40).height(40).color(AppColor.Brand)
+      InfinityLoadingIndicator({ indicatorSize: 40 })
       Text($r('app.string.common_content_loading'))
         .fontSize(AppFont.Body)
         .fontColor($r('sys.color.font_tertiary'))
@@ -378,7 +379,7 @@ export struct BlockMorePage {
         ListItem() {
           Row({ space: AppSpace.Xs }) {
             if (this.loadingMore) {
-              LoadingProgress().width(20).height(20).color(AppColor.Brand)
+              InfinityLoadingIndicator({ indicatorSize: 20 })
             }
             Text(this.loadingMore ? $r('app.string.home_category_loading_more') :
               $r('app.string.home_category_load_complete'))
@@ -401,7 +402,7 @@ export struct BlockMorePage {
   buildWaterFlowFooter() {
     Row({ space: AppSpace.Xs }) {
       if (this.loadingMore) {
-        LoadingProgress().width(20).height(20).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 20 })
       }
       if (this.loadingMore || !this.hasMore) {
         Text(this.loadingMore ? $r('app.string.home_category_loading_more') :

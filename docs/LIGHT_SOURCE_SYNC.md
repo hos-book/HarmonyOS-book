@@ -1,5 +1,25 @@
 # 轻页书源引擎同步
 
+## 公共包修复同步（2026-11-26）
+
+本轮采用两个上游仓库的 `main` 分支源码：书源内核最近更新于 2026-11-25 17:56:17（北京时间），轻页辅助代码对应 2026-11-25 18:10:28 的 4.6.043 发布。以下日期小节保留各轮历史背景，当前接入以本节和现有源码为准。
+
+- `AnalyzeRule` 对重复 HTML 标签统一配对，改善省略结束标签及同名嵌套的大目录解析耗时。
+- `BookSourceStageWebRuntime` 的 `java.put/java.get` 按搜索结果、当前书籍和书源全局分层存取，保留单本书的目录变量。
+- `NativeSourceRunner` 在重启后点击段评时按正文流程重建上下文；重建与评论页取数各用其现有请求预算，真实错误继续交给宿主显示。`LightSourceCore` 直接调用此入口，精简旧的二次正文恢复流程。
+- `WebBookService` 吸收评论图卡、多条评论拆分和长昵称识别修复，现有原生段评面板继续负责展示。
+- `light-application-scope.cjs` 将搜索画像存储和混合视频播放卡留在轻页应用侧，简听沿用现有搜索选择、阅读与播放服务。新增热评数据字段保留在公共核心；作者事件、自定义按钮、表情图片和 TTS 倍速声明的宿主接入各自独立规划。
+
+同步入口生成 98 个源码与适配文件，继续保留函数库缓存、后台表达式执行、有界 QuickJS、加密 Cookie、图片预算和阅读缓存适配。来源清单采用 schemaVersion 3，记录仓库、分支、文件归属及宿主补丁；同步命令负责读取源码并生成结果。
+
+在线实现依据：
+
+- [ArkTS 语法技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/04-tools/deveco/deveco-native-flow/references/lang-syntax/SKILL.md)及其 `references/arkts-rules.md`。
+- [ArkUI 知识检索](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-knowledge-retriever/SKILL.md)及 V2 `@ObservedV2/@Trace` 指导。
+- [ArkTS 编译修复](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)及其 `references/error-fixing-examples.md`。
+
+验证：MCP 静态工具仅接收 `.ets`，本轮 `.ts` 更新由完整编译检查。使用 MCP `build_project` 和 Release SDK 26.0.0.105 完成 `entry@default` 增量 Debug HAP 构建，耗时 53.931 秒；构建保留平台能力、异常处理及 AI 包 sourceMapsPath 等告警。实机搜索、阅读与段评链路待设备确认。本轮验证范围为源码审查和编译。
+
 简听通过 `LocalRuleDispatcher → light/LightSourceBridge → LightSourceCore` 调用轻页的书源核心。页面仍由简听维护。轻页兼容源和轻页 `sourceFormat: native` 源走此链路；原简听规则核心、`jianting.source` 引擎及按域名分流的专用内容适配器已删除；历史定义保留为数据，停用格式不执行。
 
 ## 原生书源设置与条件变量（2026-11-20）
@@ -273,23 +293,17 @@ Git 传输不可用时可执行 `python scripts/prepare-light-source.py`，默�
 
 ## 更新流程
 
-正式包必须保留属性名：原生书源 JSON、表达式和脚本桥接依赖运行时字段名，不能开启 `-enable-property-obfuscation`；顶层、文件名和导出符号仍可混淆。发布检查应向 `scripts/verify-release-package.py` 传入本次构建的 `--name-cache obfuscation-cache.json`，检查原生书源定义与桥接数据字段是否被改名。仅检查 APP 元数据或运行未混淆的 Node 回归无法覆盖此问题。
-
-分别准备上述两个仓库的固定提交，查看差异后使用干净的 detached worktree 或已有固定分支。组织 Fork 的推送独立处理。随后在简听运行（两个参数依次是独立内核仓库、应用辅助仓库）：
+准备所选日期的独立内核源码与轻页应用辅助源码，在任务专属临时目录中保留同步所需文件。先阅读相关更新及宿主接口，再通过同步脚本应用现有适配：
 
 ```powershell
-node scripts/sync-light-source.cjs D:\harmony-book-source-engine D:\legado-harmony-sourceengine-host
-node scripts/sync-light-source.cjs D:\harmony-book-source-engine D:\legado-harmony-sourceengine-host --check
-node scripts/test-light-source-engine.cjs
-node scripts/test-image-scripts.cjs
-node scripts/test-comic-preload.cjs
-node scripts/test-comic-web-wait.cjs
-node scripts/test-rule-source-export.cjs
+node scripts/sync-light-source.cjs <独立内核源码目录> <轻页应用源码目录>
 ```
 
-指定真实原生源文件可执行 `node scripts/test-light-source-engine.cjs <源文件路径>`，使用该文件原规则核验分类、模式、持久化及阅读链路；加 `--live-menu` 请求公开分类接口，加 `--live-audio` 请求听书分类、发现及前三本详情并核对书籍 ID 和封面，其他链路使用离线响应。
+`DEVECO_HOME` 指向 Release DevEco Studio，脚本使用该安装中的 TypeScript 编译器生成表达式程序。源码目录提供 `sourceengine/Index.ts`、相关依赖、导入页和许可文件即可。生成范围由既有种子入口及依赖决定，数据库、页面交互和应用配置由简听维护。公共核心修改通过同步入口生成，宿主策略由适配脚本或宿主端口提供。
 
-测试需设置 `DEVECO_HOME` 为 Release DevEco Studio。同步前本地迁入文件必须与旧清单一致，两个输入仓库相关源码必须干净；检查失败不会覆盖本地引擎。`--check` 不写入文件，核对两个版本、生成结果、兼容补丁及 LICENSE/NOTICE。上游方法或依赖变化需先调整脚本，再同步。随后执行相关静态检查、Release SDK 增量构建，以及设备导入→测试→搜索→详情→阅读/播放验证。对比通过后提交升级；Git 提交可用于回退。此流程是维护工具，没有启用自动拉取、自动发布或后台更新。
+`.ets` 修改使用 MCP 静态检查；`.ts` 与 ArkTS 的跨模块调用由 Release SDK 增量构建检查。具体设备验证按用户本轮安排执行，记录实际完成范围。任务结束清理临时源码目录，保留项目正式源码与许可证。
+
+正式包继续保留原生定义和脚本桥接字段名，顶层、文件名和导出符号沿用现有混淆配置。发布工作使用项目独立的发布流程。
 
 ## 能力与验证边界
 

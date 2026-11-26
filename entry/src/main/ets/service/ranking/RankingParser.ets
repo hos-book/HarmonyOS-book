@@ -208,18 +208,31 @@ export class RankingParser {
     for (const script of scripts) {
       try {
         const text = />([\s\S]*?)<\/script>/i.exec(script)?.[1] ?? '';
-        const item = new JsonObj(JSON.parse(text));
-        if (item.getString('@type') !== 'ComicSeries' ||
-          item.getString('url').toLowerCase() !== `https://ac.qq.com/comic/comicinfo/id/${id.substring(8)}`) continue;
-        const cover = RankingParser.imageUrl(item.getString('image'));
-        if (!cover) continue;
-        const book = new RankingBook();
-        book.id = id;
-        book.coverUrl = cover;
-        book.author = RankingParser.text(item.getObj('author').getString('name'));
-        book.intro = RankingParser.text(item.getString('description'));
-        book.rating = BookMetadataPolicy.rating(item.getObj('aggregateRating').getString('ratingValue'));
-        return book;
+        const root = new JsonObj(JSON.parse(text));
+        const items: JsonObj[] = [root];
+        const graph = root.getArr('@graph');
+        for (let index: number = 0; index < graph.length(); index++) {
+          items.push(graph.getObj(index));
+        }
+        for (const item of items) {
+          if (item.getString('@type') !== 'ComicSeries' ||
+            item.getString('url').toLowerCase() !== `https://ac.qq.com/comic/comicinfo/id/${id.substring(8)}`) continue;
+          const cover = RankingParser.imageUrl(item.getString('image'));
+          if (!cover) continue;
+          const book = new RankingBook();
+          book.id = id;
+          book.coverUrl = cover;
+          const authors = item.getArr('author');
+          const authorNames: string[] = [];
+          for (let index: number = 0; index < authors.length(); index++) {
+            authorNames.push(RankingParser.text(authors.getObj(index).getString('name')));
+          }
+          book.author = authorNames.length > 0 ? authorNames.join('、')
+            : RankingParser.text(item.getObj('author').getString('name'));
+          book.intro = RankingParser.text(item.getString('description'));
+          book.rating = BookMetadataPolicy.rating(item.getObj('aggregateRating').getString('ratingValue'));
+          return book;
+        }
       } catch (_error) { /* 单个无关结构化块损坏不影响作品信息。 */ }
     }
     return null;

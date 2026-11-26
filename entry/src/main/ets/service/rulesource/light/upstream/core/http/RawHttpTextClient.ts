@@ -20,7 +20,8 @@ interface RawHttpBodyResult {
 export class RawHttpTextClient {
   static async get(url: string, maxBytes: number, timeoutMs: number): Promise<string> {
     const target = this.parseTarget(url);
-    const addresses = await connection.getAddressesByName(target.host);
+    // ArkUI-X 的 connection 声明里没有 getAddressesByName，取不到时走调用方的异常兜底。
+    const addresses = await (connection as any).getAddressesByName(target.host);
     if (!addresses || addresses.length === 0) throw new Error('TCP兜底无法解析域名');
     let lastError = 'TCP兜底连接失败';
     for (const address of addresses) {

@@ -1,7 +1,7 @@
 import { Book } from '../model/Book';
 import { ShelfRecentBook } from '../model/ShelfCollection';
 import { AppColor, AppTheme } from '../theme/Theme';
-import { OneShotTransitionIds } from '../utils/OneShotTransition';
+import { OneShotCoverState, OneShotTransitionCoordinator, OneShotTransitionIds } from '../utils/OneShotTransition';
 import { PlayerDragState, PlayerDragTransition } from '../utils/PlayerDragTransition';
 import { PhysicalBookCover } from './PhysicalBookCover';
 
@@ -12,6 +12,7 @@ export struct ShelfCollectionRecentCard {
   @Require @Param item: ShelfRecentBook;
   @Event onBook: (book: Book, coverId: string) => void = () => {};
   @Local playerTransition: PlayerDragState = PlayerDragTransition.getInstance().state;
+  @Local sourceCoverState: OneShotCoverState = OneShotTransitionCoordinator.getInstance().coverState;
 
   private recentCoverId(book: Book): string { return 'shelf-recent-' + OneShotTransitionIds.sourceCover(book.id); }
 
@@ -22,7 +23,8 @@ export struct ShelfCollectionRecentCard {
         // 最近阅听最多三张，侧边预览也主动恢复磁盘缓存，不等待 Swiper 可见性回调。
         eagerLoad: true, imgWidth: 44 })
         .id(this.recentCoverId(this.item.book))
-        .opacity(this.playerTransition.active && this.playerTransition.sourceNodeId === this.recentCoverId(this.item.book) ? 0 : 1)
+        .opacity(this.sourceCoverState.hiddenSourceId === this.recentCoverId(this.item.book) ||
+          (this.playerTransition.active && this.playerTransition.sourceNodeId === this.recentCoverId(this.item.book)) ? 0 : 1)
         .hitTestBehavior(HitTestMode.None)
       Column({ space: 4 }) {
         Row({ space: 5 }) {

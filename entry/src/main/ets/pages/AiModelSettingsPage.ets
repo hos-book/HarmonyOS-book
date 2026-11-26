@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { sendableContextManager } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
@@ -113,7 +114,7 @@ export struct AiModelSettingsPage {
         Math.round(this.usage(pack.id).bytes / 1024 / 1024))).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
       if (this.state.busyId === pack.id) {
         Row({ space: AppSpace.Sm }) {
-          LoadingProgress().width(22).height(22).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 22 })
           Text(this.state.removing ? $r('app.string.model_pack_deleting') :
             this.state.verifying ? $r('app.string.model_pack_verifying') :
             $r('app.string.model_pack_importing', this.state.progress)).fontSize(AppFont.Body)
@@ -147,7 +148,7 @@ export struct AiModelSettingsPage {
       Scroll() {
         Column({ space: AppSpace.Md }) {
           if (this.loading) {
-            LoadingProgress().width(32).height(32).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 32 })
           } else if (this.failed) {
             Text($r('app.string.model_pack_write')).fontColor(AppTheme.TextSecondary)
             Button($r('app.string.common_retry')).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)

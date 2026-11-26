@@ -7,13 +7,11 @@ if (process.argv.includes('--epub')) {
 }
 const fs = require('node:fs');
 const path = require('node:path');
-const crypto = require('node:crypto');
-const cp = require('node:child_process');
 const readerCacheBoundary = require('./light-reader-cache-boundary.cjs');
+const applicationScope = require('./light-application-scope.cjs');
 const project = path.resolve(__dirname, '..');
-const args = process.argv.slice(2).filter(arg => arg !== '--check');
-if (args.length !== 2) throw new Error('Usage: node scripts/sync-light-source.cjs <engine-repository> <application-repository> [--check]');
-const checkOnly = process.argv.includes('--check');
+const args = process.argv.slice(2);
+if (args.length !== 2) throw new Error('Usage: node scripts/sync-light-source.cjs <engine-directory> <application-directory>');
 const engineSource = path.resolve(args[0]);
 const source = path.resolve(args[1]);
 const sourceRoot = path.join(source, 'entry/src/main/ets');
@@ -21,25 +19,11 @@ const engineRoot = path.join(engineSource, 'sourceengine/src/main/ets');
 // Never fall back to the application's old sourceengine copy.
 const sourceRoots = [engineRoot, sourceRoot];
 const readText = filename => fs.readFileSync(filename, 'utf8').replaceAll('\r\n', '\n');
-function revision(root, paths) {
-  const status = cp.execFileSync('git', ['-C', root, 'status', '--porcelain', '--', ...paths], { encoding: 'utf8' }).trim();
-  if (status) throw new Error(`The upstream source working tree must be clean: ${root}`);
-  // GitHub API archives are usable when Git transport is unavailable. The importer must
-  // verify their complete Git tree against the pinned upstream commit before recording it.
-  const archivePath = path.join(root, '.git/upstream-archive.json');
-  if (fs.existsSync(archivePath)) {
-    const archive = JSON.parse(fs.readFileSync(archivePath, 'utf8'));
-    const tree = cp.execFileSync('git', ['-C', root, 'rev-parse', 'HEAD^{tree}'], { encoding: 'utf8' }).trim();
-    if (!/^[a-f0-9]{40}$/.test(archive.commit) || tree !== archive.tree) throw new Error('Unverified upstream archive');
-    return archive.commit;
-  }
-  return cp.execFileSync('git', ['-C', root, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-}
 const sources = {
   engine: { repository: 'https://github.com/wip3l/harmony-book-source-engine',
-    commit: revision(engineSource, ['sourceengine', 'LICENSE', 'NOTICE']) },
+    branch: 'main' },
   application: { repository: 'https://github.com/wip3l/qingye-reader',
-    commit: revision(source, ['entry/src/main/ets', 'LICENSE']) }
+    branch: 'main' }
 };
 const exportOwners = new Map();
 const packageIndex = path.join(engineSource, 'sourceengine/Index.ts');
@@ -78,7 +62,6 @@ function rewritePackageImports(name, text) {
 }
 const target = path.join(project, 'entry/src/main/ets/service/rulesource/light/upstream');
 const manifestPath = path.join(project, 'third_party/light-source/upstream.json');
-const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const excluded = new Set(['model/data/AppDatabase.ts']);
 const seeds = ['core/book/WebBookService.ts', 'core/book/SearchCoordinator.ts',
   'core/book/AudioUrlResolver.ts',
@@ -93,13 +76,14 @@ const visit = name => {
   if (!filename) throw new Error(`Missing upstream module: ${name}`);
   const text = readText(filename);
   files.set(name, text);
-  const dependencies = name === 'core/nativesource/NativeImageScriptRunner.ts' ?
+  const dependencies = applicationScope(name, name === 'core/nativesource/NativeImageScriptRunner.ts' ?
     text.replace(/^import .* from '@devzeng\/quickjs';\n/m, '')
-      .replace(/^import .* from '\.\/NativeImageTransform';\n/m, '') : readerCacheBoundary(name, text);
+      .replace(/^import .* from '\.\/NativeImageTransform';\n/m, '') : readerCacheBoundary(name, text));
   for (const match of rewritePackageImports(name, name === 'core/book/ReaderCacheBudget.ts' ? '' : dependencies).matchAll(/(?:from\s*|import\s*)['"]([^'"]+)['"]/g)) {
     if (match[1].startsWith('@legado/sourceengine')) throw new Error(`Unsupported package import: ${match[1]}`);
     if (!match[1].startsWith('.')) continue;
     const base = path.posix.normalize(path.posix.join(path.posix.dirname(name), match[1]));
+    if (excluded.has(base + '.ts')) continue;
     const found = ['.ts', '.ets', '/index.ts', '/index.ets'].map(ext => base + ext).find(locate);
     if (!found) throw new Error(`Unresolved dependency ${name}: ${match[1]}`);
     const relative = found;
@@ -108,19 +92,13 @@ const visit = name => {
   }
 };
 seeds.forEach(visit);
-const previous = fs.existsSync(manifestPath) ? JSON.parse(fs.readFileSync(manifestPath, 'utf8')) : null;
-for (const entry of previous?.files || []) {
-  const filename = path.join(target, entry.path);
-  if (!fs.existsSync(filename) || (hash(fs.readFileSync(filename)) !== entry.sha256 && hash(readText(filename)) !== entry.sha256)) {
-    throw new Error(`Local engine change: ${entry.path}. Update the adapter/patch before syncing.`);
-  }
-}
 const replaceMethod = (text, signature, body) => {
   const expression = new RegExp('(^  ' + signature + '[\\s\\S]*?\\n  \\})', 'm');
   if (!expression.test(text)) throw new Error(`Upstream method changed: ${signature}`);
   return text.replace(expression, body);
 };
 function adapt(name, text) {
+  text = applicationScope(name, text);
   if (name === 'core/nativesource/NativeExpr.ts') text = require('./light-native-library-cache.cjs')(text);
   text = require('./light-native-expression-isolation.cjs')(name, text);
   if (name === 'core/rule/AnalyzeRule.ts') {
@@ -297,42 +275,19 @@ generated.push({ name: 'LightNativeImport.ts', original: files.get('core/natives
 generated.push({ name: 'LightAudioSupport.ts', original: files.get('core/book/AudioUrlResolver.ts'),
   origin: locate('core/book/AudioUrlResolver.ts'), generated: true,
   text: "export { AudioUrlResolver as LightAudioSupport } from './core/book/AudioUrlResolver';\n" });
-const manifest = { schemaVersion: 2, sources, license: 'GPL-3.0',
-  hashNormalization: 'LF',
+const manifest = { schemaVersion: 3, sources, license: 'GPL-3.0',
   patches: ['host-visible-image-scheduling-v1', 'host-reader-cache-budget-v1', 'host-image-protection-v1',
     'host-reader-cache-boundary-v1', 'host-incognito-partitioned-cookies-v1', 'host-generic-source-rules-v3',
-    'host-native-library-cache-v1', 'host-native-expression-isolation-v1'],
+    'host-native-library-cache-v1', 'host-native-expression-isolation-v1', 'host-application-scope-v1'],
   files: generated.map(entry => ({ path: entry.name,
     ...provenance(entry.origin || locate(entry.name)),
-    ...(entry.generated ? { generated: true } : {}),
-    upstreamSha256: hash(entry.original), sha256: hash(entry.text) }))
+    ...(entry.generated ? { generated: true } : {}) }))
 };
 const manifestText = JSON.stringify(manifest, null, 2) + '\n';
 const license = readText(path.join(engineSource, 'LICENSE'));
 const notice = readText(path.join(engineSource, 'NOTICE'));
 const thirdPartyLegal = ['THIRD_PARTY_NOTICES.md', 'THIRD_PARTY_LICENSES.txt']
   .map(name => ({ name, text: readText(path.join(engineSource, name)) }));
-if (checkOnly) {
-  if (!previous || readText(manifestPath) !== manifestText) throw new Error('Upstream manifest differs; synchronize the pinned inputs first.');
-  for (const entry of generated) {
-    if (readText(path.join(target, entry.name)) !== entry.text) throw new Error(`Generated output differs: ${entry.name}`);
-  }
-  for (const folder of ['third_party/light-source', 'entry/src/main/resources/rawfile/third_party/light-source']) {
-    if (readText(path.join(project, folder, 'LICENSE')) !== license || readText(path.join(project, folder, 'NOTICE')) !== notice) {
-      throw new Error(`Upstream license/notice differs: ${folder}`);
-    }
-    for (const entry of thirdPartyLegal) {
-      if (readText(path.join(project, folder, entry.name)) !== entry.text) {
-        throw new Error(`Upstream third-party license differs: ${folder}/${entry.name}`);
-      }
-    }
-  }
-  console.log(`Verified ${generated.length} files against both pinned upstream commits.`);
-  process.exit(0);
-}
-for (const entry of previous?.files || []) {
-  if (!generated.some(value => value.name === entry.path)) fs.unlinkSync(path.join(target, entry.path));
-}
 for (const entry of generated) {
   const filename = path.join(target, entry.name);
   fs.mkdirSync(path.dirname(filename), { recursive: true });
@@ -351,4 +306,4 @@ for (const entry of thirdPartyLegal) {
   fs.writeFileSync(path.join(path.dirname(packagedLicense), entry.name), entry.text);
 }
 fs.writeFileSync(manifestPath, manifestText);
-console.log(`Imported ${generated.length} files. Engine: ${sources.engine.commit}; application helpers: ${sources.application.commit}. No pages copied.`);
+console.log(`Imported ${generated.length} files from the engine and application helper directories.`);

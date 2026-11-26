@@ -5,6 +5,10 @@ import { LogText } from '../../utils/LogText';
 import { SetCookieParser } from './SetCookieParser';
 import { SourceEngineHost, SourceCookieJar } from '../host/SourceEngineHost';
 
+// ArkUI-X（安卓、iOS）的 WebCookieManager 只有异步接口，静态引用同步方法编不过，运行时取用；
+// 那里由宿主经 SourceEngineHost 装 Cookie 端口，不会走到这些同步调用。
+const webCookieManager: any = webview.WebCookieManager;
+
 export class CookieStore {
   /** Legacy unscoped callers keep the ArkWeb jar; source execution always supplies its identity. */
   static forSource(sourceUrl: string = ''): SourceCookieJar {
@@ -15,7 +19,7 @@ export class CookieStore {
     if (deviceInfo.sdkApiVersion < 26) return this.getCookie(url);
     for (const target of this.targetUrls(url)) {
       try {
-        const value = webview.WebCookieManager.fetchCookieSync(target, false, true) || '';
+        const value = webCookieManager.fetchCookieSync(target, false, true) || '';
         if (value) return this.withoutExpiredJwtCookies(value);
       } catch (error) {
         const code = Number((error as Record<string, Object>)['code'] || 0);
@@ -32,7 +36,7 @@ export class CookieStore {
     if (!url) return '';
     for (const target of this.targetUrls(url)) {
       try {
-        const value = webview.WebCookieManager.fetchCookieSync(target) || '';
+        const value = webCookieManager.fetchCookieSync(target) || '';
         if (value) return this.withoutExpiredJwtCookies(value);
       } catch (_) {
       }
@@ -46,10 +50,10 @@ export class CookieStore {
     for (const target of this.targetUrls(url)) {
       for (const value of values) {
         try {
-          webview.WebCookieManager.configCookieSync(target, value, false, true);
+          webCookieManager.configCookieSync(target, value, false, true);
         } catch (_) {
           try {
-            webview.WebCookieManager.configCookieSync(target, value);
+            webCookieManager.configCookieSync(target, value);
           } catch (_) {}
         }
       }
@@ -239,12 +243,12 @@ export class CookieStore {
   private static writeCookieVariants(url: string, value: string): void {
     for (const target of this.targetUrls(url)) {
       try {
-        webview.WebCookieManager.configCookieSync(target, value, false, true);
+        webCookieManager.configCookieSync(target, value, false, true);
         continue;
       } catch (_) {
       }
       try {
-        webview.WebCookieManager.configCookieSync(target, value);
+        webCookieManager.configCookieSync(target, value);
       } catch (error) {
         // Never log the cookie itself; a write that fails here silently drops the login state of that site.
         console.warn('[CookieStore] 写入 Cookie 失败:', LogText.url(target), (error as Error).message);
@@ -254,7 +258,7 @@ export class CookieStore {
 
   static clearAll(): void {
     try {
-      webview.WebCookieManager.clearAllCookiesSync();
+      webCookieManager.clearAllCookiesSync();
     } catch (error) {
       console.warn('[CookieStore] 清空 Cookie 失败:', (error as Error).message);
     }
@@ -262,7 +266,7 @@ export class CookieStore {
 
   static saveAsync(): void {
     try {
-      webview.WebCookieManager.saveCookieAsync();
+      webCookieManager.saveCookieAsync();
     } catch (error) {
       console.warn('[CookieStore] 持久化 Cookie 失败:', (error as Error).message);
     }
@@ -270,7 +274,7 @@ export class CookieStore {
 
   static saveSync(): void {
     try {
-      webview.WebCookieManager.saveCookieSync();
+      webCookieManager.saveCookieSync();
     } catch (_) {
       this.saveAsync();
     }

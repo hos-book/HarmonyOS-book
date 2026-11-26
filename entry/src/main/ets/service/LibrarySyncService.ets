@@ -552,9 +552,11 @@ export class LibrarySyncService {
             state.lastSyncedAt = Date.now();
             state.confirmedCloudFile = state.cloudFile;
           }
+          // 每次确认上传成功就清理旧版本，持续阅听时同样执行。
+          await this.prune(context, state, guard);
+          guard();
           if (state.cloudRevision === state.revision) {
             this.status = LibrarySyncStatus.SYNCED;
-            await this.prune(context, state, guard);
             return;
           }
         }

@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { sendableContextManager } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -71,7 +72,7 @@ export struct ComicWatermarkModelCard {
         .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
       if (this.state.busy) {
         Row({ space: AppSpace.Sm }) {
-          LoadingProgress().width(22).height(22).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 22 })
           Text($r('app.string.comic_watermark_model_loading')).fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
         }
       } else {

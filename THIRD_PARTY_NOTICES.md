@@ -1,5 +1,11 @@
 # 第三方软件声明
 
+## Loading UI Infinity
+
+- 全局加载指示器参考 Loading UI 的 Infinity 组件，来源为 https://www.loading-ui.com/docs/components/infinity ，源码入口为 https://loading-ui.com/r/infinity.json ，上游仓库为 https://github.com/turbostarter/loading-ui 。
+- Copyright (c) 2026 Bartosz Zagrodzki，MIT License。原版路径、线段比例和两秒循环节奏由 ArkUI V2 原生组件呈现，颜色绑定应用主题色。
+- 完整许可随应用保存在 `entry/src/main/resources/rawfile/third_party/loading_ui/LICENSE.txt`。
+
 ## 漫画本地智能去水印
 
 - 图像处理使用 SLBR 公开模型，来源为 https://github.com/bcmi/SLBR-Visible-Watermark-Removal ，论文为 Liang 等，ACM Multimedia 2021，Visible Watermark Removal via Self-calibrated Localization and Background Refinement。
@@ -92,13 +98,11 @@ Apache License 2.0 全文见 `third_party/quickjs/LICENSE-APACHE-2.0`。
 
 ## 独立书源内核与轻页应用辅助代码
 
-- 内核上游：https://github.com/wip3l/harmony-book-source-engine
-- 内核固定提交：`1f0cfeae7267f6bf0a28104212a1e3c087f3d46e`
-- 应用辅助代码上游：https://github.com/wip3l/qingye-reader
-- 应用辅助代码固定提交：`c3dbe650bb078f94e93b9944d2429fa5258f9dda`（搜索/发现/阅读调度及导入、音频后处理）
-- 许可证：GPL-3.0，全文见 `third_party/light-source/LICENSE`
+- 内核上游：https://github.com/wip3l/harmony-book-source-engine ，本轮采用 2026-11-25 更新的 main 源码。
+- 应用辅助代码上游：https://github.com/wip3l/qingye-reader ，本轮采用 2026-11-25 的 4.6.043 main 源码。
+- 许可证：GPL-3.0，全文见 `third_party/light-source/LICENSE`。
 
-迁入位置：`entry/src/main/ets/service/rulesource/light/upstream/`。原版权头保留；修改和适配由 `scripts/sync-light-source.cjs` 记录，双来源版本、逐文件归属和校验值见 `third_party/light-source/upstream.json`，维护流程见 `docs/LIGHT_SOURCE_SYNC.md`。独立仓库的 NOTICE 同时保留在 `third_party/light-source/NOTICE` 和应用资源中。内核首版未包含的网页等待修复由可校验补丁保留。没有引入独立仓库附带的第二套 QuickJS HAR。
+迁入位置：`entry/src/main/ets/service/rulesource/light/upstream/`。原版权头保留；适配由 `scripts/sync-light-source.cjs` 生成，来源、逐文件归属及宿主补丁见 `third_party/light-source/upstream.json`，维护流程见 `docs/LIGHT_SOURCE_SYNC.md`。独立仓库 NOTICE 同时保留在 `third_party/light-source/NOTICE` 和应用资源中。脚本执行继续使用简听已有有界 QuickJS HAR。
 
 脚本完成值解析器内置 Acorn 8.15.0（MIT，Copyright (C) 2012-2022 by various contributors，https://github.com/acornjs/acorn）。上游第三方声明及完整许可同步到 `third_party/light-source/THIRD_PARTY_NOTICES.md`、`THIRD_PARTY_LICENSES.txt`，并随应用保存在 `rawfile/third_party/light-source/`。
 

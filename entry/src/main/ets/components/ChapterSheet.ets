@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { emitter } from '@kit.BasicServicesKit';
 import { curves } from '@kit.ArkUI';
 import { Book, Chapter } from '../model/Book';
@@ -327,7 +328,7 @@ export struct ChapterSheet {
               .padding({ left: AppSpace.Lg, right: AppSpace.Lg, top: AppSpace.Xxs, bottom: AppSpace.Xxs })
               .onClick((): void => this.toggleOrder())
             if (this.loading) {
-              LoadingProgress().width(16).height(16).color(AppColor.Brand)
+              InfinityLoadingIndicator({ indicatorSize: 16 })
             }
             Blank()
           }

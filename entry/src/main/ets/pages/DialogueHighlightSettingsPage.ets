@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { ReaderColorPalette } from '../components/ReaderColorPalette';
 import { TextReadingSettings } from '../model/TextReading';
@@ -262,7 +263,7 @@ export struct DialogueHighlightSettingsPage {
           Button($r('app.string.common_retry')).fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
             .onClick((): void => { this.load(); })
         } else {
-          LoadingProgress().width(32).height(32).color(AppColor.Brand).margin({ top: 24 })
+          InfinityLoadingIndicator({ indicatorSize: 32 }).margin({ top: 24 })
         }
       }.width('100%').height('100%')
         .padding({ top: this.ready ? 0 : this.headerHeight })

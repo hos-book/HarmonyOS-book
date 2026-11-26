@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { ComicReaderAppearance } from '../model/ComicReaderAppearance';
 import { FrameCallback } from '@kit.ArkUI';
 import { Book } from '../model/Book';
@@ -356,7 +357,7 @@ export struct ComicContinuousComponent {
         Button($r('app.string.comic_retry')).fontSize(12).fontColor(Color.White).backgroundColor(AppColor.Brand)
           .onClick((): void => { this.loadNeighbor(forward, true); })
       } else if (forward ? this.nextLoading : this.previousLoading) {
-        LoadingProgress().width(20).height(20).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 20 })
       }
     }.padding(8)
     }.width('100%').height('100%').hitTestBehavior(HitTestMode.Transparent)

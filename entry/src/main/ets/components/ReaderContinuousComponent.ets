@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { ReaderRegionStyle } from '../model/ReaderRegionStyle';
 import { ReaderDialogueRules } from '../model/ReaderDialogueRules';
 import { ReaderParagraphComment } from '../model/ReaderComment';
@@ -413,7 +414,7 @@ export struct ReaderContinuousComponent {
           .fontSize(12).fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
           .onClick((): void => this.retry(forward))
       } else if (forward ? this.nextLoading : this.previousLoading) {
-        LoadingProgress().width(20).height(20).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 20 })
       }
     }
     .padding(4)

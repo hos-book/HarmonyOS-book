@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { common, sendableContextManager } from '@kit.AbilityKit';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { uniformTypeDescriptor } from '@kit.ArkData';
@@ -6,7 +7,7 @@ import { ReadingExcerpt } from '../model/ReadingExcerpt';
 import { ReadingExcerptService } from '../service/text/ReadingExcerptService';
 import { ReadingExcerptShareService } from '../service/text/ReadingExcerptShareService';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
-import { AppColor, AppTheme } from '../theme/Theme';
+import { AppTheme } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
 
 @ComponentV2
@@ -145,7 +146,7 @@ export struct ReadingExcerptDetailPage {
             .accessibilityText($r('app.string.reader_excerpt_copy')).onClick((): void => { this.copy(); })
           Button({ type: ButtonType.Circle }) {
             if (this.busy) {
-              LoadingProgress().width(22).height(22).color(AppColor.Brand)
+              InfinityLoadingIndicator({ indicatorSize: 22 })
             } else {
               Image($r('app.media.reader_excerpt_share')).width(22).height(22).fillColor(AppTheme.TextSecondary)
             }

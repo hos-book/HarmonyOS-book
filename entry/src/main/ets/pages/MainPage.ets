@@ -11,6 +11,7 @@ import { RankingReaderTransition } from '../utils/RankingReaderTransition';
 import { RankingMatch } from '../service/ranking/BookMatchService';
 import { TextReaderRouteParams, TextReadingPosition } from '../model/TextReading';
 import { TextReadingProgressService } from '../service/text/TextReadingProgressService';
+import { ReaderHapticService } from '../service/text/ReaderHapticService';
 import { ReadingSession, SessionLocation } from '../service/ReadingSessionService';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { TextToSpeechState } from '../model/TextToSpeechState';
@@ -66,6 +67,9 @@ const FLOATING_TAB_HEIGHT: number = 60;
 const FLOATING_WIDE_BREAKPOINT: number = 600;
 const TAB_RESTORE_WIDTH_GROWTH: number = 48;
 const TAB_RESTORE_HEIGHT_GROWTH: number = 80;
+const TAB_FADE_OUT_DURATION: number = 70;
+const TAB_FADE_IN_DURATION: number = 150;
+const TAB_ENTER_SCALE: number = 0.99;
 
 class MainTabsAppearance {
   style: HdsTabsFloatingStyle | undefined = undefined;
@@ -244,7 +248,9 @@ export struct MainPage {
   }
   @Local currentTab: number = 0;
   @Local tabEnterOpacity: number = 1;
-  @Local tabEnterOffset: number = 0;
+  @Local tabEnterScale: number = 1;
+  private pendingTabFadeIndex: number = -1;
+  private committingTabIndex: number = -1;
   private tabPreloadTimer: number = -1;
   private preloadedTabs: Set<number> = new Set();
 
@@ -915,6 +921,7 @@ export struct MainPage {
   }
 
   private handleTabBarClick(index: number): void {
+    ReaderHapticService.play('weak');
     const now = Date.now();
     if (index === this.nativeTabIndex &&
       index === this.lastTabClickIndex && now - this.lastTabClickTime < 300) {
@@ -927,29 +934,51 @@ export struct MainPage {
     this.lastTabClickIndex = index;
   }
 
-  /** 内容区按页签方向淡入，浮动导航沿用原生反馈。 */
+  /** 旧页淡出后提交原生切页，浮动导航与播控保持原生反馈。 */
+  private handleTabContentWillChange(currentIndex: number, comingIndex: number): boolean {
+    if (currentIndex === comingIndex || comingIndex === this.nativeTabIndex ||
+      comingIndex === this.committingTabIndex) return true;
+    const fading: boolean = this.pendingTabFadeIndex !== -1;
+    this.pendingTabFadeIndex = comingIndex;
+    if (fading) return false;
+    this.cancelTabPreload();
+    this.getUIContext().animateTo({
+      duration: TAB_FADE_OUT_DURATION,
+      curve: AppCurve.Accelerate,
+      onFinish: (): void => {
+        this.committingTabIndex = this.pendingTabFadeIndex;
+        this.pendingTabFadeIndex = -1;
+        this.tabController.changeIndex(this.committingTabIndex);
+      }
+    }, (): void => {
+      this.tabEnterOpacity = 0;
+    });
+    return false;
+  }
+
   private handleTabChange(index: number): void {
     this.cancelTabPreload();
+    this.committingTabIndex = -1;
     const previous: number = this.currentTab;
     this.nativeTabIndex = index;
     this.currentTab = MainTabPolicy.logical(index, this.generalSettings.historyEnabled);
     this.preloadedTabs.add(this.currentTab);
     if (previous !== this.currentTab) {
       this.resetTabStyle();
-      this.animateTabEntry(previous);
+      this.animateTabEntry();
     }
     this.scheduleTabPreload();
   }
 
-  private animateTabEntry(previous: number): void {
+  private animateTabEntry(): void {
     this.getUIContext().animateTo({ duration: 0 }, (): void => {
       this.tabEnterOpacity = 0;
-      this.tabEnterOffset = this.currentTab > previous ? 12 : -12;
+      this.tabEnterScale = TAB_ENTER_SCALE;
     });
     this.getUIContext().postFrameCallback(new MainTabEnterFrame((): void => {
-      this.getUIContext().animateTo({ duration: 220, curve: AppCurve.Standard }, (): void => {
+      this.getUIContext().animateTo({ duration: TAB_FADE_IN_DURATION, curve: AppCurve.Decelerate }, (): void => {
         this.tabEnterOpacity = 1;
-        this.tabEnterOffset = 0;
+        this.tabEnterScale = 1;
       });
     }));
   }
@@ -1096,7 +1125,8 @@ export struct MainPage {
           // 播控转场只缓存首页底图，避免榜单实时材质随上层动画逐帧重采样。
           .freeze(this.playerTransitionState.active)
           .opacity(this.currentTab === 0 ? this.tabEnterOpacity : 1)
-          .translate({ x: this.currentTab === 0 ? this.tabEnterOffset : 0 })
+          .scale({ x: this.currentTab === 0 ? this.tabEnterScale : 1,
+            y: this.currentTab === 0 ? this.tabEnterScale : 1 })
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
@@ -1128,7 +1158,8 @@ export struct MainPage {
           })
           .renderGroup(false)
           .opacity(this.currentTab === 1 ? this.tabEnterOpacity : 1)
-          .translate({ x: this.currentTab === 1 ? this.tabEnterOffset : 0 })
+          .scale({ x: this.currentTab === 1 ? this.tabEnterScale : 1,
+            y: this.currentTab === 1 ? this.tabEnterScale : 1 })
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
@@ -1149,7 +1180,8 @@ export struct MainPage {
           })
           .renderGroup(false)
           .opacity(this.currentTab === 2 ? this.tabEnterOpacity : 1)
-          .translate({ x: this.currentTab === 2 ? this.tabEnterOffset : 0 })
+          .scale({ x: this.currentTab === 2 ? this.tabEnterScale : 1,
+            y: this.currentTab === 2 ? this.tabEnterScale : 1 })
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
@@ -1166,7 +1198,8 @@ export struct MainPage {
           })
           .renderGroup(false)
           .opacity(this.currentTab === 3 ? this.tabEnterOpacity : 1)
-          .translate({ x: this.currentTab === 3 ? this.tabEnterOffset : 0 })
+          .scale({ x: this.currentTab === 3 ? this.tabEnterScale : 1,
+            y: this.currentTab === 3 ? this.tabEnterScale : 1 })
           .gesture(PanGesture({ direction: PanDirection.Horizontal, distance: 24 }).tag('main-tab-swipe')
             .onActionEnd((event: GestureEvent): void => this.handleTabSwipe(event)))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeTabSwipe(info))
@@ -1189,9 +1222,11 @@ export struct MainPage {
       .barBackgroundColor(this.tabsAppearance.surface)
       .barBackgroundBlurStyle(this.tabsAppearance.materialSupported ? BlurStyle.NONE : BlurStyle.COMPONENT_REGULAR)
       .onTabBarClick((index: number): void => this.handleTabBarClick(index))
+      .onContentWillChange((current: number, coming: number): boolean =>
+        this.handleTabContentWillChange(current, coming))
       .onChange((index: number): void => this.handleTabChange(index))
       .onAppear((): void => this.scheduleTabPreload())
-      // 原生容器即时选中目标页，内容区通过 220ms 淡入和 12vp 位移呈现。
+      // 原生换页在透明交接点完成，内容区接续淡入。
       .animationDuration(0)
       .width('100%')
       .height('100%')
@@ -1212,9 +1247,11 @@ export struct MainPage {
       .scrollable(false)
       .attributeModifier(new CompatibleTabsModifier(this.floatingBarStyle(), 56 + this.bottomSafeVp))
       .onTabBarClick((index: number): void => this.handleTabBarClick(index))
+      .onContentWillChange((current: number, coming: number): boolean =>
+        this.handleTabContentWillChange(current, coming))
       .onChange((index: number): void => this.handleTabChange(index))
       .onAppear((): void => this.scheduleTabPreload())
-      // 原生容器即时选中目标页，内容区通过 220ms 淡入和 12vp 位移呈现。
+      // 原生换页在透明交接点完成，内容区接续淡入。
       .animationDuration(0)
       .width('100%')
       .height('100%')

@@ -790,7 +790,8 @@ export class HttpClient {
 
   private applyTlsTrust(options: http.HttpRequestOptions, url: string): void {
     if (TlsTrustStore.isTrustedUrl(url)) {
-      options.remoteValidation = 'skip';
+      // ArkUI-X 的 http 声明里没有 remoteValidation。
+      (options as any).remoteValidation = 'skip';
     }
   }
 

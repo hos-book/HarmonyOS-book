@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { PhysicalBookCover, PHYSICAL_BOOK_COVER_RADIUS } from '../components/PhysicalBookCover';
 import { ImmersiveCircleButton } from '../components/ImmersiveCircleButton';
 import { RecordActivityChart } from '../components/RecordActivityChart';
@@ -1180,7 +1181,7 @@ export struct ReadingStatsPage {
   refreshIndicator() {
     Row() {
       if (this.refreshing) {
-        LoadingProgress().width(24).height(24).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 24 })
       }
     }
     .height(56)

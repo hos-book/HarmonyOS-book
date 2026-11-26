@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { AppTheme, AppColor, AppRadius, AppSpace, AppFont } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
@@ -38,10 +39,7 @@ export struct AboutPage {
   @Builder
   updateTrailing(): void {
     if (this.openingMarket) {
-      LoadingProgress()
-        .width(18)
-        .height(18)
-        .color(AppColor.Brand)
+      InfinityLoadingIndicator({ indicatorSize: 18 })
     } else {
       Row({ space: 4 }) {
         Text($r('app.string.about_update_market'))

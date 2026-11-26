@@ -35,6 +35,88 @@ interface SimpleSelectorQuery {
   parsed: ParsedSimpleSelector | null;
 }
 
+function isVoidHtmlTag(tag: string): boolean {
+  return tag === 'area' || tag === 'base' || tag === 'br' || tag === 'col' || tag === 'embed' ||
+    tag === 'hr' || tag === 'img' || tag === 'input' || tag === 'link' || tag === 'meta' ||
+    tag === 'param' || tag === 'source' || tag === 'track' || tag === 'wbr';
+}
+
+function sameTagPattern(tag: string): RegExp {
+  return new RegExp(`<\\/?${tag.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:\\s[^>]*)?>`, 'gi');
+}
+
+/** 从开始标签往后数同名标签的深度，数到 0 处为止；没有配对的结束标签时只取开始标签。 */
+function sliceElementByDepth(html: string, startIndex: number, startTag: string, tag: string): string {
+  if (isVoidHtmlTag(tag.toLowerCase())) return startTag;
+  const re = sameTagPattern(tag);
+  re.lastIndex = startIndex + startTag.length;
+  let depth = 1;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html)) !== null) {
+    if (m[0].startsWith('</')) depth--;
+    else if (!m[0].endsWith('/>')) depth++;
+    if (depth === 0) return html.substring(startIndex, re.lastIndex);
+  }
+  return startTag;
+}
+
+/**
+ * 在同一段 HTML 里逐个切出整元素。逐个数深度时，结束标签省略（目录页常见的 <li>、<dd>）或同名元素
+ * 层层嵌套的话，每个元素都要扫到文末，几千项的大页面会把主线程卡住几秒以上。
+ * 同一标签切过 DIRECT_LIMIT 个以后，整段只扫一遍、用栈给每个开始标签配上结束位置，之后查表。
+ * 栈配对与数深度结果相同：某个开始标签被弹出的那一处，正是从它往后数深度归零的那一处。
+ * 表里查不到的位置（自闭合的开始标签、扫描起点对不上）仍按深度数。
+ */
+class ElementSpanIndex {
+  private static readonly DIRECT_LIMIT: number = 4;
+  private readonly html: string;
+  private readonly counts: Map<string, number> = new Map<string, number>();
+  /** 开始标签位置 → 配对结束标签之后的位置；-1 表示到文末都没有配上。 */
+  private readonly ends: Map<string, Map<number, number>> = new Map<string, Map<number, number>>();
+
+  constructor(html: string) {
+    this.html = html;
+  }
+
+  slice(startIndex: number, startTag: string, tag: string): string {
+    const lower = tag.toLowerCase();
+    if (isVoidHtmlTag(lower)) return startTag;
+    if (!startTag.endsWith('/>')) {
+      let table = this.ends.get(lower);
+      if (!table) {
+        const count = (this.counts.get(lower) || 0) + 1;
+        this.counts.set(lower, count);
+        if (count > ElementSpanIndex.DIRECT_LIMIT) {
+          table = this.pairTags(tag);
+          this.ends.set(lower, table);
+        }
+      }
+      if (table) {
+        const end = table.get(startIndex);
+        if (end !== undefined) return end < 0 ? startTag : this.html.substring(startIndex, end);
+      }
+    }
+    return sliceElementByDepth(this.html, startIndex, startTag, tag);
+  }
+
+  private pairTags(tag: string): Map<number, number> {
+    const table = new Map<number, number>();
+    const open: number[] = [];
+    const re = sameTagPattern(tag);
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(this.html)) !== null) {
+      if (m[0].startsWith('</')) {
+        const start = open.pop();
+        if (start !== undefined) table.set(start, re.lastIndex);
+      } else if (!m[0].endsWith('/>')) {
+        open.push(m.index);
+        table.set(m.index, -1);
+      }
+    }
+    return table;
+  }
+}
+
 export class AnalyzeRule {
   // Abuse guards for a single rule evaluation. The former 5,000 / 20,000 ceilings silently cut
   // catalogs of long novels (8,000+ chapters) down to 5,001 entries.
@@ -1476,9 +1558,10 @@ export class AnalyzeRule {
     const matches: string[] = [];
     const tagPattern = '[a-zA-Z][a-zA-Z0-9_-]*';
     const re = new RegExp(`<(${tagPattern})(\\s[^>]*)?>`, 'gi');
+    const spans = new ElementSpanIndex(this.content);
     let match: RegExpExecArray | null;
     while ((match = re.exec(this.content)) !== null) {
-      const element = this.sliceWholeElement(this.content, match.index, match[0], match[1]);
+      const element = spans.slice(match.index, match[0], match[1]);
       const ownText = this.normalizeVisibleText(this.extractOwnText(element));
       // Keep compatible with Legado's `text.xxx` selector, which delegates to
       // Jsoup getElementsContainingOwnText(): match a substring of the
@@ -1676,6 +1759,7 @@ export class AnalyzeRule {
     try {
       const re = new RegExp(`<(${tagPattern})(\\s[^>]*)?>`, 'gi');
       const res: string[] = [];
+      const spans = new ElementSpanIndex(html);
       let m: RegExpExecArray | null;
       while ((m = re.exec(html)) !== null) {
         const fullStartTag = m[0];
@@ -1683,7 +1767,7 @@ export class AnalyzeRule {
         if (!this.matchSelectorAttrs(attrText, parsed.id, parsed.classes, parsed.attrs)) continue;
         if (this.matchExcludedAttrs(attrText, parsed.notAttrs)) continue;
         if (!this.matchNthPseudo(html, m.index, m[1], parsed.nthChild, parsed.nthOfType)) continue;
-        res.push(this.sliceWholeElement(html, m.index, fullStartTag, m[1]));
+        res.push(spans.slice(m.index, fullStartTag, m[1]));
         if (res.length > AnalyzeRule.MAX_LIST_RESULTS) break;
       }
       let filtered = parsed.excludeIndices.length === 0 ? res : this.excludeIndices(res, parsed.excludeIndices);
@@ -2023,7 +2107,7 @@ export class AnalyzeRule {
       if (m.index === targetIndex) {
         return { child: childIndex, type: targetTag.toLowerCase() === tag ? typeIndex : 0 };
       }
-      if (!raw.endsWith('/>') && !this.isVoidTag(tag)) {
+      if (!raw.endsWith('/>') && !isVoidHtmlTag(tag)) {
         stack.push({ tag: tag, childCount: 0, typeCounts: {} as Record<string, number> });
       }
     }
@@ -2042,35 +2126,15 @@ export class AnalyzeRule {
     return bare ? bare[1] : '';
   }
 
-  private sliceWholeElement(html: string, startIndex: number, startTag: string, tag: string): string {
-    const lower = tag.toLowerCase();
-    if (this.isVoidTag(lower)) return startTag;
-    const re = new RegExp(`<\\/?${this.escapeRegex(tag)}(?:\\s[^>]*)?>`, 'gi');
-    re.lastIndex = startIndex + startTag.length;
-    let depth = 1;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(html)) !== null) {
-      if (m[0].startsWith('</')) depth--;
-      else if (!m[0].endsWith('/>')) depth++;
-      if (depth === 0) return html.substring(startIndex, re.lastIndex);
-    }
-    return startTag;
-  }
-
-  private isVoidTag(tag: string): boolean {
-    return tag === 'area' || tag === 'base' || tag === 'br' || tag === 'col' || tag === 'embed' ||
-      tag === 'hr' || tag === 'img' || tag === 'input' || tag === 'link' || tag === 'meta' ||
-      tag === 'param' || tag === 'source' || tag === 'track' || tag === 'wbr';
-  }
-
   private getDirectChildren(html: string): string[] {
     const innerMatch = html.match(/^<([a-zA-Z][a-zA-Z0-9_-]*)[^>]*>([\s\S]*)<\/\1>\s*$/);
     const inner = innerMatch ? innerMatch[2] : html;
     const children: string[] = [];
     const re = /<([a-zA-Z][a-zA-Z0-9_-]*)(\s[^>]*)?>/g;
+    const spans = new ElementSpanIndex(inner);
     let m: RegExpExecArray | null;
     while ((m = re.exec(inner)) !== null) {
-      children.push(this.sliceWholeElement(inner, m.index, m[0], m[1]));
+      children.push(spans.slice(m.index, m[0], m[1]));
       if (children.length > AnalyzeRule.MAX_LIST_RESULTS) break;
       re.lastIndex = m.index + children[children.length - 1].length;
     }

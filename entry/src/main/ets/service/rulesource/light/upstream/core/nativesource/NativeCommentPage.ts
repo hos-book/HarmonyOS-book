@@ -6,7 +6,6 @@ export class NativeCommentPage {
   html: string = '';
   dataJson: string = '{}';
   title: string = '评论';
-  height: number = 0.8;
   fallbackUrl: string = '';
   error: string = '';
 

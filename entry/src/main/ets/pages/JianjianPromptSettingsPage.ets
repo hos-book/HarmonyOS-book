@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { SettingsHintButton } from '../components/SettingsHintButton';
 import { JianjianAiPrompts, JIANJIAN_PROMPT_MAX_LENGTH } from '../model/JianjianAi';
@@ -102,12 +103,12 @@ export struct JianjianPromptSettingsPage {
               .fontColor(AppColor.Brand).enabled(!this.saving).onClick((): void => { this.restoreDefault(); })
               .id('jianjian-prompt-restore')
             Blank()
-            if (this.saving) { LoadingProgress().width(24).height(24).color(AppColor.Brand) }
+            if (this.saving) { InfinityLoadingIndicator({ indicatorSize: 24 }) }
             Button($r('app.string.common_save')).backgroundColor(AppColor.Brand).fontColor(AppColor.OnBrand)
               .enabled(!this.saving).onClick((): void => { this.save(); }).id('jianjian-prompt-save')
           }.width('100%')
         } else {
-          if (!this.message) { LoadingProgress().width(32).height(32).color(AppColor.Brand) }
+          if (!this.message) { InfinityLoadingIndicator({ indicatorSize: 32 }) }
           else {
             Text(this.message).fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
             Button($r('app.string.common_retry')).backgroundColor(AppColor.Brand).fontColor(AppColor.OnBrand)

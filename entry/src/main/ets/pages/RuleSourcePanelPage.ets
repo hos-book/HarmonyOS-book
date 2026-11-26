@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { TextModifier } from '@kit.ArkUI';
 import { ProfileMenuDestination } from '../components/ProfileMenuDestination';
 import { LocalRuleSource } from '../model/LocalRuleSource';
@@ -349,7 +350,7 @@ export struct RuleSourcePanelPage {
             }
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           if (this.busy) {
-            LoadingProgress().width(20).height(20).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 20 })
               .accessibilityText(this.runningAction)
           }
           if (this.login || this.settingsPanel) {
@@ -370,7 +371,7 @@ export struct RuleSourcePanelPage {
         .padding({ top: this.safeTop, left: AppSpace.Xs, right: AppSpace.Xs })
         if (this.loading) {
           Column() {
-            LoadingProgress().width(32).height(32).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 32 })
           }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
         } else {
           List({ space: AppSpace.Md }) {

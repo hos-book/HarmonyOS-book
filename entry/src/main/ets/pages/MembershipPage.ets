@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { MembershipSubscriptionPage, MEMBERSHIP_BACKGROUND_TOP } from './MembershipSubscriptionPage';
 import { CapsuleSegmentButtonV2, ColorMetrics, LengthMetrics, SegmentButtonV2Items } from '@kit.ArkUI';
@@ -133,7 +134,7 @@ export struct MembershipPage {
         .id('app-background-cancel').onClick((): void => { this.backgroundCancelRequest++; })
       Button({ type: ButtonType.Normal }) {
         Row({ space: AppSpace.Xs }) {
-          if (this.backgroundSaving) { LoadingProgress().width(16).height(16).color(AppColor.Brand) }
+          if (this.backgroundSaving) { InfinityLoadingIndicator({ indicatorSize: 16 }) }
           Text($r('app.string.app_background_apply')).fontSize(AppFont.Caption)
             .fontColor(AppColor.OnBrand).maxLines(1)
         }.justifyContent(FlexAlign.Center)

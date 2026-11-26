@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { RankingBoard } from '../model/Ranking';
 import { RankingPreferences } from '../service/ranking/RankingPreferences';
 import { RankingService } from '../service/ranking/RankingService';
@@ -72,7 +73,7 @@ export struct RankingBoardOrderComponent {
       Text($r('app.string.ranking_board_order_desc')).fontSize(13).fontColor($r('sys.color.font_secondary')).width('100%')
         .padding({ left: 8, right: 8, bottom: 8 })
       if (!this.loaded && !this.failed) {
-        LoadingProgress().width(28).height(28).color(AppColor.Brand).margin(20)
+        InfinityLoadingIndicator({ indicatorSize: 28 }).margin(20)
       }
       if (this.failed) {
         Button($r('app.string.ranking_settings_retry')).onClick((): void => { this.load(); })

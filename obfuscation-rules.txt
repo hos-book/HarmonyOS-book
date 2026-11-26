@@ -208,6 +208,8 @@
   preferences
   stats
   ruleSources
+  bookCovers
+  imageBase64
   favorites
   history
   lastPlayed

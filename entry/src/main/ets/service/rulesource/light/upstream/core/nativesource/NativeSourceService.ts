@@ -86,6 +86,14 @@ class NativeHost implements NativeRunnerHost {
   private operationBytes: number = 0;
 
   limitCommentPage(deadline: number): void { this.operationDeadline = deadline; }
+  /** 正在为评论页重建章节上下文：这段请求只受截止时间约束，不计入评论页的请求次数和响应总量。 */
+  private rebuildingContext: boolean = false;
+  commentContextRebuild(active: boolean): void { this.rebuildingContext = active; }
+  /**
+   * 单个响应的大小上限。评论页宿主设的 1 MiB 只管评论页自己的取数；重建上下文时正文脚本可能要取
+   * 整本书的目录之类的大响应，截断后脚本解析不出来，评论数据就没了。
+   */
+  private responseLimit(): number { return this.rebuildingContext ? 0 : this.maxResponseBytes; }
   /** 只在调试时提供：把规则求值记到调试页的执行明细里。 */
   trace?: (entry: NativeRuleTrace) => void;
 
@@ -154,7 +162,7 @@ class NativeHost implements NativeRunnerHost {
     webRequest.readTimeout = request.timeoutMs ? Math.min(request.webTimeout * 1000, request.timeoutMs) :
       request.webTimeout * 1000;
     webRequest.debugContext = this.debugContext || undefined;
-    if (this.maxResponseBytes > 0) webRequest.maxResponseBytes = this.maxResponseBytes;
+    if (this.responseLimit() > 0) webRequest.maxResponseBytes = this.responseLimit();
     return await analyzeUrl.fetchPrepared(webRequest);
   }
 
@@ -163,7 +171,7 @@ class NativeHost implements NativeRunnerHost {
    * 前置脚本再换成 Uint8Array。不做验证页判断：字节响应不是网页。
    */
   private async fetchBinary(analyzeUrl: AnalyzeUrl, url: string, request: NativeRequest): Promise<NativeResponse> {
-    const limit = this.maxResponseBytes > 0 ? Math.min(this.maxResponseBytes, MAX_BINARY_RESPONSE_BYTES) :
+    const limit = this.responseLimit() > 0 ? Math.min(this.responseLimit(), MAX_BINARY_RESPONSE_BYTES) :
       MAX_BINARY_RESPONSE_BYTES;
     const response = await analyzeUrl.fetchBinary(url, limit);
     const headers = HttpHeaderValues.normalize(response.headers || {});
@@ -187,7 +195,7 @@ class NativeHost implements NativeRunnerHost {
   async fetch(request: NativeRequest): Promise<NativeResponse> {
     if (this.cancelled()) return { ok: false, status: 0, body: '', url: request.url, error: '已取消' };
     if (this.operationDeadline) {
-      if (++this.operationRequests > 8) throw new Error('评论页面请求超过 8 次（含上下文重建）');
+      if (!this.rebuildingContext && ++this.operationRequests > 8) throw new Error('评论页面请求超过 8 次');
       const remaining = this.operationDeadline - Date.now();
       if (remaining <= 0) throw new Error('评论页面请求超时');
       request = Object.assign({}, request, { timeoutMs: Math.min(request.timeoutMs || remaining, remaining) });
@@ -209,8 +217,8 @@ class NativeHost implements NativeRunnerHost {
     if (request.binary) return await this.fetchBinary(analyzeUrl, url, request);
     const response = request.webView && (request.webWaitFor || request.webJs) ?
       await this.fetchWaitingFor(analyzeUrl, url, request) :
-      await analyzeUrl.fetch(url, this.maxResponseBytes > 0 ? this.maxResponseBytes : undefined, this.debugContext);
-    if (this.operationDeadline) {
+      await analyzeUrl.fetch(url, this.responseLimit() > 0 ? this.responseLimit() : undefined, this.debugContext);
+    if (this.operationDeadline && !this.rebuildingContext) {
       this.operationBytes += NativeCommentPage.bytes(response.body || '');
       if (this.operationBytes > 2 * 1024 * 1024) throw new Error('评论页面响应总量超过 2 MiB');
     }
@@ -344,7 +352,8 @@ class NativeHost implements NativeRunnerHost {
 
   deviceId(): string {
     try {
-      return deviceInfo.ODID || '';
+      // ArkUI-X 的 deviceInfo 声明里没有 ODID，取不到时为空。
+      return (deviceInfo as any).ODID || '';
     } catch (e) {
       return '';
     }
@@ -1020,7 +1029,7 @@ export class NativeSourceService {
     for (const comment of result.paragraphComments) {
       if (comment.line < 0 || comment.line >= lines.length) continue;
       lines[comment.line] += ReaderActionMarker.create(`段评 ${comment.count > 99 ? '99+' : comment.count}`,
-        comment.url, '段评', comment.preview || '', comment.likes || '');
+        comment.url, '段评', comment.preview || '', comment.likes || '', '', [], comment.emojis || {});
     }
     for (const link of result.links) {
       // 请求按钮把渲染好的请求编进标记地址，点击时由 runReaderAction 取出执行。
@@ -1031,7 +1040,8 @@ export class NativeSourceService {
     }
     if (result.chapterCommentUrl) {
       const tail = ReaderActionMarker.create('本章说', result.chapterCommentUrl, '本章说',
-        result.chapterCommentPreview || '', result.chapterCommentLikes || '');
+        result.chapterCommentPreview || '', result.chapterCommentLikes || '', result.chapterCommentCount || '',
+        result.chapterCommentHots || [], result.chapterCommentEmojis || {});
       if (tail) lines.push('', tail);
     }
     return lines.join('\n');

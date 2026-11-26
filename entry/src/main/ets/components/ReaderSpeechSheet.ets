@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { ReaderColorPalette } from './ReaderColorPalette';
 import { ReaderSpeechStylePreview } from './ReaderSpeechStylePreview';
 import { ReaderPalette } from '../model/ReaderTheme';
@@ -174,7 +175,7 @@ export struct ReaderSpeechSheet {
           Button($r('app.string.tts_custom_paste')).fontSize(13).fontColor(AppColor.Brand)
             .backgroundColor($r('sys.color.comp_background_tertiary')).enabled(!this.importing)
             .onClick((): void => { this.showPaste = !this.showPaste; })
-          if (this.importing) { LoadingProgress().width(24).height(24).color(AppColor.Brand) }
+          if (this.importing) { InfinityLoadingIndicator({ indicatorSize: 24 }) }
         }
         if (this.showPaste) {
           TextArea({ text: this.importText, placeholder: $r('app.string.tts_custom_paste_hint') })
@@ -206,7 +207,7 @@ export struct ReaderSpeechSheet {
               Text(voice.language).fontSize(12).fontColor($r('sys.color.font_secondary'))
             }.layoutWeight(1).alignItems(HorizontalAlign.Start)
             if (this.state.downloadingVoice === voice.id) {
-              LoadingProgress().width(24).height(24).color(AppColor.Brand)
+              InfinityLoadingIndicator({ indicatorSize: 24 })
             } else if (voice.installed && this.state.isVoiceSelected(voice)) {
               SymbolGlyph($r('sys.symbol.checkmark')).fontSize(20).fontColor([AppColor.Brand])
                 .width(40).accessibilityText($r('app.string.tts_selected'))

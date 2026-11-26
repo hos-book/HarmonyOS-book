@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { common, sendableContextManager } from '@kit.AbilityKit';
 import { MembershipState } from '../model/MembershipState';
 import { MembershipPlan, MembershipService } from '../service/MembershipService';
@@ -267,7 +268,7 @@ export struct MembershipSubscriptionPage {
         Text($r('app.string.membership_subscription_title')).fontSize(20).fontWeight(FontWeight.Bold)
           .fontColor('#30291F').layoutWeight(1)
         if (this.membership.busy) {
-          LoadingProgress().width(20).height(20).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 20 })
         }
         Button($r('app.string.membership_restore_short')).fontSize(11).height(28).flexShrink(0)
           .padding({ left: 8, right: 8 }).backgroundColor('#D9BE8C').fontColor('#55432C')

@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { Book } from '../model/Book';
 import { ShelfCollectionData, ShelfCollectionGroup, ShelfRecentBook } from '../model/ShelfCollection';
 import { AppColor, AppTheme } from '../theme/Theme';
@@ -251,7 +252,7 @@ export struct ShelfCollectionView {
         Text(this.groups.length.toString()).fontSize(11).fontColor(AppTheme.TextTertiary)
       }.width('100%').margin({ top: 12 })
       if (this.loading) {
-        LoadingProgress().color(AppColor.Brand).width(28).height(28).margin(24)
+        InfinityLoadingIndicator({ indicatorSize: 28 }).margin(24)
       } else if (this.groups.length === 0) {
         Text($r('app.string.shelf_filter_empty')).fontSize(13).fontColor(AppTheme.TextSecondary).padding(24)
       }

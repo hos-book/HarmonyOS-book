@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { Book } from '../model/Book';
 import { ReaderFullTextSearch, ReaderSearchMatch, ReaderSearchProgress } from '../service/text/ReaderFullTextSearch';
 import { AppColor } from '../theme/Theme';
@@ -79,7 +80,7 @@ export struct ReaderFullTextSearchPanel {
         Text($r('app.string.reader_fulltext_hint')).fontSize(13).fontColor($r('sys.color.font_secondary'))
       } else {
         Row({ space: 8 }) {
-          if (this.searching) { LoadingProgress().width(20).height(20).color(AppColor.Brand) }
+          if (this.searching) { InfinityLoadingIndicator({ indicatorSize: 20 }) }
           Text($r('app.string.reader_fulltext_progress', this.completed, this.book?.chapters.length ?? 0, this.count))
             .fontSize(13).fontColor($r('sys.color.font_secondary')).layoutWeight(1)
           if (this.searching) {

@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { MEDALS, MedalAward, MedalDefinition } from '../model/Medal';
 import { MedalService } from '../service/MedalService';
 import { AuthService } from '../service/AuthService';
@@ -218,7 +219,7 @@ export struct AchievementPage {
           .fontSize(11)
           .fontColor(AppTheme.TextTertiary)
       } else if (!this.medalService.failed) {
-        LoadingProgress().width(24).height(24).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 24 })
       }
     }
     .alignItems(HorizontalAlign.Start)

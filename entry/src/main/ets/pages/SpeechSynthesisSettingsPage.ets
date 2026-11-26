@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { sendableContextManager } from '@kit.AbilityKit';
 import { SpeechSynthesisSettingsPanel } from '../components/SpeechSynthesisSettingsPanel';
@@ -45,7 +46,7 @@ export struct SpeechSynthesisSettingsPage {
           Text($r('app.string.reading_settings_load_error')).fontColor(AppTheme.TextSecondary).padding(20)
           Button($r('app.string.common_retry')).fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
             .onClick((): void => { this.initialize(); })
-        } else { LoadingProgress().width(32).height(32).color(AppColor.Brand) }
+        } else { InfinityLoadingIndicator({ indicatorSize: 32 }) }
       }.width('100%').height('100%')
         .padding({ top: this.ready ? 0 : this.headerHeight })
       FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {

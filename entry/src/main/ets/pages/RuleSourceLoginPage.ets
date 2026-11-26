@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { webview } from '@kit.ArkWeb';
 import { RuleSourceLoginRouteParams } from '../model/RuleSourceLogin';
 import { LocalRuleSourceRepository } from '../service/rulesource/LocalRuleSourceRepository';
@@ -437,10 +438,7 @@ export struct RuleSourceLoginPage {
 
       if (!this.ready) {
         Column() {
-          LoadingProgress()
-            .width(30)
-            .height(30)
-            .color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 30 })
         }
         .width('100%')
         .layoutWeight(1)
@@ -505,10 +503,7 @@ export struct RuleSourceLoginPage {
             })
 
           if (this.loading) {
-            LoadingProgress()
-              .width(30)
-              .height(30)
-              .color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 30 })
           }
         }
         .width('100%')

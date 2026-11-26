@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { photoAccessHelper } from '@kit.MediaLibraryKit';
 import { AppAppearance } from '../model/AppAppearance';
 import { GeneralSettings } from '../model/GeneralSettings';
@@ -177,7 +178,7 @@ export struct BottomTabIconComponent {
           Button($r('app.string.app_icon_retry')).fontColor(AppColor.Brand).backgroundColor(AppTheme.Surface)
             .onClick(() => this.load())
         } else {
-          LoadingProgress().width(24).height(24).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 24 })
         }
       }
       ForEach(this.options, (option: BottomTabIconOption) => {

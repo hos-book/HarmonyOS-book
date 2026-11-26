@@ -244,6 +244,7 @@ export class LightSourceImport {
     rule.imageDecode = fields['imageDecode'] || fields['imagedecode'] || '';
     rule.imageStyle = fields['imageStyle'] || fields['imagestyle'] || '';
     rule.payAction = fields['payAction'] || fields['payaction'] || '';
+    rule.callBackJs = fields['callBackJs'] || fields['callbackjs'] || '';
   }
 
   applyRuleToBookInfoRule(fields: Record<string, string>, rule: BookInfoRule): void {

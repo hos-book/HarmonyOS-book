@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { webview } from '@kit.ArkWeb';
 import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
@@ -347,7 +348,7 @@ export struct ReaderCommentSheet {
             .id('reader-comment-messages')
         } else {
           Column({ space: 14 }) {
-            if (this.loading) { LoadingProgress().width(30).height(30).color(AppColor.Brand) }
+            if (this.loading) { InfinityLoadingIndicator({ indicatorSize: 30 }) }
             Text(this.failed ? $r('app.string.reader_comment_failed') : this.loading ?
               $r('app.string.reader_comment_loading') : this.message || $r('app.string.reader_comment_empty'))
               .fontSize(14).fontColor($r('sys.color.font_secondary')).textAlign(TextAlign.Center)

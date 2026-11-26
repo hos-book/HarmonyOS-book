@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { sendableContextManager } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { CustomTtsConfig } from '../model/CustomTtsConfig';
@@ -332,7 +333,7 @@ export struct RoleSpeechPanel {
           Column({ space: AppSpace.Xs }) {
             if (this.roles().analysing) {
               Row({ space: AppSpace.Xs }) {
-                LoadingProgress().width(20).height(20).color(AppColor.Brand)
+                InfinityLoadingIndicator({ indicatorSize: 20 })
                 Text($r('app.string.role_analysing')).fontSize(AppFont.Caption).fontColor(this.secondary())
               }
             }
@@ -424,7 +425,7 @@ export struct RoleSpeechPanel {
         Button($r('app.string.common_retry')).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
           .onClick((): void => { this.load(); })
       } else {
-        LoadingProgress().width(32).height(32).color(AppColor.Brand).margin({ top: AppSpace.Lg })
+        InfinityLoadingIndicator({ indicatorSize: 32 }).margin({ top: AppSpace.Lg })
       }
     }.width('100%').height('100%').constraintSize({ maxWidth: 760 })
       .padding({ left: AppSpace.Md, right: AppSpace.Md,

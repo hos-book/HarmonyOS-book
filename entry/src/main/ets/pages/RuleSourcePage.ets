@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { SourceTestTaskService } from '../service/rulesource/SourceTestTaskService';
 import { BusinessError, emitter } from '@kit.BasicServicesKit';
 import { fileIo, picker } from '@kit.CoreFileKit';
@@ -1426,7 +1427,7 @@ export struct RuleSourcePage {
             })
               .opacity(this.isImporting ? 0 : 1)
             if (this.isImporting) {
-              LoadingProgress().width(25).height(25).color(AppColor.Brand)
+              InfinityLoadingIndicator({ indicatorSize: 25 })
             }
           }
           .width(52).height(52)
@@ -1460,10 +1461,7 @@ export struct RuleSourcePage {
           .padding({ bottom: Math.max(this.safeBottom, RULE_SOURCE_MIN_BOTTOM_INSET) })
       } else if (this.isLoading) {
         Column({ space: AppSpace.Sm }) {
-          LoadingProgress()
-            .width(28)
-            .height(28)
-            .color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 28 })
           Text($r('app.string.rule_source_loading'))
             .fontSize(AppFont.Body)
             .fontColor(AppTheme.TextTertiary)
@@ -1702,10 +1700,7 @@ export struct RuleSourcePage {
           if (this.sourceCount > 0) {
             Button({ type: ButtonType.Circle }) {
               if (this.isBulkTesting) {
-                LoadingProgress()
-                  .width(18)
-                  .height(18)
-                  .color(AppColor.Brand)
+                InfinityLoadingIndicator({ indicatorSize: 18 })
               } else {
                 SymbolGlyph($r('sys.symbol.bolt'))
                   .fontSize('20vp')
@@ -2310,7 +2305,7 @@ export struct RuleSourcePage {
               .onClick((): void => { this.importSources(); })
             Row({ space: AppSpace.Xs }) {
               if (this.isImporting) {
-                LoadingProgress().width(18).height(18).color(AppColor.Brand)
+                InfinityLoadingIndicator({ indicatorSize: 18 })
               }
               Text(this.isImporting ? $r('app.string.rule_source_importing') :
                 $r('app.string.rule_source_import_action'))
@@ -2330,7 +2325,7 @@ export struct RuleSourcePage {
     Column({ space: AppSpace.Sm }) {
       if (this.isImporting && this.importDialogKind.length === 0) {
         Row({ space: AppSpace.Sm }) {
-          LoadingProgress().width(24).height(24).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 24 })
           Text(this.importFileTotal > 0 ?
             $r('app.string.rule_source_import_files_progress', this.importFileCurrent, this.importFileTotal) :
             $r('app.string.rule_source_importing'))

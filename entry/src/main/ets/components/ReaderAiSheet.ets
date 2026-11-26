@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { ReaderAiAction, ReaderAiRequest } from '../model/ReaderAi';
 import { ReaderAiService } from '../service/text/ReaderAiService';
 import { JianjianAiService } from '../service/JianjianAiService';
@@ -81,7 +82,7 @@ export struct ReaderAiSheet {
       }
       if (this.loading) {
         Column({ space: 16 }) {
-          LoadingProgress().width(32).height(32).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 32 })
           Text(this.progress || $r('app.string.jianjian_ai_replying')).fontSize(14).fontColor($r('sys.color.font_secondary'))
           Button($r('app.string.common_cancel')).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
             .onClick((): void => { this.cancel(); this.message = $r('app.string.jianjian_ai_cancelled'); })

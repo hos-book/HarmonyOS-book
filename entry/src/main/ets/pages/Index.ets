@@ -120,7 +120,9 @@ struct Index {
   @Local navigationWidth: number = 0;
   @Local parallelNavigation: boolean = false;
   @Local playerRenderGroup: boolean = false;
-  @Local playerOpacity: number = 1;
+  @Local playerOpacity: number = 0;
+  @Local searchTransitionProgress: number = 0;
+  @Local searchTransitionReady: boolean = false;
   @Local rankingReaderVeil: number = 0;
   @Local rankingReaderOpacity: number = 1;
   @Local playerDragState: PlayerDragState = PlayerDragTransition.getInstance().state;
@@ -362,6 +364,13 @@ struct Index {
 
   private oneShotNavigationTransition(from: NavContentInfo, to: NavContentInfo,
     operation: NavigationOperation): NavigationAnimatedTransition | undefined {
+    if (operation === NavigationOperation.PUSH && to.name === 'search') {
+      OneShotTransitionCoordinator.getInstance().discardPending();
+      return this.searchFadeTransition(true);
+    }
+    if (operation === NavigationOperation.POP && from.name === 'search') {
+      return this.searchFadeTransition(false);
+    }
     if (operation === NavigationOperation.POP && (to.index === -1 || to.name === 'shelfCollection') &&
       (from.name === 'reader' || from.name === 'comicReader') && from.param instanceof ShelfReaderRouteParams) {
       OneShotTransitionCoordinator.getInstance().discardPending();
@@ -422,7 +431,7 @@ struct Index {
           finished = true;
           drag.complete();
           drag.clearReturnTarget();
-          this.playerOpacity = 1;
+          this.playerOpacity = 0;
           this.navigationEnabled = true;
         }
       };
@@ -576,6 +585,29 @@ struct Index {
       .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
   }
 
+  private searchFadeTransition(isPush: boolean): NavigationAnimatedTransition {
+    this.searchTransitionProgress = isPush ? 0 : 1;
+    this.searchTransitionReady = false;
+    const animation: NavigationAnimatedTransition = {
+      transition: (proxy: NavigationTransitionProxy): void => {
+        this.navigationEnabled = false;
+        this.getUIContext().postFrameCallback(new OneShotLayoutCallback((): void => {
+          this.getUIContext().animateTo({ duration: isPush ? 480 : 380,
+            curve: Curve.EaseInOut,
+            onFinish: (): void => { proxy.finishTransition(); }
+          }, (): void => { this.searchTransitionProgress = isPush ? 1 : 0; });
+        }));
+      },
+      onTransitionEnd: (): void => {
+        // 出场后保留透明起点，让下一次创建的搜索页直接衔接淡入。
+        this.searchTransitionProgress = isPush ? 1 : 0;
+        this.searchTransitionReady = isPush;
+        this.navigationEnabled = true;
+      }
+    };
+    return animation;
+  }
+
   private playerFadeTransition(isPush: boolean): NavigationAnimatedTransition {
     // 转场创建时准备首帧透明度，让来源页自然衔接播放页。
     this.playerOpacity = isPush ? 0 : 1;
@@ -596,7 +628,8 @@ struct Index {
       },
       onTransitionEnd: (success: boolean): void => {
         finished = true;
-        this.playerOpacity = 1;
+        // 出场后保留透明起点，让下次打开的播放页从首帧接续淡入。
+        this.playerOpacity = isPush ? 1 : 0;
         this.playerRenderGroup = false;
         this.navigationEnabled = true;
         if (isPush && success) PlayerEntryDecider.markEntered();
@@ -715,7 +748,7 @@ struct Index {
       })
       .backgroundColor(this.playerDragState.active ? Color.Transparent : '#000000')
       .renderGroup(this.playerRenderGroup)
-      .opacity(this.playerOpacity)
+      .opacity(this.playerDragState.active ? 1 : this.playerOpacity)
     } else if (name === 'comicReader') {
       NavDestination() {
         Stack() {
@@ -747,7 +780,8 @@ struct Index {
         RankingReaderTransition.canReturn('reader', param.bookId)) ?
         NavigationSystemTransitionType.NONE : NavigationSystemTransitionType.SLIDE_RIGHT)
     } else if (name === 'search') {
-      SearchPage({ navStack: this.navStack, initialKeyword: this.resolveParam(param, 'keyword') })
+      SearchPage({ navStack: this.navStack, initialKeyword: this.resolveParam(param, 'keyword'),
+        searchTransitionProgress: this.searchTransitionProgress, entryTransitionReady: this.searchTransitionReady })
     } else if (name === 'achievements') {
       AchievementPage({ navStack: this.navStack })
     } else if (name === 'account') {

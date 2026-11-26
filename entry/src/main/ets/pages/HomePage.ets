@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { ImmersiveMenu } from '../utils/ImmersiveMenu';
 import { HdsCompat } from '../utils/HdsCompat';
 import { GeneralSettings } from '../model/GeneralSettings';
@@ -1555,7 +1556,7 @@ export struct HomePage {
         this.buildHomeSourceKindMenu()
       } else if (this.loadingHomeSources) {
         Row() {
-          LoadingProgress().width(24).height(24).color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 24 })
         }.width('100%').height(64).justifyContent(FlexAlign.Center)
       } else if (this.homeSourceMatchCount === 0) {
         Text($r('app.string.rule_source_no_match'))
@@ -1670,10 +1671,7 @@ export struct HomePage {
   pullRefreshIndicator() {
     Row() {
       if (this.isRefreshing) {
-        LoadingProgress()
-          .width(24)
-          .height(24)
-          .color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 24 })
       } else {
         Progress({
           value: Math.min(100, this.refreshPullOffset / HOME_REFRESH_TRIGGER_DISTANCE * 100),
@@ -1710,7 +1708,7 @@ export struct HomePage {
         ThemeBackgroundComponent({ appScene: AppBackgroundScene.Home })
       }
       if (!this.homeResolved) {
-        LoadingProgress().width(28).height(28).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 28 })
       } else if (this.rankingMode) {
         RankingHomePage({ visible: this.visible, active: this.homeActive, bottomTabInset: this.bottomTabInset,
           customBackground: this.hasAppBackground(),
@@ -1919,7 +1917,7 @@ export struct HomePage {
   buildCategoryPagination() {
     Row({ space: AppSpace.Xs }) {
       if (this.categoryLoading) {
-        LoadingProgress().width(24).height(24).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 24 })
       }
       Text(this.categoryError || (this.categoryLoading ?
         $r('app.string.home_category_loading_more') : (this.categoryHasMore ?
@@ -2045,7 +2043,7 @@ export struct HomePage {
                 ListItem() {
                   Row({ space: AppSpace.Xs }) {
                     if (this.moreRecommendationsLoading) {
-                      LoadingProgress().width(24).height(24).color(AppColor.Brand)
+                      InfinityLoadingIndicator({ indicatorSize: 24 })
                     }
                     Text(this.moreRecommendationsLoading ? $r('app.string.common_content_loading') :
                       $r('app.string.home_more_recommendations_failed'))
@@ -2085,7 +2083,7 @@ export struct HomePage {
         } else if (this.categoryLoading && this.categoryBooks.length === 0) {
           ListItem() {
             Column() {
-              LoadingProgress().width(40).height(40).color(AppColor.Brand)
+              InfinityLoadingIndicator({ indicatorSize: 40 })
               Text($r('app.string.common_content_loading'))
                 .fontSize(AppFont.Body)
                 .fontColor(AppTheme.TextTertiary)

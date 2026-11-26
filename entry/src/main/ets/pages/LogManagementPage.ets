@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { pasteboard } from '@kit.BasicServicesKit';
 import { DiagnosticLogEntry, DiagnosticLogService } from '../service/DiagnosticLogService';
 import { AppTheme, AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
@@ -133,7 +134,7 @@ export struct LogManagementPage {
               Toggle({ type: ToggleType.Switch, isOn: this.onlyErrors }).selectedColor(AppColor.Brand)
                 .onChange((value: boolean): void => { this.onlyErrors = value; this.applyFilter(); })
             }.width('100%')
-            if (this.busy) { LoadingProgress().color(AppColor.Brand).width(24).height(24) }
+            if (this.busy) { InfinityLoadingIndicator({ indicatorSize: 24 }) }
             if (this.storageError.length > 0) {
               Text($r('app.string.log_storage_failed')).fontSize(AppFont.Caption).fontColor(AppTheme.TextPrimary)
             }

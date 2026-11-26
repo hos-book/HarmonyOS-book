@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { ReadingSession, ReadingSessionService, SessionLocation } from '../service/ReadingSessionService';
 import { DataService } from '../service/DataService';
 import { Chapter } from '../model/Book';
@@ -202,7 +203,7 @@ export struct SessionHistoryPage {
               .fontColor($r('sys.color.font_tertiary')).padding({ bottom: 24 })
           }
           if (this.loading) {
-            ListItem() { LoadingProgress().color(AppColor.Brand).width(36).height(36) }
+            ListItem() { InfinityLoadingIndicator({ indicatorSize: 36 }) }
           } else if (this.failed) {
             ListItem() { Text($r('app.string.session_load_failed')).onClick((): void => { this.load(); }) }
           } else if (this.count === 0) {

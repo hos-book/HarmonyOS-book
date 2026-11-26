@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { curves, FrameCallback } from '@kit.ArkUI';
 import { RankingBook } from '../model/Ranking';
 import { Book, Chapter } from '../model/Book';
@@ -947,7 +948,7 @@ export struct RankingBookCard {
 
         if (this.readerPreparing) {
           Column({ space: 12 }) {
-            LoadingProgress().width(36).height(36).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 36 })
             Text($r('app.string.ranking_reader_loading')).fontSize(13)
               .fontColor(AppTheme.TextSecondary)
           }

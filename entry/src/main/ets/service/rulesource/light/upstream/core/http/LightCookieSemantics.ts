@@ -5,6 +5,10 @@ import { LogText } from '../../utils/LogText';
 import { SetCookieParser } from './SetCookieParser';
 import { SourceEngineHost, SourceCookieJar } from '../host/SourceEngineHost';
 
+// ArkUI-X（安卓、iOS）的 WebCookieManager 只有异步接口，静态引用同步方法编不过，运行时取用；
+// 那里由宿主经 SourceEngineHost 装 Cookie 端口，不会走到这些同步调用。
+const webCookieManager: any = webview.WebCookieManager;
+
 export class LightCookieSemantics {
   /** Legacy unscoped callers keep the ArkWeb jar; source execution always supplies its identity. */
   static forSource(sourceUrl: string = ''): SourceCookieJar {
@@ -15,7 +19,7 @@ export class LightCookieSemantics {
     if (deviceInfo.sdkApiVersion < 26) return this.getCookie(url);
     for (const target of this.targetUrls(url)) {
       try {
-        const value = webview.WebCookieManager.fetchCookieSync(target, true, true) || '';
+        const value = webCookieManager.fetchCookieSync(target, true, true) || '';
         if (value) return this.withoutExpiredJwtCookies(value);
       } catch (error) {
         const code = Number((error as Record<string, Object>)['code'] || 0);
@@ -32,7 +36,7 @@ export class LightCookieSemantics {
     if (!url) return '';
     for (const target of this.targetUrls(url)) {
       try {
-        const value = webview.WebCookieManager.fetchCookieSync(target, true) || '';
+        const value = webCookieManager.fetchCookieSync(target, true) || '';
         if (value) return this.withoutExpiredJwtCookies(value);
       } catch (_) {
       }
@@ -46,10 +50,10 @@ export class LightCookieSemantics {
     for (const target of this.targetUrls(url)) {
       for (const value of values) {
         try {
-          webview.WebCookieManager.configCookieSync(target, value, true, true);
+          webCookieManager.configCookieSync(target, value, true, true);
         } catch (_) {
           try {
-            webview.WebCookieManager.configCookieSync(target, value, true);
+            webCookieManager.configCookieSync(target, value, true);
           } catch (_) {}
         }
       }
@@ -239,12 +243,12 @@ export class LightCookieSemantics {
   private static writeCookieVariants(url: string, value: string): void {
     for (const target of this.targetUrls(url)) {
       try {
-        webview.WebCookieManager.configCookieSync(target, value, true, true);
+        webCookieManager.configCookieSync(target, value, true, true);
         continue;
       } catch (_) {
       }
       try {
-        webview.WebCookieManager.configCookieSync(target, value, true);
+        webCookieManager.configCookieSync(target, value, true);
       } catch (error) {
         // Never log the cookie itself; a write that fails here silently drops the login state of that site.
         console.warn('[LightCookieSemantics] 写入 Cookie 失败:', LogText.url(target), (error as Error).message);
@@ -254,7 +258,7 @@ export class LightCookieSemantics {
 
   static clearAll(): void {
     try {
-      webview.WebCookieManager.clearAllCookiesSync(true);
+      webCookieManager.clearAllCookiesSync(true);
     } catch (error) {
       console.warn('[LightCookieSemantics] 清空 Cookie 失败:', (error as Error).message);
     }
@@ -264,7 +268,7 @@ export class LightCookieSemantics {
 
   static saveSync(): void {
     try {
-      webview.WebCookieManager.saveCookieSync();
+      webCookieManager.saveCookieSync();
     } catch (_) {
       this.saveAsync();
     }

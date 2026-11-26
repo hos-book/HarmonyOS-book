@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { SliderGestureModifier } from '../utils/SliderGestureModifier';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { SettingsHintButton } from '../components/SettingsHintButton';
@@ -503,7 +504,7 @@ export struct SettingsPage {
           if (!this.isLoaded) {
             Row({ space: AppSpace.Sm }) {
               if (!this.preferencesLoadFailed) {
-                LoadingProgress().width(20).height(20).color(AppColor.Brand)
+                InfinityLoadingIndicator({ indicatorSize: 20 })
               }
               Text(this.preferencesLoadFailed ? $r('app.string.settings_load_failed') : $r('app.string.settings_loading'))
                 .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).layoutWeight(1)
@@ -1144,7 +1145,7 @@ export struct SettingsPage {
           .fontColor(AppTheme.TextTertiary)
       }.alignItems(HorizontalAlign.Start).layoutWeight(1)
       if (this.clearingCache || this.cacheLoading(kind)) {
-        LoadingProgress().width(18).height(18).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 18 })
       } else {
         SymbolGlyph($r('sys.symbol.trash')).fontSize(18).fontColor([AppTheme.TextTertiary])
       }

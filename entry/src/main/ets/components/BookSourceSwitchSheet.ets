@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { Book, Chapter } from '../model/Book';
 import { BookSourceService } from '../service/BookSourceService';
 import { SourceSwitchSearch, SourceSwitchBookDataSource } from '../service/BookSourceSwitchService';
@@ -221,7 +222,7 @@ export struct BookSourceSwitchSheet {
         Button() {
           Row({ space: 8 }) {
             if (this.searching || this.busy) {
-              LoadingProgress().width(18).height(18).color(AppColor.Brand).hitTestBehavior(HitTestMode.None)
+              InfinityLoadingIndicator({ indicatorSize: 18 }).hitTestBehavior(HitTestMode.None)
             }
             Text(this.busy ? $r('app.string.source_switch_loading_chapters') :
               (this.searching ? $r('app.string.source_switch_stop') : $r('app.string.source_switch_retry')))
@@ -237,7 +238,7 @@ export struct BookSourceSwitchSheet {
           })
       }
       if (this.busy && this.selected !== null) {
-        LoadingProgress().width(28).height(28).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 28 })
       }
       if (this.errorText) { Text(this.errorText).fontSize(13).fontColor($r('sys.color.font_secondary')) }
     }.width('100%').height('100%').padding(20).alignItems(HorizontalAlign.Start)

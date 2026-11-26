@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { BusinessError } from '@kit.BasicServicesKit';
 import { AccountAvatar } from '../components/AccountAvatar';
 import { MembershipBadge } from '../components/MembershipBadge';
@@ -607,10 +608,7 @@ export struct AccountPage {
   profileActionIndicator() {
     Stack() {
       if (this.auth.logging || this.auth.restoring) {
-        LoadingProgress()
-          .width(20)
-          .height(20)
-          .color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 20 })
       } else {
         SymbolGlyph(this.auth.isLoggedIn ? $r('sys.symbol.arrow_clockwise') : $r('sys.symbol.chevron_right'))
           .fontSize(22)
@@ -652,7 +650,7 @@ export struct AccountPage {
         .opacity(this.manualAvailable() ? 1 : 0.5)
         if (this.local.busy) {
           Row({ space: AppSpace.Sm }) {
-            LoadingProgress().width(20).height(20).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 20 })
             Text(this.localPhaseText()).fontSize(AppFont.Body).fontColor(AppColor.Brand).layoutWeight(1)
           }
           .width('100%')
@@ -731,7 +729,7 @@ export struct AccountPage {
       Text(this.autoStatus()).fontSize(AppFont.Caption).lineHeight(19)
         .fontColor($r('sys.color.font_secondary'))
       if (this.membershipService.busy || this.checkingMembership) {
-        LoadingProgress().width(18).height(18).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 18 })
       } else if (!this.membership.hasAccess && !this.membership.confirmedInactive) {
         Button($r('app.string.common_retry'), { buttonStyle: ButtonStyleMode.TEXTUAL })
           .fontColor(AppColor.Brand).onClick(() => this.requireAutoMembership())
@@ -787,7 +785,7 @@ export struct AccountPage {
 
         if (this.cloud.busy) {
           Row({ space: AppSpace.Sm }) {
-            LoadingProgress().width(20).height(20).color(AppColor.Brand)
+            InfinityLoadingIndicator({ indicatorSize: 20 })
             Text(this.phaseText()).fontSize(AppFont.Body).fontColor(AppColor.Brand).layoutWeight(1)
             if (this.cloud.phase !== CloudBackupPhase.RESTORING && this.cloud.phase !== CloudBackupPhase.CONFIRMING) {
               Button($r('app.string.hw_auth_cancel'))

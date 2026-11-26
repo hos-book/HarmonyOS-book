@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { Book } from '../model/Book';
 import { Chapter } from '../model/Book';
 import { BookPresentation } from '../model/BookPresentation';
@@ -272,7 +273,7 @@ export struct RankingBookDetail {
         .fontSize(12).fontColor(AppTheme.TextTertiary).width('100%')
         .onClick((): void => { if (this.tocFailed) this.syncChapters(); })
       if (this.tocLoading) {
-        LoadingProgress().width(28).height(28).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 28 })
       }
       List({ space: 2 }) {
         LazyForEach(this.chapterData, (chapter: Chapter, index: number) => {
@@ -325,7 +326,7 @@ export struct RankingBookDetail {
         .fontSize(12).fontColor(AppTheme.TextTertiary).width('100%')
         .onClick((): void => { if (this.historyFailed) this.loadHistory(); })
       if (this.historyLoading) {
-        LoadingProgress().width(28).height(28).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 28 })
       } else if (this.sessions.length === 0) {
         Text($r('app.string.session_empty')).fontSize(12).fontColor(AppTheme.TextTertiary)
       }

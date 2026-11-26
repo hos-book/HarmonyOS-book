@@ -1,6 +1,7 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { MedalService } from '../service/MedalService';
 import { HdsCompat } from '../utils/HdsCompat';
-import { AppColor, AppRadius, AppSpace, AppFont, AppTheme } from '../theme/Theme';
+import { AppRadius, AppSpace, AppFont, AppTheme } from '../theme/Theme';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
 import { AppBackgroundScene } from '../model/AppBackground';
 import { AppBackgroundService } from '../service/AppBackgroundService';
@@ -305,10 +306,7 @@ export struct ProfilePage {
         .alignItems(HorizontalAlign.Start)
 
         if (this.auth.logging || this.auth.restoring) {
-          LoadingProgress()
-            .width(24)
-            .height(24)
-            .color(AppColor.Brand)
+          InfinityLoadingIndicator({ indicatorSize: 24 })
             .accessibilityText($r('app.string.hw_auth_processing'))
         }
       }

@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { SettingsHintButton } from '../components/SettingsHintButton';
 import { JianjianAiConfig } from '../model/JianjianAi';
@@ -216,7 +217,7 @@ export struct JianjianAiSettingsPage {
                 Row({ space: AppSpace.Sm }) {
                   Text(this.modelCount > 0 ? $r('app.string.jianjian_ai_refresh_models') : $r('app.string.jianjian_ai_fetch_models'))
                     .fontSize(AppFont.BodyL).fontColor(AppColor.Brand).layoutWeight(1)
-                  if (this.busy) { LoadingProgress().width(20).height(20).color(AppColor.Brand) }
+                  if (this.busy) { InfinityLoadingIndicator({ indicatorSize: 20 }) }
                   else { SymbolGlyph($r('sys.symbol.arrow_clockwise')).fontSize(20).fontColor([AppColor.Brand]) }
                 }.width('100%').constraintSize({ minHeight: 56 }).padding({ left: AppSpace.Md, right: AppSpace.Md })
                   .enabled(!this.busy && !this.saving).onClick((): void => { this.fetchModels(); }).id('jianjian-ai-fetch-models')
@@ -247,9 +248,9 @@ export struct JianjianAiSettingsPage {
                 Button($r('app.string.jianjian_ai_clear'), { buttonStyle: ButtonStyleMode.TEXTUAL }).fontColor(AppTheme.TextSecondary)
                   .enabled(!this.saving).onClick((): void => { this.clear(); })
               }
-              if (this.saving) { LoadingProgress().width(20).height(20).color(AppColor.Brand) }
+              if (this.saving) { InfinityLoadingIndicator({ indicatorSize: 20 }) }
             }.width('100%')
-          } else if (!this.message) { LoadingProgress().width(32).height(32).color(AppColor.Brand) }
+          } else if (!this.message) { InfinityLoadingIndicator({ indicatorSize: 32 }) }
           if (this.message) { Text(this.message).fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary).width('100%') }
           if (!this.ready && this.message) {
             Button($r('app.string.common_retry'), { buttonStyle: ButtonStyleMode.TEXTUAL }).fontColor(AppColor.Brand)

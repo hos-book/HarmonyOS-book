@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { ManagementBatchBar } from '../components/ManagementBatchBar';
 import { sendableContextManager } from '@kit.AbilityKit';
@@ -247,7 +248,7 @@ export struct VoiceManagementPage {
         Button($r('app.string.tts_custom_confirm')).layoutWeight(1).fontColor(AppColor.OnBrand)
           .backgroundColor(AppColor.Brand).enabled(!this.busy && this.input.trim().length > 0)
           .onClick((): void => { this.importInput(); }).id('tts-import-confirm')
-        if (this.busy) { LoadingProgress().width(24).height(24).color(AppColor.Brand) }
+        if (this.busy) { InfinityLoadingIndicator({ indicatorSize: 24 }) }
       }.width('100%')
     }.width('100%').padding(24).alignItems(HorizontalAlign.Start)
   }
@@ -320,7 +321,7 @@ export struct VoiceManagementPage {
           .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       if (this.state.downloadingVoice === voice.id) {
-        LoadingProgress().width(24).height(24).color(AppColor.Brand)
+        InfinityLoadingIndicator({ indicatorSize: 24 })
       } else if (!this.state.customTtsId && this.state.isVoiceSelected(voice) && voice.installed) {
         SymbolGlyph($r('sys.symbol.checkmark')).fontSize(20).fontColor([AppColor.Brand])
           .accessibilityText($r('app.string.tts_selected'))
@@ -389,7 +390,7 @@ export struct VoiceManagementPage {
               .contentEndOffset(WindowUtils.getBottomSafeVp())
             if (!this.managing) {
             Button({ type: ButtonType.Circle }) {
-              if (this.busy) { LoadingProgress().width(28).height(28).color(AppColor.Brand) }
+              if (this.busy) { InfinityLoadingIndicator({ indicatorSize: 28 }) }
               else { SymbolGlyph($r('sys.symbol.plus')).fontSize(28).fontColor([AppColor.Brand]) }
             }.width(56).height(56).backgroundColor(AppTheme.Surface).shadow(ShadowStyle.OUTER_DEFAULT_SM)
               .margin({ right: 24, bottom: WindowUtils.getBottomSafeVp() + 20 }).enabled(!this.busy).id('tts-add-voice')
@@ -405,7 +406,7 @@ export struct VoiceManagementPage {
           Text($r('app.string.reading_settings_load_error')).fontColor(AppTheme.TextSecondary).padding(20)
           Button($r('app.string.common_retry')).onClick((): void => { this.initialize(); })
             .fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
-        } else { LoadingProgress().width(32).height(32).color(AppColor.Brand) }
+        } else { InfinityLoadingIndicator({ indicatorSize: 32 }) }
       }.width('100%').height('100%')
         .padding({ top: this.ready ? 0 : this.headerHeight })
       FrostedPageHeader({ onHeightChange: (height: number): void => { this.headerHeight = height; } }) {

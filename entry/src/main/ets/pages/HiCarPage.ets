@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { ColorMetrics, LengthMetrics } from '@kit.ArkUI';
 import { emitter } from '@kit.BasicServicesKit';
 import { CoverImage } from '../components/CoverImage';
@@ -289,7 +290,7 @@ export struct HiCarPage {
       }.width('100%')
       if (this.opening || this.loading) {
         Column({ space: 12 }) {
-          LoadingProgress().color(AppColor.Brand).width(40).height(40)
+          InfinityLoadingIndicator({ indicatorSize: 40 })
           Text($r('app.string.hicar_loading')).fontSize(18).fontColor(CAR_SECONDARY)
         }.width('100%').layoutWeight(1).justifyContent(FlexAlign.Center)
       } else if (this.selectedBook) {
@@ -508,7 +509,7 @@ struct HiCarControl {
     Button({ type: ButtonType.Normal }) {
       Column({ space: 5 }) {
         if (this.loading) {
-          LoadingProgress().color(AppColor.Brand).width(28).height(28)
+          InfinityLoadingIndicator({ indicatorSize: 28 })
         } else {
           SymbolGlyph(this.icon).fontSize(this.compact ? 22 : 28).fontColor([this.primary ? AppColor.OnBrand : CAR_TEXT])
         }

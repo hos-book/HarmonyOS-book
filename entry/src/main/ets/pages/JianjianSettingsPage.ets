@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { SettingsHintButton } from '../components/SettingsHintButton';
 import { GeneralSettings } from '../model/GeneralSettings';
@@ -84,7 +85,7 @@ export struct JianjianSettingsPage {
         Column({ space: 18 }) {
           if (!this.ready) {
             Row({ space: 10 }) {
-              if (!this.failed) { LoadingProgress().color(AppColor.Brand).width(24).height(24) }
+              if (!this.failed) { InfinityLoadingIndicator({ indicatorSize: 24 }) }
               Text(this.failed ? $r('app.string.settings_load_failed') : $r('app.string.settings_loading'))
                 .fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary).layoutWeight(1)
               if (this.failed) {

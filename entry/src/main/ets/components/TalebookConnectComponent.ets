@@ -1,3 +1,4 @@
+import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { TalebookApiClient } from '../service/rulesource/talebook/TalebookApiClient';
 import { TalebookSourceIdentity } from '../service/rulesource/talebook/TalebookSourceIdentity';
 import { AppTheme, AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
@@ -82,7 +83,7 @@ export struct TalebookConnectComponent {
               .onClick((): void => { this.connect(); })
             Row({ space: AppSpace.Xs }) {
               if (this.busy) {
-                LoadingProgress().width(18).height(18).color(AppColor.Brand)
+                InfinityLoadingIndicator({ indicatorSize: 18 })
               }
               Text(this.busy ? $r('app.string.talebook_connecting') : $r('app.string.talebook_connect'))
                 .fontSize(AppFont.Body).fontWeight(FontWeight.Medium)
