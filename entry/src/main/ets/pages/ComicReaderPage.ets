@@ -39,7 +39,9 @@ import { TextReadingProgressService } from '../service/text/TextReadingProgressS
 import { ComicPage, ComicPageDataSource, ComicReaderService } from '../service/ComicReaderService';
 import { ReaderCacheService } from '../service/ReaderCacheService';
 import { OnlineTextContentCache } from '../service/text/OnlineTextContentCache';
-import { ComicWatermarkService, ComicWatermarkState } from '../service/ComicWatermarkService';
+import { ComicImagePluginService } from '../service/ComicImagePluginService';
+import { ComicImagePluginState } from '../model/ComicImagePlugin';
+import { ComicImagePluginHost } from '../components/ComicImagePluginHost';
 import { ComicSuperResolutionService } from '../service/ComicSuperResolutionService';
 import { MembershipState } from '../model/MembershipState';
 import { MembershipService } from '../service/MembershipService';
@@ -92,7 +94,7 @@ export struct ComicReaderPage {
   @Local pageOverlap: number = 10;
   private pageFraction: number = 0;
   @Local scrollInitialFraction: number = 0;
-  @Local watermarkState: ComicWatermarkState = ComicWatermarkService.instance.state;
+  @Local pluginState: ComicImagePluginState = ComicImagePluginService.instance.state;
   @Local superResolution: boolean = false;
   @Local zoomActive: boolean = false;
   @Local zoomOwner: string = '';
@@ -242,7 +244,6 @@ export struct ComicReaderPage {
     ComicColorizationService.release();
     this.imagePreloadGeneration++;
     this.savePosition(); this.foreground = false; this.volumeKeys.dispose(); this.smartKeys.dispose(); ReadingSessionService.end('reading');
-    ComicWatermarkService.instance.release().catch((): void => {});
   };
   private foregroundHandler = (): void => {
     this.foreground = true; this.syncVolumeKeys(); this.savePosition(); this.updateImagePreload();
@@ -330,7 +331,6 @@ export struct ComicReaderPage {
     ReaderCacheService.release(this.diskCacheOwner);
     ReaderCacheService.release(`${this.diskCacheOwner}-lists`);
     this.readerVisible = false;
-    ComicWatermarkService.instance.release().catch((): void => {});
     this.holdingHand.setVisible(false);
     this.brightnessControl.dispose();
     if (this.loadFeedbackTimer >= 0) clearInterval(this.loadFeedbackTimer);
@@ -359,7 +359,7 @@ export struct ComicReaderPage {
       await PreferenceService.applyTocOrder(book);
       const position = await TextReadingProgressService.get(context, book.id);
       const superResolution = await PreferenceService.getComicSuperResolution();
-      await ComicWatermarkService.instance.initialize(context);
+      await ComicImagePluginService.instance.initialize(context);
       const settings = await TextReadingSettingsService.get(context);
       // 首次沿用旧章节条偏好，此后漫画与小说分别保存。
       const showChapterBar = await PreferenceService.getComicChapterBar(settings.showChapterBar);
@@ -953,6 +953,9 @@ export struct ComicReaderPage {
 
   build() {
     Stack({ alignContent: Alignment.Top }) {
+      if (this.pluginState.hasActive && this.foreground && this.readerVisible) {
+        ComicImagePluginHost()
+      }
       if (this.translation && this.foreground && this.readerVisible) {
         ComicOfflineTranslationHost()
       }
@@ -987,7 +990,7 @@ export struct ComicReaderPage {
             initialFraction: this.scrollInitialFraction,
             initialChapterIndex: this.chapterIndex, initialPageIndex: this.pageIndex,
             initialPages: this.scrollInitialPages, pageWidth: this.imageWidth(), displayMode: this.displayMode,
-            watermarkRemoval: this.watermarkState.enabled, superResolution: this.superResolution, trimWhiteBorder: this.trimWhiteBorder, appearance: this.appearance,
+            pluginsActive: this.pluginState.hasActive, pluginRevision: this.pluginState.revision, superResolution: this.superResolution, trimWhiteBorder: this.trimWhiteBorder, appearance: this.appearance,
             placeholderColor: this.canvasInk,
             pageHeight: this.heightVp, viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,
             colorization: this.colorization, translation: this.translation, translationDirection: this.translationDirection,
@@ -1002,7 +1005,7 @@ export struct ComicReaderPage {
           Stack() {
             ForEach(this.currentPages(), (page: ComicPage) => {
               Column() {
-                ComicPageImage({ onGeometryReady: (): void => this.refreshSplitPages(), page: page, watermarkRemoval: this.watermarkState.enabled, superResolution: this.superResolution,
+                ComicPageImage({ onGeometryReady: (): void => this.refreshSplitPages(), page: page, pluginsActive: this.pluginState.hasActive, pluginRevision: this.pluginState.revision, superResolution: this.superResolution,
                   autoPageRequest: this.autoPageRequest, autoPageActive: this.autoPageRunning,
                   onAutoPageEnd: (): void => this.finishAutoPageImage(page),
                   onAutoPageFailure: (): void => this.autoPageImageReady(page, true),
@@ -1023,7 +1026,7 @@ export struct ComicReaderPage {
           Swiper(this.swiper) {
             LazyForEach(this.pages, (page: ComicPage) => {
               Column() {
-                ComicPageImage({ onGeometryReady: (): void => this.refreshSplitPages(), page: page, watermarkRemoval: this.watermarkState.enabled, superResolution: this.superResolution, pageWidth: this.imageWidth(), pageHeight: this.heightVp,
+                ComicPageImage({ onGeometryReady: (): void => this.refreshSplitPages(), page: page, pluginsActive: this.pluginState.hasActive, pluginRevision: this.pluginState.revision, superResolution: this.superResolution, pageWidth: this.imageWidth(), pageHeight: this.heightVp,
                    autoPageRequest: this.autoPageRequest,
                    autoPageActive: this.autoPageRunning && page.key === this.pages.getData(this.pageIndex).key,
                    onAutoPageEnd: (): void => this.finishAutoPageImage(page),
@@ -1088,10 +1091,6 @@ export struct ComicReaderPage {
             iconColor: this.colorization && this.membership.hasAccess ? AppColor.Brand : $r('sys.color.font_primary'),
             onPress: (): void => { this.setColorization(!this.colorization); } })
             .id('comic-colorization-toggle').enabled(ComicColorizationService.supported())
-          ImmersiveCircleButton({ icon: $r('sys.symbol.eraser_line'), label: $r('app.string.comic_watermark_title'),
-            iconColor: this.watermarkState.enabled ? AppColor.Brand : $r('sys.color.font_primary'),
-            onPress: (): void => { this.setWatermarkRemoval(!this.watermarkState.enabled); } })
-            .id('comic-watermark-shortcut').enabled(!this.watermarkState.busy)
           ImmersiveCircleButton({ icon: $r('sys.symbol.square_grid_2x2'), label: $r('app.string.reader_more'),
             onPress: (): void => { this.showReaderMenu = !this.showReaderMenu; } })
             .id('comic-reader-functions')
@@ -1790,16 +1789,6 @@ export struct ComicReaderPage {
     } finally { this.settingsSaving = false; }
   }
 
-  private setWatermarkRemoval(enabled: boolean): void {
-    if (enabled && !this.watermarkState.installed) {
-      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_watermark_prepare') });
-      return;
-    }
-    ComicWatermarkService.instance.setEnabled(enabled).catch((): void => {
-      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_save_failed') });
-    });
-  }
-
   private setColorization(enabled: boolean): void {
     if (enabled && !this.membership.hasAccess) {
       this.getUIContext().getPromptAction().showToast({ message: $r('app.string.membership_feature_required') });
@@ -2074,13 +2063,6 @@ export struct ComicReaderPage {
           selected: [0, 2, 5, 10, 20].indexOf(this.imagePreloadCount),
           onSelect: (index: number): void => { this.setImagePreloadCount([0, 2, 5, 10, 20][index]); }
         }).enabled(!this.settingsSaving)
-      }
-      ReaderSettingCard({ compact: true, title: $r('app.string.comic_watermark_title'), inline: true,
-        description: this.watermarkState.installed ? $r('app.string.comic_watermark_hint') : $r('app.string.comic_watermark_prepare') }) {
-        Toggle({ type: ToggleType.Switch, isOn: this.watermarkState.enabled }).selectedColor(AppColor.Brand)
-          .enabled(this.watermarkState.installed && !this.watermarkState.busy)
-          .onChange((enabled: boolean): void => { this.setWatermarkRemoval(enabled); })
-          .id('comic-watermark-toggle')
       }
       ReaderSettingCard({ compact: true, title: $r('app.string.comic_ai_sr'), inline: true, showVip: MembershipState.featureEnabled,
         description: $r('app.string.comic_ai_sr_hint') }) {

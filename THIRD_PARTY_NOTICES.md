@@ -6,12 +6,10 @@
 - Copyright (c) 2026 Bartosz Zagrodzki，MIT License。原版路径、线段比例和两秒循环节奏由 ArkUI V2 原生组件呈现，颜色绑定应用主题色。
 - 完整许可随应用保存在 `entry/src/main/resources/rawfile/third_party/loading_ui/LICENSE.txt`。
 
-## 漫画本地智能去水印
+## 漫画图片插件
 
-- 图像处理使用 SLBR 公开模型，来源为 https://github.com/bcmi/SLBR-Visible-Watermark-Removal ，论文为 Liang 等，ACM Multimedia 2021，Visible Watermark Removal via Self-calibrated Localization and Background Refinement。
-- 配套 ONNX 由官方预训练权重导出，单独导入应用。当前上游仓库提供研究引用与权重；模型公开发行条款仍待作者明确。
-- 原生桥使用 ONNX Runtime 1.17.3 的 MIT 公共 C API 头，文件及许可证保存在 `third_party/onnxruntime/`。运行库复用既有 sherpa-onnx 依赖，应用随附许可位于 `rawfile/third_party/offline_tts/`。
-- AI 多角色识别复用用户已有 AI 服务配置，人物语音合成继续使用下列既有依赖。
+- 图片插件 ABI 参考 Koma： https://github.com/honjow/Koma/blob/master/docs/image-processing-plugin-abi.md 。本地宿主与后台 Worker 在本项目实现。
+- 漫画水印清理与包子漫画横幅去除的外部算法来自 https://github.com/honjow/koma-sources/tree/master/image-rules/plugins ，由用户以独立 `.jtplugin` 文件导入。应用包仅包含宿主。上游资源授权以原作者声明为准，公开分发算法包前取得作者明确授权。
 
 ## 本地 TTS 与多角色声音
 

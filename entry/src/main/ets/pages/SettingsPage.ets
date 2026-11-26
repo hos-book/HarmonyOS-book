@@ -849,8 +849,8 @@ export struct SettingsPage {
           }.width('100%')
           Row({ space: AppSpace.Xs }) {
             this.buildDefaultSpeedButton(false)
-            Slider({ value: this.defaultPlaybackSpeedDraft, min: 0.5, max: 3, step: 0.05 })
-              .attributeModifier(new SliderGestureModifier(0.5, 3))
+            Slider({ value: this.defaultPlaybackSpeedDraft, min: 0.5, max: PlatformCompat.maxPlaybackSpeed, step: 0.05 })
+              .attributeModifier(new SliderGestureModifier(0.5, PlatformCompat.maxPlaybackSpeed))
               .blockColor(AppColor.Brand).selectedColor(AppColor.Brand).layoutWeight(1)
               .accessibilityText($r('app.string.settings_default_playback_speed'))
               .onChange((value: number, mode: SliderChangeMode): void => {
@@ -929,8 +929,8 @@ export struct SettingsPage {
     .width(44).height(44)
     .backgroundColor(Color.Transparent).hoverEffect(HoverEffect.None)
     .enabled(this.isLoaded && !this.isSavingDefaultPlaybackSpeed &&
-      (increase ? this.defaultPlaybackSpeedDraft < 3 : this.defaultPlaybackSpeedDraft > 0.5))
-    .opacity((increase ? this.defaultPlaybackSpeedDraft < 3 : this.defaultPlaybackSpeedDraft > 0.5) ? 1 : 0.4)
+      (increase ? this.defaultPlaybackSpeedDraft < PlatformCompat.maxPlaybackSpeed : this.defaultPlaybackSpeedDraft > 0.5))
+    .opacity((increase ? this.defaultPlaybackSpeedDraft < PlatformCompat.maxPlaybackSpeed : this.defaultPlaybackSpeedDraft > 0.5) ? 1 : 0.4)
     .accessibilityText(increase ? $r('app.string.player_speed_increase') : $r('app.string.player_speed_decrease'))
     .onClick((): void => {
       this.setDefaultPlaybackSpeed(this.defaultPlaybackSpeedDraft + (increase ? 0.05 : -0.05));

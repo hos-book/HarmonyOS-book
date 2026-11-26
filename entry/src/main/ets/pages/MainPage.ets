@@ -709,7 +709,7 @@ export struct MainPage {
     const progress = await PreferenceService.getProgress(book.id);
     const savedSpeed = progress?.speed ?? last.speed;
     const speed = typeof savedSpeed === 'number' && Number.isFinite(savedSpeed) && savedSpeed > 0
-      ? Math.min(4.0, Math.max(0.125, savedSpeed)) : await PreferenceService.getDefaultPlaybackSpeed();
+      ? Math.min(PlatformCompat.maxPlaybackSpeed, Math.max(0.125, savedSpeed)) : await PreferenceService.getDefaultPlaybackSpeed();
     // 与 EntryAbility 恢复并行；异步读取期间已有播放状态时，不能用旧快照覆盖。
     if (this.playerState.currentBook) return;
     // 先还原倍速再公布当前书籍，避免同书续播跳过倍速读取并把默认 1 倍重新落盘。

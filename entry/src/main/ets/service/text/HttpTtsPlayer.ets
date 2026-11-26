@@ -215,7 +215,7 @@ export class HttpTtsPlayer {
   prepare(config: CustomTtsConfig, text: string, speed: number): Promise<void> {
     if (this.preparation === null) {
       hilog.info(0x0000, 'SpeechQueue', 'task=%{public}d chars=%{public}d', this.taskId, text.length);
-      this.preparation = this.synthesize(config, text, speed);
+      this.preparation = this.synthesize(config, text, CustomTtsConfigParser.synthesisSpeed(config, speed));
     }
     return this.preparation;
   }
@@ -345,12 +345,14 @@ export class HttpTtsPlayer {
   async speak(context: common.Context, config: CustomTtsConfig, text: string, speed: number,
     requestId: string, onStart: () => void, output: HttpTtsAudioOutput,
     onProgress: ((position: number, duration: number) => void) | null = null): Promise<void> {
-    output.setPlaybackSpeed(CustomTtsConfigParser.usesSpeed(config) ? 1 : speed);
+    const playbackSpeed = CustomTtsConfigParser.usesSpeed(config)
+      ? speed / CustomTtsConfigParser.synthesisSpeed(config, speed) : speed;
+    output.setPlaybackSpeed(playbackSpeed);
     await this.prepare(config, text, speed);
     this.trace('consume');
     const buffer = this.preparedAudio;
     if (buffer === null) throw new Error('TTS audio unavailable');
-    await this.speakAudio(context, buffer, CustomTtsConfigParser.usesSpeed(config) ? 1 : speed,
+    await this.speakAudio(context, buffer, playbackSpeed,
       requestId, onStart, output, onProgress, true);
   }
 

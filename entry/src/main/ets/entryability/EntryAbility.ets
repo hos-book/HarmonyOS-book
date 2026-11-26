@@ -382,7 +382,7 @@ export default class EntryAbility extends UIAbility {
 
   private normalizeSpeed(speed: number | undefined): number {
     if (speed === undefined || !Number.isFinite(speed) || speed <= 0) return 1.0;
-    return Math.min(4.0, Math.max(0.125, speed));
+    return Math.min(PlatformCompat.maxPlaybackSpeed, Math.max(0.125, speed));
   }
 
   /**

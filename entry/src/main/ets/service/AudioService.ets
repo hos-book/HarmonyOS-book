@@ -1653,11 +1653,11 @@ export class AudioService {
     return avSession.LoopMode.LOOP_MODE_SEQUENCE;
   }
 
-  /** 归一化倍速:缺省/NaN/Infinity/非正数一律回 1.0,其余 clamp 到 AVPlayer 合法区间 [0.125, 4.0]。
+  /** 归一化倍速:缺省/NaN/Infinity/非正数一律回 1.0,其余按设备能力限制到最高 5 倍速。
    *  恢复持久化值和 setSpeed 走同一逻辑,防止反序列化出的脏数据被直接喂给 setPlaybackRate。 */
   private normalizeSpeed(speed: number | undefined): number {
     if (speed === undefined || !Number.isFinite(speed) || speed <= 0) return 1.0;
-    return Math.min(4.0, Math.max(0.125, speed));
+    return Math.min(PlatformCompat.maxPlaybackSpeed, Math.max(0.125, speed));
   }
 
   async setLoudnessGain(gain: number, restoring: boolean = false): Promise<boolean> {
@@ -1720,7 +1720,7 @@ export class AudioService {
   async setSpeed(speed: number): Promise<void> {
     if (this.state?.isLive) return;
     const p = await this.ensurePlayer();
-    // 连续(无级)倍速:用 setPlaybackRate,有效范围 [0.125, 4.0]。
+    // 连续倍速使用 setPlaybackRate，API 26 起最高 5 倍速，早期系统最高 4 倍速。
     // 旧实现用 media.PlaybackSpeed 离散枚举,只能 0.75/1/1.25/1.75/2,无法无级调节。
     const rate = this.normalizeSpeed(speed);
     try {

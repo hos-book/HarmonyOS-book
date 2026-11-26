@@ -203,7 +203,7 @@ export class TextToSpeechService {
     const follow = this.store.getSync('follow', true);
     const synthesis = this.store.getSync('synthesis', '{}');
     this.state.synthesis = SpeechSynthesisSettings.parse(typeof synthesis === 'string' ? synthesis : '{}');
-    this.state.speed = typeof speed === 'number' && Number.isFinite(speed) ? Math.max(0.5, Math.min(3, speed)) : 1;
+    this.state.speed = typeof speed === 'number' && Number.isFinite(speed) ? Math.max(0.5, Math.min(PlatformCompat.maxPlaybackSpeed, speed)) : 1;
     this.state.person = typeof person === 'number' && Number.isFinite(person) ? person : 13;
     this.state.language = typeof language === 'string' ? language : 'zh-CN';
     this.state.follow = typeof follow === 'boolean' ? follow : true;
@@ -563,7 +563,7 @@ export class TextToSpeechService {
 
   setSpeed(speed: number): void {
     if (!Number.isFinite(speed)) return;
-    const next = Math.round(Math.max(0.5, Math.min(3, speed)) * 100) / 100;
+    const next = Math.round(Math.max(0.5, Math.min(PlatformCompat.maxPlaybackSpeed, speed)) * 100) / 100;
     if (next === this.state.speed) return;
     const config = this.state.customTtsConfigs.find((item: CustomTtsConfig): boolean => item.id === this.state.customTtsId);
     if (!this.roles.enabled && config && !CustomTtsConfigParser.usesSpeed(config)) {

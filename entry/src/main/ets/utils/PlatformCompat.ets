@@ -15,6 +15,11 @@ export class PlatformCompat {
     return deviceInfo.sdkApiVersion >= apiVersion;
   }
 
+  /** API 26 起支持更高播放倍速；早期系统沿用 4 倍速能力。 */
+  static get maxPlaybackSpeed(): number {
+    return PlatformCompat.supports(26) ? 5 : 4;
+  }
+
   static get immersiveMaterial(): boolean {
     // SMOOTH 是设备算力档，不是系统设置的“弱”；这类设备统一用可见底色回退。
     if (!PlatformCompat.supports(26)) return false;

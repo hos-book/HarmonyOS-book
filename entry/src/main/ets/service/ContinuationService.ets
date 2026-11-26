@@ -6,6 +6,7 @@ import { PreferenceService, PlayProgress } from './PreferenceService';
 import { AudioService } from './AudioService';
 import { AVSessionService } from './AVSessionService';
 import { SearchCache } from '../utils/SearchCache';
+import { PlatformCompat } from '../utils/PlatformCompat';
 
 export const CONTINUATION_PAYLOAD_KEY: string = 'listenbook_continuation_v1';
 const CONTINUATION_VERSION: number = 1;
@@ -168,6 +169,6 @@ export class ContinuationService {
 
   private static normalizeSpeed(speed: number): number {
     if (!Number.isFinite(speed) || speed <= 0) return 1.0;
-    return Math.min(4.0, Math.max(0.125, speed));
+    return Math.min(PlatformCompat.maxPlaybackSpeed, Math.max(0.125, speed));
   }
 }

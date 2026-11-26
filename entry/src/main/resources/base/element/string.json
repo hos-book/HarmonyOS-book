@@ -3226,7 +3226,7 @@
     },
     {
       "name": "guide_player_speed_desc",
-      "value": "调整为 0.5–3 倍速，长按恢复原速。"
+      "value": "支持 0.5–5 倍速，API 20–25 最高 4 倍速，长按恢复原速。"
     },
     {
       "name": "guide_player_sleep_action",
@@ -6882,7 +6882,7 @@
     },
     {
       "name": "player_speed_max",
-      "value": "3.0x"
+      "value": "%sx"
     },
     {
       "name": "shelf_remove_from_group",
@@ -8904,7 +8904,7 @@
     },
     {
       "name": "model_pack_help",
-      "value": "漫画着色请选择配套 .jtmodel，智能去水印请选择配套 SLBR .onnx，AI 字幕请选择配套 ZIP；本地 TTS 直接导入对应的官方 .tar.bz2，Kokoro 也兼容已有配套 ZIP。AI 多角色朗读复用已有 AI 配置。模型由用户单独导入，普通阅读和播放可独立使用。漫画翻译语言包在首次使用时按需下载。"
+      "value": "漫画着色请选择配套 .jtmodel，AI 字幕请选择配套 ZIP；本地 TTS 直接导入对应的官方 .tar.bz2，Kokoro 也兼容已有配套 ZIP。漫画图片插件在此导入对应 .jtplugin 并开启开关。AI 多角色朗读复用已有 AI 配置。模型由用户单独导入，普通阅读和播放可独立使用。漫画翻译语言包在首次使用时按需下载。"
     },
     {
       "name": "model_pack_space",
@@ -9195,19 +9195,22 @@
     {"name": "role_ai_configure", "value": "前往 AI 配置"},
     {"name": "role_ai_model", "value": "识别模型：%s"},
     {"name": "role_ai_config_error", "value": "请完成 AI 配置后启用角色识别"},
-    {"name": "comic_watermark_title", "value": "智能去水印"},
-    {"name": "comic_watermark_hint", "value": "本地识别页边文字、Logo 与画面内半透明水印，并修复覆盖区域"},
-    {"name": "comic_watermark_prepare", "value": "请先到“我的 → 模型管理”导入去水印模型"},
-    {"name": "comic_watermark_working", "value": "智能去水印中…"},
-    {"name": "comic_watermark_queued", "value": "等待去水印…"},
-    {"name": "comic_watermark_preparing", "value": "正在准备去水印…"},
-    {"name": "comic_watermark_progress", "value": "智能去水印 %d/%d"},
-    {"name": "comic_watermark_saving", "value": "正在保存去水印图片…"},
-    {"name": "comic_watermark_error", "value": "去水印处理失败，当前显示原图"},
-    {"name": "comic_watermark_model_hint", "value": "推荐导入配套 SLBR .ms 模型，优先使用设备 NPU 加速；ONNX 模型使用 CPU 处理。图片在设备内完成水印定位与背景修复。复杂水印与漫画文字的识别效果受模型影响，可通过阅读开关查看原图。"},
-    {"name": "comic_watermark_model_size", "value": "SLBR · 本地模型 · 已安装 %d MB"},
-    {"name": "comic_watermark_model_loading", "value": "正在处理本地模型…"},
-    {"name": "comic_watermark_model_error", "value": "去水印模型操作失败"},
-    {"name": "comic_watermark_source", "value": "复制模型来源地址"}
+    {"name": "plugin_management", "value": "模型管理"},
+    {"name": "comic_plugin_description", "value": "插件说明"},
+    {"name": "comic_plugin_manage_hint", "value": "导入对应的 .jtplugin 文件后，分别开启所需插件。插件在本机处理漫画正文图片，原始下载文件保留。"},
+    {"name": "comic_plugin_watermarks", "value": "漫画水印清理"},
+    {"name": "comic_plugin_watermarks_hint", "value": "识别已收录的 DM5、拷贝漫画及集云数据等角落水印，填充留白或恢复局部画面。"},
+    {"name": "comic_plugin_banners", "value": "包子漫画横幅去除"},
+    {"name": "comic_plugin_banners_hint", "value": "识别漫画顶部或底部的包子漫画横幅，确认边界后裁切。"},
+    {"name": "comic_plugin_installed", "value": "已安装 · 版本 %d · %d KB"},
+    {"name": "comic_plugin_missing", "value": "待导入插件"},
+    {"name": "comic_plugin_import", "value": "导入插件"},
+    {"name": "comic_plugin_replace", "value": "替换插件"},
+    {"name": "comic_plugin_remove", "value": "卸载"},
+    {"name": "comic_plugin_imported", "value": "插件已导入，请开启所需插件"},
+    {"name": "comic_plugin_import_error", "value": "导入失败，请选择对应的 .jtplugin 文件"},
+    {"name": "comic_plugin_operation_error", "value": "插件操作失败，请重试"},
+    {"name": "comic_plugin_working", "value": "图片插件处理中…"},
+    {"name": "comic_plugin_process_error", "value": "图片插件处理失败，当前显示原图"}
   ]
 }

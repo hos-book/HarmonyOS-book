@@ -2947,7 +2947,7 @@ export struct PlayerPage {
     const current = action.startsWith('speed') ? this.speedValue
       : action.startsWith('intro') ? this.skipIntroValue : this.skipOutroValue;
     const min = action.startsWith('speed') ? 0.5 : 0;
-    const max = action.startsWith('speed') ? (3) : 120;
+    const max = action.startsWith('speed') ? PlatformCompat.maxPlaybackSpeed : 120;
     return action.endsWith('Down') ? current > min : current < max;
   }
 
@@ -2964,7 +2964,7 @@ export struct PlayerPage {
   private adjustValue(action: string): void {
     const delta = action.endsWith('Down') ? -1 : 1;
     if (action.startsWith('speed')) {
-      this.speedValue = Math.min(3, Math.max(0.5, Math.round(this.speedValue * 20 + delta) / 20));
+      this.speedValue = Math.min(PlatformCompat.maxPlaybackSpeed, Math.max(0.5, Math.round(this.speedValue * 20 + delta) / 20));
       this.setPlaybackSpeed(this.speedValue);
       return;
     }
@@ -3085,8 +3085,8 @@ export struct PlayerPage {
 
           Row({ space: AppSpace.Sm }) {
             this.buildAdjustmentButton('speedDown')
-            Slider({ value: this.speedValue, min: 0.5, max: 3, step: 0.05 })
-              .attributeModifier(new SliderGestureModifier(0.5, 3))
+            Slider({ value: this.speedValue, min: 0.5, max: PlatformCompat.maxPlaybackSpeed, step: 0.05 })
+              .attributeModifier(new SliderGestureModifier(0.5, PlatformCompat.maxPlaybackSpeed))
               .blockColor(AppColor.Brand)
               .trackColor($r('sys.color.comp_divider'))
               .selectedColor(AppColor.Brand)
@@ -3108,7 +3108,7 @@ export struct PlayerPage {
               .fontSize(AppFont.Caption)
               .fontColor($r('sys.color.font_tertiary'))
             Blank()
-             Text($r('app.string.player_speed_max'))
+             Text($r('app.string.player_speed_max', PlatformCompat.maxPlaybackSpeed.toFixed(1)))
               .fontSize(AppFont.Caption)
               .fontColor($r('sys.color.font_tertiary'))
           }

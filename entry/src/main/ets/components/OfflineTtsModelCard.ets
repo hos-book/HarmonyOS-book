@@ -1,12 +1,10 @@
-import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
 import { sendableContextManager } from '@kit.AbilityKit';
 import { emitter, pasteboard } from '@kit.BasicServicesKit';
 import { OfflineTtsModelState } from '../model/OfflineTts';
 import { getOfflineTtsModel } from '../model/OfflineTtsCatalog';
 import { OfflineTtsModelService } from '../service/text/OfflineTtsModelService';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
-import { AppColor, AppFont, AppRadius, AppSpace, AppTheme } from '../theme/Theme';
-import { SettingsHintButton } from './SettingsHintButton';
+import { ModelManagementRow } from './ModelManagementRow';
 
 /** 权重由用户导入，音色通过现有朗读和角色配音入口选择。 */
 @ComponentV2
@@ -59,11 +57,6 @@ export struct OfflineTtsModelCard {
     return definition ? definition.maxSpeaker - definition.minSpeaker + 1 : 0;
   }
 
-  private controlId(action: string): string {
-    const id = `offline-tts-model-${action}`;
-    return this.modelId === 'kokoro-int8-v1_1' ? id : `${id}-${this.modelId}`;
-  }
-
   private errorMessage(error: Error): Resource {
     if (error.message === 'offline_tts_space') return $r('app.string.offline_tts_space');
     if (error.message === 'offline_tts_invalid' || error.message === 'offline_tts_pack_invalid') {
@@ -112,12 +105,27 @@ export struct OfflineTtsModelCard {
     finally { this.saving = false; this.removing = false; this.onChanging(false); }
   }
 
-  private showDownload(): void {
+  private showDescription(): void {
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
+    const resources = context.resourceManager;
+    const sections: string[] = [resources.getStringSync(this.hint().id)];
+    if (this.ready) {
+      sections.push(this.state.installed ? resources.getStringSync($r('app.string.offline_tts_installed').id,
+        this.voiceCount()) : resources.getStringSync($r('app.string.offline_tts_missing').id));
+      if (this.state.installed) {
+        sections.push(resources.getStringSync($r('app.string.offline_tts_size').id,
+          Math.round(this.state.bytes / 1024 / 1024)));
+      }
+    }
+    if (this.failed || this.state.error) sections.push(resources.getStringSync($r('app.string.offline_tts_failed').id));
+    const download = this.modelId === 'piper-xiaoya-int8-v1' ?
+      $r('app.string.offline_tts_piper_xiaoya_download_message') : this.modelId === 'piper-chaowen-int8-v1' ?
+        $r('app.string.offline_tts_piper_download_message') : $r('app.string.offline_tts_download_message');
+    sections.push(resources.getStringSync(download.id));
     this.getUIContext().showAlertDialog({
-      title: $r('app.string.offline_tts_download_title'), message: this.modelId === 'piper-xiaoya-int8-v1' ?
-        $r('app.string.offline_tts_piper_xiaoya_download_message') : this.modelId === 'piper-chaowen-int8-v1' ?
-        $r('app.string.offline_tts_piper_download_message') : $r('app.string.offline_tts_download_message'),
-      primaryButton: { value: $r('app.string.common_cancel'), action: (): void => {} },
+      title: this.title(), message: sections.join('\n\n'),
+      primaryButton: { value: $r('app.string.common_ok'), action: (): void => {} },
       secondaryButton: { value: $r('app.string.role_model_download_link'), action: (): void => { this.copyDownload(); } }
     });
   }
@@ -132,62 +140,22 @@ export struct OfflineTtsModelCard {
     } catch (_error) { this.toast($r('app.string.offline_tts_failed')); }
   }
 
+  private operationStatus(): ResourceStr {
+    if (!this.ready) return '';
+    return this.removing ? $r('app.string.model_pack_deleting') : this.state.verifying ?
+      $r('app.string.model_pack_verifying') : $r('app.string.model_pack_importing', this.state.progress);
+  }
+
   build() {
-    Column({ space: AppSpace.Sm }) {
-      Row() {
-        Row({ space: AppSpace.Xxs }) {
-          Text(this.title()).fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium)
-            .fontColor(AppTheme.TextPrimary)
-          SettingsHintButton({ title: this.title(), message: this.hint() })
-            .id(this.controlId('hint'))
-        }.layoutWeight(1)
-        if (this.ready) {
-          Text(this.state.installed ? $r('app.string.offline_tts_installed', this.voiceCount()) : $r('app.string.offline_tts_missing'))
-            .fontSize(AppFont.Caption).fontColor(this.state.installed ? AppColor.Brand : AppTheme.TextSecondary)
-        }
-      }.width('100%')
-      if (this.ready) {
-        if (this.state.installed) {
-          Text($r('app.string.offline_tts_size', Math.round(this.state.bytes / 1024 / 1024)))
-            .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
-        }
-        if (this.state.busy || this.removing) {
-          Row({ space: AppSpace.Sm }) {
-            InfinityLoadingIndicator({ indicatorSize: 22 })
-            Text(this.removing ? $r('app.string.model_pack_deleting') : this.state.verifying ?
-              $r('app.string.model_pack_verifying') : $r('app.string.model_pack_importing', this.state.progress))
-              .fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary).layoutWeight(1)
-            if (!this.removing) {
-              Button($r('app.string.common_cancel')).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
-                .onClick((): void => this.model.cancel()).id(this.controlId('cancel'))
-            }
-          }.width('100%')
-        } else {
-          Row({ space: AppSpace.Sm }) {
-            Button(this.state.installed ? $r('app.string.model_pack_replace') : $r('app.string.model_pack_import'))
-              .fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand).layoutWeight(1)
-              .enabled(!this.saving && !this.blocked).onClick((): void => { this.importModel(); })
-              .id(this.controlId('import'))
-            if (this.state.installed) {
-              Button($r('app.string.common_delete')).fontColor(AppTheme.TextSecondary).backgroundColor(Color.Transparent)
-                .enabled(!this.saving && !this.blocked).onClick((): void => this.confirmRemove()).id(this.controlId('delete'))
-            }
-          }.width('100%')
-        }
-        if (this.state.error) {
-          Text($r('app.string.offline_tts_failed')).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
-        }
-        Button($r('app.string.offline_tts_download_link')).fontSize(AppFont.Caption).fontColor(AppColor.Brand)
-          .backgroundColor(Color.Transparent).onClick((): void => this.showDownload()).id(this.controlId('download'))
-      } else if (this.failed) {
-        Text($r('app.string.offline_tts_failed')).fontColor(AppTheme.TextSecondary)
-        Button($r('app.string.common_retry')).fontColor(AppColor.Brand).backgroundColor(Color.Transparent)
-          .onClick((): void => { this.load(); })
-      } else {
-        InfinityLoadingIndicator({ indicatorSize: 28 })
-      }
-    }.width('100%').alignItems(HorizontalAlign.Start).padding(AppSpace.Md)
-      .borderRadius(AppRadius.Lg).backgroundColor(AppTheme.Surface)
+    ModelManagementRow({ itemId: this.modelId, label: this.title(),
+      blocked: this.blocked || this.saving, removable: this.state.installed,
+      processing: this.state.busy || this.removing || (!this.ready && !this.failed),
+      cancellable: this.state.busy && !this.removing, status: this.operationStatus(),
+      importLabel: this.failed ? $r('app.string.common_retry') : this.state.installed ?
+        $r('app.string.model_pack_replace') : $r('app.string.model_pack_import'),
+      onInfo: (): void => this.showDescription(),
+      onImport: (): void => { if (this.failed) this.load(); else this.importModel(); },
+      onRemove: (): void => this.confirmRemove(), onCancel: (): void => this.model.cancel() })
       .id(this.modelId === 'kokoro-int8-v1_1' ? 'model-pack-offline-tts' : `model-pack-offline-tts-${this.modelId}`)
   }
 }

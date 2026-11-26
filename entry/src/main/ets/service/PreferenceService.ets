@@ -1,4 +1,5 @@
 import { ComicReaderAppearance } from '../model/ComicReaderAppearance';
+import { PlatformCompat } from '../utils/PlatformCompat';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { AudioCacheNetworkPolicy } from './AudioCacheNetworkPolicy';
 import { BookPresentation, BookPresentationEdit } from '../model/BookPresentation';
@@ -1566,7 +1567,7 @@ export class PreferenceService {
 
   static normalizeDefaultPlaybackSpeed(speed: number | undefined): number {
     if (typeof speed !== 'number' || !Number.isFinite(speed) || speed <= 0) return 1;
-    return Math.round(Math.max(0.5, Math.min(3, speed)) * 20) / 20;
+    return Math.round(Math.max(0.5, Math.min(PlatformCompat.maxPlaybackSpeed, speed)) * 20) / 20;
   }
 
   /** 仅供没有单本倍速记录的有声书起播时使用，不修改正在播放的书。 */

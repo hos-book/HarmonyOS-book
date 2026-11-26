@@ -202,6 +202,14 @@ export class CustomTtsConfigParser {
     return /\{\{[^}]*\b(speakSpeed|speakSpeedPercent|speechRate|speed|rate)\b[^}]*\}\}/.test(config.url + config.body);
   }
 
+  static synthesisSpeed(config: CustomTtsConfig, speed: number): number {
+    if (isOfflineTtsProvider(config.provider)) return Math.min(3, speed);
+    const template = config.url + config.body;
+    const legacy = /\{\{[^}]*\bspeakSpeed\b[^}]*\}\}/.test(template);
+    const direct = /\{\{[^}]*\b(speakSpeedPercent|speechRate|speed|rate)\b[^}]*\}\}/.test(template);
+    return legacy && !direct ? Math.min(2, speed) : speed;
+  }
+
   static async requestOptions(config: CustomTtsConfig, text: string, speed: number): Promise<http.HttpRequestOptions> {
     const structured = /^[\s]*[\[{]/.test(config.body);
     let headers = config.header;

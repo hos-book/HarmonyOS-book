@@ -6,7 +6,8 @@ import { fileUri } from '@kit.CoreFileKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { AppColor } from '../theme/Theme';
-import { ComicWatermarkService } from '../service/ComicWatermarkService';
+import { ComicImagePluginService } from '../service/ComicImagePluginService';
+import { image } from '@kit.ImageKit';
 import { ComicSuperResolutionService } from '../service/ComicSuperResolutionService';
 import { MembershipState } from '../model/MembershipState';
 import { ReaderCacheService } from '../service/ReaderCacheService';
@@ -37,13 +38,13 @@ export struct ComicPageImage {
   @Event onAutoPageFailure: () => void = (): void => {};
   @Event onAutoPageDelay: () => void = (): void => {};
   private pageScroller: Scroller = new Scroller();
-  @Param watermarkRemoval: boolean = false;
-  @Local cleanedUrl: string = '';
-  @Local watermarkBusy: boolean = false;
-  @Local watermarkFailed: boolean = false;
-  @Local watermarkCompleted: number = -2;
-  @Local watermarkTotal: number = 0;
-  private watermarkSerial: number = 0;
+  @Param pluginsActive: boolean = false;
+  @Param pluginRevision: number = 0;
+  @Local processedWidth: number = 0;
+  @Local processedUrl: string = '';
+  @Local pluginBusy: boolean = false;
+  @Local pluginFailed: boolean = false;
+  private pluginSerial: number = 0;
   @Param superResolution: boolean = false;
   @Param colorization: boolean = false;
   @Param translation: boolean = false;
@@ -110,7 +111,7 @@ export struct ComicPageImage {
     this.enhancementSerial++;
     this.colorSerial++;
     this.cropSerial++;
-    this.watermarkSerial++;
+    this.pluginSerial++;
     ReaderCacheService.release(this.cacheOwner);
   }
 
@@ -148,7 +149,8 @@ export struct ComicPageImage {
     this.cropSerial++;
     this.crop = new ComicCropRect();
     this.resolvedUrl = '';
-    this.cleanedUrl = ''; this.watermarkBusy = false; this.watermarkFailed = false; this.watermarkSerial++;
+    this.processedWidth = 0;
+    this.processedUrl = ''; this.pluginBusy = false; this.pluginFailed = false; this.pluginSerial++;
     this.enhancedUrl = '';
     this.enhancementFailed = false;
     this.enhancementSerial++;
@@ -180,7 +182,7 @@ export struct ComicPageImage {
       page.trimWhiteBorderReady = true;
       this.protectImage();
       this.onGeometryReady();
-      this.removeWatermark();
+      this.processPlugins();
       this.enhance();
       this.colorize();
       const context = this.getUIContext().getHostContext();
@@ -195,50 +197,50 @@ export struct ComicPageImage {
   }
 
   private protectImage(): void {
-    if (this.visible) ReaderCacheService.protect(this.cacheOwner, [this.resolvedUrl, this.cleanedUrl, this.enhancedUrl, this.coloredUrl]);
+    if (this.visible) ReaderCacheService.protect(this.cacheOwner, [this.resolvedUrl, this.processedUrl, this.enhancedUrl, this.coloredUrl]);
     else ReaderCacheService.release(this.cacheOwner);
   }
 
-  @Monitor('watermarkRemoval')
-  private onWatermarkChanged(): void {
-    this.watermarkSerial++; this.cleanedUrl = ''; this.watermarkBusy = false; this.watermarkFailed = false;
+  @Monitor('pluginRevision')
+  private onPluginsChanged(): void {
+    this.pluginSerial++; this.processedWidth = 0; this.processedUrl = ''; this.pluginBusy = false; this.pluginFailed = false;
+    this.ratio = this.page.width > 0 ? this.page.height / this.page.width : 0;
+    this.onTrimChanged();
     this.colorSerial++; this.coloredUrl = ''; this.colorBusy = false; this.colorFailed = false;
     this.enhancementSerial++; this.enhancedUrl = ''; this.enhancementFailed = false;
-    this.removeWatermark(); this.enhance(); this.colorize();
+    this.processPlugins(); this.enhance(); this.colorize();
   }
 
-  private removeWatermark(): void {
-    if (!this.alive || !this.visible || !this.colorizationActive || !this.watermarkRemoval ||
-      !this.resolvedUrl || this.cleanedUrl || this.watermarkBusy || this.watermarkFailed) return;
+  private processPlugins(): void {
+    if (!this.alive || !this.visible || !this.colorizationActive || !this.pluginsActive ||
+      !this.resolvedUrl || this.processedUrl || this.pluginBusy || this.pluginFailed) return;
     const context = this.getUIContext().getHostContext();
     if (!context) return;
-    const ticket = ++this.watermarkSerial;
-    this.watermarkBusy = true;
-    this.watermarkCompleted = -2;
-    this.watermarkTotal = 0;
+    const ticket = ++this.pluginSerial;
+    this.pluginBusy = true;
     const active = (): boolean => this.alive && this.visible && this.colorizationActive &&
-      this.watermarkRemoval && ticket === this.watermarkSerial;
-    ComicWatermarkService.instance.transform(context, this.resolvedUrl, active,
-      (completed: number, total: number): void => {
-        if (active()) { this.watermarkCompleted = completed; this.watermarkTotal = total; }
-      }).then((path: string): void => {
+      this.pluginsActive && ticket === this.pluginSerial;
+    ComicImagePluginService.instance.transform(context, this.resolvedUrl, active).then(async (path: string): Promise<void> => {
       if (!active()) return;
-      this.cleanedUrl = path; this.watermarkFailed = !path; this.protectImage();
-      this.enhance(); this.colorize();
+      const source = image.createImageSource(new fileUri.FileUri(path).path);
+      try {
+        const info = await source.getImageInfo();
+        const crop = this.trimWhiteBorder ? await ComicWhiteBorderService.inspect(path) : new ComicCropRect();
+        if (!active()) return;
+        this.processedWidth = info.size.width;
+        this.ratio = info.size.height / info.size.width;
+        this.crop = this.displayCrop(crop);
+        this.processedUrl = path;
+        this.protectImage(); this.onGeometryReady();
+        this.enhance(); this.colorize();
+      } finally { await source.release(); }
     }).catch((): void => {
       if (active()) {
-        this.watermarkFailed = true;
-        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_watermark_error') });
+        this.pluginFailed = true;
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.comic_plugin_process_error') });
         this.enhance(); this.colorize();
       }
-    }).finally((): void => { if (ticket === this.watermarkSerial) this.watermarkBusy = false; });
-  }
-
-  private watermarkLabel(): Resource {
-    if (this.watermarkCompleted === -2) return $r('app.string.comic_watermark_queued');
-    if (this.watermarkCompleted < 0) return $r('app.string.comic_watermark_preparing');
-    if (this.watermarkCompleted === this.watermarkTotal) return $r('app.string.comic_watermark_saving');
-    return $r('app.string.comic_watermark_progress', this.watermarkCompleted, this.watermarkTotal);
+    }).finally((): void => { if (ticket === this.pluginSerial) this.pluginBusy = false; });
   }
 
   @Monitor('superResolution')
@@ -251,13 +253,13 @@ export struct ComicPageImage {
   }
 
   private enhance(): void {
-    if (this.watermarkRemoval && !this.cleanedUrl && !this.watermarkFailed) return;
+    if (this.pluginsActive && !this.processedUrl && !this.pluginFailed) return;
     if (this.colorization || this.translation || !this.visible || !this.resolvedUrl || !this.superResolution || this.enhancedUrl || this.enhancementFailed) return;
     const context = this.getUIContext().getHostContext();
     if (!context) return;
     const ticket = ++this.enhancementSerial;
     const active = (): boolean => this.visible && this.superResolution && ticket === this.enhancementSerial;
-    ComicSuperResolutionService.enhance(context, this.cleanedUrl || this.resolvedUrl, active,
+    ComicSuperResolutionService.enhance(context, this.processedUrl || this.resolvedUrl, active,
       this.getUIContext().vp2px(this.imageWidth())).then((uri: string): void => {
       if (!active()) return;
       this.enhancedUrl = uri;
@@ -283,9 +285,9 @@ export struct ComicPageImage {
   private onAiActiveChanged(): void {
     this.colorSerial++;
     this.colorBusy = false;
-    this.watermarkSerial++;
-    this.watermarkBusy = false;
-    this.removeWatermark();
+    this.pluginSerial++;
+    this.pluginBusy = false;
+    this.processPlugins();
     this.colorize();
   }
 
@@ -297,7 +299,7 @@ export struct ComicPageImage {
   }
 
   private colorize(): void {
-    if (this.watermarkRemoval && !this.cleanedUrl && !this.watermarkFailed) return;
+    if (this.pluginsActive && !this.processedUrl && !this.pluginFailed) return;
     const translate = this.translation && this.membership.hasAccess;
     if (!this.membership.hasAccess || !this.alive || !this.visible || (!this.colorization && !translate) || !this.colorizationActive ||
       !this.resolvedUrl || this.coloredUrl || this.colorBusy || this.colorFailed) return;
@@ -314,7 +316,7 @@ export struct ComicPageImage {
     const active = (): boolean => this.alive && this.visible && this.membership.hasAccess &&
       (this.colorization || translate) && this.colorizationActive &&
       ticket === this.colorSerial;
-    ComicColorizationService.transform(context, this.cleanedUrl || this.resolvedUrl, active,
+    ComicColorizationService.transform(context, this.processedUrl || this.resolvedUrl, active,
       translate ? this.translationDirection : '', this.colorization, trace).then((path: string): void => {
       if (!active()) return;
       this.colorReadyAt = path ? Date.now() : 0;
@@ -333,7 +335,7 @@ export struct ComicPageImage {
     this.resetZoom();
     if (!this.trimWhiteBorder) this.crop = this.displayCrop(new ComicCropRect());
     else if (this.resolvedUrl) {
-      const crop = await ComicWhiteBorderService.inspect(this.resolvedUrl);
+      const crop = await ComicWhiteBorderService.inspect(this.processedUrl || this.resolvedUrl);
       if (!this.alive || ticket !== this.cropSerial) return;
       this.crop = this.displayCrop(crop);
     }
@@ -393,7 +395,7 @@ export struct ComicPageImage {
 
   private decodeWidth(): number {
     const ratio = this.originalRatio();
-    const nativeWidth = this.page.width > 0 ? this.page.width * (this.enhancedUrl ? 4 : 1) : 1536;
+    const nativeWidth = (this.processedWidth || this.page.width || 1536) * (this.enhancedUrl ? 4 : 1);
     const enlarged = this.decodeScale > 1;
     return Math.max(1, Math.floor(Math.min(this.getUIContext().vp2px(this.imageWidth() / this.crop.width) * this.decodeScale,
       enlarged ? 4096 : 3072, (enlarged ? 8192 : 4096) / ratio,
@@ -490,7 +492,7 @@ export struct ComicPageImage {
   }
 
   private displayUrl(): string {
-    return (this.membership.hasAccess ? this.coloredUrl || this.enhancedUrl : '') || this.cleanedUrl || this.resolvedUrl;
+    return (this.membership.hasAccess ? this.coloredUrl || this.enhancedUrl : '') || this.processedUrl || this.resolvedUrl;
   }
 
   private decodeSize(): ImageSourceSize {
@@ -545,10 +547,10 @@ export struct ComicPageImage {
           .accessibilityText($r('app.string.comic_page_number', this.page.index + 1))
       }.width(this.imageWidth() * this.zoomState.scale).height(this.imageHeight() * this.zoomState.scale)
         .position({ x: this.imageX(), y: this.imageY() }).clip(true)
-      if (this.watermarkBusy) {
+      if (this.pluginBusy) {
         Row({ space: 6 }) {
           InfinityLoadingIndicator({ indicatorSize: 18 })
-          Text(this.watermarkLabel()).fontSize(12).fontColor(Color.White)
+          Text($r('app.string.comic_plugin_working')).fontSize(12).fontColor(Color.White)
         }.padding(8).backgroundColor('#99000000').borderRadius(12).margin({ top: 8, left: 8 })
           .hitTestBehavior(HitTestMode.None)
       }
@@ -622,13 +624,13 @@ export struct ComicPageImage {
       if (visible) {
         if (!this.imageRequested) this.loadImage();
         else ComicImageLoader.promote(this.page.sourceUrl, this.pendingUrl);
-        this.removeWatermark();
+        this.processPlugins();
         this.enhance();
         this.colorize();
       }
       else {
         this.resetZoom(); this.enhancementSerial++; this.colorSerial++; this.colorBusy = false;
-        this.watermarkSerial++; this.watermarkBusy = false;
+        this.pluginSerial++; this.pluginBusy = false;
       }
     })
   }

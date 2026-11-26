@@ -53,10 +53,5 @@ target_compile_options(record_dissolve PRIVATE -Wall -Wextra -fstack-protector-s
 target_link_libraries(record_dissolve PRIVATE libace_napi.z.so libhilog_ndk.z.so
   libpixelmap.so libnative_window.so libnative_vsync.so libEGL.so libGLESv3.so)
 
-add_library(comic_watermark SHARED comic_watermark.cpp)
-target_include_directories(comic_watermark PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../../../third_party/onnxruntime/include")
-target_compile_options(comic_watermark PRIVATE -O2 -Wall -Wextra -fstack-protector-strong)
-target_link_libraries(comic_watermark PRIVATE libace_napi.z.so libmindspore_lite_ndk.so libhilog_ndk.z.so
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../../oh_modules/sherpa_onnx/libs/${OHOS_ARCH}/libonnxruntime.so")
 
 

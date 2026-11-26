@@ -49,8 +49,8 @@ const SETTINGS_ITEMS: ProfileItem[] = [
   new ProfileItem($r('sys.symbol.gearshape'), '设置', 'settings', '#8E8E93'),
   new ProfileItem($r('sys.symbol.book'), $r('app.string.reading_settings_title'), 'readingSettings',
     '#4E8FC6'),
-  new ProfileItem($r('sys.symbol.doc_text'), $r('app.string.model_pack_manage'), 'aiModelSettings',
-    '#7E74C8'),
+  new ProfileItem($r('sys.symbol.square_grid_2x2'), $r('app.string.plugin_management'), 'pluginManagement',
+    '#69977A'),
   new ProfileItem($r('sys.symbol.car'), $r('app.string.hicar_settings_title'), 'hicar',
     '#3B9F9B'),
   new ProfileItem($r('sys.symbol.person_fill'), $r('app.string.jianjian_settings_title'),
@@ -133,8 +133,8 @@ export struct ProfilePage {
 
     } else if (id === 'readingSettings') {
       this.navStack.pushPathByName('readingSettings', '');
-    } else if (id === 'aiModelSettings') {
-      this.navStack.pushPathByName('aiModelSettings', '');
+    } else if (id === 'pluginManagement') {
+      this.navStack.pushPathByName('pluginManagement', '');
     } else if (id === 'hicar') {
       this.navStack.pushPathByName('hicar', '');
     } else if (id === 'jianjianSettings') {

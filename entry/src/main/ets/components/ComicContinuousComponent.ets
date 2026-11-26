@@ -34,7 +34,8 @@ export struct ComicContinuousComponent {
   @Param zoomOwner: string = '';
   @Param paged: boolean = false;
   @Param overlap: number = 10;
-  @Param watermarkRemoval: boolean = false;
+  @Param pluginsActive: boolean = false;
+  @Param pluginRevision: number = 0;
   @Param superResolution: boolean = false;
   @Param colorization: boolean = false;
   @Param translation: boolean = false;
@@ -368,7 +369,7 @@ export struct ComicContinuousComponent {
       List({ scroller: this.scroller, space: 0, initialIndex: this.initialPageIndex }) {
         LazyForEach(this.source, (row: ComicScrollRow) => {
           ListItem() {
-            ComicPageImage({ page: row.page, watermarkRemoval: this.watermarkRemoval, pageWidth: this.pageWidth, superResolution: this.superResolution,
+            ComicPageImage({ page: row.page, pluginsActive: this.pluginsActive, pluginRevision: this.pluginRevision, pageWidth: this.pageWidth, superResolution: this.superResolution,
               pageHeight: this.pageHeight, displayMode: this.displayMode, trimWhiteBorder: this.trimWhiteBorder, appearance: this.appearance,
               placeholderColor: this.placeholderColor,
               viewportTop: this.viewportTop, zoomOwner: this.zoomOwner,

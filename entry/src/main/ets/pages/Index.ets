@@ -21,7 +21,7 @@ import { SpeechDisplaySettingsPage } from './SpeechDisplaySettingsPage';
 import { DialogueHighlightSettingsPage } from './DialogueHighlightSettingsPage';
 import { SpeechSynthesisSettingsPage } from './SpeechSynthesisSettingsPage';
 import { RoleSpeechSettingsPage } from './RoleSpeechSettingsPage';
-import { AiModelSettingsPage } from './AiModelSettingsPage';
+import { PluginManagementPage } from './PluginManagementPage';
 import { MembershipPage } from './MembershipPage';
 import { MembershipSubscriptionPage } from './MembershipSubscriptionPage';
 import { MembershipState } from '../model/MembershipState';
@@ -839,9 +839,9 @@ struct Index {
       ProfileMenuDestination() {
         RoleSpeechSettingsPage({ navStack: this.navStack })
       }
-    } else if (name === 'aiModelSettings') {
+    } else if (name === 'aiModelSettings' || name === 'pluginManagement') {
       ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
-        AiModelSettingsPage({ navStack: this.navStack })
+        PluginManagementPage({ navStack: this.navStack })
       }
     } else if (name === 'fontManagement') {
       ProfileMenuDestination() {
