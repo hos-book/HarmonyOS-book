@@ -13,6 +13,15 @@
 - 邀请测试覆盖全部现有测试组，开启测试通知，关闭上架自检及自检报告通知，选择即刻生效，测试期沿用 30 天。
 - 发布归档目录：`artifacts/releases/1.1.21-1031001/`。
 
+## 构建与邀测记录
+
+- 2026-11-26 使用 Release SDK 26.0.0.105 完成发布签名 APP 构建，包内版本为 1.1.21 / 1031001 / 构建 1，release 模式、debug=false，最低 API 20、目标 API 26。
+- AGC 控制台提交接口返回 `ret.code=0`；版本 ID：`2092251637316899008`，软件包 ID：`2092253194007656832`，软件包解析状态为 0。页面显示平台自动预审正在进行，预审通过后自动进入审核流程。
+- 简听外部体验（274 人）与内测组（1 人）均已绑定，全部测试组开启发布通知（`needNotify=1`），通知由 AGC 发布流程发送。
+- 上架自检及自检报告通知均关闭（`onshelfSelfDetect=0`、`onshelfSelfDetectNotice=0`），分发采用即刻生效模式（`sendMode=0`）；自检任务列表为空。外部测试组开放时间由平台审核结果决定。
+- 测试期为 2026-11-26 18:15:26 至 2026-12-26 23:59:59（北京时间）。发布包、混淆映射、包元数据、正式日志与平台回执保存于本版本归档目录，回执文件为 `release-progress.json`。
+- 本轮发布使用 [AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)及[邀测流程](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/workflows.md)，字段依据[测试版本更新接口](https://developer.huawei.com/consumer/cn/doc/doccenter-connect-api/agc-help-test-api-modify-test-version-0000002271160657)和[测试通知说明](https://developer.huawei.com/consumer/cn/doc/doccenter-connect-api/agc-help-test-api-data-testtaskinfo-0000002272455649)。
+
 ---
 
 # 1.1.20 构建 2 更新日志（2026-11-25）
