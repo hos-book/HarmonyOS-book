@@ -11,6 +11,15 @@
 - 邀请测试覆盖全部现有测试组，开启测试通知，关闭上架自检及自检报告通知，选择即刻生效，测试期沿用 30 天。
 - 发布归档目录：`artifacts/releases/1.1.22-1032001/`。
 
+## 构建与邀测记录
+
+- 2026-11-26 使用 Release SDK 26.0.0.105 完成发布签名 APP 构建；包内版本为 1.1.22 / 1032001 / 构建 1，release 模式、debug=false，最低 API 20、目标 API 26。
+- AGC 邀测提交接口返回 `ret.code=0`；版本 ID：`2092311635703142720`，软件包 ID：`2092314019175133760`，软件包解析状态为 0。提交后平台状态码为 7，实际开放时间由 AGC 处理结果决定。
+- 当前全部测试组均已绑定：简听外部体验（274 人）、内测组（1 人）；两组均开启发布通知（`needNotify=1`），通知由 AGC 发布流程发送。
+- 创建版本时关闭上架自检（`onshelfSelfDetect=0`）；自检报告查询返回任务为空。测试起始时间为 2026-11-26 20:11:50，结束时间为 2026-12-26 23:59:59（北京时间），采用即刻生效安排。
+- 发布包、混淆映射、包元数据、正式日志和平台回执归档于本版本目录；回执文件为 `release-progress.json`。更新日志聚焦播放与朗读倍速。
+- 本轮使用在线 [AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)、[邀测流程](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/workflows.md)与[命令说明](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/commands.md)，使用在线目录内的 CLI 完成提交。
+
 ---
 
 # 1.1.21 更新日志（2026-11-26）
