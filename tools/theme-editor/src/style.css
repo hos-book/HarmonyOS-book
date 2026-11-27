@@ -64,14 +64,21 @@ h1 { font-size: 18px; letter-spacing: 1px; margin: 0 0 6px; font-weight: 650; }
 .mini-shelf { display: flex; gap: 16px; }
 .mini-shelf .book-cover { width: 90px; height: 111px; }
 .mini-shelf .book-cover:nth-child(2) { background: linear-gradient(145deg, #95663f, #d4ba8e); }
-.phone-tabs { display: flex; padding: 10px 4px; border-radius: 30px; margin-top: auto; background: var(--controlFallback); border: 1px solid var(--stroke); box-shadow: 0 2px 14px var(--shadow); }
+.phone-tabs { display: flex; padding: 10px 4px; border-radius: 30px; margin-top: auto; background: var(--controlFallback); border: 1px solid var(--stroke); box-shadow: 0 2px 14px var(--shadow); backdrop-filter: blur(20px); }
 .phone-tab { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .phone-tab small { font-size: 9px; }
 .phone-tab.active { color: var(--brand); }
-.phone-tabs.vertical-tabs { margin-top: 8px; }
-.preview-mini-player { display: flex; gap: 12px; padding: 10px 14px; margin-top: auto; border-radius: 24px; background: var(--controlFallback); color: var(--textPrimary); font-size: 11px; }
 .home-indicator { width: 80px; height: 3px; border-radius: 3px; background: currentColor; opacity: .7; margin: 12px auto -7px; }
 .theme-caption { text-align: center; font-size: 11px; color: #9c9185; margin: 20px 0 0; }
+.phone-header-actions { display: flex; gap: 5px; justify-content: flex-end; margin: -4px 0 12px; }
+.preview-header-button { width: 28px; height: 28px; flex: 0 0 28px; padding: 0; display: grid; place-items: center; color: var(--iconPrimary); font-size: 18px; }
+.preview-header-button.system { border-radius: 50%; background: var(--controlFallback); border: 1px solid var(--divider); }
+.preview-header-button.custom { border-radius: 0; background: transparent; border: 0; }
+.preview-header-button img { display: block; object-fit: contain; }
+.preview-header-button .whole-button { width: 28px; height: 28px; }
+.preview-header-button .button-symbol { width: 18px; height: 18px; }
+.button-hint { font-size: 12px; line-height: 1.7; color: #76695e; margin: 0 0 22px; }
+.button-preview { margin-left: 12px; }
 .studio-note { font-size: 11px; color: #a09589; text-align: center; margin: 20px 0; }
 .record-card { padding: 22px 18px; border-radius: 18px; background: var(--surface); }
 .record-card p { color: var(--textSecondary); font-size: 12px; margin: 0 0 14px; }

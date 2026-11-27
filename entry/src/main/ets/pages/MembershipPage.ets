@@ -9,7 +9,9 @@ import { PlatformCompat } from '../utils/PlatformCompat';
 import { HdsCompat } from '../utils/HdsCompat';
 import { AppIconPage } from './AppIconPage';
 import { ThemeBundleComponent } from '../components/ThemeBundleComponent';
-import { ThemeEditorRoute } from '../model/ThemeDocument';
+import { AppAppearance } from '../model/AppAppearance';
+import { ThemeDraft, ThemeEditorRoute } from '../model/ThemeDocument';
+import { ThemePackageService } from '../service/ThemePackageService';
 
 /** 主题选择独立展示，受限图标按需打开会员中心。 */
 @ComponentV2
@@ -18,6 +20,7 @@ export struct MembershipPage {
   @Param initialTab: number = 0;
 
   @Local showMembership: boolean = false;
+  @Local importing: boolean = false;
   @Local selectedTab: number = 0;
   @Local tabBarHeight: number = 40;
   @Local tabBarWidth: number = 0;
@@ -30,6 +33,22 @@ export struct MembershipPage {
 
   aboutToAppear(): void {
     this.selectedTab = this.initialTab === 2 ? 1 : 0;
+  }
+
+  private async importTheme(): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
+    this.importing = true;
+    try {
+      const draft: ThemeDraft | undefined = await ThemePackageService.importPackage(context);
+      if (draft) {
+        this.navStack.pushPathByName('themeEditor', new ThemeEditorRoute(draft.document.id, draft));
+      }
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.theme_editor_failed') });
+    } finally {
+      this.importing = false;
+    }
   }
 
   @Builder
@@ -130,6 +149,28 @@ export struct MembershipPage {
           .fontColor(AppTheme.TextPrimary).layoutWeight(1).maxLines(1)
           .minFontSize(AppFont.BodyL).maxFontSize(AppFont.Title)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
+        Row({ space: 6 }) {
+          Button({ type: ButtonType.Capsule }) {
+            Row({ space: 4 }) {
+              SymbolGlyph($r('sys.symbol.paintpalette')).fontSize('14vp').fontColor([AppColor.Brand])
+              Text($r('app.string.theme_editor_create')).fontSize(12).fontWeight(FontWeight.Medium)
+                .fontColor(AppColor.Brand)
+            }
+          }.height(30).padding({ left: 8, right: 8 }).backgroundColor(AppColor.BrandSoft)
+            .accessibilityText($r('app.string.theme_editor_create'))
+            .onClick((): void => {
+              this.navStack.pushPathByName('themeEditor', new ThemeEditorRoute(AppAppearance.current.themeBundleId));
+            })
+          Button({ type: ButtonType.Capsule }) {
+            Row({ space: 4 }) {
+              SymbolGlyph($r('sys.symbol.square_and_arrow_down')).fontSize('14vp').fontColor([AppColor.Brand])
+              Text($r('app.string.theme_editor_import')).fontSize(12).fontWeight(FontWeight.Medium)
+                .fontColor(AppColor.Brand)
+            }
+          }.height(30).padding({ left: 8, right: 8 }).backgroundColor(AppColor.BrandSoft)
+            .accessibilityText($r('app.string.theme_editor_import'))
+            .enabled(!this.importing).onClick((): void => { this.importTheme(); })
+        }
       }.width('100%').padding({ top: WindowUtils.getStatusBarHeightVp() + AppSpace.Sm,
         left: AppSpace.Sm, right: AppSpace.Md, bottom: AppSpace.Sm })
         .id('theme-frosted-title-bar')

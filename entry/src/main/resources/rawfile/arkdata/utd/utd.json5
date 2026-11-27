@@ -1,0 +1,11 @@
+{
+  "UniformDataTypeDeclarations": [
+    {
+      "TypeId": "com.huan.listenbook.jttheme",
+      "BelongingToTypes": ["general.zip-archive"],
+      "FilenameExtensions": [".jttheme"],
+      "MIMETypes": ["application/x-jianting-theme"],
+      "Description": "简听阅读主题包"
+    }
+  ]
+}

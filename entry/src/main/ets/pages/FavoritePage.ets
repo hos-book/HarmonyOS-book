@@ -20,7 +20,7 @@ import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { HdsCompat } from '../utils/HdsCompat';
 import { ImmersiveMenu } from '../utils/ImmersiveMenu';
-import { CapsuleSegmentButtonV2, ColorMetrics, LengthMetrics, SegmentButtonV2Items } from '@kit.ArkUI';
+import { CapsuleSegmentButtonV2, ColorMetrics, LengthMetrics, SegmentButtonV2Items, SymbolGlyphModifier } from '@kit.ArkUI';
 import { common, ApplicationStateChangeCallback } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
 import {
@@ -39,7 +39,7 @@ import {
 } from '../theme/Theme';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
 import { AppBackgroundScene } from '../model/AppBackground';
-import { ThemeBackgroundScene } from '../model/AppThemeVisual';
+import { ThemeBackgroundScene, ThemeButtonRole } from '../model/AppThemeVisual';
 import { Book, Chapter } from '../model/Book';
 import { TocItem } from '../model/BookSource';
 import { BookSourceService } from '../service/BookSourceService';
@@ -492,6 +492,7 @@ export struct FavoritePage {
       }.layoutWeight(1).alignItems(HorizontalAlign.Start)
       if (this.canAddCollectionBooks()) {
         ImmersiveCircleButton({ icon: $r('sys.symbol.plus'), label: $r('app.string.collection_add_books'),
+          themeButtonRole: ThemeButtonRole.ShelfAdd,
           diameter: 30, iconSize: 16, useMaterial: false,
           onPress: (): void => this.openCollectionPicker() })
           .enabled(!this.isManaging && !this.removingBook && !this.loading)
@@ -500,9 +501,11 @@ export struct FavoritePage {
       ImmersiveCircleButton({ icon: this.collectionExpanded ? $r('sys.symbol.arrow_down_right_and_arrow_up_left') :
         $r('sys.symbol.arrow_up_left_and_arrow_down_right'),
         label: this.collectionExpanded ? $r('app.string.collection_collapse') : $r('app.string.collection_expand'),
+        themeButtonRole: this.collectionExpanded ? ThemeButtonRole.ShelfCollapse : ThemeButtonRole.ShelfExpand,
         diameter: 30, iconSize: 16, useMaterial: false,
         onPress: (): void => this.onCollectionExpand() }).id('shelf-collection-expand')
       ImmersiveCircleButton({ icon: $r('sys.symbol.xmark'), label: $r('app.string.common_close'),
+        themeButtonRole: ThemeButtonRole.ShelfClose,
         diameter: 30, iconSize: 16, useMaterial: false,
         onPress: (): void => this.onCollectionClose() }).id('shelf-collection-close')
     }.height(56).width('100%').padding({ left: 20, right: 20, top: 4, bottom: 4 })
@@ -2196,41 +2199,58 @@ export struct FavoritePage {
     return options;
   }
 
+  private bookActionIcon(icon: Resource, color: ResourceColor = $r('sys.color.font_primary')): SymbolGlyphModifier {
+    const modifier: SymbolGlyphModifier = new SymbolGlyphModifier(icon);
+    modifier.fontSize('18vp').fontColor([color]);
+    return modifier;
+  }
+
   @Builder
   bookActions(book: Book) {
     Menu() {
-      MenuItem({ content: this.isManaging ? $r('app.string.common_done') : $r('app.string.shelf_manage') })
+      MenuItem({ content: this.isManaging ? $r('app.string.common_done') : $r('app.string.shelf_manage'),
+        symbolStartIcon: this.bookActionIcon(this.isManaging ?
+          $r('sys.symbol.checkmark') : $r('sys.symbol.checkmark_square')) })
         .enabled(!this.removingBook)
         .onClick((): void => {
           if (this.isManaging) this.pendingManagementExit = true;
           else this.enterManagement(book.id);
         })
-      MenuItem({ content: this.hiddenShelf ? $r('app.string.shelf_unhide_book') : $r('app.string.shelf_hide_book') })
+      MenuItem({ content: this.hiddenShelf ? $r('app.string.shelf_unhide_book') : $r('app.string.shelf_hide_book'),
+        symbolStartIcon: this.bookActionIcon(this.hiddenShelf ? $r('sys.symbol.eye') : $r('sys.symbol.eye_slash')) })
         .enabled(!this.removingBook && !this.savingHidden)
         .onClick((): void => { this.pendingHiddenBookId = book.id; })
-      MenuItem({ content: $r('app.string.shelf_view_detail') })
+      MenuItem({ content: $r('app.string.shelf_view_detail'),
+        symbolStartIcon: this.bookActionIcon($r('sys.symbol.info_circle')) })
         .enabled(!this.removingBook)
         .onClick((): void => { this.pendingDetailBookId = book.id; })
-      MenuItem({ content: $r('app.string.shelf_group_settings') })
+      MenuItem({ content: $r('app.string.shelf_group_settings'),
+        symbolStartIcon: this.bookActionIcon($r('sys.symbol.folder')) })
         .enabled(!this.removingBook)
         .onClick((): void => this.openGroupManager(book))
-      MenuItem({ content: $r('app.string.shelf_edit_title') })
+      MenuItem({ content: $r('app.string.shelf_edit_title'),
+        symbolStartIcon: this.bookActionIcon($r('sys.symbol.square_and_pencil')) })
         .enabled(!this.removingBook)
         .onClick((): void => { this.editingBook = book; this.showBookEditor = true; })
       if (!this.isManaging) {
       MenuItem({ content: this.pinnedBookIds.has(book.id) ?
-        $r('app.string.shelf_unpin') : $r('app.string.shelf_pin') })
+        $r('app.string.shelf_unpin') : $r('app.string.shelf_pin'),
+        symbolStartIcon: this.bookActionIcon(this.pinnedBookIds.has(book.id) ?
+          $r('sys.symbol.pin_slash') : $r('sys.symbol.pin')) })
         .enabled(!this.pinningBook && !this.removingBook)
         .onClick((): void => { this.pendingPinBookId = book.id; })
       if (this.shelfGroup && this.shelfGroup !== BookPresentation.UNGROUPED) {
-        MenuItem({ content: $r('app.string.shelf_remove_from_group') })
+        MenuItem({ content: $r('app.string.shelf_remove_from_group'),
+          symbolStartIcon: this.bookActionIcon($r('sys.symbol.minus_circle')) })
           .enabled(!this.removingBook)
           .onClick((): void => { this.pendingGroupRemoval = book.id; })
       }
-      MenuItem({ content: $r('app.string.shelf_delete_only') })
+      MenuItem({ content: $r('app.string.shelf_delete_only'),
+        symbolStartIcon: this.bookActionIcon($r('sys.symbol.minus_circle'), AppColor.Brand) })
         .contentFontColor(AppColor.Brand)
         .onClick((): void => { this.removeActionBook(book, false); })
-      MenuItem({ content: $r('app.string.shelf_delete_local') })
+      MenuItem({ content: $r('app.string.shelf_delete_local'),
+        symbolStartIcon: this.bookActionIcon($r('sys.symbol.trash'), $r('sys.color.ohos_id_color_warning')) })
         .contentFontColor($r('sys.color.ohos_id_color_warning'))
         .onClick((): void => { this.removeActionBook(book, true); })
       }
@@ -2721,6 +2741,8 @@ export struct FavoritePage {
               diameter: 36, iconSize: 22, useMaterial: false,
               icon: $r('sys.symbol.magnifyingglass'),
               label: $r('app.string.shelf_search_expand'),
+              themeButtonRole: this.shelfKeyword.trim().length > 0 ?
+                ThemeButtonRole.ShelfSearchActive : ThemeButtonRole.ShelfSearch,
               iconColor: this.shelfKeyword.trim().length > 0 ? AppColor.Brand : $r('sys.color.icon_primary'),
               onPress: (): void => this.toggleShelfSearch()
             })
@@ -2733,6 +2755,7 @@ export struct FavoritePage {
               diameter: 36, iconSize: 22, useMaterial: false,
               icon: $r('sys.symbol.magnifyingglass'),
               label: $r('app.string.shelf_search_collapse'),
+              themeButtonRole: ThemeButtonRole.ShelfSearchActive,
               iconColor: AppColor.Brand,
               onPress: (): void => this.toggleShelfSearch()
             })
@@ -2743,12 +2766,14 @@ export struct FavoritePage {
         }.id('shelf-search-toggle').width(36).height(36).clip(false)
         if (this.viewMode !== 3) {
           ImmersiveCircleButton({ icon: $r('sys.symbol.funnel'), label: $r('app.string.shelf_status_filter'),
+            themeButtonRole: ThemeButtonRole.ShelfFilter,
             diameter: 36, iconSize: 22, useMaterial: false,
             onPress: (): void => this.showStatusFilter() })
             .enabled(!this.removingBook && !this.showBatchDelete)
             .bindMenu(this.statusFilterMenuVisible, this.buildStatusFilterMenu, this.statusFilterMenuOptions())
           if (!this.isManaging) {
             ImmersiveCircleButton({ icon: $r('sys.symbol.folder'), label: $r('app.string.shelf_group_filter'),
+              themeButtonRole: this.shelfGroup ? ThemeButtonRole.ShelfGroupActive : ThemeButtonRole.ShelfGroup,
               diameter: 36, iconSize: 22, useMaterial: false,
               iconColor: this.shelfGroup ? AppColor.Brand : $r('sys.color.icon_primary'),
               onPress: (): void => {
@@ -2763,13 +2788,16 @@ export struct FavoritePage {
           }
         } else {
           ImmersiveCircleButton({ icon: $r('sys.symbol.folder'), label: $r('app.string.shelf_group_manage'),
+            themeButtonRole: ThemeButtonRole.ShelfGroupManage,
             diameter: 36, iconSize: 22, useMaterial: false, onPress: (): void => this.openGroupManager() })
             .id('shelf-collection-manage').enabled(!this.isManaging && !this.removingBook && !this.showBatchDelete)
         }
         ImmersiveCircleButton({ icon: $r('sys.symbol.doc_text_badge_arrow_up'), label: $r('app.string.profile_local_import'),
+          themeButtonRole: ThemeButtonRole.ShelfImport,
           diameter: 36, iconSize: 22, useMaterial: false, onPress: (): void => { this.navStack.pushPathByName('import', ''); } })
           .id('shelf-local-import').enabled(!this.isManaging && !this.removingBook)
         ImmersiveCircleButton({ icon: $r('sys.symbol.arrow_clockwise'), label: $r('app.string.shelf_updates_title'),
+          themeButtonRole: ThemeButtonRole.ShelfUpdates,
           diameter: 36, iconSize: 22, useMaterial: false,
           onPress: (): void => { this.showUpdates = true; } })
           .id('shelf-refresh-button').enabled(!this.isManaging && !this.removingBook)
@@ -2777,6 +2805,8 @@ export struct FavoritePage {
           diameter: 36, iconSize: 22, useMaterial: false,
           icon: this.viewMode === 0 ? $r('sys.symbol.list_bullet') :
             (this.viewMode === 1 ? $r('sys.symbol.bookshelf') : $r('sys.symbol.square_grid_2x2')),
+          themeButtonRole: this.viewMode === 0 ? ThemeButtonRole.ShelfViewList :
+            (this.viewMode === 1 ? ThemeButtonRole.ShelfViewCollection : ThemeButtonRole.ShelfViewGrid),
           label: this.viewMode === 0 ? $r('app.string.shelf_view_list') :
             (this.viewMode === 1 ? $r('app.string.shelf_view_collection') : $r('app.string.shelf_view_grid')),
           onPress: (): void => this.toggleViewMode()

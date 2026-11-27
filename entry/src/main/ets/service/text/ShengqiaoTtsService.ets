@@ -29,10 +29,14 @@ export class ShengqiaoSynthesis {
   private cancelled: boolean = false;
   private requests: Set<http.HttpRequest> = new Set<http.HttpRequest>();
   private timeoutSeconds: number;
+  private onAudio: ((data: ArrayBuffer, rate: number, fraction: number) => void) | null = null;
+  private rejectStream: ((error: ShengqiaoFailure) => void) | null = null;
+  private audioBytes: number = 0;
   constructor(timeoutSeconds: number = 30) { this.timeoutSeconds = timeoutSeconds; }
 
   cancel(): void {
     this.cancelled = true;
+    this.rejectStream?.(new ShengqiaoFailure('shengqiao_cancelled'));
     this.requests.forEach((request: http.HttpRequest): void => request.destroy());
     this.requests.clear();
   }
@@ -60,7 +64,9 @@ export class ShengqiaoSynthesis {
     } finally { this.requests.delete(request); request.destroy(); }
   }
 
-  async synthesize(config: CustomTtsConfig, text: string): Promise<ArrayBuffer> {
+  async synthesize(config: CustomTtsConfig, text: string,
+    onAudio: ((data: ArrayBuffer, rate: number, fraction: number) => void) | null = null): Promise<ArrayBuffer> {
+    this.onAudio = onAudio;
     const plugin = ShengqiaoPluginService.instance;
     const voice = plugin.voice(config.modelId);
     if (!plugin.state.active || !voice) throw new ShengqiaoFailure('shengqiao_enable_required');
@@ -72,7 +78,7 @@ export class ShengqiaoSynthesis {
       this.check();
       plugin.state.elapsedMs = Date.now() - started;
       plugin.state.voiceName = voice.name;
-      plugin.state.audioBytes = result.byteLength;
+      plugin.state.audioBytes = this.onAudio === null ? result.byteLength : this.audioBytes;
       plugin.state.result = $r('app.string.shengqiao_success');
       return result;
     } catch (error) {
@@ -85,10 +91,27 @@ export class ShengqiaoSynthesis {
     }
   }
 
+  private deliverPcm(pcm: Uint8Array, rate: number, first: boolean, fraction: number): void {
+    const output = this.onAudio;
+    if (output === null) return;
+    if (!first) {
+      const gap = new ArrayBuffer(Math.round(rate * 0.08) * 2);
+      output(gap, rate, 0);
+      this.audioBytes += gap.byteLength;
+    }
+    const data = pcm.buffer.slice(pcm.byteOffset, pcm.byteOffset + pcm.byteLength);
+    output(data, rate, fraction);
+    this.audioBytes += data.byteLength;
+  }
+
   private async celia(text: string, voice: ShengqiaoVoice): Promise<ArrayBuffer> {
     const token = await ShengqiaoTtsService.instance.celiaToken(this);
     const parts: Uint8Array[] = [];
-    for (const chunk of splitForTts(text, 60, 80)) {
+    const chunks = splitForTts(text, 60, 80);
+    const total = chunks.reduce((length: number, chunk: string): number => length + chunk.length, 0);
+    let completed = 0;
+    let first = true;
+    for (const chunk of chunks) {
       const headers = ShengqiaoCeliaProtocol.headers('startTTS', '10-0');
       headers['token'] = 'Bearer ' + token;
       headers['language'] = 'zh';
@@ -100,9 +123,12 @@ export class ShengqiaoSynthesis {
       if (!(response instanceof ArrayBuffer)) throw new ShengqiaoFailure('shengqiao_audio');
       const pcm = ShengqiaoCeliaProtocol.audio(new Uint8Array(response));
       if (pcm === null || pcm.length === 0) throw new ShengqiaoFailure('shengqiao_audio');
-      parts.push(pcm);
+      completed += chunk.length;
+      if (this.onAudio === null) parts.push(pcm);
+      else this.deliverPcm(pcm, voice.sampleRate, first, completed / total);
+      first = false;
     }
-    return shengqiaoWave(concatPcm(parts, voice.sampleRate, 220), voice.sampleRate);
+    return this.onAudio === null ? shengqiaoWave(concatPcm(parts, voice.sampleRate, 80), voice.sampleRate) : new ArrayBuffer(0);
   }
 
   private async huawei(text: string, voice: ShengqiaoVoice): Promise<ArrayBuffer> {
@@ -110,11 +136,18 @@ export class ShengqiaoSynthesis {
     const token = await service.huaweiToken();
     this.check();
     const chunks = splitForTts(text, 60, 80);
+    const total = chunks.reduce((length: number, chunk: string): number => length + chunk.length, 0);
+    let completed = 0;
     const parts: Uint8Array[] = [];
+    let first = true;
     for (const chunk of chunks) {
-      parts.push(await this.huaweiChunk(chunk, voice, token, 0));
+      const pcm = await this.huaweiChunk(chunk, voice, token, 0);
+      completed += chunk.length;
+      if (this.onAudio === null) parts.push(pcm);
+      else this.deliverPcm(pcm, voice.sampleRate, first, completed / total);
+      first = false;
     }
-    return shengqiaoWave(concatPcm(parts, voice.sampleRate, 220), voice.sampleRate);
+    return this.onAudio === null ? shengqiaoWave(concatPcm(parts, voice.sampleRate, 80), voice.sampleRate) : new ArrayBuffer(0);
   }
 
   private async huaweiChunk(text: string, voice: ShengqiaoVoice, token: string, depth: number): Promise<Uint8Array> {
@@ -160,9 +193,93 @@ export class ShengqiaoSynthesis {
     const headers: Record<string, string> = { 'Authorization': 'Bearer ' + token.t,
       'Content-Type': 'application/ssml+xml', 'User-Agent': 'okhttp/4.5.0',
       'X-Microsoft-OutputFormat': 'audio-48khz-192kbitrate-mono-mp3' };
-    const response = await this.request(`https://${token.r}.tts.speech.microsoft.com/cognitiveservices/v1`, ssml, headers, true);
+    const endpoint = `https://${token.r}.tts.speech.microsoft.com/cognitiveservices/v1`;
+    if (this.onAudio !== null) {
+      await this.streamMp3(endpoint, ssml, headers);
+      return new ArrayBuffer(0);
+    }
+    const response = await this.request(endpoint, ssml, headers, true);
     if (!(response instanceof ArrayBuffer) || response.byteLength === 0) throw new ShengqiaoFailure('shengqiao_audio');
     return response;
+  }
+
+  private async streamMp3(url: string, body: string, headers: Record<string, string>): Promise<void> {
+    this.check();
+    const request = http.createHttp();
+    this.requests.add(request);
+    let idleTimer = -1;
+    let totalTimer = -1;
+    let settled = false;
+    try {
+      await new Promise<void>((resolve, reject): void => {
+        let status = -1;
+        let ended = false;
+        let bytes = 0;
+        let audioBody = false;
+        const pending: ArrayBuffer[] = [];
+        const head = new Uint8Array(3);
+        let headLength = 0;
+        const fail = (error: ShengqiaoFailure): void => {
+          if (settled) return;
+          settled = true;
+          reject(error);
+        };
+        const deliver = (): void => {
+          if (status >= 0 && status !== 200) return;
+          if (!audioBody && status !== 200) return;
+          for (const chunk of pending) {
+            this.onAudio?.(chunk, 0, 0);
+            this.audioBytes += chunk.byteLength;
+          }
+          pending.length = 0;
+        };
+        const finish = (): void => {
+          if (settled || !ended || status < 0) return;
+          if (status !== 200) { fail(new ShengqiaoFailure('shengqiao_http', status)); return; }
+          if (bytes === 0) { fail(new ShengqiaoFailure('shengqiao_audio')); return; }
+          try { deliver(); } catch (_error) { fail(new ShengqiaoFailure('shengqiao_audio')); return; }
+          settled = true;
+          resolve();
+        };
+        const resetIdle = (): void => {
+          if (idleTimer >= 0) clearTimeout(idleTimer);
+          idleTimer = setTimeout((): void => fail(new ShengqiaoFailure('shengqiao_network')), this.timeoutSeconds * 1000);
+        };
+        this.rejectStream = fail;
+        resetIdle();
+        totalTimer = setTimeout((): void => fail(new ShengqiaoFailure('shengqiao_network')),
+          Math.min(480000, this.timeoutSeconds * 4000));
+        request.on('dataReceive', (chunk: ArrayBuffer): void => {
+          if (settled || chunk.byteLength === 0) return;
+          bytes += chunk.byteLength;
+          if (bytes > 8 * 1024 * 1024) { fail(new ShengqiaoFailure('shengqiao_audio')); return; }
+          const count = Math.min(3 - headLength, chunk.byteLength);
+          head.set(new Uint8Array(chunk, 0, count), headLength);
+          headLength += count;
+          if (headLength === 3) audioBody = (head[0] === 73 && head[1] === 68 && head[2] === 51) ||
+            (head[0] === 255 && (head[1] & 224) === 224);
+          pending.push(chunk);
+          try { deliver(); } catch (_error) { fail(new ShengqiaoFailure('shengqiao_audio')); return; }
+          resetIdle();
+        });
+        request.on('dataEnd', (): void => { ended = true; finish(); });
+        const options: http.HttpRequestOptions = { method: http.RequestMethod.POST, extraData: body, header: headers,
+          usingCache: false, connectTimeout: this.timeoutSeconds * 1000,
+          readTimeout: Math.min(480000, this.timeoutSeconds * 4000) };
+        request.requestInStream(url, options).then((code: number): void => {
+          status = code;
+          finish();
+        }, (): void => fail(new ShengqiaoFailure('shengqiao_network')));
+      });
+      this.check();
+    } finally {
+      settled = true;
+      this.rejectStream = null;
+      if (idleTimer >= 0) clearTimeout(idleTimer);
+      if (totalTimer >= 0) clearTimeout(totalTimer);
+      this.requests.delete(request);
+      request.destroy();
+    }
   }
 }
 

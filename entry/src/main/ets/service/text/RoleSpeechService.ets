@@ -3,7 +3,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { CustomTtsConfig } from '../../model/CustomTtsConfig';
 import { JianjianAiError, JianjianAiErrorCode } from '../../model/JianjianAi';
 import { RoleAnalysisWindow, RoleBookSettings, RoleChapterAnalysis, RoleDialogue, RoleSpeaker, RoleSpeechState,
-  RoleSpeechSample, RoleVoiceOption } from '../../model/RoleSpeech';
+  RoleSpeechSample, RoleVoiceOption, RoleInferenceRequest, RoleModelAnswer } from '../../model/RoleSpeech';
 import { JianjianAiService } from '../JianjianAiService';
 import { RoleAiService } from './RoleAiService';
 import { RoleSpeechPlanner } from './RoleSpeechPlanner';
@@ -22,6 +22,7 @@ export class RoleSpeechService {
   private failed: boolean = false;
   private voices: RoleVoiceOption[] = [];
   private saveChain: Promise<void> = Promise.resolve();
+  private aheadClient: JianjianAiService = new JianjianAiService();
 
   static getInstance(): RoleSpeechService {
     if (RoleSpeechService.instance === null) RoleSpeechService.instance = new RoleSpeechService();
@@ -147,7 +148,10 @@ export class RoleSpeechService {
     await RoleAiService.instance.initialize(context);
     await this.selectBook(context, bookId, title);
     if (ticket !== this.epoch || !this.enabled) return;
-    this.content = content;
+    this.activateChapter(chapter, content, quotes);
+  }
+
+  private chapterAnalysis(chapter: string, content: string, quotes: string): RoleChapterAnalysis {
     let analysis = this.book.chapters.find((item: RoleChapterAnalysis): boolean => item.chapter === chapter);
     if (analysis === undefined) {
       analysis = new RoleChapterAnalysis();
@@ -155,7 +159,15 @@ export class RoleSpeechService {
       analysis.dialogues = RoleSpeechPlanner.dialogues(content, quotes);
       this.book.chapters.push(analysis);
     }
-    this.dialogues = analysis.dialogues;
+    return analysis;
+  }
+
+  activateChapter(chapter: string, content: string, quotes: string): void {
+    this.cancel();
+    this.failed = false;
+    this.state.error = '';
+    this.content = content;
+    this.dialogues = this.enabled ? this.chapterAnalysis(chapter, content, quotes).dialogues : [];
     this.windows = RoleSpeechPlanner.windows(this.dialogues);
     for (const window of this.windows) {
       window.complete = window.indices.every((id: number): boolean => this.dialogues[id].complete);
@@ -165,6 +177,43 @@ export class RoleSpeechService {
   cancel(): void {
     this.epoch++; this.pending.clear(); this.state.analysing = false;
     RoleAiService.instance.cancel();
+    this.cancelAhead();
+  }
+
+  cancelAhead(): void { this.aheadClient.cancel(); }
+
+  chapterBoundaries(chapter: string, content: string, quotes: string): number[] {
+    if (!this.enabled) return [];
+    const boundaries: number[] = [0, content.length];
+    for (const dialogue of this.chapterAnalysis(chapter, content, quotes).dialogues) {
+      boundaries.push(dialogue.start, dialogue.end);
+    }
+    return boundaries;
+  }
+
+  async prepareAhead(chapter: string, content: string, quotes: string, end: number,
+    active: () => boolean): Promise<void> {
+    if (!this.enabled) return;
+    const analysis = this.chapterAnalysis(chapter, content, quotes);
+    for (const task of this.pending.values()) await task;
+    for (const window of RoleSpeechPlanner.windows(analysis.dialogues)) {
+      if (!active() || !this.enabled || analysis.dialogues[window.indices[0]].start >= end) return;
+      if (window.indices.every((id: number): boolean => analysis.dialogues[id].complete)) continue;
+      const request = RoleSpeechPlanner.request(content, analysis.dialogues, window);
+      const result = await RoleAiService.instance.infer(request, this.book.speakers, this.voices, this.aheadClient);
+      if (!active() || !this.enabled) return;
+      this.applyAnswers(analysis.dialogues, window, request, result);
+      await this.save();
+    }
+  }
+
+  chapterVoiceAt(chapter: string, offset: number): string {
+    if (!this.enabled) return '';
+    const analysis = this.book.chapters.find((item: RoleChapterAnalysis): boolean => item.chapter === chapter);
+    const dialogue = analysis?.dialogues.find((item: RoleDialogue): boolean => item.start <= offset && item.end > offset);
+    if (!dialogue) return this.book.narratorVoiceId;
+    const speaker = this.book.speakers.find((item: RoleSpeaker): boolean => item.name === dialogue.speaker);
+    return speaker && speaker.voiceId ? speaker.voiceId : this.book.dialogueVoiceId;
   }
 
   private dialogueAt(offset: number): RoleDialogue | undefined {
@@ -227,33 +276,7 @@ export class RoleSpeechService {
         const request = RoleSpeechPlanner.request(this.content, this.dialogues, window);
         const result = await RoleAiService.instance.infer(request, this.book.speakers, this.voices);
         if (ticket !== this.epoch || !this.enabled) return;
-        const answers = RoleSpeechPlanner.answers(result, window.indices.length, request.context, this.book.speakers, this.voices);
-        for (let position = 0; position < window.indices.length; position++) {
-          const dialogue = this.dialogues[window.indices[position]];
-          const answer = answers[position];
-          const name = answer.speaker;
-          if (name !== '?') {
-            let speaker = this.book.speakers.find((item: RoleSpeaker): boolean => item.name === name);
-            if (!speaker) {
-              speaker = new RoleSpeaker(); speaker.name = name; speaker.id = name;
-              speaker.voiceId = answer.voiceId; speaker.voiceSource = 'ai';
-              this.book.speakers.push(speaker);
-            }
-            if (speaker.voiceSource === 'ai' || this.voiceNeedsMatch(speaker)) {
-              speaker.voiceId = answer.voiceId; speaker.voiceSource = 'ai';
-            }
-            if (speaker.genderSource !== 'manual') {
-              if (answer.gender !== 'pending' || !speaker.gender) speaker.gender = answer.gender;
-              speaker.genderSource = 'ai';
-            }
-            if (speaker.ageSource !== 'manual') {
-              speaker.age = answer.age; speaker.ageSource = 'ai';
-            }
-            if (answer.profile) speaker.profile = answer.profile;
-          }
-          dialogue.speaker = name; dialogue.complete = true;
-        }
-        window.complete = true; this.publish();
+        this.applyAnswers(this.dialogues, window, request, result);
         await this.save();
       } catch (error) {
         if (ticket !== this.epoch) return;
@@ -267,6 +290,37 @@ export class RoleSpeechService {
     })();
     this.pending.set(index, task);
     return task;
+  }
+
+  private applyAnswers(dialogues: RoleDialogue[], window: RoleAnalysisWindow, request: RoleInferenceRequest,
+    result: RoleModelAnswer[]): void {
+    const answers = RoleSpeechPlanner.answers(result, window.indices.length, request.context, this.book.speakers, this.voices);
+    for (let position = 0; position < window.indices.length; position++) {
+      const dialogue = dialogues[window.indices[position]];
+      const answer = answers[position];
+      const name = answer.speaker;
+      if (name !== '?') {
+        let speaker = this.book.speakers.find((item: RoleSpeaker): boolean => item.name === name);
+        if (!speaker) {
+          speaker = new RoleSpeaker(); speaker.name = name; speaker.id = name;
+          speaker.voiceId = answer.voiceId; speaker.voiceSource = 'ai';
+          this.book.speakers.push(speaker);
+        }
+        if (speaker.voiceSource === 'ai' || this.voiceNeedsMatch(speaker)) {
+          speaker.voiceId = answer.voiceId; speaker.voiceSource = 'ai';
+        }
+        if (speaker.genderSource !== 'manual') {
+          if (answer.gender !== 'pending' || !speaker.gender) speaker.gender = answer.gender;
+          speaker.genderSource = 'ai';
+        }
+        if (speaker.ageSource !== 'manual') {
+          speaker.age = answer.age; speaker.ageSource = 'ai';
+        }
+        if (answer.profile) speaker.profile = answer.profile;
+      }
+      dialogue.speaker = name; dialogue.complete = true;
+    }
+    window.complete = true; this.publish();
   }
 
   async retryChapter(): Promise<void> {

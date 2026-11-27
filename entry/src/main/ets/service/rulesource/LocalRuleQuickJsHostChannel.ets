@@ -1,4 +1,5 @@
 import { taskpool, util } from '@kit.ArkTS';
+import { waitRuleHostInterval } from 'libhsda_core.so';
 
 /** JSON-only mailbox for one bounded task. Never shared with another source or execution. */
 export class LocalRuleQuickJsHostReply {
@@ -60,16 +61,14 @@ export class LocalRuleQuickJsHostChannel {
     this.response.set(encoded);
     Atomics.store(this.control, 2, encoded.length);
     Atomics.store(this.control, 1, 1);
-    Atomics.notify(this.control, 1);
   }
 
   close(): void {
     this.closed = true;
     Atomics.store(this.control, 0, 1);
-    Atomics.notify(this.control, 1);
   }
 
-  /** Called only in the taskpool worker; the UI thread never blocks on Atomics.wait. */
+  /** The taskpool worker reads replies after each fixed native polling interval. */
   static call(control: Int32Array, response: Uint8Array, name: string, payload: string): string {
     if (Atomics.load(control, 0) !== 0) throw new Error('书源请求已取消');
     Atomics.store(control, 1, 0);
@@ -81,7 +80,7 @@ export class LocalRuleQuickJsHostChannel {
         Atomics.store(control, 0, 1);
         throw new Error('脚本宿主等待已取消或超时');
       }
-      Atomics.wait(control, 1, 0, 50);
+      waitRuleHostInterval();
     }
     if (Atomics.load(control, 0) !== 0) throw new Error('书源请求已取消');
     const length = Atomics.load(control, 2);

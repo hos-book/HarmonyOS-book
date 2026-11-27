@@ -18,7 +18,7 @@
 - `ShengqiaoPluginService` 管理包导入、启停和音色生成。包配置保存在独立 Preferences，华为刷新凭据保存在 Asset Store Kit；登录状态与简听会员账号分别管理。
 - `ShengqiaoAccountPage` 使用 ArkUI V2 隐私 Web 容器与既有 `LocalRuleWebSession` 租约，授权完成后保存刷新凭据并回到账号状态界面。凭据续期由共用服务执行。
 - `CustomTtsConfig.provider = shengqiao`，`modelId` 为上游音色 key，稳定 ID 为 `shengqiao:<key>`。已安装音色与现有目录合并，顺序、单项启停、移除、角色配音复用现有机制。
-- `HttpTtsPlayer` 将声桥提供方路由到 `ShengqiaoSynthesis`，使用上游小艺、华为 PCM 容器及微软合成协议。小艺通过应用令牌调用 `startTTS`，按 multipart 响应提取 16 kHz 单声道 PCM，分段拼接后封装 WAV；请求复用现有取消与错误展示。音频输出、暂停、预取、字符进度、音频焦点及倍速由现有播放链处理。
+- `HttpTtsPlayer` 将声桥提供方路由到 `ShengqiaoSynthesis`，使用上游小艺、华为 PCM 容器及微软合成协议。小艺通过应用令牌调用 `startTTS`，按 multipart 响应提取 16 kHz 单声道 PCM，本地播放倍率在 4 倍内时逐段交付 PCM，华为同样逐段交付 PCM，微软 MP3 使用网络流式接收与原生解码，输出复用 AudioRenderer；段间插入 80ms 静音。超过 4 倍时沿用完整音频和 AVPlayer。请求复用现有取消与错误展示；暂停、预取、字符进度、音频焦点及倍速接入现有播放服务。
 - `RoleVoiceMetadata` 补齐小艺 15 个预置音色的性别、上游已标注的年龄和声线特征，AI 多角色配音沿用当前候选目录与选声流程。
 - 华为令牌续期响应省略刷新令牌时沿用已保存凭据；服务返回新刷新令牌时更新系统密钥库。华为合成请求的 `x-traceId` 使用去除 `uuid#` 前缀的设备标识。登录、网络、插件启用与音频解析错误分别展示，HTTP 401/403 保留授权错误分类。
 - `ShengqiaoDebugPage` 复用 `VoicePreviewService`；试听采用独立选择，正式朗读的音色偏好继续保留。
@@ -26,6 +26,8 @@
 2026-11-27 布局调整：三个本地 TTS 模型及专属接入已移除，标题行与展开区按当前方案调整，八个改动文件 ArkTS 检查通过。
 
 2026-11-27 华为调用修正：令牌续期、请求头和错误分类已调整，三个改动 ETS 文件静态检查通过，音频解析依赖同步检查通过，保留现有建议项。Release SDK 26.0.0.105 的 Debug HAP 构建成功，包元数据确认 Release SDK 渠道，并已覆盖安装和启动到 Mate 80。实机声桥调试页显示书馆先生“合成成功”，耗时 4720 ms、音频 363 KB；用户反馈晓晓和 MAI 已可用。其余音色逐项合成、实际听感和连续朗读待进一步验证。
+
+2026-11-27 流式播放调整：HTTP 与微软 MP3 接入原生后台解码，小艺和华为按短段交付 PCM，当前章播放期间提前准备下一章的正文、角色结果及首批音频。实现参考本轮读取的 [媒体播放指引](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/sdk/hmos-one-sdk-skill/hmos-sdk-basic-skill/media-kit/hmos-media-kit-playback/SUB_SKILL.md)和 [AudioRenderer 播放文档](https://raw.githubusercontent.com/openharmony/docs/master/en/application-dev/media/audio/using-audiorenderer-for-playback.md)，接口版本依据本机 Release SDK 26.0.0.105 声明核对。设备首声、连续换章、暂停续播、倍速切换与后台听感仍待验证。
 
 ## 来源
 

@@ -1,17 +1,28 @@
 import { HdsTabs } from '@kit.UIDesignKit';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { HdsCompat } from '../utils/HdsCompat';
-import { AppColor } from '../theme/Theme';
+import { AppColor, AppTheme } from '../theme/Theme';
+import { ThemeButtonRole } from '../model/AppThemeVisual';
 import { ThemeIconRole } from '../theme/ThemeIcons';
 import { ThemeIconComponent } from './ThemeIconComponent';
 
 class ImmersiveCircleClip implements AttributeModifier<CommonAttribute> {
   private radius: number;
   private material: boolean;
+  private customImage: boolean;
 
-  constructor(radius: number, material: boolean) { this.radius = radius; this.material = material; }
+  constructor(radius: number, material: boolean, customImage: boolean) {
+    this.radius = radius;
+    this.material = material;
+    this.customImage = customImage;
+  }
 
   applyNormalAttribute(node: CommonAttribute): void {
+    if (this.customImage) {
+      node.borderRadius(0);
+      node.clip(false);
+      return;
+    }
     if (this.material && PlatformCompat.floatingTabs) node.borderRadius(this.radius, RenderStrategy.OFFSCREEN);
     else node.borderRadius(this.radius);
     node.clip(true);
@@ -23,6 +34,7 @@ class ImmersiveCircleClip implements AttributeModifier<CommonAttribute> {
 export struct ImmersiveCircleButton {
   @Param icon: Resource = $r('sys.symbol.arrow_clockwise');
   @Param themeIconRole: ThemeIconRole = ThemeIconRole.None;
+  @Param themeButtonRole: ThemeButtonRole = ThemeButtonRole.None;
   @Param label: Resource = $r('app.string.content_reload');
   @Param diameter: number = 40;
   @Param iconSize: number = 24;
@@ -37,6 +49,10 @@ export struct ImmersiveCircleButton {
   @Local touchX: number = 20;
   @Local touchY: number = 20;
   private longPressAccepted: boolean = false;
+
+  private buttonImage(): ResourceStr | undefined {
+    return AppTheme.resolve().visual.buttons.get(this.themeButtonRole);
+  }
 
   private updateTouch(event: TouchEvent): void {
     if (event.type === TouchType.Down) this.longPressAccepted = false;
@@ -78,7 +94,18 @@ export struct ImmersiveCircleButton {
 
   build() {
     Stack({ alignContent: Alignment.Center }) {
-      if (!this.useMaterial) {
+      if (this.buttonImage() !== undefined) {
+        Button({ type: ButtonType.Normal, stateEffect: false }) {
+          Image(this.buttonImage() ?? '').width(this.diameter).height(this.diameter)
+            .objectFit(ImageFit.Contain).hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
+        }.width(this.diameter).height(this.diameter).padding(0).borderRadius(0)
+          .backgroundColor(Color.Transparent).opacity(this.touching ? 0.78 : 1)
+          .onTouch((event: TouchEvent): void => this.updateTouch(event))
+          .accessibilityText(this.label).onClick((): void => this.handlePress())
+          .priorityGesture(LongPressGesture({ repeat: false, duration: 500 })
+            .tag('immersive-circle-long-press').onAction((): void => this.handleLongPress()))
+          .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeLongPress(info))
+      } else if (!this.useMaterial) {
         Button({ type: ButtonType.Circle }) { this.iconContent() }
           .width(this.diameter).height(this.diameter).padding(0)
           .backgroundColor(Color.Transparent)
@@ -123,11 +150,13 @@ export struct ImmersiveCircleButton {
             .tag('immersive-circle-long-press').onAction((): void => this.handleLongPress()))
           .onGestureJudgeBegin((info: GestureInfo): GestureJudgeResult => this.judgeLongPress(info))
       }
-      Row().width(this.diameter).height(this.diameter)
-        .radialGradient({ center: [this.touchX, this.touchY], radius: this.diameter,
-          colors: [[AppColor.BrandSoft, 0], [Color.Transparent, 1]] })
-        .opacity(this.touching ? 1 : 0).hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
+      if (this.buttonImage() === undefined) {
+        Row().width(this.diameter).height(this.diameter)
+          .radialGradient({ center: [this.touchX, this.touchY], radius: this.diameter,
+            colors: [[AppColor.BrandSoft, 0], [Color.Transparent, 1]] })
+          .opacity(this.touching ? 1 : 0).hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
+      }
     }.width(this.diameter).height(this.diameter)
-      .attributeModifier(new ImmersiveCircleClip(this.diameter / 2, this.useMaterial))
+      .attributeModifier(new ImmersiveCircleClip(this.diameter / 2, this.useMaterial, this.buttonImage() !== undefined))
   }
 }

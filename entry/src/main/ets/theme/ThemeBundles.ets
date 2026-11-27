@@ -45,6 +45,13 @@ export class ThemeBundles {
     return ThemeBundles.documents.get(id);
   }
 
+  static unregister(id: string): void {
+    ThemeBundles.documents.delete(id);
+    ThemeBundles.customLight.delete(id);
+    ThemeBundles.customDark.delete(id);
+    AppAppearance.current.themeRevision++;
+  }
+
   static normalizeId(id: string): string {
     return ThemeBundles.resolve(id).id;
   }

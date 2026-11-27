@@ -1118,7 +1118,7 @@ export struct MainPage {
               this.jumpToRankingSession(session, location);
             },
             onSourceSettings: (sourceUrl: string): void => {
-              this.navStack.pushPathByName('ruleSourceExplore', sourceUrl);
+              this.navStack.pushPathByName('ruleSourceLoginPanel', sourceUrl);
             },
             onManageSources: (resume: () => void): void => {
               this.pendingHomeResume = resume;

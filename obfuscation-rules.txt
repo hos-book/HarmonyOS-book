@@ -44,11 +44,19 @@
   # Fixed N-API exports from libhsda_core.so for imports, reading, subtitles and rankings.
   transformText
   transformHtmlBounded
+  waitRuleHostInterval
   cleanEpubHtml
   cleanHtmlBatch
   searchOffsets
   detectWhiteBorder
   encodeWave
+  createSpeechStream
+  feedSpeechStream
+  finishSpeechStream
+  startSpeechStream
+  cancelSpeechStream
+  readSpeechPcm
+  speechStreamStatus
   readEpubEntries
   createMobiHuff
   decodeMobiBatch
@@ -94,11 +102,19 @@
   getKeyId
   transformText
   transformHtmlBounded
+  waitRuleHostInterval
   cleanEpubHtml
   cleanHtmlBatch
   searchOffsets
   detectWhiteBorder
   encodeWave
+  createSpeechStream
+  feedSpeechStream
+  finishSpeechStream
+  startSpeechStream
+  cancelSpeechStream
+  readSpeechPcm
+  speechStreamStatus
   readEpubEntries
   createMobiHuff
   decodeMobiBatch

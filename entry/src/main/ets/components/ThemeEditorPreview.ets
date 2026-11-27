@@ -1,5 +1,6 @@
 import { AppThemeBundle } from '../model/AppThemeBundle';
-import { ThemeIconRole } from '../model/AppThemeVisual';
+import { AppAppearance } from '../model/AppAppearance';
+import { ThemeIconRole, ThemeButtonRole } from '../model/AppThemeVisual';
 import { ThemePageBackdrop } from '../model/ThemeDocument';
 import { ThemeBackdropComponent } from './ThemeBackdropComponent';
 
@@ -8,8 +9,82 @@ export struct ThemeEditorPreview {
   @Param bundle: AppThemeBundle = new AppThemeBundle('', '', '', '');
   @Param scene: string = 'home';
   @Param night: boolean = false;
+  @Param buttonPreview: string = '';
+  @Local appearance: AppAppearance = AppAppearance.current;
 
   private backdrop(): ThemePageBackdrop { return this.bundle.visual.pages.get(this.scene) ?? new ThemePageBackdrop(); }
+
+  private previewRole(normal: ThemeButtonRole, variants: ThemeButtonRole[]): ThemeButtonRole {
+    return variants.find((role: ThemeButtonRole): boolean => role === this.buttonPreview) ?? normal;
+  }
+
+  private headerButtons(): ThemeButtonRole[] {
+    if (this.scene === 'shelf') {
+      const collection: ThemeButtonRole[] = [ThemeButtonRole.ShelfAdd, ThemeButtonRole.ShelfExpand,
+        ThemeButtonRole.ShelfCollapse, ThemeButtonRole.ShelfClose];
+      if (collection.some((role: ThemeButtonRole): boolean => role === this.buttonPreview)) {
+        return [ThemeButtonRole.ShelfAdd,
+          this.previewRole(ThemeButtonRole.ShelfExpand, [ThemeButtonRole.ShelfCollapse]), ThemeButtonRole.ShelfClose];
+      }
+      return [this.previewRole(ThemeButtonRole.ShelfSearch, [ThemeButtonRole.ShelfSearchActive]),
+        ThemeButtonRole.ShelfFilter,
+        this.previewRole(ThemeButtonRole.ShelfGroup, [ThemeButtonRole.ShelfGroupActive, ThemeButtonRole.ShelfGroupManage]),
+        ThemeButtonRole.ShelfImport, ThemeButtonRole.ShelfUpdates,
+        this.previewRole(ThemeButtonRole.ShelfViewList, [ThemeButtonRole.ShelfViewCollection, ThemeButtonRole.ShelfViewGrid])];
+    }
+    const record: ThemeButtonRole[] = [this.previewRole(ThemeButtonRole.RecordFilter, [ThemeButtonRole.RecordFilterActive]),
+      ThemeButtonRole.RecordExcerpt, ThemeButtonRole.RecordHistory,
+      this.previewRole(ThemeButtonRole.RecordEdit, [ThemeButtonRole.RecordDone, ThemeButtonRole.RecordLocked])];
+    if (this.buttonPreview === ThemeButtonRole.RecordBack) record.unshift(ThemeButtonRole.RecordBack);
+    return record;
+  }
+
+  private headerSymbol(role: ThemeButtonRole): Resource {
+    switch (role) {
+      case ThemeButtonRole.ShelfSearch:
+      case ThemeButtonRole.ShelfSearchActive: return $r('sys.symbol.magnifyingglass');
+      case ThemeButtonRole.ShelfFilter:
+      case ThemeButtonRole.RecordFilter:
+      case ThemeButtonRole.RecordFilterActive: return $r('sys.symbol.funnel');
+      case ThemeButtonRole.ShelfGroup:
+      case ThemeButtonRole.ShelfGroupActive:
+      case ThemeButtonRole.ShelfGroupManage: return $r('sys.symbol.folder');
+      case ThemeButtonRole.ShelfImport: return $r('sys.symbol.doc_text_badge_arrow_up');
+      case ThemeButtonRole.ShelfUpdates: return $r('sys.symbol.arrow_clockwise');
+      case ThemeButtonRole.ShelfViewList: return $r('sys.symbol.list_bullet');
+      case ThemeButtonRole.ShelfViewCollection: return $r('sys.symbol.bookshelf');
+      case ThemeButtonRole.ShelfViewGrid: return $r('sys.symbol.square_grid_2x2');
+      case ThemeButtonRole.ShelfAdd: return $r('sys.symbol.plus');
+      case ThemeButtonRole.ShelfExpand: return $r('sys.symbol.arrow_up_left_and_arrow_down_right');
+      case ThemeButtonRole.ShelfCollapse: return $r('sys.symbol.arrow_down_right_and_arrow_up_left');
+      case ThemeButtonRole.ShelfClose: return $r('sys.symbol.xmark');
+      case ThemeButtonRole.RecordBack: return $r('sys.symbol.chevron_left');
+      case ThemeButtonRole.RecordExcerpt: return $r('sys.symbol.bookmark');
+      case ThemeButtonRole.RecordHistory: return $r('sys.symbol.clock');
+      case ThemeButtonRole.RecordDone: return $r('sys.symbol.checkmark');
+      case ThemeButtonRole.RecordLocked: return $r('sys.symbol.lock');
+      default: return $r('sys.symbol.square_and_pencil');
+    }
+  }
+
+  @Builder
+  private headerButton(role: ThemeButtonRole) {
+    if (this.bundle.visual.buttons.get(role)) {
+      Image(this.bundle.visual.buttons.get(role) ?? '').width(30).height(30).objectFit(ImageFit.Contain)
+    } else {
+      Stack() {
+        if ((role === ThemeButtonRole.RecordFilter || role === ThemeButtonRole.RecordFilterActive) &&
+          this.bundle.visual.icons.get(ThemeIconRole.Filter)) {
+          Image(this.bundle.visual.icons.get(ThemeIconRole.Filter) ?? '').width(18).height(18).objectFit(ImageFit.Contain)
+        } else {
+          SymbolGlyph(this.headerSymbol(role)).fontSize(18)
+            .fontColor([role === ThemeButtonRole.ShelfSearchActive || role === ThemeButtonRole.ShelfGroupActive ||
+              role === ThemeButtonRole.RecordFilterActive || role === ThemeButtonRole.RecordDone || role === ThemeButtonRole.RecordLocked ?
+              this.bundle.visual.colors.brand : this.bundle.visual.colors.iconPrimary])
+        }
+      }.width(30).height(30).borderRadius(15).backgroundColor(this.bundle.visual.colors.controlFallback)
+    }
+  }
 
   @Builder
   private cover() {
@@ -61,7 +136,13 @@ export struct ThemeEditorPreview {
           Text($r('app.string.theme_editor_preview')).fontSize(12)
             .fontColor(this.scene === 'player' ? '#FFFFFF' : this.bundle.visual.colors.textSecondary)
           Blank()
-          if (this.bundle.visual.icons.get(ThemeIconRole.Search)) {
+          if (this.scene === 'shelf' || this.scene === 'record') {
+            Row({ space: 4 }) {
+              ForEach(this.headerButtons(), (role: ThemeButtonRole) => {
+                this.headerButton(role)
+              }, (role: ThemeButtonRole): string => role)
+            }
+          } else if (this.bundle.visual.icons.get(ThemeIconRole.Search)) {
             Image(this.bundle.visual.icons.get(ThemeIconRole.Search) ?? '').width(20).height(20)
           } else {
             SymbolGlyph($r('sys.symbol.magnifyingglass')).fontSize(20).fontColor([this.bundle.visual.colors.iconPrimary])
@@ -107,7 +188,7 @@ export struct ThemeEditorPreview {
         }
         Blank()
         if (this.scene !== 'player') {
-          if (this.bundle.verticalBottomTabs) {
+          if (this.bundle.custom ? this.appearance.verticalBottomTabs : this.bundle.verticalBottomTabs) {
             Row({ space: 10 }) {
               SymbolGlyph($r('sys.symbol.play_fill')).fontSize(16).fontColor([this.bundle.visual.colors.brand])
               Text($r('app.string.theme_editor_preview_book')).fontSize(12).fontColor(this.bundle.visual.colors.textPrimary)

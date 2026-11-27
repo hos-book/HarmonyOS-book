@@ -13,6 +13,7 @@ import { WindowUtils } from '../utils/WindowUtils';
 export struct ThemeEditorPage {
   @Param navStack: NavPathStack = new NavPathStack();
   @Param themeId: string = 'default';
+  @Param importedDraft: ThemeDraft | undefined = undefined;
   @Local draft: ThemeDraft = new ThemeDraft();
   @Local fields: ThemeEditorField[] = [];
   @Local previewBundle: AppThemeBundle = new AppThemeBundle('', '', '', '');
@@ -20,6 +21,8 @@ export struct ThemeEditorPage {
   @Local section: string = 'basic';
   @Local scene: string = 'home';
   @Local backgroundScene: string = 'common';
+  @Local buttonScene: string = 'shelf';
+  @Local buttonPreview: string = '';
   @Local ready: boolean = false;
   @Local busy: boolean = false;
   @Local pageWidth: number = 360;
@@ -38,8 +41,10 @@ export struct ThemeEditorPage {
     this.busy = true;
     try {
       this.fields = await ThemePackageService.fields(context);
-      this.draft = await ThemePackageService.draft(context, this.themeId);
-      if (!ThemeBundles.resolve(this.themeId).custom) this.draft.document.name = this.label('theme_editor_new_name');
+      this.draft = this.importedDraft ?? await ThemePackageService.draft(context, this.themeId);
+      if (!this.importedDraft && !ThemeBundles.resolve(this.themeId).custom) {
+        this.draft.document.name = this.label('theme_editor_new_name');
+      }
       this.refresh();
       this.ready = true;
     } catch (_error) { this.toast($r('app.string.theme_editor_failed')); }
@@ -59,6 +64,10 @@ export struct ThemeEditorPage {
   }
 
   private change(field: ThemeEditorField, value: string): void {
+    if (field.section === 'buttons') {
+      this.buttonPreview = field.key;
+      this.scene = this.buttonScene;
+    }
     const document: ThemeDocument = ThemeDocument.copy(this.draft.document);
     if (this.dark) document.dark = ThemeDocument.put(document.dark, field.key, value);
     else document.light = ThemeDocument.put(document.light, field.key, value);
@@ -74,20 +83,6 @@ export struct ThemeEditorPage {
     this.refresh();
   }
 
-  private setMaterial(material: number): void {
-    const document: ThemeDocument = ThemeDocument.copy(this.draft.document);
-    document.materialStyle = material;
-    this.draft = new ThemeDraft(document, this.draft.directory);
-    this.refresh();
-  }
-
-  private setVertical(vertical: boolean): void {
-    const document: ThemeDocument = ThemeDocument.copy(this.draft.document);
-    document.verticalBottomTabs = vertical;
-    this.draft = new ThemeDraft(document, this.draft.directory);
-    this.refresh();
-  }
-
   private colorChanged(field: ThemeEditorField, value: string): void {
     if (new RegExp('^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$').test(value)) this.change(field, value.toUpperCase());
   }
@@ -97,21 +92,6 @@ export struct ThemeEditorPage {
     try {
       const path: string = await ThemePackageService.pickImage(this.draft);
       if (path) this.change(field, path);
-    } catch (_error) { this.toast($r('app.string.theme_editor_failed')); }
-    finally { this.busy = false; }
-  }
-
-  private async importTheme(): Promise<void> {
-    const context = this.getUIContext().getHostContext();
-    if (!context) return;
-    this.busy = true;
-    try {
-      const draft: ThemeDraft | undefined = await ThemePackageService.importPackage(context);
-      if (draft) {
-        await ThemePackageService.discard(this.draft);
-        this.draft = draft;
-        this.refresh();
-      }
     } catch (_error) { this.toast($r('app.string.theme_editor_failed')); }
     finally { this.busy = false; }
   }
@@ -152,7 +132,8 @@ export struct ThemeEditorPage {
     return this.fields.filter((field: ThemeEditorField): boolean => field.section === this.section &&
       (this.section !== 'backgrounds' || field.key.startsWith('background.' + this.backgroundScene + '.') ||
         (this.backgroundScene === 'common' && field.key === 'background.coverBackdrop') ||
-        (this.backgroundScene === 'profile' && field.key === 'background.profileCard')) && this.fieldVisible(field));
+        (this.backgroundScene === 'profile' && field.key === 'background.profileCard')) &&
+      (this.section !== 'buttons' || field.key.startsWith('button.' + this.buttonScene + '.')) && this.fieldVisible(field));
   }
 
   private fieldVisible(field: ThemeEditorField): boolean {
@@ -204,6 +185,11 @@ export struct ThemeEditorPage {
           Button($r('app.string.theme_editor_clear')).fontSize(12).fontColor(AppTheme.TextSecondary)
             .backgroundColor(Color.Transparent).onClick((): void => this.change(field, ''))
         }.width('100%')
+        if (field.section === 'buttons') {
+          Button($r('app.string.theme_editor_button_preview')).fontSize(12).fontColor(AppColor.Brand)
+            .backgroundColor(AppColor.BrandSoft).alignSelf(ItemAlign.Start)
+            .onClick((): void => { this.buttonPreview = field.key; this.scene = this.buttonScene; })
+        }
       } else if (field.type === 'range') {
         Slider({ value: Number(this.fieldValue(field)), min: field.min, max: field.max, step: 1 })
           .selectedColor(AppColor.Brand).blockColor(AppColor.Brand).width('100%')
@@ -226,34 +212,9 @@ export struct ThemeEditorPage {
       TextArea({ text: this.draft.document.description, placeholder: this.label('theme_editor_description') })
         .height(100).fontColor(AppTheme.TextPrimary).backgroundColor(AppTheme.Surface)
         .onChange((description: string): void => this.rename(this.draft.document.name, description))
-      Row() {
-        Text($r('app.string.theme_editor_material')).fontSize(14).fontColor(AppTheme.TextPrimary).layoutWeight(1)
-        Select([{ value: $r('app.string.appearance_material_system') }, { value: $r('app.string.appearance_material_strong') },
-          { value: $r('app.string.appearance_material_balanced') }, { value: $r('app.string.appearance_material_weak') }])
-          .selected([6, 2, 3, 4].indexOf(this.draft.document.materialStyle))
-          .value(this.materialLabel()).onSelect((index: number): void => this.setMaterial([6, 2, 3, 4][index]))
-      }.width('100%').padding(16).borderRadius(16).backgroundColor(AppTheme.Surface)
-      Row() {
-        Text($r('app.string.theme_editor_vertical')).fontSize(14).fontColor(AppTheme.TextPrimary).layoutWeight(1)
-        Toggle({ type: ToggleType.Switch, isOn: this.draft.document.verticalBottomTabs }).selectedColor(AppColor.Brand)
-          .onChange((enabled: boolean): void => this.setVertical(enabled))
-      }.width('100%').padding(16).borderRadius(16).backgroundColor(AppTheme.Surface)
-      Row({ space: 12 }) {
-        Button($r('app.string.theme_editor_import')).fontColor(AppColor.Brand).backgroundColor(AppColor.BrandSoft)
-          .layoutWeight(1).onClick((): void => { this.importTheme(); })
-        Button($r('app.string.theme_editor_export')).fontColor(AppColor.Brand).backgroundColor(AppColor.BrandSoft)
-          .layoutWeight(1).onClick((): void => { this.exportTheme(); })
-      }.width('100%').enabled(!this.busy)
+      Button($r('app.string.theme_editor_export')).fontColor(AppColor.Brand).backgroundColor(AppColor.BrandSoft)
+        .width('100%').enabled(!this.busy).onClick((): void => { this.exportTheme(); })
     }.width('100%')
-  }
-
-  private materialLabel(): Resource {
-    switch (this.draft.document.materialStyle) {
-      case 2: return $r('app.string.appearance_material_strong');
-      case 3: return $r('app.string.appearance_material_balanced');
-      case 4: return $r('app.string.appearance_material_weak');
-      default: return $r('app.string.appearance_material_system');
-    }
   }
 
   @Builder
@@ -267,7 +228,7 @@ export struct ThemeEditorPage {
           .backgroundColor(this.dark ? AppColor.Brand : AppTheme.Surface).layoutWeight(1)
           .onClick((): void => { this.dark = true; this.refresh(); })
       }.width('100%')
-      ThemeEditorPreview({ bundle: this.previewBundle, scene: this.scene, night: this.dark })
+      ThemeEditorPreview({ bundle: this.previewBundle, scene: this.scene, night: this.dark, buttonPreview: this.buttonPreview })
       Row({ space: 4 }) {
         ForEach(['home', 'shelf', 'record', 'profile', 'player'], (scene: string) => {
           Button(this.label('theme_editor_' + scene)).fontSize(11).layoutWeight(1).padding(4)
@@ -284,17 +245,32 @@ export struct ThemeEditorPage {
     Column({ space: 12 }) {
       Scroll() {
         Row({ space: 8 }) {
-          ForEach(['basic', 'colors', 'backgrounds', 'tabs', 'icons', 'covers', 'player'], (section: string) => {
+          ForEach(['basic', 'colors', 'backgrounds', 'tabs', 'buttons', 'icons', 'covers', 'player'], (section: string) => {
             Button(this.label('theme_editor_' + section)).fontSize(13)
               .fontColor(this.section === section ? AppColor.OnBrand : AppTheme.TextSecondary)
               .backgroundColor(this.section === section ? AppColor.Brand : AppTheme.Surface)
-              .onClick((): void => { this.section = section; if (section === 'player') this.scene = 'player'; })
+              .onClick((): void => {
+                this.section = section;
+                if (section === 'player') this.scene = 'player';
+                else if (section === 'buttons') this.scene = this.buttonScene;
+              })
           }, (section: string): string => section)
         }
       }.width('100%').scrollable(ScrollDirection.Horizontal).scrollBar(BarState.Off)
       if (this.section === 'basic') {
         this.basic()
       } else {
+        if (this.section === 'buttons') {
+          Row({ space: 8 }) {
+            ForEach(['shelf', 'record'], (scene: string) => {
+              Button(this.label('theme_editor_' + scene)).fontSize(13).layoutWeight(1)
+                .fontColor(this.buttonScene === scene ? AppColor.OnBrand : AppTheme.TextSecondary)
+                .backgroundColor(this.buttonScene === scene ? AppColor.Brand : AppTheme.Surface)
+                .onClick((): void => { this.buttonScene = scene; this.scene = scene; this.buttonPreview = ''; })
+            }, (scene: string): string => scene)
+          }.width('100%')
+          Text($r('app.string.theme_editor_buttons_hint')).fontSize(12).fontColor(AppTheme.TextSecondary).width('100%')
+        }
         if (this.section === 'backgrounds') {
           Row({ space: 4 }) {
             ForEach(['common', 'home', 'shelf', 'record', 'profile'], (scene: string) => {

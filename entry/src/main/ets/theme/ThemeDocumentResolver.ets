@@ -1,6 +1,6 @@
 import { ThemeDocument, ThemeToken, ThemePageBackdrop } from '../model/ThemeDocument';
 import { AppThemeBundle } from '../model/AppThemeBundle';
-import { AppThemeColors, ThemeIconRole, ThemeCoverDecoration } from '../model/AppThemeVisual';
+import { AppThemeColors, ThemeIconRole, ThemeCoverDecoration, THEME_BUTTON_ROLES } from '../model/AppThemeVisual';
 
 export class ThemeDocumentResolver {
   static apply(bundle: AppThemeBundle, document: ThemeDocument, directory: string, dark: boolean): AppThemeBundle {
@@ -8,8 +8,6 @@ export class ThemeDocumentResolver {
     bundle.id = document.id;
     bundle.name = document.name;
     bundle.description = document.description;
-    bundle.materialStyle = document.materialStyle;
-    bundle.verticalBottomTabs = document.verticalBottomTabs;
     bundle.custom = true;
     for (const token of tokens) {
       if (token.key.startsWith('color.')) ThemeDocumentResolver.color(bundle.visual.colors, token.key.substring(6), token.value);
@@ -37,6 +35,10 @@ export class ThemeDocumentResolver {
     ThemeDocumentResolver.icon(bundle, tokens, ThemeIconRole.Grid, 'icon.Grid', directory, false);
     ThemeDocumentResolver.icon(bundle, tokens, ThemeIconRole.List, 'icon.List', directory, false);
     ThemeDocumentResolver.icon(bundle, tokens, ThemeIconRole.ChevronRight, 'icon.ChevronRight', directory, false);
+    for (const role of THEME_BUTTON_ROLES) {
+      const asset: string = ThemeDocumentResolver.asset(tokens, role, directory);
+      if (asset) bundle.visual.buttons.set(role, asset);
+    }
     const cover = bundle.visual.cover;
     cover.placeholder = ThemeDocumentResolver.asset(tokens, 'cover.placeholder', directory) || cover.placeholder;
     cover.localPlaceholder = ThemeDocumentResolver.asset(tokens, 'cover.localPlaceholder', directory) || cover.localPlaceholder;

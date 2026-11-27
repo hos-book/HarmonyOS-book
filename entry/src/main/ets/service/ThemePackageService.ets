@@ -8,7 +8,7 @@ import { util } from '@kit.ArkTS';
 import { ThemeDocument, ThemeDraft, ThemeToken } from '../model/ThemeDocument';
 import { AppAppearance } from '../model/AppAppearance';
 import { AppThemeBundle } from '../model/AppThemeBundle';
-import { AppThemeVisual, ThemeIconRole, ThemeBackgroundKind } from '../model/AppThemeVisual';
+import { AppThemeVisual, ThemeIconRole, ThemeBackgroundKind, THEME_BUTTON_ROLES } from '../model/AppThemeVisual';
 import { ThemeBundles } from '../theme/ThemeBundles';
 import { MembershipService } from './MembershipService';
 import { AppBackgroundService } from './AppBackgroundService';
@@ -59,7 +59,9 @@ export class ThemePackageService {
     if (!await fileIo.access(ThemePackageService.root)) await fileIo.mkdir(ThemePackageService.root, true);
     for (const name of await fileIo.listFile(ThemePackageService.root)) {
       const directory: string = ThemePackageService.root + '/' + name;
-      const document: ThemeDocument = JSON.parse(await fileIo.readText(directory + '/theme.json'));
+      const saved: ThemeDocument = JSON.parse(await fileIo.readText(directory + '/theme.json'));
+      const document: ThemeDocument = ThemeDocument.copy(saved);
+      await ThemePackageService.prepareTabImages(document, directory);
       ThemeBundles.register(document, directory);
     }
   }
@@ -84,8 +86,6 @@ export class ThemePackageService {
       document.id = 'custom-' + util.generateRandomUUID(true);
       document.name = typeof bundle.name === 'string' ? bundle.name : context.resourceManager.getStringSync(bundle.name.id);
       document.description = '';
-      document.materialStyle = AppAppearance.current.material;
-      document.verticalBottomTabs = AppAppearance.current.verticalBottomTabs;
       for (const dark of [false, true]) {
         const configuration = context.resourceManager.getConfigurationSync();
         configuration.colorMode = dark ? resourceManager.ColorMode.DARK : resourceManager.ColorMode.LIGHT;
@@ -105,6 +105,7 @@ export class ThemePackageService {
         if (dark) document.dark = tokens; else document.light = tokens;
       }
     }
+    await ThemePackageService.prepareTabImages(document, directory);
     return new ThemeDraft(document, directory);
   }
 
@@ -181,6 +182,9 @@ export class ThemePackageService {
     await ThemePackageService.captureAsset(tokens, 'icon.Grid', visual.icons.get(ThemeIconRole.Grid), manager, directory);
     await ThemePackageService.captureAsset(tokens, 'icon.List', visual.icons.get(ThemeIconRole.List), manager, directory);
     await ThemePackageService.captureAsset(tokens, 'icon.ChevronRight', visual.icons.get(ThemeIconRole.ChevronRight), manager, directory);
+    for (const role of THEME_BUTTON_ROLES) {
+      await ThemePackageService.captureAsset(tokens, role, visual.buttons.get(role), manager, directory);
+    }
     await ThemePackageService.captureAsset(tokens, 'tab.home.normal', visual.icons.get(ThemeIconRole.Home), manager, directory);
     await ThemePackageService.captureAsset(tokens, 'tab.shelf.normal', visual.icons.get(ThemeIconRole.Shelf), manager, directory);
     await ThemePackageService.captureAsset(tokens, 'tab.record.normal', visual.icons.get(ThemeIconRole.Record), manager, directory);
@@ -305,16 +309,23 @@ export class ThemePackageService {
     options.fileSuffixFilters = [context.resourceManager.getStringSync($r('app.string.theme_editor_file_filter').id)];
     const uris: string[] = await new picker.DocumentViewPicker(context).select(options);
     if (uris.length === 0) return undefined;
+    return ThemePackageService.importUri(context, uris[0]);
+  }
+
+  static async importUri(context: common.Context, uri: string): Promise<ThemeDraft> {
+    await ThemePackageService.initialize(context);
     const directory: string = context.cacheDir + '/theme-editor-' + util.generateRandomUUID(true);
     await fileIo.mkdir(directory, true);
     const archive: string = directory + '.zip';
-    await ThemePackageService.write(archive, ThemePackageService.buffer(await ThemePackageService.readBytes(uris[0])));
+    await ThemePackageService.write(archive, ThemePackageService.buffer(await ThemePackageService.readBytes(uri)));
     try {
       await zlib.decompressFile(archive, directory);
       const manifest: ThemePackageManifest = JSON.parse(await fileIo.readText(directory + '/manifest.json'));
       if (manifest.format !== 'jianting.theme' || manifest.schemaVersion !== 1) throw new Error('THEME_FORMAT');
-      const document: ThemeDocument = JSON.parse(await fileIo.readText(directory + '/theme.json'));
+      const imported: ThemeDocument = JSON.parse(await fileIo.readText(directory + '/theme.json'));
+      const document: ThemeDocument = ThemeDocument.copy(imported);
       document.id = 'custom-' + util.generateRandomUUID(true);
+      await ThemePackageService.prepareTabImages(document, directory);
       return new ThemeDraft(document, directory);
     } finally { await fileIo.unlink(archive); }
   }
@@ -327,6 +338,14 @@ export class ThemePackageService {
     await ThemePackageService.writeText(directory + '/theme.json', JSON.stringify(draft.document));
     await ThemePackageService.writeText(directory + '/manifest.json', JSON.stringify(new ThemePackageManifest()));
     ThemeBundles.register(ThemeDocument.copy(draft.document), directory);
+  }
+
+  static async remove(id: string): Promise<void> {
+    const saved: ThemeDraft | undefined = ThemeBundles.document(id);
+    if (saved) {
+      await fileIo.rmdir(saved.directory);
+      ThemeBundles.unregister(id);
+    }
   }
 
   static async exportPackage(context: common.Context, draft: ThemeDraft): Promise<boolean> {
@@ -353,6 +372,27 @@ export class ThemePackageService {
 
   static async discard(draft: ThemeDraft): Promise<void> {
     if (draft.directory) await fileIo.rmdir(draft.directory);
+  }
+
+  private static async prepareTabImages(document: ThemeDocument, directory: string): Promise<void> {
+    for (const token of document.light.concat(document.dark)) {
+      if (token.key.startsWith('tab.') && token.value.startsWith('assets/') && token.value.toLowerCase().endsWith('.svg')) {
+        const source = image.createImageSource(ThemePackageService.buffer(
+          await ThemePackageService.readBytes(directory + '/' + token.value)));
+        try {
+          const pixels = await source.createPixelMap({ desiredSize: { width: 112, height: 112 } });
+          try {
+            const packer = image.createImagePacker();
+            try {
+              const bytes: ArrayBuffer = await packer.packToData(pixels, { format: 'image/png', quality: 100 });
+              const path: string = token.value.substring(0, token.value.length - 4) + '.tab.png';
+              await ThemePackageService.write(directory + '/' + path, bytes);
+              token.value = path;
+            } finally { await packer.release(); }
+          } finally { await pixels.release(); }
+        } finally { await source.release(); }
+      }
+    }
   }
 
   private static async copyAssets(source: string, target: string, document: ThemeDocument): Promise<void> {

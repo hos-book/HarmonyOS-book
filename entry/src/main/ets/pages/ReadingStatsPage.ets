@@ -16,7 +16,7 @@ import { curves } from '@kit.ArkUI';
 import { AppColor, AppMaterial, AppFont, AppRadius, AppSpace, HomeTheme, AppTheme } from '../theme/Theme';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
 import { AppBackgroundScene } from '../model/AppBackground';
-import { ThemeBackgroundScene } from '../model/AppThemeVisual';
+import { ThemeBackgroundScene, ThemeButtonRole } from '../model/AppThemeVisual';
 import { ThemeIconRole } from '../theme/ThemeIcons';
 import { WindowUtils } from '../utils/WindowUtils';
 import { PlayerDragTransition, PlayerDragState } from '../utils/PlayerDragTransition';
@@ -992,6 +992,7 @@ export struct ReadingStatsPage {
     Row({ space: 4 }) {
       if (!this.inTab) {
         ImmersiveCircleButton({ icon: $r('sys.symbol.chevron_left'), label: $r('app.string.app_icon_back'),
+          themeButtonRole: ThemeButtonRole.RecordBack,
           diameter: 36, iconSize: 22, useMaterial: false,
           onPress: (): void => { if (!this.handleBack()) this.navStack.pop(); } })
       }
@@ -1001,12 +1002,14 @@ export struct ReadingStatsPage {
       // 与书架共用薄磨砂规格和标题的视觉对齐偏移。
       Row({ space: 4 }) {
         ImmersiveCircleButton({ icon: $r('sys.symbol.funnel'), themeIconRole: ThemeIconRole.Filter,
+          themeButtonRole: this.contentFilter > 0 ? ThemeButtonRole.RecordFilterActive : ThemeButtonRole.RecordFilter,
           diameter: 36, iconSize: 22, useMaterial: false,
           label: $r('app.string.record_content_filter'),
           iconColor: this.contentFilter > 0 ? AppColor.Brand : AppTheme.IconPrimary,
           onPress: (): void => { this.contentFilterVisible = !this.contentFilterVisible; } })
           .bindMenu(this.contentFilterVisible, this.buildContentFilterMenu, this.contentFilterOptions())
         ImmersiveCircleButton({ icon: $r('sys.symbol.bookmark'), label: $r('app.string.reader_excerpt_title'),
+          themeButtonRole: ThemeButtonRole.RecordExcerpt,
           diameter: 36, iconSize: 22, useMaterial: false,
           onPress: (): void => {
             this.contentFilterVisible = false;
@@ -1014,6 +1017,7 @@ export struct ReadingStatsPage {
           } })
           .flexShrink(0)
         ImmersiveCircleButton({ icon: $r('sys.symbol.clock'),
+          themeButtonRole: ThemeButtonRole.RecordHistory,
           diameter: 36, iconSize: 22, useMaterial: false,
           label: this.onlyUnfavorited ? $r('app.string.record_favorited_back') : $r('app.string.record_unfavorited_title'),
           onPress: (): void => {
@@ -1023,6 +1027,8 @@ export struct ReadingStatsPage {
           } })
         ImmersiveCircleButton({ icon: this.recordEditLocked ? $r('sys.symbol.lock') :
           (this.selectMode ? $r('sys.symbol.checkmark') : $r('sys.symbol.square_and_pencil')),
+          themeButtonRole: this.recordEditLocked ? ThemeButtonRole.RecordLocked :
+            (this.selectMode ? ThemeButtonRole.RecordDone : ThemeButtonRole.RecordEdit),
           diameter: 36, iconSize: 22, useMaterial: false,
           label: this.recordEditLocked ? $r('app.string.record_edit_locked') :
             (this.selectMode ? $r('app.string.record_edit_done') : $r('app.string.record_edit')),

@@ -25,8 +25,10 @@ add_custom_target(hsda_rust_build DEPENDS "${HSDA_RUST_LIBRARY}")
 add_library(hsda_rust STATIC IMPORTED)
 set_target_properties(hsda_rust PROPERTIES IMPORTED_LOCATION "${HSDA_RUST_LIBRARY}")
 add_dependencies(hsda_rust hsda_rust_build)
-add_library(hsda_core SHARED module.cpp)
+add_library(hsda_core SHARED module.cpp speech_stream.cpp)
 add_dependencies(hsda_core hsda_rust_build)
 target_compile_options(hsda_core PRIVATE -O2 -Wall -Wextra -fstack-protector-strong -fvisibility=hidden)
 target_link_options(hsda_core PRIVATE "-Wl,--exclude-libs,ALL")
-target_link_libraries(hsda_core PRIVATE hsda_rust libace_napi.z.so z dl m)
+target_link_libraries(hsda_core PRIVATE hsda_rust libace_napi.z.so z dl m
+  libnative_media_core.so libnative_media_avsource.so libnative_media_avdemuxer.so
+  libnative_media_acodec.so libnative_media_codecbase.so)

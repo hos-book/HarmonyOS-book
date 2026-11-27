@@ -1,5 +1,32 @@
 {
   "string": [
+    {"name":"theme_editor_buttons","value":"顶部按钮"},
+    {"name":"theme_editor_buttons_hint","value":"整按钮图片包含图标与底板，透明区域保留页面背景；留空沿用现有按钮"},
+    {"name":"theme_editor_button_page","value":"选择页面后编辑顶部按钮"},
+    {"name":"theme_editor_button_preview","value":"状态预览"},
+    {"name":"theme_field_button_shelf_search","value":"书架搜索"},
+    {"name":"theme_field_button_shelf_searchActive","value":"书架搜索展开或已输入"},
+    {"name":"theme_field_button_shelf_filter","value":"书架状态筛选"},
+    {"name":"theme_field_button_shelf_group","value":"书架分组"},
+    {"name":"theme_field_button_shelf_groupActive","value":"书架已选分组"},
+    {"name":"theme_field_button_shelf_groupManage","value":"书房分组管理"},
+    {"name":"theme_field_button_shelf_import","value":"书架本地导入"},
+    {"name":"theme_field_button_shelf_updates","value":"书架更新"},
+    {"name":"theme_field_button_shelf_viewList","value":"书架切换列表"},
+    {"name":"theme_field_button_shelf_viewCollection","value":"书架切换书房"},
+    {"name":"theme_field_button_shelf_viewGrid","value":"书架切换网格"},
+    {"name":"theme_field_button_shelf_add","value":"书房分组添加书籍"},
+    {"name":"theme_field_button_shelf_expand","value":"书房分组展开"},
+    {"name":"theme_field_button_shelf_collapse","value":"书房分组收起"},
+    {"name":"theme_field_button_shelf_close","value":"书房分组关闭"},
+    {"name":"theme_field_button_record_back","value":"记录页返回"},
+    {"name":"theme_field_button_record_filter","value":"记录内容筛选"},
+    {"name":"theme_field_button_record_filterActive","value":"记录内容已筛选"},
+    {"name":"theme_field_button_record_excerpt","value":"记录摘录"},
+    {"name":"theme_field_button_record_history","value":"记录历史"},
+    {"name":"theme_field_button_record_edit","value":"记录编辑"},
+    {"name":"theme_field_button_record_done","value":"记录编辑完成"},
+    {"name":"theme_field_button_record_locked","value":"记录编辑锁定"},
     { "name": "theme_editor_file_filter", "value": "简听主题|.jttheme" },
     {
       "name": "theme_field_color_background",
@@ -566,6 +593,14 @@
       "value": "导入主题"
     },
     {
+      "name": "theme_editor_delete",
+      "value": "删除主题"
+    },
+    {
+      "name": "theme_editor_deleted",
+      "value": "主题已删除"
+    },
+    {
       "name": "theme_editor_export",
       "value": "导出"
     },
@@ -620,14 +655,6 @@
     {
       "name": "theme_editor_basic",
       "value": "主题信息"
-    },
-    {
-      "name": "theme_editor_material",
-      "value": "材质强度"
-    },
-    {
-      "name": "theme_editor_vertical",
-      "value": "竖向底栏样式"
     },
     {
       "name": "theme_editor_pick",

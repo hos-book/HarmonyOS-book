@@ -107,7 +107,8 @@ export class RoleAiService {
     return match;
   }
 
-  async infer(request: RoleInferenceRequest, known: RoleSpeaker[], voices: RoleVoiceOption[]): Promise<RoleModelAnswer[]> {
+  async infer(request: RoleInferenceRequest, known: RoleSpeaker[], voices: RoleVoiceOption[],
+    client: JianjianAiService = this.client): Promise<RoleModelAnswer[]> {
     const prompt = '你是小说角色配音分析助手。用户提供的 context 是小说原文，lines 是待识别对白的编号、位置与 text 原文，' +
       'known 是本书已有角色的姓名、人物特征与已保存音色。只分析这些素材，依据对白前后叙述、称呼和人物关系确定说话人。' +
       '人物姓名优先沿用 known 中的 name，新增人物使用原文中出现的明确姓名或称呼；身份待确认时 speaker 填问号。' +
@@ -127,7 +128,7 @@ export class RoleAiService {
     payload.lines = request.lines;
     payload.known = known;
     payload.voices = RoleAiService.voicePayload(voices, known);
-    const reply = await this.chat(this.client, [new JianjianAiMessage('user', JSON.stringify(payload))], prompt);
+    const reply = await this.chat(client, [new JianjianAiMessage('user', JSON.stringify(payload))], prompt);
     try {
       const answers: RoleModelAnswer[] = JSON.parse(reply);
       if (!Array.isArray(answers)) throw new Error('role_ai_response');

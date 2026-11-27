@@ -1390,11 +1390,13 @@ export class PreferenceService {
     if (ThemeBundles.normalizeId(id) !== id) throw new Error('Unknown theme bundle');
     await PreferenceService.enqueueAppearanceSave((): AppThemeSelection => {
       const bundle = ThemeBundles.resolve(id);
-      const selection = new AppThemeSelection(bundle.id, bundle.accent, bundle.materialStyle);
+      const selection = new AppThemeSelection(bundle.id, bundle.accent,
+        bundle.custom ? AppAppearance.current.material : bundle.materialStyle);
       selection.schemaVersion = 2;
       return selection;
     }, id !== ThemeBundles.DefaultId);
-    await PreferenceService.setVerticalBottomTabs(ThemeBundles.resolve(id).verticalBottomTabs);
+    const bundle = ThemeBundles.resolve(id);
+    if (!bundle.custom) await PreferenceService.setVerticalBottomTabs(bundle.verticalBottomTabs);
   }
 
   static async resetThemeBundleOverrides(): Promise<void> {

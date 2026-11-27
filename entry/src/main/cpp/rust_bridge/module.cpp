@@ -1,4 +1,5 @@
 #include "hsda_core.h"
+#include "speech_stream.h"
 #include <napi/native_api.h>
 #include <algorithm>
 #include <cstring>
@@ -83,6 +84,14 @@ napi_value Bytes(napi_env env, const void *data, size_t length, bool typed = tru
 template<typename F> napi_value Call(napi_env env, F operation) {
     try { return operation(); }
     catch (const std::exception &error) { napi_throw_error(env, nullptr, error.what()); return nullptr; }
+}
+
+napi_value WaitRuleHostInterval(napi_env env, napi_callback_info) {
+    // Keep the mailbox worker's existing polling interval within a native call.
+    usleep(50 * 1000);
+    napi_value result;
+    napi_get_undefined(env, &result);
+    return result;
 }
 
 napi_value Transform(napi_env env, napi_callback_info info) {
@@ -927,7 +936,9 @@ napi_value SubtitleTimeline(napi_env env, napi_callback_info info) {
 }
 
 napi_value Init(napi_env env, napi_value exports) {
+    RegisterSpeechStream(env, exports);
     const napi_property_descriptor properties[] = {
+        {"waitRuleHostInterval", nullptr, WaitRuleHostInterval, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"transformText", nullptr, Transform, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"transformHtmlBounded", nullptr, BoundedHtml, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"cleanEpubHtml", nullptr, EpubBody, nullptr, nullptr, nullptr, napi_default, nullptr},

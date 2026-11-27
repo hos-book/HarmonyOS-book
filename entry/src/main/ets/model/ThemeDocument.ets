@@ -16,8 +16,6 @@ export class ThemeDocument {
   name: string = '';
   description: string = '';
   baseThemeId: string = 'default';
-  materialStyle: number = 6;
-  verticalBottomTabs: boolean = false;
   light: ThemeToken[] = [];
   dark: ThemeToken[] = [];
 
@@ -32,7 +30,15 @@ export class ThemeDocument {
   }
 
   static copy(document: ThemeDocument): ThemeDocument {
-    const next: ThemeDocument = JSON.parse(JSON.stringify(document));
+    const next: ThemeDocument = new ThemeDocument();
+    next.format = document.format;
+    next.schemaVersion = document.schemaVersion;
+    next.id = document.id;
+    next.name = document.name;
+    next.description = document.description;
+    next.baseThemeId = document.baseThemeId;
+    next.light = document.light.map((token: ThemeToken): ThemeToken => new ThemeToken(token.key, token.value));
+    next.dark = document.dark.map((token: ThemeToken): ThemeToken => new ThemeToken(token.key, token.value));
     return next;
   }
 }
@@ -49,7 +55,12 @@ export class ThemeDraft {
 
 export class ThemeEditorRoute {
   themeId: string;
-  constructor(themeId: string = 'default') { this.themeId = themeId; }
+  draft: ThemeDraft | undefined;
+
+  constructor(themeId: string = 'default', draft: ThemeDraft | undefined = undefined) {
+    this.themeId = themeId;
+    this.draft = draft;
+  }
 }
 
 export class ThemePageBackdrop {

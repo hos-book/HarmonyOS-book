@@ -6,6 +6,44 @@ export enum ThemeBackgroundScene { Home, Shelf, Record }
 export enum ThemeCoverDecoration { None, Border, Spine }
 export enum ThemeIconRole { None, Search, Filter, Grid, List, ChevronRight, Home, Shelf, Record, Profile, Category }
 
+export enum ThemeButtonRole {
+  None = '',
+  ShelfSearch = 'button.shelf.search',
+  ShelfSearchActive = 'button.shelf.searchActive',
+  ShelfFilter = 'button.shelf.filter',
+  ShelfGroup = 'button.shelf.group',
+  ShelfGroupActive = 'button.shelf.groupActive',
+  ShelfGroupManage = 'button.shelf.groupManage',
+  ShelfImport = 'button.shelf.import',
+  ShelfUpdates = 'button.shelf.updates',
+  ShelfViewList = 'button.shelf.viewList',
+  ShelfViewCollection = 'button.shelf.viewCollection',
+  ShelfViewGrid = 'button.shelf.viewGrid',
+  ShelfAdd = 'button.shelf.add',
+  ShelfExpand = 'button.shelf.expand',
+  ShelfCollapse = 'button.shelf.collapse',
+  ShelfClose = 'button.shelf.close',
+  RecordBack = 'button.record.back',
+  RecordFilter = 'button.record.filter',
+  RecordFilterActive = 'button.record.filterActive',
+  RecordExcerpt = 'button.record.excerpt',
+  RecordHistory = 'button.record.history',
+  RecordEdit = 'button.record.edit',
+  RecordDone = 'button.record.done',
+  RecordLocked = 'button.record.locked'
+}
+
+export const THEME_BUTTON_ROLES: ThemeButtonRole[] = [
+  ThemeButtonRole.ShelfSearch, ThemeButtonRole.ShelfSearchActive, ThemeButtonRole.ShelfFilter,
+  ThemeButtonRole.ShelfGroup, ThemeButtonRole.ShelfGroupActive, ThemeButtonRole.ShelfGroupManage,
+  ThemeButtonRole.ShelfImport, ThemeButtonRole.ShelfUpdates, ThemeButtonRole.ShelfViewList,
+  ThemeButtonRole.ShelfViewCollection, ThemeButtonRole.ShelfViewGrid, ThemeButtonRole.ShelfAdd,
+  ThemeButtonRole.ShelfExpand, ThemeButtonRole.ShelfCollapse, ThemeButtonRole.ShelfClose,
+  ThemeButtonRole.RecordBack, ThemeButtonRole.RecordFilter, ThemeButtonRole.RecordFilterActive,
+  ThemeButtonRole.RecordExcerpt, ThemeButtonRole.RecordHistory, ThemeButtonRole.RecordEdit,
+  ThemeButtonRole.RecordDone, ThemeButtonRole.RecordLocked
+];
+
 export class AppThemeColors {
   background: ResourceStr = $r('sys.color.background_primary');
   surface: ResourceStr = $r('sys.color.comp_background_primary');
@@ -79,6 +117,7 @@ export class AppThemeCover {
 }
 
 export class AppThemeVisual {
+  buttons: Map<ThemeButtonRole, ResourceStr> = new Map<ThemeButtonRole, ResourceStr>();
   pages: Map<string, ThemePageBackdrop> = new Map<string, ThemePageBackdrop>();
   selectedIcons: Map<ThemeIconRole, ResourceStr> = new Map<ThemeIconRole, ResourceStr>();
   tabNormalColor: ResourceColor | undefined = undefined;

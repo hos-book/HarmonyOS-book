@@ -9,6 +9,7 @@ import { fileIo } from '@kit.CoreFileKit';
 import { CustomTtsConfig } from '../../model/CustomTtsConfig';
 import { CustomTtsConfigParser } from './CustomTtsConfigParser';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { SpeechAudioStream, SpeechPcmOutput } from './SpeechStreamAudio';
 
 class TtsErrorDetail {
   code: string = '';
@@ -54,12 +55,24 @@ export class HttpTtsFailure extends Error {
   }
 }
 
-/** 一次连续朗读复用同一个播放器，切段只 reset，停止时才 release。 */
+/** 连续朗读复用 PCM 输出，高倍速沿用 AVPlayer，停止时释放会话输出。 */
 export class HttpTtsAudioOutput {
   private playbackSpeed: number = 1;
+  private pcmOutput: SpeechPcmOutput = new SpeechPcmOutput();
+
+  canSetPlaybackSpeed(speed: number): boolean { return (speed <= 4) === (this.playbackSpeed <= 4); }
+
+  async playStream(stream: SpeechAudioStream, onStart: () => void,
+    onProgress: ((position: number, duration: number) => void) | null): Promise<void> {
+    this.pcmOutput.setSpeed(this.playbackSpeed);
+    await this.pcmOutput.play(stream, onStart, onProgress, (): Promise<boolean> => this.preparePlayback(),
+      (event: audio.InterruptEvent): void => { this.handleInterrupt(event); },
+      (event: audio.AudioStreamDeviceChangeInfo): void => { this.handleDeviceChange(event); });
+  }
 
   setPlaybackSpeed(speed: number): void {
     this.playbackSpeed = speed;
+    if (speed <= 4) this.pcmOutput.setSpeed(speed);
     const player = this.player;
     if (player !== null && ['prepared', 'playing', 'paused'].includes(player.state)) {
       player.setPlaybackRate(speed);
@@ -95,10 +108,15 @@ export class HttpTtsAudioOutput {
     this.loudnessGain = Math.round(gain);
     const operation = ++this.gainOperation;
     const player = this.player;
-    if (player === null || !['prepared', 'playing', 'paused', 'completed'].includes(player.state)) return true;
     let timer: number = -1;
     try {
-      const completion = player.setLoudnessGain(this.loudnessGain).then((): boolean => true).catch((): boolean => {
+      const completion = (async (): Promise<boolean> => {
+        await this.pcmOutput.setGain(this.loudnessGain);
+        if (player !== null && ['prepared', 'playing', 'paused', 'completed'].includes(player.state)) {
+          await player.setLoudnessGain(this.loudnessGain);
+        }
+        return true;
+      })().catch((): boolean => {
         if (operation === this.gainOperation) this.loudnessGain = previous;
         return false;
       });
@@ -145,6 +163,7 @@ export class HttpTtsAudioOutput {
   }
 
   async acquire(): Promise<media.AVPlayer> {
+    await this.pcmOutput.release();
     if (this.player === null) this.player = await media.createAVPlayer();
     return this.player;
   }
@@ -166,6 +185,7 @@ export class HttpTtsAudioOutput {
   }
 
   async release(): Promise<void> {
+    await this.pcmOutput.release();
     const player = this.player;
     this.player = null;
     if (player !== null) {
@@ -190,6 +210,11 @@ export class HttpTtsPlayer {
   private preparation: Promise<void> | null = null;
   private preparedAudio: ArrayBuffer | null = null;
   private shengqiao: ShengqiaoSynthesis | null = null;
+  private stream: SpeechAudioStream | null = null;
+  private streamReady: boolean = false;
+  private synthesisComplete: boolean = false;
+  private streamConsumed: boolean = false;
+  private synthesisError: Error | null = null;
 
   private timeoutSeconds: number;
   private retries: number;
@@ -198,11 +223,13 @@ export class HttpTtsPlayer {
     this.retries = retries;
   }
 
-  get ready(): boolean { return this.preparedAudio !== null && !this.cancelled; }
+  get ready(): boolean { return (this.preparedAudio !== null || this.streamReady) && !this.cancelled; }
+  get complete(): boolean { return this.synthesisComplete; }
 
   cancel(): void {
     this.trace('cancel:' + this.stage);
     this.cancelled = true;
+    this.stream?.cancel();
     this.shengqiao?.cancel();
     this.shengqiao = null;
     this.request?.destroy();
@@ -217,8 +244,14 @@ export class HttpTtsPlayer {
 
   prepare(config: CustomTtsConfig, text: string, speed: number): Promise<void> {
     if (this.preparation === null) {
+      const playbackSpeed = CustomTtsConfigParser.usesSpeed(config)
+        ? speed / CustomTtsConfigParser.synthesisSpeed(config, speed) : speed;
+      if (playbackSpeed <= 4) this.stream = new SpeechAudioStream();
       hilog.info(0x0000, 'SpeechQueue', 'task=%{public}d chars=%{public}d', this.taskId, text.length);
-      this.preparation = this.synthesize(config, text, CustomTtsConfigParser.synthesisSpeed(config, speed));
+      this.preparation = this.synthesize(config, text, CustomTtsConfigParser.synthesisSpeed(config, speed))
+        .then((): void => { this.stream?.finish(); })
+        .catch((error: Error): void => { this.synthesisError = error; this.stream?.cancel(); throw error; })
+        .finally((): void => { this.synthesisComplete = true; });
     }
     return this.preparation;
   }
@@ -230,7 +263,12 @@ export class HttpTtsPlayer {
         if (config.provider === SHENGQIAO_PROVIDER) {
           this.trace('shengqiao-synthesis');
           this.shengqiao = new ShengqiaoSynthesis(this.timeoutSeconds);
-          try { this.preparedAudio = await this.shengqiao.synthesize(config, text); this.check(); }
+          try {
+            const result = await this.shengqiao.synthesize(config, text, this.stream === null ? null :
+              (data: ArrayBuffer, rate: number, fraction: number): void => this.acceptAudio(data, rate, fraction));
+            if (this.stream === null) this.preparedAudio = result;
+            this.check();
+          }
           catch (error) {
             if (error instanceof ShengqiaoFailure) {
               if (error.reason === 'shengqiao_http') throw HttpTtsFailure.response(error.status, '');
@@ -248,7 +286,8 @@ export class HttpTtsPlayer {
         this.trace('failed:' + (error instanceof HttpTtsFailure ? error.kind : 'preparation'));
         this.check();
         if (!(error instanceof HttpTtsFailure)) throw new HttpTtsFailure('config', false);
-        if (!error.retryable || attempt >= this.retries) throw error;
+        if (!error.retryable || attempt >= this.retries || this.streamConsumed) throw error;
+        if (this.stream !== null) { this.stream.cancel(); this.stream = new SpeechAudioStream(); this.streamReady = false; }
         await new Promise<void>((resolve, reject): void => {
           const timer = setTimeout((): void => { this.rejectPlayback = null; resolve(); }, 300 * (attempt + 1));
           this.rejectPlayback = (reason: Error): void => { clearTimeout(timer); reject(reason); };
@@ -287,6 +326,7 @@ export class HttpTtsPlayer {
         throw failure.kind === 'voice' ? failure : new HttpTtsFailure('audio', false);
       }
       this.preparedAudio = response.data;
+      if (this.stream !== null) this.preparedAudio = null;
       this.trace('ready');
     } finally {
       this.rejectPlayback = null;
@@ -295,17 +335,39 @@ export class HttpTtsPlayer {
     }
   }
 
-  /** 收到数据即延长空闲期限；保留总时限、8 MiB 上限和取消，完整接收后才交给播放器。 */
+  /** 收到音频即交给解码器；沿用空闲期限、总时限、8 MiB 上限和取消。 */
   private receiveAudio(request: http.HttpRequest, url: string,
     options: http.HttpRequestOptions): Promise<TtsStreamResponse> {
     let idleTimer = -1;
     let totalTimer = -1;
     let settled = false;
-    const chunks: Uint8Array[] = [];
+    const chunks: ArrayBuffer[] = [];
     return new Promise<TtsStreamResponse>((resolve, reject): void => {
       let bytes = 0;
       let status = -1;
       let ended = false;
+      let streamed = 0;
+      let audioBody = false;
+      const deliver = (): void => {
+        if (this.stream === null || (status >= 0 && (status < 200 || status >= 300))) return;
+        if (!audioBody && bytes >= 12) {
+          const head = new Uint8Array(12);
+          let copied = 0;
+          for (const chunk of chunks) {
+            const count = Math.min(12 - copied, chunk.byteLength);
+            head.set(new Uint8Array(chunk, 0, count), copied); copied += count;
+            if (copied === 12) break;
+          }
+          audioBody = (head[0] === 82 && head[1] === 73 && head[8] === 87) ||
+            (head[0] === 73 && head[1] === 68 && head[2] === 51) ||
+            (head[0] === 255 && (head[1] & 224) === 224) ||
+            (head[0] === 79 && head[1] === 103 && head[2] === 103) ||
+            (head[0] === 102 && head[1] === 76 && head[2] === 97) ||
+            (head[4] === 102 && head[5] === 116 && head[6] === 121 && head[7] === 112);
+        }
+        if (!audioBody && status < 200) return;
+        while (streamed < chunks.length) this.acceptAudio(chunks[streamed++], 0);
+      };
       const fail = (error: Error | HttpTtsFailure): void => {
         if (settled) return;
         hilog.info(0x0000, 'SpeechQueue', 'task=%{public}d transfer-failed bytes=%{public}d ended=%{public}s status=%{public}d',
@@ -321,10 +383,14 @@ export class HttpTtsPlayer {
         if (settled || !ended || status < 0) return;
         settled = true;
         const response = new TtsStreamResponse();
-        response.data = new ArrayBuffer(bytes);
+        response.data = new ArrayBuffer(this.streamReady ? Math.min(bytes, 16384) : bytes);
         const data = new Uint8Array(response.data);
         let offset = 0;
-        for (const chunk of chunks) { data.set(chunk, offset); offset += chunk.length; }
+        for (const chunk of chunks) {
+          const count = Math.min(chunk.byteLength, data.length - offset);
+          data.set(new Uint8Array(chunk, 0, count), offset); offset += count;
+          if (offset === data.length) break;
+        }
         response.status = status;
         resolve(response);
       };
@@ -336,12 +402,14 @@ export class HttpTtsPlayer {
         if (settled || this.cancelled || chunk.byteLength === 0) return;
         bytes += chunk.byteLength;
         if (bytes > 8 * 1024 * 1024) { fail(new HttpTtsFailure('audio', false)); return; }
-        chunks.push(new Uint8Array(chunk));
+        chunks.push(chunk);
+        try { deliver(); } catch (_error) { fail(new HttpTtsFailure('audio', false)); }
         resetIdle();
       });
       request.on('dataEnd', (): void => { ended = true; finish(); });
       request.requestInStream(url, options).then((code: number): void => {
         status = code;
+        try { deliver(); } catch (_error) { fail(new HttpTtsFailure('audio', false)); }
         finish();
       }, (): void => fail(new HttpTtsFailure('network', true)));
     }).finally((): void => {
@@ -353,13 +421,43 @@ export class HttpTtsPlayer {
     });
   }
 
+  private acceptAudio(data: ArrayBuffer, rate: number, fraction: number = 0): void {
+    this.check();
+    this.stream?.append(data, rate, fraction);
+    this.stream?.start();
+    this.streamReady = true;
+  }
+
   async speak(context: common.Context, config: CustomTtsConfig, text: string, speed: number,
     requestId: string, onStart: () => void, output: HttpTtsAudioOutput,
     onProgress: ((position: number, duration: number) => void) | null = null): Promise<void> {
     const playbackSpeed = CustomTtsConfigParser.usesSpeed(config)
       ? speed / CustomTtsConfigParser.synthesisSpeed(config, speed) : speed;
     output.setPlaybackSpeed(playbackSpeed);
-    await this.prepare(config, text, speed);
+    const preparation = this.prepare(config, text, speed);
+    if (this.stream !== null) {
+      preparation.catch((): void => {});
+      while (!this.streamReady) {
+        if (this.synthesisError !== null) throw this.synthesisError;
+        this.check();
+        await new Promise<void>((resolve): void => { setTimeout(resolve, 20); });
+      }
+      const stream = this.stream;
+      this.streamConsumed = true;
+      try {
+        await output.playStream(stream, onStart, onProgress);
+        await preparation;
+        this.trace('played');
+      } catch (error) {
+        if (this.synthesisError !== null) throw this.synthesisError;
+        throw error instanceof Error ? error : new Error(String(error));
+      } finally {
+        stream.cancel(); this.stream = null;
+        if (!this.synthesisComplete) this.cancel();
+      }
+      return;
+    }
+    await preparation;
     this.trace('consume');
     const buffer = this.preparedAudio;
     if (buffer === null) throw new Error('TTS audio unavailable');

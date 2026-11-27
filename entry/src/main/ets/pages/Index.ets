@@ -26,7 +26,8 @@ import { ShengqiaoAccountPage } from './ShengqiaoAccountPage';
 import { ShengqiaoDebugPage } from './ShengqiaoDebugPage';
 import { MembershipPage } from './MembershipPage';
 import { ThemeEditorPage } from './ThemeEditorPage';
-import { ThemeEditorRoute } from '../model/ThemeDocument';
+import { ThemeDraft, ThemeEditorRoute } from '../model/ThemeDocument';
+import { ThemePackageService } from '../service/ThemePackageService';
 import { MembershipSubscriptionPage } from './MembershipSubscriptionPage';
 import { MembershipState } from '../model/MembershipState';
 import { AboutPage } from './AboutPage';
@@ -302,6 +303,18 @@ struct Index {
       (paths[paths.length - 1] === 'reader' || paths[paths.length - 1] === 'comicReader'));
   }
 
+  private async openThemePackage(uri: string): Promise<void> {
+    const context: common.Context | undefined = this.getUIContext().getHostContext();
+    if (context) {
+      try {
+        const draft: ThemeDraft = await ThemePackageService.importUri(context, uri);
+        this.navStack.pushPathByName('themeEditor', new ThemeEditorRoute(draft.document.id, draft));
+      } catch (_error) {
+        this.getUIContext().getPromptAction().showToast({ message: $r('app.string.theme_editor_failed') });
+      }
+    }
+  }
+
   /** EntryAbility.onCreate 写入路由后,Index 首次挂载时消费一次 */
   private consumePendingWidgetRoute(): void {
     const r = AppStorage.get<WidgetRoute>(KEY_WIDGET_ROUTE);
@@ -312,6 +325,10 @@ struct Index {
   }
 
   private handleWidgetRoute(target: string, bookId: string, fileType: string = ''): void {
+    if (target === 'themeImport') {
+      this.openThemePackage(bookId);
+      return;
+    }
     if (target === 'localBookImport') {
       this.navStack.pushPathByName('import', new LocalImportRouteParams(bookId, fileType), false);
       return;
@@ -873,7 +890,8 @@ struct Index {
       }
     } else if (name === 'themeEditor') {
       ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
-        ThemeEditorPage({ navStack: this.navStack, themeId: param instanceof ThemeEditorRoute ? param.themeId : 'default' })
+        ThemeEditorPage({ navStack: this.navStack, themeId: param instanceof ThemeEditorRoute ? param.themeId : 'default',
+          importedDraft: param instanceof ThemeEditorRoute ? param.draft : undefined })
       }
     } else if (name === 'membership' || name === 'appBackground') {
       ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {

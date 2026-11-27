@@ -5,7 +5,7 @@ import './style.css';
 
 const strings = new Map(resources.string.map(item => [item.name, item.value]));
 const t = key => strings.get(key) ?? key;
-const groups = ['basic', 'colors', 'backgrounds', 'tabs', 'icons', 'covers', 'player'];
+const groups = ['basic', 'colors', 'backgrounds', 'tabs', 'buttons', 'icons', 'covers', 'player'];
 const scenes = ['home', 'shelf', 'record', 'profile', 'player'];
 const fields = new Map(schema.fields.map(field => [field.key, field]));
 let assets = new Map();
@@ -14,13 +14,14 @@ let mode = 'light';
 let section = 'basic';
 let scene = 'home';
 let backgroundScene = 'common';
+let buttonScene = 'shelf';
+let buttonPreview = '';
 let theme = freshTheme();
 
 function freshTheme() {
   return {
     format: 'jianting.theme', schemaVersion: 1, id: `custom-${crypto.randomUUID()}`,
     name: t('theme_editor_new_name'), description: '', baseThemeId: 'default',
-    materialStyle: 6, verticalBottomTabs: false,
     light: schema.fields.filter(field => field.light).map(field => ({ key: field.key, value: field.light })),
     dark: schema.fields.filter(field => field.dark).map(field => ({ key: field.key, value: field.dark }))
   };
@@ -47,6 +48,7 @@ function value(key, colorMode = mode, fallback = '') {
 function set(key, current) {
   theme[mode] = theme[mode].filter(token => token.key !== key);
   if (current) theme[mode].push({ key, value: current });
+  if (key.startsWith('button.')) { buttonPreview = key; scene = buttonScene; }
   renderPreview();
   if (key.endsWith('.mode')) renderInspector();
 }
@@ -99,6 +101,7 @@ groups.forEach((group, index) => {
   const entry = button('', () => {
     section = group;
     if (group === 'player') scene = 'player';
+    else if (group === 'buttons') scene = buttonScene;
     renderNavigation(); renderInspector(); renderPreview();
   }, 'nav-item');
   entry.dataset.section = group;
@@ -160,6 +163,19 @@ function renderInspector() {
   const body = node('div', 'inspector-body');
   if (section === 'basic') renderBasic(body);
   else {
+    if (section === 'buttons') {
+      const select = node('select');
+      ['shelf', 'record'].forEach(item => {
+        const option = node('option', '', t(`theme_editor_${item}`));
+        option.value = item; select.append(option);
+      });
+      select.value = buttonScene;
+      select.addEventListener('change', () => {
+        buttonScene = select.value; scene = buttonScene; buttonPreview = '';
+        renderInspector(); renderPreview();
+      });
+      body.append(labeled(t('theme_editor_button_page'), select), node('p', 'button-hint', t('theme_editor_buttons_hint')));
+    }
     if (section === 'backgrounds') {
       const select = node('select');
       ['common', ...scenes.slice(0, 4)].forEach(item => {
@@ -176,7 +192,9 @@ function renderInspector() {
     schema.fields.filter(field => field.section === section && (section !== 'backgrounds' ||
       field.key.startsWith(`background.${backgroundScene}.`) ||
       backgroundScene === 'common' && field.key === 'background.coverBackdrop' ||
-      backgroundScene === 'profile' && field.key === 'background.profileCard') && fieldVisible(field)).forEach(field => body.append(renderField(field)));
+      backgroundScene === 'profile' && field.key === 'background.profileCard') &&
+      (section !== 'buttons' || field.key.startsWith(`button.${buttonScene}.`)) && fieldVisible(field))
+      .forEach(field => body.append(renderField(field)));
   }
   inspector.append(body);
 }
@@ -186,16 +204,7 @@ function renderBasic(body) {
   name.addEventListener('input', () => { theme.name = name.value; renderPreview(); });
   const description = node('textarea'); description.value = theme.description; description.rows = 3;
   description.addEventListener('input', () => { theme.description = description.value; });
-  const material = node('select');
-  [['6', '跟随系统'], ['2', '强'], ['3', '均衡'], ['4', '弱']].forEach(([key, label]) => {
-    const option = node('option', '', label); option.value = key; material.append(option);
-  });
-  material.value = String(theme.materialStyle);
-  material.addEventListener('change', () => { theme.materialStyle = Number(material.value); renderPreview(); });
-  const vertical = node('input'); vertical.type = 'checkbox'; vertical.checked = theme.verticalBottomTabs;
-  vertical.addEventListener('change', () => { theme.verticalBottomTabs = vertical.checked; renderPreview(); });
-  body.append(labeled(t('theme_editor_name'), name), labeled(t('theme_editor_description'), description),
-    labeled(t('theme_editor_material'), material), labeled(t('theme_editor_vertical'), vertical));
+  body.append(labeled(t('theme_editor_name'), name), labeled(t('theme_editor_description'), description));
   const hint = node('div', 'hint-card');
   hint.append(node('div', 'hint-symbol', '✦'), node('p', '', t('theme_editor_web_note')),
     node('small', '', '.jttheme'));
@@ -253,6 +262,9 @@ function renderField(field) {
     });
     wrapper.append(imageArea, input);
     if (source) wrapper.append(button(t('theme_editor_clear'), () => { set(field.key, ''); renderInspector(); }, 'text-button'));
+    if (field.section === 'buttons') wrapper.append(button(t('theme_editor_button_preview'), () => {
+      buttonPreview = field.key; scene = buttonScene; renderPreview();
+    }, 'text-button button-preview'));
   }
   input.id = `input-${field.key}`;
   return wrapper;
@@ -262,6 +274,7 @@ function focusField(key, colorMode) {
   const field = fields.get(key); if (!field) return;
   mode = colorMode; section = field.section;
   if (key.startsWith('background.') && key.split('.').length === 3) backgroundScene = key.split('.')[1];
+  if (key.startsWith('button.')) { buttonScene = key.split('.')[1]; scene = buttonScene; buttonPreview = key; }
   renderNavigation(); renderInspector(); renderPreview();
   const selected = document.getElementById(`field-${key}`);
   selected?.scrollIntoView({ block: 'center', behavior: 'smooth' });
@@ -301,6 +314,48 @@ function cover(colorMode, player = false) {
   return hook(result, key, colorMode);
 }
 
+function headerButtons(colorMode) {
+  const selected = (normal, variants) => variants.includes(buttonPreview) ? buttonPreview : normal;
+  const collection = ['button.shelf.add', 'button.shelf.expand', 'button.shelf.collapse', 'button.shelf.close'];
+  let keys;
+  if (scene === 'shelf') {
+    keys = collection.includes(buttonPreview) ? [collection[0], selected(collection[1], [collection[2]]), collection[3]] : [
+      selected('button.shelf.search', ['button.shelf.searchActive']), 'button.shelf.filter',
+      selected('button.shelf.group', ['button.shelf.groupActive', 'button.shelf.groupManage']),
+      'button.shelf.import', 'button.shelf.updates',
+      selected('button.shelf.viewList', ['button.shelf.viewCollection', 'button.shelf.viewGrid'])
+    ];
+  } else {
+    keys = [selected('button.record.filter', ['button.record.filterActive']), 'button.record.excerpt',
+      'button.record.history', selected('button.record.edit', ['button.record.done', 'button.record.locked'])];
+    if (buttonPreview === 'button.record.back') keys.unshift(buttonPreview);
+  }
+  const symbols = new Map([
+    ['search', '⌕'], ['searchActive', '⌕'], ['filter', '☷'], ['filterActive', '☷'],
+    ['group', '▱'], ['groupActive', '▱'], ['groupManage', '▱'], ['import', '⇧'], ['updates', '↻'],
+    ['viewList', '☰'], ['viewCollection', '▥'], ['viewGrid', '▦'], ['add', '+'],
+    ['expand', '⤢'], ['collapse', '⤡'], ['close', '×'], ['back', '‹'], ['excerpt', '▯'],
+    ['history', '◷'], ['edit', '✎'], ['done', '✓'], ['locked', '▣']
+  ]);
+  const row = node('div', 'phone-header-actions');
+  keys.forEach(key => {
+    const source = assetUrl(value(key, colorMode));
+    const item = hook(node('button', `preview-header-button ${source ? 'custom' : 'system'}`), key, colorMode);
+    item.type = 'button';
+    item.setAttribute('aria-label', t(fields.get(key).label));
+    if (['searchActive', 'groupActive', 'filterActive', 'done', 'locked'].includes(key.split('.')[2])) {
+      item.style.color = cssColor(value('color.brand', colorMode));
+    }
+    const fallback = ['button.record.filter', 'button.record.filterActive'].includes(key) ? assetUrl(value('icon.Filter', colorMode)) : '';
+    if (source || fallback) {
+      const picture = node('img', source ? 'whole-button' : 'button-symbol');
+      picture.src = source || fallback; picture.alt = ''; item.append(picture);
+    } else item.textContent = symbols.get(key.split('.')[2]);
+    row.append(item);
+  });
+  return row;
+}
+
 function renderPhone(colorMode) {
   const group = node('div', `phone-group ${colorMode === mode ? 'selected-mode' : ''}`);
   const caption = button(t(`theme_editor_${colorMode}`), () => { mode = colorMode; renderInspector(); renderPreview(); }, 'phone-caption');
@@ -334,8 +389,10 @@ function renderPhone(colorMode) {
   const content = node('div', 'phone-content');
   const top = node('div', 'phone-top'); top.append(node('span', '', '9:41'), node('span', '', '••• ▰'));
   const title = node('div', 'phone-title');
-  title.append(hook(node('h3', '', t(`theme_editor_${scene}`)), 'color.textPrimary', colorMode), icon('icon.Search', '⌕', colorMode));
+  title.append(hook(node('h3', '', t(`theme_editor_${scene}`)), 'color.textPrimary', colorMode));
+  if (scene !== 'shelf' && scene !== 'record') title.append(icon('icon.Search', '⌕', colorMode));
   content.append(top, title);
+  if (scene === 'shelf' || scene === 'record') content.append(headerButtons(colorMode));
   if (scene === 'player') {
     const player = node('div', 'player-content');
     player.append(cover(colorMode, true), node('h4', '', t('theme_editor_preview_book')),
@@ -369,13 +426,7 @@ function renderPhone(colorMode) {
       const sectionTitle = node('div', 'content-heading'); sectionTitle.append(node('span', '', '为你精选'), icon('icon.Filter', '☷', colorMode)); content.append(sectionTitle);
       const shelf = node('div', 'mini-shelf'); shelf.append(cover(colorMode), cover(colorMode)); content.append(shelf);
     }
-    const bottom = node('div', `phone-tabs ${theme.verticalBottomTabs ? 'vertical-tabs' : ''}`);
-    if (theme.verticalBottomTabs) {
-      const miniPlayer = node('div', 'preview-mini-player');
-      miniPlayer.append(node('span', '', '▶'), node('span', '', t('theme_editor_preview_book')));
-      content.append(miniPlayer);
-    }
-    bottom.style.backdropFilter = `blur(${({ 2: 8, 3: 18, 4: 28, 6: 20 })[theme.materialStyle]}px)`;
+    const bottom = node('div', 'phone-tabs');
     const glyphs = ['⌂', '▥', '◷', '♙'];
     scenes.slice(0, 4).forEach((item, index) => {
       const active = scene === item;

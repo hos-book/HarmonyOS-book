@@ -6,6 +6,7 @@ import { ThemeIconRole } from '../theme/ThemeIcons';
 import { AppAppearance } from '../model/AppAppearance';
 import { AppThemeBundle } from '../model/AppThemeBundle';
 import { PreferenceService } from '../service/PreferenceService';
+import { ThemePackageService } from '../service/ThemePackageService';
 import { AppColor, AppFont, AppRadius, AppSpace, AppTheme } from '../theme/Theme';
 import { ThemeBundles } from '../theme/ThemeBundles';
 import { CoverImage } from './CoverImage';
@@ -63,6 +64,23 @@ export struct ThemeBundleComponent {
     } finally {
       this.applying = false;
       this.applyingId = '';
+    }
+  }
+
+  private async deleteBundle(bundle: AppThemeBundle): Promise<void> {
+    if (this.applying) return;
+    this.applying = true;
+    try {
+      if (this.isCurrent(bundle)) {
+        await PreferenceService.applyThemeBundle(ThemeBundles.DefaultId);
+      }
+      await ThemePackageService.remove(bundle.id);
+      this.showPreview = false;
+      this.showResult($r('app.string.theme_editor_deleted'));
+    } catch (_error) {
+      this.showResult($r('app.string.theme_editor_failed'));
+    } finally {
+      this.applying = false;
     }
   }
 
@@ -201,7 +219,13 @@ export struct ThemeBundleComponent {
       .onClick(() => this.applyBundle(bundle.id))
       Button(bundle.custom ? $r('app.string.theme_editor_edit') : $r('app.string.theme_editor_create'))
         .width('100%').fontColor(AppColor.Brand).backgroundColor(AppColor.BrandSoft)
+        .enabled(!this.applying)
         .onClick((): void => { this.showPreview = false; this.onEdit(bundle.id); })
+      if (bundle.custom) {
+        Button($r('app.string.theme_editor_delete'))
+          .width('100%').fontColor(AppTheme.TextSecondary).backgroundColor(Color.Transparent)
+          .enabled(!this.applying).onClick((): void => { this.deleteBundle(bundle); })
+      }
     }.width('100%').padding(AppSpace.Sm).borderRadius(AppRadius.Lg)
     .backgroundColor(AppTheme.Surface)
     .border({ width: this.isCurrent(bundle) ? 1.5 : 1,
@@ -210,9 +234,6 @@ export struct ThemeBundleComponent {
 
   build() {
     Column({ space: AppSpace.Md }) {
-      Button($r('app.string.theme_editor_create')).width('100%').height(48)
-        .fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
-        .onClick((): void => this.onEdit(this.appearance.themeBundleId))
       Text($r('app.string.theme_editor_toolbar_hint')).fontSize(12).fontColor(AppTheme.TextSecondary)
       Row({ space: AppSpace.Xs }) {
         Text($r('app.string.theme_bundle_title')).fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium)
@@ -242,7 +263,7 @@ export struct ThemeBundleComponent {
       }
     }.width('100%')
     .bindSheet($$this.showPreview, this.previewSheet(), {
-      height: '80%', preferType: SheetType.BOTTOM, dragBar: true, showClose: true,
+      height: '95%', preferType: SheetType.BOTTOM, dragBar: true, showClose: true,
       backgroundColor: AppTheme.SettingsBackground,
       onDisappear: (): void => { this.showPreview = false; }
     })

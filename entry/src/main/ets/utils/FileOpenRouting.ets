@@ -30,6 +30,8 @@ export class FileOpenRouting {
     const dot = name.lastIndexOf('.');
     if (dot >= 0 && dot < name.length - 1) return name.substring(dot).toLowerCase();
     switch (fileType.split(';')[0].trim().toLowerCase()) {
+      case 'com.huan.listenbook.jttheme':
+      case 'application/x-jianting-theme': return '.jttheme';
       case 'general.json':
       case 'application/json':
       case 'text/json': return '.json';
@@ -60,6 +62,7 @@ export class FileOpenRouting {
     const uri = want.uri ?? '';
     if (!uri.startsWith('file://') && !uri.startsWith('content://')) return '';
     const ext = FileOpenRouting.extension(uri, want.type ?? '');
+    if (ext === '.jttheme') return 'themeImport';
     if (ext === '.json') return 'ruleSourceImport';
     return ext === '.zip' || FileOpenRouting.TEXT_EXTS.includes(ext) ? 'localBookImport' : '';
   }

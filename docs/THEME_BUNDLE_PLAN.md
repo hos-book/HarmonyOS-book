@@ -1,6 +1,6 @@
 # 主题套装与制作器
 
-主题套装统一包含配色、页面背景、底部 Tab、功能图标、默认书封和装饰、材质及播放器背景。App、网页、Windows 共用字段表与主题包。阅读器和桌面应用图标继续由原有设置管理。
+主题套装统一包含配色、页面背景、底部 Tab、功能图标、默认书封和装饰及播放器背景。App、网页、Windows 共用字段表与主题包。自制主题沿用 App 当前的材质强度与底栏样式；阅读器和桌面应用图标继续由原有设置管理。
 
 面向主题作者的操作步骤见 [主题制作说明书](THEME_EDITOR_GUIDE.md)。
 
@@ -8,7 +8,7 @@
 
 ## 用户入口
 
-“我的 → 主题与背景 → 套装”展示内置与用户主题。制作主题以当前套装为起点，已保存的自制主题可继续编辑。制作器提供主题信息、配色、页面背景、底部 Tab、功能图标、书封装饰、播放器七组。保存并应用沿用会员权益；导入、导出与预览在制作器完成。
+“我的 → 主题与背景 → 套装”展示内置与用户主题。右上角“导入主题”选择文件后进入制作器预览；系统文件管理器打开 `.jttheme` 并选择简听阅读时，App 自动读取该文件并进入同一制作器。导入生成编辑草稿，点击“保存并应用”后保存主题并切换外观，会员权益沿用现有规则。制作主题以当前套装为起点，已保存的自制主题可继续编辑，也可在预览面板删除；删除当前启用主题时先切回默认主题，再清理文件与注册项。制作器提供主题信息、配色、页面背景、底部 Tab、顶部按钮、功能图标、书封装饰、播放器八组。导出在制作器的主题信息内完成。
 
 原生页面使用 ArkUI V2，窄窗上下排列，宽窗左右排列。网页与 Windows 共用 Vite 页面和 Electron 宿主，支持浅深并列预览与点击预览定位编辑项。
 
@@ -38,8 +38,6 @@ assets/
   "name": "我的主题",
   "description": "浅色暖纸，深色暖灰",
   "baseThemeId": "default",
-  "materialStyle": 6,
-  "verticalBottomTabs": false,
   "light": [{ "key": "color.brand", "value": "#C4475B" }],
   "dark": [{ "key": "color.brand", "value": "#EF8DA0" }]
 }
@@ -61,24 +59,30 @@ assets/
 | `tab.home/shelf/record/profile.normal/selected` | 四个 Tab 的常态及选中图片 |
 | `tab.normalColor/selectedColor` | Tab 状态配色 |
 | `icon.Search/Filter/Grid/List/ChevronRight` | 已接入的功能图标 |
+| `button.shelf.*` | 书架顶部及书房分组面板的整按钮图片与切换状态 |
+| `button.record.*` | 记录页返回、筛选、摘录、历史、编辑／完成／锁定的整按钮图片 |
 | `cover.placeholder/localPlaceholder/playerPlaceholder` | 三种默认封面 |
 | `cover.title/localTitle/author/authorBackground/label/edge` | 默认封面文字与装饰颜色 |
 | `cover.decoration/illustratedPlaceholder` | 边框、书脊与书名排版 |
 
 完整字段与默认值位于 `entry/src/main/resources/rawfile/theme_editor_schema.json`。文案位于 `entry/src/main/resources/base/element/theme_editor.json`，三端直接读取。
 
-字段表共 112 项：配色 36、页面背景 42、Tab 10、功能图标 5、书封装饰 11、播放器 8。主题名称、说明、材质和底栏布局在主题信息中设置。背景编辑项按当前模式展示；书封模式提供底色、模糊与蒙层，图片模式另提供图片焦点与缩放。
+字段表共 135 项：配色 36、页面背景 42、Tab 10、顶部按钮 23、功能图标 5、书封装饰 11、播放器 8。主题名称、说明、材质和底栏布局在主题信息中设置。背景编辑项按当前模式展示；书封模式提供底色、模糊与蒙层，图片模式另提供图片焦点与缩放。
 
-`materialStyle` 使用现有 6（系统）、2（强）、3（均衡）、4（弱）值。`verticalBottomTabs` 使用已有双栏布局设置；原生 HDS 依据窗口与滚动状态呈现。网页预览表达布局关系，原生材质以设备显示为准。
+顶部按钮使用 `ThemeButtonRole` 与 `AppThemeVisual.buttons` 映射，由 `ImmersiveCircleButton` 在已有点击区域显示完整透明图片，包含图标和底板。图片按原色、方形画布显示，页面保留原有事件及长按逻辑。字段为空时使用原有按钮，各状态分别读取对应字段。App、网页和 Windows 的“顶部按钮”编辑组支持按页面编辑和状态预览。复杂背景及插画使用 PNG／WebP，简洁图标可使用 SVG。
+
+材质强度与底栏样式归 App 当前偏好管理，应用自制主题时继续沿用。三端制作器只编辑主题内容，导入旧包时忽略 `materialStyle` 和 `verticalBottomTabs`，再次导出只保留当前契约字段。网页预览表达布局关系，原生材质以设备显示为准。
+
+Tab 的 SVG 素材在导入、创建草稿及加载已安装主题时解码为 112×112 PNG，原生底栏继续显示原色图片，并保留浅深色与常态／选中状态。转换依据 [ArkUI 背景图片接口](https://gitee.com/openharmony/docs/blob/master/zh-cn/application-dev/reference/apis-arkui/arkui-ts/ts-universal-attributes-background.md)的格式范围，沿用原生 HDS 标签及收展行为。
 
 ## App 接入
 
 - `ThemeDocument`：三端文档、键值项、编辑草稿和背景模型。
-- `ThemePackageService`：图片选择、主题包读写、草稿及保存。启动时从 `filesDir/themes/<id>/` 加载。
+- `ThemePackageService`：图片选择、主题包读写、草稿、保存及自定义主题删除。App 内文件选择与外部授权 URI 共用主题解包入口；启动时从 `filesDir/themes/<id>/` 加载已保存主题。
 - `ThemeBundles`：内置工厂和动态主题共同注册，分别建立浅深外观。
 - `ThemeDocumentResolver`：语义颜色、图片与背景的明确映射。
 - `AppAppearance`：V2 外观状态，发布系统模式和套装更新。
-- `ThemeEditorPage / ThemeEditorPreview`：原生编辑及预览。
+- `ThemeEditorPage / ThemeEditorPreview`：原生编辑及预览，通过 `ThemeEditorRoute` 接收已导入草稿。外部主题文件复用 `FileOpenRouting → EntryAbility → Index` 的冷启动待处理路由与热启动事件，保留原始授权 URI。
 - `ThemeBackdropComponent`：页面与播放器图片裁剪、模糊、蒙层。
 - `MainPage`：常态／选中图标及底部连续背景。
 

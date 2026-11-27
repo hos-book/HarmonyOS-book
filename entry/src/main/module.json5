@@ -74,9 +74,13 @@
             ]
           },
           {
-            // 系统“使用其他应用打开”：JSON 进入书源导入，受支持的电子书和 ZIP 进入本地导入。
+            // 系统“使用其他应用打开”：主题包进入主题预览，JSON 进入书源导入，电子书和 ZIP 进入本地导入。
             "actions": ["ohos.want.action.viewData"],
             "uris": [
+              { "scheme": "file", "type": "com.huan.listenbook.jttheme", "linkFeature": "FileOpen" },
+              { "scheme": "file", "type": "application/x-jianting-theme", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "com.huan.listenbook.jttheme", "linkFeature": "FileOpen" },
+              { "scheme": "content", "type": "application/x-jianting-theme", "linkFeature": "FileOpen" },
               { "scheme": "file", "type": "general.json", "linkFeature": "FileOpen" },
               { "scheme": "file", "type": "application/json", "linkFeature": "FileOpen" },
               { "scheme": "file", "type": "text/json", "linkFeature": "FileOpen" },

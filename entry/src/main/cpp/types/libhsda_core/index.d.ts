@@ -1,6 +1,8 @@
 /** 0: local HTML, 1: local entities, 2: HTML encode, 3: HTML decode, 4: EPUB XML, 5: reader text, 6: speech text. */
 export const transformText: (input: string, operation: number) => string;
 export const transformHtmlBounded: (input: string, encode: boolean, timeoutMs: number) => string;
+/** Fixed 50 ms mailbox polling interval for the existing taskpool worker. */
+export const waitRuleHostInterval: () => void;
 /** Clean HTML and resolve image placeholders within one native call. */
 export const cleanEpubHtml: (html: string, prefix: string, images: string[]) => string;
 /** Call from an existing background task. */
@@ -9,6 +11,21 @@ export const cleanHtmlBatch: (input: string[]) => string[];
 export const searchOffsets: (text: string, keyword: string, limit: number) => Uint32Array;
 export const detectWhiteBorder: (pixels: Uint8Array, width: number, height: number) => number[];
 export const encodeWave: (samples: Float32Array, sampleRate: number) => ArrayBuffer;
+export class NativeSpeechStreamStatus {
+  rate: number;
+  channels: number;
+  queued: number;
+  duration: number;
+  done: boolean;
+  error: string;
+}
+export const createSpeechStream: () => Object;
+export const feedSpeechStream: (stream: Object, data: ArrayBuffer, sampleRate: number) => void;
+export const finishSpeechStream: (stream: Object) => void;
+export const startSpeechStream: (stream: Object) => void;
+export const cancelSpeechStream: (stream: Object) => void;
+export const readSpeechPcm: (stream: Object, buffer: ArrayBuffer) => number;
+export const speechStreamStatus: (stream: Object) => NativeSpeechStreamStatus;
 /** Background ZIP reads; each entry supplies offset, compressed size, expanded size and method. */
 export const readEpubEntries: (fd: number, fileSize: number, entries: number[]) => Promise<ArrayBuffer[]>;
 /** Native asynchronous work; each handle belongs to one sequential import. */
