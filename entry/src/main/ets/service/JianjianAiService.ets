@@ -2,7 +2,7 @@ import { common } from '@kit.AbilityKit';
 import { relationalStore } from '@kit.ArkData';
 import { util, url } from '@kit.ArkTS';
 import { rcp } from '@kit.RemoteCommunicationKit';
-import { JianjianAiConfig, JianjianAiMessage, JianjianAiError, JianjianAiErrorCode,
+import { JianjianAiConfig, JianjianAiSettings, JianjianAiMessage, JianjianAiError, JianjianAiErrorCode,
   JianjianAiPrompts, JIANJIAN_PROMPT_MAX_LENGTH } from '../model/JianjianAi';
 
 class ModelEntry { id: string = ''; }
@@ -25,6 +25,8 @@ export class JianjianAiService {
     const store = await relationalStore.getRdbStore(context, { name: 'jianjian_ai.db',
       securityLevel: relationalStore.SecurityLevel.S2, encrypt: true, allowRebuild: false });
     await store.executeSql('CREATE TABLE IF NOT EXISTS config (id INTEGER PRIMARY KEY, address TEXT, api_key TEXT, model TEXT)');
+    await store.executeSql('CREATE TABLE IF NOT EXISTS config_names (id INTEGER PRIMARY KEY, name TEXT)');
+    await store.executeSql('CREATE TABLE IF NOT EXISTS config_selection (id INTEGER PRIMARY KEY, config_id INTEGER)');
     await store.executeSql('CREATE TABLE IF NOT EXISTS model_cache (id INTEGER PRIMARY KEY, address TEXT, api_key TEXT, models TEXT)');
     await store.executeSql('CREATE TABLE IF NOT EXISTS prompts (id INTEGER PRIMARY KEY, chat_prompt TEXT, book_prompt TEXT)');
     return store;
@@ -76,30 +78,58 @@ export class JianjianAiService {
   }
 
   static async loadConfig(context: common.Context): Promise<JianjianAiConfig> {
+    return (await JianjianAiService.loadSettings(context)).selected();
+  }
+
+  static async loadSettings(context: common.Context): Promise<JianjianAiSettings> {
     const store = await JianjianAiService.store(context);
-    const rows = await store.querySql('SELECT address, api_key, model FROM config WHERE id = 1');
+    const rows = await store.querySql('SELECT c.id, COALESCE(n.name, c.model), c.address, c.api_key, c.model, ' +
+      'CASE WHEN c.id = s.config_id THEN 1 ELSE 0 END FROM config c ' +
+      'LEFT JOIN config_names n ON c.id = n.id LEFT JOIN config_selection s ON s.id = 1 ORDER BY c.id');
     try {
-      const config = new JianjianAiConfig();
-      if (rows.goToFirstRow()) {
-        config.address = rows.getString(0);
-        config.apiKey = rows.getString(1);
-        config.model = rows.getString(2);
+      const settings = new JianjianAiSettings();
+      while (rows.goToNextRow()) {
+        const config = new JianjianAiConfig();
+        config.id = rows.getLong(0);
+        config.name = rows.getString(1);
+        config.address = rows.getString(2);
+        config.apiKey = rows.getString(3);
+        config.model = rows.getString(4);
+        settings.configs.push(config);
+        if (rows.getLong(5) === 1) settings.selectedId = config.id;
       }
-      return config;
+      if (settings.selectedId === 0) settings.selectedId = settings.configs[0]?.id ?? 0;
+      return settings;
     } finally { rows.close(); }
   }
 
-  static async saveConfig(context: common.Context, config: JianjianAiConfig): Promise<void> {
+  static async saveConfig(context: common.Context, config: JianjianAiConfig): Promise<JianjianAiConfig> {
     const valid = JianjianAiService.normalize(config, true);
     const store = await JianjianAiService.store(context);
-    await store.executeSql('INSERT OR REPLACE INTO config (id, address, api_key, model) VALUES (1, ?, ?, ?)',
-      [valid.address, valid.apiKey, valid.model]);
+    if (valid.id === 0) {
+      const values: relationalStore.ValuesBucket = { 'address': valid.address, 'api_key': valid.apiKey, 'model': valid.model };
+      valid.id = await store.insert('config', values);
+    } else {
+      await store.executeSql('UPDATE config SET address = ?, api_key = ?, model = ? WHERE id = ?',
+        [valid.address, valid.apiKey, valid.model, valid.id]);
+    }
+    await store.executeSql('INSERT OR REPLACE INTO config_names (id, name) VALUES (?, ?)', [valid.id, valid.name]);
+    await store.executeSql('INSERT OR IGNORE INTO config_selection (id, config_id) SELECT 1, id FROM config ORDER BY id LIMIT 1');
+    return valid;
   }
 
-  static async clearConfig(context: common.Context): Promise<void> {
+  static async selectConfig(context: common.Context, id: number): Promise<void> {
     const store = await JianjianAiService.store(context);
-    await store.executeSql('DELETE FROM model_cache');
-    await store.executeSql('DELETE FROM config');
+    await store.executeSql('INSERT OR REPLACE INTO config_selection (id, config_id) SELECT 1, id FROM config WHERE id = ?', [id]);
+  }
+
+  static async deleteConfig(context: common.Context, id: number): Promise<void> {
+    const store = await JianjianAiService.store(context);
+    await store.executeSql('DELETE FROM model_cache WHERE id = ?', [id]);
+    await store.executeSql('DELETE FROM config_names WHERE id = ?', [id]);
+    await store.executeSql('DELETE FROM config WHERE id = ?', [id]);
+    await store.executeSql('DELETE FROM config_selection WHERE config_id = ?', [id]);
+    await store.executeSql('INSERT OR IGNORE INTO config_selection (id, config_id) SELECT 1, id FROM config ORDER BY id LIMIT 1');
   }
 
   /** 模型目录与服务地址、凭据绑定，保存在同一加密库中；刷新由用户主动触发。 */
@@ -107,8 +137,8 @@ export class JianjianAiService {
     if (!config.address || !config.apiKey) return [];
     const valid = JianjianAiService.normalize(config);
     const store = await JianjianAiService.store(context);
-    const rows = await store.querySql('SELECT models FROM model_cache WHERE id = 1 AND address = ? AND api_key = ?',
-      [valid.address, valid.apiKey]);
+    const rows = await store.querySql('SELECT models FROM model_cache WHERE id = ? AND address = ? AND api_key = ?',
+      [valid.id, valid.address, valid.apiKey]);
     try {
       if (!rows.goToFirstRow()) return [];
       const models: string[] = JSON.parse(rows.getString(0));
@@ -120,8 +150,8 @@ export class JianjianAiService {
   static async saveCachedModels(context: common.Context, config: JianjianAiConfig, models: string[]): Promise<void> {
     const valid = JianjianAiService.normalize(config);
     const store = await JianjianAiService.store(context);
-    await store.executeSql('INSERT OR REPLACE INTO model_cache (id, address, api_key, models) VALUES (1, ?, ?, ?)',
-      [valid.address, valid.apiKey, JSON.stringify(JianjianAiService.modelIds(models))]);
+    await store.executeSql('INSERT OR REPLACE INTO model_cache (id, address, api_key, models) VALUES (?, ?, ?, ?)',
+      [valid.id, valid.address, valid.apiKey, JSON.stringify(JianjianAiService.modelIds(models))]);
   }
 
   private static modelIds(models: string[]): string[] {
@@ -134,6 +164,8 @@ export class JianjianAiService {
 
   static normalize(config: JianjianAiConfig, requireModel: boolean = false): JianjianAiConfig {
     const valid = new JianjianAiConfig();
+    valid.id = config.id;
+    valid.name = config.name.trim() || config.model.trim();
     try {
       const parsed = url.URL.parseURL(config.address.trim());
       if (!['https:', 'http:'].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password ||
@@ -182,14 +214,19 @@ export class JianjianAiService {
   }
 
   async listModels(config: JianjianAiConfig): Promise<string[]> {
+    this.cancel();
     const valid = JianjianAiService.normalize(config);
-    return JianjianAiService.parseModels(await this.send(valid, '/models', 'GET', ''));
+    return JianjianAiService.parseModels(await this.send(valid, '/models', 'GET', '', this.generation));
   }
 
-  async chat(config: JianjianAiConfig, messages: JianjianAiMessage[], prompt: string): Promise<string> {
-    const valid = JianjianAiService.normalize(config, true);
+  async chat(context: common.Context, messages: JianjianAiMessage[], prompt: string,
+    onSelected: (config: JianjianAiConfig) => void = (): void => {}): Promise<string> {
+    this.cancel();
+    const generation = this.generation;
+    const settings = await JianjianAiService.loadSettings(context);
+    this.checkGeneration(generation);
+    if (settings.configs.length === 0) throw new JianjianAiError(JianjianAiErrorCode.CONFIG);
     const request = new ChatRequest();
-    request.model = valid.model;
     request.messages = [new JianjianAiMessage('system', prompt + '\n\n' +
       '回复使用纯文本，保留段落和引用编号；标题单独成行，要点使用普通编号或短横线。' +
       '不要输出 Markdown 标题、加粗、斜体或代码围栏标记。')];
@@ -206,7 +243,39 @@ export class JianjianAiService {
     while (recent.length > 0 && recent[0].role !== 'user') recent.shift();
     if (!recent.length || recent[recent.length - 1].role !== 'user') throw new JianjianAiError(JianjianAiErrorCode.INVALID);
     request.messages.push(...recent);
-    return JianjianAiService.parseReply(await this.send(valid, '/chat/completions', 'POST', JSON.stringify(request)));
+    const start = settings.configs.findIndex((config: JianjianAiConfig): boolean => config.id === settings.selectedId);
+    let lastError = new JianjianAiError(JianjianAiErrorCode.SERVER);
+    for (let offset = 0; offset < settings.configs.length; offset++) {
+      this.checkGeneration(generation);
+      const config = JianjianAiService.normalize(settings.configs[(start + offset) % settings.configs.length], true);
+      request.model = config.model;
+      let reply: string;
+      try {
+        reply = JianjianAiService.parseReply(await this.send(config, '/chat/completions', 'POST',
+          JSON.stringify(request), generation));
+      } catch (error) {
+        this.checkGeneration(generation);
+        if (error instanceof JianjianAiError && [JianjianAiErrorCode.AUTH, JianjianAiErrorCode.ENDPOINT,
+          JianjianAiErrorCode.LIMIT, JianjianAiErrorCode.NETWORK, JianjianAiErrorCode.SERVER,
+          JianjianAiErrorCode.INVALID, JianjianAiErrorCode.TOO_LARGE].includes(error.code)) {
+          lastError = error;
+          continue;
+        }
+        throw error instanceof Error ? error : new Error(String(error));
+      }
+      this.checkGeneration(generation);
+      if (config.id !== settings.selectedId) {
+        await JianjianAiService.selectConfig(context, config.id);
+        this.checkGeneration(generation);
+      }
+      onSelected(config);
+      return reply;
+    }
+    throw lastError;
+  }
+
+  private checkGeneration(generation: number): void {
+    if (generation !== this.generation) throw new JianjianAiError(JianjianAiErrorCode.CANCELLED);
   }
 
   cancel(): void {
@@ -215,9 +284,7 @@ export class JianjianAiService {
     this.session = undefined;
   }
 
-  private async send(config: JianjianAiConfig, path: string, method: string, body: string): Promise<string> {
-    this.cancel();
-    const generation = this.generation;
+  private async send(config: JianjianAiConfig, path: string, method: string, body: string, generation: number): Promise<string> {
     const session = rcp.createSession();
     this.session = session;
     const headers: Record<string, string> = { 'Authorization': `Bearer ${config.apiKey}`,

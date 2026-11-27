@@ -1,80 +1,118 @@
-# 主题套装开发指南
+# 主题套装与制作器
 
-当前内置 `default`（默认套装）、`paper-study`（纸感书房）、`mist-blue`（雾蓝）、`ink-wash`（墨山）、`baibian-jianjian`（百变简简）和 `apricot-study`（杏笺书斋）。套装定义随应用发布，通过统一注册表管理。
+主题套装统一包含配色、页面背景、底部 Tab、功能图标、默认书封和装饰、材质及播放器背景。App、网页、Windows 共用字段表与主题包。阅读器和桌面应用图标继续由原有设置管理。
 
-杏笺书斋沿用既有 Image 背景、场景图片、Spine 封面与图标角色能力，提供低饱和浅杏宣纸、边角杏枝、平缓淡山、古籍题签和朱砂小印，配齐深浅两套静态 WebP。设计及素材维护见 [杏笺书斋](themes/apricot-study.md)。
+面向主题作者的操作步骤见 [主题制作说明书](THEME_EDITOR_GUIDE.md)。
 
-## 分层与数据流
+交给 AI 生成主题使用 [主题 AI 制作规范](THEME_AI_GUIDE.md)，其中包含完整字段表、浅深默认值、素材要求和 `.jttheme` 打包示例。
 
-`ThemeBundleComponent → PreferenceService → AppAppearance → AppTheme / AppColor / HomeTheme / AppMaterial → 页面与组件`。
+## 用户入口
 
-- `model/AppThemeVisual.ets`：强类型视觉契约，包含语义颜色、背景、图标角色和封面呈现。
-- `model/AppThemeBundle.ets`：名称、描述、推荐强调色与视觉定义。定义创建后按只读配置使用，用户实际选择由 AppThemeSelection 保存。
-- `theme/bundles/`：各套装工厂。默认定义保留系统语义色和原资源，纸感定义保留暖纸及书脊，雾蓝使用冷灰蓝纯色背景、线性图标、细书脊和边框。
-- `theme/ThemeBundles.ets`：唯一注册表；列表、ID 校验、未知 ID 回退共用同一数组。
-- `theme/Theme.ets`：保留现有语义入口，读取当前 V2 状态。页面禁止判断具体主题 ID。
-- `ThemeBackgroundComponent / ThemeIconComponent / CoverTheme / CoverDecoration`：按能力呈现，不绑定套装名称。
+“我的 → 主题与背景 → 套装”展示内置与用户主题。制作主题以当前套装为起点，已保存的自制主题可继续编辑。制作器提供主题信息、配色、页面背景、底部 Tab、功能图标、书封装饰、播放器七组。保存并应用沿用会员权益；导入、导出与预览在制作器完成。
 
-显式 `themeBundleId` 供局部预览使用；空字符串表示跟随当前全局选择。预览与正式页面共用同一资源解析，浏览预览不会发布状态或写 Preferences。未知图标角色回退调用方提供的系统符号。
+原生页面使用 ArkUI V2，窄窗上下排列，宽窗左右排列。网页与 Windows 共用 Vite 页面和 Electron 宿主，支持浅深并列预览与点击预览定位编辑项。
 
-## 新增一套主题
+## 主题包
 
-1. 在 `theme/bundles/` 新建工厂，可参考 `MistTheme.ets`。创建 `AppThemeVisual`，显式填写差异资源，返回 `AppThemeBundle`。保留强类型字段、静态 `$r` 引用，避免字符串拼接资源名和动态对象属性访问。
-2. 在 `base/element/color.json` 与 `dark/element/color.json` 添加同名语义颜色。强调色至少包含正常、按下、悬停、弱背景、禁用与 `onBrand`；颜色由系统资源机制随深浅模式解析。
-3. 在 `base/media` 添加图标和普通、本地封面；需要深色变体的图片放入 `dark/media` 同名资源。图标用可染色单色填充 SVG，统一 24×24 viewBox。
-4. 在 `base/element/string.json` 添加名称和介绍。
-5. 在 `ThemeBundles` 导入工厂，并向 `bundles` 数组加入一次调用。列表与 ID 校验自动识别，不需要修改预览、偏好服务或业务页面。
-6. 执行主题回归、完整构建和设备验收。增加套装数量时同步测试中的预期数量。
+扩展名为 `.jttheme`，内容为 ZIP：
 
-已有能力：
+```text
+manifest.json
+theme.json
+assets/
+```
 
-| 配置 | 语义 |
+`manifest.json`：
+
+```json
+{ "format": "jianting.theme", "schemaVersion": 1, "theme": "theme.json" }
+```
+
+`theme.json`：
+
+```json
+{
+  "format": "jianting.theme",
+  "schemaVersion": 1,
+  "id": "custom-example",
+  "name": "我的主题",
+  "description": "浅色暖纸，深色暖灰",
+  "baseThemeId": "default",
+  "materialStyle": 6,
+  "verticalBottomTabs": false,
+  "light": [{ "key": "color.brand", "value": "#C4475B" }],
+  "dark": [{ "key": "color.brand", "value": "#EF8DA0" }]
+}
+```
+
+颜色采用 `#RRGGBB` 或 `#AARRGGBB`，图片值使用 `assets/文件名`。主题字段用有类型的键值数组承载，ArkTS 通过显式赋值映射到现有语义入口。对外 JSON 属性在混淆配置中保留。
+
+## 钩子
+
+| 主题键 | 含义 |
 | --- | --- |
-| `colors` | 通用背景、表面、三级文字、图标、分隔线、强调色、首页遮罩、详情渐变和设置底色 |
-| `background.kind` | `Gradient / Solid / Image` |
-| `background.image` | 图片背景资源；Image 模式应提供有效资源 |
-| `background.imageOpacity` | 图片叠加透明度，默认 1；配合语义背景色控制笔触对比度 |
-| `background.showCoverBackdrop` | 首页、榜单及详情是否使用书封氛围背景；关闭时首页使用套装背景 |
-| `icons` | `ThemeIconRole → Resource` 映射；缺少角色时保留系统符号 |
-| `cover.decoration` | `None / Border / Spine`；紧凑封面不显示书脊 |
-| `cover.illustratedPlaceholder` | 首页、搜索和下载无图项是否统一使用带书名的封面 |
-| `cover.playerPlaceholder` | 播放器无封面时的资源 |
-| `cover.authorBackground` | 本地书封作者底色，默认透明；作者为空时不绘制底色 |
-| `brandedProfileIcons` | 我的页面功能入口是否统一使用当前强调色 |
+| `color.*` | 页面、表面、文字、图标、品牌、控件、首页和详情颜色 |
+| `background.common.*` | 通用背景 |
+| `background.home/shelf/record/profile.*` | 四个主页面背景，支持跟随通用 |
+| `background.player.*` | 播放器背景：cover、solid、image |
+| `background.*.image/color/veil/blur/positionX/positionY/scale` | 素材、底色、蒙层、模糊与图片裁剪 |
+| `background.profileCard` | 我的账号卡图片 |
+| `background.coverBackdrop` | 首页与详情书封氛围开关 |
+| `tab.home/shelf/record/profile.normal/selected` | 四个 Tab 的常态及选中图片 |
+| `tab.normalColor/selectedColor` | Tab 状态配色 |
+| `icon.Search/Filter/Grid/List/ChevronRight` | 已接入的功能图标 |
+| `cover.placeholder/localPlaceholder/playerPlaceholder` | 三种默认封面 |
+| `cover.title/localTitle/author/authorBackground/label/edge` | 默认封面文字与装饰颜色 |
+| `cover.decoration/illustratedPlaceholder` | 边框、书脊与书名排版 |
 
-若确实需要新呈现能力，先扩充对应强类型契约与公共组件，再由定义选择；不要新增 `isMist` 或 `id === 'xxx'` 业务分支。圆角、字号、间距和动效保持原全局设计规范。
+完整字段与默认值位于 `entry/src/main/resources/rawfile/theme_editor_schema.json`。文案位于 `entry/src/main/resources/base/element/theme_editor.json`，三端直接读取。
 
-墨山是第二个通过该基座接入的新增套装：`InkTheme.ets` 使用 Image 背景、Spine 装饰和 10 个图标角色，深浅背景完整显示原图，本地封面启用作者底色。首页、书架、记录、我的统一使用背景组件；公共字段默认保持原主题效果，业务页面没有新增主题条件。设计、生成记录与验收见 [墨山主题](themes/ink-wash.md)。
+字段表共 112 项：配色 36、页面背景 42、Tab 10、功能图标 5、书封装饰 11、播放器 8。主题名称、说明、材质和底栏布局在主题信息中设置。背景编辑项按当前模式展示；书封模式提供底色、模糊与蒙层，图片模式另提供图片焦点与缩放。
 
-## 保存、覆盖与边界
+`materialStyle` 使用现有 6（系统）、2（强）、3（均衡）、4（弱）值。`verticalBottomTabs` 使用已有双栏布局设置；原生 HDS 依据窗口与滚动状态呈现。网页预览表达布局关系，原生材质以设备显示为准。
 
-沿用 `app_theme_preferences` 单条记录和 `schemaVersion = 1`：
+## App 接入
 
-| 字段 | 含义 |
-| --- | --- |
-| `themeBundleId` | 当前套装 ID |
-| `accentColor` | 当前实际强调色；默认套装空值表示默认玫瑰红 |
-| `materialStyle` | 用户当前实际材质，独立于套装选择 |
+- `ThemeDocument`：三端文档、键值项、编辑草稿和背景模型。
+- `ThemePackageService`：图片选择、主题包读写、草稿及保存。启动时从 `filesDir/themes/<id>/` 加载。
+- `ThemeBundles`：内置工厂和动态主题共同注册，分别建立浅深外观。
+- `ThemeDocumentResolver`：语义颜色、图片与背景的明确映射。
+- `AppAppearance`：V2 外观状态，发布系统模式和套装更新。
+- `ThemeEditorPage / ThemeEditorPreview`：原生编辑及预览。
+- `ThemeBackdropComponent`：页面与播放器图片裁剪、模糊、蒙层。
+- `MainPage`：常态／选中图标及底部连续背景。
 
-应用套装使用其推荐主题色，并保留用户当前材质；恢复默认套装和恢复套装推荐主题色同样保留材质。自定义标记只依据强调色。当前保存一组实际选择，材质通过设置页独立管理。推荐色与保存值一致时采用该套装的深浅色资源；自定义 HEX 仍沿用原计算逻辑。
+内置套装使用原有工厂，用户从内置套装创建时将浅深颜色和图片写入草稿，以便完整导出。
 
-偏好写入串行执行，flush 成功后才发布 V2 状态，失败回滚。旧颜色/材质偏好及备份迁移沿用原路径，未知套装回退默认并保留合法覆盖值。新增主题不需要更改存储版本。
+旧 `app_backgrounds` 与 `bottom_tab_icons` 数据继续用于旧选择；当前主题制作为新套装时带入已有图片，纸色与雾色预设分别转为浅深渐变素材。新应用记录的 `schemaVersion=2` 表示按套装统一呈现，旧选择记录版本 1 继续使用旧覆盖项。设置页中，自制套装的主题色入口直接打开制作器。
 
-- 阅读正文配色、阅读图片、字体和翻页设置独立保存。
-- 桌面应用图标由系统及 AppIconService 管理，套装不替换。
-- 真实书封与用户自选封面保留原图片；装饰不接收触摸、不写入缓存或书籍字段。
-- 阅读与播放弹层继续采用中性色和固定厚材质。
-- 沉浸材质当前通过 PlatformCompat 检查 API 26，较低版本走原磨砂路径。
-- 桌面卡片没有新增同步链路；wearable 需独立验收。
+导出时组装主题文档和实际引用的素材，编辑中替换过的素材留在草稿目录，随草稿结束清理。
 
-## 验证
+播放器的章节、进度、封面加载和控制逻辑沿用现有服务。播放器自选背景单独进入背景层。真实书籍封面沿原有链路展示；默认封面及书封装饰由套装控制。
 
-项目自有主题回归脚本已移除。验证主题时，检查语义角色、局部预览隔离、未知主题与图标回退、材质缓存失效、资源完整性，以及保存、恢复推荐值、重启和备份；设备渲染按下列待验收项检查。
+## 网页与 Windows
 
-本次基座与雾蓝接入：API 26 Release SDK 完整 debug HAP 构建通过（未签名），主题逻辑回归通过。工程原路径含中文，Hvigor 拒绝该路径，因此使用英文临时副本及公共构建模板验证；未修改原工程签名配置。此前纸感首版的真机记录不能作为本次重构或雾蓝主题的真机验收结论。
+源码位于 `tools/theme-editor`：
 
-设备待验收：三套主题来回切换、返回栈中的页面刷新、浅色/深色/跟随系统、首次启动与重启、设置自定义后恢复推荐、真实/本地/失败封面、无障碍点击、窄窗及大屏、API 20–25 降级、阅读与播放进度保持。
+```powershell
+npm install
+npm run dev
+npm run build
+npm run setup:desktop
+npm run desktop
+npm run package:win
+```
 
-## 编码参考
+网页产物位于 `dist/`，Windows 便携版位于 `release/`。正式部署与发布由用户安排。主题文件可在三端导入并继续编辑。
 
-本次读取并使用了在线 [ArkTS 检索指南](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/SKILL.md) 的语言约束资料，以及 [ArkUI 开发指南](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/SKILL.md) 的 V2 状态、组件参数和资源 API 参考。实现保持项目现有 Service 与 V2 分层。
+## 实施依据
+
+使用在线 ArkUI 开发、深浅色适配、ArkTS 语法检查和接口迁移资料，并结合本机 Release SDK 26.0.0.105 声明。最低 API 20，现有高版本材质继续经 `PlatformCompat` 选择。
+
+- [ArkUI 开发](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/SKILL.md)
+- [深浅色适配](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-dark-light-adaptation/SKILL.md)
+- [V2 颜色模式更新](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-dark-light-adaptation/references/compatibility.md)
+- [ArkTS 语法检查](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)
+- [接口迁移](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-deprecated-interface-checker/SKILL.md)
+
+本轮已完成最终接入文件的 ArkTS 静态检查、Release SDK 26.0.0.105 下的 App Debug 完整构建、网页生产构建及 Windows x64 便携版打包。App 已安装并启动于 HUAWEI Mate 80。本机网页通过端口 5173 提供访问。静态诊断保留平台适配提示及现有警告；设备视觉与三端文件交互尚待实际运行确认。

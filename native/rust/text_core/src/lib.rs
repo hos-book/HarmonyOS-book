@@ -1,6 +1,12 @@
 mod entities;
 mod epub_xml;
+mod txt_import;
+pub mod reader;
+pub mod speech;
+pub mod subtitle;
+pub mod source_html;
 pub use epub_xml::parse as parse_epub_xml;
+pub use txt_import::TxtImporter;
 
 pub fn js_space(c: u16) -> bool {
     matches!(c, 0x0009..=0x000d | 0x0020 | 0x00a0 | 0x1680 | 0x2000..=0x200a |

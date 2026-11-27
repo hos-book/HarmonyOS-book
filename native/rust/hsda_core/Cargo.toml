@@ -10,3 +10,4 @@ crate-type = ["staticlib"]
 [dependencies]
 hsda_text_core = { path = "../text_core" }
 hsda_ebook_core = { path = "../ebook_core" }
+hsda_ranking_core = { path = "../ranking_core" }

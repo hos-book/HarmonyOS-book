@@ -51,6 +51,59 @@ interface DownloadStoreRead {
   json: string;
 }
 
+export class DownloadChapterIndex {
+  private chapters: DownloadChapterRecord[];
+  private positions: Map<string, number[]> = new Map();
+
+  constructor(chapters: DownloadChapterRecord[]) {
+    this.chapters = chapters;
+    for (let position = 0; position < chapters.length; position++) this.update(position);
+  }
+
+  find(chapterId: string, pageUrl: string): number {
+    const url = pageUrl.trim();
+    if (!url) return this.positions.get(`id:${chapterId}`)?.[0] ?? -1;
+    const byUrl = this.positions.get(`url:${url}`)?.[0] ?? -1;
+    const byId = this.positions.get(`empty:${chapterId}`)?.[0] ?? -1;
+    return byUrl < 0 ? byId : byId < 0 ? byUrl : Math.min(byUrl, byId);
+  }
+
+  update(position: number, previousId?: string, previousUrl?: string): void {
+    const chapter = this.chapters[position];
+    const keys = this.keys(chapter.chapterId, chapter.pageUrl);
+    const previous: string[] = previousId === undefined ? [] : this.keys(previousId, previousUrl ?? '');
+    for (const key of previous) {
+      if (keys.includes(key)) continue;
+      const positions = this.positions.get(key);
+      if (positions) {
+        positions.splice(positions.indexOf(position), 1);
+        if (positions.length === 0) this.positions.delete(key);
+      }
+    }
+    for (const key of keys) {
+      if (previous.includes(key)) continue;
+      let positions = this.positions.get(key);
+      if (positions === undefined) {
+        positions = [];
+        this.positions.set(key, positions);
+      }
+      let insert = positions.length;
+      while (insert > 0 && positions[insert - 1] > position) insert--;
+      positions.splice(insert, 0, position);
+    }
+  }
+
+  private keys(chapterId: string, pageUrl: string): string[] {
+    const url = (pageUrl || '').trim();
+    return [`id:${chapterId}`, url ? `url:${url}` : `empty:${chapterId}`];
+  }
+}
+
+export class DownloadBookProgress {
+  totalCount: number = 0;
+  chaptersByTask: Map<string, number[]> = new Map();
+}
+
 const DOWNLOAD_ROOT_DIR = 'downloads';
 const DOWNLOAD_AUDIO_DIR = 'audio';
 const DOWNLOAD_STORE_FILE = 'download_store.json';
@@ -58,6 +111,7 @@ const DOWNLOAD_STORE_FILE = 'download_store.json';
 export class DownloadStore {
   private static ctx: common.Context | null = null;
   private static records: DownloadBookRecord[] | null = null;
+  private static progressByBook: Map<string, DownloadBookProgress> = new Map();
   private static writeChain: Promise<void> = Promise.resolve();
   private static persistUnsafe: boolean = false;
   private static migrationPromise: Promise<void> | null = null;
@@ -218,8 +272,9 @@ export class DownloadStore {
     if (canApply && !canApply()) return [];
     const bookRecord = DownloadStore.ensureBookRecordInMemory(book);
     const prepared: DownloadChapterRecord[] = [];
+    const index = new DownloadChapterIndex(bookRecord.chapters);
     for (const chapter of chapters) {
-      prepared.push(DownloadStore.upsertChapterInMemory(bookRecord, chapter, 'pending'));
+      prepared.push(DownloadStore.upsertChapterInMemory(bookRecord, chapter, 'pending', '', '', 0, '', 'unknown', index));
     }
     DownloadStore.recalculateBook(bookRecord);
     if (prepared.length > 0) bookRecord.status = 'queued';
@@ -280,9 +335,14 @@ export class DownloadStore {
 
   private static upsertChapterInMemory(bookRecord: DownloadBookRecord, chapter: Chapter,
     status: DownloadChapterStatus, audioUrl: string = '', filePath: string = '', bytes: number = 0,
-    failureReason: string = '', failureCode: DownloadFailureCode = 'unknown'): DownloadChapterRecord {
+    failureReason: string = '', failureCode: DownloadFailureCode = 'unknown',
+    index?: DownloadChapterIndex): DownloadChapterRecord {
     const pageUrl = DownloadPolicy.stablePageUrl(chapter);
-    let record = DownloadStore.findChapterRecord(bookRecord, chapter);
+    let position = index ? index.find(chapter.id, pageUrl) : bookRecord.chapters.findIndex(
+      (item: DownloadChapterRecord): boolean => DownloadPolicy.matchesChapter(item.chapterId, item.pageUrl, chapter.id, pageUrl));
+    let record = bookRecord.chapters[position];
+    const previousId = record?.chapterId;
+    const previousUrl = record?.pageUrl;
     if (!record) {
       record = {
         chapterId: chapter.id,
@@ -299,6 +359,7 @@ export class DownloadStore {
         updatedAt: Date.now(),
         variables: chapter.variables
       };
+      position = bookRecord.chapters.length;
       bookRecord.chapters.push(record);
     } else {
       record.chapterId = chapter.id;
@@ -315,6 +376,7 @@ export class DownloadStore {
       record.updatedAt = Date.now();
       record.variables = chapter.variables;
     }
+    index?.update(position, previousId, previousUrl);
     return record;
   }
 
@@ -329,11 +391,13 @@ export class DownloadStore {
     await DownloadStore.ensureLoaded();
     const list = DownloadStore.records ?? [];
     DownloadStore.records = list.filter((item: DownloadBookRecord) => item.bookId !== bookId);
+    DownloadStore.progressByBook.delete(bookId);
     await DownloadStore.saveAll();
   }
 
   static async clearAll(): Promise<void> {
     DownloadStore.records = [];
+    DownloadStore.progressByBook.clear();
     DownloadStore.persistUnsafe = false;
     await DownloadStore.saveAll();
   }
@@ -396,16 +460,51 @@ export class DownloadStore {
     let downloaded = 0;
     let failed = 0;
     let totalBytes = 0;
-    for (const chapter of book.chapters) {
+    const progress = new DownloadBookProgress();
+    for (let position = 0; position < book.chapters.length; position++) {
+      const chapter = book.chapters[position];
       if (chapter.status === 'completed') downloaded++;
       if (chapter.status === 'failed') failed++;
       if (chapter.status === 'completed') totalBytes += chapter.bytes;
+      DownloadStore.appendBookProgress(progress, book, position);
     }
     book.downloadedCount = downloaded;
     book.failedCount = failed;
     book.totalBytes = totalBytes;
+    DownloadStore.progressByBook.set(book.bookId, progress);
     book.status = DownloadPolicy.deriveBookStatus(book.status,
       book.chapters.map((chapter: DownloadChapterRecord): DownloadChapterDerivedStatus => chapter.status));
+  }
+
+  static getBookProgress(book: DownloadBookRecord): DownloadBookProgress {
+    let progress = DownloadStore.progressByBook.get(book.bookId);
+    if (progress === undefined) {
+      progress = DownloadStore.createBookProgress(book);
+      DownloadStore.progressByBook.set(book.bookId, progress);
+    }
+    return progress;
+  }
+
+  private static createBookProgress(book: DownloadBookRecord): DownloadBookProgress {
+    const progress = new DownloadBookProgress();
+    for (let position = 0; position < book.chapters.length; position++) {
+      DownloadStore.appendBookProgress(progress, book, position);
+    }
+    return progress;
+  }
+
+  private static appendBookProgress(progress: DownloadBookProgress, book: DownloadBookRecord, position: number): void {
+    const chapter = book.chapters[position];
+    if (chapter.status === 'deleted') return;
+    progress.totalCount++;
+    if (chapter.status === 'completed') return;
+    const key = DownloadPolicy.taskKey(book.bookId, chapter.pageUrl);
+    let positions = progress.chaptersByTask.get(key);
+    if (positions === undefined) {
+      positions = [];
+      progress.chaptersByTask.set(key, positions);
+    }
+    positions.push(position);
   }
 
   private static storePath(): string | null {

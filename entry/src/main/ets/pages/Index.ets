@@ -25,6 +25,8 @@ import { PluginManagementPage } from './PluginManagementPage';
 import { ShengqiaoAccountPage } from './ShengqiaoAccountPage';
 import { ShengqiaoDebugPage } from './ShengqiaoDebugPage';
 import { MembershipPage } from './MembershipPage';
+import { ThemeEditorPage } from './ThemeEditorPage';
+import { ThemeEditorRoute } from '../model/ThemeDocument';
 import { MembershipSubscriptionPage } from './MembershipSubscriptionPage';
 import { MembershipState } from '../model/MembershipState';
 import { AboutPage } from './AboutPage';
@@ -868,6 +870,10 @@ struct Index {
         } else {
           MembershipPage({ navStack: this.navStack })
         }
+      }
+    } else if (name === 'themeEditor') {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
+        ThemeEditorPage({ navStack: this.navStack, themeId: param instanceof ThemeEditorRoute ? param.themeId : 'default' })
       }
     } else if (name === 'membership' || name === 'appBackground') {
       ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {

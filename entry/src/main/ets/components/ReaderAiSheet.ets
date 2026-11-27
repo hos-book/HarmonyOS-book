@@ -51,7 +51,7 @@ export struct ReaderAiSheet {
       }
       if (!current()) return;
       if (!ReaderAiService.plain(content)) { this.message = $r('app.string.reader_ai_empty'); return; }
-      const result = await this.service.run(config, this.request.action, content,
+      const result = await this.service.run(context, this.request.action, content,
         (done: number, total: number, merging: boolean): void => {
           if (current()) this.progress = merging ? $r('app.string.reader_ai_merging', done, total) :
             $r('app.string.reader_ai_processing', done, total);

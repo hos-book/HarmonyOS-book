@@ -3,7 +3,7 @@
  * 未知私用区字符保留，由榜单解析器拒绝展示；不执行网页脚本或加载远程字体。 */
 export class FanqieRankingText {
   private static readonly FIRST_CODE: number = 0xE3E8;
-  private static readonly GLYPHS: string =
+  static readonly GLYPHS: string =
     'D在主特家军然表场4要只v和\u00006别还g现儿岁\u0000\u0000此象月3出战工相o男直失世F都平文什VO将真T那当\u0000会立些u是十张学气大爱两' +
     '命全后东性通被1它乐接而感车山公了常以何可话先pi叫轻M士W着变尔快l个说少色里安花远7难师放t报认面道S\u0000克地度I好机U民' +
     '写把万同水新没书电吃像斯5为y白几日教看但第加候作上拉住有法r事应位利你声身国问马女他Y比父XAHNSX边美对所金活回意到Z' +

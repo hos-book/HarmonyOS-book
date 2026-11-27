@@ -1,0 +1,745 @@
+{
+  "string": [
+    { "name": "theme_editor_file_filter", "value": "简听主题|.jttheme" },
+    {
+      "name": "theme_field_color_background",
+      "value": "页面底色"
+    },
+    {
+      "name": "theme_field_color_surface",
+      "value": "卡片底色"
+    },
+    {
+      "name": "theme_field_color_settingsBackground",
+      "value": "设置页底色"
+    },
+    {
+      "name": "theme_field_color_profileMenuSurface",
+      "value": "我的菜单底色"
+    },
+    {
+      "name": "theme_field_color_textPrimary",
+      "value": "主要文字"
+    },
+    {
+      "name": "theme_field_color_textSecondary",
+      "value": "次要文字"
+    },
+    {
+      "name": "theme_field_color_textTertiary",
+      "value": "辅助文字"
+    },
+    {
+      "name": "theme_field_color_iconPrimary",
+      "value": "主要图标"
+    },
+    {
+      "name": "theme_field_color_iconSecondary",
+      "value": "辅助图标"
+    },
+    {
+      "name": "theme_field_color_divider",
+      "value": "分隔线"
+    },
+    {
+      "name": "theme_field_color_appDivider",
+      "value": "内容分隔线"
+    },
+    {
+      "name": "theme_field_color_brand",
+      "value": "主题色"
+    },
+    {
+      "name": "theme_field_color_brandHover",
+      "value": "主题悬停色"
+    },
+    {
+      "name": "theme_field_color_brandPressed",
+      "value": "主题按下色"
+    },
+    {
+      "name": "theme_field_color_brandDisabled",
+      "value": "主题弱化色"
+    },
+    {
+      "name": "theme_field_color_brandSoft",
+      "value": "主题浅底色"
+    },
+    {
+      "name": "theme_field_color_brandDark",
+      "value": "主题深色"
+    },
+    {
+      "name": "theme_field_color_onBrand",
+      "value": "主题色上的文字"
+    },
+    {
+      "name": "theme_field_color_controlFallback",
+      "value": "控件底色"
+    },
+    {
+      "name": "theme_field_color_controlTint",
+      "value": "控件光感色"
+    },
+    {
+      "name": "theme_field_color_stroke",
+      "value": "材质描边"
+    },
+    {
+      "name": "theme_field_color_shadow",
+      "value": "阴影颜色"
+    },
+    {
+      "name": "theme_field_color_homeTop",
+      "value": "首页渐变顶部"
+    },
+    {
+      "name": "theme_field_color_homeMid",
+      "value": "首页渐变中部"
+    },
+    {
+      "name": "theme_field_color_homeBottom",
+      "value": "首页渐变底部"
+    },
+    {
+      "name": "theme_field_color_statusScrim",
+      "value": "状态栏蒙层"
+    },
+    {
+      "name": "theme_field_color_floatingMask",
+      "value": "底部渐隐色"
+    },
+    {
+      "name": "theme_field_color_homeAccent",
+      "value": "首页强调色"
+    },
+    {
+      "name": "theme_field_color_homeAccentSoft",
+      "value": "首页强调浅色"
+    },
+    {
+      "name": "theme_field_color_homeControl",
+      "value": "首页控件底色"
+    },
+    {
+      "name": "theme_field_color_homeSurface",
+      "value": "首页卡片底色"
+    },
+    {
+      "name": "theme_field_color_homeShadow",
+      "value": "首页阴影"
+    },
+    {
+      "name": "theme_field_color_progressTrack",
+      "value": "进度轨道"
+    },
+    {
+      "name": "theme_field_color_detailTop",
+      "value": "详情顶部蒙层"
+    },
+    {
+      "name": "theme_field_color_detailMid",
+      "value": "详情中部蒙层"
+    },
+    {
+      "name": "theme_field_color_detailBottom",
+      "value": "详情底部"
+    },
+    {
+      "name": "theme_field_background_common_mode_theme",
+      "value": "跟随基础套装"
+    },
+    {
+      "name": "theme_field_background_common_mode_solid",
+      "value": "纯色"
+    },
+    {
+      "name": "theme_field_background_common_mode_image",
+      "value": "图片"
+    },
+    {
+      "name": "theme_field_background_common_mode",
+      "value": "通用背景"
+    },
+    {
+      "name": "theme_field_background_common_image",
+      "value": "通用图片"
+    },
+    {
+      "name": "theme_field_background_common_color",
+      "value": "通用底色"
+    },
+    {
+      "name": "theme_field_background_common_veil",
+      "value": "通用蒙层"
+    },
+    {
+      "name": "theme_field_background_common_blur",
+      "value": "通用模糊"
+    },
+    {
+      "name": "theme_field_background_common_positionX",
+      "value": "通用水平位置"
+    },
+    {
+      "name": "theme_field_background_common_positionY",
+      "value": "通用垂直位置"
+    },
+    {
+      "name": "theme_field_background_common_scale",
+      "value": "通用缩放"
+    },
+    {
+      "name": "theme_field_background_home_mode_common",
+      "value": "跟随通用"
+    },
+    {
+      "name": "theme_field_background_home_mode_theme",
+      "value": "跟随基础套装"
+    },
+    {
+      "name": "theme_field_background_home_mode_solid",
+      "value": "纯色"
+    },
+    {
+      "name": "theme_field_background_home_mode_image",
+      "value": "图片"
+    },
+    {
+      "name": "theme_field_background_home_mode",
+      "value": "首页背景"
+    },
+    {
+      "name": "theme_field_background_home_image",
+      "value": "首页图片"
+    },
+    {
+      "name": "theme_field_background_home_color",
+      "value": "首页底色"
+    },
+    {
+      "name": "theme_field_background_home_veil",
+      "value": "首页蒙层"
+    },
+    {
+      "name": "theme_field_background_home_blur",
+      "value": "首页模糊"
+    },
+    {
+      "name": "theme_field_background_home_positionX",
+      "value": "首页水平位置"
+    },
+    {
+      "name": "theme_field_background_home_positionY",
+      "value": "首页垂直位置"
+    },
+    {
+      "name": "theme_field_background_home_scale",
+      "value": "首页缩放"
+    },
+    {
+      "name": "theme_field_background_shelf_mode_common",
+      "value": "跟随通用"
+    },
+    {
+      "name": "theme_field_background_shelf_mode_theme",
+      "value": "跟随基础套装"
+    },
+    {
+      "name": "theme_field_background_shelf_mode_solid",
+      "value": "纯色"
+    },
+    {
+      "name": "theme_field_background_shelf_mode_image",
+      "value": "图片"
+    },
+    {
+      "name": "theme_field_background_shelf_mode",
+      "value": "书架背景"
+    },
+    {
+      "name": "theme_field_background_shelf_image",
+      "value": "书架图片"
+    },
+    {
+      "name": "theme_field_background_shelf_color",
+      "value": "书架底色"
+    },
+    {
+      "name": "theme_field_background_shelf_veil",
+      "value": "书架蒙层"
+    },
+    {
+      "name": "theme_field_background_shelf_blur",
+      "value": "书架模糊"
+    },
+    {
+      "name": "theme_field_background_shelf_positionX",
+      "value": "书架水平位置"
+    },
+    {
+      "name": "theme_field_background_shelf_positionY",
+      "value": "书架垂直位置"
+    },
+    {
+      "name": "theme_field_background_shelf_scale",
+      "value": "书架缩放"
+    },
+    {
+      "name": "theme_field_background_record_mode_common",
+      "value": "跟随通用"
+    },
+    {
+      "name": "theme_field_background_record_mode_theme",
+      "value": "跟随基础套装"
+    },
+    {
+      "name": "theme_field_background_record_mode_solid",
+      "value": "纯色"
+    },
+    {
+      "name": "theme_field_background_record_mode_image",
+      "value": "图片"
+    },
+    {
+      "name": "theme_field_background_record_mode",
+      "value": "记录背景"
+    },
+    {
+      "name": "theme_field_background_record_image",
+      "value": "记录图片"
+    },
+    {
+      "name": "theme_field_background_record_color",
+      "value": "记录底色"
+    },
+    {
+      "name": "theme_field_background_record_veil",
+      "value": "记录蒙层"
+    },
+    {
+      "name": "theme_field_background_record_blur",
+      "value": "记录模糊"
+    },
+    {
+      "name": "theme_field_background_record_positionX",
+      "value": "记录水平位置"
+    },
+    {
+      "name": "theme_field_background_record_positionY",
+      "value": "记录垂直位置"
+    },
+    {
+      "name": "theme_field_background_record_scale",
+      "value": "记录缩放"
+    },
+    {
+      "name": "theme_field_background_profile_mode_common",
+      "value": "跟随通用"
+    },
+    {
+      "name": "theme_field_background_profile_mode_theme",
+      "value": "跟随基础套装"
+    },
+    {
+      "name": "theme_field_background_profile_mode_solid",
+      "value": "纯色"
+    },
+    {
+      "name": "theme_field_background_profile_mode_image",
+      "value": "图片"
+    },
+    {
+      "name": "theme_field_background_profile_mode",
+      "value": "我的背景"
+    },
+    {
+      "name": "theme_field_background_profile_image",
+      "value": "我的图片"
+    },
+    {
+      "name": "theme_field_background_profile_color",
+      "value": "我的底色"
+    },
+    {
+      "name": "theme_field_background_profile_veil",
+      "value": "我的蒙层"
+    },
+    {
+      "name": "theme_field_background_profile_blur",
+      "value": "我的模糊"
+    },
+    {
+      "name": "theme_field_background_profile_positionX",
+      "value": "我的水平位置"
+    },
+    {
+      "name": "theme_field_background_profile_positionY",
+      "value": "我的垂直位置"
+    },
+    {
+      "name": "theme_field_background_profile_scale",
+      "value": "我的缩放"
+    },
+    {
+      "name": "theme_field_background_player_mode_cover",
+      "value": "跟随书封"
+    },
+    {
+      "name": "theme_field_background_player_mode_solid",
+      "value": "纯色"
+    },
+    {
+      "name": "theme_field_background_player_mode_image",
+      "value": "图片"
+    },
+    {
+      "name": "theme_field_background_player_mode",
+      "value": "播放器背景"
+    },
+    {
+      "name": "theme_field_background_player_image",
+      "value": "播放器图片"
+    },
+    {
+      "name": "theme_field_background_player_color",
+      "value": "播放器底色"
+    },
+    {
+      "name": "theme_field_background_player_veil",
+      "value": "播放器蒙层"
+    },
+    {
+      "name": "theme_field_background_player_blur",
+      "value": "播放器模糊"
+    },
+    {
+      "name": "theme_field_background_player_positionX",
+      "value": "播放器水平位置"
+    },
+    {
+      "name": "theme_field_background_player_positionY",
+      "value": "播放器垂直位置"
+    },
+    {
+      "name": "theme_field_background_player_scale",
+      "value": "播放器缩放"
+    },
+    {
+      "name": "theme_field_background_profileCard",
+      "value": "我的账号卡图片"
+    },
+    {
+      "name": "theme_field_background_coverBackdrop",
+      "value": "书封氛围背景"
+    },
+    {
+      "name": "theme_field_tab_home_normal",
+      "value": "首页常态图标"
+    },
+    {
+      "name": "theme_field_tab_home_selected",
+      "value": "首页选中图标"
+    },
+    {
+      "name": "theme_field_tab_shelf_normal",
+      "value": "书架常态图标"
+    },
+    {
+      "name": "theme_field_tab_shelf_selected",
+      "value": "书架选中图标"
+    },
+    {
+      "name": "theme_field_tab_record_normal",
+      "value": "记录常态图标"
+    },
+    {
+      "name": "theme_field_tab_record_selected",
+      "value": "记录选中图标"
+    },
+    {
+      "name": "theme_field_tab_profile_normal",
+      "value": "我的常态图标"
+    },
+    {
+      "name": "theme_field_tab_profile_selected",
+      "value": "我的选中图标"
+    },
+    {
+      "name": "theme_field_tab_normalColor",
+      "value": "Tab 常态颜色"
+    },
+    {
+      "name": "theme_field_tab_selectedColor",
+      "value": "Tab 选中颜色"
+    },
+    {
+      "name": "theme_field_icon_Search",
+      "value": "搜索图标"
+    },
+    {
+      "name": "theme_field_icon_Filter",
+      "value": "筛选图标"
+    },
+    {
+      "name": "theme_field_icon_Grid",
+      "value": "网格图标"
+    },
+    {
+      "name": "theme_field_icon_List",
+      "value": "列表图标"
+    },
+    {
+      "name": "theme_field_icon_ChevronRight",
+      "value": "右箭头图标"
+    },
+    {
+      "name": "theme_field_cover_placeholder",
+      "value": "默认书封"
+    },
+    {
+      "name": "theme_field_cover_localPlaceholder",
+      "value": "本地默认书封"
+    },
+    {
+      "name": "theme_field_cover_playerPlaceholder",
+      "value": "播放默认书封"
+    },
+    {
+      "name": "theme_field_cover_title",
+      "value": "书名颜色"
+    },
+    {
+      "name": "theme_field_cover_localTitle",
+      "value": "本地书名颜色"
+    },
+    {
+      "name": "theme_field_cover_author",
+      "value": "作者颜色"
+    },
+    {
+      "name": "theme_field_cover_authorBackground",
+      "value": "作者底色"
+    },
+    {
+      "name": "theme_field_cover_label",
+      "value": "标签底色"
+    },
+    {
+      "name": "theme_field_cover_edge",
+      "value": "书封边缘"
+    },
+    {
+      "name": "theme_field_cover_decoration_0",
+      "value": "简洁"
+    },
+    {
+      "name": "theme_field_cover_decoration_1",
+      "value": "边框"
+    },
+    {
+      "name": "theme_field_cover_decoration_2",
+      "value": "书脊"
+    },
+    {
+      "name": "theme_field_cover_decoration",
+      "value": "书封装饰"
+    },
+    {
+      "name": "theme_field_cover_illustratedPlaceholder",
+      "value": "默认书封显示书名"
+    },
+    {
+      "name": "theme_editor_title",
+      "value": "主题制作器"
+    },
+    {
+      "name": "theme_editor_create",
+      "value": "制作主题"
+    },
+    {
+      "name": "theme_editor_edit",
+      "value": "编辑主题"
+    },
+    {
+      "name": "theme_editor_import",
+      "value": "导入主题"
+    },
+    {
+      "name": "theme_editor_export",
+      "value": "导出"
+    },
+    {
+      "name": "theme_editor_apply",
+      "value": "保存并应用"
+    },
+    {
+      "name": "theme_editor_name",
+      "value": "主题名称"
+    },
+    {
+      "name": "theme_editor_description",
+      "value": "主题介绍"
+    },
+    {
+      "name": "theme_editor_light",
+      "value": "浅色"
+    },
+    {
+      "name": "theme_editor_dark",
+      "value": "深色"
+    },
+    {
+      "name": "theme_editor_preview",
+      "value": "实时预览"
+    },
+    {
+      "name": "theme_editor_colors",
+      "value": "配色"
+    },
+    {
+      "name": "theme_editor_backgrounds",
+      "value": "页面背景"
+    },
+    {
+      "name": "theme_editor_tabs",
+      "value": "底部 Tab"
+    },
+    {
+      "name": "theme_editor_icons",
+      "value": "功能图标"
+    },
+    {
+      "name": "theme_editor_covers",
+      "value": "书封装饰"
+    },
+    {
+      "name": "theme_editor_player",
+      "value": "播放器"
+    },
+    {
+      "name": "theme_editor_basic",
+      "value": "主题信息"
+    },
+    {
+      "name": "theme_editor_material",
+      "value": "材质强度"
+    },
+    {
+      "name": "theme_editor_vertical",
+      "value": "竖向底栏样式"
+    },
+    {
+      "name": "theme_editor_pick",
+      "value": "选择图片"
+    },
+    {
+      "name": "theme_editor_clear",
+      "value": "使用默认"
+    },
+    {
+      "name": "theme_editor_saved",
+      "value": "主题已保存并应用"
+    },
+    {
+      "name": "theme_editor_exported",
+      "value": "主题已导出"
+    },
+    {
+      "name": "theme_editor_failed",
+      "value": "操作遇到问题，请重试"
+    },
+    {
+      "name": "theme_editor_color_hint",
+      "value": "#RRGGBB 或 #AARRGGBB"
+    },
+    {
+      "name": "theme_editor_invalid_color",
+      "value": "请填写有效的颜色值"
+    },
+    {
+      "name": "theme_editor_home",
+      "value": "首页"
+    },
+    {
+      "name": "theme_editor_shelf",
+      "value": "书架"
+    },
+    {
+      "name": "theme_editor_record",
+      "value": "记录"
+    },
+    {
+      "name": "theme_editor_profile",
+      "value": "我的"
+    },
+    {
+      "name": "theme_editor_common",
+      "value": "通用"
+    },
+    {
+      "name": "theme_editor_new_name",
+      "value": "我的主题"
+    },
+    {
+      "name": "theme_editor_preview_book",
+      "value": "山海之间"
+    },
+    {
+      "name": "theme_editor_preview_author",
+      "value": "简听阅读"
+    },
+    {
+      "name": "theme_editor_preview_hint",
+      "value": "给阅读一点自己的颜色"
+    },
+    {
+      "name": "theme_editor_preview_progress",
+      "value": "第 12 章 · 旅途中的光"
+    },
+    {
+      "name": "theme_editor_preview_record",
+      "value": "累计阅听"
+    },
+    {
+      "name": "theme_editor_preview_record_value",
+      "value": "128 小时"
+    },
+    {
+      "name": "theme_editor_my_themes",
+      "value": "我的主题"
+    },
+    {
+      "name": "theme_editor_builtin_themes",
+      "value": "内置套装"
+    },
+    {
+      "name": "theme_editor_toolbar_hint",
+      "value": "配色、背景和 Tab 随套装一起切换"
+    },
+    {
+      "name": "theme_editor_empty_name",
+      "value": "请填写主题名称"
+    },
+    {
+      "name": "theme_editor_background_hint",
+      "value": "选择页面后编辑对应背景"
+    },
+    {
+      "name": "theme_editor_web_title",
+      "value": "简听 · 主题工作室"
+    },
+    {
+      "name": "theme_editor_web_subtitle",
+      "value": "让每一次打开，都有你的风格"
+    },
+    {
+      "name": "theme_editor_web_note",
+      "value": "App · 网页 · Windows 共用主题包"
+    },
+    {
+      "name": "theme_editor_copy_mode",
+      "value": "复制到另一模式"
+    }
+  ]
+}

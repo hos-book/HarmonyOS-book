@@ -30,6 +30,8 @@ export class EpubParserService {
   private spines: EpubSpineItem[] = [];
   private catalog: EpubCatalogItem[] = [];
   private spineIds: Map<string, string> = new Map();
+  private capturedStyles: Map<string, ArrayBuffer> = new Map();
+  private capturedStyleBytes: number = 0;
 
   constructor(archive: EpubArchive) { this.archive = archive; }
 
@@ -59,7 +61,48 @@ export class EpubParserService {
 
   async getResourceContent(index: number, relative: string): Promise<ArrayBuffer> {
     const path = this.getResourcePath(index, relative);
+    const captured = this.capturedStyles.get(path);
+    if (captured !== undefined) {
+      this.capturedStyles.delete(path);
+      this.capturedStyleBytes -= captured.byteLength;
+      return captured;
+    }
     return path ? this.archive.read(path) : new ArrayBuffer(0);
+  }
+
+  /** 每批最多 16 项、512 KiB；大资源独占一批，返回已消费的前缀。 */
+  async getResourceBatch(index: number, relatives: string[]): Promise<Array<ArrayBuffer | undefined>> {
+    const result: Array<ArrayBuffer | undefined> = [];
+    const paths: string[] = [];
+    const positions: number[] = [];
+    let size = 0;
+    for (const relative of relatives) {
+      const path = this.getResourcePath(index, relative);
+      const resourceSize = this.archive.resourceSize(path);
+      if (result.length > 0 && (result.length >= 16 || size + resourceSize > 512 * 1024)) break;
+      size += resourceSize;
+      const position = result.length;
+      result.push(undefined);
+      if (path && this.archive.has(path)) { paths.push(path); positions.push(position); }
+    }
+    try {
+      const resources = await this.archive.readBatch(paths);
+      for (let at = 0; at < resources.length; at++) result[positions[at]] = resources[at];
+    } catch (_batch) {
+      // 保留可选资源逐项读取语义，成功项继续参与原版布局。
+      for (let at = 0; at < paths.length; at++) {
+        try { result[positions[at]] = await this.archive.read(paths[at]); } catch (_resource) {}
+      }
+    }
+    for (let at = 0; at < paths.length; at++) {
+      const bytes = result[positions[at]];
+      if (bytes === undefined || !paths[at].toLowerCase().endsWith('.css') || bytes.byteLength > 512 * 1024 ||
+        this.capturedStyles.has(paths[at]) || this.capturedStyles.size >= 128 ||
+        this.capturedStyleBytes + bytes.byteLength > 8 * 1024 * 1024) continue;
+      this.capturedStyles.set(paths[at], bytes);
+      this.capturedStyleBytes += bytes.byteLength;
+    }
+    return result;
   }
 
   async getSpineItemContent(index: number): Promise<string> {

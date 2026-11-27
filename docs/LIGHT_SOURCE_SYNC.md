@@ -1,5 +1,15 @@
 # 轻页书源引擎同步
 
+## 纯字段批处理与 Rust 标签索引（2026-11-27）
+
+`scripts/light-native-selector-batch.cjs` 已接入既有同步入口，宿主补丁标记为 `host-native-selector-batch-v1`。搜索、发现、详情及目录将纯 HTML 字段按最多 16 项一批提交给当前后台解析队列；JSON 对象、表达式和脚本字段保留原处理路径。
+
+后台按条目共享 HTML 元素跨度索引，各字段继续创建独立的规则上下文。`sourceTagPairs` 由 Rust 按原引擎同名标签规则完成扫描与栈配对；其他选择器语法和提取过程仍由公共引擎解释。字段结果及错误在原字段消费位置处理，目录的标题筛选、章节索引、数量额度与取消入口保持现有语义。
+
+本轮复用现有上游源码目录，通过 `scripts/sync-light-source.cjs` 生成 `NativeSourceRunner.ts`、`AnalyzeRule.ts` 及来源清单。实现参考已读取的 [ArkTS 检索技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/SKILL.md)、[ArkUI 开发技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-develop-skill/SKILL.md)、[高频工作指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkui/hmos-arkui-performance-analysis/references/component/frequent-work.md)及[编译修复技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)。当前索引读取成功，根目录 API 返回 429，相关文档从已定位的官方路径读取。
+
+本轮 `entry@default` Debug HAP 完整构建通过，使用 Release SDK 26.0.0.105，耗时 1 分 46.695 秒。真实书源兼容性与实机耗时待验证。
+
 ## 公共包修复同步（2026-11-26）
 
 本轮采用两个上游仓库的 `main` 分支源码：书源内核最近更新于 2026-11-25 17:56:17（北京时间），轻页辅助代码对应 2026-11-25 18:10:28 的 4.6.043 发布。以下日期小节保留各轮历史背景，当前接入以本节和现有源码为准。

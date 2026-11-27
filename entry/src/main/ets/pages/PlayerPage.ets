@@ -25,7 +25,8 @@ import { text as graphicsText } from '@kit.ArkGraphics2D';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { emitter } from '@kit.BasicServicesKit';
 import { vibrator } from '@kit.SensorServiceKit';
-import { AppColor, AppSpace, AppFont, AppMotion, AppRadius, AppMaterial } from '../theme/Theme';
+import { AppColor, AppSpace, AppFont, AppMotion, AppRadius, AppMaterial, AppTheme } from '../theme/Theme';
+import { ThemeBackdropComponent } from '../components/ThemeBackdropComponent';
 import { Book, Chapter } from '../model/Book';
 import { TocItem } from '../model/BookSource';
 import { LocalRuleSource } from '../model/LocalRuleSource';
@@ -1844,38 +1845,42 @@ export struct PlayerPage {
   @Builder
   buildAmbientBackground() {
     Stack() {
-      if (this.book && this.book.cover) {
+      if (AppTheme.pageBackground('player').mode !== 'cover') {
+        ThemeBackdropComponent({ backdrop: AppTheme.pageBackground('player'), night: true })
+      } else if (this.book && this.book.cover) {
         if (this.book.cover.startsWith('http')) {
           CoverImage({ url: this.book.cover, useFixedHeight: true, imgHeight: '100%', radius: 0,
             themedDecoration: false, showPlaceholder: false, eagerLoad: true })
             .width('100%')
             .height('100%')
-            .blur(40)
+            .blur(AppTheme.pageBackground('player').blur)
         } else if (this.book.cover.startsWith('/') || this.book.cover.startsWith('file://')) {
           Image('file://' + this.book.cover.replace(/^file:\/\//, ''))
             .width('100%')
             .height('100%')
             .objectFit(ImageFit.Cover)
             .sourceSize({ width: 120, height: 120 })
-            .blur(40)
+            .blur(AppTheme.pageBackground('player').blur)
         } else {
           Image($rawfile(this.book.cover))
             .width('100%')
             .height('100%')
             .objectFit(ImageFit.Cover)
-            .blur(40)
+            .blur(AppTheme.pageBackground('player').blur)
         }
       }
 
-      Column()
+      if (AppTheme.pageBackground('player').mode === 'cover') {
+        Column()
         .width('100%')
         .height('100%')
         .backgroundColor('#0D0D0D')
-        .opacity(0.7)
+        .opacity(AppTheme.pageBackground('player').veil / 100)
+      }
     }
     .width('100%')
     .height('100%')
-    .backgroundColor('#3B4650')
+    .backgroundColor(AppTheme.pageBackground('player').color)
   }
 
   private async reloadCurrentChapter(): Promise<void> {

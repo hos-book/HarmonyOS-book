@@ -4,6 +4,7 @@ import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { SettingsHintButton } from '../components/SettingsHintButton';
 import { GeneralSettings } from '../model/GeneralSettings';
 import { AppAppearance } from '../model/AppAppearance';
+import { ThemeEditorRoute } from '../model/ThemeDocument';
 import { MembershipState } from '../model/MembershipState';
 import { VipFeatureBadge } from '../components/VipFeatureBadge';
 import { MembershipService } from '../service/MembershipService';
@@ -714,10 +715,12 @@ export struct SettingsPage {
         .constraintSize({ minHeight: 56 })
 
         this.buildDivider()
-        AppearanceSettingsComponent()
+        AppearanceSettingsComponent({ onEditTheme: (): void => {
+          this.navStack.pushPathByName('themeEditor', new ThemeEditorRoute(AppAppearance.current.themeBundleId));
+        } })
         this.buildDivider()
         Row({ space: AppSpace.Sm }) {
-          Text($r('app.string.app_background_title')).fontSize(AppFont.BodyL)
+          Text($r('app.string.theme_bundle_title')).fontSize(AppFont.BodyL)
             .fontColor(AppTheme.TextPrimary).layoutWeight(1)
           SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(16)
             .fontColor([AppTheme.TextSecondary])

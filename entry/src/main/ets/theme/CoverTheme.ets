@@ -9,13 +9,13 @@ export class CoverTheme {
   static decoration(themeBundleId: string = ''): ThemeCoverDecoration {
     return CoverTheme.resolve(themeBundleId).decoration;
   }
-  static placeholder(themeBundleId: string = ''): Resource {
+  static placeholder(themeBundleId: string = ''): ResourceStr {
     return CoverTheme.resolve(themeBundleId).placeholder;
   }
-  static localPlaceholder(themeBundleId: string = ''): Resource {
+  static localPlaceholder(themeBundleId: string = ''): ResourceStr {
     return CoverTheme.resolve(themeBundleId).localPlaceholder;
   }
-  static playerPlaceholder(): Resource { return CoverTheme.resolve().playerPlaceholder; }
+  static playerPlaceholder(): ResourceStr { return CoverTheme.resolve().playerPlaceholder; }
   static titleColor(local: boolean = false, themeBundleId: string = ''): ResourceColor {
     const cover = CoverTheme.resolve(themeBundleId);
     return local ? cover.localTitle : cover.title;

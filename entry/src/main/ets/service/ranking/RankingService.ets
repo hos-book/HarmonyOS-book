@@ -1,7 +1,6 @@
 import { common } from '@kit.AbilityKit';
 import { RankingBoard, RankingPlatform } from '../../model/Ranking';
 import { HttpClient } from '../http/HttpClient';
-import { JsonObj } from '../builtin/JsonValue';
 import { RankingParser } from './RankingParser';
 import { RankingStorage } from './RankingStorage';
 
@@ -162,10 +161,9 @@ export class RankingService {
     try {
       const text = await RankingStorage.read(context, board.id);
       if (!text) return board;
-      const record = new JsonObj(JSON.parse(text));
-      const time = record.getInt('fetchedAt');
-      if (time <= 0 || time > Date.now() + 60000 || Date.now() - time > 30 * 86400000) return board;
-      const books = RankingParser.parse(board.platformId, board.id, record.getString('body'));
+      const result = await RankingParser.parse(board.platformId, board.id, text, true);
+      const time = result.fetchedAt;
+      const books = result.books;
       if (books.length > 0) {
         // 缓存也返回独立快照，让首页按变化的榜单通知，避免原地修改后只能全量刷新。
         const cached = new RankingBoard(board.id, board.platformId, board.platformName, board.title, board.endpoint);
@@ -232,7 +230,8 @@ export class RankingService {
         headers: RankingService.headers(board.platformId),
         charset: board.platformId === 'faloo' ? 'gb18030' : 'utf-8' });
       if (response.statusCode !== 200) throw new Error(`Ranking HTTP ${response.statusCode}`);
-      const books = RankingParser.parse(board.platformId, board.id, response.body);
+      const result = await RankingParser.parse(board.platformId, board.id, response.body);
+      const books = result.books;
       if (books.length === 0) throw new Error('Ranking page changed or empty');
       next.books = books.slice(0, RankingService.MAX_BOOKS);
       next.fetchedAt = Date.now();

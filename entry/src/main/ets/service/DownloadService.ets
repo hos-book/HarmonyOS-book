@@ -11,7 +11,7 @@ import { AudioDownloadTransport } from './AudioDownloadTransport';
 import { AudioRequestInfo, BookSourceService } from './BookSourceService';
 import { DataService } from './DataService';
 import { DownloadFailureCode, DownloadPolicy } from './DownloadPolicy';
-import { DownloadBookRecord, DownloadChapterRecord, DownloadStore } from './DownloadStore';
+import { DownloadBookRecord, DownloadChapterRecord, DownloadChapterIndex, DownloadStore } from './DownloadStore';
 import { SourceDataService } from './SourceDataService';
 import { DownloadNotificationService, DownloadNotificationSummary } from './DownloadNotificationService';
 import { BackgroundTaskService } from './BackgroundTaskService';
@@ -332,29 +332,34 @@ export class DownloadService {
   getBookProgress(bookId: string): DownloadProgressSnapshot {
     const record = DownloadStore.getBookSync(bookId);
     if (!record) return this.emptyProgress();
-    const chapters = record.chapters.filter((item: DownloadChapterRecord) => item.status !== 'deleted');
-    const totalCount = chapters.length;
+    const summary = DownloadStore.getBookProgress(record);
+    const totalCount = summary.totalCount;
     if (totalCount === 0) return this.emptyProgress();
-    let completedUnits = 0;
+    let completedUnits = record.downloadedCount;
     let receivedBytes = 0;
     let expectedBytes = 0;
     let indeterminate = false;
     let currentChapterTitle = '';
-    for (const chapter of chapters) {
-      if (chapter.status === 'completed') {
-        completedUnits++;
-        continue;
+    let firstPosition = record.chapters.length;
+    for (const entry of this.activeProgress) {
+      const key = entry[0];
+      const progress = entry[1];
+      if (progress.bookId !== bookId) continue;
+      for (const position of summary.chaptersByTask.get(key) ?? []) {
+        const chapter = record.chapters[position];
+        if (chapter.status === 'completed' || chapter.status === 'deleted') continue;
+        receivedBytes += progress.receivedBytes;
+        if (progress.totalBytes > 0) {
+          expectedBytes += progress.totalBytes;
+          completedUnits += Math.min(1, progress.receivedBytes / progress.totalBytes);
+        } else {
+          indeterminate = true;
+        }
+        if (progress.chapterTitle && position < firstPosition) {
+          firstPosition = position;
+          currentChapterTitle = progress.chapterTitle;
+        }
       }
-      const progress = this.activeProgress.get(this.taskKey(bookId, chapter.pageUrl));
-      if (!progress) continue;
-      receivedBytes += progress.receivedBytes;
-      if (progress.totalBytes > 0) {
-        expectedBytes += progress.totalBytes;
-        completedUnits += Math.min(1, progress.receivedBytes / progress.totalBytes);
-      } else {
-        indeterminate = true;
-      }
-      if (!currentChapterTitle) currentChapterTitle = progress.chapterTitle;
     }
     return {
       progressPercent: Math.max(0, Math.min(100, completedUnits / totalCount * 100)),
@@ -435,11 +440,13 @@ export class DownloadService {
     this.resolveFailureStreaks.delete(book.id);
     const candidates: DownloadQueueItem[] = [];
     const localKeys: Set<string> = new Set();
+    const storedChapters = DownloadStore.getBookSync(book.id)?.chapters ?? [];
+    const chapterIndex = new DownloadChapterIndex(storedChapters);
     for (const chapter of chapters) {
       if (!chapter) continue;
       const pageUrl = this.chapterPageUrl(chapter);
       if (!pageUrl) continue;
-      const existing = DownloadStore.getChapterSync(book.id, chapter);
+      const existing = storedChapters[chapterIndex.find(chapter.id, pageUrl)];
       // 必须用 isExpectedFile：仅 size>1KB 的 isUsableFile 会把“伪完成/大小不符”当成已下载而跳过，
       // 导致 UI 显示已下载但播放器 getDownloadedFilePath 拿不到文件。
       if (existing && existing.status === 'completed'

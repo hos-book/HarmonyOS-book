@@ -15,7 +15,7 @@ export struct ThemeIconComponent {
       if (ThemeIcons.resolve(this.role, this.themeBundleId) !== undefined) {
         Image(ThemeIcons.resolve(this.role, this.themeBundleId) ?? this.symbol)
           .width(this.iconSize).height(this.iconSize).objectFit(ImageFit.Contain)
-          .fillColor(this.tint)
+          .fillColor(AppTheme.resolve(this.themeBundleId).custom ? undefined : this.tint)
       } else {
         SymbolGlyph(this.symbol).fontSize(this.iconSize).fontColor([this.tint])
       }

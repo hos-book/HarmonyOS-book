@@ -13,6 +13,7 @@ export class RoleAiService {
   static readonly instance: RoleAiService = new RoleAiService();
   readonly state: RoleAiState = new RoleAiState();
   private store: preferences.Preferences | null = null;
+  private context: common.Context | null = null;
   private config: JianjianAiConfig = new JianjianAiConfig();
   private client: JianjianAiService = new JianjianAiService();
   private readonly voicePrompt: string = 'voices 是已启用音色目录，id 是真实音色 ID，description 是名称、分组与已有性别资料，' +
@@ -31,6 +32,7 @@ export class RoleAiService {
     'profile 用 60 字以内概括原文支持的性别、年龄和声线特征。';
 
   async initialize(context: common.Context): Promise<void> {
+    this.context = context;
     if (this.store === null) {
       this.store = await preferences.getPreferences(context, { name: 'role_speech_model' });
       this.state.enabled = this.store.getSync('enabled', false) === true;
@@ -50,6 +52,15 @@ export class RoleAiService {
   }
 
   cancel(): void { this.client.cancel(); }
+
+  private async chat(client: JianjianAiService, messages: JianjianAiMessage[], prompt: string): Promise<string> {
+    const context = this.context;
+    if (context === null) throw new JianjianAiError(JianjianAiErrorCode.CONFIG);
+    return client.chat(context, messages, prompt, (config: JianjianAiConfig): void => {
+      this.config = config;
+      this.state.model = config.model;
+    });
+  }
 
   static voiceOptions(configs: CustomTtsConfig[], selected: string): RoleVoiceOption[] {
     return configs.filter((item: CustomTtsConfig): boolean => item.enabled).map((item: CustomTtsConfig): RoleVoiceOption => {
@@ -116,7 +127,7 @@ export class RoleAiService {
     payload.lines = request.lines;
     payload.known = known;
     payload.voices = RoleAiService.voicePayload(voices, known);
-    const reply = await this.client.chat(this.config, [new JianjianAiMessage('user', JSON.stringify(payload))], prompt);
+    const reply = await this.chat(this.client, [new JianjianAiMessage('user', JSON.stringify(payload))], prompt);
     try {
       const answers: RoleModelAnswer[] = JSON.parse(reply);
       if (!Array.isArray(answers)) throw new Error('role_ai_response');
@@ -134,7 +145,7 @@ export class RoleAiService {
     const payload = new RoleVoicePayload();
     payload.speaker = request.speaker; payload.context = request.context; payload.known = request.known;
     payload.voices = RoleAiService.voicePayload(request.voices, request.known, request.speaker.id);
-    const reply = await client.chat(this.config, [new JianjianAiMessage('user', JSON.stringify(payload))], prompt);
+    const reply = await this.chat(client, [new JianjianAiMessage('user', JSON.stringify(payload))], prompt);
     try {
       const answer: RoleVoiceMatch = JSON.parse(reply);
       const match = RoleAiService.voiceMatch(answer, request.voices);

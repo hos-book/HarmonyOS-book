@@ -4,6 +4,7 @@ import { PlatformCompat } from '../../utils/PlatformCompat';
 import { ReaderDialogueHighlighter, ReaderDialogueRange } from './ReaderDialogueHighlighter';
 import { ReaderDialogueRules } from '../../model/ReaderDialogueRules';
 import { LocalTextImage } from './LocalTextImage';
+import { transformText, indentReaderText } from 'libhsda_core.so';
 
 export class OnlineTextPaintState {
   color: string = '';
@@ -85,25 +86,12 @@ export class OnlineTextIndentedContent {
   static fromNormalized(content: string, hiddenPrefix: number = 0): OnlineTextIndentedContent {
     const result = new OnlineTextIndentedContent();
     result.sourceLength = content.length;
-    const paragraphs = content.split('\n');
-    const displayed: string[] = [];
-    let sourceStart = 0;
-    let displayStart = 0;
-    for (let index = 0; index < paragraphs.length; index++) {
-      const paragraph = paragraphs[index];
-      const body = paragraph.replace(new RegExp('^\\s+'), '');
-      // Source separators remain in the offset space, but must not reserve extra line boxes.
-      if (sourceStart >= hiddenPrefix && body.trim().length > 0) {
-        if (displayed.length > 0) displayStart += 1;
-        result.indents.push(new OnlineTextIndent(
-          sourceStart, sourceStart + paragraph.length - body.length, displayStart));
-        const displayText = OnlineTextIndentedContent.INDENT + body;
-        displayed.push(displayText);
-        displayStart += displayText.length;
-      }
-      sourceStart += paragraph.length + 1;
+    const displayed = indentReaderText(content, hiddenPrefix);
+    for (let index = 0; index < displayed.indents.length; index += 3) {
+      result.indents.push(new OnlineTextIndent(
+        displayed.indents[index], displayed.indents[index + 1], displayed.indents[index + 2]));
     }
-    result.text = displayed.join('\n');
+    result.text = displayed.text;
     return result;
   }
 
@@ -269,6 +257,8 @@ class OnlineTextLayout {
   lines: OnlineTextMeasuredLine[] = [];
   paintState: OnlineTextPaintState = new OnlineTextPaintState();
   nativeIndents: boolean = false;
+  dialogueQuotePairs: string | null = null;
+  dialogueRanges: ReaderDialogueRange[] = [];
 }
 
 export class OnlineTextPaginator {
@@ -278,28 +268,7 @@ export class OnlineTextPaginator {
 
   private static layoutSerial: number = 0;
   static normalizeContent(content: string): string {
-    let value = content
-      .replace(new RegExp('\\r\\n?', 'g'), '\n')
-      .replace(new RegExp('[\\u200B\\uFEFF]', 'g'), '')
-      .replace(new RegExp('&nbsp;|&#160;', 'gi'), ' ');
-    const hasHtmlBlocks = new RegExp(
-      '<(?:br|p|div|section|article|li|h[1-6])(?:\\s[^>]*)?/?>|</(?:p|div|section|article|li|h[1-6])\\s*>', 'i')
-      .test(value);
-    if (hasHtmlBlocks) {
-      value = value
-        .replace(new RegExp('<!--[\\s\\S]*?-->', 'g'), '')
-        .replace(new RegExp('<script[\\s\\S]*?</script>', 'gi'), '')
-        .replace(new RegExp('<style[\\s\\S]*?</style>', 'gi'), '')
-        .replace(new RegExp('<br\\s*/?>', 'gi'), '\n')
-        .replace(new RegExp('</(?:p|div|section|article|li|h[1-6])\\s*>', 'gi'), '\n')
-        .replace(new RegExp('<(?:p|div|section|article|li|h[1-6])\\b[^>]*>', 'gi'), '\n')
-        .replace(new RegExp('<[^>]+>', 'g'), '');
-    }
-    return OnlineTextPaginator.decodeEntities(value)
-      .replace(new RegExp('[ \\t]+\\n', 'g'), '\n')
-      .replace(new RegExp('\\n[ \\t]+', 'g'), '\n')
-      .replace(new RegExp('\\n{3,}', 'g'), '\n\n')
-      .trim();
+    return transformText(content, 5);
   }
 
   static paginate(content: string, widthPx: number, heightPx: number,
@@ -359,17 +328,27 @@ export class OnlineTextPaginator {
     const displayed = layout.displayed;
     const metrics = layout.metrics;
     const pages = OnlineTextPaginator.paginateMeasuredLines(displayed.text, layout.lines, heading ? 1 : heightPx);
-    const dialogueRanges = ReaderDialogueHighlighter.ranges(displayed.text, dialogueQuotePairs);
+    if (layout.dialogueQuotePairs !== dialogueQuotePairs) {
+      layout.dialogueRanges = ReaderDialogueHighlighter.ranges(displayed.text, dialogueQuotePairs);
+      layout.dialogueQuotePairs = dialogueQuotePairs;
+    }
+    const dialogueRanges = layout.dialogueRanges;
+    let dialogueIndex = 0;
     let lineIndex = 0;
     for (const page of pages) {
       page.paragraph = layout.paragraph;
       page.paintState = layout.paintState;
       page.layoutKey = layout.serial;
       page.displayStart = page.startOffset;
-      page.dialogueRanges = dialogueRanges.filter((range: ReaderDialogueRange): boolean =>
-        range.end > page.startOffset && range.start < page.endOffset).map((range: ReaderDialogueRange): ReaderDialogueRange =>
-          new ReaderDialogueRange(Math.max(0, range.start - page.startOffset),
-            Math.min(page.text.length, range.end - page.startOffset)));
+      while (dialogueIndex < dialogueRanges.length && dialogueRanges[dialogueIndex].end <= page.startOffset) {
+        dialogueIndex++;
+      }
+      for (let index = dialogueIndex; index < dialogueRanges.length; index++) {
+        const range = dialogueRanges[index];
+        if (range.start >= page.endOffset) break;
+        page.dialogueRanges.push(new ReaderDialogueRange(Math.max(0, range.start - page.startOffset),
+          Math.min(page.text.length, range.end - page.startOffset)));
+      }
       page.nativeOffsets = layout.nativeIndents ? displayed : null;
       page.layoutWidth = layout.width;
       page.firstLine = lineIndex;
@@ -690,12 +669,4 @@ export class OnlineTextPaginator {
     return pages.length - 1;
   }
 
-  private static decodeEntities(content: string): string {
-    return content
-      .replace(new RegExp('&quot;', 'gi'), '"')
-      .replace(new RegExp('&#39;|&apos;', 'gi'), "'")
-      .replace(new RegExp('&lt;', 'gi'), '<')
-      .replace(new RegExp('&gt;', 'gi'), '>')
-      .replace(new RegExp('&amp;', 'gi'), '&');
-  }
 }

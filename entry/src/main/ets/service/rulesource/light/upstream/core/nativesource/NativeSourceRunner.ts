@@ -918,32 +918,39 @@ export class NativeSourceRunner {
   private async appendTocPage(stage: NativeTocSpec, loaded: StagePage, chapters: NativeChapterRecord[],
     limit: number, pacer: UiPacer): Promise<boolean> {
     const fields = stage.fields || {};
-    for (const item of (await this.listItems(stage.list || '', loaded.scope, loaded.baseUrl, 'toc.list'))) {
+    const items = await this.listItems(stage.list || '', loaded.scope, loaded.baseUrl, 'toc.list');
+    let selectorValues: Record<string, NativeValue>[] = [];
+    for (let itemIndex = 0; itemIndex < items.length; itemIndex++) {
+      const item = items[itemIndex];
       if (pacer.due()) {
         await pacer.yield();
         if (this.cancelled()) return true;
       }
       const itemScope = loaded.scope.child().set('item', item).set('index', chapters.length);
-      const title = NativeExpr.toText((await this.value(fields['title'], itemScope, false, 'toc.fields.title'))).trim();
+      if (itemIndex % 16 === 0) selectorValues = await this.readSelectorFields(fields, CHAPTER_FIELD_NAMES,
+        loaded.scope, items.slice(itemIndex, itemIndex + 16), 'toc');
+      const selected = selectorValues[itemIndex % 16] || {};
+      const read = (name: string): Promise<NativeValue> => this.selectorField(selected, fields, name, itemScope, 'toc');
+      const title = NativeExpr.toText((await read('title'))).trim();
       if (!title) continue;
-      const isVolume = NativeExpr.isTruthy((await this.value(fields['isVolume'], itemScope, false, 'toc.fields.isVolume')));
+      const isVolume = NativeExpr.isTruthy((await read('isVolume')));
       const url = NativeExpr.resolveUrl(
-        this.firstLine(this.first((await this.value(fields['url'], itemScope, false, 'toc.fields.url')))), loaded.baseUrl);
+        this.firstLine(this.first((await read('url')))), loaded.baseUrl);
       if (!url && !isVolume) continue;
       chapters.push({
         title: title,
         url: url,
-        isVip: NativeExpr.isTruthy((await this.value(fields['isVip'], itemScope, false, 'toc.fields.isVip'))),
-        isPay: NativeExpr.isTruthy((await this.value(fields['isPay'], itemScope, false, 'toc.fields.isPay'))),
+        isVip: NativeExpr.isTruthy((await read('isVip'))),
+        isPay: NativeExpr.isTruthy((await read('isPay'))),
         isVolume: isVolume,
         tag: fields['tag'] === undefined ? '' :
-          NativeExpr.toText((await this.value(fields['tag'], itemScope, false, 'toc.fields.tag'))).trim(),
+          NativeExpr.toText((await read('tag'))).trim(),
         updateTime: fields['updateTime'] === undefined ? '' :
-          NativeExpr.toText((await this.value(fields['updateTime'], itemScope, false, 'toc.fields.updateTime'))).trim(),
+          NativeExpr.toText((await read('updateTime'))).trim(),
         wordCount: fields['wordCount'] === undefined ? '' :
-          NativeExpr.toText((await this.value(fields['wordCount'], itemScope, false, 'toc.fields.wordCount'))).trim(),
+          NativeExpr.toText((await read('wordCount'))).trim(),
         type: fields['type'] === undefined ? '' :
-          NativeExpr.toText((await this.value(fields['type'], itemScope, false, 'toc.fields.type'))).trim().toLowerCase()
+          NativeExpr.toText((await read('type'))).trim().toLowerCase()
       });
       if (chapters.length >= MAX_LIST_ITEMS || (limit > 0 && chapters.length >= limit)) return true;
     }
@@ -2093,16 +2100,52 @@ export class NativeSourceRunner {
     return message ? `${message}（code=${codeText}）` : `code=${codeText}`;
   }
 
+  /** Group pure HTML fields while each field retains its own evaluation context. */
+  private async readSelectorFields(fields: Record<string, NativeValue>, names: string[], scope: NativeScope,
+    items: NativeValue[] | null, prefix: string): Promise<Record<string, NativeValue>[]> {
+    if (!this.host.parsePure) return [];
+    const rules: Record<string, NativeValue> = {};
+    for (const name of names) {
+      const rule = fields[name];
+      if (typeof rule !== 'string' || !rule.trim()) continue;
+      const text = rule.trim();
+      if (name === 'type' && /^(text|audio|comic|image|video)$/i.test(text) && prefix !== 'toc') continue;
+      if (text.startsWith('=') || !NativePureRule.isPure(text)) return [];
+      rules[name] = text;
+    }
+    if (Object.keys(rules).length === 0) return [];
+    const contents = items || [scope.get('item')];
+    if (contents.some(item => typeof item !== 'string')) return [];
+    const result = await this.host.parsePure(JSON.stringify({kind:'selectBatch', rule:'',
+      contents, rules, baseUrl:NativeExpr.toText(scope.get('baseUrl'))}));
+    return result === null ? [] : JSON.parse(result) as Record<string, NativeValue>[];
+  }
+
+  private async selectorField(selected: Record<string, NativeValue>, fields: Record<string, NativeValue>,
+    name: string, scope: NativeScope, prefix: string): Promise<NativeValue> {
+    if (!Object.prototype.hasOwnProperty.call(selected, name)) {
+      return this.value(fields[name], scope, false, prefix + '.fields.' + name);
+    }
+    const result = selected[name] as Record<string, NativeValue>;
+    if (result.failed) throw this.fieldError(prefix + '.fields.' + name, fields[name], new Error(String(result.error)));
+    this.traceRule(prefix + '.fields.' + name, fields[name], result.value, false, scope);
+    return result.value;
+  }
+
   private async readBooks(stage: NativeStageSpec, loaded: StagePage, prefix: string): Promise<NativeBookRecord[]> {
     const books: NativeBookRecord[] = [];
     const items = (await this.listItems(stage.list || '', loaded.scope, loaded.baseUrl, `${prefix}.list`));
     let scriptValues: Record<string, NativeValue>[] = [];
+    let selectorValues: Record<string, NativeValue>[] = [];
     for (let i = 0; i < items.length; i++) {
-      if (i % 16 === 0) scriptValues = await this.readScriptFields(stage.fields || {}, loaded.scope,
-        items.slice(i, i + 16), i, prefix);
+      if (i % 16 === 0) {
+        scriptValues = await this.readScriptFields(stage.fields || {}, loaded.scope, items.slice(i, i + 16), i, prefix);
+        selectorValues = await this.readSelectorFields(stage.fields || {}, BOOK_FIELD_NAMES, loaded.scope,
+          items.slice(i, i + 16), prefix);
+      }
       const itemScope = loaded.scope.child().set('item', items[i]).set('index', i);
       const book = (await this.readBook(stage.fields || {}, itemScope, loaded.baseUrl, prefix,
-        scriptValues[i % 16] || {}));
+        scriptValues[i % 16] || {}, selectorValues[i % 16] || {}));
       if (book.name && book.bookUrl) books.push(book);
     }
     return books;
@@ -2138,11 +2181,12 @@ export class NativeSourceRunner {
   }
 
   private async readBook(fields: Record<string, NativeValue>, scope: NativeScope, baseUrl: string,
-    prefix: string, scriptValues?: Record<string, NativeValue>): Promise<NativeBookRecord> {
+    prefix: string, scriptValues?: Record<string, NativeValue>, selectorValues?: Record<string, NativeValue>): Promise<NativeBookRecord> {
     const scripted = scriptValues || (await this.readScriptFields(fields, scope, null, 0, prefix))[0] || {};
+    const selected = selectorValues || (await this.readSelectorFields(fields, BOOK_FIELD_NAMES, scope, null, prefix))[0] || {};
     const read = async (name: string): Promise<NativeValue> => {
       if (!Object.prototype.hasOwnProperty.call(scripted, name)) {
-        return await this.value(fields[name], scope, false, `${prefix}.fields.${name}`);
+        return await this.selectorField(selected, fields, name, scope, prefix);
       }
       const value = scripted[name];
       this.traceRule(`${prefix}.fields.${name}`, fields[name], value, false, scope);

@@ -21,6 +21,7 @@ void Status(uint32_t status) {
     if (status == 5) throw std::runtime_error("EPUB 元数据或目录过大");
     if (status == 6) throw std::runtime_error("EPUB XML 结构过大");
     if (status == 7) throw std::runtime_error("HTML 编解码超时");
+    if (status == 8) throw std::runtime_error("TXT_CHAPTER_TOO_LARGE");
     Check(status == 0);
 }
 
@@ -94,7 +95,7 @@ napi_value Transform(napi_env env, napi_callback_info info) {
     });
 }
 
-napi_value EpubImages(napi_env env, napi_callback_info info) {
+napi_value EpubBody(napi_env env, napi_callback_info info) {
     return Call(env, [&]() {
         auto args = Args(env, info, 3);
         auto text = Text(env, args[0]), prefix = Text(env, args[1]);
@@ -112,7 +113,7 @@ napi_value EpubImages(napi_env env, napi_callback_info info) {
         for (const auto &image : images) {
             input.push_back({reinterpret_cast<const uint16_t *>(image.data()), image.size()});
         }
-        return TextResult(env, hsda_epub_images(reinterpret_cast<const uint16_t *>(text.data()), text.size(),
+        return TextResult(env, hsda_epub_body(reinterpret_cast<const uint16_t *>(text.data()), text.size(),
             reinterpret_cast<const uint16_t *>(prefix.data()), prefix.size(), input.data(), input.size()));
     });
 }
@@ -497,11 +498,439 @@ napi_value RebuildKf8(napi_env env, napi_callback_info info) {
     });
 }
 
+struct TxtHandle {
+    void *parser = nullptr;
+    ~TxtHandle() { hsda_txt_release(parser); }
+};
+
+void FinalizeTxt(napi_env, void *data, void *) { delete static_cast<TxtHandle *>(data); }
+
+struct TxtJob {
+    napi_async_work work = nullptr;
+    napi_deferred deferred = nullptr;
+    napi_ref handleRef = nullptr;
+    TxtHandle *handle = nullptr;
+    std::u16string input;
+    bool finalChunk = false;
+    HsdaBuffer<HsdaTxtSection> sections {};
+    std::string error;
+    ~TxtJob() { hsda_txt_sections_free(sections); }
+};
+
+napi_value TxtText(napi_env env, const HsdaBuffer<uint16_t> &buffer) {
+    std::u16string text(buffer.len + 1, u'\0');
+    if (buffer.len) std::memcpy(text.data(), buffer.data, buffer.len * sizeof(uint16_t));
+    napi_value result = nullptr;
+    Check(napi_create_string_utf16(env, text.c_str(), buffer.len, &result) == napi_ok, "rust_core_output");
+    return result;
+}
+
+struct RankingJob {
+    napi_async_work work = nullptr;
+    napi_deferred deferred = nullptr;
+    std::u16string input[4];
+    bool cached = false;
+    double now = 0;
+    HsdaRankingResult result {};
+    std::string error;
+    ~RankingJob() { hsda_ranking_free(result); }
+};
+
+void ExecuteRanking(napi_env, void *data) {
+    auto &job = *static_cast<RankingJob *>(data);
+    HsdaInputText input[4];
+    for (size_t index = 0; index < 4; ++index) {
+        input[index] = {reinterpret_cast<const uint16_t *>(job.input[index].data()), job.input[index].size()};
+    }
+    try {
+        job.result = hsda_ranking(input, job.cached, job.now);
+        Check(job.result.books.status == 0, "ranking_parse");
+    } catch (const std::exception &error) { job.error = error.what(); }
+}
+
+void RankingNumber(napi_env env, napi_value item, const char *name, double number) {
+    napi_value value;
+    Check(napi_create_double(env, number, &value) == napi_ok &&
+        napi_set_named_property(env, item, name, value) == napi_ok, "rust_core_output");
+}
+
+void CompleteRanking(napi_env env, napi_status status, void *data) {
+    std::unique_ptr<RankingJob> job(static_cast<RankingJob *>(data));
+    if (status != napi_ok) job->error = "rust_core_worker";
+    napi_value output = nullptr;
+    if (job->error.empty()) {
+        try {
+            napi_value books;
+            Check(napi_create_object(env, &output) == napi_ok &&
+                napi_create_array_with_length(env, job->result.books.len, &books) == napi_ok, "rust_core_output");
+            const char *names[] = {"id", "platformId", "title", "author", "narrator", "coverUrl", "originalUrl", "intro"};
+            for (uint32_t index = 0; index < job->result.books.len; ++index) {
+                const auto &book = job->result.books.data[index];
+                napi_value item;
+                Check(napi_create_object(env, &item) == napi_ok, "rust_core_output");
+                for (size_t field = 0; field < 8; ++field) {
+                    Check(napi_set_named_property(env, item, names[field], TxtText(env, book.fields[field])) == napi_ok,
+                        "rust_core_output");
+                }
+                RankingNumber(env, item, "rank", book.rank);
+                RankingNumber(env, item, "rating", book.rating);
+                RankingNumber(env, item, "contentType", book.contentType);
+                Check(napi_set_element(env, books, index, item) == napi_ok, "rust_core_output");
+            }
+            Check(napi_set_named_property(env, output, "books", books) == napi_ok, "rust_core_output");
+            RankingNumber(env, output, "fetchedAt", job->result.fetchedAt);
+        } catch (const std::exception &error) { job->error = error.what(); }
+    }
+    if (job->error.empty()) { napi_resolve_deferred(env, job->deferred, output); }
+    else {
+        napi_value message, error;
+        napi_create_string_utf8(env, job->error.c_str(), NAPI_AUTO_LENGTH, &message);
+        napi_create_error(env, nullptr, message, &error);
+        napi_reject_deferred(env, job->deferred, error);
+    }
+    napi_delete_async_work(env, job->work);
+}
+
+napi_value ParseRanking(napi_env env, napi_callback_info info) {
+    return Call(env, [&]() {
+        auto args = Args(env, info, 6);
+        auto job = std::make_unique<RankingJob>();
+        for (size_t index = 0; index < 4; ++index) job->input[index] = Text(env, args[index]);
+        Check(napi_get_value_bool(env, args[4], &job->cached) == napi_ok &&
+            napi_get_value_double(env, args[5], &job->now) == napi_ok);
+        napi_value name, promise;
+        try {
+            Check(napi_create_promise(env, &job->deferred, &promise) == napi_ok &&
+                napi_create_string_utf8(env, "RustRankingParse", NAPI_AUTO_LENGTH, &name) == napi_ok &&
+                napi_create_async_work(env, nullptr, name, ExecuteRanking, CompleteRanking, job.get(), &job->work) == napi_ok &&
+                napi_queue_async_work(env, job->work) == napi_ok, "rust_core_worker");
+        } catch (...) {
+            if (job->work) napi_delete_async_work(env, job->work);
+            throw;
+        }
+        job.release();
+        return promise;
+    });
+}
+
+void ExecuteTxt(napi_env, void *data) {
+    auto &job = *static_cast<TxtJob *>(data);
+    try {
+        job.sections = hsda_txt_feed(job.handle->parser,
+            reinterpret_cast<const uint16_t *>(job.input.data()), job.input.size(), job.finalChunk);
+        Status(job.sections.status);
+    } catch (const std::exception &error) { job.error = error.what(); }
+}
+
+void CompleteTxt(napi_env env, napi_status status, void *data) {
+    std::unique_ptr<TxtJob> job(static_cast<TxtJob *>(data));
+    if (status != napi_ok) job->error = "rust_core_worker";
+    napi_value output = nullptr;
+    if (job->error.empty()) {
+        try {
+            Check(napi_create_array_with_length(env, job->sections.len, &output) == napi_ok, "rust_core_output");
+            for (uint32_t index = 0; index < job->sections.len; ++index) {
+                const auto &section = job->sections.data[index];
+                napi_value item, preserve;
+                Check(napi_create_object(env, &item) == napi_ok &&
+                    napi_get_boolean(env, section.preserveChapter, &preserve) == napi_ok, "rust_core_output");
+                Check(napi_set_named_property(env, item, "title", TxtText(env, section.title)) == napi_ok &&
+                    napi_set_named_property(env, item, "content", TxtText(env, section.content)) == napi_ok &&
+                    napi_set_named_property(env, item, "preserveChapter", preserve) == napi_ok &&
+                    napi_set_element(env, output, index, item) == napi_ok, "rust_core_output");
+            }
+        } catch (const std::exception &error) { job->error = error.what(); }
+    }
+    if (job->error.empty()) { napi_resolve_deferred(env, job->deferred, output); }
+    else {
+        napi_value message, error;
+        napi_create_string_utf8(env, job->error.c_str(), NAPI_AUTO_LENGTH, &message);
+        napi_create_error(env, nullptr, message, &error);
+        napi_reject_deferred(env, job->deferred, error);
+    }
+    napi_delete_reference(env, job->handleRef);
+    napi_delete_async_work(env, job->work);
+}
+
+napi_value CreateTxt(napi_env env, napi_callback_info info) {
+    return Call(env, [&]() {
+        auto args = Args(env, info, 1);
+        auto title = Text(env, args[0]);
+        auto handle = std::make_unique<TxtHandle>();
+        handle->parser = hsda_txt_create(reinterpret_cast<const uint16_t *>(title.data()), title.size());
+        napi_value output;
+        Check(napi_create_external(env, handle.get(), FinalizeTxt, nullptr, &output) == napi_ok, "rust_core_output");
+        handle.release();
+        return output;
+    });
+}
+
+napi_value FeedTxt(napi_env env, napi_callback_info info) {
+    return Call(env, [&]() {
+        auto args = Args(env, info, 3);
+        auto job = std::make_unique<TxtJob>();
+        Check(napi_get_value_external(env, args[0], reinterpret_cast<void **>(&job->handle)) == napi_ok);
+        job->input = Text(env, args[1]);
+        Check(napi_get_value_bool(env, args[2], &job->finalChunk) == napi_ok);
+        napi_value name, promise;
+        try {
+            Check(napi_create_reference(env, args[0], 1, &job->handleRef) == napi_ok &&
+                napi_create_promise(env, &job->deferred, &promise) == napi_ok &&
+                napi_create_string_utf8(env, "RustTxtImport", NAPI_AUTO_LENGTH, &name) == napi_ok &&
+                napi_create_async_work(env, nullptr, name, ExecuteTxt, CompleteTxt, job.get(), &job->work) == napi_ok &&
+                napi_queue_async_work(env, job->work) == napi_ok, "rust_core_worker");
+        } catch (...) {
+            if (job->handleRef) napi_delete_reference(env, job->handleRef);
+            if (job->work) napi_delete_async_work(env, job->work);
+            throw;
+        }
+        job.release();
+        return promise;
+    });
+}
+
+napi_value ReleaseTxt(napi_env env, napi_callback_info info) {
+    return Call(env, [&]() {
+        auto args = Args(env, info, 1);
+        TxtHandle *handle = nullptr;
+        Check(napi_get_value_external(env, args[0], reinterpret_cast<void **>(&handle)) == napi_ok);
+        hsda_txt_release(handle->parser);
+        handle->parser = nullptr;
+        napi_value result;
+        napi_get_undefined(env, &result);
+        return result;
+    });
+}
+
+template<typename T> struct RustOwned {
+    T value;
+    void (*release)(T);
+    ~RustOwned() { release(value); }
+};
+
+napi_value Property(napi_env env, napi_value object, const char *name) {
+    napi_value value;
+    Check(napi_get_named_property(env, object, name, &value) == napi_ok);
+    return value;
+}
+
+napi_value Element(napi_env env, napi_value array, uint32_t index) {
+    napi_value value;
+    Check(napi_get_element(env, array, index, &value) == napi_ok);
+    return value;
+}
+
+uint32_t Length(napi_env env, napi_value array) {
+    uint32_t length;
+    Check(napi_get_array_length(env, array, &length) == napi_ok);
+    return length;
+}
+
+double Number(napi_env env, napi_value value) {
+    double number;
+    Check(napi_get_value_double(env, value, &number) == napi_ok);
+    return number;
+}
+
+bool Boolean(napi_env env, napi_value value) {
+    bool result;
+    Check(napi_get_value_bool(env, value, &result) == napi_ok);
+    return result;
+}
+
+void Set(napi_env env, napi_value object, const char *name, napi_value value) {
+    Check(napi_set_named_property(env, object, name, value) == napi_ok, "rust_core_output");
+}
+
+void SetNumber(napi_env env, napi_value object, const char *name, double number) {
+    napi_value value;
+    Check(napi_create_double(env, number, &value) == napi_ok, "rust_core_output");
+    Set(env, object, name, value);
+}
+
+void SetBoolean(napi_env env, napi_value object, const char *name, bool flag) {
+    napi_value value;
+    Check(napi_get_boolean(env, flag, &value) == napi_ok, "rust_core_output");
+    Set(env, object, name, value);
+}
+
+napi_value ReaderIndent(napi_env env, napi_callback_info info) {
+    return Call(env, [&]() {
+        auto args = Args(env, info, 2);
+        auto input = Text(env, args[0]);
+        RustOwned<HsdaReaderDisplay> result {hsda_reader_indent(
+            reinterpret_cast<const uint16_t *>(input.data()), input.size(), Uint(env, args[1])), hsda_reader_display_free};
+        napi_value output, indents;
+        Check(napi_create_object(env, &output) == napi_ok &&
+            napi_create_array_with_length(env, result.value.indents.len, &indents) == napi_ok, "rust_core_output");
+        Set(env, output, "text", TxtText(env, result.value.text));
+        for (uint32_t i = 0; i < result.value.indents.len; ++i) {
+            napi_value value;
+            Check(napi_create_uint32(env, result.value.indents.data[i], &value) == napi_ok &&
+                napi_set_element(env, indents, i, value) == napi_ok, "rust_core_output");
+        }
+        Set(env, output, "indents", indents);
+        return output;
+    });
+}
+
+napi_value SourceTagPairs(napi_env env, napi_callback_info info) {
+    return Call(env, [&]() {
+        auto args = Args(env, info, 2);
+        auto input = Text(env, args[0]), tag = Text(env, args[1]);
+        RustOwned<HsdaBuffer<uint32_t>> result {hsda_source_tag_pairs(
+            reinterpret_cast<const uint16_t *>(input.data()), input.size(),
+            reinterpret_cast<const uint16_t *>(tag.data()), tag.size()), hsda_offsets_free};
+        napi_value output;
+        Check(napi_create_array_with_length(env, result.value.len, &output) == napi_ok, "rust_core_output");
+        for (uint32_t i = 0; i < result.value.len; ++i) {
+            napi_value value;
+            const double number = result.value.data[i] == UINT32_MAX ? -1. : result.value.data[i];
+            Check(napi_create_double(env, number, &value) == napi_ok &&
+                napi_set_element(env, output, i, value) == napi_ok, "rust_core_output");
+        }
+        return output;
+    });
+}
+
+napi_value SpeechSplit(napi_env env, napi_callback_info info) {
+    return Call(env, [&]() {
+        auto args = Args(env, info, 5);
+        auto input = Text(env, args[0]);
+        std::vector<uint32_t> boundaries(Length(env, args[1]));
+        for (uint32_t i = 0; i < boundaries.size(); ++i) boundaries[i] = Uint(env, Element(env, args[1], i));
+        RustOwned<HsdaBuffer<HsdaSpeechSegment>> result {hsda_speech_split(
+            reinterpret_cast<const uint16_t *>(input.data()), input.size(), boundaries.data(), boundaries.size(),
+            Boolean(env, args[2]), Uint(env, args[3]), Uint(env, args[4])), hsda_speech_free};
+        napi_value output;
+        Check(napi_create_array_with_length(env, result.value.len, &output) == napi_ok, "rust_core_output");
+        for (uint32_t i = 0; i < result.value.len; ++i) {
+            const auto &segment = result.value.data[i];
+            napi_value item;
+            Check(napi_create_object(env, &item) == napi_ok, "rust_core_output");
+            Set(env, item, "text", TxtText(env, segment.text));
+            SetNumber(env, item, "start", segment.start);
+            SetNumber(env, item, "end", segment.end);
+            SetNumber(env, item, "leadingWhitespace", segment.leadingWhitespace);
+            SetNumber(env, item, "paragraphStart", segment.paragraphStart);
+            SetNumber(env, item, "paragraphEnd", segment.paragraphEnd);
+            Check(napi_set_element(env, output, i, item) == napi_ok, "rust_core_output");
+        }
+        return output;
+    });
+}
+
+struct SubtitleInputList {
+    std::vector<std::u16string> texts;
+    std::vector<HsdaSubtitleInput> units;
+    SubtitleInputList(napi_env env, napi_value array, const char *flag) {
+        napi_valuetype type;
+        Check(napi_typeof(env, array, &type) == napi_ok);
+        if (type == napi_undefined || type == napi_null) return;
+        const uint32_t length = Length(env, array);
+        texts.reserve(length);
+        units.reserve(length);
+        for (uint32_t i = 0; i < length; ++i) {
+            auto item = Element(env, array, i);
+            texts.push_back(Text(env, Property(env, item, "text")));
+            const auto &text = texts.back();
+            units.push_back({{reinterpret_cast<const uint16_t *>(text.data()), text.size()},
+                Number(env, Property(env, item, "startMs")), Number(env, Property(env, item, "endMs")),
+                Boolean(env, Property(env, item, flag))});
+        }
+    }
+};
+
+napi_value SubtitleResult(napi_env env, HsdaBuffer<HsdaSubtitleSpan> buffer, const char *flag) {
+    RustOwned<HsdaBuffer<HsdaSubtitleSpan>> result {buffer, hsda_subtitle_free};
+    napi_value output;
+    Check(napi_create_array_with_length(env, buffer.len, &output) == napi_ok, "rust_core_output");
+    for (uint32_t i = 0; i < buffer.len; ++i) {
+        const auto &span = buffer.data[i];
+        napi_value item;
+        Check(napi_create_object(env, &item) == napi_ok, "rust_core_output");
+        Set(env, item, "text", TxtText(env, span.text));
+        SetNumber(env, item, "startMs", span.startMs);
+        SetNumber(env, item, "endMs", span.endMs);
+        SetBoolean(env, item, flag, span.flag);
+        Check(napi_set_element(env, output, i, item) == napi_ok, "rust_core_output");
+    }
+    return output;
+}
+
+napi_value SubtitleJoin(napi_env env, napi_callback_info info) {
+    return Call(env, [&]() {
+        auto args = Args(env, info, 3);
+        SubtitleInputList previous(env, args[0], "sentenceEnd"), current(env, args[1], "sentenceEnd");
+        return SubtitleResult(env, hsda_subtitle_join(previous.units.data(), previous.units.size(),
+            current.units.data(), current.units.size(), Number(env, args[2])), "sentenceEnd");
+    });
+}
+
+napi_value SubtitlePunctuate(napi_env env, napi_callback_info info) {
+    return Call(env, [&]() {
+        auto args = Args(env, info, 3);
+        SubtitleInputList input(env, args[0], "sentenceEnd");
+        auto text = Text(env, args[1]);
+        return SubtitleResult(env, hsda_subtitle_punctuate(input.units.data(), input.units.size(),
+            reinterpret_cast<const uint16_t *>(text.data()), text.size(), Boolean(env, args[2])), "sentenceEnd");
+    });
+}
+
+void FinalizeSubtitleDictionary(napi_env, void *data, void *) { hsda_subtitle_dictionary_free(data); }
+
+napi_value SubtitleDictionary(napi_env env, napi_callback_info info) {
+    return Call(env, [&]() {
+        auto args = Args(env, info, 1);
+        const uint32_t count = Length(env, args[0]);
+        std::vector<std::u16string> texts;
+        std::vector<HsdaInputText> words;
+        texts.reserve(count);
+        words.reserve(count);
+        for (uint32_t i = 0; i < count; ++i) {
+            texts.push_back(Text(env, Element(env, args[0], i)));
+            const auto &text = texts.back();
+            words.push_back({reinterpret_cast<const uint16_t *>(text.data()), text.size()});
+        }
+        std::unique_ptr<void, decltype(&hsda_subtitle_dictionary_free)> dictionary(
+            hsda_subtitle_dictionary(words.data(), words.size()), hsda_subtitle_dictionary_free);
+        napi_value output;
+        Check(napi_create_external(env, dictionary.get(), FinalizeSubtitleDictionary, nullptr, &output) == napi_ok,
+            "rust_core_output");
+        dictionary.release();
+        return output;
+    });
+}
+
+napi_value SubtitleTimeline(napi_env env, napi_callback_info info) {
+    return Call(env, [&]() {
+        auto args = Args(env, info, 2);
+        void *dictionary = nullptr;
+        napi_valuetype type;
+        Check(napi_typeof(env, args[1], &type) == napi_ok);
+        if (type == napi_external) Check(napi_get_value_external(env, args[1], &dictionary) == napi_ok);
+        const uint32_t count = Length(env, args[0]);
+        std::vector<SubtitleInputList> annotations, cues;
+        std::vector<HsdaSubtitleChunk> chunks;
+        annotations.reserve(count);
+        cues.reserve(count);
+        chunks.reserve(count);
+        for (uint32_t i = 0; i < count; ++i) {
+            auto chunk = Element(env, args[0], i);
+            annotations.emplace_back(env, Property(env, chunk, "annotated"), "sentenceEnd");
+            cues.emplace_back(env, Property(env, chunk, "cues"), "continues");
+            chunks.push_back({Uint(env, Property(env, chunk, "index")),
+                annotations.back().units.data(), annotations.back().units.size(), cues.back().units.data(), cues.back().units.size()});
+        }
+        return SubtitleResult(env, hsda_subtitle_timeline(chunks.data(), chunks.size(), dictionary), "continues");
+    });
+}
+
 napi_value Init(napi_env env, napi_value exports) {
     const napi_property_descriptor properties[] = {
         {"transformText", nullptr, Transform, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"transformHtmlBounded", nullptr, BoundedHtml, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"replaceEpubImages", nullptr, EpubImages, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"cleanEpubHtml", nullptr, EpubBody, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"cleanHtmlBatch", nullptr, CleanBatch, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"searchOffsets", nullptr, Search, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"detectWhiteBorder", nullptr, WhiteBorder, nullptr, nullptr, nullptr, napi_default, nullptr},
@@ -510,7 +939,18 @@ napi_value Init(napi_env env, napi_value exports) {
         {"createMobiHuff", nullptr, CreateHuff, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"decodeMobiBatch", nullptr, DecodeMobi, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"releaseMobiHuff", nullptr, ReleaseHuff, nullptr, nullptr, nullptr, napi_default, nullptr},
-        {"rebuildKf8", nullptr, RebuildKf8, nullptr, nullptr, nullptr, napi_default, nullptr}
+        {"rebuildKf8", nullptr, RebuildKf8, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"createTxtImporter", nullptr, CreateTxt, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"feedTxtImporter", nullptr, FeedTxt, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"releaseTxtImporter", nullptr, ReleaseTxt, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"parseRanking", nullptr, ParseRanking, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"indentReaderText", nullptr, ReaderIndent, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"splitSpeechText", nullptr, SpeechSplit, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"sourceTagPairs", nullptr, SourceTagPairs, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"createSubtitleDictionary", nullptr, SubtitleDictionary, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"joinSubtitleUnits", nullptr, SubtitleJoin, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"punctuateSubtitleUnits", nullptr, SubtitlePunctuate, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"buildSubtitleTimeline", nullptr, SubtitleTimeline, nullptr, nullptr, nullptr, napi_default, nullptr}
     };
     napi_define_properties(env, exports, sizeof(properties) / sizeof(properties[0]), properties);
     return exports;

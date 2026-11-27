@@ -40,7 +40,6 @@ export struct JianjianChatPage {
   private items: JianjianChatItem[] = [];
   private source: ListDataSource<JianjianChatItem> = new ListDataSource<JianjianChatItem>();
   private scroller: Scroller = new Scroller();
-  private config: JianjianAiConfig = new JianjianAiConfig();
   private client: JianjianAiService = new JianjianAiService();
   private pendingText: string = '';
   private alive: boolean = false;
@@ -58,7 +57,6 @@ export struct JianjianChatPage {
   aboutToDisappear(): void {
     this.alive = false;
     this.cancel();
-    this.config = new JianjianAiConfig();
   }
 
   @Monitor('active')
@@ -81,7 +79,6 @@ export struct JianjianChatPage {
         if (!this.alive || generation !== this.generation) return;
         this.items = history; this.historyLoaded = true; this.reloadItems(); this.scrollBottom();
       }
-      this.config = config;
       this.model = config.model;
       this.configured = !!(config.address && config.apiKey && config.model);
       this.message = '';
@@ -163,7 +160,8 @@ export struct JianjianChatPage {
         (item.boundaryChapter >= 0 && (item.boundaryChapter < this.route.chapterIndex ||
           (item.boundaryChapter === this.route.chapterIndex && item.boundaryOffset <= this.route.charOffset))))
         .map((item: JianjianChatItem): JianjianAiMessage => new JianjianAiMessage(item.role, item.content));
-      const reply = await this.client.chat(this.config, messages, prompt);
+      const reply = await this.client.chat(context, messages, prompt,
+        (config: JianjianAiConfig): void => { this.model = config.model; });
       if (!this.alive || generation !== this.generation) return;
       const assistantItem = this.newItem('assistant', reply);
       assistantItem.references = JianjianBookContextService.citations(reply, excerpts);

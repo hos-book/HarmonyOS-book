@@ -141,3 +141,23 @@ shutdown
 wave
 speakers
 error
+# Shared theme document and editor field contract.
+schemaVersion
+baseThemeId
+materialStyle
+verticalBottomTabs
+themeBundleId
+accentColor
+description
+light
+dark
+theme
+key
+value
+fields
+label
+section
+type
+min
+max
+choices

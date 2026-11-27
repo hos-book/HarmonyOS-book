@@ -1,5 +1,5 @@
 import { InfinityLoadingIndicator } from './InfinityLoadingIndicator';
-import { curves, FrameCallback } from '@kit.ArkUI';
+import { curves, FrameCallback, ColorMetrics } from '@kit.ArkUI';
 import { RankingBook } from '../model/Ranking';
 import { Book, Chapter } from '../model/Book';
 import { ReadingSession, SessionLocation } from '../service/ReadingSessionService';
@@ -146,11 +146,9 @@ export struct RankingBookCard {
   private readonly surfaceThemeListener = (): void => { this.refreshSurfaceColors(); };
 
   private refreshSurfaceColors(): void {
-    const context = this.getUIContext().getHostContext();
     try {
-      if (context !== undefined) {
-        this.surfaceArgb = context.resourceManager.getColorSync(AppTheme.Surface.id);
-      }
+      const surface: ColorMetrics = ColorMetrics.resourceColor(AppTheme.Surface);
+      this.surfaceArgb = ((surface.alpha << 24) | (surface.red << 16) | (surface.green << 8) | surface.blue) >>> 0;
     } catch (_error) {
       this.surfaceArgb = 0xFFFFFFFF;
     }

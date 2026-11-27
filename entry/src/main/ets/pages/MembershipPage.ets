@@ -1,4 +1,4 @@
-import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
+
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { MembershipSubscriptionPage, MEMBERSHIP_BACKGROUND_TOP } from './MembershipSubscriptionPage';
 import { CapsuleSegmentButtonV2, ColorMetrics, LengthMetrics, SegmentButtonV2Items } from '@kit.ArkUI';
@@ -9,8 +9,7 @@ import { PlatformCompat } from '../utils/PlatformCompat';
 import { HdsCompat } from '../utils/HdsCompat';
 import { AppIconPage } from './AppIconPage';
 import { ThemeBundleComponent } from '../components/ThemeBundleComponent';
-import { BottomTabIconComponent } from '../components/BottomTabIconComponent';
-import { AppBackgroundSettingsComponent } from '../components/AppBackgroundSettingsComponent';
+import { ThemeEditorRoute } from '../model/ThemeDocument';
 
 /** 主题选择独立展示，受限图标按需打开会员中心。 */
 @ComponentV2
@@ -20,23 +19,17 @@ export struct MembershipPage {
 
   @Local showMembership: boolean = false;
   @Local selectedTab: number = 0;
-  @Local backgroundApplyRequest: number = 0;
-  @Local backgroundCancelRequest: number = 0;
-  @Local backgroundActionsEnabled: boolean = false;
-  @Local backgroundSaving: boolean = false;
   @Local tabBarHeight: number = 40;
   @Local tabBarWidth: number = 0;
   @Local titleBarHeight: number = WindowUtils.getStatusBarHeightVp() + 40 + AppSpace.Sm * 2;
   private tabsController: TabsController = new TabsController();
   private tabItems: SegmentButtonV2Items = new SegmentButtonV2Items([
     { text: $r('app.string.theme_bundle_tab') },
-    { text: $r('app.string.app_background_tab') },
-    { text: $r('app.string.theme_icons_tab') },
-    { text: $r('app.string.bottom_tab_icons_tab') }
+    { text: $r('app.string.theme_icons_tab') }
   ]);
 
   aboutToAppear(): void {
-    this.selectedTab = this.initialTab >= 0 && this.initialTab <= 3 ? this.initialTab : 0;
+    this.selectedTab = this.initialTab === 2 ? 1 : 0;
   }
 
   @Builder
@@ -105,7 +98,7 @@ export struct MembershipPage {
         })
 
       Row() {
-        ForEach(['theme-bundle', 'app-background', 'theme-icons', 'bottom-tab-icons'], (key: string, index: number) => {
+        ForEach(['theme-bundle', 'theme-icons'], (key: string, index: number) => {
           Row()
             .layoutWeight(1)
             .height(this.tabBarHeight - 6)
@@ -126,25 +119,6 @@ export struct MembershipPage {
   }
 
   @Builder
-  backgroundActions() {
-    Row({ space: AppSpace.Xs }) {
-      Button($r('app.string.app_background_cancel')).fontSize(AppFont.Caption)
-        .fontColor(AppTheme.TextSecondary).backgroundColor(AppTheme.Surface).height(40)
-        .padding({ left: AppSpace.Sm, right: AppSpace.Sm }).enabled(this.backgroundActionsEnabled)
-        .id('app-background-cancel').onClick((): void => { this.backgroundCancelRequest++; })
-      Button({ type: ButtonType.Normal }) {
-        Row({ space: AppSpace.Xs }) {
-          if (this.backgroundSaving) { InfinityLoadingIndicator({ indicatorSize: 16 }) }
-          Text($r('app.string.app_background_apply')).fontSize(AppFont.Caption)
-            .fontColor(AppColor.OnBrand).maxLines(1)
-        }.justifyContent(FlexAlign.Center)
-      }.height(40).padding({ left: AppSpace.Sm, right: AppSpace.Sm }).borderRadius(20)
-        .backgroundColor(AppColor.Brand).enabled(this.backgroundActionsEnabled).id('app-background-apply')
-        .onClick((): void => { this.backgroundApplyRequest++; })
-    }.flexShrink(0)
-  }
-
-  @Builder
   themeTitleBar() {
     FrostedPageHeader({ onHeightChange: (height: number): void => { this.titleBarHeight = height; } }) {
       Row({ space: AppSpace.Sm }) {
@@ -156,9 +130,6 @@ export struct MembershipPage {
           .fontColor(AppTheme.TextPrimary).layoutWeight(1).maxLines(1)
           .minFontSize(AppFont.BodyL).maxFontSize(AppFont.Title)
           .textOverflow({ overflow: TextOverflow.Ellipsis })
-        if (this.selectedTab === 1) {
-          this.backgroundActions()
-        }
       }.width('100%').padding({ top: WindowUtils.getStatusBarHeightVp() + AppSpace.Sm,
         left: AppSpace.Sm, right: AppSpace.Md, bottom: AppSpace.Sm })
         .id('theme-frosted-title-bar')
@@ -171,26 +142,11 @@ export struct MembershipPage {
         TabContent() {
           Scroll() {
             Column({ space: AppSpace.Lg }) {
-              ThemeBundleComponent({ onMembershipRequired: (): void => { this.showMembership = true; } })
+              ThemeBundleComponent({ onMembershipRequired: (): void => { this.showMembership = true; },
+                onEdit: (id: string): void => {
+                  this.navStack.pushPathByName('themeEditor', new ThemeEditorRoute(id));
+                } })
             }.width('100%').constraintSize({ maxWidth: 920 }).padding({ left: AppSpace.Md, right: AppSpace.Md,
-              top: this.titleBarHeight + this.tabBarHeight + AppSpace.Sm * 3,
-              bottom: WindowUtils.getBottomSafeVp() + AppSpace.Lg })
-          }.width('100%').height('100%').scrollBar(BarState.Off).align(Alignment.Top)
-        }
-        TabContent() {
-          Scroll() {
-            Column() {
-              AppBackgroundSettingsComponent({
-                applyRequest: this.backgroundApplyRequest,
-                cancelRequest: this.backgroundCancelRequest,
-                onActionsChange: (enabled: boolean, saving: boolean): void => {
-                  this.backgroundActionsEnabled = enabled;
-                  this.backgroundSaving = saving;
-                },
-                onMembershipRequired: (): void => { this.showMembership = true; }
-              })
-            }.width('100%').constraintSize({ maxWidth: 680 })
-            .padding({ left: AppSpace.Md, right: AppSpace.Md,
               top: this.titleBarHeight + this.tabBarHeight + AppSpace.Sm * 3,
               bottom: WindowUtils.getBottomSafeVp() + AppSpace.Lg })
           }.width('100%').height('100%').scrollBar(BarState.Off).align(Alignment.Top)
@@ -199,16 +155,6 @@ export struct MembershipPage {
           Scroll() {
             Column({ space: AppSpace.Md }) {
               AppIconPage({ onMembershipRequired: (): void => { this.showMembership = true; } })
-            }.width('100%').constraintSize({ maxWidth: 680 })
-            .padding({ left: AppSpace.Md, right: AppSpace.Md,
-              top: this.titleBarHeight + this.tabBarHeight + AppSpace.Sm * 3,
-              bottom: WindowUtils.getBottomSafeVp() + AppSpace.Lg })
-          }.width('100%').height('100%').scrollBar(BarState.Off).align(Alignment.Top)
-        }
-        TabContent() {
-          Scroll() {
-            Column({ space: AppSpace.Md }) {
-              BottomTabIconComponent({ onMembershipRequired: (): void => { this.showMembership = true; } })
             }.width('100%').constraintSize({ maxWidth: 680 })
             .padding({ left: AppSpace.Md, right: AppSpace.Md,
               top: this.titleBarHeight + this.tabBarHeight + AppSpace.Sm * 3,

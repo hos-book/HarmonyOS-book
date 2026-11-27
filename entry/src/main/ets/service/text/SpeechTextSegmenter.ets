@@ -1,7 +1,8 @@
 import { LocalTextImage } from './LocalTextImage';
 import { SpeechSynthesisSettings } from '../../model/SpeechSynthesisSettings';
+import { NativeSpeechSegment, splitSpeechText, transformText } from 'libhsda_core.so';
 
-export class SpeechSegment {
+export class SpeechSegment implements NativeSpeechSegment {
   start: number = 0;
   end: number = 0;
   text: string = '';
@@ -10,85 +11,36 @@ export class SpeechSegment {
   paragraphEnd: number = 0;
 }
 
-/** 偏移始终对应阅读器规范化正文，分段不删除或重排原文。 */
+/** Segment positions share the reader's normalized UTF-16 coordinate space. */
 export class SpeechTextSegmenter {
-  /** 只清理合成输入；正文、段落与阅读字符偏移始终使用原文。 */
-  private static spokenText(content: string, filter: boolean = true): string {
-    if (!filter) return content.trim();
-    return content.replace(new RegExp('\\[\\s*\\d{1,4}\\s*\\]|【\\s*\\d{1,4}\\s*】', 'g'), '')
-      .replace(new RegExp('[*＊﹡※☆★◆◇■□●○◎▲△▼▽━─═\\u0000-\\u0008\\u000B\\u000C\\u000E-\\u001F\\u007F-\\u009F\\u200B-\\u200F\\u202A-\\u202E\\u2060-\\u206F\\uFEFF]+', 'g'), ' ')
-      .replace(new RegExp('[~～_=#＃|｜]{3,}', 'g'), ' ').trim();
+  private static readonly SPOKEN_CHARACTER: RegExp = new RegExp('[\\p{L}\\p{N}]', 'u');
+
+  private static spokenText(content: string): string {
+    return transformText(content, 6);
   }
 
   private static isPunctuationOnly(text: string): boolean {
-    // 纯符号/表情没有可合成的文字，不能向系统或 HTTP 音色提交空音频请求。
-    // Unicode 字母和数字包括中文、英文、日文等，不能简单地删除所有非中文内容。
-    return !new RegExp('[\\p{L}\\p{N}]', 'u').test(text);
-  }
-
-  /** 长句超出用户上限时回退到词间空白或分句标点；无边界的超长内容才按字符兜底。 */
-  private static wordBoundary(content: string, start: number, end: number): number {
-    const whitespace = new RegExp('\\s');
-    for (let offset = end; offset > start; offset--) {
-      // 空白留给后一段，合并短句时仍能保留词间间隔。
-      if (whitespace.test(content.charAt(offset)) || '，,、：:'.includes(content.charAt(offset - 1))) {
-        if (content.substring(start, offset).trim().length > 0) return offset;
-      }
-    }
-    return end;
+    return !SpeechTextSegmenter.SPOKEN_CHARACTER.test(text);
   }
 
   static split(content: string, mergeShort: boolean = false, pageEnds: number[] = [],
     filter: boolean = true, maxLength: number = 180, hardLimit: number = Number.MAX_SAFE_INTEGER): SpeechSegment[] {
-    content = LocalTextImage.speechContent(content);
+    const native = splitSpeechText(content, pageEnds, filter, maxLength, Math.min(hardLimit, content.length + 1));
     const result: SpeechSegment[] = [];
-    const boundaries: Set<number> = new Set<number>(pageEnds);
-    let start = 0;
-    let paragraphStart = 0;
-    let paragraphEnd = content.indexOf('\n');
-    if (paragraphEnd < 0) paragraphEnd = content.length;
-    for (let i = 0; i < content.length; i++) {
-      const ch = content.charAt(i);
-      const boundary = boundaries.has(i + 1) || '。！？!?；;\n'.includes(ch) ||
-        (ch === '.' && (i + 1 === content.length || new RegExp('\\s').test(content.charAt(i + 1))));
-      // 限制单句长度，且不把 UTF-16 代理对拆开。
-      const code = content.charCodeAt(i);
-      const highSurrogate = code >= 0xD800 && code <= 0xDBFF;
-      const limit = i - start >= maxLength - 1 && (!highSurrogate || i - start + 1 >= hardLimit);
-      if (boundary || limit || i === content.length - 1) {
-        let end = i + 1;
-        if (limit && !boundary && end < content.length) {
-          if (highSurrogate) end--;
-          end = SpeechTextSegmenter.wordBoundary(content, start, end);
-        }
-        // 连续问号和收尾标点随上一句合成，避免拆出没有语音数据的请求。
-        while (end < content.length && end - start < hardLimit && !boundaries.has(end) &&
-          '。！？!?；;”’」』）'.includes(content.charAt(end))) end++;
-        const segment = new SpeechSegment();
-        segment.start = start;
-        segment.end = end;
-        const raw = content.substring(start, end);
-        segment.leadingWhitespace = Math.max(0, raw.search(new RegExp('\\S')));
-        segment.text = SpeechTextSegmenter.spokenText(raw, filter);
-        if (segment.text.length > 0 && !SpeechTextSegmenter.isPunctuationOnly(segment.text)) {
-          const readStart = start + segment.leadingWhitespace;
-          while (readStart >= paragraphEnd && paragraphEnd < content.length) {
-            paragraphStart = paragraphEnd + 1;
-            paragraphEnd = content.indexOf('\n', paragraphStart);
-            if (paragraphEnd < 0) paragraphEnd = content.length;
-          }
-          segment.paragraphStart = paragraphStart;
-          segment.paragraphEnd = paragraphEnd;
-          result.push(segment);
-        }
-        start = end;
-        i = end - 1;
-      }
+    for (const value of native) {
+      if (SpeechTextSegmenter.isPunctuationOnly(value.text)) continue;
+      const segment = new SpeechSegment();
+      segment.start = value.start;
+      segment.end = value.end;
+      segment.text = value.text;
+      segment.leadingWhitespace = value.leadingWhitespace;
+      segment.paragraphStart = value.paragraphStart;
+      segment.paragraphEnd = value.paragraphEnd;
+      result.push(segment);
     }
-    return mergeShort ? SpeechTextSegmenter.mergeShortSegments(content, result, pageEnds) : result;
+    return mergeShort ? SpeechTextSegmenter.mergeShortSegments(LocalTextImage.speechContent(content), result, pageEnds) : result;
   }
 
-  /** HTTP 同段短句合并到约 64 字、上限约 180 字，允许附带尾部标点；不跨自然段。 */
   private static mergeShortSegments(content: string, segments: SpeechSegment[], pageEnds: number[]): SpeechSegment[] {
     const result: SpeechSegment[] = [];
     for (const segment of segments) {
@@ -107,18 +59,21 @@ export class SpeechTextSegmenter {
   }
 
   static indexAt(segments: SpeechSegment[], offset: number): number {
-    const index = segments.findIndex((segment: SpeechSegment): boolean => segment.end > offset);
-    return index < 0 ? segments.length : index;
+    let low = 0;
+    let high = segments.length;
+    while (low < high) {
+      const middle = Math.floor((low + high) / 2);
+      if (segments[middle].end > offset) high = middle;
+      else low = middle + 1;
+    }
+    return low;
   }
 
-  /** 同一次合成可覆盖多个自然段，位置仍对应原文；系统 PCM 单次限制 300 字。 */
+  /** Synthesis batches retain provider limits, replacements, paragraph counts and quick-start behavior. */
   static batches(content: string, settings: SpeechSynthesisSettings, custom: boolean, pageEnds: number[] = [],
     roleBoundaries: number[] = []): SpeechSegment[] {
-    // 分角时保留系统音色兜底的 300 字上限；对白边界与起读位置分开处理。
     const limit = Math.min(settings.maxChars, custom && roleBoundaries.length === 0 ? 4000 : 300);
     const boundaries = pageEnds.concat(roleBoundaries);
-    // 加速起读只单独提交第一句；后续批次始终使用用户配置，不能被隐藏短段上限覆盖。
-    // 预留两个 UTF-16 单元给代理对与尾部标点，最终批次仍按完整字数上限检查。
     const segments = SpeechTextSegmenter.split(content, false, boundaries, settings.filterSymbols,
       limit - 2, limit);
     const result: SpeechSegment[] = [];

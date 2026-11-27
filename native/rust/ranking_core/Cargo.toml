@@ -1,0 +1,9 @@
+[package]
+name = "hsda_ranking_core"
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-only"
+
+[dependencies]
+regex = { version = "=1.13.2", default-features = false, features = ["std", "perf", "unicode-perl", "unicode-case"] }
+json = "=0.12.4"

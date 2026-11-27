@@ -1,0 +1,1343 @@
+{
+  "fields": [
+    {
+      "key": "color.background",
+      "label": "theme_field_color_background",
+      "section": "colors",
+      "type": "color",
+      "light": "#F7F4EF",
+      "dark": "#161719",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.surface",
+      "label": "theme_field_color_surface",
+      "section": "colors",
+      "type": "color",
+      "light": "#FFFFFF",
+      "dark": "#25272A",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.settingsBackground",
+      "label": "theme_field_color_settingsBackground",
+      "section": "colors",
+      "type": "color",
+      "light": "#F5F3EF",
+      "dark": "#18191B",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.profileMenuSurface",
+      "label": "theme_field_color_profileMenuSurface",
+      "section": "colors",
+      "type": "color",
+      "light": "#FFFFFF",
+      "dark": "#25272A",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.textPrimary",
+      "label": "theme_field_color_textPrimary",
+      "section": "colors",
+      "type": "color",
+      "light": "#292724",
+      "dark": "#F1EFEB",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.textSecondary",
+      "label": "theme_field_color_textSecondary",
+      "section": "colors",
+      "type": "color",
+      "light": "#77736D",
+      "dark": "#B0ABA3",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.textTertiary",
+      "label": "theme_field_color_textTertiary",
+      "section": "colors",
+      "type": "color",
+      "light": "#A5A099",
+      "dark": "#817C76",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.iconPrimary",
+      "label": "theme_field_color_iconPrimary",
+      "section": "colors",
+      "type": "color",
+      "light": "#3B3732",
+      "dark": "#ECE7E1",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.iconSecondary",
+      "label": "theme_field_color_iconSecondary",
+      "section": "colors",
+      "type": "color",
+      "light": "#888179",
+      "dark": "#AAA298",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.divider",
+      "label": "theme_field_color_divider",
+      "section": "colors",
+      "type": "color",
+      "light": "#1A63584A",
+      "dark": "#26FFFFFF",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.appDivider",
+      "label": "theme_field_color_appDivider",
+      "section": "colors",
+      "type": "color",
+      "light": "#1A63584A",
+      "dark": "#26FFFFFF",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.brand",
+      "label": "theme_field_color_brand",
+      "section": "colors",
+      "type": "color",
+      "light": "#C4475B",
+      "dark": "#EF8DA0",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.brandHover",
+      "label": "theme_field_color_brandHover",
+      "section": "colors",
+      "type": "color",
+      "light": "#B74052",
+      "dark": "#E38295",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.brandPressed",
+      "label": "theme_field_color_brandPressed",
+      "section": "colors",
+      "type": "color",
+      "light": "#A33547",
+      "dark": "#CC7183",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.brandDisabled",
+      "label": "theme_field_color_brandDisabled",
+      "section": "colors",
+      "type": "color",
+      "light": "#66C4475B",
+      "dark": "#66EF8DA0",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.brandSoft",
+      "label": "theme_field_color_brandSoft",
+      "section": "colors",
+      "type": "color",
+      "light": "#22C4475B",
+      "dark": "#22EF8DA0",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.brandDark",
+      "label": "theme_field_color_brandDark",
+      "section": "colors",
+      "type": "color",
+      "light": "#983747",
+      "dark": "#C46C7D",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.onBrand",
+      "label": "theme_field_color_onBrand",
+      "section": "colors",
+      "type": "color",
+      "light": "#FFFFFF",
+      "dark": "#251519",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.controlFallback",
+      "label": "theme_field_color_controlFallback",
+      "section": "colors",
+      "type": "color",
+      "light": "#E6FFFFFF",
+      "dark": "#DB282A2D",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.controlTint",
+      "label": "theme_field_color_controlTint",
+      "section": "colors",
+      "type": "color",
+      "light": "#44FFFFFF",
+      "dark": "#22FFFFFF",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.stroke",
+      "label": "theme_field_color_stroke",
+      "section": "colors",
+      "type": "color",
+      "light": "#66FFFFFF",
+      "dark": "#22FFFFFF",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.shadow",
+      "label": "theme_field_color_shadow",
+      "section": "colors",
+      "type": "color",
+      "light": "#1A302820",
+      "dark": "#44000000",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.homeTop",
+      "label": "theme_field_color_homeTop",
+      "section": "colors",
+      "type": "color",
+      "light": "#F2E6DA",
+      "dark": "#272421",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.homeMid",
+      "label": "theme_field_color_homeMid",
+      "section": "colors",
+      "type": "color",
+      "light": "#F7F2EB",
+      "dark": "#1D1D20",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.homeBottom",
+      "label": "theme_field_color_homeBottom",
+      "section": "colors",
+      "type": "color",
+      "light": "#F7F4EF",
+      "dark": "#161719",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.statusScrim",
+      "label": "theme_field_color_statusScrim",
+      "section": "colors",
+      "type": "color",
+      "light": "#88F7F4EF",
+      "dark": "#88161719",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.floatingMask",
+      "label": "theme_field_color_floatingMask",
+      "section": "colors",
+      "type": "color",
+      "light": "#F7F4EF",
+      "dark": "#161719",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.homeAccent",
+      "label": "theme_field_color_homeAccent",
+      "section": "colors",
+      "type": "color",
+      "light": "#C4475B",
+      "dark": "#EF8DA0",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.homeAccentSoft",
+      "label": "theme_field_color_homeAccentSoft",
+      "section": "colors",
+      "type": "color",
+      "light": "#22C4475B",
+      "dark": "#22EF8DA0",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.homeControl",
+      "label": "theme_field_color_homeControl",
+      "section": "colors",
+      "type": "color",
+      "light": "#BBFFFFFF",
+      "dark": "#BB2C2B2D",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.homeSurface",
+      "label": "theme_field_color_homeSurface",
+      "section": "colors",
+      "type": "color",
+      "light": "#DFFFFFFF",
+      "dark": "#DD27282B",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.homeShadow",
+      "label": "theme_field_color_homeShadow",
+      "section": "colors",
+      "type": "color",
+      "light": "#183C3025",
+      "dark": "#44000000",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.progressTrack",
+      "label": "theme_field_color_progressTrack",
+      "section": "colors",
+      "type": "color",
+      "light": "#246B6055",
+      "dark": "#33FFFFFF",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.detailTop",
+      "label": "theme_field_color_detailTop",
+      "section": "colors",
+      "type": "color",
+      "light": "#443B3025",
+      "dark": "#AA141414",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.detailMid",
+      "label": "theme_field_color_detailMid",
+      "section": "colors",
+      "type": "color",
+      "light": "#CCF7F4EF",
+      "dark": "#CC161719",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "color.detailBottom",
+      "label": "theme_field_color_detailBottom",
+      "section": "colors",
+      "type": "color",
+      "light": "#F7F4EF",
+      "dark": "#161719",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.common.mode",
+      "label": "theme_field_background_common_mode",
+      "section": "backgrounds",
+      "type": "select",
+      "light": "theme",
+      "dark": "theme",
+      "min": 0,
+      "max": 100,
+      "choices": [
+        {
+          "value": "theme",
+          "label": "theme_field_background_common_mode_theme"
+        },
+        {
+          "value": "solid",
+          "label": "theme_field_background_common_mode_solid"
+        },
+        {
+          "value": "image",
+          "label": "theme_field_background_common_mode_image"
+        }
+      ]
+    },
+    {
+      "key": "background.common.image",
+      "label": "theme_field_background_common_image",
+      "section": "backgrounds",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.common.color",
+      "label": "theme_field_background_common_color",
+      "section": "backgrounds",
+      "type": "color",
+      "light": "#F7F4EF",
+      "dark": "#161719",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.common.veil",
+      "label": "theme_field_background_common_veil",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "0",
+      "dark": "0",
+      "min": 0,
+      "max": 90,
+      "choices": []
+    },
+    {
+      "key": "background.common.blur",
+      "label": "theme_field_background_common_blur",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "0",
+      "dark": "0",
+      "min": 0,
+      "max": 60,
+      "choices": []
+    },
+    {
+      "key": "background.common.positionX",
+      "label": "theme_field_background_common_positionX",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "50",
+      "dark": "50",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.common.positionY",
+      "label": "theme_field_background_common_positionY",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "50",
+      "dark": "50",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.common.scale",
+      "label": "theme_field_background_common_scale",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "100",
+      "dark": "100",
+      "min": 100,
+      "max": 180,
+      "choices": []
+    },
+    {
+      "key": "background.home.mode",
+      "label": "theme_field_background_home_mode",
+      "section": "backgrounds",
+      "type": "select",
+      "light": "common",
+      "dark": "common",
+      "min": 0,
+      "max": 100,
+      "choices": [
+        {
+          "value": "common",
+          "label": "theme_field_background_home_mode_common"
+        },
+        {
+          "value": "theme",
+          "label": "theme_field_background_home_mode_theme"
+        },
+        {
+          "value": "solid",
+          "label": "theme_field_background_home_mode_solid"
+        },
+        {
+          "value": "image",
+          "label": "theme_field_background_home_mode_image"
+        }
+      ]
+    },
+    {
+      "key": "background.home.image",
+      "label": "theme_field_background_home_image",
+      "section": "backgrounds",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.home.color",
+      "label": "theme_field_background_home_color",
+      "section": "backgrounds",
+      "type": "color",
+      "light": "#F7F4EF",
+      "dark": "#161719",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.home.veil",
+      "label": "theme_field_background_home_veil",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "0",
+      "dark": "0",
+      "min": 0,
+      "max": 90,
+      "choices": []
+    },
+    {
+      "key": "background.home.blur",
+      "label": "theme_field_background_home_blur",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "0",
+      "dark": "0",
+      "min": 0,
+      "max": 60,
+      "choices": []
+    },
+    {
+      "key": "background.home.positionX",
+      "label": "theme_field_background_home_positionX",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "50",
+      "dark": "50",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.home.positionY",
+      "label": "theme_field_background_home_positionY",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "50",
+      "dark": "50",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.home.scale",
+      "label": "theme_field_background_home_scale",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "100",
+      "dark": "100",
+      "min": 100,
+      "max": 180,
+      "choices": []
+    },
+    {
+      "key": "background.shelf.mode",
+      "label": "theme_field_background_shelf_mode",
+      "section": "backgrounds",
+      "type": "select",
+      "light": "common",
+      "dark": "common",
+      "min": 0,
+      "max": 100,
+      "choices": [
+        {
+          "value": "common",
+          "label": "theme_field_background_shelf_mode_common"
+        },
+        {
+          "value": "theme",
+          "label": "theme_field_background_shelf_mode_theme"
+        },
+        {
+          "value": "solid",
+          "label": "theme_field_background_shelf_mode_solid"
+        },
+        {
+          "value": "image",
+          "label": "theme_field_background_shelf_mode_image"
+        }
+      ]
+    },
+    {
+      "key": "background.shelf.image",
+      "label": "theme_field_background_shelf_image",
+      "section": "backgrounds",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.shelf.color",
+      "label": "theme_field_background_shelf_color",
+      "section": "backgrounds",
+      "type": "color",
+      "light": "#F7F4EF",
+      "dark": "#161719",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.shelf.veil",
+      "label": "theme_field_background_shelf_veil",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "0",
+      "dark": "0",
+      "min": 0,
+      "max": 90,
+      "choices": []
+    },
+    {
+      "key": "background.shelf.blur",
+      "label": "theme_field_background_shelf_blur",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "0",
+      "dark": "0",
+      "min": 0,
+      "max": 60,
+      "choices": []
+    },
+    {
+      "key": "background.shelf.positionX",
+      "label": "theme_field_background_shelf_positionX",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "50",
+      "dark": "50",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.shelf.positionY",
+      "label": "theme_field_background_shelf_positionY",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "50",
+      "dark": "50",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.shelf.scale",
+      "label": "theme_field_background_shelf_scale",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "100",
+      "dark": "100",
+      "min": 100,
+      "max": 180,
+      "choices": []
+    },
+    {
+      "key": "background.record.mode",
+      "label": "theme_field_background_record_mode",
+      "section": "backgrounds",
+      "type": "select",
+      "light": "common",
+      "dark": "common",
+      "min": 0,
+      "max": 100,
+      "choices": [
+        {
+          "value": "common",
+          "label": "theme_field_background_record_mode_common"
+        },
+        {
+          "value": "theme",
+          "label": "theme_field_background_record_mode_theme"
+        },
+        {
+          "value": "solid",
+          "label": "theme_field_background_record_mode_solid"
+        },
+        {
+          "value": "image",
+          "label": "theme_field_background_record_mode_image"
+        }
+      ]
+    },
+    {
+      "key": "background.record.image",
+      "label": "theme_field_background_record_image",
+      "section": "backgrounds",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.record.color",
+      "label": "theme_field_background_record_color",
+      "section": "backgrounds",
+      "type": "color",
+      "light": "#F7F4EF",
+      "dark": "#161719",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.record.veil",
+      "label": "theme_field_background_record_veil",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "0",
+      "dark": "0",
+      "min": 0,
+      "max": 90,
+      "choices": []
+    },
+    {
+      "key": "background.record.blur",
+      "label": "theme_field_background_record_blur",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "0",
+      "dark": "0",
+      "min": 0,
+      "max": 60,
+      "choices": []
+    },
+    {
+      "key": "background.record.positionX",
+      "label": "theme_field_background_record_positionX",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "50",
+      "dark": "50",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.record.positionY",
+      "label": "theme_field_background_record_positionY",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "50",
+      "dark": "50",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.record.scale",
+      "label": "theme_field_background_record_scale",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "100",
+      "dark": "100",
+      "min": 100,
+      "max": 180,
+      "choices": []
+    },
+    {
+      "key": "background.profile.mode",
+      "label": "theme_field_background_profile_mode",
+      "section": "backgrounds",
+      "type": "select",
+      "light": "common",
+      "dark": "common",
+      "min": 0,
+      "max": 100,
+      "choices": [
+        {
+          "value": "common",
+          "label": "theme_field_background_profile_mode_common"
+        },
+        {
+          "value": "theme",
+          "label": "theme_field_background_profile_mode_theme"
+        },
+        {
+          "value": "solid",
+          "label": "theme_field_background_profile_mode_solid"
+        },
+        {
+          "value": "image",
+          "label": "theme_field_background_profile_mode_image"
+        }
+      ]
+    },
+    {
+      "key": "background.profile.image",
+      "label": "theme_field_background_profile_image",
+      "section": "backgrounds",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.profile.color",
+      "label": "theme_field_background_profile_color",
+      "section": "backgrounds",
+      "type": "color",
+      "light": "#F7F4EF",
+      "dark": "#161719",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.profile.veil",
+      "label": "theme_field_background_profile_veil",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "0",
+      "dark": "0",
+      "min": 0,
+      "max": 90,
+      "choices": []
+    },
+    {
+      "key": "background.profile.blur",
+      "label": "theme_field_background_profile_blur",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "0",
+      "dark": "0",
+      "min": 0,
+      "max": 60,
+      "choices": []
+    },
+    {
+      "key": "background.profile.positionX",
+      "label": "theme_field_background_profile_positionX",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "50",
+      "dark": "50",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.profile.positionY",
+      "label": "theme_field_background_profile_positionY",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "50",
+      "dark": "50",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.profile.scale",
+      "label": "theme_field_background_profile_scale",
+      "section": "backgrounds",
+      "type": "range",
+      "light": "100",
+      "dark": "100",
+      "min": 100,
+      "max": 180,
+      "choices": []
+    },
+    {
+      "key": "background.player.mode",
+      "label": "theme_field_background_player_mode",
+      "section": "player",
+      "type": "select",
+      "light": "cover",
+      "dark": "cover",
+      "min": 0,
+      "max": 100,
+      "choices": [
+        {
+          "value": "cover",
+          "label": "theme_field_background_player_mode_cover"
+        },
+        {
+          "value": "solid",
+          "label": "theme_field_background_player_mode_solid"
+        },
+        {
+          "value": "image",
+          "label": "theme_field_background_player_mode_image"
+        }
+      ]
+    },
+    {
+      "key": "background.player.image",
+      "label": "theme_field_background_player_image",
+      "section": "player",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.player.color",
+      "label": "theme_field_background_player_color",
+      "section": "player",
+      "type": "color",
+      "light": "#3B4650",
+      "dark": "#3B4650",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.player.veil",
+      "label": "theme_field_background_player_veil",
+      "section": "player",
+      "type": "range",
+      "light": "70",
+      "dark": "70",
+      "min": 0,
+      "max": 90,
+      "choices": []
+    },
+    {
+      "key": "background.player.blur",
+      "label": "theme_field_background_player_blur",
+      "section": "player",
+      "type": "range",
+      "light": "40",
+      "dark": "40",
+      "min": 0,
+      "max": 60,
+      "choices": []
+    },
+    {
+      "key": "background.player.positionX",
+      "label": "theme_field_background_player_positionX",
+      "section": "player",
+      "type": "range",
+      "light": "50",
+      "dark": "50",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.player.positionY",
+      "label": "theme_field_background_player_positionY",
+      "section": "player",
+      "type": "range",
+      "light": "50",
+      "dark": "50",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.player.scale",
+      "label": "theme_field_background_player_scale",
+      "section": "player",
+      "type": "range",
+      "light": "100",
+      "dark": "100",
+      "min": 100,
+      "max": 180,
+      "choices": []
+    },
+    {
+      "key": "background.profileCard",
+      "label": "theme_field_background_profileCard",
+      "section": "backgrounds",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "background.coverBackdrop",
+      "label": "theme_field_background_coverBackdrop",
+      "section": "backgrounds",
+      "type": "toggle",
+      "light": "true",
+      "dark": "true",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "tab.home.normal",
+      "label": "theme_field_tab_home_normal",
+      "section": "tabs",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "tab.home.selected",
+      "label": "theme_field_tab_home_selected",
+      "section": "tabs",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "tab.shelf.normal",
+      "label": "theme_field_tab_shelf_normal",
+      "section": "tabs",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "tab.shelf.selected",
+      "label": "theme_field_tab_shelf_selected",
+      "section": "tabs",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "tab.record.normal",
+      "label": "theme_field_tab_record_normal",
+      "section": "tabs",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "tab.record.selected",
+      "label": "theme_field_tab_record_selected",
+      "section": "tabs",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "tab.profile.normal",
+      "label": "theme_field_tab_profile_normal",
+      "section": "tabs",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "tab.profile.selected",
+      "label": "theme_field_tab_profile_selected",
+      "section": "tabs",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "tab.normalColor",
+      "label": "theme_field_tab_normalColor",
+      "section": "tabs",
+      "type": "color",
+      "light": "#77736D",
+      "dark": "#B0ABA3",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "tab.selectedColor",
+      "label": "theme_field_tab_selectedColor",
+      "section": "tabs",
+      "type": "color",
+      "light": "#C4475B",
+      "dark": "#EF8DA0",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "icon.Search",
+      "label": "theme_field_icon_Search",
+      "section": "icons",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "icon.Filter",
+      "label": "theme_field_icon_Filter",
+      "section": "icons",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "icon.Grid",
+      "label": "theme_field_icon_Grid",
+      "section": "icons",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "icon.List",
+      "label": "theme_field_icon_List",
+      "section": "icons",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "icon.ChevronRight",
+      "label": "theme_field_icon_ChevronRight",
+      "section": "icons",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "cover.placeholder",
+      "label": "theme_field_cover_placeholder",
+      "section": "covers",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "cover.localPlaceholder",
+      "label": "theme_field_cover_localPlaceholder",
+      "section": "covers",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "cover.playerPlaceholder",
+      "label": "theme_field_cover_playerPlaceholder",
+      "section": "covers",
+      "type": "image",
+      "light": "",
+      "dark": "",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "cover.title",
+      "label": "theme_field_cover_title",
+      "section": "covers",
+      "type": "color",
+      "light": "#FFF4E6",
+      "dark": "#FFF4E6",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "cover.localTitle",
+      "label": "theme_field_cover_localTitle",
+      "section": "covers",
+      "type": "color",
+      "light": "#493E35",
+      "dark": "#E9DFD2",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "cover.author",
+      "label": "theme_field_cover_author",
+      "section": "covers",
+      "type": "color",
+      "light": "#64584B",
+      "dark": "#CDC0AF",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "cover.authorBackground",
+      "label": "theme_field_cover_authorBackground",
+      "section": "covers",
+      "type": "color",
+      "light": "#00000000",
+      "dark": "#00000000",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "cover.label",
+      "label": "theme_field_cover_label",
+      "section": "covers",
+      "type": "color",
+      "light": "#AA493E35",
+      "dark": "#AA493E35",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "cover.edge",
+      "label": "theme_field_cover_edge",
+      "section": "covers",
+      "type": "color",
+      "light": "#776B5D",
+      "dark": "#BFB2A0",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    },
+    {
+      "key": "cover.decoration",
+      "label": "theme_field_cover_decoration",
+      "section": "covers",
+      "type": "select",
+      "light": "0",
+      "dark": "0",
+      "min": 0,
+      "max": 100,
+      "choices": [
+        {
+          "value": "0",
+          "label": "theme_field_cover_decoration_0"
+        },
+        {
+          "value": "1",
+          "label": "theme_field_cover_decoration_1"
+        },
+        {
+          "value": "2",
+          "label": "theme_field_cover_decoration_2"
+        }
+      ]
+    },
+    {
+      "key": "cover.illustratedPlaceholder",
+      "label": "theme_field_cover_illustratedPlaceholder",
+      "section": "covers",
+      "type": "toggle",
+      "light": "false",
+      "dark": "false",
+      "min": 0,
+      "max": 100,
+      "choices": []
+    }
+  ]
+}

@@ -100,6 +100,12 @@ class ElementSpanIndex {
   }
 
   private pairTags(tag: string): Map<number, number> {
+    if (AnalyzeRule.elementTagScanner) {
+      const pairs = AnalyzeRule.elementTagScanner(this.html, tag);
+      const indexed = new Map<number, number>();
+      for (let i = 0; i < pairs.length; i += 2) indexed.set(pairs[i], pairs[i + 1]);
+      return indexed;
+    }
     const table = new Map<number, number>();
     const open: number[] = [];
     const re = sameTagPattern(tag);
@@ -118,6 +124,25 @@ class ElementSpanIndex {
 }
 
 export class AnalyzeRule {
+  static elementTagScanner: ((html: string, tag: string) => number[]) | undefined;
+  private sharedElementSpans: Map<string, ElementSpanIndex> | null = null;
+
+  reuseElementSpansFrom(analyzer: AnalyzeRule): AnalyzeRule {
+    if (analyzer.sharedElementSpans === null) analyzer.sharedElementSpans = new Map<string, ElementSpanIndex>();
+    this.sharedElementSpans = analyzer.sharedElementSpans;
+    return this;
+  }
+
+  private elementSpans(html: string): ElementSpanIndex {
+    if (this.sharedElementSpans === null) return new ElementSpanIndex(html);
+    let spans = this.sharedElementSpans.get(html);
+    if (spans === undefined) {
+      spans = new ElementSpanIndex(html);
+      this.sharedElementSpans.set(html, spans);
+    }
+    return spans;
+  }
+
   // Abuse guards for a single rule evaluation. The former 5,000 / 20,000 ceilings silently cut
   // catalogs of long novels (8,000+ chapters) down to 5,001 entries.
   private static readonly MAX_LIST_RESULTS: number = 50000;
@@ -1558,7 +1583,7 @@ export class AnalyzeRule {
     const matches: string[] = [];
     const tagPattern = '[a-zA-Z][a-zA-Z0-9_-]*';
     const re = new RegExp(`<(${tagPattern})(\\s[^>]*)?>`, 'gi');
-    const spans = new ElementSpanIndex(this.content);
+    const spans = this.elementSpans(this.content);
     let match: RegExpExecArray | null;
     while ((match = re.exec(this.content)) !== null) {
       const element = spans.slice(match.index, match[0], match[1]);
@@ -1759,7 +1784,7 @@ export class AnalyzeRule {
     try {
       const re = new RegExp(`<(${tagPattern})(\\s[^>]*)?>`, 'gi');
       const res: string[] = [];
-      const spans = new ElementSpanIndex(html);
+      const spans = this.elementSpans(html);
       let m: RegExpExecArray | null;
       while ((m = re.exec(html)) !== null) {
         const fullStartTag = m[0];
@@ -2131,7 +2156,7 @@ export class AnalyzeRule {
     const inner = innerMatch ? innerMatch[2] : html;
     const children: string[] = [];
     const re = /<([a-zA-Z][a-zA-Z0-9_-]*)(\s[^>]*)?>/g;
-    const spans = new ElementSpanIndex(inner);
+    const spans = this.elementSpans(inner);
     let m: RegExpExecArray | null;
     while ((m = re.exec(inner)) !== null) {
       children.push(spans.slice(m.index, m[0], m[1]));

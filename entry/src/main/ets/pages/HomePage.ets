@@ -15,6 +15,7 @@ import { ThemeIconComponent } from '../components/ThemeIconComponent';
 import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent';
 import { AppBackgroundScene } from '../model/AppBackground';
 import { AppBackgroundService } from '../service/AppBackgroundService';
+import { AppAppearance } from '../model/AppAppearance';
 import { WindowUtils } from '../utils/WindowUtils';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
 import { PlatformCompat } from '../utils/PlatformCompat';
@@ -1698,6 +1699,8 @@ export struct HomePage {
   }
 
   private hasAppBackground(): boolean {
+    if (AppTheme.resolve().custom) return AppTheme.pageBackground('home').mode !== 'theme';
+    if (!AppAppearance.current.useLegacyThemeOverrides) return false;
     return this.appBackgrounds.revision >= 0 &&
       this.appBackgrounds.resolve(AppBackgroundScene.Home).preset !== 'theme';
   }

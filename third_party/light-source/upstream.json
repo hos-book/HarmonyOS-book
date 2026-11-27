@@ -20,7 +20,8 @@
     "host-generic-source-rules-v3",
     "host-native-library-cache-v1",
     "host-native-expression-isolation-v1",
-    "host-application-scope-v1"
+    "host-application-scope-v1",
+    "host-native-selector-batch-v1"
   ],
   "files": [
     {

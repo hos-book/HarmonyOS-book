@@ -5,6 +5,7 @@ import { NativeExpr, NativeScope, NativeValue } from './upstream/core/nativesour
 import { NativeSourceCrypto } from './upstream/core/nativesource/NativeSourceCrypto';
 import { digestHashHex } from './upstream/core/http/DigestHash';
 import { SourceEngineHost } from './upstream/core/host/SourceEngineHost';
+import { sourceTagPairs } from 'libhsda_core.so';
 
 interface ParseInput {
   kind: string;
@@ -15,6 +16,8 @@ interface ParseInput {
   library?: string;
   scope?: Record<string, NativeValue>;
   template?: boolean;
+  contents?: string[];
+  rules?: Record<string, string>;
 }
 
 /** Stateless CPU work. Uses the pinned engine; never initializes AppHost, cookies, Web or persistence. */
@@ -26,6 +29,7 @@ export class LightNativePureParser {
       allowSynchronousQuickJs: false, evaluate: async () => { throw new Error('脚本必须通过有界脚本执行器'); } } });
     const request = JSON.parse(input) as ParseInput;
     if (!request || typeof request.rule !== 'string') throw new Error('解析请求无效');
+    AnalyzeRule.elementTagScanner = sourceTagPairs;
     const select = (content: string, rule: string, baseUrl: string, list: boolean): string[] => {
       const analyzer = new AnalyzeRule(content, baseUrl);
       if (list) return analyzer.getStringList(rule);
@@ -41,6 +45,21 @@ export class LightNativePureParser {
         cookie: () => { throw new Error('Cookie 表达式必须留在原书源上下文'); } }).loadLibrary(request.library || '');
       if (expression.requiresScript(request.rule, request.template)) throw new Error('脚本必须通过有界脚本执行器');
       result = request.template ? expression.render(request.rule, scope) : expression.evaluate(request.rule, scope);
+    } else if (request.kind === 'selectBatch') {
+      result = (request.contents || []).map(content => {
+        const shared = new AnalyzeRule(content, request.baseUrl || '');
+        const fields: Record<string, NativeValue> = {};
+        for (const name of Object.keys(request.rules || {})) {
+          try {
+            const value = new AnalyzeRule(content, request.baseUrl || '').reuseElementSpansFrom(shared)
+              .getString(request.rules![name]);
+            fields[name] = {value, error:'', failed:false};
+          } catch (error) {
+            fields[name] = {value:'', error:error instanceof Error ? error.message : String(error), failed:true};
+          }
+        }
+        return fields;
+      });
     } else if (request.kind === 'items') {
       result = new AnalyzeRule(request.content || '', request.baseUrl || '')
         .execute(request.rule, RuleExecutionTarget.ELEMENTS).map(value => {

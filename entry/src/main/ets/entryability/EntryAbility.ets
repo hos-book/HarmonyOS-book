@@ -16,6 +16,8 @@ import { AiModelPackService } from '../service/AiModelPackService';
 import { AppIconService } from '../service/AppIconService';
 import { BottomTabIconService } from '../service/BottomTabIconService';
 import { AppBackgroundService } from '../service/AppBackgroundService';
+import { AppAppearance } from '../model/AppAppearance';
+import { ThemePackageService } from '../service/ThemePackageService';
 import lazy { AuthService } from '../service/AuthService';
 import lazy { MembershipService } from '../service/MembershipService';
 import lazy { AutoBackupService } from '../service/AutoBackupService';
@@ -88,6 +90,9 @@ export default class EntryAbility extends UIAbility {
     }
     // Must run before the first Web component initializes ArkWeb. Do not eagerly initialize the engine here.
     HiCarService.instance.initialize(this.context);
+    ThemePackageService.initialize(this.context).catch((error: Error): void => {
+      hilog.error(DOMAIN, TAG, 'Theme load failed: %{public}s', error.message);
+    });
     configureArkWebSecurity();
     try {
       this.context.getApplicationContext().setColorMode(ConfigurationConstant.ColorMode.COLOR_MODE_NOT_SET);
@@ -578,6 +583,7 @@ export default class EntryAbility extends UIAbility {
       AppBackgroundService.instance.init(this.context).catch((): void => {}),
       MembershipService.instance.prepareAppearance(this.context)
     ]);
+    AppAppearance.current.darkMode = this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
     windowStage.loadContent('pages/Index', (err) => {
       if (err.code) {
         hilog.error(DOMAIN, TAG, 'Failed to load the content. Cause: %{public}s', JSON.stringify(err));
@@ -591,6 +597,7 @@ export default class EntryAbility extends UIAbility {
   onConfigurationUpdate(newConfig: Configuration): void {
     if (PlatformCompat.wearable) return;
     if (newConfig.colorMode !== undefined) {
+      AppAppearance.current.darkMode = newConfig.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
       WindowUtils.updateColorMode(newConfig.colorMode);
     }
     if (newConfig.fontId !== undefined || newConfig.fontSizeScale !== undefined ||

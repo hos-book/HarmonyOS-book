@@ -92,6 +92,29 @@ export class CardOrigin {
   }
 }
 
+/** 封面、圆角与阴影独立成组，货架只更新外层几何属性。 */
+@ComponentV2
+struct RankingShelfCover {
+  @Require @Param book: RankingBook;
+  @Param cardWidth: number = CARD_BASE_W;
+  @Param cardHeight: number = CARD_BASE_W / RankingCardStyle.COVER_ASPECT;
+  @Event onLoadError: () => void = () => {};
+
+  build() {
+    Stack({ alignContent: Alignment.TopStart }) {
+      CoverImage({ url: this.book.coverUrl, title: this.book.title, author: this.book.author,
+        imgWidth: this.cardWidth, aspectRatioValue: RankingCardStyle.COVER_ASPECT,
+        useOriginalRatio: false, radius: 0, imageFit: ImageFit.Cover, themedDecoration: true,
+        onLoadError: this.onLoadError })
+        .width(this.cardWidth).height(this.cardHeight)
+    }.width(this.cardWidth).height(this.cardHeight)
+      .attributeModifier(new RankingCardClip())
+      .shadow({ radius: RankingCardStyle.SHADOW_RADIUS, color: RankingCardStyle.SHADOW_COLOR,
+        offsetY: RankingCardStyle.SHADOW_OFFSET_Y })
+      .renderGroup(true)
+  }
+}
+
 /**
  * 榜单横排卡片：虚拟无限循环，offset 不设边界，索引用取模。
  * 渲染按虚拟索引 v 而不是固定槽位，屏幕内卡片的内容不会在跨整数时被替换。
@@ -127,8 +150,10 @@ export struct RankingShelf {
   /** 连续虚拟偏移，可为负数/小数，不做 clamp。 */
   @Local bookOffset: number = 0;
   @Local shelfWidth: number = 360;
-  /** 封面异步补全或换源后递增，驱动窗口内卡片重绘。 */
-  @Local coverRevision: number = 0;
+  /** 渲染窗口仅在跨卡片边界、书籍或尺寸变化时更新。 */
+  @Local renderSlots: number[] = [];
+  private renderedBase: number = Number.NaN;
+  private renderedCount: number = -1;
 
   private startX: number = 0;
   private startY: number = 0;
@@ -169,6 +194,7 @@ export struct RankingShelf {
   private gatherHostMeasured: boolean = false;
 
   aboutToAppear(): void {
+    this.syncRenderWindow(true);
     this.hydrateVisible();
   }
 
@@ -189,6 +215,7 @@ export struct RankingShelf {
     this.flingActive = false;
     this.endFreeze();
     if (this.widthReady) this.initOffset();
+    this.syncRenderWindow(true);
   }
 
   @Monitor('scrollTopToken')
@@ -324,6 +351,7 @@ export struct RankingShelf {
   /** offset 每帧变化（拖动或惯性动画）都实时更新焦点标题，并按窗口推进补水封面。 */
   @Monitor('bookOffset')
   private onOffsetChanged(): void {
+    this.syncRenderWindow();
     if (!this.offsetReady) return;
     this.emitFocus();
     this.hydrateAlong();
@@ -331,7 +359,7 @@ export struct RankingShelf {
 
   private baseVirtual(): number { return Math.floor(this.bookOffset) - 2; }
 
-  /** 渲染窗口起点：惯性期间用冻结起点，避免动画途中因跨整数重新挂卡。 */
+  /** 短距离吸附沿用冻结窗口，连续惯性按当前位置推进窗口。 */
   private windowBase(): number {
     return this.freezeActive ? this.freezeBase : this.baseVirtual();
   }
@@ -340,16 +368,16 @@ export struct RankingShelf {
     return this.freezeActive ? this.freezeCount : this.slotCount();
   }
 
-  /** 按虚拟索引渲染：可见卡的 key 不随跨整数变化，避免内容被瞬间替换。 */
-  private virtualSlots(): number[] {
-    // 读一下封面版本，注册依赖：封面换源后整窗重绘。
-    const revision: number = this.coverRevision;
+  /** 保持当前窗口集合，跨卡片边界时一次提交新的虚拟索引。 */
+  private syncRenderWindow(force: boolean = false): void {
     const base: number = this.windowBase();
     const count: number = this.windowCount();
+    if (!force && base === this.renderedBase && count === this.renderedCount) return;
+    this.renderedBase = base;
+    this.renderedCount = count;
     const values: number[] = [];
     for (let slot = 0; slot < count; slot++) values.push(base + slot);
-    if (revision < 0) values.length = 0;
-    return values;
+    this.renderSlots = values;
   }
 
   private bookAt(virtualIndex: number): RankingBook {
@@ -371,10 +399,8 @@ export struct RankingShelf {
     const context = this.getUIContext().getHostContext();
     if (context === undefined) return;
     this.hydrating.add(book.id);
-    const before: string = book.coverUrl;
-    RankingCoverResolver.resolve(context, book, false).then((cover: string): void => {
+    RankingCoverResolver.resolve(context, book, false).then((): void => {
       this.hydrating.delete(book.id);
-      if (this.alive && cover.length > 0 && book.coverUrl !== before) this.coverRevision++;
     }).catch((): void => {
       this.hydrating.delete(book.id);
     });
@@ -423,10 +449,14 @@ export struct RankingShelf {
     // 书很少时窗口可能比书总数还长，仍按虚拟索引渲染，避免长甩到后半段窗口是空的。
     this.freezeCount = Math.max(1, high - low);
     this.freezeActive = true;
+    this.syncRenderWindow();
   }
 
   private endFreeze(): void {
-    if (this.freezeActive) this.freezeActive = false;
+    if (this.freezeActive) {
+      this.freezeActive = false;
+      this.syncRenderWindow();
+    }
   }
 
   /** 图片加载失败：强制换源一次；仍失败就让 CardImage 继续显示 App logo。 */
@@ -444,7 +474,6 @@ export struct RankingShelf {
       }
       if (book.coverUrl !== cover) {
         book.coverUrl = cover;
-        this.coverRevision++;
       } else {
         this.coverFailed.add(book.id);
       }
@@ -874,19 +903,9 @@ export struct RankingShelf {
 
   @Builder
   private bookItem(virtualIndex: number) {
-    Stack({ alignContent: Alignment.TopStart }) {
-      CoverImage({ url: this.bookAt(virtualIndex).coverUrl, title: this.bookAt(virtualIndex).title,
-        author: this.bookAt(virtualIndex).author, imgWidth: this.cardW(),
-        aspectRatioValue: RankingCardStyle.COVER_ASPECT, useOriginalRatio: false, radius: 0,
-        imageFit: ImageFit.Cover, themedDecoration: true, compositeEdges: true,
-        onLoadError: (): void => { this.refreshCover(this.bookAt(virtualIndex)); } })
-        .width(this.cardW()).height(this.cardH())
-    }
+    RankingShelfCover({ book: this.bookAt(virtualIndex), cardWidth: this.cardW(), cardHeight: this.cardH(),
+      onLoadError: (): void => { this.refreshCover(this.bookAt(virtualIndex)); } })
     .width(this.cardW()).height(this.cardH())
-    .attributeModifier(new RankingCardClip())
-    // 大半径柔和投影，交叠处形成清晰的层次。
-    .shadow({ radius: RankingCardStyle.SHADOW_RADIUS, color: RankingCardStyle.SHADOW_COLOR,
-      offsetY: RankingCardStyle.SHADOW_OFFSET_Y })
     .position({ x: 0, y: 0 })
     .translate({ x: this.xOfVirtual(virtualIndex) + this.gatherDx(virtualIndex),
       y: this.yOf(this.focusAt(virtualIndex)) + this.gatherDy(virtualIndex) })
@@ -912,9 +931,9 @@ export struct RankingShelf {
 
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
-      ForEach(this.virtualSlots(), (virtualIndex: number) => {
+      ForEach(this.renderSlots, (virtualIndex: number) => {
         this.bookItem(virtualIndex)
-      }, (virtualIndex: number): string => 'v-' + virtualIndex)
+      }, (virtualIndex: number): string => `${this.shelfKey}:${virtualIndex}:${this.bookAt(virtualIndex).id}`)
     }
     .width('100%').height(this.shelfHeight())
     // 聚拢时整组会移到货架上方，不能按货架高度裁切；静止时仍保持裁切。
@@ -937,6 +956,7 @@ export struct RankingShelf {
           this.emitFocus(oldFocus);
         }
       }
+      this.syncRenderWindow();
     })
     .onTouch((event: TouchEvent): void => this.handleTouch(event))
     // 横滑交给书架，阻止外层切页手势同时响应。

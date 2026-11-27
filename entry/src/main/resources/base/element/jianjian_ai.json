@@ -25,6 +25,58 @@
       "value": "服务配置"
     },
     {
+      "name": "jianjian_ai_configs",
+      "value": "配置列表（%1$d）"
+    },
+    {
+      "name": "jianjian_ai_configs_empty",
+      "value": "添加第一套 AI 配置"
+    },
+    {
+      "name": "jianjian_ai_add",
+      "value": "添加配置"
+    },
+    {
+      "name": "jianjian_ai_edit",
+      "value": "编辑配置"
+    },
+    {
+      "name": "jianjian_ai_config_name",
+      "value": "配置名称"
+    },
+    {
+      "name": "jianjian_ai_config_name_hint",
+      "value": "留空时使用模型名称"
+    },
+    {
+      "name": "jianjian_ai_current",
+      "value": "当前使用"
+    },
+    {
+      "name": "jianjian_ai_use",
+      "value": "使用"
+    },
+    {
+      "name": "jianjian_ai_selected",
+      "value": "当前使用：%1$s"
+    },
+    {
+      "name": "jianjian_ai_failover_hint",
+      "value": "每次请求优先使用当前配置，服务失效时按列表顺序尝试下一套，末尾接回首项。每套尝试一次，成功后自动记住该配置；全部失败后显示原因，点击取消即可结束。简简聊天、AI 字典、章节总结和多角色识别共用此设置。"
+    },
+    {
+      "name": "jianjian_ai_delete",
+      "value": "删除此配置"
+    },
+    {
+      "name": "jianjian_ai_delete_confirm",
+      "value": "删除“%1$s”的服务配置与模型目录？其余配置和提示词继续保留。"
+    },
+    {
+      "name": "jianjian_ai_deleted",
+      "value": "AI 配置已删除"
+    },
+    {
       "name": "jianjian_ai_address",
       "value": "服务地址"
     },

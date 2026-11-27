@@ -113,6 +113,8 @@ export struct ProfilePage {
   }
 
   private hasAppBackground(): boolean {
+    if (AppTheme.resolve().custom) return AppTheme.pageBackground('profile').mode !== 'theme';
+    if (!this.appearance.useLegacyThemeOverrides) return false;
     return this.appBackgrounds.revision >= 0 &&
       this.appBackgrounds.resolve(AppBackgroundScene.Profile).preset !== 'theme';
   }
@@ -332,7 +334,7 @@ export struct ProfilePage {
     }.width('100%')
     // 自选背景仅降低底色不透明度，前景内容与跟随主题时的卡片外观独立保留。
     .backgroundColor(this.hasAppBackground() ? $r('app.color.profile_background_surface') : AppTheme.Surface)
-    .backgroundImage(this.hasAppBackground() ? undefined :
+    .backgroundImage(this.hasAppBackground() && !AppTheme.resolve().custom ? undefined :
       AppTheme.resolve(this.appearance.themeBundleId).visual.background.profileCardImage)
     .backgroundImageSize(ImageSize.Cover)
     .backgroundImagePosition(Alignment.Center)

@@ -1,6 +1,7 @@
 import { common } from '@kit.AbilityKit';
 import { fileIo, statfs } from '@kit.CoreFileKit';
 import { util, taskpool } from '@kit.ArkTS';
+import { createTxtImporter, feedTxtImporter, releaseTxtImporter, TxtImportSection } from 'libhsda_core.so';
 import { EpubParserService, EpubCatalogItem } from './text/EpubParserService';
 import { Book, Chapter } from '../model/Book';
 import { EpubCoverService } from './text/EpubCoverService';
@@ -396,6 +397,7 @@ export class LocalBookImportService {
   private static async importText(book: Book, directory: string, uri: string,
     html: boolean, progress: (text: string) => void, writes: LocalImportTaskQueue): Promise<void> {
     const file = await fileIo.open(uri, fileIo.OpenMode.READ_ONLY);
+    let txtParser: Object | undefined = undefined;
     try {
       const size = (await fileIo.stat(file.fd)).size;
       const max = (html ? 32 : 256) * 1024 * 1024;
@@ -404,10 +406,7 @@ export class LocalBookImportService {
       const firstLength = await fileIo.read(file.fd, buffer, { offset: 0, length: Math.min(buffer.byteLength, size) });
       const decoder = util.TextDecoder.create(LocalBookImportService.detectEncoding(new Uint8Array(buffer, 0, firstLength)));
       let offset = 0;
-      let pending = '';
-      let section = '';
-      let title = book.title;
-      let hasChapterTitle = false;
+      if (!html) txtParser = createTxtImporter(book.title);
       let htmlContent = '';
       while (offset < size) {
         const count = await fileIo.read(file.fd, buffer, { offset: offset, length: Math.min(buffer.byteLength, size - offset) });
@@ -415,36 +414,12 @@ export class LocalBookImportService {
         offset += count;
         const decoded = decoder.decodeToString(new Uint8Array(buffer, 0, count), { stream: offset < size });
         if (html) { htmlContent += decoded; continue; }
-        pending += decoded.replace(/\r/g, '');
-        const lines = pending.split('\n');
-        pending = lines.pop() ?? '';
-        if (offset === size && pending.length > 0) {
-          lines.push(pending);
-          pending = '';
-        }
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (/^(?:第[零〇一二三四五六七八九十百千万两\d]+[章节卷回部篇].{0,70}|chapter\s+\d+.{0,70}|序章|序言|楔子|尾声|后记)$/i.test(trimmed)) {
-            await LocalBookImportService.appendText(book, directory, title, section, writes, hasChapterTitle);
-            title = trimmed;
-            hasChapterTitle = true;
-            section = '';
+        if (txtParser !== undefined) {
+          const sections: TxtImportSection[] = await feedTxtImporter(txtParser, decoded, offset === size);
+          for (const section of sections) {
+            await LocalBookImportService.appendText(book, directory, section.title, section.content,
+              writes, section.preserveChapter);
           }
-          section += line + '\n';
-          if (hasChapterTitle && section.length > 8 * 1024 * 1024) throw new Error('TXT_CHAPTER_TOO_LARGE');
-          if (!hasChapterTitle && section.length >= 32000) {
-            await LocalBookImportService.appendText(book, directory, title, section, writes);
-            section = '';
-          }
-        }
-        if (hasChapterTitle && section.length + pending.length > 8 * 1024 * 1024) {
-          throw new Error('TXT_CHAPTER_TOO_LARGE');
-        }
-        if (!hasChapterTitle && pending.length >= 32000) {
-          section += pending;
-          pending = '';
-          await LocalBookImportService.appendText(book, directory, title, section, writes);
-          section = '';
         }
         progress(`${book.title} ${Math.floor(offset * 100 / size)}%`);
       }
@@ -481,10 +456,11 @@ export class LocalBookImportService {
           }
         }
         await original.finish(book.id, book.chapters.length);
-      } else {
-        await LocalBookImportService.appendText(book, directory, title, section + pending, writes, hasChapterTitle);
       }
-    } finally { await fileIo.close(file); }
+    } finally {
+      if (txtParser !== undefined) releaseTxtImporter(txtParser);
+      await fileIo.close(file);
+    }
   }
 
   private static async readMobi(context: common.Context, uri: string,
@@ -718,7 +694,8 @@ export class LocalBookImportService {
           const rawHtml = spineBatch[index - batchStart];
           if (epubMode !== 'comic') {
             await original.capture(index, spine[index].href, rawHtml, (path: string): Promise<ArrayBuffer> =>
-              handler.getResourceContent(index, path));
+              handler.getResourceContent(index, path), (paths: string[]): Promise<Array<ArrayBuffer | undefined>> =>
+                handler.getResourceBatch(index, paths));
           }
           const readStyle = async (path: string): Promise<string> => {
             const bytes = await handler.getResourceContent(index, path);

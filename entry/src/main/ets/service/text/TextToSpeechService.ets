@@ -98,6 +98,7 @@ export class TextToSpeechService {
   private engineChain: Promise<void> = Promise.resolve();
   private book: Book | null = null;
   private segments: SpeechSegment[] = [];
+  private sentenceSegments: SpeechSegment[] | null = null;
   private chapterContent: string = '';
   private textDocument: ReaderTextDocument | null = null;
   private segmentIndex: number = 0;
@@ -674,7 +675,7 @@ export class TextToSpeechService {
       this.state.cover = book.cover;
       this.state.chapterCount = book.chapters.length;
       this.segments = [];
-      this.chapterContent = '';
+      this.setChapterContent('');
       this.textDocument = null;
       this.prefetchedKey = '';
       this.prefetchedText = '';
@@ -718,7 +719,7 @@ export class TextToSpeechService {
     this.generation++;
     this.clearHttpPrefetch();
     if (chapterIndex !== this.state.chapterIndex) {
-      this.chapterContent = '';
+      this.setChapterContent('');
       this.textDocument = null;
       this.state.contentLength = 0;
     }
@@ -994,7 +995,7 @@ export class TextToSpeechService {
     this.state.highlightOffset = -1;
     this.state.highlightEnd = -1;
     this.segments = [];
-    this.chapterContent = '';
+    this.setChapterContent('');
     this.textDocument = null;
     this.publishMetadata();
     try {
@@ -1009,7 +1010,7 @@ export class TextToSpeechService {
       this.textDocument = document;
       this.state.charOffset = document.toDisplay(offset);
       this.state.playbackOffset = this.state.charOffset;
-      this.chapterContent = content;
+      this.setChapterContent(content);
       if (this.context !== null) {
         const settings = await TextReadingSettingsService.get(this.context);
         if (!this.valid(ticket)) return;
@@ -1632,6 +1633,16 @@ export class TextToSpeechService {
   }
 
   currentChapterContent(): string { return this.chapterContent; }
+
+  private setChapterContent(content: string): void {
+    this.chapterContent = content;
+    this.sentenceSegments = null;
+  }
+
+  private chapterSentences(): SpeechSegment[] {
+    if (this.sentenceSegments === null) this.sentenceSegments = SpeechTextSegmenter.split(this.chapterContent);
+    return this.sentenceSegments;
+  }
   currentRawOffset(): number { return this.textDocument?.toRaw(this.state.charOffset) ?? this.state.charOffset; }
 
   hasSavedPosition(book: Book): boolean { return this.savedPosition(book) !== null; }
@@ -1705,7 +1716,7 @@ export class TextToSpeechService {
 
   skipSentence(delta: number): void {
     if (this.segments.length === 0) return;
-    const sentences = SpeechTextSegmenter.split(this.chapterContent);
+    const sentences = this.chapterSentences();
     if (sentences.length === 0) return;
     const current = SpeechTextSegmenter.indexAt(sentences, this.state.playbackOffset);
     const target = Math.max(0, Math.min(sentences.length - 1, current + delta));
@@ -1723,7 +1734,7 @@ export class TextToSpeechService {
       this.book === null || this.segments.length === 0 || this.state.contentLength <= 0) return;
     const playing = this.state.playing || this.state.loading;
     const offset = Math.floor(Math.max(0, Math.min(100, percent)) * this.state.contentLength / 100);
-    const sentences = SpeechTextSegmenter.split(this.chapterContent);
+    const sentences = this.chapterSentences();
     if (sentences.length === 0) return;
     const index = Math.min(sentences.length - 1, SpeechTextSegmenter.indexAt(sentences, offset));
     const target = sentences[index].start;

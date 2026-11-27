@@ -13,6 +13,7 @@ import { Book, Chapter } from '../model/Book';
 import { AppAppearance } from '../model/AppAppearance';
 import { AppThemeSelection } from '../model/AppThemeBundle';
 import { ThemeBundles } from '../theme/ThemeBundles';
+import { ThemePackageService } from './ThemePackageService';
 import { LibrarySyncValue, LibrarySyncModel, LibrarySyncHistory, LIBRARY_SYNC_CHANGED } from './sync/LibrarySyncModel';
 
 /** 书架收藏变化事件：加入、移出或最近阅听顺序变化后触发。 */
@@ -731,6 +732,7 @@ export class PreferenceService {
   }
 
   static async init(context: common.BaseContext): Promise<void> {
+    await ThemePackageService.ready();
     PreferenceService.widgetContext = context;
     if (PreferenceService.initPromise) {
       await PreferenceService.initPromise;
@@ -1386,10 +1388,13 @@ export class PreferenceService {
 
   static async applyThemeBundle(id: string): Promise<void> {
     if (ThemeBundles.normalizeId(id) !== id) throw new Error('Unknown theme bundle');
-    return PreferenceService.enqueueAppearanceSave((): AppThemeSelection => {
+    await PreferenceService.enqueueAppearanceSave((): AppThemeSelection => {
       const bundle = ThemeBundles.resolve(id);
-      return new AppThemeSelection(bundle.id, bundle.accent, AppAppearance.current.material);
+      const selection = new AppThemeSelection(bundle.id, bundle.accent, bundle.materialStyle);
+      selection.schemaVersion = 2;
+      return selection;
     }, id !== ThemeBundles.DefaultId);
+    await PreferenceService.setVerticalBottomTabs(ThemeBundles.resolve(id).verticalBottomTabs);
   }
 
   static async resetThemeBundleOverrides(): Promise<void> {
@@ -1405,7 +1410,7 @@ export class PreferenceService {
     if (raw.length === 0 || raw.length > 2048) return fallback;
     try {
       const decoded: AppThemeSelection | null = JSON.parse(raw);
-      if (decoded === null || typeof decoded !== 'object' || decoded.schemaVersion !== 1 ||
+      if (decoded === null || typeof decoded !== 'object' || (decoded.schemaVersion !== 1 && decoded.schemaVersion !== 2) ||
         typeof decoded.themeBundleId !== 'string' || typeof decoded.accentColor !== 'string' ||
         typeof decoded.materialStyle !== 'number') return fallback;
       const bundle = ThemeBundles.resolve(decoded.themeBundleId);
@@ -1414,13 +1419,16 @@ export class PreferenceService {
       const resolvedAccent = bundle.id === 'ink-wash' &&
         (accent === '#A34335' || accent === '#4F6558' || accent === '#356044' ||
           accent === '#383838') ? bundle.accent : accent;
-      return new AppThemeSelection(bundle.id, resolvedAccent, AppAppearance.normalizeMaterial(decoded.materialStyle));
+      const selection = new AppThemeSelection(bundle.id, resolvedAccent, AppAppearance.normalizeMaterial(decoded.materialStyle));
+      selection.schemaVersion = decoded.schemaVersion;
+      return selection;
     } catch (_error) {
       return fallback;
     }
   }
 
   private static publishThemeSelection(selection: AppThemeSelection): void {
+    AppAppearance.current.useLegacyThemeOverrides = selection.schemaVersion === 1;
     AppAppearance.current.themeBundleId = selection.themeBundleId;
     AppAppearance.current.accent = selection.accentColor;
     AppAppearance.current.material = selection.materialStyle;

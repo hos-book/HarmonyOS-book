@@ -23,6 +23,9 @@ export class AppAppearance {
     return this.material;
   }
   @Trace verticalBottomTabs: boolean = false;
+  @Trace darkMode: boolean = false;
+  @Trace themeRevision: number = 0;
+  @Trace useLegacyThemeOverrides: boolean = true;
   /** 空字符串表示使用默认玫瑰红。 */
   @Trace accent: string = '';
   /** 当前套装；继续与阅读纸张和桌面应用图标独立保存。 */

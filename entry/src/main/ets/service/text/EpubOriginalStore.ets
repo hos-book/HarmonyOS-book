@@ -70,34 +70,53 @@ export class EpubOriginalStore {
   }
 
   async capture(index: number, href: string, html: string,
-    read: (relative: string) => Promise<ArrayBuffer | undefined>): Promise<void> {
+    read: (relative: string) => Promise<ArrayBuffer | undefined>,
+    readBatch?: (relatives: string[]) => Promise<Array<ArrayBuffer | undefined>>): Promise<void> {
     await this.mkdir(this.directory);
     await this.save(`${this.directory}/${index}.html`, html);
     this.bytes += html.length * 3;
     const queue = EpubOriginalDocument.dependencies(html, href, false);
-    for (let at = 0; at < queue.length; at++) {
-      const path = queue[at];
-      if (this.saved.has(path)) continue;
-      if (this.saved.size >= 50000 || this.bytes > 6 * 1024 * 1024 * 1024) throw new Error('EPUB original resources too large');
-      const base = href.split('/').slice(0, -1);
-      const target = path.split('/');
-      let shared = 0;
-      while (shared < base.length && shared < target.length && base[shared] === target[shared]) shared++;
-      const relative = '../'.repeat(base.length - shared) + target.slice(shared).join('/');
-      let bytes: ArrayBuffer | undefined;
-      try { bytes = await read(relative) ?? undefined; }
-      catch (_missing) { continue; } // 原书损坏的可选资源保持浏览器正常回退。
-      if (bytes === undefined || bytes.byteLength === 0 || bytes.byteLength > EpubOriginalStore.MAX_RESOURCE) continue;
-      this.saved.add(path);
-      this.bytes += bytes.byteLength;
-      const local = await EpubOriginalStore.resourcePath(this.directory, path);
-      await this.mkdir(local.substring(0, local.lastIndexOf('/')));
-      const mime = EpubOriginalDocument.mime(path);
-      if (mime === 'text/css' || mime === 'image/svg+xml') {
-        const text = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(bytes));
-        queue.push(...EpubOriginalDocument.dependencies(text, path, mime === 'text/css'));
+    const base = href.split('/').slice(0, -1);
+    let at = 0;
+    while (at < queue.length) {
+      const paths: string[] = [];
+      const positions: number[] = [];
+      for (let next = at; next < queue.length && paths.length < (readBatch ? 16 : 1); next++) {
+        const path = queue[next];
+        if (this.saved.has(path) || paths.includes(path)) continue;
+        paths.push(path); positions.push(next);
       }
-      await this.save(local, bytes);
+      if (paths.length === 0) break;
+      const relatives = paths.map((path: string): string => {
+        const target = path.split('/');
+        let shared = 0;
+        while (shared < base.length && shared < target.length && base[shared] === target[shared]) shared++;
+        return '../'.repeat(base.length - shared) + target.slice(shared).join('/');
+      });
+      let resources: Array<ArrayBuffer | undefined>;
+      if (readBatch) resources = await readBatch(relatives);
+      else {
+        let bytes: ArrayBuffer | undefined = undefined;
+        try { bytes = await read(relatives[0]); } catch (_missing) {}
+        resources = [bytes];
+      }
+      at = positions[resources.length - 1] + 1;
+      for (let resourceIndex = 0; resourceIndex < resources.length; resourceIndex++) {
+        if (this.saved.size >= 50000 || this.bytes > 6 * 1024 * 1024 * 1024) throw new Error('EPUB original resources too large');
+        const path = paths[resourceIndex];
+        const bytes = resources[resourceIndex];
+        if (bytes === undefined || bytes.byteLength === 0 || bytes.byteLength > EpubOriginalStore.MAX_RESOURCE) continue;
+        this.saved.add(path);
+        this.bytes += bytes.byteLength;
+        const local = await EpubOriginalStore.resourcePath(this.directory, path);
+        await this.mkdir(local.substring(0, local.lastIndexOf('/')));
+        const mime = EpubOriginalDocument.mime(path);
+        if (mime === 'text/css' || mime === 'image/svg+xml') {
+          const text = util.TextDecoder.create('utf-8').decodeToString(new Uint8Array(bytes));
+          queue.push(...EpubOriginalDocument.dependencies(text, path, mime === 'text/css'));
+        }
+        await this.save(local, bytes);
+      }
     }
   }
 

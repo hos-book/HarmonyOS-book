@@ -1,7 +1,7 @@
 import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { SettingsHintButton } from '../components/SettingsHintButton';
-import { JianjianAiConfig } from '../model/JianjianAi';
+import { JianjianAiConfig, JianjianAiSettings } from '../model/JianjianAi';
 import { JianjianAiService } from '../service/JianjianAiService';
 import { AppColor, AppFont, AppRadius, AppSpace, AppTheme } from '../theme/Theme';
 import { AdaptiveLayout } from '../utils/AdaptiveLayout';
@@ -15,6 +15,13 @@ export struct JianjianAiSettingsPage {
   @Local headerHeight: number = WindowUtils.getStatusBarHeightVp() + 56;
   @Local viewportWidth: number = 0;
   @Local viewportHeight: number = 0;
+  @Local editingId: number = 0;
+  @Local configName: string = '';
+  @Local selectedId: number = 0;
+  @Local selectedName: string = '';
+  @Local selectedModel: string = '';
+  @Local configCount: number = 0;
+  @Local showConfigs: boolean = false;
   @Local address: string = '';
   @Local apiKey: string = '';
   @Local model: string = '';
@@ -26,6 +33,7 @@ export struct JianjianAiSettingsPage {
   @Local modelCount: number = 0;
   @Local filter: string = '';
   private models: string[] = [];
+  private configSource: ListDataSource<JianjianAiConfig> = new ListDataSource<JianjianAiConfig>();
   private modelSource: ListDataSource<string> = new ListDataSource<string>();
   private client: JianjianAiService = new JianjianAiService();
   private alive: boolean = false;
@@ -42,27 +50,76 @@ export struct JianjianAiSettingsPage {
   @Monitor('active')
   onActiveChanged(): void { if (!this.active && this.busy) this.cancel(); }
 
-  private async load(): Promise<void> {
+  private async load(): Promise<boolean> {
     const context = this.getUIContext().getHostContext();
-    if (!context) return;
+    if (!context) return false;
     this.message = '';
     try {
-      const config = await JianjianAiService.loadConfig(context);
+      const settings = await JianjianAiService.loadSettings(context);
+      const config = settings.selected();
       let models: string[] = [];
       try { models = await JianjianAiService.loadCachedModels(context, config); } catch (_error) { /* 缓存失败仍可编辑配置 */ }
-      if (!this.alive) return;
-      this.address = config.address;
-      this.apiKey = config.apiKey;
-      this.model = config.model;
-      this.models = models;
-      this.modelCount = models.length;
-      this.modelSource.setItems(models);
+      if (!this.alive) return false;
+      this.applySettings(settings);
+      this.applyConfig(config, models);
       this.ready = true;
+      return true;
     } catch (_error) { if (this.alive) this.message = $r('app.string.settings_load_failed'); }
+    return false;
+  }
+
+  private applySettings(settings: JianjianAiSettings): void {
+    this.selectedId = settings.selectedId;
+    this.selectedName = settings.selected().name;
+    this.selectedModel = settings.selected().model;
+    this.configCount = settings.configs.length;
+    this.configSource.setItems(settings.configs);
+  }
+
+  private applyConfig(config: JianjianAiConfig, models: string[]): void {
+    this.editingId = config.id;
+    this.configName = config.name;
+    this.address = config.address;
+    this.apiKey = config.apiKey;
+    this.model = config.model;
+    this.models = models;
+    this.modelCount = models.length;
+    this.filter = '';
+    this.modelSource.setItems(models);
+  }
+
+  private addConfig(): void {
+    this.showConfigs = false;
+    this.applyConfig(new JianjianAiConfig(), []);
+    this.message = '';
+  }
+
+  private async openConfig(config: JianjianAiConfig, select: boolean): Promise<void> {
+    const context = this.getUIContext().getHostContext();
+    if (!context || this.saving || this.busy) return;
+    this.saving = true;
+    this.showConfigs = false;
+    this.message = '';
+    try {
+      if (select) {
+        await JianjianAiService.selectConfig(context, config.id);
+        const settings = await JianjianAiService.loadSettings(context);
+        if (!this.alive) return;
+        this.applySettings(settings);
+      }
+      let models: string[] = [];
+      try { models = await JianjianAiService.loadCachedModels(context, config); } catch (_error) { /* 配置继续提供编辑 */ }
+      if (!this.alive) return;
+      this.applyConfig(config, models);
+      if (select) this.message = $r('app.string.jianjian_ai_selected', config.name);
+    } catch (_error) { if (this.alive) this.message = $r('app.string.settings_save_failed'); }
+    finally { if (this.alive) this.saving = false; }
   }
 
   private config(): JianjianAiConfig {
     const config = new JianjianAiConfig();
+    config.id = this.editingId;
+    config.name = this.configName;
     config.address = this.address;
     config.apiKey = this.apiKey;
     config.model = this.model;
@@ -92,7 +149,7 @@ export struct JianjianAiSettingsPage {
       const config = JianjianAiService.normalize(this.config());
       const models = await this.client.listModels(config);
       if (!this.alive || generation !== this.generation) return;
-      try { await JianjianAiService.saveCachedModels(context, config, models); }
+      try { if (config.id > 0) await JianjianAiService.saveCachedModels(context, config, models); }
       catch (_error) {
         if (this.alive && generation === this.generation) this.message = $r('app.string.settings_save_failed');
         return;
@@ -126,30 +183,65 @@ export struct JianjianAiSettingsPage {
     catch (error) { this.message = JianjianAiService.errorText(error); return; }
     this.saving = true;
     try {
-      await JianjianAiService.saveConfig(context, config);
+      const saved = await JianjianAiService.saveConfig(context, config);
+      if (this.alive) this.editingId = saved.id;
+      await JianjianAiService.saveCachedModels(context, saved, this.models);
+      const settings = await JianjianAiService.loadSettings(context);
       if (!this.alive) return;
-      this.address = config.address;
+      this.applySettings(settings);
+      this.applyConfig(saved, this.models);
       this.message = $r('app.string.jianjian_ai_saved');
     } catch (_error) { if (this.alive) this.message = $r('app.string.settings_save_failed'); }
     finally { if (this.alive) this.saving = false; }
   }
 
-  private async clear(): Promise<void> {
+  private async deleteConfig(): Promise<void> {
     const context = this.getUIContext().getHostContext();
     if (!context || this.saving || this.busy) return;
     const result = await this.getUIContext().getPromptAction().showDialog({
-      title: $r('app.string.jianjian_ai_clear'), message: $r('app.string.jianjian_ai_clear_confirm'),
+      title: $r('app.string.jianjian_ai_delete'),
+      message: $r('app.string.jianjian_ai_delete_confirm', this.configName || this.model),
       buttons: [{ text: $r('app.string.common_cancel'), color: AppTheme.TextSecondary },
-        { text: $r('app.string.jianjian_ai_clear'), color: AppColor.Brand }] });
+        { text: $r('app.string.common_delete'), color: AppColor.Brand }] });
     if (result.index !== 1 || !this.alive) return;
     this.saving = true;
     try {
-      await JianjianAiService.clearConfig(context);
+      await JianjianAiService.deleteConfig(context, this.editingId);
       if (!this.alive) return;
-      this.address = ''; this.apiKey = ''; this.invalidateModels();
-      this.message = $r('app.string.jianjian_ai_cleared');
+      if (await this.load() && this.alive) this.message = $r('app.string.jianjian_ai_deleted');
     } catch (_error) { if (this.alive) this.message = $r('app.string.settings_save_failed'); }
     finally { if (this.alive) this.saving = false; }
+  }
+
+  @Builder
+  private configsSheet() {
+    Column({ space: AppSpace.Sm }) {
+      Text($r('app.string.jianjian_ai_configs', this.configCount)).fontSize(AppFont.Title).fontWeight(FontWeight.Bold)
+        .fontColor(AppTheme.TextPrimary).width('100%')
+      Text($r('app.string.jianjian_ai_failover_hint')).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).width('100%')
+      List() {
+        LazyForEach(this.configSource, (config: JianjianAiConfig) => {
+          ListItem() {
+            Row({ space: AppSpace.Sm }) {
+              Column({ space: AppSpace.Xxs }) {
+                Text(config.name).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary).maxLines(2)
+                Text(config.model).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).maxLines(2)
+              }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                .onClick((): void => { this.openConfig(config, true); })
+              if (config.id === this.selectedId) {
+                Text($r('app.string.jianjian_ai_current')).fontSize(AppFont.Caption).fontColor(AppColor.Brand)
+              } else {
+                Button($r('app.string.jianjian_ai_use'), { buttonStyle: ButtonStyleMode.TEXTUAL }).fontColor(AppColor.Brand)
+                  .onClick((): void => { this.openConfig(config, true); })
+              }
+              Button($r('app.string.common_edit'), { buttonStyle: ButtonStyleMode.TEXTUAL }).fontColor(AppTheme.TextSecondary)
+                .onClick((): void => { this.openConfig(config, false); })
+            }.width('100%').constraintSize({ minHeight: 72 }).padding(AppSpace.Sm).enabled(!this.saving)
+          }
+        }, (config: JianjianAiConfig): string => config.id.toString())
+      }.width('100%').layoutWeight(1).scrollBar(BarState.Auto)
+    }.width('100%').height('100%').padding({ left: AppSpace.Md, right: AppSpace.Md,
+      top: AppSpace.Md, bottom: WindowUtils.getBottomSafeVp() + AppSpace.Md })
   }
 
   @Builder
@@ -185,10 +277,39 @@ export struct JianjianAiSettingsPage {
       Scroll() {
         Column({ space: AppSpace.Md }) {
           if (this.ready) {
+            Column({ space: AppSpace.Sm }) {
+              Row({ space: 2 }) {
+                Text($r('app.string.jianjian_ai_current')).fontSize(AppFont.Body).fontColor(AppTheme.TextSecondary)
+                SettingsHintButton({ title: $r('app.string.jianjian_ai_current'),
+                  message: $r('app.string.jianjian_ai_failover_hint') })
+                Blank()
+                Button($r('app.string.jianjian_ai_add'), { buttonStyle: ButtonStyleMode.TEXTUAL }).fontColor(AppColor.Brand)
+                  .enabled(!this.saving && !this.busy).onClick((): void => this.addConfig()).id('jianjian-ai-add')
+              }.width('100%')
+              Row({ space: AppSpace.Sm }) {
+                Column({ space: AppSpace.Xxs }) {
+                  Text(this.selectedName || $r('app.string.jianjian_ai_configs_empty')).fontSize(AppFont.BodyL)
+                    .fontColor(AppTheme.TextPrimary).maxLines(2)
+                  if (this.selectedModel) {
+                    Text(this.selectedModel).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary).maxLines(2)
+                  }
+                  Text($r('app.string.jianjian_ai_configs', this.configCount)).fontSize(AppFont.Caption).fontColor(AppColor.Brand)
+                }.layoutWeight(1).alignItems(HorizontalAlign.Start)
+                SymbolGlyph($r('sys.symbol.chevron_right')).fontSize(20).fontColor([AppTheme.TextTertiary])
+              }.width('100%').constraintSize({ minHeight: 56 }).enabled(this.configCount > 0 && !this.saving && !this.busy)
+                .onClick((): void => { this.showConfigs = true; }).id('jianjian-ai-configs')
+            }.width('100%').padding(AppSpace.Md).backgroundColor(AppTheme.Surface).borderRadius(AppRadius.Lg)
+              .bindSheet($$this.showConfigs, this.configsSheet(), { height: SheetSize.LARGE, showClose: true,
+                dragBar: true, backgroundColor: AppTheme.Surface })
             Column() {
-              Text($r('app.string.jianjian_ai_service')).fontSize(AppFont.Body).fontColor(AppTheme.TextTertiary)
+              Text(this.editingId > 0 ? $r('app.string.jianjian_ai_edit') : $r('app.string.jianjian_ai_add'))
+                .fontSize(AppFont.Body).fontColor(AppTheme.TextTertiary)
                 .padding({ left: AppSpace.Sm, bottom: 6 })
               Column({ space: AppSpace.Sm }) {
+                Text($r('app.string.jianjian_ai_config_name')).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary)
+                TextInput({ text: this.configName, placeholder: $r('app.string.jianjian_ai_config_name_hint') })
+                  .id('jianjian-ai-name').backgroundColor(AppTheme.SettingsBackground).borderRadius(AppRadius.Md)
+                  .onChange((value: string): void => { this.configName = value; })
                 Row({ space: 2 }) {
                   Text($r('app.string.jianjian_ai_address')).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary)
                   SettingsHintButton({ title: $r('app.string.jianjian_ai_address'),
@@ -244,9 +365,9 @@ export struct JianjianAiSettingsPage {
               if (this.busy) {
                 Button($r('app.string.common_cancel'), { buttonStyle: ButtonStyleMode.TEXTUAL }).fontColor(AppColor.Brand)
                   .onClick((): void => this.cancel())
-              } else {
-                Button($r('app.string.jianjian_ai_clear'), { buttonStyle: ButtonStyleMode.TEXTUAL }).fontColor(AppTheme.TextSecondary)
-                  .enabled(!this.saving).onClick((): void => { this.clear(); })
+              } else if (this.editingId > 0) {
+                Button($r('app.string.jianjian_ai_delete'), { buttonStyle: ButtonStyleMode.TEXTUAL }).fontColor(AppTheme.TextSecondary)
+                  .enabled(!this.saving).onClick((): void => { this.deleteConfig(); }).id('jianjian-ai-delete')
               }
               if (this.saving) { InfinityLoadingIndicator({ indicatorSize: 20 }) }
             }.width('100%')

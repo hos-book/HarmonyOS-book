@@ -14,16 +14,17 @@ export class RankingBook {
   @Trace rating: number = 0;
 }
 
+@ObservedV2
 export class RankingBoard {
   id: string;
   platformId: string;
   platformName: Resource;
   title: Resource;
   endpoint: string;
-  books: RankingBook[] = [];
-  fetchedAt: number = 0;
-  unavailable: boolean = false;
-  stale: boolean = false;
+  @Trace books: RankingBook[] = [];
+  @Trace fetchedAt: number = 0;
+  @Trace unavailable: boolean = false;
+  @Trace stale: boolean = false;
 
   constructor(id: string, platformId: string, platformName: Resource, title: Resource, endpoint: string) {
     this.id = id;

@@ -8,6 +8,9 @@ export class AppThemeBundle {
   description: ResourceStr;
   accent: string;
   visual: AppThemeVisual;
+  custom: boolean = false;
+  materialStyle: number = AppAppearance.systemMaterial;
+  verticalBottomTabs: boolean = false;
 
   constructor(id: string, name: ResourceStr, description: ResourceStr, accent: string,
     visual: AppThemeVisual = new AppThemeVisual()) {
@@ -21,13 +24,14 @@ export class AppThemeBundle {
 
 /** 一条记录保存整个外观选择，颜色与材质为用户当前实际选择。 */
 export class AppThemeSelection {
-  schemaVersion: number = 1;
+  schemaVersion: number = 2;
   themeBundleId: string = 'default';
   accentColor: string = '';
   materialStyle: number = AppAppearance.systemMaterial;
 
   constructor(themeBundleId: string = 'default', accentColor: string = '',
     materialStyle: number = AppAppearance.systemMaterial) {
+    this.schemaVersion = AppAppearance.current.useLegacyThemeOverrides ? 1 : 2;
     this.themeBundleId = themeBundleId;
     this.accentColor = accentColor;
     this.materialStyle = materialStyle;

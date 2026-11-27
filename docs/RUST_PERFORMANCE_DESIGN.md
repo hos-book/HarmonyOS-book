@@ -537,12 +537,17 @@ Rust 内核保留 float PCM 限幅、量化与 WAV 封装函数；本地 TTS Wor
 | HUFF/CDIC 解压 | Rust 字典读取和展开，同次导入复用字典 | N-API 异步任务 |
 | KF8 重建 | Rust INDX/TAGX 解析与片段跨度组装，章节正文统一复制 | N-API 异步任务 |
 | EPUB XML | Rust 元素、属性和文本扫描；节点共用 UTF-16 文本区间 | taskpool |
-| EPUB 图片标记 | 正文清洗后一次扫描占位前缀，保留首个命中替换和图片顺序 | taskpool |
+| EPUB 图片标记 | 一次原生调用内清洗正文并扫描占位前缀，保留首个命中替换和图片顺序 | taskpool |
+| TXT 分章 | Rust 跨块保留残行与当前章节，扫描标题并批量返回完整章节 | N-API 异步任务 |
+| 阅读预处理 | Rust 正文规范化、段落缩进及 UTF-16 源/展示位置三元组 | 原调用线程，系统继续负责排版 |
+| 朗读分句 | Rust 图片占位、符号清理和分句扫描；同章导航复用结果并二分定位 | 原调用线程 |
+| 字幕后处理 | Rust 重叠匹配、标点回填、保护词修复、长句拆分与时间线整理 | 原字幕 Worker 与发布入口 |
+| 书源批量解析 | 搜索/发现/详情/目录纯 HTML 字段批处理，Rust 同名标签配对与字段间跨度索引共享 | 原有串行 taskpool 队列 |
 | 原生构建 | Cargo workspace → Rust 静态库 → C++ N-API → `libhsda_core.so` | CMake 自动执行 |
 
 实际 Rust workspace 为 `text_core`、`ebook_core` 与 C ABI 汇总 crate `hsda_core`。当前 Rust 依赖均为本 workspace 的路径依赖，Cargo 构建使用离线模式。架构覆盖 `aarch64-unknown-linux-ohos` 与 `x86_64-unknown-linux-ohos`。
 
-后台任务结果沿用项目已有的字符串协议，以适配当前 ArkTS 编译器的任务池返回类型。全文扫描只传回最多 500 个命中位置，摘要继续由原服务按既有规则生成。
+taskpool 文本任务结果沿用项目已有的字符串协议，以适配当前 ArkTS 编译器的任务池返回类型。全文扫描只传回最多 500 个命中位置，摘要继续由原服务按既有规则生成。TXT 使用 N-API 异步任务，完成后直接返回具有显式类型的章节数组。
 
 HTML 编解码通过本地 QuickJS HAR 的固定函数调用 `RustTextWorker.runBoundedHtmlCodec`，再同步进入 Rust。原 WebView 编解码服务已移除；HTML 请求直接在当前调用栈内取得结果，转换耗时计入当前脚本期限。Rust 编码预先确定输出长度，并在扫描中定期检查期限；TextDecoder 继续沿用原重放。
 
@@ -550,7 +555,9 @@ KF8 接入保留文件记录加载、字符编码和章节消费入口，Rust �
 
 EPUB 的 container、OPF、nav 和 NCX 解析均经 taskpool 调用 Rust。Rust 按顺序扫描并保存一份解码文本，各节点记录父级、属性和 UTF-16 文本区间；ArkTS 按原 `attr`、`child`、`all` 与 `text` 接口消费。祖先文本按需切片，原有 XML 输入额度、节点数和深度额度继续保留。
 
-EPUB 图片文件获取和保存继续由宿主完成，正文清洗与正式图片标记填入合并为一个后台任务。Rust 一次扫描当前章节的占位前缀，替代逐张图片遍历整段正文的字符串替换。
+EPUB 图片文件获取和保存由宿主完成，后台任务通过 `cleanEpubHtml` 一次进入 Rust，顺序完成正文清洗与正式图片标记填入。中间正文保存在 Rust 缓冲中，省去中途生成 ArkTS 字符串及再次读取 UTF-16 输入的转换。图片占位继续采用一次扫描和首次替换语义。
+
+TXT 沿用 64 KiB 文件读取和当前字符编码检测，解码后的文本按批次交给当前导入专属的 Rust 解析器。后台任务清理 CR、复用残行缓冲、识别既有标题规则并组装章节；只在章节完成时返回标题、正文和整章标记。中文标题字符集、英文 Chapter、序章等固定标题、70 个 UTF-16 单元的标题后缀、标题行保留、32000 字符普通分段及 8 MiB 标题章节额度均沿用现有语义。章节切分与写入继续通过 `appendText` 和当前写入队列执行，末批输入输出余文，导入结束释放解析器。
 
 EPUB ZIP 读取已整合至 `libhsda_core.so` 的 `readEpubEntries`。ArkTS 保留中央目录与条目元数据，按批次向后台原生任务提交文件描述符、文件大小以及条目的偏移、压缩长度、展开长度和压缩方式。任务使用独立文件描述符完成 `pread` 与系统 zlib 解压，再按输入顺序返回条目。正文继续按四章/512 KiB 分批，超大单章独占一批；处理当前批次时预读下一批，原有字符编码、章节顺序、原版主题与样式职责继续保留。
 
@@ -564,6 +571,10 @@ EPUB ZIP 读取已整合至 `libhsda_core.so` 的 `readEpubEntries`。ArkTS 保�
 
 ### 15.2 构建结果
 
+- 阅读预处理、朗读分句与导航复用、字幕后处理、书源批量字段和 Rust 标签配对已通过 `entry@default` Debug HAP 完整构建，耗时 1 分 46.695 秒，Release SDK 为 26.0.0.105。首轮 ArkTS 编译定位到原生返回值契约的接口声明，修正后整包编译通过。独立检查曾读取到旧原生导出信息，最终以完整构建结果为依据。四项扩展的实机功能、速度、内存和能耗为待测项。
+
+- 本轮 EPUB 单次原生调用与 TXT 流式分章已通过 `entry@default` Debug 完整构建，Release SDK 为 26.0.0.105，耗时 1 分 12 秒。独立 ArkTS 检查返回 LSP 初始化提示，完整构建完成源码编译；这两项改动的实机导入结果、耗时与内存收益待验证。
+
 - 本机独立 Rust 工具链：1.100.0，位于 `D:/soft/rust-1.100.0`。
 - 可用目标标准库：arm64 与 x86_64 OHOS。
 - 本地 QuickJS HAR Release 构建通过，包含固定 HTML 字符串回调。
@@ -575,11 +586,37 @@ EPUB ZIP 读取已整合至 `libhsda_core.so` 的 `readEpubEntries`。ArkTS 保�
 
 ### 15.3 后续阶段
 
+本轮四项扩展已接入业务调用。阅读规范化沿用原替换阶段顺序，展示缩进继续映射到原字符坐标。朗读的导航句子与合成批次分别维护，Unicode 字母/数字筛选继续使用现有 ArkTS 规则，替换词和提供方额度保持现有处理。
+
+字幕重叠区先规范化各词元，再通过连续匹配长度复用减少重复扫描；原有时间阈值与候选优先顺序继续生效。保护词、长句拆分及历史缓存 cue 的时间展开统一在 Rust 中执行，识别推理与 token 时间对齐继续留在当前 Worker。
+
+书源一次后台任务最多处理 16 个条目的纯 HTML 字段。各字段独立解析上下文，共享当前条目的元素跨度；结果和错误按原消费位置处理。JSON 对象路径、含表达式或脚本的字段继续沿用原路由。HTML 配对采用 Rust UTF-16 扫描，保持原正则的标签边界、自闭合与栈配对语义。同步补丁为 `host-native-selector-batch-v1`。
+
 | 模块 | 当前状态 | 下一项具体工作 |
 | --- | --- | --- |
-| CSS/XPath/JSONPath 与表达式 | 继续使用原解析器 | 按真实规则耗时选择首个语法族并完成兼容契约 |
+| CSS/XPath/JSONPath 与表达式 | 已接入批量字段与 Rust 标签配对，语法解释沿用原解析器 | 按真实规则耗时推进下一语法族 |
 | 漫画翻译原生执行层 | 继续使用现有 Web Worker 模型链路 | 完成 tokenizer、模型张量与生成 API 接入 |
 
 漫画翻译当前包含可复用的 ONNX Runtime 动态库和 Web 推理资源；原生翻译的分词、张量与生成流程仍需独立实现。本轮交付包含首批计算内核，完整设计的后续阶段继续按此表推进。
 
+### 15.4 阅读、字幕、下载与 EPUB 调度优化
+
+阅读对白范围随现有布局缓存复用，引号配置变化时重新识别；分页以顺序游标分配相交范围，跨页对白继续裁剪为页内偏移。章节标题、图文混排和 UTF-16 原文位置仍由原有布局与坐标映射处理。
+
+字幕沿用识别 Worker，分别持有当前章和下一章的正式块；初始化时装入已有缓存，后续按识别结果增量更新。保护词字典、Rust 时间线整理和 v6 缓存 JSON 生成均在 Worker 完成，主线程接收字幕及已序列化文本。预览只参与展示；正式缓存继续采用原有字符额度与 `.part` 路径，通过异步文件 API 顺序写入。
+
+下载入队筛选和批量章节更新采用批次索引，按原目录位置保留首个匹配项，继续遵循双方 URL 优先、缺少 URL 时按章节 ID 匹配的规则。目录状态变化时生成总数与在途章节位置索引，字节进度更新复用已完成数量并只遍历活动下载；当前章节标题继续按原目录顺序选择。
+
+EPUB 样式缓存保存已解析的选择器、优先级与背景/前景声明，每章仅匹配 body/html/标题元素并应用声明。原版依赖资源每批最多 16 项、512 KiB，大资源独占一批；CSS/SVG 的递归依赖、资源额度、去重及原写入队列继续生效。资源读取时暂存限额内的 CSS，样式读取后释放原字节，跨章复用解析结果。普通 HTML 导入沿用文件读取入口。
+
+2026-11-27，上述四项通过 `entry@default` Debug 完整构建，使用 Release IDE 与 SDK 26.0.0.105，耗时 5 分 8.866 秒，完成 ArkTS 编译、HAP 打包和签名。构建接口于 5 分钟超时，最终结果由同次构建日志的 `BUILD SUCCESSFUL` 确认。独立检查已修正下载进度遍历中的解构语法；阅读及字幕的原生导出提示属于编辑器旧类型信息，完整源码编译已通过。实机功能、耗时和内存收益保留为待测项。
+
 实施指引见 [Rust 内核说明](../native/rust/README.md)。本轮使用的在线编译指导为 [ArkTS 编译修复技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-syntax-checker/SKILL.md)及其 `references/error-fixing-examples.md`，语法与原生加载指导分别来自 [ArkTS 检索技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-knowledge-retriever/SKILL.md)及其 linter 规则摘要、[N-API 加载指导](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/02-development/arkts/hmos-arkts-napi-side-effect-fixer/SKILL.md)。指导已用于实现与编译修复，设备性能流程保留为待执行项。
+
+### 15.5 全网榜单后台解析与滚动更新
+
+`RankingParser.parse` 将平台 ID、榜单 ID 和响应原文提交到 `parseRanking` 原生异步任务。Rust `ranking_core` 处理起点、懒人听书、喜马拉雅、七猫、晋江、番茄、飞卢、腾讯漫画与哔哩哔哩漫画的既有解析规则；缓存输入连同时间字段在后台解码，沿用 2 MiB UTF-16 正文额度、30 天缓存有效窗口和原有平台条数限制。番茄字表由既有资源传入。N-API 一次返回书籍字段，ArkTS 创建可观察模型，网络、存储和版本匹配继续由原服务负责。
+
+首页榜单字段以 V2 观察更新，列表条目标识使用榜单 ID。顶部连续滚动位置由三个局部组件消费，页面保留阈值状态。横向货架渲染窗口按跨卡片边界更新；封面、圆角和阴影作为静态绘制组，外层承担几何变换。惯性逐帧位置继续支持即时手指接管和焦点反馈。实际设备帧耗时、绘制开销与内存收益待测。
+
+2026-11-27：Rust arm64 编译检查与 `entry@default` Debug 完整构建通过，构建使用 Release SDK 26.0.0.105，最终增量构建耗时 1 分 3.012 秒。独立 ArkTS 检查服务超时，完整构建完成 ArkTS、C++、Rust 与资源编译。设备交互和性能收益保留为待验证项。

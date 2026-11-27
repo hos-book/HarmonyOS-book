@@ -1,7 +1,18 @@
 export class JianjianAiConfig {
+  id: number = 0;
+  name: string = '';
   address: string = '';
   apiKey: string = '';
   model: string = '';
+}
+
+export class JianjianAiSettings {
+  configs: JianjianAiConfig[] = [];
+  selectedId: number = 0;
+
+  selected(): JianjianAiConfig {
+    return this.configs.find((config: JianjianAiConfig): boolean => config.id === this.selectedId) ?? new JianjianAiConfig();
+  }
 }
 
 export const JIANJIAN_PROMPT_MAX_LENGTH: number = 8000;

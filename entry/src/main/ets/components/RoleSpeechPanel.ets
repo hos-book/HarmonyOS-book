@@ -102,9 +102,9 @@ export struct RoleSpeechPanel {
     return this.targetId && this.liveRoles.bookId === this.targetId ? this.liveRoles : this.savedRoles;
   }
 
-  private primary(): Resource { return this.embedded ? $r('sys.color.font_primary') : AppTheme.TextPrimary; }
-  private secondary(): Resource { return this.embedded ? $r('sys.color.font_secondary') : AppTheme.TextSecondary; }
-  private surface(): Resource { return this.embedded ? $r('sys.color.comp_background_tertiary') : AppTheme.Surface; }
+  private primary(): ResourceStr { return this.embedded ? $r('sys.color.font_primary') : AppTheme.TextPrimary; }
+  private secondary(): ResourceStr { return this.embedded ? $r('sys.color.font_secondary') : AppTheme.TextSecondary; }
+  private surface(): ResourceStr { return this.embedded ? $r('sys.color.comp_background_tertiary') : AppTheme.Surface; }
 
   private async load(): Promise<void> {
     const context = this.getUIContext().getHostContext();

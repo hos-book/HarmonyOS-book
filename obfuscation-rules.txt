@@ -41,6 +41,30 @@
   # Fixed N-API exports from libmodel_pack_crypto.so.
   getKey
   getKeyId
+  # Fixed N-API exports from libhsda_core.so for imports, reading, subtitles and rankings.
+  transformText
+  transformHtmlBounded
+  cleanEpubHtml
+  cleanHtmlBatch
+  searchOffsets
+  detectWhiteBorder
+  encodeWave
+  readEpubEntries
+  createMobiHuff
+  decodeMobiBatch
+  releaseMobiHuff
+  rebuildKf8
+  createTxtImporter
+  feedTxtImporter
+  releaseTxtImporter
+  parseRanking
+  indentReaderText
+  splitSpeechText
+  sourceTagPairs
+  createSubtitleDictionary
+  joinSubtitleUnits
+  punctuateSubtitleUnits
+  buildSubtitleTimeline
   # Fixed N-API exports from libcomic_watermark.so.
   load
   process
@@ -68,6 +92,29 @@
   releaseRoleNnrtModel
   getKey
   getKeyId
+  transformText
+  transformHtmlBounded
+  cleanEpubHtml
+  cleanHtmlBatch
+  searchOffsets
+  detectWhiteBorder
+  encodeWave
+  readEpubEntries
+  createMobiHuff
+  decodeMobiBatch
+  releaseMobiHuff
+  rebuildKf8
+  createTxtImporter
+  feedTxtImporter
+  releaseTxtImporter
+  parseRanking
+  indentReaderText
+  splitSpeechText
+  sourceTagPairs
+  createSubtitleDictionary
+  joinSubtitleUnits
+  punctuateSubtitleUnits
+  buildSubtitleTimeline
   load
   process
   # Optional model-pack manifest fields.

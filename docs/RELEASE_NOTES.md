@@ -1,3 +1,26 @@
+# 1.1.24 更新日志（2026-11-27）
+
+1. 修复发布版漫画着色模型与 AI 字幕模型导入失败，补齐模型读取和字幕处理的原生接口名称保留规则。
+2. AI 配置支持保存多套服务、选择当前使用项，调用失败时自动依次切换至下一套配置。
+3. 优化全网榜单首页上下滑动和书卡左右滑动，将榜单解析移至 Rust 后台处理，减少滚动期间的页面刷新。
+4. 新增主题制作与导入导出，支持编辑浅深配色、页面背景、底部导航、功能图标和播放器外观。
+5. 优化本地电子书导入、正文处理、书源解析与字幕断句，完善下载和主题展示体验。
+
+## 发布配置
+
+- 版本代码：1034001，构建号：1，使用现有发布签名与邀测渠道配置。
+- 覆盖全部现有测试组，开启发布通知，关闭上架自检与自检报告通知，选择即刻生效，测试期沿用 30 天。
+- 发布归档目录：`artifacts/releases/1.1.24-1034001/`。
+
+## 构建与邀测记录
+
+- 使用 Release SDK 26.0.0.105 完成发布签名 APP 构建，`product=release`、`buildMode=release`，构建耗时 3 分 5.986 秒。
+- 发布编译结果保留 `readEpubEntries`、字幕词典与时间轴、榜单解析等原生导出名称，修复模型导入时的接口改名问题。
+- 独立静态检查返回部分跨文件声明诊断，完整发布编译通过。模型重新导入与实际着色、字幕识别的设备效果待邀测反馈。
+- 发布操作参考在线 [AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)及[邀测流程](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/workflows.md)。
+
+---
+
 # 1.1.23 更新日志（2026-11-27）
 
 本次合并 2026-11-24 至 2026-11-27 的功能更新与体验优化，按当前版本实际功能整理。

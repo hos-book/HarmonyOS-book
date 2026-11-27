@@ -142,6 +142,10 @@ Apache License 2.0 全文见 `third_party/quickjs/LICENSE-APACHE-2.0`。
 
 旧规则引擎的历史源码及复现材料保留在 `third_party/rulecore/`，当前应用不再依赖或打包仓颉运行时、标准库、tokenizer 及 NAPI 绑定。历史许可全文见 `third_party/rulecore/licenses/CANGJIE-LICENSE`，官方第三方声明原件见同目录 `CANGJIE-Open_Source_Software_Notice.docx`；公共头文件继续保留上游版权和许可头。
 
+## Rust ranking dependencies
+
+全网榜单的后台解析使用 regex 1.13.2、regex-automata 0.4.19、regex-syntax 0.8.12、aho-corasick 1.1.5、memchr 2.8.3 及 json 0.12.4，均选择 MIT 许可。各项目版权与完整许可位于 `entry/src/main/resources/rawfile/third_party/rust-ranking/LICENSES.txt`，随应用打包。来源为 crates.io 对应版本源码包。
+
 ## LLVM libc++ runtime
 
 应用的 C++ 原生库使用 HarmonyOS Release SDK 26.0.0.105 提供的 `libc++_shared.so`，遵循 Apache License 2.0 with LLVM Exceptions。SDK 原始声明保留在 `third_party/rulecore/licenses/LLVM-NOTICE`，随 HAP 打包的许可位于 `entry/src/main/resources/rawfile/third_party/llvm/LLVM-NOTICE.txt`。

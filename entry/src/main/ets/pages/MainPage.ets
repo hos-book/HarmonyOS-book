@@ -43,6 +43,7 @@ import { BookSourceAudioWebRuntimeHost } from '../service/rulesource/light/BookS
 import { RuleSourceImportWebHost } from '../service/rulesource/light/RuleSourceImportWebHost';
 import { MainTabPolicy } from '../utils/MainTabPolicy';
 import { BottomTabIconService } from '../service/BottomTabIconService';
+import { ThemeBackdropComponent } from '../components/ThemeBackdropComponent';
 import { AppBackgroundScene } from '../model/AppBackground';
 import { AppBackgroundService } from '../service/AppBackgroundService';
 import { AppBackgroundLayerComponent } from '../components/AppBackgroundLayerComponent';
@@ -155,9 +156,13 @@ export struct MainPage {
   }
 
   private hasAppBackground(): boolean {
+    if (AppTheme.resolve().custom) return AppTheme.pageBackground(this.themeSceneName()).mode !== 'theme';
+    if (!this.appearance.useLegacyThemeOverrides) return false;
     return this.appBackgrounds.revision >= 0 &&
       this.appBackgrounds.resolve(this.appBackgroundScene()).preset !== 'theme';
   }
+
+  private themeSceneName(): string { return ['home', 'shelf', 'record', 'profile'][this.currentTab]; }
   private useFloatingTabs(): boolean { return PlatformCompat.floatingTabs; }
   private useVerticalTabs(): boolean { return PlatformCompat.supports(24) && this.appearance.verticalBottomTabs; }
   private useWideFloatingBars(): boolean { return this.useVerticalTabs() && this.viewportWidth >= FLOATING_WIDE_BREAKPOINT; }
@@ -730,7 +735,8 @@ export struct MainPage {
 
   private buildTabBar(icon: Resource, label: string, role: ThemeIconRole): BottomTabBarStyle {
     // 标签及图标的收展交给原生 HdsTabs，避免样式回调中销毁/重建 Text 引起闪现。
-    const customIcon: string | undefined = this.bottomTabIcons.resolve(role);
+    const customIcon: string | undefined = this.appearance.useLegacyThemeOverrides && !AppTheme.resolve().custom ?
+      this.bottomTabIcons.resolve(role) : undefined;
     const themeIcon: ResourceStr | undefined = customIcon === undefined ? ThemeIcons.resolve(role) : undefined;
     // HdsTabs 会复用符号节点，恢复默认时须显式清除自选图片及其尺寸。
     const symbol: TabBarSymbol = {
@@ -751,15 +757,27 @@ export struct MainPage {
       symbol.normal = customSymbol;
       symbol.selected = customSymbol;
     }
-    const tabBar: BottomTabBarStyle = new BottomTabBarStyle(themeIcon ?? symbol, label);
+    const normalColor: ResourceColor = AppTheme.resolve().visual.tabNormalColor ?? AppTheme.TextSecondary;
+    const selectedColor: ResourceColor = AppTheme.resolve().visual.tabSelectedColor ?? AppColor.Brand;
+    if (AppTheme.resolve().custom) {
+      const normal: ResourceStr | undefined = ThemeIcons.resolve(role);
+      const selected: ResourceStr | undefined = AppTheme.resolve().visual.selectedIcons.get(role) ?? normal;
+      symbol.normal = new SymbolGlyphModifier(icon).fontSize(24).width(28).height(28)
+        .fontColor([normal ? Color.Transparent : normalColor]).backgroundImage(normal ?? '', ImageRepeat.NoRepeat)
+        .backgroundImageSize(ImageSize.Contain).backgroundImagePosition(Alignment.Center);
+      symbol.selected = new SymbolGlyphModifier(icon).fontSize(26).width(28).height(28)
+        .fontColor([selected ? Color.Transparent : selectedColor]).backgroundImage(selected ?? '', ImageRepeat.NoRepeat)
+        .backgroundImageSize(ImageSize.Contain).backgroundImagePosition(Alignment.Center);
+    }
+    const tabBar: BottomTabBarStyle = new BottomTabBarStyle(AppTheme.resolve().custom ? symbol : themeIcon ?? symbol, label);
     return tabBar
       .labelStyle({
         font: { size: 12, weight: FontWeight.Medium },
-        selectedColor: AppColor.Brand,
-        unselectedColor: AppTheme.TextSecondary,
+        selectedColor: selectedColor,
+        unselectedColor: normalColor,
         maxLines: 1
       })
-      .iconStyle({ selectedColor: AppColor.Brand, unselectedColor: AppTheme.TextSecondary })
+      .iconStyle({ selectedColor: selectedColor, unselectedColor: normalColor })
       .layoutMode(LayoutMode.VERTICAL)
       .verticalAlign(VerticalAlign.Center);
   }
@@ -1263,7 +1281,11 @@ export struct MainPage {
     Stack({ alignContent: Alignment.Bottom }) {
       // 为原生 TabContent 之外的安全区续上同一张底图，浮动底栏不再以套装底色截断图片。
       if (this.hasAppBackground()) {
-        AppBackgroundLayerComponent({ scene: this.appBackgroundScene() })
+        if (AppTheme.resolve().custom) {
+          ThemeBackdropComponent({ backdrop: AppTheme.pageBackground(this.themeSceneName()), night: this.appearance.darkMode })
+        } else {
+          AppBackgroundLayerComponent({ scene: this.appBackgroundScene() })
+        }
       }
       ReaderFloatingLyrics().zIndex(100).align(Alignment.Center)
       if (this.tabsReady) {

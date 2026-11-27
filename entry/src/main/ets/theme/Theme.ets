@@ -5,35 +5,48 @@ import { AppThemeBundle } from '../model/AppThemeBundle';
 import { AppThemeColors, ThemeCoverDecoration } from '../model/AppThemeVisual';
 import { PlatformCompat } from '../utils/PlatformCompat';
 import { ThemeBundles } from './ThemeBundles';
+import { ThemePageBackdrop } from '../model/ThemeDocument';
 
 /** 页面继续使用语义入口；显式 id 用于局部预览，空 id 始终读取响应式选择。 */
 export class AppTheme {
+  static pageBackground(scene: string, themeBundleId: string = ''): ThemePageBackdrop {
+    const configured = AppTheme.resolve(themeBundleId).visual.pages.get(scene);
+    if (configured) return configured;
+    const result: ThemePageBackdrop = new ThemePageBackdrop();
+    if (scene === 'player') {
+      result.mode = 'cover';
+      result.color = '#3B4650';
+      result.veil = 70;
+      result.blur = 40;
+    }
+    return result;
+  }
   static resolve(themeBundleId: string = ''): AppThemeBundle {
     return ThemeBundles.resolve(themeBundleId.length > 0 ? themeBundleId : AppAppearance.current.themeBundleId);
   }
   static get colors(): AppThemeColors { return AppTheme.resolve().visual.colors; }
   static get usesRecommendedAccent(): boolean {
-    return AppAppearance.current.accent === AppTheme.resolve().accent;
+    return AppTheme.resolve().custom || AppAppearance.current.accent === AppTheme.resolve().accent;
   }
-  static get Background(): Resource { return AppTheme.colors.background; }
-  static get Surface(): Resource { return AppTheme.colors.surface; }
-  static get TextPrimary(): Resource { return AppTheme.colors.textPrimary; }
-  static get TextSecondary(): Resource { return AppTheme.colors.textSecondary; }
-  static get TextTertiary(): Resource { return AppTheme.colors.textTertiary; }
-  static get IconPrimary(): Resource { return AppTheme.colors.iconPrimary; }
-  static get IconSecondary(): Resource { return AppTheme.colors.iconSecondary; }
-  static get Divider(): Resource { return AppTheme.colors.divider; }
-  static get BackgroundImage(): Resource | undefined { return AppTheme.resolve().visual.background.image; }
+  static get Background(): ResourceStr { return AppTheme.colors.background; }
+  static get Surface(): ResourceStr { return AppTheme.colors.surface; }
+  static get TextPrimary(): ResourceStr { return AppTheme.colors.textPrimary; }
+  static get TextSecondary(): ResourceStr { return AppTheme.colors.textSecondary; }
+  static get TextTertiary(): ResourceStr { return AppTheme.colors.textTertiary; }
+  static get IconPrimary(): ResourceStr { return AppTheme.colors.iconPrimary; }
+  static get IconSecondary(): ResourceStr { return AppTheme.colors.iconSecondary; }
+  static get Divider(): ResourceStr { return AppTheme.colors.divider; }
+  static get BackgroundImage(): ResourceStr | undefined { return AppTheme.resolve().visual.background.image; }
   static get ShowCoverBackdrop(): boolean { return AppTheme.resolve().visual.background.showCoverBackdrop; }
   static get CoverDecorationEnabled(): boolean {
     return AppTheme.resolve().visual.cover.decoration !== ThemeCoverDecoration.None;
   }
   static get IllustratedPlaceholders(): boolean { return AppTheme.resolve().visual.cover.illustratedPlaceholder; }
   static get BrandedProfileIcons(): boolean { return AppTheme.resolve().visual.brandedProfileIcons; }
-  static get SettingsBackground(): Resource { return AppTheme.colors.settingsBackground; }
-  static get DetailTop(): Resource { return AppTheme.colors.detailTop; }
-  static get DetailMid(): Resource { return AppTheme.colors.detailMid; }
-  static get DetailBottom(): Resource { return AppTheme.colors.detailBottom; }
+  static get SettingsBackground(): ResourceStr { return AppTheme.colors.settingsBackground; }
+  static get DetailTop(): ResourceStr { return AppTheme.colors.detailTop; }
+  static get DetailMid(): ResourceStr { return AppTheme.colors.detailMid; }
+  static get DetailBottom(): ResourceStr { return AppTheme.colors.detailBottom; }
 }
 
 export class AppColor {
@@ -72,20 +85,20 @@ export class AppColor {
     const accent: string = AppAppearance.current.accent;
     return accent.length > 0 ? AppAppearance.foreground(accent) : ThemeBundles.resolve(ThemeBundles.DefaultId).visual.colors.onBrand;
   }
-  static get Divider(): Resource { return AppTheme.colors.appDivider; }
-  static get Shadow(): Resource { return AppTheme.colors.shadow; }
-  static get GlassControlFallback(): Resource { return AppTheme.colors.controlFallback; }
-  static get GlassControlTint(): Resource { return AppTheme.colors.controlTint; }
-  static get GlassStroke(): Resource { return AppTheme.colors.stroke; }
+  static get Divider(): ResourceStr { return AppTheme.colors.appDivider; }
+  static get Shadow(): ResourceStr { return AppTheme.colors.shadow; }
+  static get GlassControlFallback(): ResourceStr { return AppTheme.colors.controlFallback; }
+  static get GlassControlTint(): ResourceStr { return AppTheme.colors.controlTint; }
+  static get GlassStroke(): ResourceStr { return AppTheme.colors.stroke; }
   // 阅读与播放弹层保持系统中性配色，与套装分离。
-  static readonly GlassSheetFallback: Resource = $r('app.color.glass_sheet_fallback');
-  static readonly GlassSheetControlTint: Resource = $r('app.color.glass_sheet_control_tint');
-  static readonly GlassSheetStroke: Resource = $r('app.color.glass_sheet_stroke');
-  static readonly GlassTextPrimary: Resource = $r('app.color.glass_text_primary');
-  static readonly GlassTextSecondary: Resource = $r('app.color.glass_text_secondary');
-  static readonly GlassTextTertiary: Resource = $r('app.color.glass_text_tertiary');
-  static readonly GlassDivider: Resource = $r('app.color.glass_divider');
-  static readonly GlassShadow: Resource = $r('app.color.glass_shadow');
+  static readonly GlassSheetFallback: ResourceStr = $r('app.color.glass_sheet_fallback');
+  static readonly GlassSheetControlTint: ResourceStr = $r('app.color.glass_sheet_control_tint');
+  static readonly GlassSheetStroke: ResourceStr = $r('app.color.glass_sheet_stroke');
+  static readonly GlassTextPrimary: ResourceStr = $r('app.color.glass_text_primary');
+  static readonly GlassTextSecondary: ResourceStr = $r('app.color.glass_text_secondary');
+  static readonly GlassTextTertiary: ResourceStr = $r('app.color.glass_text_tertiary');
+  static readonly GlassDivider: ResourceStr = $r('app.color.glass_divider');
+  static readonly GlassShadow: ResourceStr = $r('app.color.glass_shadow');
   static readonly GlassBg: string = '#33FFFFFF';
   static readonly GlassBgDark: string = '#33000000';
 }
@@ -110,7 +123,8 @@ export class AppMaterial {
     shadow: boolean, interactive: boolean, invert: boolean = false,
     fixedStyle: boolean = false): uiMaterial.Material {
     const appearanceKey: string = AppAppearance.current.themeBundleId + ':' +
-      AppAppearance.current.effectiveMaterial.toString() + ':' + AppAppearance.current.accent;
+      AppAppearance.current.effectiveMaterial.toString() + ':' + AppAppearance.current.accent + ':' +
+      AppAppearance.current.darkMode.toString() + ':' + AppAppearance.current.themeRevision.toString();
     if (appearanceKey !== AppMaterial.appearanceKey) {
       AppMaterial.cache.clear();
       AppMaterial.appearanceKey = appearanceKey;
@@ -348,15 +362,15 @@ export class AppCurve {
 
 /** 首页与记录页共享语义色；不绑定套装名称。 */
 export class HomeTheme {
-  static get BgWarmTop(): Resource { return AppTheme.colors.homeTop; }
-  static get BgWarmMid(): Resource { return AppTheme.colors.homeMid; }
-  static get BgNeutral(): Resource { return AppTheme.colors.homeBottom; }
-  static get StatusScrim(): Resource { return AppTheme.colors.statusScrim; }
-  static get FloatingBarMask(): Resource { return AppTheme.colors.floatingMask; }
-  static get TopControlTint(): Resource { return AppTheme.colors.homeControl; }
-  static get CardSurface(): Resource { return AppTheme.colors.homeSurface; }
-  static get CardShadow(): Resource { return AppTheme.colors.homeShadow; }
-  static get ProgressTrack(): Resource { return AppTheme.colors.progressTrack; }
+  static get BgWarmTop(): ResourceStr { return AppTheme.colors.homeTop; }
+  static get BgWarmMid(): ResourceStr { return AppTheme.colors.homeMid; }
+  static get BgNeutral(): ResourceStr { return AppTheme.colors.homeBottom; }
+  static get StatusScrim(): ResourceStr { return AppTheme.colors.statusScrim; }
+  static get FloatingBarMask(): ResourceStr { return AppTheme.colors.floatingMask; }
+  static get TopControlTint(): ResourceStr { return AppTheme.colors.homeControl; }
+  static get CardSurface(): ResourceStr { return AppTheme.colors.homeSurface; }
+  static get CardShadow(): ResourceStr { return AppTheme.colors.homeShadow; }
+  static get ProgressTrack(): ResourceStr { return AppTheme.colors.progressTrack; }
   static get Accent(): ResourceStr {
     if (AppAppearance.current.accent.length > 0) return AppColor.Brand;
     return AppTheme.usesRecommendedAccent ? AppTheme.colors.homeAccent :

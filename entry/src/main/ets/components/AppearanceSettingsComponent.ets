@@ -44,6 +44,7 @@ const ACCENT_CHOICES: AccentChoice[] = [
 /** 主题色先编辑本地草稿，点击应用后才更新共享 V2 外观状态。 */
 @ComponentV2
 export struct AppearanceSettingsComponent {
+  @Event onEditTheme: () => void = (): void => {};
   @Local appearance: AppAppearance = AppAppearance.current;
   @Local customHex: string = '';
   @Local accentDraft: string = '';
@@ -246,14 +247,18 @@ export struct AppearanceSettingsComponent {
         Text($r('app.string.appearance_accent')).fontSize(AppFont.BodyL)
           .fontColor($r('sys.color.font_primary')).layoutWeight(1)
         Row().width(22).height(22).borderRadius(11).backgroundColor(AppColor.Brand)
-        Text(this.appearance.accent || $r('app.string.appearance_accent_default')).fontSize(AppFont.Body)
+        Text(AppTheme.resolve().custom ? $r('app.string.theme_editor_edit') :
+          this.appearance.accent || $r('app.string.appearance_accent_default')).fontSize(AppFont.Body)
           .fontColor($r('sys.color.font_secondary'))
       }
       .width('100%')
       .padding({ left: AppSpace.Md, right: AppSpace.Md, top: AppSpace.Xs, bottom: AppSpace.Xs })
       .constraintSize({ minHeight: 52 })
       .id('appearance-accent-entry')
-      .onClick((): void => { this.openAccentDialog(); })
+      .onClick((): void => {
+        if (AppTheme.resolve().custom) this.onEditTheme();
+        else this.openAccentDialog();
+      })
     }
     .width('100%')
   }

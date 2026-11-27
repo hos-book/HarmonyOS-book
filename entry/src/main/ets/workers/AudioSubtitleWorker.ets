@@ -1,12 +1,35 @@
 import { worker, MessageEvents } from '@kit.ArkTS';
 import { OfflineRecognizer, OfflineRecognizerConfig, OfflinePunctuation, OfflinePunctuationConfig } from 'sherpa_onnx';
 import { decodeSubtitleAudio } from 'libsubtitle_audio.so';
-import { SubtitleWorkerRequest, SubtitleWorkerResponse, SubtitleUnit, SubtitleSegmenter,
+import { SubtitleWorkerRequest, SubtitleWorkerResponse, SubtitleUnit, SubtitleChunk, SubtitleCache, SubtitleSegmenter,
   SUBTITLE_CHUNK_MS, SUBTITLE_CONTEXT_MS } from '../model/AudioSubtitle';
 
 const port = worker.workerPort;
 let recognizer: OfflineRecognizer | null = null;
 let punctuation: OfflinePunctuation | null = null;
+
+class SubtitleWorkerChapter {
+  chunks: Map<number, SubtitleChunk> = new Map();
+  preview: SubtitleChunk | null = null;
+}
+
+let currentChapter = new SubtitleWorkerChapter();
+let nextChapter = new SubtitleWorkerChapter();
+
+function compose(response: SubtitleWorkerResponse, chapter: SubtitleWorkerChapter, save: boolean): void {
+  const cache = new SubtitleCache();
+  chapter.chunks.forEach((chunk: SubtitleChunk): void => { cache.chunks.push(chunk); });
+  if (!response.background) {
+    const displayed = cache.chunks.slice();
+    if (chapter.preview && !chapter.chunks.has(chapter.preview.index)) displayed.push(chapter.preview);
+    response.cues = SubtitleSegmenter.timeline(displayed);
+  }
+  if (save) {
+    const text = JSON.stringify(cache);
+    if (text.length <= 1000000) response.cacheText = text;
+  }
+}
+
 port.onmessage = (event: MessageEvents): void => {
   const request: SubtitleWorkerRequest = event.data;
   // 排在同步 native 推理之后执行，避免在推理/解码过程中销毁 Worker 环境。
@@ -18,9 +41,24 @@ port.onmessage = (event: MessageEvents): void => {
   }
   const response = new SubtitleWorkerResponse();
   response.requestId = request.requestId;
+  response.initialized = request.initialize;
+  response.background = request.background;
   response.preview = request.preview;
   response.chunk.index = request.chunk;
   try {
+    if (request.initialize) {
+      const chapter = new SubtitleWorkerChapter();
+      for (const chunk of request.chunks) chapter.chunks.set(chunk.index, chunk);
+      chapter.preview = request.previewChunk;
+      if (request.background) nextChapter = chapter;
+      else {
+        currentChapter = chapter;
+        SubtitleSegmenter.setProtectedWords(request.protectedWords);
+        compose(response, chapter, false);
+      }
+      port.postMessage(response);
+      return;
+    }
     if (!recognizer) {
       const started = Date.now();
       const config = new OfflineRecognizerConfig();
@@ -73,6 +111,14 @@ port.onmessage = (event: MessageEvents): void => {
       previous.cues = SubtitleSegmenter.cues(previous.index, previous.annotated, false);
       response.previous = previous;
     }
+    const chapter = request.background ? nextChapter : currentChapter;
+    if (response.preview) chapter.preview = response.chunk;
+    else {
+      if (response.previous) chapter.chunks.set(response.previous.index, response.previous);
+      chapter.chunks.set(response.chunk.index, response.chunk);
+      if (chapter.preview?.index === response.chunk.index) chapter.preview = null;
+    }
+    compose(response, chapter, !response.preview);
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     response.error = /^subtitle_[a-z_]+$/.test(message) ? message : 'subtitle_recognition_failed';

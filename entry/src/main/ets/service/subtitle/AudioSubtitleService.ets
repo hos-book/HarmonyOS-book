@@ -4,7 +4,7 @@ import { worker, MessageEvents, util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { Book, Chapter } from '../../model/Book';
 import { AudioSubtitleState } from '../../model/AudioSubtitleState';
-import { SubtitleChunk, SubtitleCue, SubtitleUnit, SubtitleSegmenter, SubtitleWorkerRequest, SubtitleWorkerResponse,
+import { SubtitleChunk, SubtitleCue, SubtitleUnit, SubtitleCache, SubtitleWorkerRequest, SubtitleWorkerResponse,
   SUBTITLE_CHUNK_MS, SUBTITLE_MODEL_VERSION } from '../../model/AudioSubtitle';
 import { AudioService } from '../AudioService';
 import { ChapterCacheService } from '../ChapterCacheService';
@@ -22,11 +22,6 @@ import { MembershipFeatureLease } from '../membership/MembershipFeatureLease';
 import { AiModelPackService } from '../AiModelPackService';
 import { AudioCacheNetworkPolicy } from '../AudioCacheNetworkPolicy';
 
-class SubtitleCache {
-  version: string = SUBTITLE_MODEL_VERSION;
-  chunks: SubtitleChunk[] = [];
-}
-
 class SubtitlePreload {
   audioPath: string = '';
   cachePath: string = '';
@@ -42,6 +37,7 @@ export class AudioSubtitleService {
   private generation: number = 0;
   private sequence: number = 0;
   private setup: Promise<void> = Promise.resolve();
+  private cacheWrites: Promise<void> = Promise.resolve();
   private host: worker.ThreadWorker | null = null;
   private workerExit: Promise<void> = Promise.resolve();
   private watchdog: number = -1;
@@ -62,7 +58,7 @@ export class AudioSubtitleService {
   private context: common.Context | null = null;
   private book: Book | null = null;
   private chapterId: string = '';
-  private lexiconReady: boolean = false;
+  private protectedWords: string[] | null = null;
   private panelActive: boolean = false;
   private desktopActive: boolean = false;
   private desktopKey: string = '';
@@ -200,6 +196,7 @@ export class AudioSubtitleService {
       let temporary = '';
       try {
         await this.waitWorkerExit();
+        await this.cacheWrites;
         if (!active()) return;
         const entitled = await MembershipService.instance.hasCurrentEntitlement();
         if (!active()) return;
@@ -213,10 +210,9 @@ export class AudioSubtitleService {
         if (!active()) return;
         this.modelDir = SubtitleModelService.directory(context);
         await SubtitleModelService.preparePunctuation(context, active);
-        if (!this.lexiconReady) {
+        if (this.protectedWords === null) {
           const bytes = await context.resourceManager.getRawFileContent('audio_subtitles/idioms.txt');
-          SubtitleSegmenter.setProtectedWords(util.TextDecoder.create('utf-8').decodeToString(bytes).split('\n'));
-          this.lexiconReady = true;
+          this.protectedWords = util.TextDecoder.create('utf-8').decodeToString(bytes).split('\n');
         }
         if (!active()) return;
         const origin = chapter.originSourceValue || chapter.source.value;
@@ -269,13 +265,24 @@ export class AudioSubtitleService {
         this.host.onmessage = (event: MessageEvents): void => {
           if (!active()) return;
           const response: SubtitleWorkerResponse = event.data;
+          if (response.initialized) {
+            if (response.background) {
+              if (response.error) { this.nextFailed = true; this.next = null; }
+              return;
+            }
+            if (response.requestId !== this.pending) return;
+            this.pending = -1;
+            if (response.error) this.fail(response.error);
+            else { this.publish(response.cues); this.pump(); }
+            return;
+          }
           if (response.requestId !== this.pending) return;
           if (this.watchdog !== -1) clearTimeout(this.watchdog);
           this.watchdog = -1; this.pending = -1;
           const background = this.pendingNext;
           this.pendingNext = false;
           if (response.preview) {
-            if (!response.error) { this.preview = response.chunk; this.publish(); }
+            if (!response.error) { this.preview = response.chunk; this.publish(response.cues); }
             this.state.phase = 'ready'; this.pump(); return;
           }
           if (response.error && !background) { this.fail(response.error); return; }
@@ -284,13 +291,13 @@ export class AudioSubtitleService {
             else if (this.next) {
               if (response.previous) this.next.chunks.set(response.previous.index, response.previous);
               this.next.chunks.set(response.chunk.index, response.chunk);
-              this.save(this.next.cachePath, this.next.chunks);
+              this.save(response.cacheText, this.next.cachePath);
             }
           } else {
             if (response.previous) this.chunks.set(response.previous.index, response.previous);
             this.chunks.set(response.chunk.index, response.chunk);
             if (this.preview?.index === response.chunk.index) this.preview = null;
-            this.publish(); this.save();
+            this.publish(response.cues); this.save(response.cacheText);
           }
           this.state.phase = 'ready';
           this.pump();
@@ -306,7 +313,7 @@ export class AudioSubtitleService {
           temporary = '';
           this.ownedTemporary = owned;
         }
-        this.pump();
+        this.initializeWorker(this.chunks);
       } catch (error) {
         if (active()) this.fail(error instanceof Error ? error.message : 'subtitle_recognition_failed');
       } finally { if (temporary) SubtitleFiles.remove(temporary); }
@@ -386,6 +393,7 @@ export class AudioSubtitleService {
       const request = new SubtitleWorkerRequest();
       request.requestId = ++this.sequence; request.chunk = index;
       request.modelDir = this.modelDir; request.audioPath = this.next.audioPath;
+      request.background = true;
       request.previous = this.next.chunks.get(index - 1) ?? null;
       request.prefix = this.next.chunks.get(index - 2)?.units ?? [];
       this.pending = request.requestId; this.pendingNext = true;
@@ -415,7 +423,7 @@ export class AudioSubtitleService {
       this.host = new worker.ThreadWorker('entry/ets/workers/AudioSubtitleWorker.ets', { name: 'AudioSubtitle' });
       if (messageHandler) this.host.onmessage = messageHandler;
       if (errorHandler) this.host.onerror = errorHandler;
-      this.pump();
+      this.initializeWorker(this.chunks);
     }).catch((): void => {
       if (generation === this.generation) this.fail('subtitle_recognition_failed');
     });
@@ -454,6 +462,7 @@ export class AudioSubtitleService {
       this.prune(`${context.cacheDir}/audio_subtitles`, `${key}.json`);
       this.restore(next.cachePath, next.chunks);
       this.next = next;
+      this.initializeWorker(next.chunks, true);
     } catch (_error) {
       // Preloaded audio may be evicted. Failure must never stop current-chapter subtitles.
       if (active()) this.nextFailed = true;
@@ -476,11 +485,22 @@ export class AudioSubtitleService {
     }
   }
 
-  private publish(): void {
-    const chunks: SubtitleChunk[] = [];
-    this.chunks.forEach((chunk: SubtitleChunk): void => { chunks.push(chunk); });
-    if (this.preview && !this.chunks.has(this.preview.index)) chunks.push(this.preview);
-    this.state.cues = SubtitleSegmenter.timeline(chunks);
+  private initializeWorker(chunks: Map<number, SubtitleChunk>, background: boolean = false): void {
+    const request = new SubtitleWorkerRequest();
+    request.initialize = true;
+    request.background = background;
+    chunks.forEach((chunk: SubtitleChunk): void => { request.chunks.push(chunk); });
+    if (!background) {
+      request.requestId = ++this.sequence;
+      this.pending = request.requestId;
+      request.protectedWords = this.protectedWords ?? [];
+      request.previewChunk = this.preview;
+    }
+    this.host?.postMessage(request);
+  }
+
+  private publish(cues: SubtitleCue[]): void {
+    this.state.cues = cues;
     this.state.revision++;
     this.publishDesktop();
   }
@@ -521,22 +541,19 @@ export class AudioSubtitleService {
         }
         chunks.set(chunk.index, chunk);
       }
-      if (chunks === this.chunks) this.publish();
     } catch (_error) { /* A missing/evicted cache is regenerated, never a playback failure. */ }
   }
 
-  private save(cachePath: string = this.cachePath, chunks: Map<number, SubtitleChunk> = this.chunks): void {
-    if (!cachePath) return;
-    const data = new SubtitleCache();
-    chunks.forEach((chunk: SubtitleChunk): void => { data.chunks.push(chunk); });
-    const text = JSON.stringify(data);
-    if (text.length > 1000000) return;
+  private save(text: string, cachePath: string = this.cachePath): void {
+    if (!cachePath || !text) return;
     const part = `${cachePath}.part`;
-    try {
-      const file = fileIo.openSync(part, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
-      try { fileIo.writeSync(file.fd, text); } finally { fileIo.closeSync(file); }
-      fileIo.renameSync(part, cachePath);
-    } catch (_error) { SubtitleFiles.remove(part); }
+    this.cacheWrites = this.cacheWrites.then(async (): Promise<void> => {
+      try {
+        const file = await fileIo.open(part, fileIo.OpenMode.CREATE | fileIo.OpenMode.READ_WRITE | fileIo.OpenMode.TRUNC);
+        try { await fileIo.write(file.fd, text); } finally { await fileIo.close(file); }
+        await fileIo.rename(part, cachePath);
+      } catch (_error) { SubtitleFiles.remove(part); }
+    });
   }
 
   private prune(directory: string, keep: string): void {

@@ -13,17 +13,20 @@ import { LocalBookCover } from './LocalBookCover';
 import { MembershipState } from '../model/MembershipState';
 import { VipFeatureBadge } from './VipFeatureBadge';
 import { SettingsHintButton } from './SettingsHintButton';
+import { ThemeEditorPreview } from './ThemeEditorPreview';
 
 /** 套装预览只读取候选定义；点击应用后才持久化并通知现有页面。 */
 @ComponentV2
 export struct ThemeBundleComponent {
+  @Event onEdit: (id: string) => void = () => {};
   @Event onMembershipRequired: () => void = () => {};
   @Local appearance: AppAppearance = AppAppearance.current;
   @Local applying: boolean = false;
   @Local applyingId: string = '';
   @Local previewId: string = 'default';
   @Local showPreview: boolean = false;
-  private options: AppThemeBundle[] = ThemeBundles.list();
+  @Computed
+  private get options(): AppThemeBundle[] { return ThemeBundles.list(); }
 
   private isCurrent(bundle: AppThemeBundle): boolean {
     return this.appearance.themeBundleId === bundle.id;
@@ -164,7 +167,11 @@ export struct ThemeBundleComponent {
   @Builder
   private previewCard(bundle: AppThemeBundle) {
     Column({ space: AppSpace.Sm }) {
-      this.preview(bundle)
+      if (bundle.custom) {
+        ThemeEditorPreview({ bundle: bundle, scene: 'home', night: this.appearance.darkMode })
+      } else {
+        this.preview(bundle)
+      }
       Row({ space: AppSpace.Xs }) {
         Text(bundle.name).fontSize(AppFont.BodyL).fontWeight(FontWeight.Bold)
           .fontColor(AppTheme.TextPrimary).flexShrink(1)
@@ -192,6 +199,9 @@ export struct ThemeBundleComponent {
       .backgroundColor(bundle.visual.colors.brand)
       .enabled(!this.applying)
       .onClick(() => this.applyBundle(bundle.id))
+      Button(bundle.custom ? $r('app.string.theme_editor_edit') : $r('app.string.theme_editor_create'))
+        .width('100%').fontColor(AppColor.Brand).backgroundColor(AppColor.BrandSoft)
+        .onClick((): void => { this.showPreview = false; this.onEdit(bundle.id); })
     }.width('100%').padding(AppSpace.Sm).borderRadius(AppRadius.Lg)
     .backgroundColor(AppTheme.Surface)
     .border({ width: this.isCurrent(bundle) ? 1.5 : 1,
@@ -200,6 +210,10 @@ export struct ThemeBundleComponent {
 
   build() {
     Column({ space: AppSpace.Md }) {
+      Button($r('app.string.theme_editor_create')).width('100%').height(48)
+        .fontColor(AppColor.OnBrand).backgroundColor(AppColor.Brand)
+        .onClick((): void => this.onEdit(this.appearance.themeBundleId))
+      Text($r('app.string.theme_editor_toolbar_hint')).fontSize(12).fontColor(AppTheme.TextSecondary)
       Row({ space: AppSpace.Xs }) {
         Text($r('app.string.theme_bundle_title')).fontSize(AppFont.BodyL).fontWeight(FontWeight.Medium)
           .fontColor(AppTheme.TextPrimary)
@@ -210,7 +224,7 @@ export struct ThemeBundleComponent {
           GridCol() {
             this.bundleCard(bundle)
           }
-        }, (bundle: AppThemeBundle) => bundle.id)
+        }, (bundle: AppThemeBundle): string => bundle.id + ':' + this.appearance.themeRevision.toString())
       }
       if (this.isCustomized()) {
         Column({ space: AppSpace.Xs }) {

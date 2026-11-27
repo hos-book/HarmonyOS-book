@@ -1773,7 +1773,7 @@ struct RankingSection {
     this.sectionAlive = false;
     this.headerToken++;
   }
-  @Monitor('board')
+  @Monitor('board.books')
   updateBoard(): void { this.syncBooks(); }
 
   private syncBooks(): void {
@@ -2080,6 +2080,60 @@ class RankingPosterItem {
 @Builder
 function rankingEmptyHeader() { Row().height(56) }
 
+@ObservedV2
+class RankingHeaderMotion {
+  @Trace offset: number = 0;
+}
+
+@ComponentV2
+struct RankingSearchChrome {
+  @Require @Param motion: RankingHeaderMotion;
+  @Param chromeOpacity: number = 1;
+  @BuilderParam contentBuilder: () => void = rankingEmptyHeader;
+
+  build() {
+    Row() { this.contentBuilder() }
+      .width('100%').height(RANKING_SEARCH_HEIGHT)
+      .translate({ y: -Math.min(RANKING_SEARCH_HEIGHT, this.motion.offset) })
+      .opacity(Math.min(1, Math.max(0, RANKING_SEARCH_HEIGHT - this.motion.offset) / 24) * this.chromeOpacity)
+      .visibility(this.motion.offset >= RANKING_SEARCH_HEIGHT - 0.5 ? Visibility.Hidden : Visibility.Visible)
+  }
+}
+
+@ComponentV2
+struct RankingHeroChrome {
+  @Require @Param motion: RankingHeaderMotion;
+  @Param headerRange: number = RANKING_SEARCH_HEIGHT;
+  @BuilderParam contentBuilder: () => void = rankingEmptyHeader;
+
+  build() {
+    Column() { this.contentBuilder() }.width('100%').height(RANKING_POSTER_HEIGHT)
+      .flexShrink(0).clip(true)
+      .opacity(Math.max(0, Math.min(1, (this.headerRange - this.motion.offset) / 64)))
+      .enabled(this.motion.offset < this.headerRange - 0.5)
+  }
+}
+
+@ComponentV2
+struct RankingHeaderBackdrop {
+  @Require @Param motion: RankingHeaderMotion;
+  @Param cover: string = '';
+  @Param imageHeight: number = 0;
+  @Param suspended: boolean = false;
+
+  build() {
+    Stack({ alignContent: Alignment.Top }) {
+      RankingPosterBackground({ cover: this.cover, imageHeight: this.imageHeight, suspended: this.suspended })
+      Column().width('100%').height(this.imageHeight)
+        .linearGradient({ angle: 180, colors: [[Color.Transparent, 0.25], [HomeTheme.BgNeutral, 1]] })
+    }.width('100%').height(this.imageHeight)
+      .translate({ y: -this.motion.offset }).clip(true).hitTestBehavior(HitTestMode.None)
+      .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
+        [SafeAreaEdge.TOP, SafeAreaEdge.START, SafeAreaEdge.END])
+      .accessibilityLevel('no')
+  }
+}
+
 class RankingMatchRestoreFrame extends FrameCallback {
   private restore: () => void;
   constructor(restore: () => void) { super(); this.restore = restore; }
@@ -2252,7 +2306,10 @@ export struct RankingHomePage {
   @Local posterVisible: boolean = false;
   @Local posterCover: string = '';
   @Local contentHeight: number = 800;
-  @Local headerOffset: number = 0;
+  private headerOffset: number = 0;
+  @Local headerMotion: RankingHeaderMotion = new RankingHeaderMotion();
+  @Local headerAtTop: boolean = true;
+  @Local isSearchCollapsed: boolean = false;
   @Local overview: boolean = false;
   @Local loading: boolean = true;
   @Local refreshing: boolean = false;
@@ -2439,10 +2496,26 @@ export struct RankingHomePage {
 
   private syncBoards(): void {
     const visible = this.boards.filter((board: RankingBoard): boolean => !this.platformId || board.platformId === this.platformId);
+    const currentRows: Map<string, RankingBoard> = new Map<string, RankingBoard>();
+    for (let index: number = 0; index < this.boardData.totalCount(); index++) {
+      const row: RankingBoard = this.boardData.getData(index);
+      currentRows.set(row.id, row);
+    }
+    for (let index: number = 0; index < visible.length; index++) {
+      const incoming: RankingBoard = visible[index];
+      const current: RankingBoard | undefined = currentRows.get(incoming.id);
+      if (current === undefined || current === incoming) continue;
+      current.books = incoming.books;
+      current.fetchedAt = incoming.fetchedAt;
+      current.stale = incoming.stale;
+      current.unavailable = incoming.unavailable;
+      visible[index] = current;
+    }
     const sameOrder: boolean = visible.length === this.boardData.totalCount() &&
       visible.every((board: RankingBoard, index: number): boolean => board.id === this.boardData.getData(index).id);
-    if (sameOrder) this.boardData.updateItems(visible);
-    else this.boardData.setItems(visible);
+    if (!sameOrder) {
+      this.boardData.setItems(visible);
+    }
     if (!this.platforms.some((platform: RankingPlatform): boolean =>
       platform.id.length > 0 && platform.id === this.posterPlatformId)) {
       this.posterPlatformId = this.randomPosterPlatform(this.posterPlatformId);
@@ -4450,7 +4523,7 @@ export struct RankingHomePage {
   }
 
   /** 沿用旧版选择版本的顶部边界，不读取 HDS 标题 Builder 的代理坐标。 */
-  @Monitor('topSafe', 'headerOffset', 'contentHeight', 'activeBoard')
+  @Monitor('topSafe', 'contentHeight', 'activeBoard')
   private updateCardTopBoundary(): void {
     if (!this.cardVisible) return;
     const titleHeight: number = this.activeBoard !== undefined ? RANKING_SEARCH_HEIGHT :
@@ -4525,7 +4598,7 @@ export struct RankingHomePage {
   }
 
 
-  @Builder
+  @LocalBuilder
   private heroContent() {
     if (this.posterCount > 0) {
       BookPosterCarousel({ items: this.posterDeckItems,
@@ -4667,13 +4740,14 @@ export struct RankingHomePage {
   @Computed
   get posterBackgroundHeight(): number { return this.topSafe + this.headerRange + 48; }
 
-  @Computed
   get searchViewportHeight(): number {
     return Math.max(0, RANKING_SEARCH_HEIGHT - this.headerOffset);
   }
 
-  @Computed
-  get isSearchCollapsed(): boolean { return this.headerOffset >= this.headerRange - 0.5; }
+  @Monitor('headerRange')
+  private updateHeaderRange(): void {
+    this.isSearchCollapsed = this.headerOffset >= this.headerRange - 0.5;
+  }
 
   @Computed
   get searchTitleContent(): TitleBarContentOptions {
@@ -4733,6 +4807,12 @@ export struct RankingHomePage {
   private syncHeaderScroll(): void {
     const previousOffset = this.headerOffset;
     this.headerOffset = Math.max(0, Math.min(this.headerRange, this.headerScroller.currentOffset().yOffset));
+    if (this.headerOffset === previousOffset) return;
+    this.headerMotion.offset = this.headerOffset;
+    this.headerAtTop = this.headerOffset < 0.5;
+    this.isSearchCollapsed = this.headerOffset >= this.headerRange - 0.5;
+    if (this.cardVisible) this.updateCardTopBoundary();
+    if (this.showBoardOrder) this.updateBoardOrderBounds();
     // 首页双击回顶时联动正文；独立榜单不改变这两个滚动控制器。
     if (this.activeBoard === undefined && previousOffset >= 0.5 &&
       this.headerOffset < 0.5 && this.scroller.currentOffset().yOffset > 0.5) {
@@ -4741,21 +4821,20 @@ export struct RankingHomePage {
   }
 
   @LocalBuilder
+  private searchHeaderContent() {
+    this.headerBuilder()
+  }
+
+  @LocalBuilder
   private searchHeader() {
-    Row() { this.headerBuilder() }
-      .width('100%').height(RANKING_SEARCH_HEIGHT)
-      .translate({ y: -Math.min(RANKING_SEARCH_HEIGHT, this.headerOffset) })
-      .opacity(Math.min(1, this.searchViewportHeight / 24) * this.homeChromeOpacity())
-      .visibility(this.searchViewportHeight <= 0.5 ? Visibility.Hidden : Visibility.Visible)
+    RankingSearchChrome({ motion: this.headerMotion, chromeOpacity: this.homeChromeOpacity(),
+      contentBuilder: this.searchHeaderContent })
   }
 
   @LocalBuilder
   private navigationBottom() {
     Column() {
-      Column() { this.heroContent() }.width('100%').height(RANKING_POSTER_HEIGHT)
-        .flexShrink(0).clip(true)
-        .opacity(Math.max(0, Math.min(1, (this.headerRange - this.headerOffset) / 64)))
-        .enabled(!this.isSearchCollapsed)
+      RankingHeroChrome({ motion: this.headerMotion, headerRange: this.headerRange, contentBuilder: this.heroContent })
       this.platformTabs()
     }.width('100%').height(this.posterHeight() + 48).opacity(this.homeChromeOpacity())
   }
@@ -4830,7 +4909,7 @@ export struct RankingHomePage {
             // 卡片集可能向上/向下移到底栏上方，跨到相邻榜单区域时也要盖在它们上面。
             .zIndex(this.sectionGatherProgress(board.id) > 0 ? 80 : 0)
              .onVisibleAreaChange([0], (visible: boolean): void => this.onBoardVisibility(board, visible))
-          }, (board: RankingBoard): string => `${board.id}:${board.fetchedAt}:${board.stale}:${board.unavailable}`)
+          }, (board: RankingBoard): string => board.id)
         }
       }
       ListItem() {
@@ -4849,7 +4928,7 @@ export struct RankingHomePage {
     .clip(false).backgroundColor(Color.Transparent)
   }
 
-  @Monitor('showBoardOrder', 'topSafe', 'leftSafe', 'rightSafe', 'headerOffset', 'contentHeight',
+  @Monitor('showBoardOrder', 'topSafe', 'leftSafe', 'rightSafe', 'contentHeight',
     'menuViewportWidth', 'bottomTabInset')
   private updateBoardOrderBounds(): void {
     if (!this.showBoardOrder) return;
@@ -5372,18 +5451,11 @@ export struct RankingHomePage {
   build() {
     Stack({ alignContent: Alignment.TopStart }) {
       if (AppTheme.ShowCoverBackdrop && !this.customBackground) {
-        Stack({ alignContent: Alignment.Top }) {
-          RankingPosterBackground({ cover: this.posterCover, imageHeight: this.posterBackgroundHeight,
-            suspended: !this.active || this.activeBoard !== undefined || this.boardTransitioning || this.cardVisible })
-          Column().width('100%').height(this.posterBackgroundHeight)
-            .linearGradient({ angle: 180, colors: [[Color.Transparent, 0.25], [HomeTheme.BgNeutral, 1]] })
-        }.width('100%').height(this.posterBackgroundHeight)
-          .translate({ y: -this.headerOffset }).clip(true).hitTestBehavior(HitTestMode.None)
+        RankingHeaderBackdrop({ motion: this.headerMotion, cover: this.posterCover,
+          imageHeight: this.posterBackgroundHeight,
+          suspended: !this.active || this.activeBoard !== undefined || this.boardTransitioning || this.cardVisible })
           .opacity(this.homeChromeOpacity())
           .visibility(this.homeLayerVisibility())
-          .expandSafeArea([SafeAreaType.SYSTEM, SafeAreaType.CUTOUT],
-            [SafeAreaEdge.TOP, SafeAreaEdge.START, SafeAreaEdge.END])
-          .accessibilityLevel('no')
       }
       HdsNavigation() {
         Refresh({ refreshing: $$this.refreshing, builder: this.emptyRefreshIndicator() }) {
@@ -5399,7 +5471,7 @@ export struct RankingHomePage {
         }.onRefreshing(() => this.load(true)).width('100%').height('100%')
         .onOffsetChange((offset: number): void => { this.refreshPullOffset = Math.max(0, offset); })
         .refreshOffset(96).pullDownRatio(0.5)
-        .pullToRefresh(this.headerOffset < 0.5)
+        .pullToRefresh(this.headerAtTop)
       }
       .titleBar({
         avoidLayoutSafeArea: true,

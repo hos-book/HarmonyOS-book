@@ -1,0 +1,8 @@
+{
+  "string": [
+    {
+      "name": "open_source_rust_ranking",
+      "value": "榜单 Rust 解析使用 regex 1.13.2、regex-automata 0.4.19、regex-syntax 0.8.12、aho-corasick 1.1.5、memchr 2.8.3 和 json 0.12.4，均按 MIT 许可使用。版权与完整许可随包保存在 third_party/rust-ranking/LICENSES.txt。"
+    }
+  ]
+}
