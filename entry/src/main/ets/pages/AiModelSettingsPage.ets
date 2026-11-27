@@ -1,7 +1,6 @@
 import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { sendableContextManager } from '@kit.AbilityKit';
 import { emitter } from '@kit.BasicServicesKit';
-import { OfflineTtsModelCard } from '../components/OfflineTtsModelCard';
 import { ModelManagementRow } from '../components/ModelManagementRow';
 import { AiModelPack, AiModelPackState, AiModelPackUsage, AI_MODEL_PACKS } from '../model/AiModelPack';
 import { AiModelPackService } from '../service/AiModelPackService';
@@ -19,7 +18,6 @@ export struct AiModelSettingsPage {
   @Local loading: boolean = true;
   @Local failed: boolean = false;
   @Local picking: boolean = false;
-  @Local offlineChanging: boolean = false;
   private alive: boolean = false;
   private service: AiModelPackService = AiModelPackService.instance;
 
@@ -61,7 +59,7 @@ export struct AiModelSettingsPage {
 
   private async importPack(id: string): Promise<void> {
     const context = this.getUIContext().getHostContext();
-    if (!context || this.state.busyId || this.picking || this.offlineChanging || this.blocked) return;
+    if (!context || this.state.busyId || this.picking || this.blocked) return;
     this.picking = true; this.onChanging(true);
     try {
       const imported = await this.service.pick(sendableContextManager.convertToUIAbilityContext(
@@ -86,7 +84,7 @@ export struct AiModelSettingsPage {
 
   private async remove(id: string): Promise<void> {
     const context = this.getUIContext().getHostContext();
-    if (!context || this.state.busyId || this.picking || this.offlineChanging || this.blocked) return;
+    if (!context || this.state.busyId || this.picking || this.blocked) return;
     this.onChanging(true);
     try { await this.service.remove(context, id, (): Promise<void> => this.beforeMutation(id)); }
     catch (_error) { this.toast($r('app.string.model_pack_write')); }
@@ -119,7 +117,7 @@ export struct AiModelSettingsPage {
   @Builder
   packCard(pack: AiModelPack) {
     ModelManagementRow({ itemId: pack.id, label: this.title(pack.id),
-      blocked: this.blocked || this.state.busyId.length > 0 || this.picking || this.offlineChanging,
+      blocked: this.blocked || this.state.busyId.length > 0 || this.picking,
       removable: this.usage(pack.id).bytes > 0, processing: this.state.busyId === pack.id,
       cancellable: !this.state.removing, status: this.operationStatus(),
       importLabel: this.usage(pack.id).installed ? $r('app.string.model_pack_replace') : $r('app.string.model_pack_import'),
@@ -140,14 +138,6 @@ export struct AiModelSettingsPage {
       } else {
         ForEach(AI_MODEL_PACKS, (pack: AiModelPack): void => { this.packCard(pack) },
           (pack: AiModelPack): string => pack.id)
-        OfflineTtsModelCard({ modelId: 'piper-chaowen-int8-v1',
-          blocked: this.blocked || this.state.busyId.length > 0 || this.picking || this.offlineChanging,
-          onChanging: (changing: boolean): void => { this.offlineChanging = changing; this.onChanging(changing); } })
-        OfflineTtsModelCard({ modelId: 'piper-xiaoya-int8-v1',
-          blocked: this.blocked || this.state.busyId.length > 0 || this.picking || this.offlineChanging,
-          onChanging: (changing: boolean): void => { this.offlineChanging = changing; this.onChanging(changing); } })
-        OfflineTtsModelCard({ blocked: this.blocked || this.state.busyId.length > 0 || this.picking || this.offlineChanging,
-          onChanging: (changing: boolean): void => { this.offlineChanging = changing; this.onChanging(changing); } })
       }
     }.width('100%').alignItems(HorizontalAlign.Start)
   }

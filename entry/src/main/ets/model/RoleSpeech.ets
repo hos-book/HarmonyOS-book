@@ -10,6 +10,10 @@ export class RoleSpeaker {
   name: string = '';
   voiceId: string = '';
   profile: string = '';
+  gender: string = 'pending';
+  genderSource: string = 'ai';
+  age: string = 'pending';
+  ageSource: string = 'ai';
   voiceSource: string = 'manual';
 }
 
@@ -18,6 +22,7 @@ export class RoleBookSettings {
   narratorVoiceId: string = '';
   dialogueVoiceId: string = '';
   speakers: RoleSpeaker[] = [];
+  chapters: RoleChapterAnalysis[] = [];
 }
 
 @ObservedV2
@@ -38,6 +43,11 @@ export class RoleDialogue {
   complete: boolean = false;
 }
 
+export class RoleChapterAnalysis {
+  chapter: string = '';
+  dialogues: RoleDialogue[] = [];
+}
+
 export class RoleAnalysisWindow {
   indices: number[] = [];
   complete: boolean = false;
@@ -45,12 +55,16 @@ export class RoleAnalysisWindow {
 
 export class RoleVoiceMatch {
   profile: string = '';
+  gender: string = 'pending';
+  age: string = 'pending';
   voiceId: string = '';
 }
 
 export class RoleVoiceOption {
   id: string = '';
   description: string = '';
+  gender: string = 'pending';
+  ages: string[] = [];
   preferred: boolean = false;
 }
 

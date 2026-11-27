@@ -10,6 +10,8 @@ export struct ModelManagementRow {
   @Param showSwitch: boolean = false;
   @Param switchEnabled: boolean = false;
   @Param active: boolean = false;
+  @Param expandable: boolean = false;
+  @Param expanded: boolean = false;
   @Param processing: boolean = false;
   @Param cancellable: boolean = false;
   @Param status: ResourceStr = '';
@@ -19,23 +21,33 @@ export struct ModelManagementRow {
   @Event onRemove: () => void = () => {};
   @Event onCancel: () => void = () => {};
   @Event onActive: (active: boolean) => void = () => {};
+  @Event onExpand: () => void = () => {};
 
   build() {
     Row({ space: AppSpace.Xs }) {
       Row({ space: AppSpace.Xs }) {
         Text(this.label).fontSize(AppFont.Body).fontWeight(FontWeight.Medium)
-          .fontColor(AppTheme.TextPrimary).layoutWeight(1)
+          .fontColor(AppTheme.TextPrimary).flexShrink(1)
           .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          .onClick((): void => { if (this.expandable) this.onExpand(); })
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph($r('sys.symbol.exclamationmark_circle')).fontSize(18).fontColor([AppTheme.TextSecondary])
+        }.width(28).height(40).flexShrink(0).backgroundColor(Color.Transparent)
+          .accessibilityText($r('app.string.comic_plugin_description'))
+          .onClick((): void => this.onInfo()).id(`model-management-info-${this.itemId}`)
         if (this.processing) {
           Text(this.status).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
             .maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
         }
       }.layoutWeight(1)
-      Button({ type: ButtonType.Circle }) {
-        SymbolGlyph($r('sys.symbol.exclamationmark_circle')).fontSize(18).fontColor([AppTheme.TextSecondary])
-      }.width(28).height(40).backgroundColor(Color.Transparent)
-        .accessibilityText($r('app.string.comic_plugin_description'))
-        .onClick((): void => this.onInfo()).id(`model-management-info-${this.itemId}`)
+      if (this.expandable) {
+        Button({ type: ButtonType.Circle }) {
+          SymbolGlyph(this.expanded ? $r('sys.symbol.chevron_up') : $r('sys.symbol.chevron_down'))
+            .fontSize(18).fontColor([AppTheme.TextSecondary])
+        }.width(28).height(40).backgroundColor(Color.Transparent)
+          .accessibilityText(this.expanded ? $r('app.string.source_collapse') : $r('app.string.source_expand'))
+          .onClick((): void => this.onExpand()).id(`model-management-expand-${this.itemId}`)
+      }
       Row() {
         if (this.showSwitch) {
           Toggle({ type: ToggleType.Switch, isOn: this.active }).selectedColor(AppColor.Brand)

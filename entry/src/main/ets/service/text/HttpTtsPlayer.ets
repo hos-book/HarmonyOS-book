@@ -1,6 +1,6 @@
 import { PlatformCompat } from '../../utils/PlatformCompat';
-import { OfflineTtsService } from './OfflineTtsService';
-import { isOfflineTtsProvider } from '../../model/OfflineTtsCatalog';
+import { SHENGQIAO_PROVIDER } from '../../model/ShengqiaoPlugin';
+import { ShengqiaoFailure, ShengqiaoSynthesis } from './ShengqiaoTtsService';
 import { common } from '@kit.AbilityKit';
 import { http } from '@kit.NetworkKit';
 import { media } from '@kit.MediaKit';
@@ -189,6 +189,7 @@ export class HttpTtsPlayer {
   private rejectPlayback: ((error: Error) => void) | null = null;
   private preparation: Promise<void> | null = null;
   private preparedAudio: ArrayBuffer | null = null;
+  private shengqiao: ShengqiaoSynthesis | null = null;
 
   private timeoutSeconds: number;
   private retries: number;
@@ -202,6 +203,8 @@ export class HttpTtsPlayer {
   cancel(): void {
     this.trace('cancel:' + this.stage);
     this.cancelled = true;
+    this.shengqiao?.cancel();
+    this.shengqiao = null;
     this.request?.destroy();
     this.request = null;
     this.preparedAudio = null;
@@ -221,18 +224,26 @@ export class HttpTtsPlayer {
   }
 
   private async synthesize(config: CustomTtsConfig, text: string, speed: number): Promise<void> {
-    if (isOfflineTtsProvider(config.provider)) {
-      this.check();
-      this.trace('local-synthesis');
-      const audio = await OfflineTtsService.instance.synthesize(config, text, speed, (): boolean => this.cancelled);
-      this.check();
-      this.preparedAudio = audio;
-      this.trace('ready');
-      return;
-    }
     for (let attempt = 0; attempt <= this.retries; attempt++) {
       this.check();
-      try { await this.synthesizeOnce(config, text, speed); return; }
+      try {
+        if (config.provider === SHENGQIAO_PROVIDER) {
+          this.trace('shengqiao-synthesis');
+          this.shengqiao = new ShengqiaoSynthesis(this.timeoutSeconds);
+          try { this.preparedAudio = await this.shengqiao.synthesize(config, text); this.check(); }
+          catch (error) {
+            if (error instanceof ShengqiaoFailure) {
+              if (error.reason === 'shengqiao_http') throw HttpTtsFailure.response(error.status, '');
+              if (error.reason === 'shengqiao_network') throw new HttpTtsFailure('network', true);
+              if (error.reason === 'shengqiao_audio') throw new HttpTtsFailure('audio', false);
+              throw new HttpTtsFailure(error.reason, false);
+            }
+            throw new HttpTtsFailure('audio', false);
+          } finally { this.shengqiao = null; }
+          this.trace('ready');
+        } else await this.synthesizeOnce(config, text, speed);
+        return;
+      }
       catch (error) {
         this.trace('failed:' + (error instanceof HttpTtsFailure ? error.kind : 'preparation'));
         this.check();

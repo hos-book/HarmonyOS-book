@@ -5638,11 +5638,11 @@
     },
     {
       "name": "log_hint",
-      "value": "日志默认关闭，手动开启后记录导入、存储和启动异常，并可运行检测。开关状态保存在本机，关闭后保留已有日志。遇到问题请先开启，再复现并复制日志；最近 200 条仅保存在本机，不会主动收集正文、账号或文件名。"
+      "value": "系统故障持续采集，重启后可查看崩溃、卡死及系统终止报告。开启详细日志后记录搜索、导入和运行过程。普通日志与故障报告各保留约 32 MiB，按时间滚动更新；页面展示最近 2000 条普通记录与 100 条故障记录，导出包含全部保留记录及完整堆栈。全部记录仅保存在本机，敏感凭据统一脱敏。"
     },
     {
       "name": "log_enabled",
-      "value": "记录日志"
+      "value": "记录详细日志"
     },
     {
       "name": "log_refresh",
@@ -5654,7 +5654,15 @@
     },
     {
       "name": "log_copy",
-      "value": "复制日志"
+      "value": "复制当前记录"
+    },
+    {
+      "name": "log_export",
+      "value": "导出全部日志"
+    },
+    {
+      "name": "log_exported",
+      "value": "日志文件已导出"
     },
     {
       "name": "log_clear",
@@ -8610,6 +8618,23 @@
     { "name": "role_ai_match_empty", "value": "匹配依据待补充，当前选择已保留，可继续手动选声" },
     { "name": "role_ai_context_hint", "value": "请先打开本书并朗读一段，让 AI 获取人物上下文" },
     { "name": "role_selected_voice", "value": "当前选择" },
+    { "name": "role_gender_title", "value": "人物性别" },
+    { "name": "role_gender_male", "value": "男" },
+    { "name": "role_gender_female", "value": "女" },
+    { "name": "role_gender_pending", "value": "性别待确认" },
+    { "name": "role_age_title", "value": "听感年龄" },
+    { "name": "role_age_child", "value": "儿童" },
+    { "name": "role_age_teen", "value": "少年" },
+    { "name": "role_age_young", "value": "青年" },
+    { "name": "role_age_middle", "value": "中年" },
+    { "name": "role_age_senior", "value": "老年" },
+    { "name": "role_age_pending", "value": "年龄待确认" },
+    { "name": "tts_voice_traits", "value": "配音资料" },
+    { "name": "tts_voice_traits_hint", "value": "按实际听感修正音色资料，AI 按性别、年龄和声线匹配人物。年龄可多选，留空表示待确认。" },
+    { "name": "tts_voice_gender", "value": "音色性别" },
+    { "name": "tts_voice_ages", "value": "适用听感年龄" },
+    { "name": "tts_voice_description_hint", "value": "声线特点，例如沉稳、温柔、沙哑、活泼" },
+    { "name": "tts_voice_traits_saved", "value": "配音资料已保存" },
     {
       "name": "role_voice_apply",
       "value": "使用这个音色"
@@ -9007,29 +9032,6 @@
     { "name": "app_background_preview_profile", "value": "简听书友" },
     { "name": "app_background_preview_recent", "value": "最近阅读" },
     { "name": "app_background_unsaved", "value": "修改待应用" },
-    { "name": "offline_tts_title", "value": "本地 TTS" },
-    { "name": "offline_tts_hint", "value": "按下方模型选择对应的官方 .tar.bz2 文件导入。导入后到音色管理选择默认声音，或在多角色朗读中为旁白和人物绑定声音。角色识别复用已有 AI 配置并使用网络服务，本地音色在设备内合成。首次起读需加载模型，速度与设备有关。" },
-    { "name": "offline_tts_kokoro_hint", "value": "Kokoro 提供 100 个中文音色，可在同一模型内为不同人物选声。直接导入官方 v1.1 INT8 .tar.bz2，也兼容已有配套 ZIP。模型较大，加载与合成速度需在当前设备试听确认。" },
-    { "name": "offline_tts_piper_hint", "value": "Piper 中文单音色模型，通过本机 CPU 合成语音。可将超文、小雅分别绑定旁白或人物，也可搭配已导入的 Kokoro 音色。直接导入对应的官方 INT8 .tar.bz2，无需解压。手机上的速度和听感以试听为准。" },
-    { "name": "offline_tts_missing", "value": "未导入" },
-    { "name": "offline_tts_installed", "value": "已导入 · %d 音色" },
-    { "name": "offline_tts_size", "value": "占用 %d MB" },
-    { "name": "offline_tts_download_title", "value": "模型来源与导入" },
-    { "name": "offline_tts_download_message", "value": "复制下方官方下载地址，下载 kokoro-int8-multi-lang-v1_1.tar.bz2 后，返回此页直接选择该文件导入，无需解压或转换。也兼容已有的简听阅读配套 ZIP 模型包。模型通过 sherpa-onnx 在本机合成语音；模型版权及音色使用范围遵循发布者许可。" },
-    { "name": "offline_tts_piper_download_message", "value": "复制下方官方下载地址，下载超文的官方 INT8 .tar.bz2 原包后，在此卡片直接导入，无需解压。本版本由小雅模型微调，其基础模型的 BZNSYP 训练数据带有非商业使用限制；请遵守模型与数据集许可。" },
-    { "name": "offline_tts_piper_xiaoya_download_message", "value": "复制下方官方下载地址，下载小雅的官方 INT8 .tar.bz2 原包后，在此卡片直接导入，无需解压。发布者模型卡中的 BZNSYP 训练数据带有非商业使用限制，使用前请查看并遵守模型与数据集许可。" },
-    { "name": "offline_tts_download_link", "value": "模型来源与导入说明" },
-    { "name": "offline_tts_imported", "value": "本地 TTS 已导入，可到音色管理或多角色朗读选择声音" },
-    { "name": "offline_tts_invalid", "value": "模型包不兼容或校验未通过，请在对应模型卡片选择完整下载的官方 INT8 .tar.bz2；Kokoro 也兼容已有配套 ZIP" },
-    { "name": "offline_tts_space", "value": "存储空间不足，请释放空间后重新导入" },
-    { "name": "offline_tts_failed", "value": "本地语音暂不可用，请检查模型或重新导入，也可切换其他音色" },
-    { "name": "offline_tts_voice_group", "value": "本地 Kokoro" },
-    { "name": "offline_tts_piper_voice_group", "value": "本地 Piper" },
-    { "name": "offline_tts_piper_chaowen_voice", "value": "Piper 超文" },
-    { "name": "offline_tts_piper_xiaoya_voice", "value": "Piper 小雅" },
-    { "name": "offline_tts_voice_female", "value": "Kokoro 中文女声 %s" },
-    { "name": "offline_tts_voice_male", "value": "Kokoro 中文男声 %s" },
-    { "name": "offline_tts_model_name", "value": "Kokoro v1.1 中文 · int8" },
     {
       "name": "rule_source_notice_title",
       "value": "书源使用须知"
@@ -9211,6 +9213,55 @@
     {"name": "comic_plugin_import_error", "value": "导入失败，请选择对应的 .jtplugin 文件"},
     {"name": "comic_plugin_operation_error", "value": "插件操作失败，请重试"},
     {"name": "comic_plugin_working", "value": "图片插件处理中…"},
-    {"name": "comic_plugin_process_error", "value": "图片插件处理失败，当前显示原图"}
+    {"name": "comic_plugin_process_error", "value": "图片插件处理失败，当前显示原图"},
+    {"name": "shengqiao_title", "value": "声桥"},
+    {"name": "shengqiao_group_huawei", "value": "声桥 · 华为"},
+    {"name": "shengqiao_group_edge", "value": "声桥 · 微软"},
+    {"name": "shengqiao_group_celia", "value": "声桥 · 小艺"},
+    {"name": "shengqiao_enable", "value": "启用声桥"},
+    {"name": "shengqiao_installed", "value": "版本 %s · %d 个音色"},
+    {"name": "shengqiao_logged_in", "value": "华为账号已登录"},
+    {"name": "shengqiao_logged_out", "value": "华为账号待登录"},
+    {"name": "shengqiao_account", "value": "账号登录"},
+    {"name": "shengqiao_account_ready", "value": "已登录"},
+    {"name": "shengqiao_account_pending", "value": "未登录"},
+    {"name": "shengqiao_voice_count", "value": "%d 个音色"},
+    {"name": "shengqiao_voice_debug", "value": "语音调试"},
+    {"name": "shengqiao_recent_result", "value": "最近结果"},
+    {"name": "shengqiao_result_pending", "value": "等待调试"},
+    {"name": "shengqiao_account_title", "value": "声桥账号"},
+    {"name": "shengqiao_account_hint", "value": "华为阅读音色使用登录账号的权益，小艺内置与微软音色可直接试听。账号凭据保存在本机系统密钥库。"},
+    {"name": "shengqiao_login", "value": "登录华为账号"},
+    {"name": "shengqiao_relogin", "value": "重新登录"},
+    {"name": "shengqiao_logout", "value": "退出登录"},
+    {"name": "shengqiao_login_success", "value": "登录成功，可返回选择音色"},
+    {"name": "shengqiao_logout_success", "value": "账号已退出"},
+    {"name": "shengqiao_debug", "value": "调试"},
+    {"name": "shengqiao_debug_title", "value": "声桥调试"},
+    {"name": "shengqiao_test", "value": "测试"},
+    {"name": "shengqiao_testing", "value": "正在合成…"},
+    {"name": "shengqiao_voice", "value": "选择音色"},
+    {"name": "shengqiao_speed", "value": "试听语速 · %s×"},
+    {"name": "shengqiao_preview", "value": "试听"},
+    {"name": "shengqiao_stop", "value": "停止"},
+    {"name": "shengqiao_sample", "value": "夜色渐深，书页轻轻翻动。让声音陪伴你，走进故事里的世界。"},
+    {"name": "shengqiao_sample_hint", "value": "输入试听文字"},
+    {"name": "shengqiao_debug_result", "value": "调试结果"},
+    {"name": "shengqiao_waiting", "value": "选择音色后点击试听"},
+    {"name": "shengqiao_success", "value": "合成成功"},
+    {"name": "shengqiao_metrics", "value": "合成耗时 %d ms · 音频 %d KB"},
+    {"name": "shengqiao_copy_debug", "value": "复制调试信息"},
+    {"name": "shengqiao_debug_summary", "value": "声桥 %s\n音色：%s\n合成耗时：%d ms\n音频大小：%d 字节"},
+    {"name": "shengqiao_member_voice", "value": "账号会员音色"},
+    {"name": "shengqiao_login_required", "value": "请在声桥账号页面完成登录"},
+    {"name": "shengqiao_login_failed", "value": "声桥访问令牌获取失败，请在声桥账号页面重新登录"},
+    {"name": "shengqiao_enable_required", "value": "请在模型管理中启用声桥"},
+    {"name": "shengqiao_audio_error", "value": "音频解析失败，请更换音色或重试"},
+    {"name": "shengqiao_http", "value": "合成服务返回 HTTP %d，请检查账号权益和网络后重试"},
+    {"name": "shengqiao_operation_failed", "value": "声桥操作失败，请检查插件、账号或网络后重试"},
+    {"name": "shengqiao_remove_title", "value": "卸载声桥"},
+    {"name": "shengqiao_remove_hint", "value": "卸载将移除插件和本机登录凭据，书籍中的角色音色绑定继续保留。"},
+    {"name": "shengqiao_description_title", "value": "声桥说明"},
+    {"name": "shengqiao_description", "value": "导入声桥 .jtplugin 文件并开启后，小艺、华为阅读和微软音色自动进入音色管理，可用于普通朗读与多角色配音。账号登录和音色调试使用独立页面；华为阅读音色依账号权益合成，小艺内置与微软音色可直接试听。关闭插件后音色退出可选列表，重新启用后继续使用已有角色绑定。"}
   ]
 }

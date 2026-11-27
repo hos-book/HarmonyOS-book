@@ -1,0 +1,9 @@
+[workspace]
+members = ["text_core", "ebook_core", "hsda_core"]
+resolver = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

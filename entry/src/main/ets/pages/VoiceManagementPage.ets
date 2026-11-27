@@ -9,6 +9,9 @@ import { ReaderTtsDataSource } from '../components/ReaderTtsTabs';
 import { CustomTtsConfigParser } from '../service/text/CustomTtsConfigParser';
 import { CustomTtsImportService } from '../service/text/CustomTtsImportService';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
+import { RoleVoiceMetadata } from '../service/text/RoleVoiceMetadata';
+import { ShengqiaoPluginService } from '../service/text/ShengqiaoPluginService';
+import { SHENGQIAO_PROVIDER, ShengqiaoState } from '../model/ShengqiaoPlugin';
 import { VoicePreviewService, VoicePreviewState } from '../service/text/VoicePreviewService';
 import { AppColor, AppFont, AppTheme } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
@@ -18,6 +21,7 @@ export struct VoiceManagementPage {
   @Local headerHeight: number = WindowUtils.getStatusBarHeightVp() + 56;
   @Param navStack: NavPathStack = new NavPathStack();
   @Local state: TextToSpeechState = TextToSpeechService.getInstance().state;
+  @Local shengqiaoState: ShengqiaoState = ShengqiaoPluginService.instance.state;
   @Local group: string = '';
   @Local tier: string = '';
   @Local query: string = '';
@@ -31,6 +35,11 @@ export struct VoiceManagementPage {
   @Local importMode: string = 'url';
   @Local input: string = '';
   @Local importError: ResourceStr = '';
+  @Local traitsId: string = '';
+  @Local traitsName: string = '';
+  @Local traitsGender: string = 'pending';
+  @Local traitsAges: string[] = [];
+  @Local traitsDescription: string = '';
   private service: TextToSpeechService = TextToSpeechService.getInstance();
   private preview: VoicePreviewService = new VoicePreviewService();
   @Local previewState: VoicePreviewState = this.preview.state;
@@ -180,6 +189,66 @@ export struct VoiceManagementPage {
     this.showImport = true;
   }
 
+  private openVoiceTraits(config: CustomTtsConfig): void {
+    const defaults = RoleVoiceMetadata.traits(config);
+    this.preview.stop();
+    this.traitsId = config.id; this.traitsName = config.name;
+    this.traitsGender = config.voiceTraitsSource === 'manual' ? config.voiceGender : (defaults?.gender ?? 'pending');
+    this.traitsAges = config.voiceTraitsSource === 'manual' ? config.voiceAges.slice() :
+      RoleVoiceMetadata.voiceAges(defaults?.age ?? '');
+    this.traitsDescription = config.voiceTraitsSource === 'manual' ? config.voiceDescription : (defaults?.description ?? '');
+    this.importMode = 'traits'; this.showImport = true;
+  }
+
+  private async saveVoiceTraits(): Promise<void> {
+    if (this.busy) return;
+    this.busy = true;
+    try {
+      await this.service.setCustomTtsVoiceTraits(this.traitsId, this.traitsGender, this.traitsAges, this.traitsDescription);
+      this.showImport = false; this.toast($r('app.string.tts_voice_traits_saved'));
+    } catch (_error) { this.toast($r('app.string.tts_save_error')); }
+    finally { this.busy = false; }
+  }
+
+  @Builder
+  voiceTraitsForm() {
+    Column({ space: 14 }) {
+      Text($r('app.string.tts_voice_traits')).fontSize(AppFont.Title).fontWeight(FontWeight.Bold).fontColor(AppTheme.TextPrimary)
+      Text(this.traitsName).fontSize(AppFont.BodyL).fontColor(AppTheme.TextPrimary)
+      Text($r('app.string.tts_voice_traits_hint')).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+      Row({ space: 12 }) {
+        Text($r('app.string.tts_voice_gender')).fontSize(AppFont.Body).fontColor(AppTheme.TextPrimary).layoutWeight(1)
+        Select(RoleVoiceMetadata.genderOptions()).selected(this.traitsGender === 'male' ? 1 : this.traitsGender === 'female' ? 2 : 0)
+          .value(RoleVoiceMetadata.genderLabel(this.traitsGender)).fontColor(AppTheme.TextPrimary).enabled(!this.busy)
+          .onSelect((index: number): void => { this.traitsGender = index === 1 ? 'male' : index === 2 ? 'female' : 'pending'; })
+          .id('voice-traits-gender')
+      }.width('100%')
+      Text($r('app.string.tts_voice_ages')).fontSize(AppFont.Body).fontColor(AppTheme.TextPrimary)
+      Flex({ wrap: FlexWrap.Wrap }) {
+        ForEach(RoleVoiceMetadata.ages, (age: string): void => {
+          Button(RoleVoiceMetadata.ageLabel(age)).height(36).fontSize(AppFont.Body)
+            .fontColor(this.traitsAges.includes(age) ? AppColor.OnBrand : AppTheme.TextPrimary)
+            .backgroundColor(this.traitsAges.includes(age) ? AppColor.Brand : AppTheme.Background)
+            .margin({ right: 8, bottom: 8 }).enabled(!this.busy)
+            .onClick((): void => {
+              this.traitsAges = this.traitsAges.includes(age) ?
+                this.traitsAges.filter((item: string): boolean => item !== age) : [...this.traitsAges, age];
+            }).id(`voice-traits-age-${age}`)
+        }, (age: string): string => age)
+      }.width('100%')
+      TextArea({ text: this.traitsDescription, placeholder: $r('app.string.tts_voice_description_hint') })
+        .height(100).fontSize(AppFont.Body).fontColor(AppTheme.TextPrimary).maxLength(160).enabled(!this.busy)
+        .onChange((description: string): void => { this.traitsDescription = description; }).id('voice-traits-description')
+      Row({ space: 12 }) {
+        Button($r('app.string.common_cancel')).layoutWeight(1).fontColor(AppTheme.TextPrimary)
+          .backgroundColor(AppTheme.Background).enabled(!this.busy).onClick((): void => { this.showImport = false; })
+        Button($r('app.string.common_save')).layoutWeight(1).fontColor(AppColor.OnBrand)
+          .backgroundColor(AppColor.Brand).enabled(!this.busy).onClick((): void => { this.saveVoiceTraits(); })
+          .id('voice-traits-save')
+      }.width('100%')
+    }.width('100%').padding(24).alignItems(HorizontalAlign.Start)
+  }
+
   private async pickFile(): Promise<void> {
     const context = this.getUIContext().getHostContext();
     if (!context || this.busy) return;
@@ -257,7 +326,8 @@ export struct VoiceManagementPage {
   importDialog() {
     Stack({ alignContent: Alignment.Center }) {
       Scroll() {
-        this.importForm()
+        if (this.importMode === 'traits') { this.voiceTraitsForm() }
+        else { this.importForm() }
       }.width('90%').constraintSize({ maxWidth: 480, maxHeight: '80%' })
         .backgroundColor(AppTheme.Surface).borderRadius(24).clip(true)
         .scrollBar(BarState.Off)
@@ -285,6 +355,10 @@ export struct VoiceManagementPage {
               Text([config.group, config.tier].filter((value: string): boolean => value.length > 0).join(' · '))
                 .fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
             }
+            if (config.provider === SHENGQIAO_PROVIDER &&
+              ShengqiaoPluginService.instance.voice(config.modelId)?.channel === 'huawei' && !this.shengqiaoState.loggedIn) {
+              Text($r('app.string.shengqiao_login_required')).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+            }
           }.layoutWeight(1).alignItems(HorizontalAlign.Start)
           if (this.state.customTtsId === config.id) {
             SymbolGlyph($r('sys.symbol.checkmark')).fontSize(18).fontColor([AppColor.Brand])
@@ -298,6 +372,11 @@ export struct VoiceManagementPage {
           else this.service.selectCustomTts(config.id);
         })
       if (!this.managing) {
+      Button({ type: ButtonType.Circle }) {
+        SymbolGlyph($r('sys.symbol.square_and_pencil')).fontSize(18).fontColor([AppTheme.TextSecondary])
+      }.width(32).height(40).backgroundColor(Color.Transparent).enabled(!this.busy)
+        .accessibilityText($r('app.string.tts_voice_traits')).onClick((): void => { this.openVoiceTraits(config); })
+        .id(`voice-traits-${config.id}`)
       Toggle({ type: ToggleType.Switch, isOn: config.enabled }).selectedColor(AppColor.Brand)
         .enabled(!this.busy).accessibilityText($r('app.string.tts_custom_enabled', config.name))
         .onChange((enabled: boolean): void => {

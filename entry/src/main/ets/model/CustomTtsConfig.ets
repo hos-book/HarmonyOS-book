@@ -1,8 +1,7 @@
-/** HTTP 导入音色或已安装的本地模型音色；本地项不接受用户提供的文件路径。 */
+/** HTTP 导入音色与已安装插件的音色配置。 */
 export class CustomTtsConfig {
   provider: string = 'http';
   modelId: string = '';
-  speakerId: number = -1;
   id: string = '';
   name: string = '';
   group: string = '';
@@ -13,6 +12,10 @@ export class CustomTtsConfig {
   body: string = '';
   header: string = '{}';
   contentType: string = '';
+  voiceGender: string = 'pending';
+  voiceAges: string[] = [];
+  voiceDescription: string = '';
+  voiceTraitsSource: string = '';
 }
 
 export class CustomTtsImportResult {

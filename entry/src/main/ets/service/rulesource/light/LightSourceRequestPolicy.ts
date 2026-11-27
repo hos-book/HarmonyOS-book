@@ -2,6 +2,7 @@
 export class LightSourceRequest {
   priority: number = 1;
   cancelCheck?: () => boolean;
+  diagnosticContext: string = '';
   private cancelled: boolean = false;
   constructor(priority: number = 1) { this.priority = priority; }
   isCancelled(): boolean { return this.cancelled || !!this.cancelCheck?.(); }

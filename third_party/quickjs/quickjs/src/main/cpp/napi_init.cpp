@@ -1233,9 +1233,89 @@ static JSValue CallBoundedScriptHost(JSContext* ctx, JSValueConst, int argc, JSV
     return result;
 }
 
+struct BoundedHtmlHost {
+    napi_env env;
+    napi_value callback;
+    BoundedExecutionState* execution;
+};
+
+// A fixed string codec runs synchronously in the current bounded worker.
+static JSValue CallBoundedHtmlHost(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    auto* host = static_cast<BoundedHtmlHost*>(JS_GetRuntimeOpaque(JS_GetRuntime(ctx)));
+    if (!host || argc != 2 || !JS_IsString(argv[0]) || !JS_IsString(argv[1])) {
+        return JS_ThrowTypeError(ctx, "Invalid HTML codec arguments");
+    }
+    if (BoundedInterruptHandler(JS_GetRuntime(ctx), host->execution)) {
+        return JS_ThrowInternalError(ctx, "HTML codec execution stopped");
+    }
+    size_t kindLength = 0;
+    const char* kind = JS_ToCStringLen(ctx, &kindLength, argv[0]);
+    if (!kind) return JS_EXCEPTION;
+    const bool validKind = (kindLength == 6 && std::memcmp(kind, "encode", 6) == 0) ||
+        (kindLength == 6 && std::memcmp(kind, "decode", 6) == 0);
+    JS_FreeCString(ctx, kind);
+    if (!validKind) return JS_ThrowTypeError(ctx, "Invalid HTML codec operation");
+    JSValue size = JS_GetPropertyStr(ctx, argv[1], "length");
+    int64_t characters = 0;
+    const int sizeStatus = JS_ToInt64(ctx, &characters, size);
+    JS_FreeValue(ctx, size);
+    if (sizeStatus < 0) return JS_EXCEPTION;
+    if (characters > 4 * 1024 * 1024) return JS_ThrowRangeError(ctx, "HTML codec input budget exceeded");
+    // JSON preserves embedded zeroes and lone UTF-16 surrogates across the UTF-8 N-API boundary.
+    JSValue encoded = JS_JSONStringify(ctx, argv[1], JS_UNDEFINED, JS_UNDEFINED);
+    if (JS_IsException(encoded)) return encoded;
+    size_t inputLength = 0;
+    const char* input = JS_ToCStringLen(ctx, &inputLength, encoded);
+    JS_FreeValue(ctx, encoded);
+    if (!input) return JS_EXCEPTION;
+    napi_handle_scope scope;
+    if (napi_open_handle_scope(host->env, &scope) != napi_ok) {
+        JS_FreeCString(ctx, input);
+        return JS_ThrowOutOfMemory(ctx);
+    }
+    napi_value args[3] = {};
+    kind = JS_ToCString(ctx, argv[0]);
+    napi_status prepared = kind ? napi_create_string_utf8(host->env, kind, 6, &args[0]) : napi_generic_failure;
+    if (kind) JS_FreeCString(ctx, kind);
+    if (prepared == napi_ok) prepared = napi_create_string_utf8(host->env, input, inputLength, &args[1]);
+    JS_FreeCString(ctx, input);
+    const auto remaining = std::chrono::duration_cast<std::chrono::milliseconds>(
+        host->execution->deadline - std::chrono::steady_clock::now()).count();
+    if (prepared == napi_ok) prepared = napi_create_int64(host->env, std::max<int64_t>(0, remaining), &args[2]);
+    napi_value output = nullptr;
+    const napi_status status = prepared == napi_ok ? napi_call_function(host->env,
+        NAPIUndefined(host->env), host->callback, 3, args, &output) : prepared;
+    JSValue result = JS_UNDEFINED;
+    if (status != napi_ok) {
+        bool pending = false;
+        napi_is_exception_pending(host->env, &pending);
+        if (pending) {
+            napi_value exception;
+            napi_get_and_clear_last_exception(host->env, &exception);
+        }
+        result = JS_ThrowInternalError(ctx, "HTML codec execution failed");
+    } else if (BoundedInterruptHandler(JS_GetRuntime(ctx), host->execution)) {
+        result = JS_ThrowInternalError(ctx, "HTML codec execution stopped");
+    } else {
+        size_t length = 0;
+        if (napi_get_value_string_utf8(host->env, output, nullptr, 0, &length) == napi_ok) {
+            std::vector<char> text(length + 1);
+            if (napi_get_value_string_utf8(host->env, output, text.data(), text.size(), &length) == napi_ok) {
+                result = JS_ParseJSON(ctx, text.data(), length, "html-codec");
+            } else result = JS_ThrowInternalError(ctx, "HTML codec output failed");
+        } else result = JS_ThrowInternalError(ctx, "HTML codec output failed");
+    }
+    napi_close_handle_scope(host->env, scope);
+    if (BoundedInterruptHandler(JS_GetRuntime(ctx), host->execution)) {
+        JS_FreeValue(ctx, result);
+        return JS_ThrowInternalError(ctx, "HTML codec execution stopped");
+    }
+    return result;
+}
+
 static napi_value EvaluateBounded(napi_env env, napi_callback_info info) {
-    size_t argc = 9;
-    napi_value args[9] = {};
+    size_t argc = 10;
+    napi_value args[10] = {};
     NAPI_CALL(napi_get_cb_info(env, info, &argc, args, nullptr, nullptr));
 
     const int64_t engineHandle = NValueToHandle(env, args[0]);
@@ -1263,6 +1343,9 @@ static napi_value EvaluateBounded(napi_env env, napi_callback_info info) {
     if (argc > 8) napi_typeof(env, args[8], &scriptHostType);
     const bool scripted = scriptHostType == napi_function;
     BoundedScriptHost scriptHost {env, scripted ? args[8] : nullptr, &state};
+    napi_valuetype htmlType = napi_undefined;
+    if (argc > 9) napi_typeof(env, args[9], &htmlType);
+    BoundedHtmlHost htmlHost {env, htmlType == napi_function ? args[9] : nullptr, &state};
     bool prepared = true;
     std::string prepareError = "Invalid bounded execution arguments";
     if (scripted) {
@@ -1314,6 +1397,13 @@ static napi_value EvaluateBounded(napi_env env, napi_callback_info info) {
                 JS_SetPropertyStr(ctx, global, "__imageHost", JS_NewCFunction(ctx, CallBoundedImageHost, "imageOperation", 3)) >= 0;
             JS_FreeValue(ctx, global);
         }
+    }
+    if (prepared && htmlHost.callback) {
+        JS_SetRuntimeOpaque(runtime, &htmlHost);
+        JSValue global = JS_GetGlobalObject(ctx);
+        prepared = JS_SetPropertyStr(ctx, global, "__lightHtmlBridge",
+            JS_NewCFunction(ctx, CallBoundedHtmlHost, "htmlCodec", 2)) >= 0;
+        JS_FreeValue(ctx, global);
     }
     JS_SetInterruptHandler(runtime, BoundedInterruptHandler, &state);
 
@@ -1369,6 +1459,7 @@ static napi_value EvaluateBounded(napi_env env, napi_callback_info info) {
     JS_FreeValue(ctx, evaluated);
     JS_SetInterruptHandler(runtime, nullptr, nullptr);
     JS_SetContextOpaque(ctx, nullptr);
+    JS_SetRuntimeOpaque(runtime, nullptr);
     BoundedInterruptHandler(runtime, &state);
     if (state.cancelled || host.exhausted || scriptHost.exhausted) {
         success = false;

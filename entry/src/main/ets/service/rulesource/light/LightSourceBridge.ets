@@ -7,6 +7,7 @@ import { LightSourceRuntime } from './LightSourceRuntime';
 import { LightSourceAppHost } from './LightSourceAppHost';
 import { LightSourceTiming } from './LightSourceTiming';
 import { LightSourceRequest } from './LightSourceRequestPolicy';
+import { DiagnosticLogService } from '../../DiagnosticLogService';
 
 /** Read traced UI properties explicitly before crossing the JSON engine boundary. */
 class LightPanelControlData {
@@ -125,9 +126,22 @@ export class LightSourceBridge {
   static async search(source: LocalRuleSource, keyword: string, page: number,
     request?: LightSourceRequest, searchSimplifiedTraditional: boolean = false): Promise<SearchResult[]> {
     if (request?.isCancelled()) return [];
-    const values: SearchResult[] = JSON.parse(await LightSourceCore.search(LightSourceBridge.prepare(source), keyword,
-      page, request, searchSimplifiedTraditional));
-    return values;
+    const id = DiagnosticLogService.isEnabled() ? LightSourceTiming.next() : 0;
+    const context = `source=${source.bookSourceName}; page=${page}; ${request?.diagnosticContext ?? ''}`;
+    LightSourceTiming.observe(id, (stage: string, detail: string): void => {
+      DiagnosticLogService.info(`search.engine.${stage}`, `${context}; ${detail}`);
+    });
+    const startedAt = Date.now();
+    try {
+      DiagnosticLogService.info('search.engine.prepare', `${context}; id=${id}`);
+      const definition = LightSourceBridge.prepare(source);
+      LightSourceTiming.end(id, 'definition-ready', startedAt, `characters=${definition.length}`);
+      const raw = await LightSourceCore.search(definition, keyword, page, request, searchSimplifiedTraditional, id);
+      LightSourceTiming.end(id, 'result-decode-start', startedAt, `characters=${raw.length}`);
+      const values: SearchResult[] = JSON.parse(raw);
+      LightSourceTiming.end(id, 'result-decode-complete', startedAt, `results=${values.length}`);
+      return values;
+    } finally { LightSourceTiming.close(id); }
   }
   static async explore(source: LocalRuleSource, address: string, page: number, limit: number): Promise<LocalRuleExploreResult> {
     const result: LocalRuleExploreResult = JSON.parse(await LightSourceCore.explore(LightSourceBridge.prepare(source), address, page, limit));

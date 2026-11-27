@@ -6,6 +6,7 @@ import { RoleAiState, RoleSpeaker, RoleSpeechSample, RoleSpeechState, RoleVoiceR
 import { JianjianAiService } from '../service/JianjianAiService';
 import { TextToSpeechState } from '../model/TextToSpeechState';
 import { RoleAiService } from '../service/text/RoleAiService';
+import { RoleVoiceMetadata } from '../service/text/RoleVoiceMetadata';
 import { RoleSpeechService } from '../service/text/RoleSpeechService';
 import { TextToSpeechService } from '../service/text/TextToSpeechService';
 import { VoicePreviewService, VoicePreviewState } from '../service/text/VoicePreviewService';
@@ -54,6 +55,10 @@ export struct RoleSpeechPanel {
   @Local selectedName: ResourceStr = '';
   @Local selectedVoice: string = '';
   @Local selectedProfile: string = '';
+  @Local selectedGender: string = 'pending';
+  @Local selectedGenderSource: string = 'ai';
+  @Local selectedAge: string = 'pending';
+  @Local selectedAgeSource: string = 'ai';
   @Local selectedSource: string = 'manual';
   @Local matchingVoice: boolean = false;
   @Local voiceQuery: string = '';
@@ -141,12 +146,24 @@ export struct RoleSpeechPanel {
       $r('app.string.role_voice_unavailable');
   }
 
+  private genderLabel(gender: string): Resource {
+    return RoleVoiceMetadata.genderLabel(gender);
+  }
+
+  private genderOptions(): SelectOption[] {
+    return RoleVoiceMetadata.genderOptions();
+  }
+
   private chooseVoice(id: string, name: ResourceStr, voice: string): void {
     if (this.saving) return;
     this.finishPreview();
     this.selectedRole = id; this.selectedName = name; this.selectedVoice = voice; this.voiceQuery = '';
     const speaker = this.roles().speakers.find((item: RoleSpeaker): boolean => item.id === id);
     this.selectedProfile = speaker?.profile ?? ''; this.selectedSource = speaker?.voiceSource ?? 'manual';
+    this.selectedGender = RoleAiService.gender(speaker?.gender);
+    this.selectedGenderSource = speaker?.genderSource ?? 'ai';
+    this.selectedAge = RoleVoiceMetadata.age(speaker?.age);
+    this.selectedAgeSource = speaker?.ageSource ?? 'ai';
     this.sampleText = this.liveRoles.bookId === this.targetId ? RoleSpeechService.getInstance().sample(id) : '';
     if (!this.sampleText) {
       this.sampleText = this.getUIContext().getHostContext()?.resourceManager.getStringSync($r('app.string.tts_preview_sample').id) ?? '';
@@ -162,8 +179,10 @@ export struct RoleSpeechPanel {
     request.speaker.id = speaker.id; request.speaker.name = speaker.name;
     request.speaker.voiceId = this.selectedVoice; request.speaker.profile = this.selectedProfile;
     request.speaker.voiceSource = this.selectedSource;
+    request.speaker.gender = this.selectedGender; request.speaker.genderSource = this.selectedGenderSource;
+    request.speaker.age = this.selectedAge; request.speaker.ageSource = this.selectedAgeSource;
     request.known = this.roles().speakers;
-    request.voices = RoleAiService.voiceOptions(this.speech.customTtsConfigs, this.speech.customTtsId);
+    request.voices = RoleAiService.voiceOptions(this.service.roleVoiceCandidates(), this.speech.customTtsId);
     request.context = this.liveRoles.bookId === this.targetId ? RoleSpeechService.getInstance().voiceContext(speaker.id) : '';
     if (request.voices.length === 0) { this.toast($r('app.string.role_voice_empty')); return; }
     if (!request.context && !request.speaker.profile) { this.toast($r('app.string.role_ai_context_hint')); return; }
@@ -176,6 +195,8 @@ export struct RoleSpeechPanel {
       const match = await RoleAiService.instance.reassign(request, client);
       if (this.matchingClient !== client) return;
       this.selectedProfile = match.profile;
+      if (this.selectedGenderSource !== 'manual' && match.gender !== 'pending') this.selectedGender = match.gender;
+      if (this.selectedAgeSource !== 'manual' && match.age !== 'pending') this.selectedAge = match.age;
       if (match.voiceId) {
         this.selectedVoice = match.voiceId; this.selectedSource = 'ai'; this.voiceQuery = '';
         this.refreshVoices(); this.toast($r('app.string.role_ai_match_ready'));
@@ -204,7 +225,8 @@ export struct RoleSpeechPanel {
         roles = new RoleSpeechService();
         await roles.selectBook(context, this.targetId, this.targetTitle);
       }
-      await roles.setVoice(this.selectedRole, this.selectedVoice, this.selectedSource, this.selectedProfile);
+      await roles.setVoice(this.selectedRole, this.selectedVoice, this.selectedSource, this.selectedProfile,
+        this.selectedGender, this.selectedGenderSource, this.selectedAge, this.selectedAgeSource);
       this.savedRoles = roles.state;
       this.service.roleVoiceChanged(this.targetId);
       if (this.alive) { this.editing = false; this.refreshSpeakers(); this.toast($r('app.string.role_voice_saved')); }
@@ -242,11 +264,23 @@ export struct RoleSpeechPanel {
   }
 
   @Builder
-  roleRow(id: string, name: ResourceStr, voice: string) {
+  roleRow(id: string, name: ResourceStr, voice: string, gender: string = '', age: string = '') {
     Button({ type: ButtonType.Normal }) {
       Row({ space: AppSpace.Sm }) {
         Column({ space: AppSpace.Xxs }) {
-          Text(name).fontSize(AppFont.BodyL).fontColor(this.primary()).maxLines(1).textOverflow({ overflow: TextOverflow.Ellipsis })
+          Row({ space: AppSpace.Xs }) {
+            Text(name).fontSize(AppFont.BodyL).fontColor(this.primary()).maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis }).flexShrink(1)
+            if (gender) {
+              Text(this.genderLabel(gender)).fontSize(AppFont.Caption).fontColor(this.secondary()).flexShrink(0)
+                .padding({ left: AppSpace.Xs, right: AppSpace.Xs, top: 2, bottom: 2 })
+                .backgroundColor(this.embedded ? $r('sys.color.comp_background_secondary') : AppTheme.Background)
+                .borderRadius(AppRadius.Sm)
+            }
+            if (age) {
+              Text(RoleVoiceMetadata.ageLabel(age)).fontSize(AppFont.Caption).fontColor(this.secondary()).flexShrink(0)
+            }
+          }.width('100%')
           Text(this.voiceName(voice)).fontSize(AppFont.Caption).fontColor(this.secondary())
             .maxLines(2).textOverflow({ overflow: TextOverflow.Ellipsis })
         }.layoutWeight(1).alignItems(HorizontalAlign.Start)
@@ -327,7 +361,8 @@ export struct RoleSpeechPanel {
         ListItem() { this.roleRow('@narrator', $r('app.string.role_narrator'), this.roles().narratorVoiceId) }
         ListItem() { this.roleRow('@dialogue', $r('app.string.role_unknown'), this.roles().dialogueVoiceId) }
         LazyForEach(this.speakers, (speaker: RoleSpeaker): void => {
-          ListItem() { this.roleRow(speaker.id, speaker.name, speaker.voiceId) }
+          ListItem() { this.roleRow(speaker.id, speaker.name, speaker.voiceId,
+            speaker.gender ?? 'pending', RoleVoiceMetadata.age(speaker.age)) }
         }, (speaker: RoleSpeaker): string => speaker.id)
         ListItem() {
           Column({ space: AppSpace.Xs }) {
@@ -361,6 +396,26 @@ export struct RoleSpeechPanel {
   voiceEditor() {
     Text($r('app.string.role_voice_confirm_hint')).fontSize(AppFont.Caption).fontColor(this.secondary()).width('100%')
     if (this.selectedRole !== '@narrator' && this.selectedRole !== '@dialogue') {
+      Row({ space: AppSpace.Sm }) {
+        Text($r('app.string.role_gender_title')).fontSize(AppFont.Body).fontColor(this.primary()).layoutWeight(1)
+        Select(this.genderOptions()).selected(this.selectedGender === 'male' ? 1 : this.selectedGender === 'female' ? 2 : 0)
+          .value(this.genderLabel(this.selectedGender)).fontColor(this.primary())
+          .enabled(!this.saving && !this.matchingVoice)
+          .onSelect((index: number): void => {
+            this.selectedGender = index === 1 ? 'male' : index === 2 ? 'female' : 'pending';
+            this.selectedGenderSource = 'manual';
+          }).id('role-gender-select')
+      }.width('100%')
+      Row({ space: AppSpace.Sm }) {
+        Text($r('app.string.role_age_title')).fontSize(AppFont.Body).fontColor(this.primary()).layoutWeight(1)
+        Select(RoleVoiceMetadata.ageOptions()).selected(RoleVoiceMetadata.ages.indexOf(this.selectedAge) + 1)
+          .value(RoleVoiceMetadata.ageLabel(this.selectedAge)).fontColor(this.primary())
+          .enabled(!this.saving && !this.matchingVoice)
+          .onSelect((index: number): void => {
+            this.selectedAge = index > 0 ? RoleVoiceMetadata.ages[index - 1] : 'pending';
+            this.selectedAgeSource = 'manual';
+          }).id('role-age-select')
+      }.width('100%')
       Button(this.matchingVoice ? $r('app.string.role_ai_matching') : $r('app.string.role_ai_rematch'))
         .fontSize(AppFont.Body).fontColor(AppColor.Brand).backgroundColor(this.surface()).width('100%')
         .constraintSize({ minHeight: 44 }).enabled(this.ai.configured && !this.saving && !this.matchingVoice)

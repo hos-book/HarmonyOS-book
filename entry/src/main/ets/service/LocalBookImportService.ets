@@ -13,7 +13,7 @@ import { LocalTextImage } from './text/LocalTextImage';
 import { image } from '@kit.ImageKit';
 import { LocalBookCatalog } from './text/LocalBookCatalog';
 import { LocalBookHtmlText } from './text/LocalBookHtmlText';
-import { cleanLocalBookHtmlBatch } from './text/LocalBookHtmlWorker';
+import { cleanLocalBookHtmlBatch, cleanEpubBody } from './text/LocalBookHtmlWorker';
 import { EpubContentProfile, EpubImportMode } from './text/EpubContentProfile';
 import { EpubBackgroundImages } from './text/EpubBackgroundImages';
 import { EpubChapterAssembler } from './text/EpubChapterAssembler';
@@ -101,7 +101,7 @@ export class LocalBookImportService {
     html = EpubContentProfile.body(html);
     const tags = /<(?:img|image)\b[^>]*>/gi;
     const images: string[] = [];
-    const placeholders: string[] = [];
+    const prefix = `HSDAEPUBIMAGE${index}X`;
     let marked = '';
     let start = 0;
     let match = tags.exec(html);
@@ -115,9 +115,8 @@ export class LocalBookImportService {
           const resource = LocalBookHtmlText.decodeEntities(attr[1]).split('#')[0];
           const path = await LocalBookImportService.epubImage(context, handler, index, resource, directory, stats);
           if (path) {
-            token = `HSDAEPUBIMAGE${index}X${images.length}END`;
+            token = `${prefix}${images.length}END`;
             images.push(LocalTextImage.token(path));
-            placeholders.push(token);
           }
         } catch (error) {
           if (error instanceof Error && error.message === 'import_epub_images_limit') {
@@ -132,9 +131,7 @@ export class LocalBookImportService {
       match = tags.exec(html);
     }
     marked += html.substring(start);
-    let text = LocalBookImportService.htmlText(marked);
-    for (let position = 0; position < images.length; position++) text = text.replace(placeholders[position], images[position]);
-    return text;
+    return String(await taskpool.execute(cleanEpubBody, marked, prefix, images));
   }
 
   private static async epubImage(context: common.Context, handler: EpubParserService,
@@ -703,13 +700,20 @@ export class LocalBookImportService {
         const backgrounds = new EpubBackgroundImages();
         let spineBatch: string[] = [];
         let batchStart = 0;
+        let nextSpineFailure = '';
+        const prefetch = (start: number): Promise<string[]> => handler.getSpineBatch(start)
+          .catch((error: Error): string[] => { nextSpineFailure = error.message || String(error); return []; });
+        let nextSpineBatch: Promise<string[]> | null = spine.length > 0 ? prefetch(0) : null;
         if (spine.length > LocalBookImportService.MAX_CHAPTERS) throw new Error('EPUB 超过 50000 节');
         for (let index = 0; index < spine.length; index++) {
           report(`${book.title} ${index + 1}/${spine.length}`);
           const readStarted = Date.now();
           if (index >= batchStart + spineBatch.length) {
             batchStart = index;
-            spineBatch = await handler.getSpineBatch(index);
+            if (nextSpineBatch !== null) spineBatch = await nextSpineBatch;
+            if (nextSpineFailure) throw new Error(nextSpineFailure);
+            const nextStart = index + spineBatch.length;
+            nextSpineBatch = nextStart < spine.length ? prefetch(nextStart) : null;
           }
           const rawHtml = spineBatch[index - batchStart];
           if (epubMode !== 'comic') {

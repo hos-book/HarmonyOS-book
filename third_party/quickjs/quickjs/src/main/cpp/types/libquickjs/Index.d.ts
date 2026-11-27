@@ -83,7 +83,8 @@ export interface QuickJsNativeApi {
   evaluateBounded(engineHandle: bigint, script: string, sourceURL: string,
     timeoutMs: number, maxPendingJobs: number, input?: Uint8Array,
     imageHost?: (name: string, data: Uint8Array, options: string) => Uint8Array,
-    cancelSignal?: Int32Array, scriptHost?: (name: string, payload: string) => string): BoundedExecutionResult;
+    cancelSignal?: Int32Array, scriptHost?: (name: string, payload: string) => string,
+    htmlHost?: (kind: string, input: string, remainingMs: number) => string): BoundedExecutionResult;
 
   // Error / Exception
   getException(engineHandle: bigint): bigint;

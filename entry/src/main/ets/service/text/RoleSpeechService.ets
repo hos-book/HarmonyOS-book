@@ -2,13 +2,13 @@ import { common } from '@kit.AbilityKit';
 import { fileIo } from '@kit.CoreFileKit';
 import { CustomTtsConfig } from '../../model/CustomTtsConfig';
 import { JianjianAiError, JianjianAiErrorCode } from '../../model/JianjianAi';
-import { RoleAnalysisWindow, RoleBookSettings, RoleDialogue, RoleSpeaker, RoleSpeechState,
+import { RoleAnalysisWindow, RoleBookSettings, RoleChapterAnalysis, RoleDialogue, RoleSpeaker, RoleSpeechState,
   RoleSpeechSample, RoleVoiceOption } from '../../model/RoleSpeech';
 import { JianjianAiService } from '../JianjianAiService';
 import { RoleAiService } from './RoleAiService';
 import { RoleSpeechPlanner } from './RoleSpeechPlanner';
 
-/** 保存每书音色，按阅读位置使用 AI 识别当前与后续对白。 */
+/** 保存每书音色与章节对白，按阅读位置识别并复用已完成的结果。 */
 export class RoleSpeechService {
   private static instance: RoleSpeechService | null = null;
   readonly state: RoleSpeechState = new RoleSpeechState();
@@ -68,6 +68,7 @@ export class RoleSpeechService {
       } catch (_error) { /* 继续查找本书设置。 */ }
     }
     if (ticket !== this.epoch) return;
+    settings.chapters = settings.chapters ?? [];
     this.book = settings; this.bookPath = path;
     this.state.bookId = id; this.state.bookTitle = title; this.publish();
   }
@@ -78,7 +79,8 @@ export class RoleSpeechService {
     this.state.speakers = this.book.speakers.slice();
   }
 
-  async setVoice(roleId: string, voiceId: string, source: string = 'manual', profile: string = ''): Promise<void> {
+  async setVoice(roleId: string, voiceId: string, source: string = 'manual', profile: string = '',
+    gender: string = 'pending', genderSource: string = 'ai', age: string = 'pending', ageSource: string = 'ai'): Promise<void> {
     if (!this.bookPath) return;
     if (roleId === '@narrator') this.book.narratorVoiceId = voiceId;
     else if (roleId === '@dialogue') this.book.dialogueVoiceId = voiceId;
@@ -87,6 +89,8 @@ export class RoleSpeechService {
       if (!speaker) return;
       speaker.voiceId = voiceId;
       speaker.voiceSource = source;
+      speaker.gender = gender; speaker.genderSource = genderSource;
+      speaker.age = age; speaker.ageSource = ageSource;
       if (profile) speaker.profile = profile;
     }
     await this.save();
@@ -134,7 +138,7 @@ export class RoleSpeechService {
     return samples;
   }
 
-  async prepare(context: common.Context, bookId: string, title: string, _chapter: string,
+  async prepare(context: common.Context, bookId: string, title: string, chapter: string,
     content: string, quotes: string): Promise<void> {
     this.cancel();
     const ticket = this.epoch;
@@ -144,8 +148,18 @@ export class RoleSpeechService {
     await this.selectBook(context, bookId, title);
     if (ticket !== this.epoch || !this.enabled) return;
     this.content = content;
-    this.dialogues = RoleSpeechPlanner.dialogues(content, quotes);
+    let analysis = this.book.chapters.find((item: RoleChapterAnalysis): boolean => item.chapter === chapter);
+    if (analysis === undefined) {
+      analysis = new RoleChapterAnalysis();
+      analysis.chapter = chapter;
+      analysis.dialogues = RoleSpeechPlanner.dialogues(content, quotes);
+      this.book.chapters.push(analysis);
+    }
+    this.dialogues = analysis.dialogues;
     this.windows = RoleSpeechPlanner.windows(this.dialogues);
+    for (const window of this.windows) {
+      window.complete = window.indices.every((id: number): boolean => this.dialogues[id].complete);
+    }
   }
 
   cancel(): void {
@@ -165,7 +179,15 @@ export class RoleSpeechService {
   }
 
   readyAt(offset: number): boolean {
-    return !this.enabled || this.failed || (this.dialogueAt(offset)?.complete ?? true);
+    if (!this.enabled || this.failed) return true;
+    const dialogue = this.dialogueAt(offset);
+    if (!dialogue) return true;
+    const speaker = this.book.speakers.find((item: RoleSpeaker): boolean => item.name === dialogue.speaker);
+    return dialogue.complete && (speaker === undefined || !this.voiceNeedsMatch(speaker));
+  }
+
+  private voiceNeedsMatch(speaker: RoleSpeaker): boolean {
+    return speaker.voiceId.length > 0 && !this.voices.some((voice: RoleVoiceOption): boolean => voice.id === speaker.voiceId);
   }
 
   async ensureAt(offset: number): Promise<void> {
@@ -188,7 +210,8 @@ export class RoleSpeechService {
 
   prefetch(offset: number): Promise<void> {
     if (!this.enabled || this.failed || this.pending.size > 0) return Promise.resolve();
-    const index = this.windows.findIndex((window: RoleAnalysisWindow): boolean => !window.complete &&
+    const index = this.windows.findIndex((window: RoleAnalysisWindow): boolean =>
+      (!window.complete || window.indices.some((id: number): boolean => !this.readyAt(this.dialogues[id].start))) &&
       this.dialogues[window.indices[window.indices.length - 1]].end > offset);
     return index < 0 ? Promise.resolve() : this.analyse(index);
   }
@@ -201,11 +224,10 @@ export class RoleSpeechService {
     const task = (async (): Promise<void> => {
       try {
         this.state.analysing = true;
-        const known = this.book.speakers.map((item: RoleSpeaker): string => item.name);
         const request = RoleSpeechPlanner.request(this.content, this.dialogues, window);
         const result = await RoleAiService.instance.infer(request, this.book.speakers, this.voices);
         if (ticket !== this.epoch || !this.enabled) return;
-        const answers = RoleSpeechPlanner.answers(result, window.indices.length, request.context, known, this.voices);
+        const answers = RoleSpeechPlanner.answers(result, window.indices.length, request.context, this.book.speakers, this.voices);
         for (let position = 0; position < window.indices.length; position++) {
           const dialogue = this.dialogues[window.indices[position]];
           const answer = answers[position];
@@ -216,6 +238,16 @@ export class RoleSpeechService {
               speaker = new RoleSpeaker(); speaker.name = name; speaker.id = name;
               speaker.voiceId = answer.voiceId; speaker.voiceSource = 'ai';
               this.book.speakers.push(speaker);
+            }
+            if (speaker.voiceSource === 'ai' || this.voiceNeedsMatch(speaker)) {
+              speaker.voiceId = answer.voiceId; speaker.voiceSource = 'ai';
+            }
+            if (speaker.genderSource !== 'manual') {
+              if (answer.gender !== 'pending' || !speaker.gender) speaker.gender = answer.gender;
+              speaker.genderSource = 'ai';
+            }
+            if (speaker.ageSource !== 'manual') {
+              speaker.age = answer.age; speaker.ageSource = 'ai';
             }
             if (answer.profile) speaker.profile = answer.profile;
           }
@@ -242,5 +274,6 @@ export class RoleSpeechService {
     for (const dialogue of this.dialogues) { dialogue.complete = false; dialogue.speaker = '?'; }
     for (const window of this.windows) window.complete = false;
     this.failed = false; this.state.error = '';
+    if (this.bookPath) await this.save();
   }
 }

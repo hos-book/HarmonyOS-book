@@ -17,7 +17,6 @@ $hvigorCli = Join-Path $DevEcoRoot 'tools\hvigor\bin\hvigorw.js'
 $sdkRoot = Join-Path $DevEcoRoot 'sdk'
 $builtHar = Join-Path $quickJsRoot 'quickjs\build\default\outputs\default\quickjs.har'
 $targetHar = Join-Path $projectRoot 'entry\libs\quickjs.har'
-$targetHash = Join-Path $projectRoot 'entry\libs\quickjs.har.sha256'
 
 foreach ($requiredPath in @($nodeExecutable, $ohpmCli, $hvigorCli)) {
   if (-not (Test-Path -LiteralPath $requiredPath)) {
@@ -56,7 +55,4 @@ if (-not (Test-Path -LiteralPath $builtHar)) {
 
 New-Item -ItemType Directory -Force (Split-Path -Parent $targetHar) | Out-Null
 Copy-Item -LiteralPath $builtHar -Destination $targetHar -Force
-$hash = Get-FileHash -LiteralPath $targetHar -Algorithm SHA256
-Set-Content -LiteralPath $targetHash -Value "$($hash.Hash)  quickjs.har" -Encoding ascii
 Write-Host "QuickJS HAR: $targetHar"
-Write-Host "SHA256: $($hash.Hash)"

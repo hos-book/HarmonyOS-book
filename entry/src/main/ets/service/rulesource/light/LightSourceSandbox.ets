@@ -1,11 +1,8 @@
 import { LocalRuleQuickJsRequest, LocalRuleQuickJsRuntime } from '../LocalRuleQuickJsRuntime';
 import { util } from '@kit.ArkTS';
-import { LightSourceHtmlCodec } from './LightSourceHtmlCodec';
 import { LightSourceTiming } from './LightSourceTiming';
 
 class LightDecodeRequest {
-  kind: string = '';
-  text: string = '';
   id: number = 0;
   charset: string = 'utf-8';
   data: number[] = [];
@@ -112,11 +109,6 @@ export class LightSourceSandbox {
       if (pending.data.length > 4 * 1024 * 1024 || !envelope.key) throw new Error('字符解码输入超过限制');
       const response = new LightDecodeValue();
       try {
-        if (pending.kind === 'html-encode' || pending.kind === 'html-decode') {
-          response.value = await LightSourceHtmlCodec.execute(pending.kind,pending.text);
-          responses[envelope.key] = response;
-          continue;
-        }
         let decoder = decoders.get(pending.id);
         if (!decoder) {
           decoder = util.TextDecoder.create(pending.charset, {fatal:pending.fatal,ignoreBOM:pending.ignoreBOM});
@@ -139,8 +131,6 @@ export class LightSourceSandbox {
       'var v=__lightDecodeResults[key];if(v.error)throw Error(v.error);return v.value;}' +
       'if(!globalThis.__lightDecodePendingEnvelope)globalThis.__lightDecodePendingEnvelope={key:key,request:req};' +
       'var p=globalThis.__lightDecodePendingEnvelope;throw {__lightDecodePending:true,key:p.key,request:p.request};}' +
-      'globalThis.__lightHtmlBridge=function(kind,text){if(text.length>4194304)throw Error("HTML 输入超过限制");' +
-      'return codec({kind:"html-"+kind,text:String(text),data:[]});};' +
       'globalThis.__lightNextDecoderId=0;globalThis.__lightDecodeBridge=function(id,charset,data,opts,read){' +
       'var bytes=data===undefined?[]:Array.from(data instanceof ArrayBuffer?new Uint8Array(data):' +
       '(ArrayBuffer.isView(data)?new Uint8Array(data.buffer,data.byteOffset,data.byteLength):data));' +

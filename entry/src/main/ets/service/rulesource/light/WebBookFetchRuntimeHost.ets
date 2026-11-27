@@ -1,7 +1,6 @@
 import { webview } from '@kit.ArkWeb';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { WebBookFetchRuntime } from './upstream/core/book/WebBookFetchRuntime';
-import { LightSourceHtmlCodec } from './LightSourceHtmlCodec';
 
 /** Invisible ArkWeb transport for source rules that explicitly opt into `webView: true`. */
 @ComponentV2
@@ -20,7 +19,6 @@ export struct WebBookFetchRuntimeHost {
     if (this.attachRetryId >= 0) clearTimeout(this.attachRetryId);
     this.attachRetryId = -1;
     WebBookFetchRuntime.get().detach(this.controller);
-    LightSourceHtmlCodec.detach(this.controller);
   }
 
   private attachRuntime(): void {
@@ -28,7 +26,6 @@ export struct WebBookFetchRuntimeHost {
     if (this.attachRetryId >= 0) clearTimeout(this.attachRetryId);
     this.attachRetryId = -1;
     WebBookFetchRuntime.get().attach(this.controller);
-    LightSourceHtmlCodec.attach(this.controller);
   }
 
   private scheduleAttachFallback(attempt: number): void {

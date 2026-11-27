@@ -4,6 +4,7 @@ import { ComicImagePluginService } from '../service/ComicImagePluginService';
 import { FrostedPageHeader } from '../components/FrostedPageHeader';
 import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { ModelManagementRow } from '../components/ModelManagementRow';
+import { ShengqiaoPluginCard } from '../components/ShengqiaoPluginCard';
 import { AiModelSettingsPage } from './AiModelSettingsPage';
 import { AppFont, AppSpace, AppTheme } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
@@ -57,6 +58,7 @@ export struct PluginManagementPage {
   @Local picking: boolean = false;
   @Local failed: boolean = false;
   @Local modelChanging: boolean = false;
+  @Local shengqiaoChanging: boolean = false;
   private service: ComicImagePluginService = ComicImagePluginService.instance;
 
   aboutToAppear(): void { this.load(); }
@@ -104,14 +106,17 @@ export struct PluginManagementPage {
             Text($r('app.string.comic_plugin_operation_error')).fontColor(AppTheme.TextSecondary)
           } else {
             ForEach(this.state.plugins, (plugin: ComicImagePlugin): void => {
-              ComicImagePluginCard({ plugin, busy: this.picking || this.state.busyId.length > 0 || this.modelChanging,
+              ComicImagePluginCard({ plugin, busy: this.picking || this.state.busyId.length > 0 || this.modelChanging || this.shengqiaoChanging,
                 onImport: (id: string): void => { this.importPlugin(id); },
                 onRemove: (id: string): void => { this.removePlugin(id); },
                 onActive: (id: string, active: boolean): void => { this.setActive(id, active); } })
             }, (plugin: ComicImagePlugin): string => plugin.id)
           }
-          AiModelSettingsPage({ blocked: this.picking || this.state.busyId.length > 0,
+          AiModelSettingsPage({ blocked: this.picking || this.state.busyId.length > 0 || this.shengqiaoChanging,
             onChanging: (changing: boolean): void => { this.modelChanging = changing; } })
+          ShengqiaoPluginCard({ navStack: this.navStack,
+            blocked: this.picking || this.state.busyId.length > 0 || this.modelChanging,
+            onChanging: (changing: boolean): void => { this.shengqiaoChanging = changing; } })
         }.width('100%').constraintSize({ maxWidth: 760 }).padding({ left: AppSpace.Md, right: AppSpace.Md,
           top: this.headerHeight + AppSpace.Md, bottom: WindowUtils.getBottomSafeVp() + AppSpace.Xl })
       }.width('100%').height('100%').align(Alignment.Top).scrollBar(BarState.Off)

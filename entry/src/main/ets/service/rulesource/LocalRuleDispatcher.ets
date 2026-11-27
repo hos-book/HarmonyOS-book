@@ -8,6 +8,7 @@ import { LocalRuleContentResult, LocalRuleExecutionLimits, LocalRuleReaderAction
 import { LocalRuleExploreResult } from '../../model/LocalRulePanel';
 import { LightSourceBridge } from './light/LightSourceBridge';
 import { LightSourceRequest } from './light/LightSourceRequestPolicy';
+import { DiagnosticLogService } from '../DiagnosticLogService';
 
 export class LocalRuleDispatcher {
   static async readerAction(source: LocalRuleSource, address: string, variables: Record<string, string>,
@@ -37,6 +38,8 @@ export class LocalRuleDispatcher {
       return await LocalRuleDispatcher.searchStrict(source, keyword, page, {}, request, searchSimplifiedTraditional);
     } catch (error) {
       if (request?.isCancelled()) return [];
+      DiagnosticLogService.failure('search.rule_failed', error,
+        `source=${source.bookSourceName}; page=${page}; ${request?.diagnosticContext ?? ''}`);
       LocalRuleDispatcher.logFailure(source, 'search', error as Object);
       return [];
     }

@@ -3,6 +3,7 @@ import { util } from '@kit.ArkTS';
 import { BookCoverImageService } from './BookCoverImageService';
 import { Kf8BookText } from './Kf8BookText';
 import { MobiHuffDecoder } from './MobiHuffDecoder';
+import { decodeMobiBatch } from 'libhsda_core.so';
 
 export class MobiBookInfo {
   title: string = '';
@@ -172,37 +173,6 @@ export class MobiBookParser {
     return bytes.subarray(0, end);
   }
 
-  private static unpack(bytes: Uint8Array, capacity: number): Uint8Array {
-    const output = new Uint8Array(capacity);
-    let written = 0;
-    let cursor = 0;
-    while (cursor < bytes.length) {
-      const value = bytes[cursor++];
-      if (value >= 1 && value <= 8) {
-        if (cursor + value > bytes.length || written + value > capacity) throw MobiBookParser.invalid();
-        output.set(bytes.subarray(cursor, cursor + value), written);
-        cursor += value;
-        written += value;
-      } else if (value >= 0x80 && value <= 0xBF) {
-        if (cursor === bytes.length) throw MobiBookParser.invalid();
-        const pair = (value << 8) | bytes[cursor++];
-        const distance = (pair & 0x3FFF) >> 3;
-        const count = (pair & 7) + 3;
-        if (distance === 0 || distance > written || written + count > capacity) throw MobiBookParser.invalid();
-        for (let index = 0; index < count; index++) {
-          output[written] = output[written - distance];
-          written++;
-        }
-      } else {
-        const count = value >= 0xC0 ? 2 : 1;
-        if (written + count > capacity) throw MobiBookParser.invalid();
-        if (count === 2) output[written++] = 0x20;
-        output[written++] = count === 2 ? value ^ 0x80 : value;
-      }
-    }
-    return output.subarray(0, written);
-  }
-
   private static async textLayout(header: Uint8Array, info: MobiBookInfo,
     load: (index: number) => Promise<Uint8Array>): Promise<MobiTextLayout> {
     const layout = new MobiTextLayout(info.textLength);
@@ -234,6 +204,7 @@ export class MobiBookParser {
     consume?: (text: string, info: MobiBookInfo, percent: number) => Promise<void>,
     coverDirectory: string = ''): Promise<MobiBookInfo> {
     const file = await fileIo.open(uri, fileIo.OpenMode.READ_ONLY);
+    let huff: MobiHuffDecoder | null = null;
     try {
       const size = (await fileIo.stat(file.fd)).size;
       if (size > MobiBookParser.MAX_FILE_BYTES) throw new Error('import_mobi_size');
@@ -288,29 +259,37 @@ export class MobiBookParser {
       };
       const layout = await MobiBookParser.textLayout(header, info, load);
       if (layout.totalLength > records * recordSize) throw MobiBookParser.invalid();
-      const huff = compression === 17480 ? await MobiHuffDecoder.create(MobiBookParser.u32(header, 112),
+      huff = compression === 17480 ? await MobiHuffDecoder.create(MobiBookParser.u32(header, 112),
         MobiBookParser.u32(header, 116), recordSize, load) : null;
       const flags = version >= 5 && headerLength >= 228 ? MobiBookParser.u16(header, 242) : 0;
       const decoder = util.TextDecoder.create(encoding);
       const kf8Text = info.kf8 ? new Uint8Array(layout.bodyLength) : new Uint8Array(0);
       let decoded = 0;
-      for (let index = 1; index <= records; index++) {
-        const raw = await MobiBookParser.readBytes(file.fd, offsets[index], offsets[index + 1] - offsets[index]);
-        const packed = MobiBookParser.textRecord(raw, flags);
-        const bytes = huff !== null ? huff.unpack(packed) :
-          compression === 2 ? MobiBookParser.unpack(packed, recordSize) : packed;
-        if (bytes.length > recordSize) throw MobiBookParser.invalid();
-        // KF8 records contain the main HTML flow followed by CSS/SVG flows.
-        // Validate the full FDST extent, retaining only the body for text reconstruction.
-        const remaining = layout.totalLength - decoded;
-        if (remaining <= 0 || (index < records && bytes.length > remaining)) throw MobiBookParser.invalid();
-        const actual = bytes.subarray(0, Math.min(bytes.length, remaining));
-        if (info.kf8 && decoded < kf8Text.length) {
-          kf8Text.set(actual.subarray(0, Math.min(actual.length, kf8Text.length - decoded)), decoded);
+      for (let batchStart = 1; batchStart <= records; batchStart += 16) {
+        const packed: Uint8Array[] = [];
+        const batchEnd = Math.min(records + 1, batchStart + 16);
+        for (let index = batchStart; index < batchEnd; index++) {
+          const raw = await MobiBookParser.readBytes(file.fd, offsets[index], offsets[index + 1] - offsets[index]);
+          packed.push(MobiBookParser.textRecord(raw, flags));
         }
-        decoded += actual.length;
-        if (!info.kf8) await consume(decoder.decodeToString(actual, { stream: index < records }), info,
-          Math.floor(index * 100 / records));
+        const batch: Uint8Array[] = huff !== null ? await huff.unpackBatch(packed) :
+          compression === 2 ? await decodeMobiBatch(packed, recordSize, undefined) : packed;
+        for (let item = 0; item < batch.length; item++) {
+          const index = batchStart + item;
+          const bytes = batch[item];
+          if (bytes.length > recordSize) throw MobiBookParser.invalid();
+          // KF8 records contain the main HTML flow followed by CSS/SVG flows.
+          // Validate the full FDST extent, retaining only the body for text reconstruction.
+          const remaining = layout.totalLength - decoded;
+          if (remaining <= 0 || (index < records && bytes.length > remaining)) throw MobiBookParser.invalid();
+          const actual = bytes.subarray(0, Math.min(bytes.length, remaining));
+          if (info.kf8 && decoded < kf8Text.length) {
+            kf8Text.set(actual.subarray(0, Math.min(actual.length, kf8Text.length - decoded)), decoded);
+          }
+          decoded += actual.length;
+          if (!info.kf8) await consume(decoder.decodeToString(actual, { stream: index < records }), info,
+            Math.floor(index * 100 / records));
+        }
       }
       if (decoded !== layout.totalLength) throw MobiBookParser.invalid();
       if (info.kf8) {
@@ -320,6 +299,9 @@ export class MobiBookParser {
         }
       }
       return info;
-    } finally { await fileIo.close(file); }
+    } finally {
+      if (huff !== null) huff.release();
+      await fileIo.close(file);
+    }
   }
 }

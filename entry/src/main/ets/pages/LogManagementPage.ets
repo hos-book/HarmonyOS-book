@@ -1,5 +1,7 @@
 import { InfinityLoadingIndicator } from '../components/InfinityLoadingIndicator';
 import { pasteboard } from '@kit.BasicServicesKit';
+import { picker } from '@kit.CoreFileKit';
+import { AppFaultService } from '../service/AppFaultService';
 import { DiagnosticLogEntry, DiagnosticLogService } from '../service/DiagnosticLogService';
 import { AppTheme, AppColor, AppFont, AppRadius, AppSpace } from '../theme/Theme';
 import { WindowUtils } from '../utils/WindowUtils';
@@ -41,6 +43,7 @@ export struct LogManagementPage {
   }
 
   private async refresh(): Promise<void> {
+    await AppFaultService.flush();
     this.entries = await DiagnosticLogService.list();
     this.errorCount = this.entries.filter((entry: DiagnosticLogEntry): boolean => entry.level === 'ERROR').length;
     this.storageError = DiagnosticLogService.getStorageError();
@@ -87,6 +90,25 @@ export struct LogManagementPage {
     }
   }
 
+  private async exportLogs(): Promise<void> {
+    if (this.busy) return;
+    const context = this.getUIContext().getHostContext();
+    if (!context) return;
+    this.busy = true;
+    try {
+      const options = new picker.DocumentSaveOptions();
+      options.newFileNames = [`listenbook-diagnostics-${new Date().toISOString().replace(/[:.]/g, '-')}.txt`];
+      options.fileSuffixChoices = ['.txt'];
+      const uris = await new picker.DocumentViewPicker(context).save(options);
+      if (uris.length === 0) return;
+      await AppFaultService.flush();
+      await DiagnosticLogService.exportTo(uris[0], false);
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.log_exported') });
+    } catch (_error) {
+      this.getUIContext().getPromptAction().showToast({ message: $r('app.string.log_operation_failed') });
+    } finally { this.busy = false; }
+  }
+
   private async clear(): Promise<void> {
     try {
       const result = await this.getUIContext().getPromptAction().showDialog({
@@ -127,6 +149,8 @@ export struct LogManagementPage {
               Button($r('app.string.log_clear')).backgroundColor(AppTheme.Surface)
                 .fontColor(AppTheme.TextPrimary).layoutWeight(1).enabled(!this.busy).onClick(() => this.clear())
             }.width('100%')
+            Button($r('app.string.log_export')).backgroundColor(AppColor.Brand).fontColor(AppColor.OnBrand)
+              .width('100%').enabled(!this.busy).onClick(() => this.exportLogs())
             Row({ space: AppSpace.Sm }) {
               Text($r('app.string.log_count', this.count, this.errorCount)).fontSize(AppFont.Caption)
                 .fontColor(AppTheme.TextSecondary).layoutWeight(1)
@@ -153,7 +177,7 @@ export struct LogManagementPage {
                   .fontSize(AppFont.Caption).fontColor(entry.level === 'ERROR' ? AppColor.Brand : AppTheme.TextTertiary)
                 Text(entry.stage).fontSize(AppFont.Body).fontWeight(FontWeight.Medium)
                   .fontColor(AppTheme.TextPrimary)
-                Text(entry.message).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
+                Text(entry.message.substring(0, 4000)).fontSize(AppFont.Caption).fontColor(AppTheme.TextSecondary)
                   .copyOption(CopyOptions.LocalDevice).wordBreak(WordBreak.BREAK_ALL)
               }
               .width('100%').alignItems(HorizontalAlign.Start).padding(AppSpace.Md)

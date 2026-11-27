@@ -1,0 +1,10 @@
+WHATWG HTML named character references
+
+Source: https://html.spec.whatwg.org/entities.json
+Specification: https://html.spec.whatwg.org/multipage/named-characters.html
+Copyright WHATWG (Apple, Google, Mozilla, Microsoft).
+License: Creative Commons Attribution 4.0 International (CC BY 4.0).
+License text: https://creativecommons.org/licenses/by/4.0/legalcode
+
+The named character reference data has been converted into a Rust UTF-16 table
+by scripts/generate-rust-html-entities.py for the application's HTML string codec.

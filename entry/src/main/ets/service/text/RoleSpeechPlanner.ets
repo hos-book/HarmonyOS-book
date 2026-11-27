@@ -1,7 +1,9 @@
 import {
-  RoleAnalysisWindow, RoleDialogue, RoleInferenceLine, RoleInferenceRequest, RoleModelAnswer, RoleVoiceOption
+  RoleAnalysisWindow, RoleDialogue, RoleInferenceLine, RoleInferenceRequest, RoleModelAnswer, RoleSpeaker, RoleVoiceOption
 } from '../../model/RoleSpeech';
 import { RoleAiService } from './RoleAiService';
+import { RoleVoiceMetadata } from './RoleVoiceMetadata';
+import { RoleVoiceMatcher } from './RoleVoiceMatcher';
 import { ReaderDialogueHighlighter } from './ReaderDialogueHighlighter';
 
 /** 应用保存原文及 UTF-16 偏移，模型提供说话人、人物特征与音色建议。 */
@@ -50,7 +52,7 @@ export class RoleSpeechPlanner {
       !new RegExp('[\\r\\n\\t<>"\\\\]').test(name);
   }
 
-  static answers(answers: RoleModelAnswer[], count: number, context: string, known: string[],
+  static answers(answers: RoleModelAnswer[], count: number, context: string, known: RoleSpeaker[],
     voices: RoleVoiceOption[]): RoleModelAnswer[] {
     if (answers.length !== count) throw new Error('role_inference');
     const result: RoleModelAnswer[] = [];
@@ -58,6 +60,8 @@ export class RoleSpeechPlanner {
       const item = new RoleModelAnswer(); item.id = id; result.push(item);
     }
     const seen: Set<number> = new Set<number>();
+    const matches = new Map<string, RoleModelAnswer>();
+    const assigned = known.slice();
     for (const answer of answers) {
       if (answer === null || typeof answer.speaker !== 'string' ||
         !Number.isInteger(answer.id) || answer.id < 0 || answer.id >= count || seen.has(answer.id)) {
@@ -65,15 +69,37 @@ export class RoleSpeechPlanner {
       }
       seen.add(answer.id);
       const name = answer.speaker.trim();
-      if (RoleSpeechPlanner.isSpeaker(name) && (known.includes(name) || context.includes(name))) {
+      const speaker = known.find((item: RoleSpeaker): boolean => item.name === name);
+      if (RoleSpeechPlanner.isSpeaker(name) && (speaker !== undefined || context.includes(name))) {
         const item = result[answer.id];
         item.speaker = name;
-        if (known.includes(name)) {
-          item.profile = typeof answer.profile === 'string' ? answer.profile.trim() : '';
-        } else {
-          const match = RoleAiService.voiceMatch(answer, voices);
-          item.profile = match.profile; item.voiceId = match.voiceId;
+        const existing = matches.get(name);
+        if (existing !== undefined) {
+          item.gender = existing.gender; item.age = existing.age;
+          item.profile = existing.profile; item.voiceId = existing.voiceId;
+          continue;
         }
+        const match = RoleAiService.voiceMatch(answer, voices);
+        item.gender = speaker !== undefined && (speaker.genderSource === 'manual' || match.gender === 'pending') ?
+          RoleAiService.gender(speaker.gender) : match.gender;
+        item.age = speaker !== undefined && (speaker.ageSource === 'manual' || match.age === 'pending') ?
+          RoleVoiceMetadata.age(speaker.age) : match.age;
+        item.profile = match.profile || speaker?.profile || '';
+        const current = speaker?.voiceId ?? '';
+        const valid = voices.some((voice: RoleVoiceOption): boolean => voice.id === current);
+        const manual = speaker?.voiceSource === 'manual';
+        const candidates = RoleVoiceMatcher.candidates(voices, item.gender, item.age);
+        if (speaker !== undefined && ((manual && (!current || valid)) ||
+          (valid && candidates.some((voice: RoleVoiceOption): boolean => voice.id === current)))) {
+          item.voiceId = current;
+        } else {
+          item.voiceId = RoleVoiceMatcher.choose(match.voiceId || current, voices, item.gender, item.age, assigned, name);
+        }
+        matches.set(name, item);
+        const allocation = new RoleSpeaker();
+        allocation.id = name; allocation.voiceId = item.voiceId;
+        const previous = assigned.findIndex((knownSpeaker: RoleSpeaker): boolean => knownSpeaker.id === name);
+        if (previous >= 0) assigned.splice(previous, 1, allocation); else assigned.push(allocation);
       }
     }
     return result;

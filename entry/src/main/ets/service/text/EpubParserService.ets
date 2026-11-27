@@ -72,30 +72,39 @@ export class EpubParserService {
     return this.text(spine.href, 32 * 1024 * 1024);
   }
 
-  /** 四章/512 KiB 以内并行读取；超大单章独占一批，结果始终按原阅读顺序返回。 */
+  /** 四章/512 KiB 以内批量读取；超大单章独占一批，结果按原阅读顺序返回。 */
   async getSpineBatch(start: number): Promise<string[]> {
     if (!this.spines[start]) throw new Error('EPUB 正文章节不存在');
-    const pending: Promise<string>[] = [];
+    const items: EpubSpineItem[] = [];
+    const paths: string[] = [];
     let bytes = 0;
-    let failure = '';
-    for (let index = start; index < this.spines.length && pending.length < 4; index++) {
+    for (let index = start; index < this.spines.length && items.length < 4; index++) {
       const spine = this.spines[index];
       const size = spine.mediaType.startsWith('image/') ? 1024 : this.archive.resourceSize(spine.href);
-      if (pending.length > 0 && bytes + size > 512 * 1024) break;
+      if (items.length > 0 && bytes + size > 512 * 1024) break;
       bytes += size;
-      pending.push(this.getSpineItemContent(index).catch((error: Error): string => {
-        if (!failure) failure = error.message || String(error);
-        return '';
-      }));
+      items.push(spine);
+      if (!spine.mediaType.startsWith('image/')) paths.push(spine.href);
     }
-    // 一个条目损坏时先等其他读取收尾，调用方才能安全关闭 ZIP fd。
-    const content = await Promise.all(pending);
-    if (failure) throw new Error(failure);
+    // 后台任务独立持有 ZIP fd，按批次返回正文资源。
+    const resources = await this.archive.readBatch(paths, 32 * 1024 * 1024);
+    const content: string[] = [];
+    let resourceIndex = 0;
+    for (const item of items) {
+      if (item.mediaType.startsWith('image/')) {
+        const name = item.href.substring(item.href.lastIndexOf('/') + 1);
+        content.push(`<html><body><img src="./${encodeURIComponent(name)}"/></body></html>`);
+      } else content.push(EpubParserService.decodeText(resources[resourceIndex++]));
+    }
     return content;
   }
 
   private async text(path: string, maximum: number = 8 * 1024 * 1024): Promise<string> {
-    const bytes = new Uint8Array(await this.archive.read(path, maximum));
+    return EpubParserService.decodeText(await this.archive.read(path, maximum));
+  }
+
+  private static decodeText(content: ArrayBuffer): string {
+    const bytes = new Uint8Array(content);
     let encoding = 'utf-8';
     if (bytes[0] === 0xff && bytes[1] === 0xfe) encoding = 'utf-16le';
     else if (bytes[0] === 0xfe && bytes[1] === 0xff) encoding = 'utf-16be';
@@ -119,11 +128,11 @@ export class EpubParserService {
   }
 
   private async parse(): Promise<void> {
-    const container = EpubXml.parse(await this.text('META-INF/container.xml'));
+    const container = await EpubXml.parse(await this.text('META-INF/container.xml'));
     const root = container.all('rootfile')[0];
     const opfPath = EpubOriginalDocument.resolve('', root?.attr('full-path') ?? '');
     if (!opfPath) throw new Error('EPUB 缺少有效的 OPF 路径');
-    const opf = EpubXml.parse(await this.text(opfPath));
+    const opf = await EpubXml.parse(await this.text(opfPath));
     const metadata = opf.all('metadata')[0];
     this.info.bookTitle = metadata?.all('title')[0]?.text.trim() ?? '';
     this.info.bookCreator = metadata?.all('creator').map((node: EpubXmlNode): string => node.text.trim()).filter(
@@ -147,7 +156,7 @@ export class EpubParserService {
     if (nav !== undefined) {
       const path = EpubOriginalDocument.resolve(opfPath, nav.attr('href'));
       if (this.archive.has(path)) {
-        const doc = EpubXml.parse(await this.text(path));
+        const doc = await EpubXml.parse(await this.text(path));
         const toc = doc.all('nav').find((node: EpubXmlNode): boolean =>
           (node.attr('epub:type') || node.attr('type')).split(/\s+/).includes('toc') || node.attr('role') === 'doc-toc');
         for (const link of toc?.all('a') ?? []) this.addCatalog(path, link.attr('href'), link.text);
@@ -158,7 +167,7 @@ export class EpubParserService {
         (item: EpubXmlNode): boolean => item.attr('media-type') === 'application/x-dtbncx+xml');
       const path = EpubOriginalDocument.resolve(opfPath, ncx?.attr('href') ?? '');
       if (this.archive.has(path)) {
-        const doc = EpubXml.parse(await this.text(path));
+        const doc = await EpubXml.parse(await this.text(path));
         for (const point of doc.all('navmap')[0]?.all('navpoint') ?? []) {
           this.addCatalog(path, point.child('content')?.attr('src') ?? '', point.child('navlabel')?.text ?? '');
         }

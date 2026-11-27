@@ -1,3 +1,6 @@
+import { taskpool } from '@kit.ArkTS';
+import { scanReaderText } from './RustTextWorker';
+
 export class ReaderSearchMatch {
   chapterIndex: number;
   offset: number;
@@ -17,7 +20,7 @@ export class ReaderSearchProgress {
   limited: boolean = false;
 }
 
-/** 逐章扫描、分段让出 UI；关闭面板/再次搜索后不再发起后续读取。 */
+/** 逐章读取，后台扫描；结果以 UTF-16 位置交给现有阅读器。 */
 export class ReaderFullTextSearch {
   static readonly MAX_RESULTS: number = 500;
 
@@ -31,25 +34,18 @@ export class ReaderFullTextSearch {
       try {
         const content = await read(index);
         if (cancelled()) return;
-        for (let start = 0; start < content.length; start += 16384) {
-          const end = Math.min(content.length, start + 16384);
-          // 含跨分段边界匹配，但每个命中仅由其起始段收集。
-          const segment = content.substring(start, Math.min(content.length, end + keyword.length - 1));
-          let found = segment.indexOf(keyword);
-          while (found >= 0 && start + found < end) {
-            const offset = start + found;
-            progress.matches.push(new ReaderSearchMatch(index, offset,
-              content.substring(Math.max(0, offset - 28), Math.min(content.length, offset + keyword.length + 60))
-                .replace(/\s+/g, ' ')));
-            if (progress.matches.length >= ReaderFullTextSearch.MAX_RESULTS) {
-              progress.limited = true;
-              update(progress);
-              return;
-            }
-            found = segment.indexOf(keyword, found + 1);
-          }
-          await new Promise<void>((resolve): void => { setTimeout(resolve, 0); });
-          if (cancelled()) return;
+        const offsets: number[] = JSON.parse(String(await taskpool.execute(scanReaderText, content, keyword,
+          ReaderFullTextSearch.MAX_RESULTS - progress.matches.length)));
+        if (cancelled()) return;
+        for (const offset of offsets) {
+          progress.matches.push(new ReaderSearchMatch(index, offset,
+            content.substring(Math.max(0, offset - 28), Math.min(content.length, offset + keyword.length + 60))
+              .replace(/\s+/g, ' ')));
+        }
+        if (progress.matches.length >= ReaderFullTextSearch.MAX_RESULTS) {
+          progress.limited = true;
+          update(progress);
+          return;
         }
       } catch (_error) { progress.failed++; }
       if (cancelled()) return;

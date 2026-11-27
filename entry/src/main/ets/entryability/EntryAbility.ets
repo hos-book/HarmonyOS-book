@@ -38,6 +38,7 @@ import { LocalRuleTlsTrustStore } from '../service/rulesource/LocalRuleTlsTrustS
 import { EVT_READER_TYPOGRAPHY_CHANGED } from '../model/TextReading';
 import { FileOpenRouting } from '../utils/FileOpenRouting';
 import { DiagnosticLogService } from '../service/DiagnosticLogService';
+import { AppFaultService } from '../service/AppFaultService';
 import lazy { ComicAiHost } from '../service/ComicAiHost';
 
 const DOMAIN = 0x0000;
@@ -79,8 +80,8 @@ export default class EntryAbility extends UIAbility {
 
   onCreate(want: Want, launchParam: AbilityConstant.LaunchParam): void {
     DiagnosticLogService.init(this.context);
-    DiagnosticLogService.info('app.lastExit',
-      `reason=${launchParam.lastExitReason}; message=${launchParam.lastExitMessage ?? ''}`);
+    AppFaultService.initialize();
+    DiagnosticLogService.lastExit(launchParam.lastExitReason, launchParam.lastExitMessage ?? '');
     if (PlatformCompat.wearable) {
       WearableRuntime.instance.initialize(this.context);
       return;

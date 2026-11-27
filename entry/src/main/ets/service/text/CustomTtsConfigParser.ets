@@ -1,6 +1,8 @@
 import { http } from '@kit.NetworkKit';
 import { CustomTtsConfig } from '../../model/CustomTtsConfig';
-import { getOfflineTtsModel, isOfflineTtsProvider } from '../../model/OfflineTtsCatalog';
+import { SHENGQIAO_PROVIDER } from '../../model/ShengqiaoPlugin';
+import { ShengqiaoPluginService } from './ShengqiaoPluginService';
+import { RoleVoiceMetadata } from './RoleVoiceMetadata';
 import { CustomTtsTemplate as LocalRuleTemplate } from './CustomTtsTemplate';
 import { LocalRuleQuickJsRequest, LocalRuleQuickJsRuntime } from '../rulesource/LocalRuleQuickJsRuntime';
 
@@ -8,9 +10,12 @@ import { LocalRuleQuickJsRequest, LocalRuleQuickJsRuntime } from '../rulesource/
 class TtsHeaders {}
 class TtsBody {}
 class TtsImportEntry {
+  voiceGender: string = 'pending';
+  voiceAges: string[] = [];
+  voiceDescription: string = '';
+  voiceTraitsSource: string = '';
   provider: string = '';
   modelId: string = '';
-  speakerId: number = -1;
   name: string = '';
   group: string = '';
   tier: string = '';
@@ -41,23 +46,24 @@ export class CustomTtsConfigParser {
   static parse(raw: string, installedCatalog: boolean = false): CustomTtsConfig[] {
     if (raw.length > 1024 * 1024) throw new Error('TTS config too large');
     const text = raw.replace(/^\uFEFF/, '').trim();
-    const entries: TtsImportEntry[] = JSON.parse(text.startsWith('[') ? text : `[${text}]`);
+    let entries: TtsImportEntry[] = JSON.parse(text.startsWith('[') ? text : `[${text}]`);
+    if (installedCatalog && Array.isArray(entries)) {
+      entries = entries.filter((entry: TtsImportEntry): boolean =>
+        entry.provider !== 'local-kokoro' && entry.provider !== 'local-piper');
+      if (entries.length === 0) return [];
+    }
     if (!Array.isArray(entries) || entries.length === 0 ||
-      entries.length > CustomTtsConfigParser.MAX_CONFIGS + (installedCatalog ? 102 : 0)) {
+      entries.length > CustomTtsConfigParser.MAX_CONFIGS + (installedCatalog ? ShengqiaoPluginService.instance.state.voiceCount : 0)) {
       throw new Error('Invalid TTS config count');
     }
     return entries.map((entry: TtsImportEntry): CustomTtsConfig => {
-      if (entry && isOfflineTtsProvider(entry.provider)) {
-        const model = getOfflineTtsModel(entry.modelId);
-        if (!installedCatalog || !model || entry.provider !== model.provider ||
-          !Number.isInteger(entry.speakerId) || entry.speakerId < model.minSpeaker || entry.speakerId > model.maxSpeaker) {
-          throw new Error('Unsupported local TTS config');
-        }
-        const local = new CustomTtsConfig();
-        local.provider = model.provider; local.modelId = model.id; local.speakerId = entry.speakerId;
-        local.id = `${model.voicePrefix}:${entry.speakerId}`;
-        local.enabled = entry.enabled !== false;
-        return local;
+      if (entry && entry.provider === SHENGQIAO_PROVIDER) {
+        if (!installedCatalog) throw new Error('Shengqiao voices require the installed plugin');
+        const voice = new CustomTtsConfig();
+        voice.provider = SHENGQIAO_PROVIDER; voice.modelId = entry.modelId;
+        voice.id = `shengqiao:${entry.modelId}`; voice.enabled = entry.enabled !== false;
+        CustomTtsConfigParser.copyVoiceTraits(entry, voice);
+        return voice;
       }
       return CustomTtsConfigParser.normalize(entry);
     });
@@ -68,6 +74,7 @@ export class CustomTtsConfigParser {
       typeof entry.url !== 'string' || entry.url.length > 32768 || entry.jsLib || entry.jsEngine ||
       entry.loginUrl || entry.loginUi || entry.loginCheckJs) throw new Error('Unsupported TTS config');
     const config = new CustomTtsConfig();
+    CustomTtsConfigParser.copyVoiceTraits(entry, config);
     config.name = entry.name.trim();
     const prefix = config.name.match(/^\d*\s*\[([^\]·]+)(?:·[^\]]*)?\]/);
     config.group = typeof entry.group === 'string' && entry.group.trim() ? entry.group.trim().slice(0, 64) :
@@ -119,6 +126,14 @@ export class CustomTtsConfigParser {
     // 无 id 的轻页配置也能稳定去重；不同请求体中的音色独立保留。
     config.id = JSON.stringify([config.name, config.url, config.body]);
     return config;
+  }
+
+  private static copyVoiceTraits(entry: TtsImportEntry, config: CustomTtsConfig): void {
+    config.voiceGender = RoleVoiceMetadata.gender(entry.voiceGender);
+    config.voiceAges = Array.isArray(entry.voiceAges) ?
+      entry.voiceAges.filter((age: string): boolean => RoleVoiceMetadata.ages.includes(age)) : [];
+    config.voiceDescription = typeof entry.voiceDescription === 'string' ? entry.voiceDescription.trim() : '';
+    config.voiceTraitsSource = entry.voiceTraitsSource === 'manual' ? 'manual' : '';
   }
 
   private static mergeHeaders(first: string, second: string): string {
@@ -198,12 +213,10 @@ export class CustomTtsConfigParser {
   }
 
   static usesSpeed(config: CustomTtsConfig): boolean {
-    if (isOfflineTtsProvider(config.provider)) return true;
     return /\{\{[^}]*\b(speakSpeed|speakSpeedPercent|speechRate|speed|rate)\b[^}]*\}\}/.test(config.url + config.body);
   }
 
   static synthesisSpeed(config: CustomTtsConfig, speed: number): number {
-    if (isOfflineTtsProvider(config.provider)) return Math.min(3, speed);
     const template = config.url + config.body;
     const legacy = /\{\{[^}]*\bspeakSpeed\b[^}]*\}\}/.test(template);
     const direct = /\{\{[^}]*\b(speakSpeedPercent|speechRate|speed|rate)\b[^}]*\}\}/.test(template);

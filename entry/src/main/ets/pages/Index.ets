@@ -22,6 +22,8 @@ import { DialogueHighlightSettingsPage } from './DialogueHighlightSettingsPage';
 import { SpeechSynthesisSettingsPage } from './SpeechSynthesisSettingsPage';
 import { RoleSpeechSettingsPage } from './RoleSpeechSettingsPage';
 import { PluginManagementPage } from './PluginManagementPage';
+import { ShengqiaoAccountPage } from './ShengqiaoAccountPage';
+import { ShengqiaoDebugPage } from './ShengqiaoDebugPage';
 import { MembershipPage } from './MembershipPage';
 import { MembershipSubscriptionPage } from './MembershipSubscriptionPage';
 import { MembershipState } from '../model/MembershipState';
@@ -842,6 +844,14 @@ struct Index {
     } else if (name === 'aiModelSettings' || name === 'pluginManagement') {
       ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
         PluginManagementPage({ navStack: this.navStack })
+      }
+    } else if (name === 'shengqiaoAccount') {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
+        ShengqiaoAccountPage({ navStack: this.navStack })
+      }
+    } else if (name === 'shengqiaoDebug') {
+      ProfileMenuDestination({ pageBackground: AppTheme.SettingsBackground }) {
+        ShengqiaoDebugPage({ navStack: this.navStack })
       }
     } else if (name === 'fontManagement') {
       ProfileMenuDestination() {

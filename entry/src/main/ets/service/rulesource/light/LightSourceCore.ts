@@ -435,11 +435,14 @@ export class LightSourceCore {
     });
   }
   static async search(localJson: string, keyword: string, page: number, request?: LightSourceRequest,
-    searchSimplifiedTraditional: boolean = false): Promise<string> {
+    searchSimplifiedTraditional: boolean = false, timingId: number = 0): Promise<string> {
+    const startedAt = Date.now();
     if (request?.isCancelled()) throw new Error('搜索已取消');
     const local = JSON.parse(localJson) as LocalRuleSource;
     const source = this.source(local);
     LightSourceRequestPolicy.bind(source, request);
+    LightSourceTiming.bind(source, timingId);
+    LightSourceTiming.end(timingId, 'source-decode', startedAt);
     return LightSourceRuntime.run(source, local, async () => {
       if (request?.isCancelled()) throw new Error('搜索已取消');
       const coordinator = new SearchCoordinator(1);
@@ -453,6 +456,7 @@ export class LightSourceCore {
         cancellationTimer = undefined;
       }, 50);
       try {
+        LightSourceTiming.end(timingId, 'search-rule-start', Date.now(), `page=${page}`);
         const items = await coordinator.search(keyword, () => {}, {
           targetSources: [source],
           maxResultsPerSource: 50,
@@ -461,6 +465,7 @@ export class LightSourceCore {
         });
         if (request?.isCancelled()) throw new Error('搜索已取消');
         if (!items.length && coordinator.getLastFailureReason()) throw new Error(coordinator.getLastFailureReason());
+        LightSourceTiming.end(timingId, 'search-rule-complete', startedAt, `results=${items.length}`);
         return JSON.stringify(items.map(item => this.result(item, source)));
       } finally {
         if (cancellationTimer !== undefined) clearInterval(cancellationTimer);

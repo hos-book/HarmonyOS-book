@@ -1,10 +1,40 @@
 import { EpubOriginalDocument } from './EpubOriginalDocument';
+import { taskpool } from '@kit.ArkTS';
+import { parseEpubMetadata } from './RustTextWorker';
+
+class EpubXmlNativeAttribute {
+  name: string = '';
+  value: string = '';
+}
+
+class EpubXmlNativeNode {
+  name: string = '';
+  parent: number = 0;
+  start: number = 0;
+  end: number = 0;
+  attributes: EpubXmlNativeAttribute[] = [];
+}
+
+class EpubXmlNativeDocument {
+  text: string = '';
+  nodes: EpubXmlNativeNode[] = [];
+}
 
 export class EpubXmlNode {
   name: string = '';
-  text: string = '';
+  private sharedText: string = '';
+  private textStart: number = 0;
+  private textEnd: number = 0;
   attributes: Map<string, string> = new Map();
   children: EpubXmlNode[] = [];
+
+  constructor(sharedText: string = '', textStart: number = 0, textEnd: number = 0) {
+    this.sharedText = sharedText;
+    this.textStart = textStart;
+    this.textEnd = textEnd;
+  }
+
+  get text(): string { return this.sharedText.substring(this.textStart, this.textEnd); }
 
   attr(name: string): string { return this.attributes.get(name) ?? ''; }
   child(name: string): EpubXmlNode | undefined { return this.children.find((node: EpubXmlNode): boolean => node.name === name); }
@@ -19,45 +49,22 @@ export class EpubXmlNode {
   }
 }
 
-/** EPUB 包元数据/导航的有界 XML 读取；不执行 DTD 或外部实体。 */
+/** Rust 扫描 EPUB 元数据与导航，节点共享正文及 UTF-16 区间。 */
 export class EpubXml {
   static decode(value: string): string {
     return EpubOriginalDocument.decode(value.replace(/&lt;/gi, '<').replace(/&gt;/gi, '>').replace(/&nbsp;/gi, ' '));
   }
 
-  static parse(source: string): EpubXmlNode {
-    if (source.length > 8 * 1024 * 1024) throw new Error('EPUB 元数据或目录过大');
-    const root = new EpubXmlNode();
-    const stack: EpubXmlNode[] = [root];
-    const tokens = /<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>|<\?[\s\S]*?\?>|<!DOCTYPE[\s\S]*?(?:\]>|>)|<\/?[a-zA-Z][\w:.-]*(?:\s+(?:[^<>"']|"[^"]*"|'[^']*')*)?\s*\/?>|[^<]+/gi;
-    let count = 0;
-    let token = tokens.exec(source);
-    while (token !== null) {
-      const value = token[0];
-      if (value.startsWith('<![CDATA[') || !value.startsWith('<')) {
-        const text = value.startsWith('<![CDATA[') ? value.substring(9, value.length - 3) : EpubXml.decode(value);
-        for (const node of stack) node.text += text;
-      } else if (value.startsWith('</')) {
-        const raw = /^<\/([\w:.-]+)/.exec(value)?.[1] ?? '';
-        const name = raw.substring(raw.lastIndexOf(':') + 1).toLowerCase();
-        const index = stack.map((node: EpubXmlNode): string => node.name).lastIndexOf(name);
-        if (index > 0) stack.splice(index);
-      } else if (!value.startsWith('<!') && !value.startsWith('<?')) {
-        if (++count > 200000 || stack.length > 64) throw new Error('EPUB XML 结构过大');
-        const node = new EpubXmlNode();
-        const name = /^<([\w:.-]+)/.exec(value)?.[1] ?? '';
-        node.name = name.substring(name.lastIndexOf(':') + 1).toLowerCase();
-        const attributes = /([\w:.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-        let attr = attributes.exec(value);
-        while (attr !== null) {
-          node.attributes.set(attr[1], EpubXml.decode(attr[2] ?? attr[3] ?? ''));
-          attr = attributes.exec(value);
-        }
-        stack[stack.length - 1].children.push(node);
-        if (!/\/\s*>$/.test(value) && !['link', 'img', 'br', 'hr', 'input'].includes(node.name)) stack.push(node);
-      }
-      token = tokens.exec(source);
+  static async parse(source: string): Promise<EpubXmlNode> {
+    const parsed: EpubXmlNativeDocument = JSON.parse(String(await taskpool.execute(parseEpubMetadata, source)));
+    const nodes: EpubXmlNode[] = [];
+    for (const item of parsed.nodes) {
+      const node = new EpubXmlNode(parsed.text, item.start, item.end);
+      node.name = item.name;
+      for (const attribute of item.attributes) node.attributes.set(attribute.name, attribute.value);
+      if (nodes.length > 0) nodes[item.parent].children.push(node);
+      nodes.push(node);
     }
-    return root;
+    return nodes[0];
   }
 }

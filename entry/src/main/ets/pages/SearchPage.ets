@@ -30,6 +30,7 @@ import { WindowUtils } from '../utils/WindowUtils';
 import { PreferenceService } from '../service/PreferenceService';
 import { SearchRecommendationService } from '../service/SearchRecommendationService';
 import { LightSourceRequest } from '../service/rulesource/light/LightSourceRequestPolicy';
+import { DiagnosticLogService } from '../service/DiagnosticLogService';
 
 const DOMAIN = 0x0000;
 const TAG = 'SearchPage';
@@ -571,6 +572,10 @@ export struct SearchPage {
       this.clearSearch();
       return;
     }
+    DiagnosticLogService.info('search.start', `generation=${this.searchGen + 1}; keywordLength=${keyword.length}; ` +
+      `currentSource=${this.searchCurrentSource}; exact=${this.exactSearch}; byAuthor=${this.searchByAuthor}; ` +
+      `chineseScript=${this.searchSimplifiedTraditional}; sourceFilter=${this.sourceFilterEnabled}; ` +
+      `text=${this.searchTextOnly}; audio=${this.searchAudioOnly}; comic=${this.searchComicOnly}`);
     this.keyword = keyword;
     this.cancelRecommendations();
     this.searchHistory = [keyword].concat(this.searchHistory.filter((item: string): boolean => item !== keyword));
@@ -617,15 +622,20 @@ export struct SearchPage {
       if (gen !== this.searchGen) return;
       hilog.info(DOMAIN, TAG, 'search schedule concurrency=%{public}d sources=%{public}d generation=%{public}d',
         concurrency, selectedSources.length, gen);
+      DiagnosticLogService.info('search.schedule',
+        `generation=${gen}; concurrency=${concurrency}; sources=${selectedSources.length}`);
       for (const source of selectedSources) this.sourcePages.set(source.bookSourceUrl, 1);
       await this.searchSources(selectedSources, keyword, gen, this.searchSeen, concurrency);
       if (gen !== this.searchGen) return;
       this.refreshVisibleBooks();
     } catch (e) {
+      DiagnosticLogService.failure('search.failed', e, `generation=${gen}`);
       hilog.error(DOMAIN, TAG, 'search failed: %{public}s', String(e));
     } finally {
       if (gen === this.searchGen) {
         this.searching = false;
+        DiagnosticLogService.info('search.complete', `generation=${gen}; sources=${this.searchedSourceCount}; ` +
+          `audio=${this.audioBooks.length}; text=${this.textBooks.length}; comic=${this.comicBooks.length}`);
       }
     }
   }
@@ -652,6 +662,8 @@ export struct SearchPage {
   }
 
   private cancelSearchRequests(): void {
+    if (this.searchRequests.size > 0) DiagnosticLogService.info('search.cancel',
+      `generation=${this.searchGen}; activeRequests=${this.searchRequests.size}`);
     for (const request of this.searchRequests) request.cancel();
     this.searchRequests.clear();
   }
@@ -687,13 +699,19 @@ export struct SearchPage {
 
   private async searchOneSource(source: BookSource, keyword: string, gen: number,
     seen: Set<string>): Promise<void> {
+    const startedAt = Date.now();
+    const page = this.sourcePages.get(source.bookSourceUrl) ?? 1;
+    const context = `generation=${gen}; source=${source.bookSourceName}; page=${page}`;
     const request = new LightSourceRequest();
+    request.diagnosticContext = `generation=${gen}`;
     request.cancelCheck = (): boolean => gen !== this.searchGen || this.leavingPage;
     this.searchRequests.add(request);
+    DiagnosticLogService.info('search.source.start', context);
     try {
-      const page = this.sourcePages.get(source.bookSourceUrl) ?? 1;
       const results = await BookSourceService.searchBooks(source, keyword, page, request,
         this.searchSimplifiedTraditional);
+      DiagnosticLogService.info('search.source.response',
+        `${context}; results=${results.length}; elapsedMs=${Date.now() - startedAt}; cancelled=${request.isCancelled()}`);
       if (gen !== this.searchGen) return;
       // 使用筛选前的身份判断翻页进度；不支持翻页、反复返回首页的源在此终止。
       const freshResults: SearchResult[] = [];
@@ -717,21 +735,27 @@ export struct SearchPage {
         books.push(book);
         this.appendSearchBook(book);
       }
+      DiagnosticLogService.info('search.source.converted',
+        `${context}; fresh=${freshResults.length}; books=${books.length}; elapsedMs=${Date.now() - startedAt}`);
       if (books.length === 0) return;
       this.scheduleResultsRefresh();
       this.prefetchCovers(books);
       if (source instanceof LocalRuleSource && source.ruleSearch.coverUrl.trim().length === 0 &&
         source.ruleBookInfo.coverUrl.trim().length > 0) {
         this.hydrateMissingLocalRuleCovers(source, books, gen).catch((error: Error): void => {
+          DiagnosticLogService.failure('search.cover_failed', error, context);
           hilog.warn(DOMAIN, TAG, 'cover hydration failed [%{public}s]: %{public}s',
             source.bookSourceName, error.message);
         });
       }
     } catch (e) {
+      if (!request.isCancelled()) DiagnosticLogService.failure('search.source.failed', e, context);
       if (gen === this.searchGen) this.sourcePages.delete(source.bookSourceUrl);
       hilog.warn(DOMAIN, TAG, 'source search failed [%{public}s]: %{public}s',
         source.bookSourceName, String(e));
     } finally {
+      DiagnosticLogService.info('search.source.complete',
+        `${context}; elapsedMs=${Date.now() - startedAt}; cancelled=${request.isCancelled()}`);
       this.searchRequests.delete(request);
       if (gen === this.searchGen && this.searching && !this.sourcePages.has(source.bookSourceUrl)) {
         this.searchedSourceCount++;
@@ -908,6 +932,9 @@ export struct SearchPage {
       return;
     }
     const groups: Book[][] = [this.audioRepresentatives, this.textRepresentatives, this.comicRepresentatives];
+    const startedAt = Date.now();
+    DiagnosticLogService.info('search.results.publish_start', `generation=${this.searchGen}; tab=${this.searchTab}; ` +
+      `audioGroups=${groups[0].length}; textGroups=${groups[1].length}; comicGroups=${groups[2].length}`);
     if (this.publishedSearchTab !== this.searchTab) {
       const visible: Book[] = [];
       for (let type = 0; type < groups.length; type++) {
@@ -943,6 +970,8 @@ export struct SearchPage {
     this.comicCount = this.comicBooks.length;
     this.resultGroupsRevision++;
     this.visibleResultCount = this.resultDataSource.totalCount();
+    DiagnosticLogService.info('search.results.publish_complete', `generation=${this.searchGen}; ` +
+      `visible=${this.visibleResultCount}; elapsedMs=${Date.now() - startedAt}`);
   }
 
   private selectSearchTab(index: number): void {

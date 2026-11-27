@@ -1,6 +1,6 @@
 import { image } from '@kit.ImageKit';
 import { fileUri } from '@kit.CoreFileKit';
-import { ComicWhiteBorderGeometry } from '../utils/ComicWhiteBorderGeometry';
+import { detectWhiteBorder } from 'libhsda_core.so';
 
 @Concurrent
 export async function detectComicWhiteBorder(uri: string): Promise<number[]> {
@@ -19,8 +19,7 @@ export async function detectComicWhiteBorder(uri: string): Promise<number[]> {
     const decoded = await bitmap.getImageInfo();
     const buffer = new ArrayBuffer(decoded.size.width * decoded.size.height * 4);
     await bitmap.readPixelsToBuffer(buffer);
-    const crop = ComicWhiteBorderGeometry.detect(new Uint8Array(buffer), decoded.size.width, decoded.size.height);
-    return [crop.x, crop.y, crop.width, crop.height];
+    return detectWhiteBorder(new Uint8Array(buffer), decoded.size.width, decoded.size.height);
   } finally {
     try { if (bitmap) await bitmap.release(); }
     finally { await source.release(); }

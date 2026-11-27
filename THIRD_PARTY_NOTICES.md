@@ -1,5 +1,10 @@
 # 第三方软件声明
 
+## Rust 标准库与 HTML 实体数据
+
+- 原生计算库静态链接 Rust 1.100.0 标准库。Rust 采用 MIT / Apache-2.0 双重许可；标准库与编译器运行库的第三方声明及对应许可随 HAP 保存在 `rawfile/third_party/rust/`。
+- HTML 命名字符引用来自 WHATWG HTML 的 `https://html.spec.whatwg.org/entities.json`，已转换为 Rust UTF-16 表。WHATWG 署名、CC BY 4.0 协议入口和转换说明位于 `rawfile/third_party/whatwg/NOTICE.txt`。
+
 ## Loading UI Infinity
 
 - 全局加载指示器参考 Loading UI 的 Infinity 组件，来源为 https://www.loading-ui.com/docs/components/infinity ，源码入口为 https://loading-ui.com/r/infinity.json ，上游仓库为 https://github.com/turbostarter/loading-ui 。
@@ -11,17 +16,10 @@
 - 图片插件 ABI 参考 Koma： https://github.com/honjow/Koma/blob/master/docs/image-processing-plugin-abi.md 。本地宿主与后台 Worker 在本项目实现。
 - 漫画水印清理与包子漫画横幅去除的外部算法来自 https://github.com/honjow/koma-sources/tree/master/image-rules/plugins ，由用户以独立 `.jtplugin` 文件导入。应用包仅包含宿主。上游资源授权以原作者声明为准，公开分发算法包前取得作者明确授权。
 
-## 本地 TTS 与多角色声音
+## sherpa-onnx 运行时附带许可
 
-- 官方原始 `tar.bz2` 模型导入使用 bzip2 / libbzip2 1.0.8，Copyright (C) 1996-2019 Julian R Seward，遵循 bzip2 自有宽松许可证。上游 https://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz ，归档 SHA256 `ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269`；未修改的必要库源码与逐文件散列保留在 `third_party/bzip2/`，完整许可随 HAP 保存在 `rawfile/third_party/bzip2/LICENSE.txt`。应用自有异步桥接仅流式提取固定模型白名单，不引入系统解压命令或模型服务。
-- Kokoro v1.1-zh：82M 参数，模型权重 Apache-2.0；原作者模型卡 https://huggingface.co/hexgrad/Kokoro-82M-v1.1-zh 。ONNX INT8 转换由 csukuangfj 发布，固定资源仓库 `csukuangfj/kokoro-int8-multi-lang-v1_1` / revision `1355334be009ccce397060ee639a874137a128fa`；364 项资源的大小、SHA256 和说话人顺序见 `scripts/offline-tts-assets.json`。
-- Piper 超文 / 小雅 INT8：兼容 sherpa-onnx 官方 `tts-models` 发布的两个独立中文单音色包，各为 22,050 Hz、sid=0。固定归档散列、原始目录及 8 项文件白名单见 `scripts/piper-tts-assets.json`；完整原始模型卡与来源说明随 HAP 保存在 `rawfile/third_party/offline_tts/MODEL_CARD.piper-chaowen-int8.txt`、`MODEL_CARD.piper-xiaoya-int8.txt` 和 `NOTICE.txt`，权重由用户另行导入。
-- 小雅模型卡声明训练数据 BZNSYP 仅供非商业使用。固定超文归档的模型卡声明新增训练集为 CC0，同时注明从小雅模型微调；此固定版本与当前线上模型卡的基座描述不同，不能把训练集 CC0 等同于整个检查点已获得商业使用许可。两个固定原包均未附单独的模型授权文件，应用保留原始声明，不重新许可模型权重。
-- 运行时复用现有 sherpa-onnx 官方 HarmonyOS HAR 1.13.3，主项目 Apache-2.0；来源 https://github.com/k2-fsa/sherpa-onnx/tree/v1.13.3/harmony-os 。HAR 中 ONNX Runtime 的 MIT 许可及第三方声明继续随 `rawfile/audio_subtitles/` 保留。
-- 1.13.3 发音前端中的 piper-phonemize 为 MIT，Copyright (c) 2023 Michael Hansen；上游构建固定 https://github.com/csukuangfj/piper-phonemize/tree/78a788e0b719013401572d70fef372e77bff8e43 ，来源由 sherpa-onnx `cmake/piper-phonemize.cmake` 声明。其 uni-algo 附带许可一并保留。
-- eSpeak NG 及 ucd-tools 为 GPL-3.0-or-later。sherpa-onnx 1.13.3 的 `cmake/espeak-ng-for-piper.cmake` 固定 https://github.com/csukuangfj/espeak-ng/tree/f6fed6c58b5e0998b8e68c6610125e2d07d595a7 ，原项目 https://github.com/espeak-ng/espeak-ng 。当前 Kokoro 运行需要用户导入包中的完整 eSpeak 数据；不能把全部前端组件声明为 Apache-2.0。
-- Apache-2.0、GPL-3.0、piper-phonemize MIT、uni-algo 与 eSpeak 上游 BSD-2-Clause 附带许可全文，以及固定来源说明随 HAP 保存在 `rawfile/third_party/offline_tts/`。组合应用沿用项目 GPL-3.0 的分发与对应源码要求。
-- 模型权重由用户另行导入，不随 HAP 或 Git 分发。本机准备的 `artifacts/models/offline-tts-kokoro-int8-v1_1.zip` 是独立导入产物，不推送 Git；模型包的 Apache LICENSE 不替代 eSpeak 等依赖的许可证。准备步骤与验证边界见 `docs/OFFLINE_TTS.md`。
+- 音频字幕继续使用 sherpa-onnx 官方 HarmonyOS HAR 1.13.3，Apache-2.0；其 ONNX Runtime 许可及第三方声明保存在 `rawfile/audio_subtitles/`。
+- HAR 附带的 piper-phonemize、uni-algo、eSpeak NG 和 ucd-tools 许可继续保留在 `rawfile/third_party/offline_tts/`，该目录仅用于运行时许可。Piper 超文、小雅及 Kokoro 的本地模型功能与专属 bzip2 解包库已移除。
 
 ## Petrel 删除消散效果
 
@@ -115,6 +113,14 @@ Apache License 2.0 全文见 `third_party/quickjs/LICENSE-APACHE-2.0`。
 生成文件保留上游版权信息，宿主适配由 `scripts/light-epub-sync.cjs` 维护。独立版本及 SHA256 见 `third_party/light-source/epub-upstream.json`。只复用排版、分页和定位核心，现有页面与导入存储继续由简听维护。
 
 同版辅助文件包括 `ReaderNightImage.ts`、`EpubOriginalFont.ts`，以及从 `EpubDuokanExtensions.ts` 提取的两个布局常量；逐文件来源与散列记录在上述清单。
+
+## 声桥 shengqiao-hap
+
+- 上游项目：https://github.com/zyt174/shengqiao-hap
+- 适配版本：1.1.92
+- 采用内容：华为音频容器提取与分片算法、音色目录、华为授权及合成协议、微软音色合成协议。
+- 适配位置：`entry/src/main/ets/service/text/ShengqiaoPcm.ets`、`ShengqiaoTtsService.ets`；独立插件包由 `scripts/prepare-shengqiao-plugin.py` 生成。
+- 上游仓库当前未附许可证文本，代码与素材归原作者所有，使用和分发范围以作者授权为准。
 
 ## CryptoJS
 

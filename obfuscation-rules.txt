@@ -25,7 +25,7 @@
   LocalRuleQuickJsRuntime
   # N-API export name is fixed in libsubtitle_audio.so.
   decodeSubtitleAudio
-  # Fixed exports from libcba_archive.so, liboffline_tts_archive.so and librecord_dissolve.so.
+  # Fixed exports from libcba_archive.so and librecord_dissolve.so.
   extract
   progress
   shatterPrepare

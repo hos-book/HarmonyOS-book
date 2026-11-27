@@ -1,6 +1,7 @@
 import { fileIo } from '@kit.CoreFileKit';
 import { zlib } from '@kit.BasicServicesKit';
 import { util } from '@kit.ArkTS';
+import { readEpubEntries } from 'libhsda_core.so';
 
 class EpubZipEntry {
   path: string = '';
@@ -143,35 +144,29 @@ export class EpubArchive {
   }
 
   async read(path: string, maximum: number = EpubArchive.MAX_RESOURCE): Promise<ArrayBuffer> {
-    const entry = this.entries.get(path);
-    if (entry === undefined) throw new Error('EPUB 资源不存在');
-    if (entry.size > maximum || entry.compressed > EpubArchive.MAX_RESOURCE) throw new Error('EPUB 单个资源过大');
-    const local = new DataView(await this.bytes(entry.offset, 30));
-    if (local.getUint32(0, true) !== 0x04034b50 || local.getUint16(8, true) !== entry.method ||
-      (local.getUint16(6, true) & 1) !== 0) throw new Error('EPUB 资源头损坏');
-    const input = await this.bytes(entry.offset + 30 + local.getUint16(26, true) + local.getUint16(28, true), entry.compressed);
-    let output: ArrayBuffer;
-    if (entry.method === 0) output = input;
-    else if (entry.method === 8) {
-      const inflater = await zlib.createZip();
-      const stream: zlib.ZStream = {};
-      await inflater.inflateInit2(stream, -15);
-      try {
-        stream.nextIn = input; stream.availableIn = input.byteLength;
-        const buffer = new ArrayBuffer(Math.max(1, entry.size));
-        stream.nextOut = buffer; stream.availableOut = buffer.byteLength;
-        const status = await inflater.inflate(stream, zlib.CompressFlushMode.FINISH);
-        const result = await inflater.getZStream();
-        if (status !== zlib.ReturnStatus.STREAM_END || result.totalOut !== entry.size) {
-          throw new Error('EPUB 资源解压不完整');
-        }
-        // getZStream 只返回计数/状态，输出字节在调用方传入的缓冲区中。
-        output = entry.size === buffer.byteLength ? buffer : buffer.slice(0, entry.size);
-      } finally { await inflater.inflateEnd(stream); }
-    } else throw new Error('EPUB 使用不支持的压缩方式');
-    if (output.byteLength !== entry.size || ((await (await zlib.createChecksum()).crc32(0, output)) >>> 0) !== entry.crc) {
-      throw new Error('EPUB 资源完整性校验失败');
+    return (await this.readBatch([path], maximum))[0];
+  }
+
+  /** ZIP entries share one background read/decompression task and preserve caller order. */
+  async readBatch(paths: string[], maximum: number = EpubArchive.MAX_RESOURCE): Promise<ArrayBuffer[]> {
+    if (this.file === null) throw new Error('EPUB 文件已关闭');
+    const entries: EpubZipEntry[] = [];
+    const descriptors: number[] = [];
+    for (let index = 0; index < paths.length; index++) {
+      const entry = this.entries.get(paths[index]);
+      if (entry === undefined) throw new Error('EPUB 资源缺失');
+      if (entry.size > maximum || entry.compressed > EpubArchive.MAX_RESOURCE) throw new Error('EPUB 单个资源过大');
+      entries.push(entry);
+      descriptors.push(entry.offset, entry.compressed, entry.size, entry.method);
     }
-    return output;
+    const outputs: ArrayBuffer[] = await readEpubEntries(this.file.fd, this.size, descriptors);
+    for (let index = 0; index < entries.length; index++) {
+      const entry = entries[index];
+      const output: ArrayBuffer = outputs[index];
+      if (output.byteLength !== entry.size || ((await (await zlib.createChecksum()).crc32(0, output)) >>> 0) !== entry.crc) {
+        throw new Error('EPUB 资源完整性校验失败');
+      }
+    }
+    return outputs;
   }
 }

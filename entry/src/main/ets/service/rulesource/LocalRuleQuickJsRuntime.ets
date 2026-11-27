@@ -2,6 +2,7 @@ import { JSBoundedExecutionResult, JSContext, JSRuntimeOptions } from '@devzeng/
 import { taskpool } from '@kit.ArkTS';
 import { NativeSourceCrypto } from './light/upstream/core/nativesource/NativeSourceCrypto';
 import { LocalRuleQuickJsHostChannel } from './LocalRuleQuickJsHostChannel';
+import { runBoundedHtmlCodec } from '../text/RustTextWorker';
 
 @Concurrent
 function runBoundedHostQuickJs(script: string, sourceUrl: string, timeoutMs: number,
@@ -14,7 +15,7 @@ function runBoundedHostQuickJs(script: string, sourceUrl: string, timeoutMs: num
     const result = context.evaluateBounded(script, sourceUrl, timeoutMs, 32, undefined, undefined,
       control.subarray(0, 1), (name: string, payload: string): string => {
         return LocalRuleQuickJsHostChannel.call(control, response, name, payload);
-      });
+      }, runBoundedHtmlCodec);
     if (result.value.length > 8 * 1024 * 1024) throw new Error('原生 JS 输出超过限制');
     return JSON.stringify(result);
   } finally { context.release(); }
@@ -46,7 +47,7 @@ function runBoundedQuickJs(script: string, sourceUrl: string, timeoutMs: number,
   const context = new JSContext(options);
   try {
     const nativeResult: JSBoundedExecutionResult = context.evaluateBounded(
-      script, sourceUrl, timeoutMs, maxPendingJobs);
+      script, sourceUrl, timeoutMs, maxPendingJobs, undefined, undefined, undefined, undefined, runBoundedHtmlCodec);
     return `{"success":${nativeResult.success},"value":${JSON.stringify(nativeResult.value)},` +
       `"error":${JSON.stringify(nativeResult.error)},"timedOut":${nativeResult.timedOut},` +
       `"elapsedMs":${nativeResult.elapsedMs},"pendingJobs":${nativeResult.pendingJobs}}`;
