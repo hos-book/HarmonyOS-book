@@ -17,6 +17,10 @@
 - 使用 Release SDK 26.0.0.105 完成发布签名 APP 构建，`product=release`、`buildMode=release`，构建耗时 3 分 5.986 秒。
 - 发布编译结果保留 `readEpubEntries`、字幕词典与时间轴、榜单解析等原生导出名称，修复模型导入时的接口改名问题。
 - 独立静态检查返回部分跨文件声明诊断，完整发布编译通过。模型重新导入与实际着色、字幕识别的设备效果待邀测反馈。
+- 邀测提交返回 `ret.code=0`，版本 ID：`2092991309848541696`，软件包 ID：`2092994334780579264`，软件包解析状态为 0，提交后平台状态码为 7。
+- 全部现有测试组已绑定并开启发布通知：简听外部体验 284 人、内测组 1 人；通知由 AGC 发布流程发送。
+- 上架自检与自检报告通知已关闭，自检任务查询为空。测试开始时间采用提交当日当前时间，结束时间为 2026-12-27 23:59:59（北京时间），实际开放由平台处理进度决定。
+- 发布签名 APP、混淆映射、更新说明和提交回执保存在本版本归档目录，回执为 `release-progress.json`。
 - 发布操作参考在线 [AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)及[邀测流程](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/workflows.md)。
 
 ---
