@@ -24,6 +24,15 @@
 - 发布归档目录：`artifacts/releases/1.1.23-1033001/`。
 - 发布操作依据本轮读取的 [AGC 发布技能](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/SKILL.md)及[发布流程](https://raw.gitcode.com/HarmonyOS_Skills/harmonyos-agent-skills/raw/main/05-launch-and-distribute/hmos-connect-api-cli-skill/references/workflows.md)。
 
+## 构建与发布记录
+
+- 2026-11-27 使用 Release SDK 26.0.0.105，分别完成邀测与正式渠道的发布签名 APP 构建。两包版本均为 1.1.23 / 1033001 / 构建 1，release 模式、debug=false，最低 API 20、目标 API 26；平台软件包解析均已完成（`successStatus=0`）。
+- 邀测提交接口返回 `ret.code=0`，版本 ID：`2092844428812147776`，软件包 ID：`2092847541841353792`；提交后回读状态码为 7。测试期即刻开始，结束时间为 2026-12-27 23:59:59（北京时间）。
+- 当前全部测试组均已绑定（`bind=1`）：简听外部体验 281 人、内测组 1 人。发布通知开启（`needNotify=1`），通知由 AGC 发布流程发送。
+- 创建邀测版本时关闭上架自检（`onshelfSelfDetect=0`），查询返回自检任务为空。版本采用即刻开始的测试时间，发布请求沿用即时分发配置。
+- 正式版提交接口返回 `ret.code=0`，版本 ID：`2092847865977155328`，软件包 ID：`2092848089298677504`；提交后回读状态码为 12。提交采用全量发布（`releaseType=1`、`releasePhase=0`），审核通过后立即上架。
+- 两渠道使用同一份合并更新说明。发布包、混淆映射、包元数据与更新说明保存于本版本归档目录；邀测回执为 `release-progress.json`，正式版回执为 `formal-release-receipt.json`。实际开放及上架时间以 AGC 处理结果为准。
+
 ---
 
 # 1.1.22 更新日志（2026-11-26）
