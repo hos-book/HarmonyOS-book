@@ -1448,17 +1448,6 @@
       "choices": []
     },
     {
-      "key": "icon.ChevronRight",
-      "label": "theme_field_icon_ChevronRight",
-      "section": "icons",
-      "type": "image",
-      "light": "",
-      "dark": "",
-      "min": 0,
-      "max": 100,
-      "choices": []
-    },
-    {
       "key": "cover.placeholder",
       "label": "theme_field_cover_placeholder",
       "section": "covers",

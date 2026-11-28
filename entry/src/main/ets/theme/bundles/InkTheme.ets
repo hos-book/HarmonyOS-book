@@ -62,7 +62,6 @@ export function createInkTheme(): AppThemeBundle {
   visual.icons.set(ThemeIconRole.Filter, $r('app.media.theme_ink_filter'));
   visual.icons.set(ThemeIconRole.Grid, $r('app.media.theme_ink_grid'));
   visual.icons.set(ThemeIconRole.List, $r('app.media.theme_ink_list'));
-  visual.icons.set(ThemeIconRole.ChevronRight, $r('app.media.theme_ink_chevron_right'));
   visual.icons.set(ThemeIconRole.Home, $r('app.media.theme_ink_home'));
   visual.icons.set(ThemeIconRole.Shelf, $r('app.media.theme_ink_shelf'));
   visual.icons.set(ThemeIconRole.Record, $r('app.media.theme_ink_record'));

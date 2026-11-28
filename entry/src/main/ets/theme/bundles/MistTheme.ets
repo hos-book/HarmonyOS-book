@@ -55,7 +55,6 @@ export function createMistTheme(): AppThemeBundle {
   visual.icons.set(ThemeIconRole.Filter, $r('app.media.theme_mist_filter'));
   visual.icons.set(ThemeIconRole.Grid, $r('app.media.theme_mist_grid'));
   visual.icons.set(ThemeIconRole.List, $r('app.media.theme_mist_list'));
-  visual.icons.set(ThemeIconRole.ChevronRight, $r('app.media.theme_mist_chevron_right'));
   visual.icons.set(ThemeIconRole.Home, $r('app.media.theme_mist_home'));
   visual.icons.set(ThemeIconRole.Shelf, $r('app.media.theme_mist_shelf'));
   visual.icons.set(ThemeIconRole.Record, $r('app.media.theme_mist_record'));

@@ -4,7 +4,7 @@ import { ThemePageBackdrop } from './ThemeDocument';
 export enum ThemeBackgroundKind { Gradient, Solid, Image }
 export enum ThemeBackgroundScene { Home, Shelf, Record }
 export enum ThemeCoverDecoration { None, Border, Spine }
-export enum ThemeIconRole { None, Search, Filter, Grid, List, ChevronRight, Home, Shelf, Record, Profile, Category }
+export enum ThemeIconRole { None, Search, Filter, Grid, List, Home, Shelf, Record, Profile, Category }
 
 export enum ThemeButtonRole {
   None = '',

@@ -209,7 +209,7 @@ export function renderDevice(context) {
 
   function heading(text) {
     const row = el('div', 'preview-section-heading');
-    row.append(edit(el('h4', '', text), 'color.textPrimary'), themedIcon('icon.ChevronRight', 'chevron_right'));
+    row.append(edit(el('h4', '', text), 'color.textPrimary'), symbol('chevron_right'));
     return row;
   }
 
@@ -337,7 +337,7 @@ export function renderDevice(context) {
       items.forEach(item => {
         const row = el('div', 'profile-menu-row harmony-list harmony-list-single');
         const icon = symbol(item.symbol, 'profile-menu-icon'); icon.style.color = item.color;
-        row.append(icon, el('span', '', item.label), themedIcon('icon.ChevronRight', 'chevron_right'));
+        row.append(icon, el('span', '', item.label), symbol('chevron_right'));
         group.append(row);
       });
       scroll.append(group);

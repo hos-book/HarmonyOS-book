@@ -34,7 +34,6 @@ export class ThemeDocumentResolver {
     ThemeDocumentResolver.icon(bundle, tokens, ThemeIconRole.Filter, 'icon.Filter', directory, false);
     ThemeDocumentResolver.icon(bundle, tokens, ThemeIconRole.Grid, 'icon.Grid', directory, false);
     ThemeDocumentResolver.icon(bundle, tokens, ThemeIconRole.List, 'icon.List', directory, false);
-    ThemeDocumentResolver.icon(bundle, tokens, ThemeIconRole.ChevronRight, 'icon.ChevronRight', directory, false);
     for (const role of THEME_BUTTON_ROLES) {
       const asset: string = ThemeDocumentResolver.asset(tokens, role, directory);
       if (asset) bundle.visual.buttons.set(role, asset);

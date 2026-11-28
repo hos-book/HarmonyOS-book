@@ -6,8 +6,6 @@ import { ThemeBackgroundComponent } from '../components/ThemeBackgroundComponent
 import { AppBackgroundScene } from '../model/AppBackground';
 import { AppBackgroundService } from '../service/AppBackgroundService';
 import { AppAppearance } from '../model/AppAppearance';
-import { ThemeIconComponent } from '../components/ThemeIconComponent';
-import { ThemeIconRole } from '../theme/ThemeIcons';
 import { HdsNavigation, HdsNavigationTitleMode } from '@kit.UIDesignKit';
 import { WindowUtils } from '../utils/WindowUtils';
 import { AuthService } from '../service/AuthService';
@@ -421,8 +419,10 @@ export struct ProfilePage {
       .alignItems(HorizontalAlign.Start)
       .layoutWeight(1)
 
-      ThemeIconComponent({ role: ThemeIconRole.ChevronRight, symbol: $r('sys.symbol.chevron_right'),
-        iconSize: 24, tint: AppTheme.TextTertiary })
+      SymbolGlyph($r('sys.symbol.chevron_right'))
+        .fontSize(24).fontColor([AppTheme.TextTertiary])
+        .width(24).height(24)
+        .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
     }
     .width('100%')
     .padding({

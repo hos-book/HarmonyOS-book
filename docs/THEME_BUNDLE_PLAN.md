@@ -58,7 +58,7 @@ assets/
 | `background.coverBackdrop` | 首页与详情书封氛围开关 |
 | `tab.home/shelf/record/profile.normal/selected` | 四个 Tab 的常态及选中图片 |
 | `tab.normalColor/selectedColor` | Tab 状态配色 |
-| `icon.Search/Filter/Grid/List/ChevronRight` | 已接入的功能图标 |
+| `icon.Search/Filter/Grid/List` | 已接入的功能图标 |
 | `button.shelf.*` | 书架顶部及书房分组面板的整按钮图片与切换状态 |
 | `button.record.*` | 记录页返回、筛选、摘录、历史、编辑／完成／锁定的整按钮图片 |
 | `cover.placeholder/localPlaceholder/playerPlaceholder` | 三种默认封面 |
@@ -67,7 +67,9 @@ assets/
 
 完整字段与默认值位于 `entry/src/main/resources/rawfile/theme_editor_schema.json`。文案位于 `entry/src/main/resources/base/element/theme_editor.json`，三端直接读取。
 
-字段表共 135 项：配色 36、页面背景 42、Tab 10、顶部按钮 23、功能图标 5、书封装饰 11、播放器 8。主题名称、说明、材质和底栏布局在主题信息中设置。背景编辑项按当前模式展示；书封模式提供底色、模糊与蒙层，图片模式另提供图片焦点与缩放。
+字段表共 134 项：配色 36、页面背景 42、Tab 10、顶部按钮 23、功能图标 4、书封装饰 11、播放器 8。主题名称、说明、材质和底栏布局在主题信息中设置。背景编辑项按当前模式展示；书封模式提供底色、模糊与蒙层，图片模式另提供图片焦点与缩放。
+
+右箭头由页面直接使用系统符号，沿用现有尺寸、配色与点击区域。App、网页和 Windows 预览统一移除右箭头图片钩子；旧主题在导入及再次制作时移除 `icon.ChevronRight`，导出仅包含当前主题字段及其引用素材。
 
 顶部按钮使用 `ThemeButtonRole` 与 `AppThemeVisual.buttons` 映射，由 `ImmersiveCircleButton` 在已有点击区域显示完整透明图片，包含图标和底板。图片按原色、方形画布显示，页面保留原有事件及长按逻辑。字段为空时使用原有按钮，各状态分别读取对应字段。App、网页和 Windows 的“顶部按钮”编辑组支持按页面编辑和状态预览。复杂背景及插画使用 PNG／WebP，简洁图标可使用 SVG。
 

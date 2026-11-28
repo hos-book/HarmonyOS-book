@@ -37,8 +37,10 @@ export class ThemeDocument {
     next.name = document.name;
     next.description = document.description;
     next.baseThemeId = document.baseThemeId;
-    next.light = document.light.map((token: ThemeToken): ThemeToken => new ThemeToken(token.key, token.value));
-    next.dark = document.dark.map((token: ThemeToken): ThemeToken => new ThemeToken(token.key, token.value));
+    next.light = document.light.filter((token: ThemeToken): boolean => token.key !== 'icon.ChevronRight')
+      .map((token: ThemeToken): ThemeToken => new ThemeToken(token.key, token.value));
+    next.dark = document.dark.filter((token: ThemeToken): boolean => token.key !== 'icon.ChevronRight')
+      .map((token: ThemeToken): ThemeToken => new ThemeToken(token.key, token.value));
     return next;
   }
 }

@@ -1585,8 +1585,10 @@ export struct HomePage {
                       item.bookSourceUrl === source.bookSourceUrl));
                   })
                 Button({ type: ButtonType.Circle }) {
-                  ThemeIconComponent({ role: ThemeIconRole.ChevronRight, symbol: $r('sys.symbol.chevron_right'),
-                    iconSize: 24, tint: AppColor.Brand })
+                  SymbolGlyph($r('sys.symbol.chevron_right'))
+                    .fontSize(24).fontColor([AppColor.Brand])
+                    .width(24).height(24)
+                    .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
                 }
                 .width(40).height(48).flexShrink(0).margin({ right: AppSpace.Xxs })
                 .backgroundColor(Color.Transparent)
@@ -2183,8 +2185,10 @@ export struct HomePage {
             Text('更多')
               .fontSize(AppFont.Caption)
               .fontColor(AppTheme.TextSecondary)
-            ThemeIconComponent({ role: ThemeIconRole.ChevronRight, symbol: $r('sys.symbol.chevron_right'),
-              iconSize: 12, tint: AppTheme.TextSecondary })
+            SymbolGlyph($r('sys.symbol.chevron_right'))
+              .fontSize(12).fontColor([AppTheme.TextSecondary])
+              .width(12).height(12)
+              .hitTestBehavior(HitTestMode.None).accessibilityLevel('no')
           }
           .padding({ left: AppSpace.Xs, right: AppSpace.Xs, top: 6, bottom: 6 })
           .onClick(() => this.onBlockMore(block))

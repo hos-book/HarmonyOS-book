@@ -181,7 +181,6 @@ export class ThemePackageService {
     await ThemePackageService.captureAsset(tokens, 'icon.Filter', visual.icons.get(ThemeIconRole.Filter), manager, directory);
     await ThemePackageService.captureAsset(tokens, 'icon.Grid', visual.icons.get(ThemeIconRole.Grid), manager, directory);
     await ThemePackageService.captureAsset(tokens, 'icon.List', visual.icons.get(ThemeIconRole.List), manager, directory);
-    await ThemePackageService.captureAsset(tokens, 'icon.ChevronRight', visual.icons.get(ThemeIconRole.ChevronRight), manager, directory);
     for (const role of THEME_BUTTON_ROLES) {
       await ThemePackageService.captureAsset(tokens, role, visual.buttons.get(role), manager, directory);
     }

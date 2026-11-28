@@ -4,7 +4,8 @@ function themeContent(theme) {
   return {
     format: theme.format, schemaVersion: theme.schemaVersion, id: theme.id,
     name: theme.name, description: theme.description, baseThemeId: theme.baseThemeId,
-    light: theme.light, dark: theme.dark
+    light: theme.light.filter(token => token.key !== 'icon.ChevronRight'),
+    dark: theme.dark.filter(token => token.key !== 'icon.ChevronRight')
   };
 }
 
@@ -20,11 +21,12 @@ export async function readTheme(file) {
 }
 
 export async function writeTheme(theme, assets) {
+  const document = themeContent(theme);
   const files = {
     'manifest.json': strToU8(JSON.stringify({ format: 'jianting.theme', schemaVersion: 1, theme: 'theme.json' })),
-    'theme.json': strToU8(JSON.stringify(themeContent(theme), null, 2))
+    'theme.json': strToU8(JSON.stringify(document, null, 2))
   };
-  for (const token of [...theme.light, ...theme.dark]) {
+  for (const token of [...document.light, ...document.dark]) {
     if (token.value.startsWith('assets/')) files[token.value] = assets.get(token.value);
   }
   const bytes = await new Promise((resolve, reject) => zip(files, { level: 6 }, (error, result) => error ? reject(error) : resolve(result)));
