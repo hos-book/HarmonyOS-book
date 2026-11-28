@@ -8,6 +8,10 @@ AI 制作主题使用 [主题 AI 制作规范](../../docs/THEME_AI_GUIDE.md)，�
 
 网页采用 Vite 和原生 JavaScript，Windows 由 Electron 加载同一份生产页面。两个界面均支持浅深并列预览、点击预览定位字段、图片选择、主题导入及导出。App 使用 ArkUI V2 原生制作器。
 
+在线入口：https://hos-book.github.io/HarmonyOS-book/theme-editor/ 。浏览器内完成编辑，导出 `.jttheme` 后传到手机，在简听阅读中导入应用。
+
+预览分别绘制首页、书架、阅听记录、我的和播放器，沿用 App 页面结构、字号、间距、书封比例和顶部按钮尺寸。支持手机 400×880、平板 834×1112、电脑 1280×800 的窗口预设，按画布空间整体缩放；书架可查看网格、列表、书房，迷你播放器与底栏排列可在预览工具栏调整。预览中的书籍和账号用于展示主题，原生光感材质以 App 为准。
+
 “顶部按钮”分组提供书架、记录页共 23 个独立整按钮素材字段，支持透明 PNG／WebP 和状态预览。图片同时包含图标与底板，实际操作由 App 保留。完整主题字段共 135 项，主题包版本为 1。
 
 ## 开发与构建
@@ -22,6 +26,12 @@ npm run build
 ```
 
 网页构建输出到 `dist/`，可部署到静态站点目录。开发服务默认使用本机地址。
+
+GitHub Pages 由 `.github/workflows/app-gallery-pages.yml` 发布。推送制作器、主题字段或引用资源到 `main` 后，工作流构建网页，将应用介绍页与 `dist/` 合并到发布目录，制作器位于 `theme-editor/`。仓库 Pages 的构建来源设置为 GitHub Actions。相对资源路径同时适用于 Pages 子目录和 Electron。
+
+预览实现位于 `src/preview.js` 与 `src/preview.css`；展示文案位于 `src/preview-copy.json`，字段和主题文件读写继续共用原有契约。图标来源与授权见 `src/assets/harmony/README.md`。
+
+书架与阅听足迹沿用 App 的固定物理书封及默认文字；主题书封素材与装饰可在首页和播放器查看。
 
 Windows 初次准备运行时后启动或打包：
 

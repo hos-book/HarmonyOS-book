@@ -9,6 +9,7 @@
 | 版本 | 入口 |
 | --- | --- |
 | App | 我的 → 主题与背景 → 套装 → 制作主题 |
+| 在线网页 | https://hos-book.github.io/HarmonyOS-book/theme-editor/ |
 | Windows | 双击 `D:\HSDA\tools\theme-editor\release\JianTing-Theme-Editor-1.0.0.exe` |
 | 本机网页 | 在这台电脑的浏览器打开 http://127.0.0.1:5173/ |
 
@@ -19,7 +20,7 @@ cd D:\HSDA\tools\theme-editor
 npm run dev -- --port 5173 --strictPort
 ```
 
-公网地址需要将网页构建产物部署到网站后提供。
+在线网页由 GitHub Pages 提供，分享链接即可打开制作器。网页顶部可选择手机、平板与电脑窗口；宽画布并排显示浅深预览，窄画布显示当前模式。书架支持网格、列表和书房视图，迷你播放器及底栏排列供预览当前 App 外观使用。
 
 **制作一套主题**
 

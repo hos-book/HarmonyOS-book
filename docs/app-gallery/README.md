@@ -23,7 +23,7 @@
 
 在 AppGallery Connect 的同一个应用条目中，将名称、一句话简介、介绍、新版本说明和截图替换为本目录内容，并上传新版 APP。保留应用原有标识。
 
-公开展示页由 GitHub Pages 发布到 https://end-web.github.io/HarmonyOS-book/ ，隐私政策地址为 https://end-web.github.io/HarmonyOS-book/privacy.html 。部署成功并确认可访问后，将隐私政策地址填写到 AppGallery Connect。
+公开展示页由 GitHub Pages 发布到 https://hos-book.github.io/HarmonyOS-book/ ，隐私政策地址为 https://hos-book.github.io/HarmonyOS-book/privacy.html ，主题制作器地址为 https://hos-book.github.io/HarmonyOS-book/theme-editor/ 。部署成功并确认可访问后，将隐私政策地址填写到 AppGallery Connect。
 
 软件资质中的法定软件名称也需与“简听阅读”相对应。资质变更由发证机构或平台办理，本目录中的文案和代码改名不能代替资质变更。
 

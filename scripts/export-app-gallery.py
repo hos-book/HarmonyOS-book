@@ -92,7 +92,7 @@ footer { margin-top: 44px; color: #655e54; }
 <header><img src="icon.png" width="88" height="88" alt="简听阅读图标"><h1>简听阅读</h1>
 <p class="tagline">随心收听，静心阅读</p>
 <nav><a href="https://github.com/end-web/HarmonyOS-book/releases/latest">版本与下载</a>
-<a href="privacy.html">隐私政策</a><a href="https://github.com/end-web/HarmonyOS-book">项目主页</a></nav></header>
+<a href="theme-editor/">主题制作器</a><a href="privacy.html">隐私政策</a><a href="https://github.com/hos-book/HarmonyOS-book">项目主页</a></nav></header>
 <section class="description"><h2>关于简听阅读</h2>
 ''' + description + '''</section>
 <section><h2>应用截图</h2><div class="gallery">

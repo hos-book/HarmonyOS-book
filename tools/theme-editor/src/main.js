@@ -1,6 +1,7 @@
 import schema from '../../../entry/src/main/resources/rawfile/theme_editor_schema.json';
 import resources from '../../../entry/src/main/resources/base/element/theme_editor.json';
 import { readTheme, writeTheme } from './package.js';
+import { renderDevice, viewports, previewCopy, appIcon } from './preview.js';
 import './style.css';
 
 const strings = new Map(resources.string.map(item => [item.name, item.value]));
@@ -17,6 +18,10 @@ let backgroundScene = 'common';
 let buttonScene = 'shelf';
 let buttonPreview = '';
 let theme = freshTheme();
+let viewport = 'phone';
+let shelfLayout = 'grid';
+let miniPlayer = true;
+let barLayout = 'stacked';
 
 function freshTheme() {
   return {
@@ -63,10 +68,6 @@ function fieldVisible(field) {
   return false;
 }
 
-function cssColor(hex) {
-  return /^#[0-9a-f]{8}$/i.test(hex) ? `#${hex.slice(3)}${hex.slice(1, 3)}` : hex;
-}
-
 function assetUrl(path) {
   if (!assets.has(path)) return '';
   if (!urls.has(path)) {
@@ -80,7 +81,10 @@ function assetUrl(path) {
 const app = document.querySelector('#app');
 const header = node('header', 'app-header');
 const identity = node('div', 'identity');
-identity.append(node('div', 'brand-mark', '听'));
+const brandIcon = node('img', 'brand-mark');
+brandIcon.src = appIcon;
+brandIcon.alt = t('theme_editor_preview_author');
+identity.append(brandIcon);
 const heading = node('div');
 heading.append(node('h1', '', t('theme_editor_web_title')), node('p', '', t('theme_editor_web_subtitle')));
 identity.append(heading);
@@ -122,8 +126,28 @@ scenes.forEach(item => {
 });
 studioHeader.append(sceneNav);
 const canvas = node('div', 'preview-canvas');
-const studioNote = node('p', 'studio-note', t('theme_editor_toolbar_hint'));
-studio.append(studioHeader, canvas, studioNote);
+const previewToolbar = node('div', 'preview-toolbar');
+function previewSelect(label, choices, current, onChange) {
+  const wrapper = node('label', 'preview-option');
+  const select = node('select');
+  choices.forEach(key => {
+    const option = node('option', '', previewCopy[key]); option.value = key; select.append(option);
+  });
+  select.value = current;
+  select.addEventListener('change', () => { onChange(select.value); renderPreview(); });
+  wrapper.append(node('span', '', label), select);
+  return wrapper;
+}
+const viewportOption = previewSelect(previewCopy.window, Object.keys(viewports), viewport, current => { viewport = current; });
+const shelfOption = previewSelect(previewCopy.shelfView, ['grid', 'list', 'collection'], shelfLayout, current => { shelfLayout = current; buttonPreview = ''; });
+const barOption = previewSelect(previewCopy.barLayout, ['stacked', 'inline'], barLayout, current => { barLayout = current; });
+const miniOption = node('label', 'preview-option preview-toggle');
+const miniInput = node('input'); miniInput.type = 'checkbox'; miniInput.checked = miniPlayer;
+miniInput.addEventListener('change', () => { miniPlayer = miniInput.checked; renderPreview(); });
+miniOption.append(miniInput, node('span', '', previewCopy.miniPlayer));
+previewToolbar.append(viewportOption, shelfOption, barOption, miniOption);
+const studioNote = node('p', 'studio-note', previewCopy.previewNote);
+studio.append(studioHeader, previewToolbar, canvas, studioNote);
 const inspector = node('aside', 'inspector');
 workspace.append(sidebar, studio, inspector);
 const toast = node('div', 'toast');
@@ -274,6 +298,8 @@ function focusField(key, colorMode) {
   const field = fields.get(key); if (!field) return;
   mode = colorMode; section = field.section;
   if (key.startsWith('background.') && key.split('.').length === 3) backgroundScene = key.split('.')[1];
+  if (key === 'background.profileCard') backgroundScene = 'profile';
+  if (key === 'background.coverBackdrop') backgroundScene = 'common';
   if (key.startsWith('button.')) { buttonScene = key.split('.')[1]; scene = buttonScene; buttonPreview = key; }
   renderNavigation(); renderInspector(); renderPreview();
   const selected = document.getElementById(`field-${key}`);
@@ -286,166 +312,63 @@ function hook(element, key, colorMode) {
   element.title = t(fields.get(key)?.label ?? 'theme_editor_edit');
   element.classList.add('editable');
   element.addEventListener('click', event => { event.stopPropagation(); focusField(key, colorMode); });
-  element.addEventListener('keydown', event => { if (event.key === 'Enter') focusField(key, colorMode); });
+  element.addEventListener('keydown', event => {
+    if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); focusField(key, colorMode); }
+  });
   return element;
 }
 
-function icon(key, fallback, colorMode, className = '') {
-  const path = assetUrl(value(key, colorMode));
-  const result = node(path ? 'img' : 'span', `preview-icon ${className}`, path ? '' : fallback);
-  if (path) { result.src = path; result.alt = t(fields.get(key)?.label ?? 'theme_editor_edit'); }
-  return hook(result, key, colorMode);
-}
-
-function cover(colorMode, player = false) {
-  const key = player ? 'cover.playerPlaceholder' : 'cover.placeholder';
-  const source = assetUrl(value(key, colorMode));
-  const result = node('div', `book-cover ${player ? 'player-cover' : ''}`);
-  if (source) { const img = node('img'); img.src = source; img.alt = t('theme_editor_preview_book'); result.append(img); }
-  if (!source || value('cover.illustratedPlaceholder', colorMode) === 'true') {
-    const caption = node('span', 'cover-title', t('theme_editor_preview_book'));
-    caption.style.color = cssColor(value('cover.title', colorMode)); result.append(caption);
-  }
-  const decoration = value('cover.decoration', colorMode);
-  if (decoration !== '0') {
-    result.style.border = `2px solid ${cssColor(value('cover.edge', colorMode))}`;
-    if (decoration === '2') result.style.boxShadow = 'inset 6px 0 8px #0003';
-  }
-  return hook(result, key, colorMode);
-}
-
-function headerButtons(colorMode) {
-  const selected = (normal, variants) => variants.includes(buttonPreview) ? buttonPreview : normal;
-  const collection = ['button.shelf.add', 'button.shelf.expand', 'button.shelf.collapse', 'button.shelf.close'];
-  let keys;
-  if (scene === 'shelf') {
-    keys = collection.includes(buttonPreview) ? [collection[0], selected(collection[1], [collection[2]]), collection[3]] : [
-      selected('button.shelf.search', ['button.shelf.searchActive']), 'button.shelf.filter',
-      selected('button.shelf.group', ['button.shelf.groupActive', 'button.shelf.groupManage']),
-      'button.shelf.import', 'button.shelf.updates',
-      selected('button.shelf.viewList', ['button.shelf.viewCollection', 'button.shelf.viewGrid'])
-    ];
-  } else {
-    keys = [selected('button.record.filter', ['button.record.filterActive']), 'button.record.excerpt',
-      'button.record.history', selected('button.record.edit', ['button.record.done', 'button.record.locked'])];
-    if (buttonPreview === 'button.record.back') keys.unshift(buttonPreview);
-  }
-  const symbols = new Map([
-    ['search', '⌕'], ['searchActive', '⌕'], ['filter', '☷'], ['filterActive', '☷'],
-    ['group', '▱'], ['groupActive', '▱'], ['groupManage', '▱'], ['import', '⇧'], ['updates', '↻'],
-    ['viewList', '☰'], ['viewCollection', '▥'], ['viewGrid', '▦'], ['add', '+'],
-    ['expand', '⤢'], ['collapse', '⤡'], ['close', '×'], ['back', '‹'], ['excerpt', '▯'],
-    ['history', '◷'], ['edit', '✎'], ['done', '✓'], ['locked', '▣']
-  ]);
-  const row = node('div', 'phone-header-actions');
-  keys.forEach(key => {
-    const source = assetUrl(value(key, colorMode));
-    const item = hook(node('button', `preview-header-button ${source ? 'custom' : 'system'}`), key, colorMode);
-    item.type = 'button';
-    item.setAttribute('aria-label', t(fields.get(key).label));
-    if (['searchActive', 'groupActive', 'filterActive', 'done', 'locked'].includes(key.split('.')[2])) {
-      item.style.color = cssColor(value('color.brand', colorMode));
-    }
-    const fallback = ['button.record.filter', 'button.record.filterActive'].includes(key) ? assetUrl(value('icon.Filter', colorMode)) : '';
-    if (source || fallback) {
-      const picture = node('img', source ? 'whole-button' : 'button-symbol');
-      picture.src = source || fallback; picture.alt = ''; item.append(picture);
-    } else item.textContent = symbols.get(key.split('.')[2]);
-    row.append(item);
-  });
-  return row;
-}
-
 function renderPhone(colorMode) {
-  const group = node('div', `phone-group ${colorMode === mode ? 'selected-mode' : ''}`);
-  const caption = button(t(`theme_editor_${colorMode}`), () => { mode = colorMode; renderInspector(); renderPreview(); }, 'phone-caption');
-  const phone = node('div', `phone ${colorMode} ${scene === 'player' ? 'player-scene' : ''}`);
-  const color = key => cssColor(value(`color.${key}`, colorMode));
-  for (const field of schema.fields.filter(field => field.section === 'colors')) {
-    phone.style.setProperty(`--${field.key.slice(6)}`, cssColor(value(field.key, colorMode)));
-  }
-  let backdropScene = scene;
-  if (value(`background.${scene}.mode`, colorMode) === 'common') backdropScene = 'common';
-  const prefix = `background.${backdropScene}.`;
-  const backdropMode = value(prefix + 'mode', colorMode);
-  phone.style.background = `linear-gradient(160deg, ${color('homeTop')}, ${color('homeMid')} 40%, ${color('homeBottom')})`;
-  if (backdropMode === 'solid' || backdropMode === 'image' || scene === 'player') {
-    phone.style.background = cssColor(value(prefix + 'color', colorMode));
-    let imageUrl = backdropMode === 'image' ? assetUrl(value(prefix + 'image', colorMode)) : '';
-    if (backdropMode === 'cover') imageUrl = assetUrl(value('cover.playerPlaceholder', colorMode));
-    if (imageUrl) {
-      const background = node('div', 'phone-background');
-      background.style.backgroundImage = `url("${imageUrl}")`;
-      background.style.backgroundPosition = backdropMode === 'cover' ? '50% 50%' :
-        `${value(prefix + 'positionX', colorMode)}% ${value(prefix + 'positionY', colorMode)}%`;
-      background.style.filter = `blur(${Number(value(prefix + 'blur', colorMode)) * .65}px)`;
-      const imageScale = backdropMode === 'cover' ? 1 : Number(value(prefix + 'scale', colorMode)) / 100;
-      background.style.transform = `scale(${imageScale + Number(value(prefix + 'blur', colorMode)) / 200})`;
-      phone.append(background);
-    }
-    const veil = node('div', 'phone-veil'); veil.style.background = colorMode === 'dark' || scene === 'player' ? '#0D0D0D' : '#fff';
-    veil.style.opacity = Number(value(prefix + 'veil', colorMode)) / 100; phone.append(veil);
-  }
-  const content = node('div', 'phone-content');
-  const top = node('div', 'phone-top'); top.append(node('span', '', '9:41'), node('span', '', '••• ▰'));
-  const title = node('div', 'phone-title');
-  title.append(hook(node('h3', '', t(`theme_editor_${scene}`)), 'color.textPrimary', colorMode));
-  if (scene !== 'shelf' && scene !== 'record') title.append(icon('icon.Search', '⌕', colorMode));
-  content.append(top, title);
-  if (scene === 'shelf' || scene === 'record') content.append(headerButtons(colorMode));
-  if (scene === 'player') {
-    const player = node('div', 'player-content');
-    player.append(cover(colorMode, true), node('h4', '', t('theme_editor_preview_book')),
-      node('p', '', t('theme_editor_preview_progress')));
-    const progress = node('div', 'player-track'); progress.append(node('span'));
-    const controls = node('div', 'player-controls'); controls.append(node('span', '', '◀'), node('span', 'play-button', '▶'), node('span', '', '▶'));
-    player.append(progress, controls); content.append(player);
-  } else {
-    content.append(hook(node('p', 'phone-subtitle', theme.description || t('theme_editor_preview_hint')), 'color.textSecondary', colorMode));
-    if (scene === 'record') {
-      const summary = hook(node('div', 'record-card'), 'color.surface', colorMode);
-      summary.append(node('p', '', t('theme_editor_preview_record')), hook(node('strong', '', t('theme_editor_preview_record_value')), 'color.brand', colorMode));
-      const chart = node('div', 'chart'); [36, 62, 44, 80, 52, 95, 64].forEach(height => { const bar = node('i'); bar.style.height = `${height}%`; chart.append(bar); });
-      summary.append(chart); content.append(summary);
-    } else if (scene === 'profile') {
-      const profile = hook(node('div', 'profile-card'), 'background.profileCard', colorMode);
-      const picture = assetUrl(value('background.profileCard', colorMode));
-      if (picture) profile.style.backgroundImage = `url("${picture}")`;
-      profile.append(node('div', 'avatar', '听'), node('h4', '', t('theme_editor_preview_author')));
-      content.append(profile);
-      ['shelf', 'record', 'basic'].forEach(item => {
-        const row = hook(node('div', 'menu-row'), 'color.profileMenuSurface', colorMode);
-        row.append(node('span', '', t(`theme_editor_${item}`)), icon('icon.ChevronRight', '›', colorMode)); content.append(row);
-      });
-    } else {
-      const bookCard = hook(node('div', 'book-card'), 'color.surface', colorMode);
-      const detail = node('div', 'book-detail');
-      detail.append(node('h4', '', t('theme_editor_preview_book')), node('p', '', t('theme_editor_preview_author')),
-        hook(node('span', 'reading-label', '继续阅读'), 'color.brandSoft', colorMode));
-      bookCard.append(cover(colorMode), detail); content.append(bookCard);
-      const sectionTitle = node('div', 'content-heading'); sectionTitle.append(node('span', '', '为你精选'), icon('icon.Filter', '☷', colorMode)); content.append(sectionTitle);
-      const shelf = node('div', 'mini-shelf'); shelf.append(cover(colorMode), cover(colorMode)); content.append(shelf);
-    }
-    const bottom = node('div', 'phone-tabs');
-    const glyphs = ['⌂', '▥', '◷', '♙'];
-    scenes.slice(0, 4).forEach((item, index) => {
-      const active = scene === item;
-      const key = active && value(`tab.${item}.selected`, colorMode) ? `tab.${item}.selected` : `tab.${item}.normal`;
-      const tab = node('div', `phone-tab ${active ? 'active' : ''}`);
-      tab.style.color = cssColor(value(active ? 'tab.selectedColor' : 'tab.normalColor', colorMode));
-      tab.append(icon(key, glyphs[index], colorMode), node('small', '', t(`theme_editor_${item}`))); bottom.append(tab);
-    });
-    content.append(bottom);
-  }
-  content.append(node('div', 'home-indicator'));
-  phone.append(content); group.append(caption, phone, node('p', 'theme-caption', theme.name));
+  const { width, height } = viewports[viewport];
+  const group = node('div', `device-group ${colorMode === mode ? 'selected-mode' : ''}`);
+  const caption = button(t(`theme_editor_${colorMode}`), () => {
+    mode = colorMode; renderInspector(); renderPreview();
+  }, 'device-caption');
+  const frame = node('div', `device-frame ${viewport}`);
+  frame.append(renderDevice({
+    colorMode, scene, fields, hook, t, value, assetUrl, width, height,
+    buttonPreview, shelfLayout, miniPlayer, barLayout
+  }));
+  group.append(caption, frame, node('p', 'device-dimensions', `${width} × ${height} ${previewCopy.windowUnit}`));
   return group;
 }
 
-function renderPreview() {
-  sceneNav.querySelectorAll('button').forEach(entry => entry.classList.toggle('active', entry.dataset.scene === scene));
-  canvas.replaceChildren(renderPhone('light'), renderPhone('dark'));
+function layoutPreview() {
+  const { width, height } = viewports[viewport];
+  const available = canvas.clientWidth;
+  const columns = available >= (viewport === 'phone' ? 660 : 1120) ? 2 : 1;
+  const gap = 28;
+  const columnWidth = (available - gap * (columns - 1)) / columns;
+  const maxHeight = Math.max(520, window.innerHeight - 300);
+  const scale = Math.min(1, (columnWidth - 12) / width, maxHeight / height);
+  canvas.querySelectorAll('.device-group').forEach(group => {
+    group.hidden = columns === 1 && !group.classList.contains('selected-mode');
+    group.style.width = `${width * scale}px`;
+    const frame = group.querySelector('.device-frame');
+    frame.style.width = `${width * scale}px`;
+    frame.style.height = `${height * scale}px`;
+    frame.querySelector('.app-preview').style.transform = `scale(${scale})`;
+  });
 }
+
+function renderPreview() {
+  const offsets = new Map([...canvas.querySelectorAll('.app-preview')].map(preview => [
+    preview.dataset.mode, canvas.dataset.scene === scene ? preview.querySelector('.preview-scroll').scrollTop : 0
+  ]));
+  sceneNav.querySelectorAll('button').forEach(entry => entry.classList.toggle('active', entry.dataset.scene === scene));
+  shelfOption.hidden = scene !== 'shelf';
+  barOption.hidden = scene === 'player';
+  miniOption.hidden = scene === 'player';
+  canvas.dataset.scene = scene;
+  canvas.replaceChildren(renderPhone('light'), renderPhone('dark'));
+  canvas.querySelectorAll('.app-preview').forEach(preview => {
+    preview.querySelector('.preview-scroll').scrollTop = offsets.get(preview.dataset.mode) ?? 0;
+  });
+  layoutPreview();
+}
+
+new ResizeObserver(layoutPreview).observe(canvas);
+window.addEventListener('resize', layoutPreview);
 
 importInput.addEventListener('change', async () => {
   const file = importInput.files[0]; if (!file) return;

@@ -1,10 +1,17 @@
-name: Publish JianTing app information
+name: Publish JianTing website and theme editor
 
 on:
   push:
     branches: [main]
     paths:
       - docs/app-gallery/**
+      - tools/theme-editor/**
+      - entry/src/main/resources/rawfile/theme_editor_schema.json
+      - entry/src/main/resources/base/element/theme_editor.json
+      - entry/src/main/resources/base/media/app_icon_legacy.png
+      - entry/src/main/resources/base/media/book_cover_placeholder.png
+      - entry/src/main/resources/base/media/local_book_cover_placeholder.webp
+      - entry/src/main/resources/base/media/theme_mist_*.svg
       - .github/workflows/app-gallery-pages.yml
   workflow_dispatch:
 
@@ -25,10 +32,28 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: tools/theme-editor/package-lock.json
+      - name: Install theme editor dependencies
+        working-directory: tools/theme-editor
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: '1'
+        run: npm ci --no-audit --no-fund
+      - name: Build theme editor
+        working-directory: tools/theme-editor
+        run: npm run build
+      - name: Assemble website
+        run: |
+          mkdir -p "$RUNNER_TEMP/jianting-site/theme-editor"
+          cp -R docs/app-gallery/. "$RUNNER_TEMP/jianting-site/"
+          cp -R tools/theme-editor/dist/. "$RUNNER_TEMP/jianting-site/theme-editor/"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/app-gallery
-      - name: Deploy app information
+          path: ${{ runner.temp }}/jianting-site
+      - name: Deploy website
         id: deployment
         uses: actions/deploy-pages@v4

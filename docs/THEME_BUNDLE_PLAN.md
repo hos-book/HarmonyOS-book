@@ -107,7 +107,9 @@ npm run desktop
 npm run package:win
 ```
 
-网页产物位于 `dist/`，Windows 便携版位于 `release/`。正式部署与发布由用户安排。主题文件可在三端导入并继续编辑。
+网页产物位于 `dist/`，Windows 便携版位于 `release/`。GitHub Pages 工作流构建并发布到 `https://hos-book.github.io/HarmonyOS-book/theme-editor/`。主题文件可在三端导入并继续编辑。
+
+网页与 Windows 预览由 `src/preview.js`、`src/preview.css` 分别绘制五个页面，结构参照当前 App 页面和组件。窗口预设使用实际 vp 尺寸后整体缩放，背景图片沿用 `ThemeBackdropComponent` 的裁剪、缩放及焦点算法；支持书架三种视图和迷你播放器、底栏排列预览，布局选择仅用于查看效果。
 
 ## 实施依据
 
