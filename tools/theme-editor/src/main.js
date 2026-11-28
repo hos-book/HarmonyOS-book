@@ -367,7 +367,7 @@ function renderPreview() {
   layoutPreview();
 }
 
-new ResizeObserver(layoutPreview).observe(canvas);
+new ResizeObserver(() => requestAnimationFrame(layoutPreview)).observe(canvas);
 window.addEventListener('resize', layoutPreview);
 
 importInput.addEventListener('change', async () => {
