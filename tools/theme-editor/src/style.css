@@ -4,7 +4,7 @@ body { margin: 0; }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; border: 0; background: transparent; color: inherit; }
 button:disabled { opacity: .5; cursor: wait; }
-button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, .editable:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, .editable:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
 button { transition: background .16s, color .16s, transform .16s; }
 button:active { transform: translateY(1px); }
 .app-header { height: 94px; padding: 0 34px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); background: #fcfaf7; }
@@ -13,6 +13,8 @@ button:active { transform: translateY(1px); }
 h1 { font-size: 18px; letter-spacing: 1px; margin: 0 0 6px; font-weight: 650; }
 .identity p { margin: 0; color: #91867b; font-size: 12px; }
 .header-actions { display: flex; gap: 12px; }
+.header-actions > .primary, .header-actions > .secondary { white-space: nowrap; }
+.guide-link { display: inline-flex; align-items: center; justify-content: center; color: inherit; text-decoration: none; }
 .primary, .secondary { padding: 11px 22px; border-radius: 10px; font-size: 13px; font-weight: 600; }
 .primary { color: #fff; background: var(--brand); box-shadow: 0 3px 10px #8b4b541c; }
 .secondary { background: #fff; border: 1px solid var(--line); }
@@ -92,4 +94,5 @@ input[type=checkbox] { width: 18px; height: 18px; accent-color: var(--brand); }
 @media (min-width: 1700px) { .workspace { grid-template-columns: 180px minmax(0, 1fr) 350px; } }
 @media (max-width: 1100px) { .workspace { grid-template-columns: 132px minmax(0, 1fr) 280px; } .scene-nav button { padding: 7px 9px; } .studio-header { justify-content: center; } .sidebar { padding-inline: 8px; } .nav-item { gap: 8px; padding-inline: 9px; } }
 @media (max-width: 820px) { .app-header { height: 80px; padding: 0 16px; } h1 { font-size: 14px; } .identity p { display: none; } .brand-mark { width: 36px; height: 36px; } .header-actions { gap: 6px; } .primary, .secondary { padding: 9px 11px; font-size: 11px; } .workspace { display: flex; flex-direction: column; height: auto; min-height: 0; } .sidebar { padding: 12px; border: 0; } .sidebar > .eyebrow, .sidebar-footer { display: none; } .section-nav { flex-direction: row; overflow: auto; gap: 4px; } .nav-item { white-space: nowrap; padding: 9px 12px; } .nav-number { display: none; } .studio { padding: 18px 14px; overflow: visible; } .preview-toolbar { margin-top: 16px; gap: 10px; } .preview-canvas { padding-top: 20px; } .inspector { border-left: 0; } .inspector-body { overflow: visible; } }
+@media (max-width: 560px) { .app-header { height: auto; min-height: 94px; padding: 14px 16px; flex-wrap: wrap; gap: 12px; } .header-actions { width: 100%; } .header-actions > .primary, .header-actions > .secondary { flex: 1; text-align: center; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; scroll-behavior: auto !important; } }

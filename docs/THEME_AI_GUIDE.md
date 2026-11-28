@@ -8,6 +8,8 @@
 
 制作时按用途选择素材格式：复杂页面背景、播放器背景、插画和书封优先使用 PNG／WebP；简洁 Tab 与功能图标可使用 SVG。像素画风同样可以通过位图保留，素材性能同时取决于像素尺寸、图形复杂度和 App 渲染方式。
 
+四个 Tab 对应的首页、书架、记录、我的分别拥有独立背景。浅色与深色各制作四张，共八张页面背景成品；四页通过场景、主体和构图区分，整套主题保持统一画风与配色体系。
+
 **直接复制给 AI 的提示词**
 
 将下面的提示词连同本文件一起发送，方括号内填写自己的要求。
@@ -20,7 +22,12 @@
 风格关键词：[例如：森林、晨雾、柔和、手绘]
 浅色主色：[例如：苔绿搭配暖米白]
 深色主色：[例如：松墨绿搭配柔金色]
-背景素材：[例如：PNG／WebP 低对比植物插画，中部为文字和卡片留出空间]
+背景整体风格：[例如：PNG／WebP 低对比植物插画，四页统一手绘质感，中部为文字和卡片留出空间]
+首页背景：[例如：林间晨光，枝叶围合，远处为开阔林地]
+书架背景：[例如：木屋书房，窗边书桌与书柜，突出收藏氛围]
+记录背景：[例如：山间步道，石阶与沿途植物，表达阅听足迹]
+我的背景：[例如：静谧庭院，树影与休憩长椅，表达个人空间]
+四页深色背景：[例如：沿用各页独立场景，分别绘制月光森林、暖灯书房、星夜山路、夜色庭院]
 Tab 图标：[例如：首页、书架、记录、我的，透明底简洁双态图标]
 功能图标：[例如：与 Tab 使用统一线条和配色]
 顶部按钮：[例如：书架与记录页分别绘制透明 PNG，图标和底板合成整按钮，切换状态单独绘制]
@@ -29,21 +36,38 @@ Tab 图标：[例如：首页、书架、记录、我的，透明底简洁双态
 材质强度与底栏样式：沿用 App 当前设置。
 
 请完成以下交付：
-1. 设计浅色和深色两套配置，分别写入 light、dark。
+1. 设计浅色和深色两套配置，分别写入 light、dark。每种模式都为首页、书架、记录、我的创作四张独立背景，共交付八张背景成品。四页各自具有明确的主体、场景与空间布局，风格与配色协调；同一页的浅深版本保持场景连续性。
 2. 使用 baseThemeId: "default"，依据完整字段表填写每组 135 个字段，每个 key 出现一次；图片字段按实际使用的素材填写，采用内置效果时填空字符串。
 3. 所有主题字段的 value 使用字符串；顶层字段按下方协议填写。材质强度与底栏样式由 App 当前设置决定。
 4. 复杂背景、播放器插画和默认书封优先交付 PNG／WebP。像素画、密集纹理及由大量图形组成的插画，在制作端合成为位图后入包；已有 SVG 创作源稿在导出阶段栅格化。
-5. 四个 Tab 分别提供常态和选中图片，保持统一画布、视觉大小和对齐方式；图标保留原色。简洁图标可使用少量路径或基础图形组成的静态 SVG，细节丰富的图标使用透明 PNG／WebP。
+5. 四个 Tab 分别提供常态和选中图片，保持统一画布、视觉大小和对齐方式；图标保留原色。简洁图标可使用少量路径或基础图形组成的静态 SVG，细节丰富的图标使用透明 PNG／WebP。每张 SVG 的根节点必须同时声明明确的 width、height 和 viewBox，例如 width="48" height="48" viewBox="0 0 48 48"；修复已有 SVG 时，按 viewBox 的第三、第四项分别补齐缺少的宽、高属性。
 6. 按目标显示区域、裁剪和缩放需求选择素材像素尺寸。纯色背景直接使用主题字段；固定装饰、纹理和插画阴影合入素材。
-7. 图片路径统一使用 assets/文件名，素材直接放在 assets 目录中，浅深模式可共享素材或分别制作。theme.json 引用实际导出的图片格式。
+7. 图片路径统一使用 assets/文件名，素材直接放在 assets 目录中。light、dark 两组都将 background.home.mode、background.shelf.mode、background.record.mode、background.profile.mode 设为 "image"，各自的 .image 填写对应页面与模式的独立素材路径，并按画面配置 .color、.veil、.blur、.positionX、.positionY、.scale。采用 background-home-light.png 等按页面与模式命名的文件；theme.json 引用实际导出的图片格式。图标、按钮等素材可按实际外观在浅深模式间共享。
 8. 按本文协议生成 manifest.json、theme.json 和引用的所有素材，打包为 主题名称.jttheme。
 9. 书架和记录页顶部按钮使用 button.shelf.*、button.record.* 独立字段。每张透明 PNG／WebP 包含完整图标和底板；浅深模式及搜索展开、已选分组、视图切换、编辑／完成／锁定等状态按字段表分别制作。相同外观的状态可引用同一素材。
-10. 提供可下载的 .jttheme 文件、设计说明和手机导入步骤。
+10. 提供可下载的 .jttheme 文件、设计说明和手机导入步骤。设计说明逐页列出场景、构图、浅深素材路径与背景参数，说明四个 Tab 各自的视觉特点。
 
 当前环境具备文件生成能力时，请直接生成并提供主题文件。
 当前环境仅支持文本时，请给出完整 manifest.json、完整 theme.json、位图素材生成或栅格化脚本、简洁 SVG 图标源码和打包脚本，并列出依赖与执行命令。脚本应生成主题引用的全部 PNG／WebP 素材，再打包为 .jttheme；将尚待用户执行的步骤写清楚。
 创作范围覆盖主页面、Tab、顶部按钮、功能图标、默认书封、材质与播放器背景；阅读器沿用自身设置。
 ```
+
+**四个 Tab 的独立背景设计**
+
+四个 Tab 指首页、书架、记录、我的的页面背景；底部 Tab 图标继续分别提供常态与选中态。四页背景采用独立画面，页面差异体现在主体、场景和空间布局，文件命名、裁剪位置与调色承担辅助作用。
+
+以下为“林间微光”的设计示例，实际场景可根据主题风格调整：
+
+| 页面 | 场景与构图 | 浅色素材 | 深色素材 |
+| --- | --- | --- | --- |
+| 首页 `home` | 林间晨光／月光森林；枝叶围合，远景开阔，为推荐内容留出空间 | `assets/background-home-light.png` | `assets/background-home-dark.png` |
+| 书架 `shelf` | 木屋书房／暖灯书房；窗边书桌与书柜布置在边缘，书封区域清晰 | `assets/background-shelf-light.png` | `assets/background-shelf-dark.png` |
+| 记录 `record` | 山间步道／星夜山路；石阶引导视线，统计与足迹区域使用平缓纹理 | `assets/background-record-light.png` | `assets/background-record-dark.png` |
+| 我的 `profile` | 静谧庭院／夜色庭院；树影与长椅环绕，账号与功能区域保持简洁 | `assets/background-profile-light.png` | `assets/background-profile-dark.png` |
+
+在 `light` 和 `dark` 中分别填写四页完整的 `background.页面.*` 参数，四页的 `mode` 均使用 `"image"`。每个 `.image` 引用该页、该模式的专属成品；`.color`、`.veil`、`.blur`、`.positionX`、`.positionY`、`.scale` 依据对应画面设置。八张成品随主题包一并交付。
+
+`background.common.*` 保留通用背景配置；四页独立效果由各自的 `background.home.*`、`background.shelf.*`、`background.record.*`、`background.profile.*` 决定。播放器继续使用 `background.player.*` 单独配置。
 
 **交付物与包结构**
 
@@ -54,8 +78,14 @@ Tab 图标：[例如：首页、书架、记录、我的，透明底简洁双态
 ├── manifest.json
 ├── theme.json
 └── assets/
-    ├── background-light.png
-    ├── background-dark.png
+    ├── background-home-light.png
+    ├── background-home-dark.png
+    ├── background-shelf-light.png
+    ├── background-shelf-dark.png
+    ├── background-record-light.png
+    ├── background-record-dark.png
+    ├── background-profile-light.png
+    ├── background-profile-dark.png
     ├── player-light.png
     ├── player-dark.png
     ├── tab-home-normal.svg
@@ -126,11 +156,42 @@ Tab 图标：[例如：首页、书架、记录、我的，透明底简洁双态
   "light": [
     { "key": "color.brand", "value": "#50765B" },
     { "key": "color.textPrimary", "value": "#27372D" },
-    { "key": "background.common.mode", "value": "image" },
-    { "key": "background.common.image", "value": "assets/background-light.png" },
+    { "key": "background.common.mode", "value": "solid" },
+    { "key": "background.common.image", "value": "" },
     { "key": "background.common.color", "value": "#F3F1E6" },
-    { "key": "background.common.veil", "value": "20" },
-    { "key": "background.home.mode", "value": "common" },
+    { "key": "background.common.veil", "value": "0" },
+    { "key": "background.home.mode", "value": "image" },
+    { "key": "background.home.image", "value": "assets/background-home-light.png" },
+    { "key": "background.home.color", "value": "#F3F1E6" },
+    { "key": "background.home.veil", "value": "20" },
+    { "key": "background.home.blur", "value": "0" },
+    { "key": "background.home.positionX", "value": "50" },
+    { "key": "background.home.positionY", "value": "40" },
+    { "key": "background.home.scale", "value": "100" },
+    { "key": "background.shelf.mode", "value": "image" },
+    { "key": "background.shelf.image", "value": "assets/background-shelf-light.png" },
+    { "key": "background.shelf.color", "value": "#F0E8DA" },
+    { "key": "background.shelf.veil", "value": "25" },
+    { "key": "background.shelf.blur", "value": "0" },
+    { "key": "background.shelf.positionX", "value": "50" },
+    { "key": "background.shelf.positionY", "value": "50" },
+    { "key": "background.shelf.scale", "value": "100" },
+    { "key": "background.record.mode", "value": "image" },
+    { "key": "background.record.image", "value": "assets/background-record-light.png" },
+    { "key": "background.record.color", "value": "#EAF0E4" },
+    { "key": "background.record.veil", "value": "25" },
+    { "key": "background.record.blur", "value": "0" },
+    { "key": "background.record.positionX", "value": "50" },
+    { "key": "background.record.positionY", "value": "55" },
+    { "key": "background.record.scale", "value": "100" },
+    { "key": "background.profile.mode", "value": "image" },
+    { "key": "background.profile.image", "value": "assets/background-profile-light.png" },
+    { "key": "background.profile.color", "value": "#F4EEDC" },
+    { "key": "background.profile.veil", "value": "20" },
+    { "key": "background.profile.blur", "value": "0" },
+    { "key": "background.profile.positionX", "value": "50" },
+    { "key": "background.profile.positionY", "value": "45" },
+    { "key": "background.profile.scale", "value": "100" },
     { "key": "background.player.mode", "value": "cover" },
     { "key": "background.player.color", "value": "#253E30" },
     { "key": "background.player.blur", "value": "40" },
@@ -149,11 +210,42 @@ Tab 图标：[例如：首页、书架、记录、我的，透明底简洁双态
   "dark": [
     { "key": "color.brand", "value": "#B6C997" },
     { "key": "color.textPrimary", "value": "#E9EDDF" },
-    { "key": "background.common.mode", "value": "image" },
-    { "key": "background.common.image", "value": "assets/background-dark.png" },
+    { "key": "background.common.mode", "value": "solid" },
+    { "key": "background.common.image", "value": "" },
     { "key": "background.common.color", "value": "#17231B" },
-    { "key": "background.common.veil", "value": "25" },
-    { "key": "background.home.mode", "value": "common" },
+    { "key": "background.common.veil", "value": "0" },
+    { "key": "background.home.mode", "value": "image" },
+    { "key": "background.home.image", "value": "assets/background-home-dark.png" },
+    { "key": "background.home.color", "value": "#17231B" },
+    { "key": "background.home.veil", "value": "25" },
+    { "key": "background.home.blur", "value": "0" },
+    { "key": "background.home.positionX", "value": "50" },
+    { "key": "background.home.positionY", "value": "40" },
+    { "key": "background.home.scale", "value": "100" },
+    { "key": "background.shelf.mode", "value": "image" },
+    { "key": "background.shelf.image", "value": "assets/background-shelf-dark.png" },
+    { "key": "background.shelf.color", "value": "#282219" },
+    { "key": "background.shelf.veil", "value": "30" },
+    { "key": "background.shelf.blur", "value": "0" },
+    { "key": "background.shelf.positionX", "value": "50" },
+    { "key": "background.shelf.positionY", "value": "50" },
+    { "key": "background.shelf.scale", "value": "100" },
+    { "key": "background.record.mode", "value": "image" },
+    { "key": "background.record.image", "value": "assets/background-record-dark.png" },
+    { "key": "background.record.color", "value": "#192623" },
+    { "key": "background.record.veil", "value": "30" },
+    { "key": "background.record.blur", "value": "0" },
+    { "key": "background.record.positionX", "value": "50" },
+    { "key": "background.record.positionY", "value": "55" },
+    { "key": "background.record.scale", "value": "100" },
+    { "key": "background.profile.mode", "value": "image" },
+    { "key": "background.profile.image", "value": "assets/background-profile-dark.png" },
+    { "key": "background.profile.color", "value": "#25251C" },
+    { "key": "background.profile.veil", "value": "25" },
+    { "key": "background.profile.blur", "value": "0" },
+    { "key": "background.profile.positionX", "value": "50" },
+    { "key": "background.profile.positionY", "value": "45" },
+    { "key": "background.profile.scale", "value": "100" },
     { "key": "background.player.mode", "value": "cover" },
     { "key": "background.player.color", "value": "#18261D" },
     { "key": "background.player.blur", "value": "40" },
@@ -178,9 +270,10 @@ Tab 图标：[例如：首页、书架、记录、我的，透明底简洁双态
 - 图片字段填写包内相对路径，例如 `assets/tab-home-selected.svg`。路径使用正斜杠，大小写与实际文件名保持一致。
 - 素材直接放在 `assets/` 这一层目录，文件名建议使用英文字母、数字与连字符。
 - 协议支持 PNG、JPEG、WebP 和 SVG。制作时按下表选择格式：复杂画面使用位图，简洁图标可使用 SVG。
-- 图片格式转换通过实际渲染或编码完成，再同步修改字段引用和文件名。例如将 SVG 插画栅格化为 PNG 后，字段填写 `assets/background-light.png`。
+- 包内所有 SVG 的根节点必须显式声明 `width`、`height` 和 `viewBox`。该要求覆盖浅深模式、常态与选中态的 Tab 图标及功能图标；宽高使用明确的正数，已有素材按下方尺寸修复示例补齐。
+- 图片格式转换通过实际渲染或编码完成，再同步修改字段引用和文件名。例如将首页浅色 SVG 插画栅格化为 PNG 后，字段填写 `assets/background-home-light.png`。
 - 图片字段为空字符串时使用基础套装或对应控件原有表现。选择图片背景时，同时填写对应的 `.image` 素材路径。
-- 浅深模式可引用同一个文件，也可使用两套素材。分享包内放入两组字段实际引用的全部文件。
+- 四个主页面背景按页面与浅深模式分别提供，共八张独立成品。图标、顶部按钮等素材可根据实际外观在浅深模式间共享，分享包内放入两组字段实际引用的全部文件。
 - 素材尺寸属于设计选择：Tab 和功能图标建议方形透明画布；页面背景重点考虑窗口裁剪；在线及本地默认书封建议竖版，播放器默认书封建议方形。主体位置可通过背景参数调整。
 
 **素材格式与绘制成本**
@@ -196,13 +289,35 @@ Tab 图标：[例如：首页、书架、记录、我的，透明底简洁双态
 
 主题包体积反映压缩后的存储大小。SVG 还包含待解析和绘制的图形；大量矩形、路径或装饰即使压缩得很小，仍会增加渲染工作。复杂插画优先在制作端完成栅格化，让 App 加载最终位图。SVG 创作源稿可单独保留，主题包放入字段实际引用的成品素材。
 
-简洁 SVG 使用明确的 `viewBox`、颜色和自包含的静态路径。密集像素块、重复纹理、复杂滤镜及多层固定装饰统一在导出阶段合成为 PNG／WebP。像素画可先在目标像素网格绘制，再以整数倍、最近邻方式放大并导出 PNG 或无损 WebP，以保留清晰方块边缘。
+简洁 SVG 使用明确的 `width`、`height`、`viewBox`、颜色和自包含的静态路径。密集像素块、重复纹理、复杂滤镜及多层固定装饰统一在导出阶段合成为 PNG／WebP。像素画可先在目标像素网格绘制，再以整数倍、最近邻方式放大并导出 PNG 或无损 WebP，以保留清晰方块边缘。
 
 位图像素尺寸依据目标显示区域、裁剪比例和缩放需求确定；更大的像素面积也会增加解码后的内存占用。固定的插画阴影与柔化效果可合入成品图片，主题中的实时 `blur` 按需要设置。主题包协议继续使用原有字段和参数范围，以上规则用于指导素材制作。
 
 具备图片生成能力的 AI 直接输出位图素材。仅输出文本的 AI 应提供能生成这些位图的完整脚本；以 SVG 作为中间源稿时，脚本包含栅格化步骤、依赖和运行命令，再将生成的 PNG／WebP 与 JSON 一起打包。交付说明应区分已生成的文件和等待用户运行的脚本。
 
 素材选择用于降低绘制开销；实际滑动流畅度还取决于 App 的布局、刷新与图片渲染实现，效果以设备呈现为准。
+
+**SVG 尺寸与已有主题修复**
+
+HarmonyOS ImageKit 的 SVG 解码要求根节点显式设置 `width` 和 `height`。`viewBox` 描述绘图坐标范围，`width`、`height` 指定图片尺寸。主题导入与制作器的图片转换链路依赖这些属性；缺少宽高可能引发解码失败，表现为导入失败或制作器加载报错。
+
+新制作的 SVG 同时写齐三个属性。例如，48×48 图标的完整声明如下：
+
+```xml
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+  <path d="M8 22L24 8L40 22V40H8Z" fill="#292724"/>
+</svg>
+```
+
+修复已有主题时，读取每张 SVG 根节点的 `viewBox="minX minY W H"`，将第三项 `W` 填入缺少的 `width`，将第四项 `H` 填入缺少的 `height`。保留已有尺寸、原始 `viewBox`、颜色与绘图路径。例如：
+
+| 原始 viewBox | 补齐的尺寸属性 |
+| --- | --- |
+| `0 0 24 24` | `width="24" height="24"` |
+| `0 0 32 32` | `width="32" height="32"` |
+| `0 0 48 48` | `width="48" height="48"` |
+
+将补齐后的 SVG 放回包内原素材路径，沿用 `theme.json` 的引用，再将根层的 `manifest.json`、`theme.json` 和 `assets/` 重新打包为 `.jttheme`。浏览器预览与 App 解码各自使用对应的图片处理链路，交付素材统一遵循上述显式尺寸要求。
 
 **字段的实际作用**
 
@@ -215,6 +330,8 @@ Tab 图标：[例如：首页、书架、记录、我的，透明底简洁双态
 | 播放器 | `cover` / `solid` / `image` | 跟随当前书封、纯色或自选图片 |
 
 页面选择 `common` 时，整组背景参数取自 `background.common.*`。页面的独立参数在选择 `solid` 或 `image` 时使用。`theme` 使用基础套装背景，并由其已接入的 `color.*` 字段参与配色。
+
+后文完整字段表保留编辑器的实际默认值，四个主页面的默认模式为 `"common"`。按本规范生成 AI 主题时，将浅深两组中的四个页面模式填写为 `"image"`，引用各页独立素材，并填写对应参数，以实现四页各异的背景。
 
 | 参数 | 数值范围 | 含义 |
 | --- | --- | --- |
